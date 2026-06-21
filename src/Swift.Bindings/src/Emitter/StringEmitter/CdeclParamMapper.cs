@@ -35,6 +35,27 @@ public static class CdeclParamMapper
         ArgumentDecl arg, string label, MethodEnvironment env, bool omitLabels = false, bool useUtf8Strings = false,
         bool escapeReservedCollision = true, IReadOnlySet<string>? reservedSiblings = null)
     {
+        var d = Describe(arg, label, env, omitLabels, useUtf8Strings, escapeReservedCollision, reservedSiblings);
+        return (d.CdeclParam, d.Reconstruction, d.CallArg);
+    }
+
+    /// <summary>
+    /// The single per-parameter @_cdecl lowering decision. Classifies <paramref name="arg"/> into
+    /// exactly one <see cref="CdeclParamCategory"/> and returns the Swift-side wrapper signature
+    /// text, body reconstruction, and call-site expression for that category (plus the cross-file
+    /// multi-word name contract for the few categories that split into several C ABI words). The
+    /// 3-tuple <see cref="Map"/> shim projects the Swift-text fields for the existing callers.
+    /// Parameter semantics are identical to <see cref="Map"/>.
+    /// </summary>
+    internal static CdeclLoweringDescriptor Describe(
+        ArgumentDecl arg, string label, MethodEnvironment env, bool omitLabels = false, bool useUtf8Strings = false,
+        bool escapeReservedCollision = true, IReadOnlySet<string>? reservedSiblings = null, bool isInout = false)
+    {
+        // Common arms carry no multi-word P/Invoke contract and no inout write-back.
+        static CdeclLoweringDescriptor Simple(CdeclParamCategory category, string cdeclParam, string? reconstruction, string callArg)
+            => new(category, cdeclParam, reconstruction, callArg,
+                   CdeclLoweringDescriptor.NoPInvokeParams, CdeclLoweringDescriptor.NoSharedLocalNames, NeedsUnsafe: false, WriteBack: null);
+
         var swiftTypeSpec = arg.SwiftTypeSpec;
 
         // Swift keywords (in, for, repeat, etc.) can't be used as bare identifiers
@@ -60,6 +81,46 @@ public static class CdeclParamMapper
         // When calling _dbw_init_* (omitLabels=true), all params use _ (no external label)
         var argLabel = omitLabels ? "" : BuildSwiftCallArgLabel(arg);
 
+        // inout parameters are a distinct lowering axis from the by-value chain below: every inout
+        // param crosses @_cdecl as UnsafeMutableRawPointer, the wrapper binds a mutable `var`, passes
+        // it `&`-by-reference, and stores the mutated value back through the pointer after the call.
+        // Short-circuit here with Category=Inout and a populated WriteBack so the by-value classifier
+        // never runs for an inout. (Reconstruction/WriteBack are always non-null for this category;
+        // the MapInout shim projects them as non-nullable.) The shared label/argLabel handling above
+        // is reused so the inout and by-value paths can't drift on identifier sanitization.
+        if (isInout)
+        {
+            // Bool: stored as Int8 in the @_cdecl ABI, needs explicit conversion both ways.
+            var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
+            if (MarshallingHelpers.IsBoolType(renderedType) || renderedType == "Bool")
+            {
+                return new CdeclLoweringDescriptor(
+                    CdeclParamCategory.Inout,
+                    $"_ {label}: UnsafeMutableRawPointer",
+                    $"var {label}Val: Bool = {label}.assumingMemoryBound(to: Int8.self).pointee != 0",
+                    $"{argLabel}&{label}Val",
+                    CdeclLoweringDescriptor.NoPInvokeParams,
+                    CdeclLoweringDescriptor.NoSharedLocalNames,
+                    NeedsUnsafe: false,
+                    WriteBack: $"{label}.assumingMemoryBound(to: Int8.self).pointee = {label}Val ? 1 : 0");
+            }
+
+            // All other types: UnsafeMutableRawPointer with typed pointer access. Uses
+            // assumingMemoryBound(to:).pointee for proper value semantics (not load(as:) which
+            // requires BitwiseCopyable). The var binding is mutable so it can be passed as &ref to
+            // the original Swift method, then written back through the pointer.
+            var inoutSwiftType = RenderModuleQualifiedSwiftTypeWithExistentialAny(swiftTypeSpec, env.TypeDatabase);
+            return new CdeclLoweringDescriptor(
+                CdeclParamCategory.Inout,
+                $"_ {label}: UnsafeMutableRawPointer",
+                $"var {label}Val = {label}.assumingMemoryBound(to: {inoutSwiftType}.self).pointee",
+                $"{argLabel}&{label}Val",
+                CdeclLoweringDescriptor.NoPInvokeParams,
+                CdeclLoweringDescriptor.NoSharedLocalNames,
+                NeedsUnsafe: false,
+                WriteBack: $"{label}.assumingMemoryBound(to: {inoutSwiftType}.self).pointee = {label}Val");
+        }
+
         // Swift.UnsafeRawBufferPointer / UnsafeMutableRawBufferPointer: 16-byte stdlib structs
         // (base + count) that @_cdecl can't represent. Split into (ptr, len) at the C ABI
         // boundary and reconstruct via (Mutable)RawBufferPointer(start:count:) in the wrapper
@@ -75,7 +136,8 @@ public static class CdeclParamMapper
             bool isMutable = rawBufSpec.Name == "Swift.UnsafeMutableRawBufferPointer";
             string ptrType = isMutable ? "UnsafeMutableRawPointer?" : "UnsafeRawPointer?";
             string bufferType = isMutable ? "UnsafeMutableRawBufferPointer" : "UnsafeRawBufferPointer";
-            return ($"_ {label}Ptr: {ptrType}, _ {label}Len: Int",
+            return Simple(CdeclParamCategory.RawBufferPointer,
+                    $"_ {label}Ptr: {ptrType}, _ {label}Len: Int",
                     $"let {label}Val = {bufferType}(start: {label}Ptr, count: {label}Len)",
                     $"{argLabel}{label}Val");
         }
@@ -88,12 +150,13 @@ public static class CdeclParamMapper
             // Bool: Swift @_cdecl receives Int8, needs != 0 conversion
             if (MarshallingHelpers.IsBoolType(swiftType) || swiftType == "Bool")
             {
-                return ($"_ {label}: Int8",
+                return Simple(CdeclParamCategory.Bool,
+                        $"_ {label}: Int8",
                         $"let {label}Val = {label} != 0",
                         $"{argLabel}{label}Val");
             }
 
-            return ($"_ {label}: {swiftType}", null, $"{argLabel}{label}");
+            return Simple(CdeclParamCategory.Primitive, $"_ {label}: {swiftType}", null, $"{argLabel}{label}");
         }
 
         // AnyObject: IS a class reference by definition — use Unmanaged<AnyObject> marshalling.
@@ -101,7 +164,8 @@ public static class CdeclParamMapper
         // `any AnyObject.self` (not valid Swift metatype syntax).
         if (IsAnyObjectType(swiftTypeSpec))
         {
-            return ($"_ {label}: UnsafeMutableRawPointer",
+            return Simple(CdeclParamCategory.AnyObject,
+                    $"_ {label}: UnsafeMutableRawPointer",
                     $"let {label}Val: AnyObject = Unmanaged<AnyObject>.fromOpaque({label}).takeUnretainedValue()",
                     $"{argLabel}{label}Val");
         }
@@ -119,7 +183,8 @@ public static class CdeclParamMapper
             && optAnySpec.GenericParameters.Count == 1
             && optAnySpec.GenericParameters[0] is ProtocolListTypeSpec { Protocols.Count: 0 })
         {
-            return ($"_ {label}: UnsafeRawPointer",
+            return Simple(CdeclParamCategory.OptionalAny,
+                    $"_ {label}: UnsafeRawPointer",
                     $"let {label}Val: Any? = {label}.load(as: Optional<Any>.self)",
                     $"{argLabel}{label}Val");
         }
@@ -131,7 +196,8 @@ public static class CdeclParamMapper
             var swiftType = RenderModuleQualifiedSwiftTypeWithExistentialAny(swiftTypeSpec, env.TypeDatabase);
             // Existential types need parenthesization in metatype position: (any Protocol).self
             var loadType = swiftType.StartsWith("any ") ? $"({swiftType})" : swiftType;
-            return ($"_ {label}: UnsafeRawPointer",
+            return Simple(CdeclParamCategory.ProtocolExistential,
+                    $"_ {label}: UnsafeRawPointer",
                     $"let {label}Val: {loadType} = {label}.load(as: {loadType}.self)",
                     $"{argLabel}{label}Val");
         }
@@ -168,7 +234,8 @@ public static class CdeclParamMapper
             else
                 reconstruction = $"let {label}Val: {swiftInnerType}? = {label}.map {{ Unmanaged<{swiftInnerType}>.fromOpaque($0).takeUnretainedValue() }}";
 
-            return ($"_ {label}: UnsafeMutableRawPointer?",
+            return Simple(CdeclParamCategory.OptionalReference,
+                    $"_ {label}: UnsafeMutableRawPointer?",
                     reconstruction,
                     $"{argLabel}{label}Val");
         }
@@ -187,11 +254,12 @@ public static class CdeclParamMapper
                 // to avoid type mismatch (Optional<Int> vs UnsafeRawPointer).
                 if (omitLabels)
                 {
-                    return ($"_ {label}: UnsafeRawPointer", null, $"{label}");
+                    return Simple(CdeclParamCategory.OptionalBlittablePrimitive, $"_ {label}: UnsafeRawPointer", null, $"{label}");
                 }
                 var (localType, rhs) = decode.Value;
                 var reconstruction = $"let {label}Opt: {localType} = {rhs}";
-                return ($"_ {label}: UnsafeRawPointer",
+                return Simple(CdeclParamCategory.OptionalBlittablePrimitive,
+                        $"_ {label}: UnsafeRawPointer",
                         reconstruction,
                         $"{argLabel}{label}Opt");
             }
@@ -226,12 +294,13 @@ public static class CdeclParamMapper
                     // Pass the pointer through to avoid type mismatch.
                     if (omitLabels)
                     {
-                        return ($"_ {label}: UnsafeRawPointer", null, $"{label}");
+                        return Simple(CdeclParamCategory.OptionalOpaque, $"_ {label}: UnsafeRawPointer", null, $"{label}");
                     }
 
                     var innerSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerSpec);
                     var reconstruction = $"let {label}Val: {innerSwiftType}? = {label}.assumingMemoryBound(to: UnsafeMutableRawPointer?.self).pointee.map {{ $0.assumingMemoryBound(to: {innerSwiftType}.self).pointee }}";
-                    return ($"_ {label}: UnsafeRawPointer",
+                    return Simple(CdeclParamCategory.OptionalOpaque,
+                            $"_ {label}: UnsafeRawPointer",
                             reconstruction,
                             $"{argLabel}{label}Val");
                 }
@@ -244,7 +313,8 @@ public static class CdeclParamMapper
         if (IsObjCBridgeableContainer(swiftTypeSpec, env.TypeDatabase))
         {
             var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
-            return ($"_ {label}: UnsafeMutableRawPointer",
+            return Simple(CdeclParamCategory.ObjCBridgeableContainer,
+                    $"_ {label}: UnsafeMutableRawPointer",
                     $"let {label}Val: {swiftType} = Unmanaged<AnyObject>.fromOpaque({label}).takeUnretainedValue() as! {swiftType}",
                     $"{argLabel}{label}Val");
         }
@@ -254,7 +324,8 @@ public static class CdeclParamMapper
         {
             var innerSpec = ((NamedTypeSpec)swiftTypeSpec).GenericParameters[0];
             var swiftInnerType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerSpec);
-            return ($"_ {label}: UnsafeMutableRawPointer?",
+            return Simple(CdeclParamCategory.OptionalObjCBridgeableContainer,
+                    $"_ {label}: UnsafeMutableRawPointer?",
                     $"let {label}Val: {swiftInnerType}? = {label}.map {{ Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! {swiftInnerType} }}",
                     $"{argLabel}{label}Val");
         }
@@ -268,7 +339,8 @@ public static class CdeclParamMapper
             // instead of loading the Optional value (which would cause a type mismatch).
             if (omitLabels && OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler))
             {
-                return ($"_ {label}: UnsafeRawPointer",
+                return Simple(CdeclParamCategory.GenericContainer,
+                        $"_ {label}: UnsafeRawPointer",
                         null,
                         $"{label}");
             }
@@ -278,7 +350,8 @@ public static class CdeclParamMapper
             // may not satisfy BitwiseCopyable constraints. assumingMemoryBound(to:).pointee
             // uses typed pointer access with proper value semantics.
             var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
-            return ($"_ {label}: UnsafeRawPointer",
+            return Simple(CdeclParamCategory.GenericContainer,
+                    $"_ {label}: UnsafeRawPointer",
                     $"let {label}Val = {label}.assumingMemoryBound(to: {swiftType}.self).pointee",
                     $"{argLabel}{label}Val");
         }
@@ -287,7 +360,8 @@ public static class CdeclParamMapper
         // with the raw double that C# passes. Accept Double and reconstruct Date inside wrapper.
         if (swiftTypeSpec is NamedTypeSpec dateNamed && dateNamed.Name == "Foundation.Date")
         {
-            return ($"_ {label}: Double",
+            return Simple(CdeclParamCategory.Date,
+                    $"_ {label}: Double",
                     $"let {label}Val = Foundation.Date(timeIntervalSinceReferenceDate: {label})",
                     $"{argLabel}{label}Val");
         }
@@ -300,7 +374,8 @@ public static class CdeclParamMapper
         // Same pattern as the String ↔ NSString* workaround.
         if (swiftTypeSpec is NamedTypeSpec dataNamed && dataNamed.Name == "Foundation.Data")
         {
-            return ($"_ _dW0_{label}: Int, _ _dW1_{label}: Int",
+            return Simple(CdeclParamCategory.Data,
+                    $"_ _dW0_{label}: Int, _ _dW1_{label}: Int",
                     $"let {label}Val = unsafeBitCast((_dW0_{label}, _dW1_{label}), to: Foundation.Data.self)",
                     $"{argLabel}{label}Val");
         }
@@ -315,7 +390,8 @@ public static class CdeclParamMapper
                 // (IntPtr ptr, nint len). NativeAOT-safe — no struct marshalling needed.
                 // nint matches Swift's Int (64-bit on ARM64) to avoid truncation.
                 // Used by subscript and enum case wrappers where C# already sends UTF-8.
-                return ($"_ {label}Utf8Ptr: UnsafePointer<UInt8>, _ {label}Utf8Len: Int",
+                return Simple(CdeclParamCategory.String,
+                        $"_ {label}Utf8Ptr: UnsafePointer<UInt8>, _ {label}Utf8Len: Int",
                         $"let {label}Val = String(bytes: UnsafeBufferPointer(start: {label}Utf8Ptr, count: {label}Utf8Len), encoding: .utf8)!",
                         $"{argLabel}{label}Val");
             }
@@ -324,7 +400,8 @@ public static class CdeclParamMapper
                 // Two Int words matching the 16-byte buffer layout: C# passes SwiftString.Buffer
                 // (16-byte struct) in two consecutive GP registers on ARM64.
                 // Used by constructor/method wrappers where C# marshals via SwiftString.
-                return ($"_ _sW0_{label}: Int, _ _sW1_{label}: Int",
+                return Simple(CdeclParamCategory.String,
+                        $"_ _sW0_{label}: Int, _ _sW1_{label}: Int",
                         $"let {label}Val = unsafeBitCast((_sW0_{label}, _sW1_{label}), to: String.self)",
                         $"{argLabel}{label}Val");
             }
@@ -347,7 +424,8 @@ public static class CdeclParamMapper
                 // pointer, so the @_cdecl param is UnsafeMutableRawPointer.
                 if (arg.Ownership == ParameterOwnership.Owned)
                 {
-                    return ($"_ {label}: UnsafeMutableRawPointer",
+                    return Simple(CdeclParamCategory.NonCopyableConsume,
+                            $"_ {label}: UnsafeMutableRawPointer",
                             $"let {label}Val = {label}.assumingMemoryBound(to: {swiftType}.self).move()",
                             $"{argLabel}{label}Val");
                 }
@@ -356,7 +434,8 @@ public static class CdeclParamMapper
                 // borrow — `let xVal = ptr...pointee` would copy, which noncopyable types reject.
                 // UnsafePointer<T: ~Copyable>.pointee gives a borrow in Swift 6, safe to forward to a
                 // borrowing parameter.
-                return ($"_ {label}: UnsafeRawPointer",
+                return Simple(CdeclParamCategory.NonCopyableBorrow,
+                        $"_ {label}: UnsafeRawPointer",
                         null,  // no reconstruction — inline borrow avoids copy
                         $"{argLabel}{label}.assumingMemoryBound(to: {swiftType}.self).pointee");
             }
@@ -375,7 +454,8 @@ public static class CdeclParamMapper
                     AppleFrameworkRegistry.TryGetNetTypeName(nsTypedef.Name, out var remapped) &&
                     remapped == "Foundation.NSString")
                 {
-                    return ($"_ {label}: UnsafeMutableRawPointer",
+                    return Simple(CdeclParamCategory.ObjCBridgedClassPointer,
+                            $"_ {label}: UnsafeMutableRawPointer",
                             $"let {label}Val = {swiftType}(rawValue: Unmanaged<NSString>.fromOpaque({label}).takeUnretainedValue() as String)",
                             $"{argLabel}{label}Val");
                 }
@@ -386,12 +466,14 @@ public static class CdeclParamMapper
                 // so Unmanaged<IndexPath> fails for bridged structs.
                 if (MarshallingHelpers.IsObjCBridged(typeRecord))
                 {
-                    return ($"_ {label}: UnsafeMutableRawPointer",
+                    return Simple(CdeclParamCategory.ObjCBridgedClassPointer,
+                            $"_ {label}: UnsafeMutableRawPointer",
                             $"let {label}Val = Unmanaged<AnyObject>.fromOpaque({label}).takeUnretainedValue() as! {swiftType}",
                             $"{argLabel}{label}Val");
                 }
 
-                return ($"_ {label}: UnsafeMutableRawPointer",
+                return Simple(CdeclParamCategory.ClassPointer,
+                        $"_ {label}: UnsafeMutableRawPointer",
                         $"let {label}Val = Unmanaged<{swiftType}>.fromOpaque({label}).takeUnretainedValue()",
                         $"{argLabel}{label}Val");
             }
@@ -401,7 +483,8 @@ public static class CdeclParamMapper
             if (MarshallingHelpers.IsObjCBridgeable(typeRecord))
             {
                 var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
-                return ($"_ {label}: UnsafeMutableRawPointer",
+                return Simple(CdeclParamCategory.ObjCBridgeableValue,
+                        $"_ {label}: UnsafeMutableRawPointer",
                         $"let {label}Val = Unmanaged<AnyObject>.fromOpaque({label}).takeUnretainedValue() as! {swiftType}",
                         $"{argLabel}{label}Val");
             }
@@ -411,7 +494,8 @@ public static class CdeclParamMapper
                 typeRecord.Kind == TypeRecordKind.Existential)
             {
                 var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
-                return ($"_ {label}: UnsafeRawPointer",
+                return Simple(CdeclParamCategory.ProtocolTypeRecord,
+                        $"_ {label}: UnsafeRawPointer",
                         $"let {label}Val: {swiftType} = {label}.load(as: {swiftType}.self)",
                         $"{argLabel}{label}Val");
             }
@@ -442,7 +526,7 @@ public static class CdeclParamMapper
                     conversion = $"var {label}Raw = {label}; let {label}Val = withUnsafeMutablePointer(to: &{label}Raw) {{ UnsafeMutableRawPointer($0).load(as: {swiftType}.self) }}";
                 }
 
-                return ($"_ {label}: {rawType}", conversion, $"{argLabel}{label}Val");
+                return Simple(CdeclParamCategory.SimpleEnum, $"_ {label}: {rawType}", conversion, $"{argLabel}{label}Val");
             }
 
             // Complex enums: pass as pointer.
@@ -453,7 +537,8 @@ public static class CdeclParamMapper
             if (typeRecord.Kind == TypeRecordKind.Enum)
             {
                 var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
-                return ($"_ {label}: UnsafeRawPointer",
+                return Simple(CdeclParamCategory.ComplexEnum,
+                        $"_ {label}: UnsafeRawPointer",
                         $"let {label}Val = {label}.assumingMemoryBound(to: {swiftType}.self).pointee",
                         $"{argLabel}{label}Val");
             }
@@ -463,7 +548,8 @@ public static class CdeclParamMapper
             if (!MarshallingHelpers.IsTypeFrozen(typeRecord))
             {
                 var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
-                return ($"_ {label}: UnsafeRawPointer",
+                return Simple(CdeclParamCategory.NonFrozenStruct,
+                        $"_ {label}: UnsafeRawPointer",
                         $"let {label}Val = {label}.assumingMemoryBound(to: {swiftType}.self).pointee",
                         $"{argLabel}{label}Val");
             }
@@ -484,14 +570,15 @@ public static class CdeclParamMapper
                     && !IsSimdVectorType(frozenNamed))
                 {
                     var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
-                    return ($"_ {label}: {swiftType}", null, $"{argLabel}{label}");
+                    return Simple(CdeclParamCategory.SystemFrozenStruct, $"_ {label}: {swiftType}", null, $"{argLabel}{label}");
                 }
 
                 // Custom frozen structs: pass as UnsafeRawPointer and reconstruct.
                 // Use assumingMemoryBound(to:).pointee instead of load(as:) — frozen structs
                 // with reference-counted fields (String, Array, Optional) are not BitwiseCopyable.
                 var moduleQualifiedType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
-                return ($"_ {label}: UnsafeRawPointer",
+                return Simple(CdeclParamCategory.CustomFrozenStruct,
+                        $"_ {label}: UnsafeRawPointer",
                         $"let {label}Val = {label}.assumingMemoryBound(to: {moduleQualifiedType}.self).pointee",
                         $"{argLabel}{label}Val");
             }
@@ -500,7 +587,8 @@ public static class CdeclParamMapper
         // Fallback: pass as UnsafeRawPointer.
         // Use assumingMemoryBound for consistency with all other pointer reconstruction paths.
         var fallbackSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
-        return ($"_ {label}: UnsafeRawPointer",
+        return Simple(CdeclParamCategory.Fallback,
+                $"_ {label}: UnsafeRawPointer",
                 $"let {label}Val = {label}.assumingMemoryBound(to: {fallbackSwiftType}.self).pointee",
                 $"{argLabel}{label}Val");
     }
@@ -906,38 +994,13 @@ public static class CdeclParamMapper
         ArgumentDecl arg, string label, MethodEnvironment env, bool omitLabels = false,
         IReadOnlySet<string>? reservedSiblings = null)
     {
-        var swiftTypeSpec = arg.SwiftTypeSpec;
-
-        // Swift keywords and identifier sanitization (same as Map)
-        if (NameProvider.IsSwiftKeyword(label))
-            label = $"{label}Param";
-        label = SwiftBuilder.SanitizeIdentifier(label);
-        // Escape a user binding colliding with an injected synthetic OR a sibling user binding
-        // (same as Map).
-        label = NameProvider.EscapeReservedSwiftWrapperLabel(label, ExcludeSelf(reservedSiblings, label));
-
-        // Argument label (same as Map)
-        var argLabel = omitLabels ? "" : BuildSwiftCallArgLabel(arg);
-
-        var swiftType = RenderModuleQualifiedSwiftTypeWithExistentialAny(swiftTypeSpec, env.TypeDatabase);
-
-        // Bool: stored as Int8 in @_cdecl ABI, needs conversion
-        var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
-        if (MarshallingHelpers.IsBoolType(renderedType) || renderedType == "Bool")
-        {
-            return ($"_ {label}: UnsafeMutableRawPointer",
-                    $"var {label}Val: Bool = {label}.assumingMemoryBound(to: Int8.self).pointee != 0",
-                    $"{argLabel}&{label}Val",
-                    $"{label}.assumingMemoryBound(to: Int8.self).pointee = {label}Val ? 1 : 0");
-        }
-
-        // All other types: UnsafeMutableRawPointer with typed pointer access.
-        // Uses assumingMemoryBound(to:).pointee for proper value semantics (not load(as:)
-        // which requires BitwiseCopyable). The var binding is mutable so it can be passed
-        // as &ref to the original Swift method, then written back through the pointer.
-        return ($"_ {label}: UnsafeMutableRawPointer",
-                $"var {label}Val = {label}.assumingMemoryBound(to: {swiftType}.self).pointee",
-                $"{argLabel}&{label}Val",
-                $"{label}.assumingMemoryBound(to: {swiftType}.self).pointee = {label}Val");
+        // inout is a category of the single Describe producer (Category=Inout); this 4-tuple shim
+        // projects the descriptor's Swift-text fields plus the write-back. Reconstruction and
+        // WriteBack are always populated for the Inout category, so the null-forgiving projection is
+        // safe. MapInout always escapes a reserved/sibling label collision (escapeReservedCollision:
+        // true) just as it did inline before the fold.
+        var d = Describe(arg, label, env, omitLabels, useUtf8Strings: false,
+                         escapeReservedCollision: true, reservedSiblings, isInout: true);
+        return (d.CdeclParam, d.Reconstruction!, d.CallArg, d.WriteBack!);
     }
 }
