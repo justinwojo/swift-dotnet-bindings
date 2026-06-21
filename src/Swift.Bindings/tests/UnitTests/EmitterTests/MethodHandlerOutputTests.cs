@@ -1728,6 +1728,105 @@ public class MethodHandlerOutputTests
         Assert.DoesNotContain(".Free()", csOutput);
     }
 
+    [Fact]
+    public void Emit_MethodWithEscapingConventionCClosure_UsesThreadStaticSlotWithSaveRestore()
+    {
+        // A non-optional @convention(c) closure the parser marks @escaping takes the SAME
+        // [UnmanagedCallersOnly] + [ThreadStatic] slot path as a plain @convention(c) closure —
+        // NOT Marshal.GetFunctionPointerForDelegate. The ABI/demangler marks every @convention(c)
+        // closure escaping (CFunctionPointer is not NoEscapeFunctionType), so escaping-ness cannot
+        // route the two cases apart; routing escaping closures to GetFunctionPointerForDelegate
+        // would need a JIT trampoline and fault on Mono iOS-simulator AOT-only mode. The sound
+        // boundary is synchronous invocation during the wrapper call's dynamic extent, made
+        // reentrancy- and leak-safe by a save/restore stack discipline: the slot's prior occupant
+        // is captured before the try, the user delegate is installed for the call, and the prior
+        // occupant is restored (NOT nulled) in the finally.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        // Create @escaping @convention(c) (Int) -> Void  (NON-optional)
+        var innerClosure = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            TupleTypeSpec.Empty);
+        var conventionAttr = new TypeSpecAttribute("convention");
+        conventionAttr.Parameters.Add("c");
+        innerClosure.Attributes.Add(conventionAttr);
+        innerClosure.Attributes.Add(new TypeSpecAttribute("escaping"));
+        Assert.True(innerClosure.IsEscaping, "Inner closure is marked @escaping");
+
+        var method = CreateMethodDecl(
+            name: "register",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: TupleTypeSpec.Empty,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("callback", innerClosure, moduleDecl));
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // Escaping convention-c: [ThreadStatic] slot infrastructure IS emitted (slot path, not JIT)
+        Assert.Contains("[ThreadStatic]", csOutput);
+        // Save/restore stack discipline: capture the prior occupant before the try...
+        Assert.Contains("_delSaved = ", csOutput);
+        // ...install the user delegate for the call's duration...
+        Assert.Contains("_del = callback;", csOutput);
+        // ...and restore the prior occupant (not null) in the finally so a nested same-slot
+        // reentrant call cannot strand an outer invocation with a cleared delegate.
+        Assert.Contains("_delSaved;", csOutput);
+
+        // Escaping convention-c: does NOT fall back to the JIT-trampoline delegate path
+        Assert.DoesNotContain("Marshal.GetFunctionPointerForDelegate", csOutput);
+    }
+
+    [Fact]
+    public void Emit_MethodWithNonEscapingConventionCClosure_UsesThreadStaticSlotWithSaveRestore()
+    {
+        // A non-optional @convention(c) closure that is NOT marked @escaping stays on the
+        // [UnmanagedCallersOnly] + [ThreadStatic] slot path (which avoids the JIT-trampoline
+        // requirement on Mono AOT) and does NOT use Marshal.GetFunctionPointerForDelegate. It takes
+        // the IDENTICAL slot + save/restore shape as the escaping case above: the source-level
+        // @escaping marker does not change the marshalling mechanism, because the slot path is the
+        // only sim-safe mechanism and the parser cannot distinguish the two anyway. The save/restore
+        // discipline (capture prior occupant pre-try, install user delegate, restore in finally)
+        // makes nested same-slot reentrancy sound and avoids retaining the delegate after return.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        // Create @convention(c) (Int) -> Void  (NON-optional, NON-escaping)
+        var innerClosure = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            TupleTypeSpec.Empty);
+        var conventionAttr = new TypeSpecAttribute("convention");
+        conventionAttr.Parameters.Add("c");
+        innerClosure.Attributes.Add(conventionAttr);
+        Assert.False(innerClosure.IsEscaping, "Inner closure is not marked @escaping");
+
+        var method = CreateMethodDecl(
+            name: "observe",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: TupleTypeSpec.Empty,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("callback", innerClosure, moduleDecl));
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // Non-escaping convention-c: [ThreadStatic] slot path with the same save/restore discipline
+        Assert.Contains("[ThreadStatic]", csOutput);
+        Assert.Contains("_delSaved = ", csOutput);
+        Assert.Contains("_del = callback;", csOutput);
+        Assert.Contains("_delSaved;", csOutput);
+
+        // Non-escaping convention-c: does NOT use the escaping function-pointer path
+        Assert.DoesNotContain("Marshal.GetFunctionPointerForDelegate", csOutput);
+    }
+
     private static (string csOutput, string swiftOutput) EmitMethod(
         MethodDecl methodDecl,
         TypeDatabase typeDatabase,

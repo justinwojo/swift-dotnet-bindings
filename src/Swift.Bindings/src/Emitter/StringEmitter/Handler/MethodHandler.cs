@@ -309,6 +309,38 @@ namespace BindingsGeneration
                 return;
             }
 
+            // A constructor that carries a @convention(c) closure has no ABI-correct surface once it
+            // also has a non-optional closure parameter. A @convention(c) closure is a bare C function
+            // pointer that blocks the @_cdecl constructor wrapper (it can't ride the wrapper's
+            // marshalling) AND denies the init a native thunk (any closure needs a Swift adapter the
+            // thunk can't carry), so the WHOLE init falls through to a direct CallConvSwift call
+            // against the raw init symbol. That path cannot deliver an allocating class init's hidden
+            // metatype (passed in a dedicated register the P/Invoke never sets) nor decode a failable
+            // init's Optional<Self> return, and the non-optional closure parameter is then left with no
+            // working marshalling path of its own — so the emitted factory/constructor compiles but
+            // faults at runtime (class: nil/SIGSEGV; frozen struct: reads an uninitialized value). Skip
+            // the member rather than emit a binding that crashes when called. This runs BEFORE the
+            // debug-param wrapper below (which sets UsesWrapperLibrary) and is count-independent, so
+            // neither a #file/#line debug parameter nor a second closure parameter can route the broken
+            // shape around the skip. A constructor whose only closures are optional is NOT skipped:
+            // optional closures take a different, working marshalling path that does not depend on the
+            // denied wrapper.
+            if (ConstructorHasUnbindableConventionCClosure(methodEnv))
+            {
+                _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: a @convention(c) closure parameter alongside a non-optional closure forces a direct CallConvSwift call that cannot set up the init ABI (allocating-init metatype / Optional<Self> return).");
+                ReportCollector.RecordMemberSkipped(
+                    BindingItemKind.Method,
+                    methodEnv.MethodDecl.Name,
+                    methodEnv.MethodDecl.ParentDecl,
+                    SkipReason.UnsupportedSignature,
+                    "Constructor has a @convention(c) closure parameter alongside a non-optional closure parameter: the @convention(c) closure is denied both a native thunk and a @_cdecl wrapper, leaving only a direct CallConvSwift call that cannot deliver the allocating-init metatype or decode a failable Optional<Self> return.");
+                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name,
+                    BindingItemKind.Method, SkipReason.UnsupportedSignature,
+                    "@convention(c) closure parameter cannot be ABI-correctly bound in a constructor",
+                    containingDecl: methodEnv.MethodDecl.ParentDecl);
+                return;
+            }
+
             // Emit Swift wrapper for constructors with debug params (#file, #line, etc.)
             if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
                 DefaultParameterOverloadEmitter.HasDebugParameters(methodEnv.MethodDecl))
@@ -739,6 +771,58 @@ namespace BindingsGeneration
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Returns true when a constructor carries a <c>@convention(c)</c> closure AND has at least one
+        /// non-optional closure parameter — the combination that has no ABI-correct binding surface. A
+        /// <c>@convention(c)</c> closure is a bare C function pointer that blocks the <c>@_cdecl</c>
+        /// constructor wrapper and is denied a native thunk, so the whole init falls through to a direct
+        /// CallConvSwift call that cannot deliver the allocating-init metatype or decode a failable
+        /// <c>Optional&lt;Self&gt;</c> return — which also leaves the non-optional closure parameter with
+        /// no working marshalling path. A constructor whose only closures are optional is NOT skipped:
+        /// optional closures take a different marshalling path and are not on the broken direct-call route.
+        ///
+        /// Detection is count-independent and covers both source shapes. The attribute path
+        /// (<c>IsConventionC(spec)</c>) classifies each non-optional closure directly — it works for
+        /// .swiftinterface-sourced specs, CFunctionPointer-reduced specs, and unit-test specs that
+        /// carry the convention attribute, for any closure count, and identifies a non-optional conv-c
+        /// closure precisely. ABI-JSON-sourced specs omit the convention attribute, so the only signal
+        /// there is the demangled CFunctionPointer node (<c>MethodHasConventionCClosure</c>, a
+        /// whole-method check); it is used as a fallback and gated on the presence of at least one
+        /// non-optional closure parameter. Because the fallback is whole-method it also fires when the
+        /// conv-c closure is itself optional but a separate non-optional closure is present — still the
+        /// correct outcome, since the whole-method denial of the <c>@_cdecl</c> wrapper leaves that
+        /// non-optional closure unbindable just the same.
+        /// </summary>
+        private static bool ConstructorHasUnbindableConventionCClosure(MethodEnvironment env)
+        {
+            var closureParams = env.MethodDecl.CSSignature.Skip(1)
+                .Where(env.ClosureHandler.IsClosure).ToList();
+            if (closureParams.Count == 0)
+                return false;
+
+            var nonOptionalClosures = closureParams
+                .Where(arg => !env.ClosureHandler.IsOptionalClosure(arg.SwiftTypeSpec))
+                .ToList();
+            if (nonOptionalClosures.Count == 0)
+                return false;
+
+            // Attribute path: per-parameter, count-independent. Catches the non-optional conv-c
+            // closure directly when the spec carries the convention attribute.
+            foreach (var closureArg in nonOptionalClosures)
+            {
+                var closureTypeSpec = env.ClosureHandler.GetClosureTypeSpec(closureArg);
+                if (closureTypeSpec is not null && env.ClosureHandler.IsConventionC(closureTypeSpec))
+                    return true;
+            }
+
+            // ABI-JSON fallback: the convention attribute is absent, so rely on the demangled
+            // CFunctionPointer signal. A non-optional closure parameter exists (checked above), so a
+            // conv-c closure anywhere in the constructor lands it on the broken direct-call path —
+            // the whole-method denial of the @_cdecl wrapper leaves no working surface for any of its
+            // closure parameters, regardless of how many there are.
+            return env.ClosureHandler.MethodHasConventionCClosure(env.MethodDecl.MangledName);
         }
 
         /// <summary>

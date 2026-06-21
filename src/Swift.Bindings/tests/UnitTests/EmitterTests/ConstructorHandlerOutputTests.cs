@@ -199,6 +199,198 @@ public class ConstructorHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_FailableClassConstructorWithConventionCClosure_IsSkippedAsUnsupported()
+    {
+        // A constructor taking a non-optional @convention(c) closure has no ABI-correct surface: the
+        // closure parameter denies it a native thunk AND blocks the @_cdecl constructor wrapper, so
+        // the only path left is a direct CallConvSwift call against the raw init symbol — which cannot
+        // deliver an allocating class init's hidden metatype nor decode a failable Optional<Self>
+        // return. Emitting it would compile but fault at runtime (class: nil/SIGSEGV; frozen struct:
+        // uninitialized read), so the generator must SKIP the member with an Unsupported comment and
+        // emit no factory. This pins that skip — it is the root-cause fix for the whole-binding
+        // compile break (CS0103) and the runtime ABI fault alike.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl, typeDatabase);
+
+        // @convention(c) (Int) -> Void  (NON-optional)
+        var closureType = new ClosureTypeSpec(
+            arguments: new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int") }),
+            returnType: TupleTypeSpec.Empty);
+        var conventionAttr = new TypeSpecAttribute("convention");
+        conventionAttr.Parameters.Add("c");
+        closureType.Attributes.Add(conventionAttr);
+
+        var constructor = CreateConstructorDeclForClass(
+            "init",
+            parentDecl,
+            moduleDecl,
+            isFailable: true,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("callback", closureType, moduleDecl)
+            });
+
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+
+        // The member is skipped with a loud Unsupported comment naming the exact reason...
+        Assert.Contains("// Unsupported:", csOutput);
+        Assert.Contains("@convention(c) closure parameter cannot be ABI-correctly bound in a constructor", csOutput);
+        // ...and NO callable factory is emitted (the broken direct-call path never reaches the body).
+        Assert.DoesNotContain("public static bool TryCreate(", csOutput);
+        Assert.DoesNotContain("Marshal.GetFunctionPointerForDelegate", csOutput);
+    }
+
+    [Fact]
+    public void Emit_NonFailableClassConstructorWithConventionCClosure_IsSkipped()
+    {
+        // The skip is keyed on the unbindable @convention(c)-closure shape, NOT on failability: an
+        // allocating class init's hidden metatype cannot be delivered over the direct CallConvSwift
+        // call regardless of whether the init returns Self or Optional<Self>. A non-failable init of
+        // this shape is therefore just as broken and must be skipped too. This pins that the skip is
+        // not accidentally gated on init? (failable) — a plain `init` with a non-optional conv-c
+        // closure is skipped the same way.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("EagerLoader", moduleDecl, typeDatabase);
+
+        // @convention(c) (Int) -> Void  (NON-optional)
+        var closureType = new ClosureTypeSpec(
+            arguments: new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int") }),
+            returnType: TupleTypeSpec.Empty);
+        var conventionAttr = new TypeSpecAttribute("convention");
+        conventionAttr.Parameters.Add("c");
+        closureType.Attributes.Add(conventionAttr);
+
+        var constructor = CreateConstructorDeclForClass(
+            "init",
+            parentDecl,
+            moduleDecl,
+            isFailable: false,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("callback", closureType, moduleDecl)
+            });
+
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+
+        Assert.Contains("// Unsupported:", csOutput);
+        Assert.Contains("@convention(c) closure parameter cannot be ABI-correctly bound in a constructor", csOutput);
+        // No factory of either failability shape, and the closure never reaches marshalling.
+        Assert.DoesNotContain("public static bool TryCreate(", csOutput);
+        Assert.DoesNotContain("Marshal.GetFunctionPointerForDelegate", csOutput);
+        Assert.DoesNotContain("_convC_", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ConstructorWithConventionCClosureAndDebugParam_IsStillSkipped()
+    {
+        // A #file/#line debug parameter triggers EmitDebugParamWrapper, which sets
+        // UsesWrapperLibrary on the constructor. The conv-c skip must run BEFORE that wrapper and
+        // must NOT gate on UsesWrapperLibrary — otherwise a constructor that pairs a non-optional
+        // @convention(c) closure with a defaulted debug parameter would slip past the skip, emit a
+        // wrapper with no slot-save declaration, and reference an undeclared `_delSaved` (CS0103) /
+        // fault at runtime. This pins that a debug parameter cannot route the broken shape around the
+        // skip.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Logger", moduleDecl, typeDatabase);
+
+        // @convention(c) (Int32) -> Int32  (NON-optional)
+        var closureType = new ClosureTypeSpec(
+            arguments: new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int32") }),
+            returnType: new NamedTypeSpec("Swift.Int32"));
+        var conventionAttr = new TypeSpecAttribute("convention");
+        conventionAttr.Parameters.Add("c");
+        closureType.Attributes.Add(conventionAttr);
+
+        // #file debug parameter (HasDefaultArg + StaticString) — drives EmitDebugParamWrapper, which
+        // sets UsesWrapperLibrary before the constructor reaches the (former) late skip gate.
+        var debugArg = new ArgumentDecl
+        {
+            SwiftTypeSpec = new NamedTypeSpec("Swift.StaticString"),
+            Name = "file",
+            PrivateName = "file",
+            HasDefaultArg = true,
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var constructor = CreateConstructorDeclForClass(
+            "init",
+            parentDecl,
+            moduleDecl,
+            isFailable: true,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("validate", closureType, moduleDecl),
+                debugArg
+            });
+
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+
+        Assert.Contains("// Unsupported:", csOutput);
+        Assert.Contains("@convention(c) closure parameter cannot be ABI-correctly bound in a constructor", csOutput);
+        Assert.DoesNotContain("public static bool TryCreate(", csOutput);
+        // The broken shape's tell — a slot restore referencing a never-declared save local.
+        Assert.DoesNotContain("_delSaved", csOutput);
+    }
+
+    [Fact]
+    public void Emit_MultiClosureConstructorWithConventionCClosure_AbiJsonSourced_IsSkipped()
+    {
+        // ABI-JSON-sourced closure specs do NOT carry the @convention(c) attribute, so the only
+        // signal is the demangled CFunctionPointer node. The per-parameter classifier disables that
+        // mangled fallback when a method has >1 closure (the node could belong to a different
+        // parameter), so a constructor with TWO closures where one is non-optional @convention(c)
+        // would slip past a count-limited check. The skip instead uses the whole-method
+        // MethodHasConventionCClosure signal (count-independent), gated on the presence of a
+        // non-optional closure parameter, so the multi-closure shape is still skipped. The mangled
+        // name below is a real allocating-init symbol for
+        //   init?(_ validate: @convention(c) (Int32) -> Int32, onDone done: (Int32) -> Void)
+        // (the XC node is the @convention(c) closure, XE the Swift one); neither C# closure spec
+        // carries the convention attribute here, mirroring ABI JSON.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MultiClosureLoader", moduleDecl, typeDatabase);
+
+        var convCClosure = new ClosureTypeSpec(
+            arguments: new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int32") }),
+            returnType: new NamedTypeSpec("Swift.Int32"));
+        var swiftClosure = new ClosureTypeSpec(
+            arguments: new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int32") }),
+            returnType: TupleTypeSpec.Empty);
+
+        var constructor = CreateConstructorDeclForClass(
+            "init",
+            parentDecl,
+            moduleDecl,
+            isFailable: true,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("validate", convCClosure, moduleDecl),
+                CreateArgument("done", swiftClosure, moduleDecl)
+            },
+            // Real allocating-init mangled name carrying a CFunctionPointer (XC) closure + a Swift
+            // (XE) closure — the only conv-c signal for an ABI-JSON-sourced multi-closure init.
+            mangledName: "$s2mc18MultiClosureLoaderC_6onDoneACSgs5Int32VAGXC_yAGXEtcfC");
+
+        // Sanity: the whole-method signal must actually fire for this symbol, else the test would
+        // pass vacuously regardless of the skip's count-independence.
+        var closureHandler = new ClosureHandler(typeDatabase);
+        Assert.True(closureHandler.MethodHasConventionCClosure(constructor.MangledName),
+            "the mangled name must demangle to a CFunctionPointer node");
+
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+
+        Assert.Contains("// Unsupported:", csOutput);
+        Assert.Contains("@convention(c) closure parameter cannot be ABI-correctly bound in a constructor", csOutput);
+        Assert.DoesNotContain("public static bool TryCreate(", csOutput);
+    }
+
+    [Fact]
     public void Emit_ConstructorWithOptionalExistential_KnownProtocol_NotBlockedByExistentialGuard()
     {
         // P3: Exercises ConstructorHandler.Emit() constructor existential bypass path (line 167).
@@ -717,7 +909,8 @@ public class ConstructorHandlerOutputTests
         bool throws = false,
         bool isFailable = false,
         List<ArgumentDecl>? parameters = null,
-        List<GenericArgumentDecl>? genericParameters = null)
+        List<GenericArgumentDecl>? genericParameters = null,
+        string? mangledName = null)
     {
         var signature = new List<ArgumentDecl>
         {
@@ -731,7 +924,7 @@ public class ConstructorHandlerOutputTests
         var method = new MethodDecl
         {
             Name = name,
-            MangledName = $"$s10TestModule{parentDecl.Name.Length}{parentDecl.Name}C{name}yACyF",
+            MangledName = mangledName ?? $"$s10TestModule{parentDecl.Name.Length}{parentDecl.Name}C{name}yACyF",
             MethodType = MethodType.Static,
             IsConstructor = true,
             IsFailable = isFailable,

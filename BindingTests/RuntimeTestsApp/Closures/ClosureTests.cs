@@ -96,6 +96,53 @@ public class ClosureTests : TestBase
         TestLogger.Info("CallCPredicate passed");
     }
 
+    // A NON-optional @convention(c) closure marshals through a per-(method+parameter) [ThreadStatic]
+    // delegate slot plus a static [UnmanagedCallersOnly] thunk whose stable function pointer is
+    // passed to Swift. The slot is wrapped in a save/restore discipline: a local captures the slot's
+    // prior occupant before the try, setup installs this call's delegate, and the finally restores
+    // the prior occupant. This keeps nested synchronous reentrancy sound without a JIT trampoline
+    // (Marshal.GetFunctionPointerForDelegate), which crashes on Mono iOS-sim AOT-only mode.
+
+    public void TestEscapingConventionCRoundTrip()
+    {
+        // Basic round trip: Swift invokes the slot's thunk twice via the passed function pointer.
+        var result = TestLibFunctions.ApplyConventionCTwice(x => x + 1, 5);
+        AssertEqual(12, result, "ApplyConventionCTwice(x+1, 5) = 6+6");
+        TestLogger.Info($"ApplyConventionCTwice(x+1, 5) = {result}");
+    }
+
+    public void TestEscapingConventionCSlotNotCorruptedByReentrancy()
+    {
+        // The outer (identity) closure reenters ApplyConventionCTwice with a DIFFERENT (doubling)
+        // closure on its first invocation. Without save/restore the reentrant call would overwrite
+        // the shared [ThreadStatic] slot, so the outer call's SECOND invocation would run the
+        // doubling closure instead of identity -> 10 + 20 = 30. The inner call's finally restores
+        // the outer delegate, so both outer invocations stay identity -> 10 + 10 = 20.
+        bool reentered = false;
+        int Identity(int x)
+        {
+            if (!reentered)
+            {
+                reentered = true;
+                // Reentrant call with a different closure on the same method+param.
+                var inner = TestLibFunctions.ApplyConventionCTwice(y => y * 2, 7);
+                AssertEqual(28, inner, "reentrant ApplyConventionCTwice(y*2, 7) = 14+14");
+            }
+            return x; // identity
+        }
+
+        var result = TestLibFunctions.ApplyConventionCTwice(Identity, 10);
+        AssertEqual(20, result, "ApplyConventionCTwice(identity, 10) slot survives reentrancy");
+        TestLogger.Info($"Escaping @convention(c) reentrancy: result={result}");
+    }
+
+    // Note: a constructor taking a non-optional @convention(c) closure (e.g. the Swift fixture
+    // ConventionCValidatedLoader.init?) is intentionally SKIPPED by the generator — it has no
+    // ABI-correct surface (no native thunk, no @_cdecl wrapper; a direct CallConvSwift call can't
+    // deliver the allocating-init metatype or decode a failable Optional<Self>). So there is no
+    // TryCreate to call here; the skip is covered structurally by the generator unit test and by the
+    // fixture's presence in the compile gate (the binding must still build with the member skipped).
+
     public void TestMakeAdder()
     {
         var adder = TestLibFunctions.MakeAdder(10);

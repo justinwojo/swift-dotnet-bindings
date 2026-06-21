@@ -654,6 +654,10 @@ namespace BindingsGeneration
             // trailing finally (CS0103 otherwise). Sync methods are unaffected — the decls
             // still sit above their try-finally block.
             EmitExistentialHeapDeclarations(csWriter);
+            // Save the @convention(c) [ThreadStatic] slot occupant before the call. Like the existential
+            // heap declarations above, this must precede EmitAsync so the local stays at the outer scope
+            // and remains reachable in the trailing finally (where the slot is restored) for async methods.
+            EmitConventionCSlotSaveDeclarations(csWriter, NeedsTryFinallyForMethod());
             EmitAsync(csWriter, swiftWriter);
             EmitOpaqueReturnWrapper(swiftWriter);
             EmitTypedErrorExtractor(swiftWriter);

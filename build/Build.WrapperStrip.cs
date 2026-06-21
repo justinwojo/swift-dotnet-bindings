@@ -271,8 +271,14 @@ partial class Build
     /// gate that closes a previously-stripped category). Recomputes from the current output rather
     /// than trusting a prior build artifact. Other baseline fields are preserved verbatim.
     /// </summary>
+    // The .After(...) edges are ordering-only — this manual-maintenance sink never forces those gates
+    // to run, but `--strict` (which the release gate's `binding-tests --strict` uses) demands a TOTAL
+    // order over the whole target graph. This sink is the last of the co-equal maintenance sinks
+    // (SeedSkipSurfaceBaseline → SeedParityBaseline → RegenStdlibConformances → this one), so it peels
+    // after the full chain. A new maintenance sink must likewise be totally ordered against these or
+    // strict mode rejects the plan with "Incomplete target definition order".
     Target SeedWrapperStripBaseline => _ => _
-        .After(BindingTests)
+        .After(BindingTests, BehaviorTier, ValidateBlastRadius, X64SimGate, SeedSkipSurfaceBaseline, SeedParityBaseline, RegenStdlibConformances)
         .Executes(() =>
         {
             var swiftFiles = Directory.GetFiles(BtOutputDir, "*.swift")
