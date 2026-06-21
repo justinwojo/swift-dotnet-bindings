@@ -577,6 +577,45 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void LowerReturnType_NullInlineSize_NoCrossCheck_ProceedsOnReconstruction()
+        {
+            // Null-InlineSize hazard pin. The SAME "b,i" frozen struct that DECLINES when InlineSize=9 reveals
+            // its packing (LowerReturnType_PackedStructStraddlingEightbyte_DeclinesToCdecl) instead LOWERS
+            // when InlineSize is null — the authoritative size the cross-check needs is populated from the
+            // live value-witness table, which is absent on a cross-compile / device slice. With no size to
+            // disagree with, the natural-aligned reconstruction (Bool@0, Int@8 → size 16) is taken on faith
+            // and the struct lowers into two integer slots, byte-identical to the naturally-aligned
+            // InlineSize=16 case. This pins the documented blind spot: a packed frozen struct would slip
+            // through this path undetected — and pins that we do NOT add a spurious decline for the common
+            // null case, since a second size operand recomputed from this same AbiFieldLayout would be
+            // tautological and catch nothing.
+            var name = SwiftTypeName.FromModuleQualifiedName("MyLib.BoolStructNoSize");
+            var record = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "BoolStructNoSize"),
+                SwiftTypeName = name,
+                MetadataAccessor = "$s5MyLib16BoolStructNoSizeV",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.HasBoolFields,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = null, // no live metadata cross-compile → cross-check necessarily skipped
+                AbiFieldLayout = "b,i"
+            };
+            var db = CreateTypeDbWithModule("MyLib", (name, record));
+            var typeSpec = new NamedTypeSpec("MyLib.BoolStructNoSize");
+
+            var result = TypeLowering.LowerReturnType(typeSpec, db);
+
+            Assert.NotNull(result);
+            Assert.False(result!.IsIndirect);
+            Assert.Equal(16, result.TotalByteSize); // reconstruction, not a default — the size is real
+            Assert.Equal(2, result.Slots.Count);
+            Assert.Equal(RegisterFile.Integer, result.Slots[0].File);
+            Assert.Equal(8, result.Slots[0].ByteSize);
+            Assert.Equal(RegisterFile.Integer, result.Slots[1].File);
+            Assert.Equal(8, result.Slots[1].ByteSize);
+        }
+
+        [Fact]
         public void LowerReturnType_StructWithPointerField_IntegerSlot()
         {
             // PointerStruct { ptr: OpaquePointer, value: Int } → 2 integer slots
@@ -683,7 +722,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void LowerReturnType_SimpleFrozenEnum_NullInlineSize_DeclinesToCdecl()
         {
-            // Finding 44: a simple frozen enum whose InlineSize is unknown (null — e.g. the
+            // A simple frozen enum whose InlineSize is unknown (null — e.g. the
             // iOS-on-macOS cross-compile path where the metadata accessor can't be dlopened)
             // must DECLINE (return null → route to @_cdecl) rather than fabricate an 8-byte
             // default. The old `record.InlineSize ?? 8` shipped a wrong 8-byte TotalByteSize
@@ -802,7 +841,7 @@ namespace BindingsGeneration.Tests
         // inner type's size with NO tag. The thunk path forwards raw registers and has no
         // spare-inhabitant encode/decode layer, so these must DECLINE (null → route to a
         // @_cdecl wrapper that does encode them), matching the field oracle
-        // (ModuleProcessor.ClassifyFieldType) via the shared OptionalAbiClassifier. Before the
+        // (ModuleProcessor.ClassifyFieldType) via the shared SwiftValueLayout. Before the
         // fix each of these returned a 2-slot result, inflating the size by a slot and a byte.
 
         [Fact]

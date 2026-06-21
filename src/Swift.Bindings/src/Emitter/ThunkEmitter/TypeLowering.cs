@@ -46,7 +46,7 @@ public record TypeLoweringResult(
 /// - Optional&lt;class&gt;: 1 integer slot (nullable pointer, no tag).
 /// - Optional&lt;Bool / pointer / enum / struct&gt;: declined — Swift folds .none into a
 ///   spare inhabitant (no tag, same size) and the thunk path has no spare-inhabitant
-///   encoding, so these route to a @_cdecl wrapper. See OptionalAbiClassifier.
+///   encoding, so these route to a @_cdecl wrapper. See SwiftValueLayout.
 /// - Empty struct: 0 slots, not indirect.
 /// - Non-frozen struct: Always indirect (unknown layout at compile time).
 /// - Enums with raw value: 1 integer slot.
@@ -157,7 +157,7 @@ public static class TypeLowering
                 {
                     // A null InlineSize means the enum's size was never measured — without it the
                     // value's byte size is unknown, so decline to @_cdecl rather than fabricate an
-                    // 8-byte value (which mis-describes the usual 1-byte enum). See Finding 44.
+                    // 8-byte value (which mis-describes the usual 1-byte enum).
                     if (!record.InlineSize.HasValue)
                         return null;
                     return new TypeLoweringResult(
@@ -249,10 +249,21 @@ public static class TypeLowering
 
         int reconstructedSize = AlignUp(cursor, structAlign);
 
-        // Cross-check the natural-aligned reconstruction against the authoritative inline size. A
-        // mismatch means the struct is packed, or contains nested aggregates whose interior padding
-        // the flattened layout string does not capture — we cannot place its fields in registers
+        // Cross-check the natural-aligned reconstruction against the authoritative inline size when we
+        // have one. A mismatch means the struct is packed, or contains nested aggregates whose interior
+        // padding the flattened layout string does not capture — we cannot place its fields in registers
         // safely, so decline to the @_cdecl wrapper.
+        //
+        // HAZARD — the cross-check is silently absent cross-compile. record.InlineSize is populated from
+        // the live value-witness table at parse time, so it is null on a cross-compile / device slice
+        // that exposes no live metadata. There the cross-check below is necessarily SKIPPED and we
+        // proceed on the reconstruction alone. That is sound for the scalar-leaf domain we accept (each
+        // field width is 1/2/4/8 and Swift lays frozen structs out at natural alignment, which the
+        // reconstruction reproduces exactly), but it is an ASSUMED invariant rather than an enforced
+        // one: a hypothetical packed frozen struct would slip through undetected on that path. We
+        // deliberately do NOT manufacture a second size operand here — cross-compile the only size
+        // available is itself derived from this same AbiFieldLayout, so a recomputed cross-check would
+        // be tautological and catch nothing the reconstruction already encodes.
         if (record.InlineSize.HasValue && record.InlineSize.Value != reconstructedSize)
             return null;
 
@@ -355,9 +366,9 @@ public static class TypeLowering
     /// registers and has no spare-inhabitant encode/decode layer, so we DECLINE those
     /// (return null) and let the method route to a <c>@_cdecl</c> wrapper, whose managed
     /// marshalling does encode them. The tag-adding set is shared with the field oracle
-    /// (ModuleProcessor.ClassifyFieldType) via <see cref="OptionalAbiClassifier"/> so the
+    /// (ModuleProcessor.ClassifyFieldType) via <see cref="SwiftValueLayout"/> so the
     /// two can't drift — previously this fabricated an over-wide <c>{inner}+tag</c> layout
-    /// for spare-inhabitant payloads. See Finding 44 / Regression-R6 finding 4.
+    /// for spare-inhabitant payloads, inflating Optional&lt;Bool&gt;/pointer/enum by a slot and a byte.
     /// </summary>
     private static TypeLoweringResult? LowerOptional(NamedTypeSpec optionalType, ITypeDatabase typeDb)
     {
@@ -380,7 +391,7 @@ public static class TypeLowering
         // with no tag and have no thunk-side encoding — decline so they route to @_cdecl.
         // Only fixed-width integer/float scalars genuinely gain the 1-byte tag this path
         // fabricates, so only those are safe to lower here.
-        if (!OptionalAbiClassifier.HasAppendedOptionalTag(innerType.Name))
+        if (!SwiftValueLayout.HasAppendedOptionalTag(innerType.Name))
             return null;
 
         // Tag-adding scalar optional: lower inner type, then add the 1-byte tag slot.

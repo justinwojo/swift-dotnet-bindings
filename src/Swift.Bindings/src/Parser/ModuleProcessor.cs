@@ -604,9 +604,9 @@ namespace BindingsGeneration
                         // the SAME size with no tag. This hand-rolled grammar can't derive those
                         // widths, so it must decline (route to @_cdecl) rather than fabricate
                         // `{inner},i1` and ship a too-wide field. The tag-adding set is shared with
-                        // the register oracle (TypeLowering.LowerOptional) via OptionalAbiClassifier
-                        // so the two can't drift. See Finding 44 / Regression-R6 finding 4.
-                        if (OptionalAbiClassifier.HasAppendedOptionalTag(innerType.Name))
+                        // the register oracle (TypeLowering.LowerOptional) via SwiftValueLayout
+                        // so the two can't drift.
+                        if (SwiftValueLayout.HasAppendedOptionalTag(innerType.Name))
                         {
                             var innerLayout = ClassifyFieldType(innerType);
                             if (innerLayout != null)
