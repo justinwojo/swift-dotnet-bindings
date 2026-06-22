@@ -158,24 +158,83 @@ public class AsyncHarnessEmitterCleanupTests
     }
 
     [Fact]
-    public void BuildCollectionCarrierMarshalLines_ProxySuppressed_FaultsWithoutMarshalOrDestroy()
+    public void BuildCollectionCarrierMarshalLines_ProxySuppressed_ReleasesCarrierThenFaultsWithoutMarshal()
     {
-        // No per-element proxy → cannot marshal; fault the awaiting Task. The Swift wrapper still
-        // initializeMemory'd the container into the carrier, so this arm currently does NOT release
-        // that +1 — a known, pre-existing leak on a fault-only path (the bound method always faults).
-        // It is deliberately NOT closed by a C#-side VWT Destroy: the runtime's existential metadata
-        // is arity/marker-based (not protocol-identity-based), so a Destroy through container/shim
-        // metadata can over-read or mis-release a class-bound 16-byte existential cell — strictly
-        // worse than the leak. The robust release is a Swift-side typed destroy entry (tracked). This
-        // test pins the current emitted shape: a fault, with no marshal and no Destroy.
+        // No per-element proxy → cannot marshal; fault the awaiting Task. But the Swift wrapper still
+        // initializeMemory'd the container into the carrier, so the carrier holds a +1 on the CoW
+        // storage. runtimeType names the CONCRETE container carrier (SwiftArray<ExistentialContainer1>
+        // / SwiftArray<ClassExistentialContainer1> — set before the suppression catch, never the absent
+        // proxy), so a value-witness Destroy through that metadata releases the +1 at the correct
+        // element stride. The arm releases the carrier BEFORE faulting (mirroring the shipped
+        // optional-container suppressed arm); it does NOT MarshalFromSwift (there is no per-element
+        // proxy to construct), and the throw fires after — the awaiter observes NotSupportedException
+        // with the carrier's +1 already balanced.
         var code = AsyncHarnessEmitter.BuildCollectionCarrierMarshalLines(
-            runtimeType: "global::Swift.Runtime.SwiftArray<TestModule.IThing>",
+            runtimeType: "global::Swift.Runtime.SwiftArray<Swift.Runtime.ExistentialContainer1>",
             conversionExpr: "UNUSED",
             returnType: "global::System.Collections.Generic.IReadOnlyList<TestModule.IThing>",
             usesObjCContainerBridge: false, proxySuppressed: true, continuationIndent: Indent);
 
         Assert.Contains("throw new global::System.NotSupportedException", code);
-        Assert.DoesNotContain(Destroy, code);
+        // Releases the carrier's +1 via the concrete container's value-witness Destroy.
+        Assert.Contains(Destroy, code);
+        Assert.Contains("SwiftObjectHelper<global::Swift.Runtime.SwiftArray<Swift.Runtime.ExistentialContainer1>>.GetTypeMetadata()", code);
+        // Destroy must precede the fault so the +1 is balanced before the awaiter is faulted.
+        var destroyIdx = code.IndexOf(Destroy, System.StringComparison.Ordinal);
+        var throwIdx = code.IndexOf("throw new global::System.NotSupportedException", System.StringComparison.Ordinal);
+        Assert.True(destroyIdx < throwIdx, "carrier Destroy must run before the fault throw");
+        // Still no per-element marshal (no proxy to construct).
         Assert.DoesNotContain(MarshalCollection, code);
+    }
+
+    // ---- Async SCALAR suppressed-existential carrier release (BuildSuppressedExistentialCarrierRelease) ----
+    //
+    // A scalar `any P` async return whose per-type proxy was suppressed faults the awaiting Task, but the
+    // Swift wrapper still initializeMemory'd the existential into the carrier — a value-witness +1. The
+    // release must run BEFORE the throw, keyed on the existential SHAPE: class-bound → unknown-object
+    // release of the [classRef] word; opaque → arity-based existential metadata VWT Destroy. The opaque
+    // arm must NOT route through SwiftObjectHelper<ExistentialContainer{N}> (that type is
+    // IExistentialContainer, not ISwiftObject → CS0315, caught only by a full regen). These tests are the
+    // unit-level lock for that inline arm; runtime proof is SuppressedProxyAsyncCarrierLeakProbeTests.
+
+    private const string UnknownObjectRelease = "Swift.Runtime.Arc.UnknownObjectRelease(*(IntPtr*)resultPtr)";
+    private const string ExistentialMetadata = "Swift.Runtime.TypeMetadata.GetExistentialTypeMetadata(";
+    private const string ScalarDestroy = "_vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata)";
+
+    [Fact]
+    public void BuildSuppressedExistentialCarrierRelease_ClassBound_EmitsUnknownObjectReleaseOnly()
+    {
+        // Class-bound `any P: AnyObject`: a 2-word [classRef][witnessTable] cell. The +1 is the retained
+        // class reference at word 0 — release it via the kind-dispatching unknown-object entry point (the
+        // conformer may be an ObjC class). There is no opaque value-witness table, so NO VWT Destroy and
+        // NO existential metadata lookup.
+        var code = AsyncHarnessEmitter.BuildSuppressedExistentialCarrierRelease(
+            isClassBound: true, arity: 1, continuationIndent: Indent);
+
+        Assert.Contains(UnknownObjectRelease, code);
+        Assert.DoesNotContain(ExistentialMetadata, code);
+        Assert.DoesNotContain(ScalarDestroy, code);
+        // Never the SwiftObjectHelper<ExistentialContainer{N}> path (CS0315).
+        Assert.DoesNotContain("SwiftObjectHelper<", code);
+    }
+
+    [Fact]
+    public void BuildSuppressedExistentialCarrierRelease_Opaque_DestroysViaArityExistentialMetadata()
+    {
+        // Opaque `any P`: a 5-word container. Release via the ARITY-based existential metadata's
+        // structural value-witness Destroy. The arity flows straight into GetExistentialTypeMetadata(N),
+        // and the release must NOT use SwiftObjectHelper<ExistentialContainer{N}> (CS0315).
+        var code = AsyncHarnessEmitter.BuildSuppressedExistentialCarrierRelease(
+            isClassBound: false, arity: 2, continuationIndent: Indent);
+
+        Assert.Contains("Swift.Runtime.TypeMetadata.GetExistentialTypeMetadata(2)", code);
+        Assert.Contains(ScalarDestroy, code);
+        Assert.DoesNotContain(UnknownObjectRelease, code);
+        // The trap this whole change exists to avoid: ExistentialContainer{N} is not ISwiftObject.
+        Assert.DoesNotContain("SwiftObjectHelper<", code);
+        // The arity is threaded verbatim — a different arity yields a different metadata call.
+        var code3 = AsyncHarnessEmitter.BuildSuppressedExistentialCarrierRelease(
+            isClassBound: false, arity: 3, continuationIndent: Indent);
+        Assert.Contains("GetExistentialTypeMetadata(3)", code3);
     }
 }

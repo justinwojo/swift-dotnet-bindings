@@ -931,24 +931,48 @@ public static class AsyncMethodGenericBridgeEmitter
                     // carrier into a fresh NativeMemory.Alloc buffer that the SafeHandle
                     // owns, then VWT-Destroy the original carrier to release its +1; the
                     // raw allocation is freed below in finally. Mirrors AsyncHarnessEmitter's
-                    // newFromPayloadTakesOwnership branch.
+                    // newFromPayloadTakesOwnership branch. The marshal runs in a try: the
+                    // carrier's +1 is released in finally (covering a marshal-throw), and if
+                    // MarshalFromSwift throws before a SafeHandle adopts __resultBuf, the catch
+                    // releases the copy's +1 and frees the buffer so it does not leak too.
                     csWriter.WriteLines($$"""
                         var __resultMetadata = SwiftObjectHelper<{{csReturnType}}>.GetTypeMetadata();
                         IntPtr __resultBuf = (IntPtr)NativeMemory.Alloc(__resultMetadata.Size);
                         __resultMetadata.ValueWitnessTable->InitializeWithCopy((void*)__resultBuf, (void*)rawResult, __resultMetadata);
-                        var result = SwiftMarshal.MarshalFromSwift<{{csReturnType}}>(__resultBuf);
-                        __resultMetadata.ValueWitnessTable->Destroy((void*)rawResult, __resultMetadata);
+                        {{csReturnType}} result;
+                        try
+                        {
+                            result = SwiftMarshal.MarshalFromSwift<{{csReturnType}}>(__resultBuf);
+                        }
+                        catch
+                        {
+                            __resultMetadata.ValueWitnessTable->Destroy((void*)__resultBuf, __resultMetadata);
+                            NativeMemory.Free((void*)__resultBuf);
+                            throw;
+                        }
+                        finally
+                        {
+                            __resultMetadata.ValueWitnessTable->Destroy((void*)rawResult, __resultMetadata);
+                        }
                         """);
                 }
                 else if (carrierNeedsDestroy)
                 {
                     // Frozen struct with ref fields (ClassWithBufferStruct). NewFromPayload
                     // runs its own InitializeWithCopy into a managed buffer; we still need
-                    // to release the carrier's +1 before freeing it.
+                    // to release the carrier's +1 before freeing it. Resolve the metadata
+                    // first, then release in finally so a marshal-throw cannot orphan the +1.
                     csWriter.WriteLines($$"""
-                        var result = SwiftMarshal.MarshalFromSwift<{{csReturnType}}>(rawResult);
                         var __resultMetadata = SwiftObjectHelper<{{csReturnType}}>.GetTypeMetadata();
-                        __resultMetadata.ValueWitnessTable->Destroy((void*)rawResult, __resultMetadata);
+                        {{csReturnType}} result;
+                        try
+                        {
+                            result = SwiftMarshal.MarshalFromSwift<{{csReturnType}}>(rawResult);
+                        }
+                        finally
+                        {
+                            __resultMetadata.ValueWitnessTable->Destroy((void*)rawResult, __resultMetadata);
+                        }
                         """);
                 }
                 else

@@ -783,8 +783,39 @@ namespace BindingsGeneration
                 // legal throw-expression context (CS8115), and the downstream TrySetResult(result)
                 // requires `result` to be definitely assigned, so route the throw through a `?:`
                 // whose value-typed arm keeps `result`'s type while the throw always fires.
+                //
+                // The carrier still holds the Swift-vended +1 even on this fault path: the @_cdecl
+                // wrapper ran to completion and `initializeMemory(as: (any P).self, repeating:)`'d the
+                // existential into the carrier (it cannot know the C# proxy was suppressed), so the
+                // carrier holds the existential's value-witness +1. Release it BEFORE throwing, or it
+                // leaks every call. The correction is per existential SHAPE — the same class-bound vs
+                // opaque split the read above uses:
+                //  • class-bound `any P` — a compact 2-word [classRef][witnessTable] cell whose +1 is
+                //    a retained class reference at word 0. Balance it with an unknown-object release
+                //    (the conformer may be an ObjC class, so route through the kind-dispatching entry
+                //    point, not native-only swift_release). No VWT Destroy: there is no opaque
+                //    value-witness table, and the 16-byte cell has no registered container metadata.
+                //  • opaque `any P` — a 5-word container; release via the arity-based existential
+                //    metadata's value-witness Destroy. The destroy is structural — it follows the
+                //    payload's embedded metadata/witness-table words, so it does not depend on the
+                //    protocol's identity (the runtime resolves marker-protocol existential metadata
+                //    keyed only on the witness-table slot count). This is the same per-element destroy
+                //    the shipped optional/collection container arms already rely on.
+                // The opaque carrier's metadata is the arity-based existential metadata, NOT a
+                // SwiftObjectHelper<T> lookup: ExistentialContainer{N} implements IExistentialContainer,
+                // not ISwiftObject, so it cannot satisfy SwiftObjectHelper's constraint. The arity is the
+                // non-marker protocol count GetCSharpExistentialType embeds in asyncContainerType
+                // (ExistentialContainer{N}); GetExistentialTypeMetadata(N) yields container metadata whose
+                // structural value-witness Destroy releases the payload's +1 — the same opaque-existential
+                // metadata path WrapperEmitter and the proxy emitters already use. The per-shape release
+                // is built by BuildSuppressedExistentialCarrierRelease (unit-locked there).
+                var asyncExistentialArity = ExistentialHandler.GetNonMarkerProtocols(asyncProtocolList).Count;
+                var asyncSuppressedRelease = BuildSuppressedExistentialCarrierRelease(
+                    _env.ExistentialHandler.IsClassBoundArity1Existential(asyncProtocolList),
+                    asyncExistentialArity,
+                    "                                ");
                 marshalResultCode = asyncProxySuppressed
-                    ? $"{asyncPublicType} result = true ? throw new global::System.NotSupportedException(\"Protocol proxy for '{asyncPublicType}' was not emitted (its EveryProtocol conformance is unavailable); cannot marshal the async existential result.\") : default;"
+                    ? $"{asyncSuppressedRelease}{asyncPublicType} result = true ? throw new global::System.NotSupportedException(\"Protocol proxy for '{asyncPublicType}' was not emitted (its EveryProtocol conformance is unavailable); cannot marshal the async existential result.\") : default;"
                     : $"var __existentialResult = {asyncExistentialRead};\n" +
                       $"                                var result = {asyncWrapExpr};";
             }
@@ -881,11 +912,20 @@ namespace BindingsGeneration
                     // carrier was initialized via initializeMemory(as: Optional<SwiftArray<…>>.self)
                     // and holds +1 on the embedded class storage — VWT-Destroy the carrier before
                     // SBW_Free reclaims the raw allocation, otherwise the storage refcount leaks.
+                    // Resolve the metadata first, then release in a finally so a marshal/conversion
+                    // throw cannot orphan the carrier's +1.
                     marshalResultCode =
-                        $"var _rawResult = SwiftMarshal.MarshalFromSwift<{optionalMarshalType}>(resultPtr).ToNullable();\n" +
-                        $"                                var result = _rawResult is {{ }} _rawCol ? {valueContainerInnerConversion} : null;\n" +
-                        $"                                var _vwtMetadata = SwiftObjectHelper<{optionalMarshalType}>.GetTypeMetadata();\n" +
-                        $"                                _vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);";
+                        $"var _vwtMetadata = SwiftObjectHelper<{optionalMarshalType}>.GetTypeMetadata();\n" +
+                        $"                                {_wrapperSignature.ReturnType} result;\n" +
+                        $"                                try\n" +
+                        $"                                {{\n" +
+                        $"                                    var _rawResult = SwiftMarshal.MarshalFromSwift<{optionalMarshalType}>(resultPtr).ToNullable();\n" +
+                        $"                                    result = _rawResult is {{ }} _rawCol ? {valueContainerInnerConversion} : null;\n" +
+                        $"                                }}\n" +
+                        $"                                finally\n" +
+                        $"                                {{\n" +
+                        $"                                    _vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);\n" +
+                        $"                                }}";
                 }
                 else if (carrierNeedsDestroy)
                 {
@@ -904,11 +944,20 @@ namespace BindingsGeneration
                     // converts to `int?` HasValue=true at the callsite — the None case is lost. The
                     // explicit HasValue branch with a cast to the public return type forces the
                     // conditional's common type to the proper Nullable<T>, preserving null for None.
+                    // Resolve the metadata first, then release in a finally so a marshal-throw cannot
+                    // orphan the carrier's +1.
                     marshalResultCode =
-                        $"var _swiftOpt = SwiftMarshal.MarshalFromSwift<{optionalMarshalType}>(resultPtr);\n" +
-                        $"                                var result = _swiftOpt.HasValue ? ({_wrapperSignature.ReturnType})_swiftOpt.Some : default;\n" +
-                        $"                                var _vwtMetadata = SwiftObjectHelper<{optionalMarshalType}>.GetTypeMetadata();\n" +
-                        $"                                _vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);";
+                        $"var _vwtMetadata = SwiftObjectHelper<{optionalMarshalType}>.GetTypeMetadata();\n" +
+                        $"                                {_wrapperSignature.ReturnType} result;\n" +
+                        $"                                try\n" +
+                        $"                                {{\n" +
+                        $"                                    var _swiftOpt = SwiftMarshal.MarshalFromSwift<{optionalMarshalType}>(resultPtr);\n" +
+                        $"                                    result = _swiftOpt.HasValue ? ({_wrapperSignature.ReturnType})_swiftOpt.Some : default;\n" +
+                        $"                                }}\n" +
+                        $"                                finally\n" +
+                        $"                                {{\n" +
+                        $"                                    _vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);\n" +
+                        $"                                }}";
                 }
                 else
                 {
@@ -927,23 +976,49 @@ namespace BindingsGeneration
                 // managed wrapper, which then owns its own memory (SwiftSafeHandle.ReleaseHandle
                 // runs VWT Destroy + NativeMemory.Free on dispose). We must VWT-Destroy the
                 // carrier here to release its +1 before SBW_Free reclaims the raw allocation.
+                //
+                // The marshal runs in a try so a throw cannot orphan a +1: finally releases the
+                // carrier's +1 (success and throw alike); on success the managed result owns _vwtBuf
+                // (freed by its SafeHandle), but if MarshalFromSwift throws before that adoption the
+                // catch releases the copy's +1 and frees _vwtBuf so it does not leak alongside.
                 marshalResultCode =
                     $"var _vwtMetadata = SwiftObjectHelper<{_wrapperSignature.ReturnType}>.GetTypeMetadata();\n" +
                     $"                                IntPtr _vwtBuf = (IntPtr)NativeMemory.Alloc(_vwtMetadata.Size);\n" +
                     $"                                _vwtMetadata.ValueWitnessTable->InitializeWithCopy((void*)_vwtBuf, (void*)resultPtr, _vwtMetadata);\n" +
-                    $"                                var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(_vwtBuf);\n" +
-                    $"                                _vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);";
+                    $"                                {_wrapperSignature.ReturnType} result;\n" +
+                    $"                                try\n" +
+                    $"                                {{\n" +
+                    $"                                    result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(_vwtBuf);\n" +
+                    $"                                }}\n" +
+                    $"                                catch\n" +
+                    $"                                {{\n" +
+                    $"                                    _vwtMetadata.ValueWitnessTable->Destroy((void*)_vwtBuf, _vwtMetadata);\n" +
+                    $"                                    NativeMemory.Free((void*)_vwtBuf);\n" +
+                    $"                                    throw;\n" +
+                    $"                                }}\n" +
+                    $"                                finally\n" +
+                    $"                                {{\n" +
+                    $"                                    _vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);\n" +
+                    $"                                }}";
             }
             else if (carrierNeedsDestroy)
             {
                 // Frozen-with-memory struct (ClassWithBufferStruct, e.g. @frozen with String field).
                 // NewFromPayload runs its own InitializeWithCopy into a managed buffer — the returned
                 // C# object holds its own +1 independent of the carrier. We only need to release the
-                // carrier's +1 (from the Swift-side initializeMemory) before SBW_Free.
+                // carrier's +1 (from the Swift-side initializeMemory) before SBW_Free. Resolve the
+                // metadata first, then release in a finally so a marshal-throw cannot orphan the +1.
                 marshalResultCode =
-                    $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(resultPtr);\n" +
-                    $"                                var _vwtMetadata = SwiftObjectHelper<{_wrapperSignature.ReturnType}>.GetTypeMetadata();\n" +
-                    $"                                _vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);";
+                    $"var _vwtMetadata = SwiftObjectHelper<{_wrapperSignature.ReturnType}>.GetTypeMetadata();\n" +
+                    $"                                {_wrapperSignature.ReturnType} result;\n" +
+                    $"                                try\n" +
+                    $"                                {{\n" +
+                    $"                                    result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(resultPtr);\n" +
+                    $"                                }}\n" +
+                    $"                                finally\n" +
+                    $"                                {{\n" +
+                    $"                                    _vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);\n" +
+                    $"                                }}";
             }
             else
                 marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(resultPtr);";
@@ -1267,16 +1342,17 @@ namespace BindingsGeneration
         ///   so there is no per-element constructor; fault the awaiting Task instead of marshalling
         ///   (a bare <c>T result = throw …;</c> is not a legal throw-expression context (CS8115) and
         ///   the downstream <c>TrySetResult(result)</c> needs definite assignment, so the throw is
-        ///   routed through a <c>?:</c> whose value-typed arm keeps <c>result</c>'s type). NOTE: the
-        ///   Swift wrapper still <c>initializeMemory</c>'d the container into the carrier, so this arm
-        ///   currently leaves that <c>+1</c> unreleased — a known, pre-existing leak on a fault-only
-        ///   path (the bound method always faults; it never returns a value). It is NOT closed by a
-        ///   VWT Destroy here: the runtime's existential metadata lookup is arity/marker-based, not
-        ///   protocol-identity-based, and a class-bound existential is a compact 16-byte
-        ///   [classRef][witness] cell — a Destroy through container/shim metadata can over-read or
-        ///   mis-release (SIGSEGV / double-release), strictly worse than the leak. The robust release
-        ///   is a Swift-side typed destroy entry compiled against the exact return type; shared by the
-        ///   scalar/optional existential suppressed arms. Tracked, not yet implemented.</item>
+        ///   routed through a <c>?:</c> whose value-typed arm keeps <c>result</c>'s type). The Swift
+        ///   wrapper still <c>initializeMemory(as: &lt;Container&gt;.self)</c>'d the container into the
+        ///   carrier (it cannot know the C# per-element proxy was suppressed), so the carrier holds a
+        ///   <c>+1</c> on the CoW storage — released via the concrete container's value-witness Destroy
+        ///   BEFORE the throw, exactly as the plain arm does on success. <paramref name="runtimeType"/>
+        ///   names the raw <c>SwiftArray&lt;ExistentialContainer1&gt;</c> /
+        ///   <c>SwiftArray&lt;ClassExistentialContainer1&gt;</c> / … carrier (set before the suppression
+        ///   catch), never the absent proxy, so the array's element-destroy runs at the correct element
+        ///   stride; the suppression only blocks the per-element C# conversion, not the carrier layout.
+        ///   This mirrors the shipped optional-container suppressed arm; without it the backing storage
+        ///   leaks every call (these are fault-only methods that never return a value).</item>
         ///   <item><c>usesObjCContainerBridge</c> — the Swift wrapper stored a <c>+1</c>-retained
         ///   NS-collection POINTER in the carrier (a pointer-bit carrier, NOT a value-witness value).
         ///   Read it and bridge through the projection's IntPtr-shaped conversion. A VWT Destroy here
@@ -1301,23 +1377,75 @@ namespace BindingsGeneration
             bool usesObjCContainerBridge, bool proxySuppressed, string continuationIndent)
         {
             return proxySuppressed
-                ? $"{returnType} result = true ? throw new global::System.NotSupportedException(\"Protocol proxy for the element of '{returnType}' was not emitted (its EveryProtocol conformance is unavailable); cannot marshal the async existential collection result.\") : default;"
+                ? $"// The Swift wrapper still initializeMemory(as: <Container>.self)'d the existential container\n" +
+                  $"{continuationIndent}// into the carrier (it cannot know the C# per-element proxy was suppressed), so the\n" +
+                  $"{continuationIndent}// carrier holds a +1 on the CoW storage. Release it via the concrete container's\n" +
+                  $"{continuationIndent}// value-witness Destroy BEFORE faulting — runtimeType names the raw\n" +
+                  $"{continuationIndent}// SwiftArray<ExistentialContainer1>/SwiftArray<ClassExistentialContainer1>/… carrier\n" +
+                  $"{continuationIndent}// (set before the suppression catch), never the absent proxy, so the array's\n" +
+                  $"{continuationIndent}// element-destroy runs at the correct element stride. Mirrors the shipped\n" +
+                  $"{continuationIndent}// optional-container suppressed arm; without it the backing storage leaks every call.\n" +
+                  $"{continuationIndent}var _vwtMetadata = SwiftObjectHelper<{runtimeType}>.GetTypeMetadata();\n" +
+                  $"{continuationIndent}_vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);\n" +
+                  $"{continuationIndent}{returnType} result = true ? throw new global::System.NotSupportedException(\"Protocol proxy for the element of '{returnType}' was not emitted (its EveryProtocol conformance is unavailable); cannot marshal the async existential collection result.\") : default;"
                 : usesObjCContainerBridge
                 ? $"// ObjC-bridge collection: read +1 retained NS-collection pointer from carrier\n" +
                   $"{continuationIndent}IntPtr _ptr = *(IntPtr*)resultPtr;\n" +
                   $"{continuationIndent}var result = {conversionExpr};"
-                : $"// Marshal collection from Swift-allocated memory using runtime container type\n" +
-                  $"{continuationIndent}var _collection = SwiftMarshal.MarshalFromSwift<{runtimeType}>(resultPtr);\n" +
+                : $"// Marshal collection from Swift-allocated memory using runtime container type.\n" +
                   $"{continuationIndent}// The Swift async wrapper wrote the result via initializeMemory(as: <Container>.self),\n" +
                   $"{continuationIndent}// running the container's copy witness — the carrier holds a +1 on the CoW buffer.\n" +
-                  $"{continuationIndent}// MarshalFromSwift/NewFromPayload above took its OWN independent +1 (InitializeWithCopy\n" +
-                  $"{continuationIndent}// into a managed buffer), so release the carrier's +1 via VWT Destroy NOW — before the\n" +
-                  $"{continuationIndent}// projection conversion below (which reads only the independent _collection copy) and\n" +
-                  $"{continuationIndent}// before SBW_Free reclaims the raw allocation. Destroying here keeps the carrier's +1\n" +
-                  $"{continuationIndent}// balanced even if the conversion throws; otherwise the backing storage leaks each call.\n" +
+                  $"{continuationIndent}// MarshalFromSwift/NewFromPayload takes its OWN independent +1 (InitializeWithCopy into a\n" +
+                  $"{continuationIndent}// managed buffer), so release the carrier's +1 via VWT Destroy in a finally — covering the\n" +
+                  $"{continuationIndent}// marshal-throw window too — before the projection conversion below (which reads only the\n" +
+                  $"{continuationIndent}// independent _collection copy) and before SBW_Free reclaims the raw allocation. Destroying\n" +
+                  $"{continuationIndent}// in finally keeps the carrier's +1 balanced even if marshal or conversion throws.\n" +
                   $"{continuationIndent}var _vwtMetadata = SwiftObjectHelper<{runtimeType}>.GetTypeMetadata();\n" +
-                  $"{continuationIndent}_vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);\n" +
+                  $"{continuationIndent}{runtimeType} _collection;\n" +
+                  $"{continuationIndent}try\n" +
+                  $"{continuationIndent}{{\n" +
+                  $"{continuationIndent}    _collection = SwiftMarshal.MarshalFromSwift<{runtimeType}>(resultPtr);\n" +
+                  $"{continuationIndent}}}\n" +
+                  $"{continuationIndent}finally\n" +
+                  $"{continuationIndent}{{\n" +
+                  $"{continuationIndent}    _vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);\n" +
+                  $"{continuationIndent}}}\n" +
                   $"{continuationIndent}var result = {conversionExpr};";
+        }
+
+        /// <summary>
+        /// Builds the C# lines that release the Swift-vended carrier +1 on the suppressed-proxy
+        /// SCALAR existential async fault path, BEFORE the awaiting Task is faulted and the shared
+        /// finally's SBW_Free reclaims the raw allocation. The Swift @_cdecl wrapper ran to
+        /// completion and initializeMemory'd the existential into the carrier (it cannot know the C#
+        /// proxy was suppressed), so the carrier holds the existential's value-witness +1; without
+        /// this release it leaks every call. The correction is per existential SHAPE:
+        /// <list type="bullet">
+        /// <item>class-bound <c>any P: AnyObject</c> — a compact [classRef][witnessTable] cell whose
+        /// +1 is the retained class reference at word 0; balance it with the kind-dispatching
+        /// unknown-object release (the conformer may be an ObjC class, so not native-only
+        /// swift_release). There is no opaque value-witness table to Destroy.</item>
+        /// <item>opaque <c>any P</c> — a 5-word container; Destroy through the ARITY-based existential
+        /// metadata. The destroy is structural (it follows the payload's embedded metadata/witness
+        /// words), so it does not depend on the protocol's identity. This is NOT a
+        /// <c>SwiftObjectHelper&lt;ExistentialContainer{N}&gt;</c> lookup: <c>ExistentialContainer{N}</c>
+        /// implements <c>IExistentialContainer</c>, not <c>ISwiftObject</c>, so it cannot satisfy
+        /// SwiftObjectHelper's constraint (CS0315).</item>
+        /// </list>
+        /// <paramref name="arity"/> is the non-marker protocol count <c>GetCSharpExistentialType</c>
+        /// embeds in the carrier type (<c>ExistentialContainer{N}</c>). <paramref name="continuationIndent"/>
+        /// is prepended to trailing lines so the block nests under the completion callback's indentation.
+        /// The returned string is a prefix: the caller appends the value-typed fault throw immediately
+        /// after it (the release runs first, then the throw fires).
+        /// </summary>
+        internal static string BuildSuppressedExistentialCarrierRelease(
+            bool isClassBound, int arity, string continuationIndent)
+        {
+            return isClassBound
+                ? $"Swift.Runtime.Arc.UnknownObjectRelease(*(IntPtr*)resultPtr);\n{continuationIndent}"
+                : $"var _vwtMetadata = Swift.Runtime.TypeMetadata.GetExistentialTypeMetadata({arity});\n" +
+                  $"{continuationIndent}_vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);\n" +
+                  $"{continuationIndent}";
         }
 
         /// <summary>

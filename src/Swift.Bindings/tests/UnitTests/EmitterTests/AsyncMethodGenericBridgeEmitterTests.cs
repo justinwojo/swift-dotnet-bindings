@@ -632,8 +632,8 @@ public class AsyncMethodGenericBridgeEmitterTests
         Assert.Contains("private static partial void SBW_UnregisterTask(long taskId)", csResult);
         Assert.Contains("SBW_UnregisterTask(_sbwCancelKey)", csResult);
 
-        int handleFreeIdx = csResult.IndexOf("handle.Free();", StringComparison.Ordinal);
-        int unregisterIdx = csResult.IndexOf("SBW_UnregisterTask(_sbwCancelKey)", StringComparison.Ordinal);
+        int handleFreeIdx = csResult.IndexOf("handle.Free();", System.StringComparison.Ordinal);
+        int unregisterIdx = csResult.IndexOf("SBW_UnregisterTask(_sbwCancelKey)", System.StringComparison.Ordinal);
         Assert.True(handleFreeIdx >= 0 && unregisterIdx > handleFreeIdx, "reclaim runs after handle.Free() on the catch path");
     }
 
@@ -780,6 +780,103 @@ public class AsyncMethodGenericBridgeEmitterTests
         Assert.Contains("private static partial void SBW_Free(IntPtr ptr)", csText);
         // Frozen blittable: no VWT-Destroy of the carrier (no internal refs to release).
         Assert.DoesNotContain("ValueWitnessTable->Destroy((void*)rawResult", csText);
+    }
+
+    [Fact]
+    public void TryEmit_NonFrozenStructReturn_MarshalThrowReleasesBothCarrierAndCopyBuffer()
+    {
+        // Non-frozen struct (ClassWithOpaquePayload) → the callback copies the carrier into a
+        // fresh SafeHandle-owned buffer, then VWT-Destroys the original carrier. The marshal runs
+        // in a try: the carrier's +1 is released in finally so a marshal-throw still balances it,
+        // and the catch releases the copy buffer's +1 and frees it so a throw before a SafeHandle
+        // adopts __resultBuf cannot orphan that allocation either. Pins the M2 fault-path ordering
+        // — a marshal/metadata throw must not leak the carrier OR the copy buffer.
+        var (csWriter, swiftWriter, csOutput, swiftOutput) =
+            CreateWritersWithComplexReturn(TypeRecordFlags.None);
+        var method = swiftOutput.method;
+        var parent = swiftOutput.parent;
+        var typeDatabase = swiftOutput.typeDatabase;
+        var env = new MethodEnvironment(method, typeDatabase);
+        var ctx = new ModuleEmissionContext();
+
+        Assert.True(AsyncMethodGenericBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parent, ctx));
+
+        var csText = csOutput.csBuffer.ToString();
+
+        // The marshal reads the SafeHandle-owned copy, not the carrier directly.
+        Assert.Contains("MarshalFromSwift<TestModule.PurchaseResult>(__resultBuf)", csText);
+        Assert.DoesNotContain("MarshalFromSwift<TestModule.PurchaseResult>(rawResult)", csText);
+
+        // Marshal is guarded so a throw cannot skip the releases.
+        var tryIdx = csText.IndexOf("result = SwiftMarshal.MarshalFromSwift<TestModule.PurchaseResult>(__resultBuf);", System.StringComparison.Ordinal);
+        Assert.True(tryIdx >= 0, "marshal must be emitted inside the guarded block");
+
+        // Catch arm: release the copy buffer's +1 and free it before rethrow.
+        var copyDestroyIdx = csText.IndexOf("ValueWitnessTable->Destroy((void*)__resultBuf", System.StringComparison.Ordinal);
+        var copyFreeIdx = csText.IndexOf("NativeMemory.Free((void*)__resultBuf", System.StringComparison.Ordinal);
+        var rethrowIdx = csText.IndexOf("throw;", System.StringComparison.Ordinal);
+        Assert.True(copyDestroyIdx >= 0, "catch must VWT-Destroy the copy buffer's +1");
+        Assert.True(copyFreeIdx >= 0, "catch must free the copy buffer allocation");
+        Assert.True(rethrowIdx >= 0, "catch must rethrow after releasing the copy buffer");
+        Assert.True(copyDestroyIdx < copyFreeIdx && copyFreeIdx < rethrowIdx,
+            "catch must Destroy then Free the copy buffer before rethrowing");
+
+        // Finally arm: release the original carrier's +1 (covers the marshal-throw window).
+        var carrierDestroyIdx = csText.IndexOf("ValueWitnessTable->Destroy((void*)rawResult", System.StringComparison.Ordinal);
+        Assert.True(carrierDestroyIdx >= 0, "finally must VWT-Destroy the carrier's +1");
+        // The carrier Destroy must sit in a `finally` that FOLLOWS the guarded marshal — not merely
+        // somewhere after it. A linear regression (marshal then `Destroy(rawResult)` on the success
+        // line, no try/finally) satisfies a bare `tryIdx < carrierDestroyIdx` ordering yet still
+        // leaks the carrier on a marshal-throw; assert a `finally` keyword sits between the marshal
+        // and the carrier Destroy (the inner carrier-release finally, not the trailing SBW_Free one).
+        var carrierFinallyIdx = csText.IndexOf("finally", tryIdx, System.StringComparison.Ordinal);
+        Assert.True(carrierFinallyIdx >= 0 && carrierFinallyIdx < carrierDestroyIdx,
+            "carrier Destroy must live in a finally block placed after the guarded marshal");
+        Assert.True(rethrowIdx < carrierFinallyIdx,
+            "the copy-buffer catch must precede the carrier-release finally");
+
+        // The raw Swift carrier allocation is still reclaimed via SBW_Free below.
+        Assert.Contains("SBW_Free(rawResult)", csText);
+    }
+
+    [Fact]
+    public void TryEmit_FrozenStructProjectedAsClassReturn_MarshalThrowStillReleasesCarrier()
+    {
+        // Frozen struct with reference-type fields (ClassWithBufferStruct). NewFromPayload runs its
+        // own InitializeWithCopy into a managed buffer, so the carrier's +1 must still be released.
+        // Resolve the metadata first, marshal in a try, and VWT-Destroy the carrier in finally so a
+        // marshal-throw cannot orphan the +1. No copy buffer is allocated on this arm.
+        var (csWriter, swiftWriter, csOutput, swiftOutput) = CreateWritersWithComplexReturn(
+            TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement);
+        var method = swiftOutput.method;
+        var parent = swiftOutput.parent;
+        var typeDatabase = swiftOutput.typeDatabase;
+        var env = new MethodEnvironment(method, typeDatabase);
+        var ctx = new ModuleEmissionContext();
+
+        Assert.True(AsyncMethodGenericBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parent, ctx));
+
+        var csText = csOutput.csBuffer.ToString();
+
+        // This arm marshals from the carrier directly — no SafeHandle-owned copy buffer.
+        Assert.Contains("MarshalFromSwift<TestModule.PurchaseResult>(rawResult)", csText);
+        Assert.DoesNotContain("NativeMemory.Alloc(__resultMetadata.Size)", csText);
+        Assert.DoesNotContain("__resultBuf", csText);
+
+        // Marshal is guarded; the carrier's +1 is released in finally after the marshal.
+        var marshalIdx = csText.IndexOf("result = SwiftMarshal.MarshalFromSwift<TestModule.PurchaseResult>(rawResult);", System.StringComparison.Ordinal);
+        var carrierDestroyIdx = csText.IndexOf("ValueWitnessTable->Destroy((void*)rawResult", System.StringComparison.Ordinal);
+        Assert.True(marshalIdx >= 0, "marshal must be emitted inside the guarded block");
+        Assert.True(carrierDestroyIdx >= 0, "finally must VWT-Destroy the carrier's +1");
+        // As above: a linear regression (marshal then `Destroy(rawResult)` on the success line) also
+        // satisfies a bare `marshalIdx < carrierDestroyIdx`. Require a `finally` between the marshal and
+        // the carrier Destroy so the Destroy provably sits in the guarded finally, not the success path.
+        var carrierFinallyIdx = csText.IndexOf("finally", marshalIdx, System.StringComparison.Ordinal);
+        Assert.True(carrierFinallyIdx >= 0 && carrierFinallyIdx < carrierDestroyIdx,
+            "carrier Destroy must live in a finally block placed after the guarded marshal");
+
+        // The raw Swift carrier allocation is still reclaimed via SBW_Free below.
+        Assert.Contains("SBW_Free(rawResult)", csText);
     }
 
     #endregion
@@ -1112,11 +1209,17 @@ public class AsyncMethodGenericBridgeEmitterTests
     }
 
     /// <summary>
-    /// Build a method that returns a frozen struct (PurchaseResult). Mirrors the
-    /// StoreKit2 shape from the BindingTests fixture.
+    /// Build a method that returns a complex value type (PurchaseResult). Mirrors the
+    /// StoreKit2 shape from the BindingTests fixture. <paramref name="returnTypeFlags"/>
+    /// selects which carrier-ownership arm the callback emits: the default
+    /// <see cref="TypeRecordFlags.Frozen"/> is a frozen blittable struct (plain arm, raw free,
+    /// no VWT-Destroy); a bare struct (no Frozen) is the non-frozen / callback-owned arm
+    /// (copy-into-SafeHandle-buffer + carrier Destroy); Frozen|RequiresMemoryManagement is a
+    /// frozen-struct-projected-as-class (carrier-needs-destroy arm).
     /// </summary>
     private static (CSharpWriter csWriter, SwiftWriter swiftWriter,
-        ComplexEmitOutputs csOutput, ComplexEmitOutputs swiftOutput) CreateWritersWithComplexReturn()
+        ComplexEmitOutputs csOutput, ComplexEmitOutputs swiftOutput) CreateWritersWithComplexReturn(
+        TypeRecordFlags returnTypeFlags = TypeRecordFlags.Frozen)
     {
         var csBuffer = new StringWriter();
         var swiftBuffer = new StringWriter();
@@ -1190,7 +1293,7 @@ public class AsyncMethodGenericBridgeEmitterTests
             CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "PurchaseResult"),
             SwiftTypeName = purchaseResultName,
             MetadataAccessor = "$s10TestModule15PurchaseResultVMa",
-            Flags = TypeRecordFlags.Frozen,
+            Flags = returnTypeFlags,
             Kind = TypeRecordKind.Struct
         });
         // Replace in DB
