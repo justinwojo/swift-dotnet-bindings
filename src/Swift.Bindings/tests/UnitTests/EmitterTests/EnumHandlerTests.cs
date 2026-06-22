@@ -945,4 +945,54 @@ public class EnumHandlerTests
     }
 
     #endregion
+
+    #region Simple enum discriminator read width (sourced from SwiftValueLayout oracle)
+
+    [Theory]
+    [InlineData(1, "(*ptr)")]            // ≤256 cases — plain byte dereference
+    [InlineData(2, "(*(short*)ptr)")]    // >256 cases — must widen to a short
+    [InlineData(4, "(*(int*)ptr)")]
+    [InlineData(8, "(*(long*)ptr)")]
+    public void GetSimpleEnumReadExpression_UsesOracleStoredWidth(int inlineSize, string expected)
+    {
+        // The read width comes from SwiftValueLayout.GetSimpleEnumStoredInlineSize, not a re-inlined
+        // `?? 1`. A 2-byte (>256-case) enum must be read as a short; a wrong width reads the wrong
+        // discriminator. Pins that the consumer asks the oracle and maps the width to the right cast.
+        var record = SimpleEnumRecord(inlineSize);
+
+        Assert.Equal(expected, EnumHandler.GetSimpleEnumReadExpression(record, "ptr"));
+    }
+
+    [Fact]
+    public void GetSimpleEnumReadExpression_NullInlineSize_ReadsOneByteFallback()
+    {
+        // Absent InlineSize → the oracle's single documented one-byte fallback (a plain dereference).
+        var record = SimpleEnumRecord(inlineSize: null);
+
+        Assert.Equal("(*ptr)", EnumHandler.GetSimpleEnumReadExpression(record, "ptr"));
+    }
+
+    [Theory]
+    [InlineData(1, "(*(ptr + (int)off))")]
+    [InlineData(2, "(*(short*)(ptr + (int)off))")]
+    [InlineData(8, "(*(long*)(ptr + (int)off))")]
+    public void GetSimpleEnumReadExpressionWithOffset_UsesOracleStoredWidth(int inlineSize, string expected)
+    {
+        var record = SimpleEnumRecord(inlineSize);
+
+        Assert.Equal(expected, EnumHandler.GetSimpleEnumReadExpressionWithOffset(record, "ptr", "off"));
+    }
+
+    private static TypeRecord SimpleEnumRecord(int? inlineSize) =>
+        new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "SomeEnum"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.SomeEnum"),
+            MetadataAccessor = "",
+            Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+            Kind = TypeRecordKind.Enum,
+            InlineSize = inlineSize,
+        };
+
+    #endregion
 }

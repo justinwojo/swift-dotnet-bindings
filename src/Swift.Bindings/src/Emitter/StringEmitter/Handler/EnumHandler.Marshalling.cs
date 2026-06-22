@@ -810,14 +810,15 @@ namespace BindingsGeneration
             }
         }
         /// <summary>
-        /// Returns a C# expression to read a simple enum's discriminator from a byte pointer,
-        /// using the correct width based on InlineSize from the TypeRecord.
-        /// Swift stores simple enums as the minimum bytes needed for the discriminator
-        /// (1 byte for ≤256 cases, 2 for ≤65536, etc.), regardless of raw value type.
+        /// Returns a C# expression to read a simple enum's discriminator from a byte pointer, using the
+        /// stored discriminator width from <see cref="SwiftValueLayout.GetSimpleEnumStoredInlineSize"/>
+        /// (the single owner of that width, including the one-byte fallback when InlineSize is absent).
+        /// Swift stores simple enums in the minimum bytes needed for the discriminator (1 byte for ≤256
+        /// cases, 2 for ≤65536, etc.), regardless of raw value type.
         /// </summary>
-        private static string GetSimpleEnumReadExpression(TypeRecord typeRecord, string sourcePtr)
+        internal static string GetSimpleEnumReadExpression(TypeRecord typeRecord, string sourcePtr)
         {
-            var size = typeRecord.InlineSize ?? 1; // Default to 1 byte when InlineSize unavailable
+            var size = SwiftValueLayout.GetSimpleEnumStoredInlineSize(typeRecord);
             return size switch
             {
                 1 => $"(*{sourcePtr})",
@@ -896,12 +897,13 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Returns a C# expression to read a simple enum's discriminator from a byte pointer
-        /// at a given offset, using the correct width based on InlineSize.
+        /// Returns a C# expression to read a simple enum's discriminator from a byte pointer at a given
+        /// offset, using the stored discriminator width from
+        /// <see cref="SwiftValueLayout.GetSimpleEnumStoredInlineSize"/> (the single owner of that width).
         /// </summary>
-        private static string GetSimpleEnumReadExpressionWithOffset(TypeRecord typeRecord, string sourcePtr, string offsetVar)
+        internal static string GetSimpleEnumReadExpressionWithOffset(TypeRecord typeRecord, string sourcePtr, string offsetVar)
         {
-            var size = typeRecord.InlineSize ?? 1;
+            var size = SwiftValueLayout.GetSimpleEnumStoredInlineSize(typeRecord);
             return size switch
             {
                 1 => $"(*({sourcePtr} + (int){offsetVar}))",

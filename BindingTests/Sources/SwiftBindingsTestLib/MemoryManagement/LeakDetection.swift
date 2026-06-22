@@ -381,6 +381,62 @@ public func makeTrackedRefResult(success: Bool, value: Int32) -> Result<TrackedR
     return success ? .success(TrackedRef(tag: value)) : .failure(.failed)
 }
 
+// MARK: - Async Collection-Return Carrier Leak Probe Fixtures
+//
+// The factories above are SYNCHRONOUS — their generated C# returns the collection on the
+// calling frame, where the collection-return cleanup already value-witness-Destroys the
+// carrier. The ASYNC collection-return path is a SEPARATE generated callback (the async
+// completion thunk reads the Swift-allocated carrier on a Swift continuation thread). The
+// Swift async wrapper writes the result via `initializeMemory(as: <Container>.self)`, which
+// runs the container's copy witness and takes a +1 on the copy-on-write storage. The C#
+// completion callback marshals the container (a second, independent +1 via NewFromPayload's
+// InitializeWithCopy) and then frees the carrier — so it must value-witness-Destroy the
+// carrier's +1 first, or the entire backing storage (and every element/value/member it holds)
+// leaks once per awaited call. Each fixture forces a real suspension so the C# foreground frame
+// unwinds before the carrier is read, exactly like a real async collection return.
+
+/// Async `[TrackedRef]` — array carrier holds a +1 on the CoW storage backing every element.
+public func fetchTrackedRefArray(count: Int32) async -> [TrackedRef] {
+    try? await Task.sleep(nanoseconds: 1_000_000)
+    var result: [TrackedRef] = []
+    for i in 0..<count {
+        result.append(TrackedRef(tag: i))
+    }
+    return result
+}
+
+/// Async `[TrackedRefStruct]` — array of a NON-frozen (resilient) struct embedding a
+/// `TrackedRef`. This is the `[ResilientStruct]` async-return shape: the array carrier's +1
+/// pins the CoW storage holding every struct, and each struct's buffer holds the embedded ref.
+public func fetchTrackedRefStructArray(count: Int32) async -> [TrackedRefStruct] {
+    try? await Task.sleep(nanoseconds: 1_000_000)
+    var result: [TrackedRefStruct] = []
+    for i in 0..<count {
+        result.append(TrackedRefStruct(value: i))
+    }
+    return result
+}
+
+/// Async `[Int32: TrackedRef]` — dictionary carrier holds a +1 on the CoW storage backing every value.
+public func fetchTrackedRefDict(count: Int32) async -> [Int32: TrackedRef] {
+    try? await Task.sleep(nanoseconds: 1_000_000)
+    var result: [Int32: TrackedRef] = [:]
+    for i in 0..<count {
+        result[i] = TrackedRef(tag: i)
+    }
+    return result
+}
+
+/// Async `Set<TrackedRef>` — set carrier holds a +1 on the CoW storage backing every member.
+public func fetchTrackedRefSet(count: Int32) async -> Set<TrackedRef> {
+    try? await Task.sleep(nanoseconds: 1_000_000)
+    var result: Set<TrackedRef> = []
+    for i in 0..<count {
+        result.insert(TrackedRef(tag: i))
+    }
+    return result
+}
+
 // MARK: - Borrowed Callback-Arg Leak Probe (Finding 11 — the borrow leak, T1)
 //
 // The probes above exercise the *return* direction (a Copy-semantics wrapper handed

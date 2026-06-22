@@ -4,6 +4,7 @@
 #nullable enable
 
 using System.Runtime.InteropServices;
+using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -1342,6 +1343,47 @@ namespace BindingsGeneration.Tests
             // form has no upper bound that could go wrong, but we still gate on parse to
             // keep the helper's failure mode symmetric and predictable.
             Assert.Equal(version, RuntimeVersionRange.BuildMinimumOnly(version));
+        }
+
+        [Fact]
+        public void DefaultSwiftRuntimeVersion_SingleSourcedFromDirectoryBuildPropsSdkVersion()
+        {
+            // DefaultSwiftRuntimeVersion is not a hand-maintained literal: the
+            // _GenerateSwiftBindingsVersionConstant target (Swift.Bindings.csproj) emits it into
+            // obj/GeneratedVersion.cs from $(SwiftBindingsSdkVersion) at build time. After a build it
+            // must therefore equal whatever Directory.Build.props declares SwiftBindingsSdkVersion to
+            // be — the in-tree dev sentinel here, since `nuke test` builds without a -p: version
+            // override — and that equality IS the single-source guarantee. A regression that pinned the
+            // const to its own literal, or rewired the target to a different property, would diverge
+            // here. The complementary proof that a real pack's -p:SwiftBindingsSdkVersion override flows
+            // through to the shipped const lives in the Pack target's AssertProducedNupkgsCarryRealVersion.
+            // (Const as 'expected' per xUnit2000; the equality is symmetric — it pins that the
+            // generated const and the Directory.Build.props declaration are one and the same value.)
+            Assert.Equal(
+                BindingProjectEmitter.DefaultSwiftRuntimeVersion,
+                ReadDirectoryBuildPropsSdkVersionDefault());
+        }
+
+        private static string ReadDirectoryBuildPropsSdkVersionDefault()
+        {
+            var propsPath = Path.Combine(FindRepoRoot(), "Directory.Build.props");
+            var element = XDocument.Load(propsPath).Descendants("SwiftBindingsSdkVersion").FirstOrDefault()
+                ?? throw new InvalidOperationException($"<SwiftBindingsSdkVersion> not found in {propsPath}.");
+            return element.Value.Trim();
+        }
+
+        private static string FindRepoRoot()
+        {
+            var dir = AppDomain.CurrentDomain.BaseDirectory;
+            while (dir != null)
+            {
+                var gitPath = Path.Combine(dir, ".git");
+                // .git is a directory in normal repos, a file in worktrees.
+                if (Directory.Exists(gitPath) || File.Exists(gitPath))
+                    return dir;
+                dir = Path.GetDirectoryName(dir);
+            }
+            throw new InvalidOperationException("Cannot find repo root.");
         }
 
         private static string EmitWithRuntimeVersion(string runtimeVersion)

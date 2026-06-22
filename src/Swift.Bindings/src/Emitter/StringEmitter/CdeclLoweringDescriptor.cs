@@ -1,8 +1,6 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-using System.Collections.Generic;
-
 namespace BindingsGeneration;
 
 /// <summary>
@@ -16,7 +14,7 @@ namespace BindingsGeneration;
 /// They describe how a parameter crosses the @_cdecl boundary on the <em>Swift</em> side; the C#
 /// P/Invoke side (<c>PInvokeEmitter.HandleArguments</c>) is a separate emission mechanism that
 /// builds <c>MarshalledType</c> records and is intentionally NOT collapsed into this enum — see
-/// the type-level note on <see cref="CdeclLoweringDescriptor.PInvokeParams"/>.
+/// the type-level remarks on <see cref="CdeclLoweringDescriptor"/>.
 /// </remarks>
 internal enum CdeclParamCategory
 {
@@ -51,21 +49,10 @@ internal enum CdeclParamCategory
 }
 
 /// <summary>
-/// One C# P/Invoke parameter contributed by a multi-word @_cdecl lowering, as a (type, name-suffix)
-/// shape. Used only for the categories whose @_cdecl boundary splits a single Swift value into
-/// several C ABI words with a shared name contract the C# side must reproduce verbatim
-/// (e.g. SwiftString / Foundation.Data → <c>_w0</c>/<c>_w1</c>; UnsafeRawBufferPointer →
-/// <c>Ptr</c>/<c>Len</c>; @_cdecl-property String → <c>Utf8Ptr</c>/<c>Utf8Len</c>). The C# leg
-/// applies its own parameter base name to <see cref="NameSuffix"/>; the descriptor never bakes in a
-/// base name because the Swift side keys off the demangled label while the C# side keys off
-/// <c>NameProvider.GetCSharpParameterName</c>.
-/// </summary>
-internal readonly record struct CdeclPInvokeParam(string CSharpType, string NameSuffix);
-
-/// <summary>
-/// The single source of truth for how one parameter lowers across the @_cdecl boundary. Produced
-/// once by <see cref="CdeclParamMapper.Describe"/> and consumed by the Swift-wrapper emitters
-/// (signature + body) via the projecting <see cref="CdeclParamMapper.Map"/>/<c>MapInout</c> shims.
+/// The single source of truth for how one parameter lowers across the @_cdecl boundary on the
+/// <em>Swift</em> side. Produced once by <see cref="CdeclParamMapper.Describe"/> and consumed by the
+/// Swift-wrapper emitters (signature + body) via the projecting <see cref="CdeclParamMapper.Map"/>/
+/// <c>MapInout</c> shims.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -75,14 +62,16 @@ internal readonly record struct CdeclPInvokeParam(string CSharpType, string Name
 /// body local, the call argument, and the inout write-back can never drift apart.
 /// </para>
 /// <para>
-/// <see cref="PInvokeParams"/> and <see cref="SharedLocalNames"/> carry ONLY the cross-file
-/// multi-word name contract (the categories listed on <see cref="CdeclPInvokeParam"/>). The C#
-/// P/Invoke emitter classifies parameters through its own richer <c>MarshalledType</c> union, which
-/// is a distinct emission mechanism and is deliberately not folded into this descriptor; collapsing
-/// it would force a (type, name) tuple to stand in for the semantic <c>MarshalledType</c> variants
-/// (<c>ObjCBridged</c>, <c>FrozenBuffer</c>, <c>SimpleEnum</c>, …) and lose information. The two
-/// sides agree by recomputation, not by a threaded instance: each calls the deterministic
-/// <see cref="CdeclParamMapper.Describe"/> and reads equal-by-recomputation names.
+/// This descriptor is deliberately Swift-side-only. The C# P/Invoke emitter
+/// (<c>PInvokeEmitter.HandleArguments</c>) classifies parameters through its own richer
+/// <c>MarshalledType</c> union — a distinct emission mechanism that is intentionally NOT folded into
+/// this descriptor, because collapsing it would force a (type, name) tuple to stand in for the
+/// semantic <c>MarshalledType</c> variants (<c>ObjCBridged</c>, <c>FrozenBuffer</c>,
+/// <c>SimpleEnum</c>, …) and lose information. For the few categories whose @_cdecl boundary splits a
+/// single Swift value into several C ABI words (SwiftString / Foundation.Data → <c>_w0</c>/<c>_w1</c>;
+/// UnsafeRawBufferPointer → <c>Ptr</c>/<c>Len</c>), the two sides agree on that shared name contract by
+/// <em>recomputation</em> — each runs its own deterministic classifier and reads equal-by-recomputation
+/// names — not by a threaded instance.
 /// </para>
 /// </remarks>
 internal readonly record struct CdeclLoweringDescriptor(
@@ -90,14 +79,5 @@ internal readonly record struct CdeclLoweringDescriptor(
     string CdeclParam,
     string? Reconstruction,
     string CallArg,
-    IReadOnlyList<CdeclPInvokeParam> PInvokeParams,
-    IReadOnlyList<string> SharedLocalNames,
     bool NeedsUnsafe,
-    string? WriteBack)
-{
-    /// <summary>Shared empty list so the common (no multi-word contract) arms allocate nothing.</summary>
-    internal static readonly IReadOnlyList<CdeclPInvokeParam> NoPInvokeParams = System.Array.Empty<CdeclPInvokeParam>();
-
-    /// <summary>Shared empty list for arms with no leg-C shared local names.</summary>
-    internal static readonly IReadOnlyList<string> NoSharedLocalNames = System.Array.Empty<string>();
-}
+    string? WriteBack);

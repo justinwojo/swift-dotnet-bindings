@@ -440,6 +440,28 @@ public class AsyncMethodGenericBridgeEmitterTests
         Assert.False(AsyncMethodGenericBridgeEmitter.IsEligible(method, typeDatabase));
     }
 
+    [Fact]
+    public void IsEligible_StringReturn_ReturnsFalse()
+    {
+        // Swift.String is non-generic, so it slips past the ContainsGenericParameters gate, but its
+        // public projection is `string` (not an ISwiftObject), so it cannot ride the ComplexValue
+        // value-carrier ABI — the completion-callback arms would emit SwiftObjectHelper<string> /
+        // MarshalFromSwift<string>, which do not compile and would not release the carrier's String
+        // storage. ClassifyReturnKind must bail. Swapping ONLY the return type of an otherwise
+        // eligible method flips eligibility, proving String is the sole differentiator.
+        var method = CreateMethodDeclWithGenericParam();
+        method.IsAsync = true;
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestBindings";
+
+        // Sanity: the base method (void return, class-bound generic param) IS eligible.
+        Assert.True(AsyncMethodGenericBridgeEmitter.IsEligible(method, typeDatabase));
+
+        // The ONLY change is the return type → Swift.String, which must make it ineligible.
+        method.CSSignature[0] = CreateArg("", new NamedTypeSpec("Swift.String"), method.ModuleDecl!);
+        Assert.False(AsyncMethodGenericBridgeEmitter.IsEligible(method, typeDatabase));
+    }
+
     #endregion
 
     #region TryEmit: eligible method emits bridge — async, no-throws, void return

@@ -351,6 +351,131 @@ public class SwiftValueLayoutTests
 
     #endregion
 
+    #region Simple enum stored inline size (GetSimpleEnumStoredInlineSize)
+
+    [Theory]
+    [InlineData(1)] // ≤256 cases
+    [InlineData(2)] // ≤65536 cases — the case the one-byte fallback would read too narrow
+    [InlineData(4)]
+    [InlineData(8)]
+    public void GetSimpleEnumStoredInlineSize_PersistedInlineSize_HonoredVerbatim(int inlineSize)
+    {
+        // The stored discriminator width is the type's measured/persisted InlineSize — the read path
+        // must reflect it exactly so a 2-byte (>256-case) enum is read as a short, not a byte.
+        var record = CreateSimpleEnumRecord(inlineSize);
+
+        Assert.Equal(inlineSize, SwiftValueLayout.GetSimpleEnumStoredInlineSize(record));
+    }
+
+    [Fact]
+    public void GetSimpleEnumStoredInlineSize_NullInlineSize_FallsBackToOneByte()
+    {
+        // Cross-compile / XML-loaded simple enums persist simpleEnum+frozen but not inlineSize; the
+        // single documented fallback is one byte (the minimal discriminator, correct for ≤256 cases).
+        var record = CreateSimpleEnumRecord(inlineSize: null);
+
+        Assert.Equal(1, SwiftValueLayout.DefaultSimpleEnumDiscriminatorBytes);
+        Assert.Equal(SwiftValueLayout.DefaultSimpleEnumDiscriminatorBytes,
+            SwiftValueLayout.GetSimpleEnumStoredInlineSize(record));
+    }
+
+    #endregion
+
+    #region Determinism — algorithm path (MetadataPtr == 0) matches the live-VWT layout
+
+    // The generator runs CROSS-COMPILE: it never loads the target dylib, so no live value-witness
+    // metadata is available and `SwiftTypeInfo.MetadataPtr` is always zero at generate time. The
+    // Optional inline-size algorithm therefore always takes the heuristic branch
+    // (RequiresMemoryManagement / Kind == Class) rather than reading `HasExtraInhabitants` off a live
+    // VWT. These pins assert that algorithm-only path reproduces the value a metadata-loaded host (or a
+    // Swift `MemoryLayout` measurement) would compute for a known struct — so the SAME library generates
+    // byte-identical bindings whether or not the host can load the dylib. A record built WITHOUT
+    // `SwiftTypeInfo` forces `MetadataPtr == 0` (the cross-compile reality) explicitly.
+
+    [Fact]
+    public void TryComputeOptionalInlineSize_ReferenceBearingInner_MetadataPtrZero_MatchesLiveVwtSize()
+    {
+        // A String-like reference-managed struct (16-byte two-word storage) carries extra inhabitants in
+        // its pointer's spare bit patterns, so nil folds in with NO appended tag:
+        // MemoryLayout<String?>.size == MemoryLayout<String>.size == 16 — the value a live VWT reports.
+        // With MetadataPtr == 0 the algorithm reaches that same 16 via the RequiresMemoryManagement
+        // heuristic, so the binding is identical with or without a loadable dylib.
+        var (db, optionalSpec) = OptionalOverRegisteredInner(
+            "DetMod.StringLike", inlineSize: 16, referenceBearing: true);
+
+        var resolved = SwiftValueLayout.TryComputeOptionalInlineSize(
+            optionalSpec, db, out int optionalSize, out bool indeterminate);
+
+        Assert.True(resolved);
+        Assert.False(indeterminate);
+        Assert.Equal(16, optionalSize); // == inner size, no tag (extra inhabitants) — matches live VWT
+    }
+
+    [Fact]
+    public void TryComputeOptionalInlineSize_NoSpareBitStructInner_MetadataPtrZero_AppendsTagDeterministically()
+    {
+        // A plain (non-reference-managed) value struct that packs its full 16 bytes exposes no spare
+        // inhabitant, so its Optional gains a tag byte: MemoryLayout<T?>.size == 17 — again the value a
+        // live VWT reports. With MetadataPtr == 0 the heuristic (not memory-managed, not a class) returns
+        // hasExtraInhabitants == false and the algorithm independently produces inner + 1 = 17.
+        var (db, optionalSpec) = OptionalOverRegisteredInner(
+            "DetMod.PackedPair", inlineSize: 16, referenceBearing: false);
+
+        var resolved = SwiftValueLayout.TryComputeOptionalInlineSize(
+            optionalSpec, db, out int optionalSize, out bool indeterminate);
+
+        Assert.True(resolved);
+        Assert.False(indeterminate);
+        Assert.Equal(17, optionalSize); // inner + 1 tag byte (no spare inhabitant) — matches live VWT
+    }
+
+    /// <summary>
+    /// Builds an <c>Optional&lt;Inner&gt;</c> spec over a struct registered in a fresh
+    /// <see cref="TypeDatabase"/> with a persisted <paramref name="inlineSize"/> but NO
+    /// <c>SwiftTypeInfo</c> — so <c>MetadataPtr == 0</c> and the Optional-sizing algorithm is forced down
+    /// its cross-compile heuristic branch. <paramref name="referenceBearing"/> toggles
+    /// <see cref="TypeRecordFlags.RequiresMemoryManagement"/>, which drives the extra-inhabitant heuristic.
+    /// </summary>
+    private static (TypeDatabase Db, NamedTypeSpec OptionalSpec) OptionalOverRegisteredInner(
+        string moduleQualifiedInnerName, int inlineSize, bool referenceBearing)
+    {
+        var dotIndex = moduleQualifiedInnerName.IndexOf('.');
+        var moduleName = moduleQualifiedInnerName[..dotIndex];
+        var swiftName = SwiftTypeName.FromModuleQualifiedName(moduleQualifiedInnerName);
+        var flags = TypeRecordFlags.Frozen;
+        if (referenceBearing)
+            flags |= TypeRecordFlags.RequiresMemoryManagement;
+
+        var module = new ModuleTypeDatabase(moduleName, $"/tmp/{moduleName}.dylib");
+        module.RegisterType(swiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName(moduleName, moduleQualifiedInnerName[(dotIndex + 1)..]),
+            SwiftTypeName = swiftName,
+            MetadataAccessor = string.Empty,
+            Flags = flags,
+            Kind = TypeRecordKind.Struct,
+            InlineSize = inlineSize,
+        });
+        var db = new TypeDatabase();
+        db.AddModuleDatabase(module);
+
+        var optionalSpec = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec(moduleQualifiedInnerName));
+        return (db, optionalSpec);
+    }
+
+    #endregion
+
+    private static TypeRecord CreateSimpleEnumRecord(int? inlineSize) =>
+        new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "SomeEnum"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.SomeEnum"),
+            MetadataAccessor = "",
+            Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+            Kind = TypeRecordKind.Enum,
+            InlineSize = inlineSize,
+        };
+
     private static TypeRecord CreateReferenceTypeRecord(
         string moduleQualifiedName, TypeRecordKind kind, int? inlineSize)
     {

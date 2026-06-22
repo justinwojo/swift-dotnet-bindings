@@ -51,10 +51,9 @@ public static class CdeclParamMapper
         ArgumentDecl arg, string label, MethodEnvironment env, bool omitLabels = false, bool useUtf8Strings = false,
         bool escapeReservedCollision = true, IReadOnlySet<string>? reservedSiblings = null, bool isInout = false)
     {
-        // Common arms carry no multi-word P/Invoke contract and no inout write-back.
+        // Common arms carry no inout write-back.
         static CdeclLoweringDescriptor Simple(CdeclParamCategory category, string cdeclParam, string? reconstruction, string callArg)
-            => new(category, cdeclParam, reconstruction, callArg,
-                   CdeclLoweringDescriptor.NoPInvokeParams, CdeclLoweringDescriptor.NoSharedLocalNames, NeedsUnsafe: false, WriteBack: null);
+            => new(category, cdeclParam, reconstruction, callArg, NeedsUnsafe: false, WriteBack: null);
 
         var swiftTypeSpec = arg.SwiftTypeSpec;
 
@@ -99,8 +98,6 @@ public static class CdeclParamMapper
                     $"_ {label}: UnsafeMutableRawPointer",
                     $"var {label}Val: Bool = {label}.assumingMemoryBound(to: Int8.self).pointee != 0",
                     $"{argLabel}&{label}Val",
-                    CdeclLoweringDescriptor.NoPInvokeParams,
-                    CdeclLoweringDescriptor.NoSharedLocalNames,
                     NeedsUnsafe: false,
                     WriteBack: $"{label}.assumingMemoryBound(to: Int8.self).pointee = {label}Val ? 1 : 0");
             }
@@ -115,8 +112,6 @@ public static class CdeclParamMapper
                 $"_ {label}: UnsafeMutableRawPointer",
                 $"var {label}Val = {label}.assumingMemoryBound(to: {inoutSwiftType}.self).pointee",
                 $"{argLabel}&{label}Val",
-                CdeclLoweringDescriptor.NoPInvokeParams,
-                CdeclLoweringDescriptor.NoSharedLocalNames,
                 NeedsUnsafe: false,
                 WriteBack: $"{label}.assumingMemoryBound(to: {inoutSwiftType}.self).pointee = {label}Val");
         }

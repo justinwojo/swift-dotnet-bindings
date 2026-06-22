@@ -77,6 +77,14 @@ partial class Build
             // runs, and a stale unsafe package from an earlier version must not fail this build.
             var packStartUtc = System.DateTime.UtcNow;
 
+            // Capture the source-controlled version files' bytes before any packing so we can prove
+            // the pack rewrote none of them. F6 single-sources every shipped version through MSBuild
+            // properties and gitignored staged copies (see VersionScope), so the working tree must be
+            // byte-identical afterward. This is the structural counterpart to the retired in-place
+            // version stamping: it turns "the pack must not mutate source" from an architectural claim
+            // into a gate that fails the pack the instant a regression reintroduces source rewriting.
+            var versionFileSnapshot = SnapshotVersionFiles();
+
             using var scope = new VersionScope(Version!, RootDirectory, appleVersion);
 
             // 1. Runtime
@@ -139,6 +147,13 @@ partial class Build
                     .EnableNoLogo()
                     .SetVerbosity(DotNetVerbosity.quiet)));
             }
+
+            // The four packs are complete and the VersionScope is still alive: every source-controlled
+            // version file must be byte-for-byte what it was before packing. Asserting here — before the
+            // scope is disposed — catches not only a regression that rewrites a file and leaves it dirty,
+            // but also one that stamps a version in place for the pack and restores it afterward (the
+            // retired backup/restore dance), which a snapshot taken after disposal would miss.
+            AssertVersionFilesUnmutated(versionFileSnapshot);
 
             // Windows MAX_PATH ship gate (issue #40): authoritative per-entry check over every
             // nupkg THIS run produced, using each one's real layout + version (stale packages from
@@ -226,6 +241,62 @@ partial class Build
 
         Log.Information("Version truth gate passed: produced nupkgs carry v{Version} (Apple v{AppleVersion}), no dev sentinel.",
             version, appleVersion);
+    }
+
+    // The source-controlled files that carry version information — the ones the pack's version
+    // mechanism reaches through MSBuild properties (the four <PackageVersion> csprojs + the generator
+    // csproj that bakes DefaultSwiftRuntimeVersion) or through gitignored staged copies (Sdk.props,
+    // template.json), plus the two files that ship a verbatim 0.0.0-dev sentinel (Directory.Build.props'
+    // default, ProjectName.csproj's template token). A pack must leave every one byte-unchanged.
+    // SnapshotVersionFiles hard-fails on a missing entry, so a rename forces this list to be updated
+    // rather than silently dropping a file from the guarantee.
+    static readonly string[] VersionSourceFiles =
+    {
+        "Directory.Build.props",
+        "src/Swift.Runtime/src/Swift.Runtime.csproj",
+        "src/Swift.Bindings/src/Swift.Bindings.csproj",
+        "src/Swift.Bindings.Sdk/Swift.Bindings.Sdk.csproj",
+        "src/Swift.Bindings.Sdk/Sdk/Sdk.props",
+        "src/Swift.Bindings.Templates/Swift.Bindings.Templates.csproj",
+        "src/Swift.Bindings.Templates/content/swift-binding/.template.config/template.json",
+        "src/Swift.Bindings.Templates/content/swift-binding/ProjectName.csproj",
+        "src/Swift.Bindings.Apple/Swift.Bindings.Apple.csproj",
+    };
+
+    // Reads the current bytes of every version source file. A missing file is a hard error, not a
+    // silent skip — the snapshot must cover the whole set for the post-pack byte check to be meaningful.
+    System.Collections.Generic.Dictionary<string, byte[]> SnapshotVersionFiles()
+    {
+        var snapshot = new System.Collections.Generic.Dictionary<string, byte[]>();
+        foreach (var rel in VersionSourceFiles)
+        {
+            var path = Path.Combine(RootDirectory, rel.Replace('/', Path.DirectorySeparatorChar));
+            if (!File.Exists(path))
+                throw new System.InvalidOperationException(
+                    $"Pack no-source-mutation gate: expected version source file '{path}' is missing. " +
+                    "If it was intentionally moved or renamed, update VersionSourceFiles in Build.Pack.cs.");
+            snapshot[rel] = File.ReadAllBytes(path);
+        }
+        return snapshot;
+    }
+
+    // Asserts every version source file is byte-identical to its pre-pack snapshot. A mismatch means
+    // the pack rewrote a checked-in file — the F6 single-source contract is that versions reach
+    // artifacts only via MSBuild properties and gitignored staged copies, never by mutating source.
+    void AssertVersionFilesUnmutated(System.Collections.Generic.Dictionary<string, byte[]> snapshot)
+    {
+        foreach (var (rel, before) in snapshot)
+        {
+            var after = File.ReadAllBytes(Path.Combine(RootDirectory, rel.Replace('/', Path.DirectorySeparatorChar)));
+            if (!before.SequenceEqual(after))
+                throw new System.InvalidOperationException(
+                    $"Pack mutated the source-controlled version file '{rel}'. Shipped versions must reach " +
+                    "artifacts through MSBuild properties and the gitignored VersionScope staging copies, " +
+                    "never by rewriting a checked-in file. Restore the no-source-mutation packaging path " +
+                    "instead of stamping the version in place.");
+        }
+        Log.Information("No-source-mutation gate passed: {Count} version source files byte-unchanged by pack.",
+            snapshot.Count);
     }
 
     static void AssertElementValue(XDocument doc, string name, string expected, AbsolutePath nupkg, string entryPath)

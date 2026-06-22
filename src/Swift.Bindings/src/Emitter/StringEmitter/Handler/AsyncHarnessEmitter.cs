@@ -1259,18 +1259,75 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Emits async wrapper for methods returning collection types (Array, Dictionary, Set).
-        /// These use the same OpaquePointer pattern as complex types on the Swift side,
-        /// but require MarshalFromSwift with the runtime container type (e.g., SwiftArray&lt;int&gt;)
-        /// instead of the public type (e.g., IReadOnlyList&lt;int&gt;).
-        ///
-        /// When <paramref name="usesObjCContainerBridge"/> is true (e.g. <c>[URL]</c>,
-        /// <c>Set&lt;URL&gt;</c>, <c>[String: URL]</c>), the Swift wrapper stores a +1 retained
-        /// NSArray / NSDictionary / NSSet pointer (via <c>as AnyObject</c>) into the carrier
-        /// instead of the raw Swift collection bits. C# reads that as an <c>IntPtr</c> and feeds
-        /// it to the projection-supplied conversion (which expects a pointer, not a managed
-        /// container). This mirrors the optional-collection ObjC-bridge branch in
-        /// <see cref="EmitAsyncWrapperForComplexType"/>.
+        /// Builds the completion-callback body that revives an async collection result from the
+        /// carrier and balances the carrier's value-witness <c>+1</c>. Three arms, one per carrier
+        /// shape:
+        /// <list type="bullet">
+        ///   <item><c>proxySuppressed</c> — the existential element's proxy class was not emitted,
+        ///   so there is no per-element constructor; fault the awaiting Task instead of marshalling
+        ///   (a bare <c>T result = throw …;</c> is not a legal throw-expression context (CS8115) and
+        ///   the downstream <c>TrySetResult(result)</c> needs definite assignment, so the throw is
+        ///   routed through a <c>?:</c> whose value-typed arm keeps <c>result</c>'s type). NOTE: the
+        ///   Swift wrapper still <c>initializeMemory</c>'d the container into the carrier, so this arm
+        ///   currently leaves that <c>+1</c> unreleased — a known, pre-existing leak on a fault-only
+        ///   path (the bound method always faults; it never returns a value). It is NOT closed by a
+        ///   VWT Destroy here: the runtime's existential metadata lookup is arity/marker-based, not
+        ///   protocol-identity-based, and a class-bound existential is a compact 16-byte
+        ///   [classRef][witness] cell — a Destroy through container/shim metadata can over-read or
+        ///   mis-release (SIGSEGV / double-release), strictly worse than the leak. The robust release
+        ///   is a Swift-side typed destroy entry compiled against the exact return type; shared by the
+        ///   scalar/optional existential suppressed arms. Tracked, not yet implemented.</item>
+        ///   <item><c>usesObjCContainerBridge</c> — the Swift wrapper stored a <c>+1</c>-retained
+        ///   NS-collection POINTER in the carrier (a pointer-bit carrier, NOT a value-witness value).
+        ///   Read it and bridge through the projection's IntPtr-shaped conversion. A VWT Destroy here
+        ///   would be WRONG (the 8-byte holder is not a Swift container value) — the <c>+1</c> is on
+        ///   the NS object and is released through the bridge.</item>
+        ///   <item>plain Swift collection — the wrapper wrote the result via
+        ///   <c>initializeMemory(as: &lt;Container&gt;.self)</c>, running the container's copy witness,
+        ///   so the carrier holds a <c>+1</c> on the CoW storage. <c>MarshalFromSwift</c> takes an
+        ///   independent <c>+1</c> (NewFromPayload → InitializeWithCopy), so the carrier's <c>+1</c>
+        ///   is released via VWT Destroy. The Destroy is placed BEFORE the projection conversion
+        ///   (which reads only the independent copy) so the <c>+1</c> stays balanced even if the
+        ///   conversion throws.</item>
+        /// </list>
+        /// Extracted as a static builder so the carrier-release contract is unit-testable directly:
+        /// the collection arm bypasses <see cref="AsyncResultPlanner"/>, so the planner tests do not
+        /// cover it. <paramref name="continuationIndent"/> is the leading whitespace for every line
+        /// after the first (the first line inherits the indent of the <c>{marshalLines}</c> insertion
+        /// site), so the assembled body lands byte-identically in the callback template.
+        /// </summary>
+        internal static string BuildCollectionCarrierMarshalLines(
+            string runtimeType, string conversionExpr, string returnType,
+            bool usesObjCContainerBridge, bool proxySuppressed, string continuationIndent)
+        {
+            return proxySuppressed
+                ? $"{returnType} result = true ? throw new global::System.NotSupportedException(\"Protocol proxy for the element of '{returnType}' was not emitted (its EveryProtocol conformance is unavailable); cannot marshal the async existential collection result.\") : default;"
+                : usesObjCContainerBridge
+                ? $"// ObjC-bridge collection: read +1 retained NS-collection pointer from carrier\n" +
+                  $"{continuationIndent}IntPtr _ptr = *(IntPtr*)resultPtr;\n" +
+                  $"{continuationIndent}var result = {conversionExpr};"
+                : $"// Marshal collection from Swift-allocated memory using runtime container type\n" +
+                  $"{continuationIndent}var _collection = SwiftMarshal.MarshalFromSwift<{runtimeType}>(resultPtr);\n" +
+                  $"{continuationIndent}// The Swift async wrapper wrote the result via initializeMemory(as: <Container>.self),\n" +
+                  $"{continuationIndent}// running the container's copy witness — the carrier holds a +1 on the CoW buffer.\n" +
+                  $"{continuationIndent}// MarshalFromSwift/NewFromPayload above took its OWN independent +1 (InitializeWithCopy\n" +
+                  $"{continuationIndent}// into a managed buffer), so release the carrier's +1 via VWT Destroy NOW — before the\n" +
+                  $"{continuationIndent}// projection conversion below (which reads only the independent _collection copy) and\n" +
+                  $"{continuationIndent}// before SBW_Free reclaims the raw allocation. Destroying here keeps the carrier's +1\n" +
+                  $"{continuationIndent}// balanced even if the conversion throws; otherwise the backing storage leaks each call.\n" +
+                  $"{continuationIndent}var _vwtMetadata = SwiftObjectHelper<{runtimeType}>.GetTypeMetadata();\n" +
+                  $"{continuationIndent}_vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);\n" +
+                  $"{continuationIndent}var result = {conversionExpr};";
+        }
+
+        /// <summary>
+        /// Emits the async wrapper for methods returning collection types (Array, Dictionary, Set).
+        /// These use the same OpaquePointer pattern as complex types on the Swift side, but require
+        /// <c>MarshalFromSwift</c> with the runtime container type (e.g. <c>SwiftArray&lt;int&gt;</c>)
+        /// rather than the public type (e.g. <c>IReadOnlyList&lt;int&gt;</c>). The callback body — and
+        /// its three-arm carrier-release contract — is built by
+        /// <see cref="BuildCollectionCarrierMarshalLines"/>; this method assembles the surrounding
+        /// callback/error-callback scaffolding and the <c>SBW_Free</c> + GCHandle teardown.
         /// </summary>
         private void EmitAsyncWrapperForCollection(CSharpWriter csWriter,
             string callbackFieldName, string callbackMethodName,
@@ -1280,28 +1337,9 @@ namespace BindingsGeneration
         {
             var freePInvokeDecl = GetFreePInvokeDeclIfNeeded();
 
-            // ObjC-container bridge: read the retained pointer the Swift wrapper stored, then
-            // bridge through the projection's IntPtr-shaped conversion. Plain Swift collection:
-            // revive via MarshalFromSwift on the runtime container type and let the projection
-            // convert from the managed container.
-            //
-            // Suppressed proxy element: the existential element's proxy class was not emitted, so
-            // there is no per-element `new {Proxy}(…)` to construct. Fault the awaiting Task instead
-            // of marshalling — mirroring the scalar async existential safe-stub (see EmitAsync's
-            // asyncProxySuppressed branch). A bare `T result = throw …;` is not a legal throw-expression
-            // context (CS8115) and the downstream TrySetResult(result) requires definite assignment,
-            // so route the throw through a `?:` whose value-typed arm keeps `result`'s type while the
-            // throw always fires. The throw lands inside the callback's try → TrySetException (observable
-            // to the awaiter), and finally still frees the carrier + GCHandle.
-            string marshalLines = proxySuppressed
-                ? $"{_wrapperSignature.ReturnType} result = true ? throw new global::System.NotSupportedException(\"Protocol proxy for the element of '{_wrapperSignature.ReturnType}' was not emitted (its EveryProtocol conformance is unavailable); cannot marshal the async existential collection result.\") : default;"
-                : usesObjCContainerBridge
-                ? $"// ObjC-bridge collection: read +1 retained NS-collection pointer from carrier\n" +
-                  $"                                IntPtr _ptr = *(IntPtr*)resultPtr;\n" +
-                  $"                                var result = {conversionExpr};"
-                : $"// Marshal collection from Swift-allocated memory using runtime container type\n" +
-                  $"                                var _collection = SwiftMarshal.MarshalFromSwift<{runtimeType}>(resultPtr);\n" +
-                  $"                                var result = {conversionExpr};";
+            string marshalLines = BuildCollectionCarrierMarshalLines(
+                runtimeType, conversionExpr, _wrapperSignature.ReturnType,
+                usesObjCContainerBridge, proxySuppressed, "                                ");
 
             var text = $$"""
                         {{freePInvokeDecl}}{{AsyncFieldVisibility}} static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};

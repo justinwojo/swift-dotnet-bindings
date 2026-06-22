@@ -410,6 +410,15 @@ public static class AsyncMethodGenericBridgeEmitter
         if (namedReturn.ContainsGenericParameters)
             return null;
 
+        // Swift.String is non-generic, so ContainsGenericParameters above does not catch it, but it
+        // cannot ride the ComplexValue value-carrier ABI: it projects publicly to `string`, which is
+        // not an ISwiftObject, so the callback arms below (SwiftObjectHelper<T>.GetTypeMetadata /
+        // MarshalFromSwift<T>) fail to compile and would not release the carrier's String storage
+        // anyway. The non-generic async harness routes String through a dedicated UTF-8-slice path;
+        // the generic bridge does not recreate that, so bail (matching the V1 scope note above).
+        if (namedReturn.Name == "Swift.String")
+            return null;
+
         if (!IsSwiftPrimitive(namedReturn.Name))
         {
             // Look up the type record so we can distinguish class-vs-value.

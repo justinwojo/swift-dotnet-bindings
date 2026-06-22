@@ -257,4 +257,48 @@ internal static class SwiftValueLayout
 
         return true; // byteSize stays IntPtr.Size — unchanged clamp for non-generic types
     }
+
+    /// <summary>
+    /// The documented fallback width, in bytes, for a SIMPLE enum's in-memory discriminator when the
+    /// type's <see cref="TypeRecord.InlineSize"/> was never measured or persisted. One byte is the
+    /// minimal discriminator — correct for every enum of ≤256 cases, which is the overwhelming
+    /// majority — and the conservative low-water mark when the true width is unknowable here.
+    /// </summary>
+    internal const int DefaultSimpleEnumDiscriminatorBytes = 1;
+
+    /// <summary>
+    /// The inline byte width Swift uses to store a SIMPLE enum's discriminator tag: the minimum number
+    /// of bytes that hold the case count (1 byte for ≤256 cases, 2 for ≤65536, …), independent of any
+    /// <c>RawRepresentable</c> raw-value type — an <c>enum E: Int</c> with three cases is stored in one
+    /// byte, not eight. This is the single authoritative width for reading a simple enum's discriminator
+    /// out of Swift memory at a leaf payload-extraction site.
+    ///
+    /// <para>
+    /// The width is the type's persisted <see cref="TypeRecord.InlineSize"/> (sourced from the
+    /// value-witness-table size when live metadata is available at parse time, else the cross-compile
+    /// XML). When it is absent — a cross-compile build of a simple enum whose size was never measured
+    /// and not persisted — this returns the single documented
+    /// <see cref="DefaultSimpleEnumDiscriminatorBytes"/> fallback.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Known limitation.</b> A simple enum with &gt;256 cases AND no persisted <c>InlineSize</c> is
+    /// read one byte too narrow. There is no width source recoverable at the leaf read site (the
+    /// raw-value type does not determine storage width, and the bare record carries no case count). The
+    /// register-classification and field-layout consumers (<c>TypeLowering.LowerEnum</c>,
+    /// <c>ModuleProcessor.ClassifyFieldType</c>) instead DECLINE on an absent <c>InlineSize</c> and route
+    /// to the indirect <c>@_cdecl</c> path, because fabricating a wrong register/field width corrupts the
+    /// ABI; a leaf discriminator read has already committed to the payload-extraction path and cannot
+    /// decline, so the conservative minimal width is the best available answer for that role.
+    /// </para>
+    ///
+    /// <para>
+    /// A related-but-distinct consumer — the native thunk's sub-word return zero-extension width — reads
+    /// the same stored size but maps it into its own form (1/2 byte, else a 0 "no extension needed"
+    /// sentinel, with a defensive <c>0 → 1</c> collapse), so it keeps its own switch rather than this
+    /// raw-size helper.
+    /// </para>
+    /// </summary>
+    internal static int GetSimpleEnumStoredInlineSize(TypeRecord record) =>
+        record.InlineSize ?? DefaultSimpleEnumDiscriminatorBytes;
 }

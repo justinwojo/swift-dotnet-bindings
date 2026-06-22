@@ -1,5 +1,5 @@
 {
-  "git_sha": "f871198b",
+  "git_sha": "296bbfe2",
   "description": "Artifact-parity gate baseline. Records pre-existing cross-artifact divergences (member-path symbols from generate-then-strip/never-emitted members; vtable over-emissions) so the gate is green now and fails on any NEW divergence. Reseed with \u0060nuke SeedParityBaseline\u0060 after an intentional, reviewed change.",
   "symbol_forward_known_missing": {
     "SwiftBindings": [
@@ -36,6 +36,7 @@
     "GenericConstrainedImmutableLabel",
     "InheritedChildDelegate",
     "InheritedGrandchildDelegate",
+    "MapperSeed",
     "Marker",
     "MarkerBooksEnum",
     "MarkerCameraEnum",
