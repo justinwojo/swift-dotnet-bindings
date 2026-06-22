@@ -147,6 +147,21 @@ public enum SkipReason
     /// post-processor's existing Pattern 2 hits.
     /// </summary>
     Pattern2InternalTypeReach,
+    /// <summary>
+    /// A <c>public</c> member declared on a <c>@usableFromInline internal</c> parent type,
+    /// where the member shape has <b>no clean direct-CallConvSwift fallback</b>: an async
+    /// member (the async bridge wrapper still names the internal parent under
+    /// <c>@_silgen_name</c>), a closure-bearing member (degrades to a faulting legacy
+    /// CallConvSwift path), or a frozen-struct operator (a static-operator CallConvSwift
+    /// P/Invoke crashes ILC on NativeAOT, so it must be a <c>@_cdecl</c> wrapper that names
+    /// the parent). Because the wrapper-compilation module cannot name the internal parent
+    /// and no fallback exists, the correct emission outcome is to DROP the member — distinct
+    /// from <see cref="ModuleInternal"/> (the member's own access) and from the sync
+    /// internal-receiver case, which <c>WrapperValidation</c> arm 2b keeps by rejecting only
+    /// the wrapper and binding a direct CallConvSwift P/Invoke. Dropping here at emission is
+    /// public-API-identical to the previous emit-then-strip + C# reconcile.
+    /// </summary>
+    ParentModuleInternalNoFallback,
     Unknown,
 }
 

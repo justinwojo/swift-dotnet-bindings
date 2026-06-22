@@ -87,6 +87,47 @@ public class MemberValidationPipeline
         if (TryCheckInternalTypeReach(methodDecl, out var methodSkip))
             return methodSkip!;
 
+        // 3c. Parent type is @usableFromInline internal AND the member shape has no
+        // clean direct-CallConvSwift fallback (async / closure-bearing). A public
+        // member on an internal parent compiles in Swift, but the only way to call
+        // it across the binding is through a wrapper whose body names the internal
+        // parent as `self` — and the separate wrapper-compilation module cannot
+        // reference an internal type. Sync method/ctor/property/subscript members
+        // survive by rejecting just the wrapper and binding a direct CallConvSwift
+        // P/Invoke to the exported silgen/Tj symbol (WrapperValidation arm 2b keeps
+        // them). Two shapes have no such fallback and must be DROPPED here, at
+        // emission, before any wrapper or handler routing is chosen:
+        //   * async — always needs a Swift bridge wrapper (the async entry/callback
+        //     machinery), which still names the internal parent under @_silgen_name;
+        //   * closure-bearing — a closure in EITHER a parameter or the return type
+        //     forces the closure-@_cdecl carrier (a closure parameter degrades to a
+        //     legacy CallConvSwift path that faults at runtime; a closure RETURN routed
+        //     through a direct CallConvSwift P/Invoke crashes Mono and NativeAOT — see
+        //     WrapperValidation.IsReturnTypeCdeclRequired), and that wrapper too names
+        //     the parent. A closure return is the trap case: it slips a sync member past
+        //     this gate into the arm-2b "keep via direct CallConvSwift" path, which then
+        //     binds a crashing carrier — so the whole CSSignature (return at index 0 +
+        //     parameters) must be scanned, not just the parameters.
+        // Dropping is public-API-identical to today's emit-then-strip + C# reconcile,
+        // but decided at the emission layer alongside the sync arm-2b decision. Placed
+        // before the CSM/generic routing gates because a module-internal parent is a
+        // hard blocker no downstream specialization can rescue (a CSM specialization
+        // would re-emit code naming the internal parent). Operators take an analogous
+        // drop in OperatorHandler.EmitOperator (they never reach this method).
+        if (methodDecl.ParentDecl is TypeDecl { IsModuleInternal: true })
+        {
+            if (methodDecl.IsAsync)
+                return ValidationResult.Skip(SkipReason.ParentModuleInternalNoFallback,
+                    "Async member on a @usableFromInline internal parent type: its bridge wrapper must name the internal parent and has no direct CallConvSwift fallback.");
+
+            // Scan the whole signature — CSSignature[0] is the return type, Skip(1) the
+            // parameters — so a closure RETURN is caught, not only closure parameters.
+            var internalParentClosureHandler = new ClosureHandler(_typeDatabase);
+            if (methodDecl.CSSignature.Any(internalParentClosureHandler.IsClosure))
+                return ValidationResult.Skip(SkipReason.ParentModuleInternalNoFallback,
+                    "Closure-bearing member (closure parameter or return) on a @usableFromInline internal parent type: its closure wrapper must name the internal parent and has no direct CallConvSwift fallback.");
+        }
+
         // 4. Variadic methods — Swift variadic params (T...) appear as Array<T> in ABI JSON.
         // At the ABI level, variadic T... IS Array<T>, so CallConvSwift can dispatch correctly
         // by passing SwiftArray<T> as a single pointer. @_cdecl wrappers cannot call variadic

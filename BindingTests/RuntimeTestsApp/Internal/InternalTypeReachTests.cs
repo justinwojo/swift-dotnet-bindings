@@ -36,11 +36,19 @@ namespace RuntimeTestsApp.Internal;
 /// <c>wrapper_stripped_count</c> 1 → 0. The construction barrier (no public
 /// init, and <c>InternalHolder</c> conforms to no public protocol that would
 /// vend it behind an existential) still makes that kept member unreachable
-/// here, which is what these absence assertions verify. (The async, closure,
-/// and operator internal-receiver shapes have no clean CallConvSwift fallback
-/// and remain post-processor-scoped — see the arm-2b comment in
-/// <c>WrapperValidation.cs</c>; their end-to-end scrub coverage still lives in
-/// <c>nuke validate</c>.) The free functions and the internal-typed property
+/// here, which is what these absence assertions verify. The async, closure,
+/// and operator internal-receiver shapes have no clean CallConvSwift fallback,
+/// so rather than reject only the wrapper and keep the member they are DROPPED
+/// at emission with <c>SkipReason.ParentModuleInternalNoFallback</c> — async and
+/// closure-bearing methods, the latter covering both a closure parameter
+/// (<c>transform(using:)</c>) and a closure return (<c>makeAdder()</c>, caught by
+/// the whole-signature scan) alongside <c>describeAsync()</c>, by
+/// <c>MemberValidationPipeline.ValidateMethodEmission</c>, and frozen-struct
+/// operators (<c>InternalFrozenOperand.+</c>) by
+/// <c>OperatorHandler.EmitOperator</c>. Those drops are asserted directly below
+/// (the members must be absent from the emitted shell), keeping
+/// <c>wrapper_stripped_count</c> at 0 without the post-processor stripping any
+/// internal-receiver wrapper. The free functions and the internal-typed property
 /// are caught by older gates that fire first. The shell type itself is
 /// intentionally emitted (no type-level filter exists for
 /// <c>@usableFromInline internal</c> — the type can still be referenced
@@ -214,7 +222,61 @@ public class InternalTypeReachTests : TestBase
             .FirstOrDefault(p => p.GetIndexParameters().Length > 0);
         AssertNotNull(keptIndexer,
             "InternalHolder.subscript(offset:) must be KEPT as a public indexer (arm 2b Subscript fallback, not stripped)");
-        TestLogger.Info("InternalHolder: no public ctor (construction barrier); describe()+subscript KEPT via arm 2b CallConvSwift fallback.");
+
+        // describeAsync() (async), transform(using:) (closure parameter), and
+        // makeAdder() (closure RETURN) have NO clean CallConvSwift fallback, so —
+        // unlike the sync members above — they are DROPPED at emission by
+        // MemberValidationPipeline.ValidateMethodEmission (ParentModuleInternalNoFallback),
+        // not kept. Assert the drop robustly (independent of the exact projected method
+        // name): no Task-returning method, no delegate-parameter method, and no
+        // delegate-returning method survives on the rooted shell. Because the
+        // DynamicDependency above roots InternalHolder's full public surface, a
+        // regression that re-emitted any of them would be observable here.
+        var asyncSurvivor = holderType!
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .FirstOrDefault(m => typeof(System.Threading.Tasks.Task).IsAssignableFrom(m.ReturnType));
+        AssertNull(asyncSurvivor,
+            "InternalHolder.describeAsync() must be DROPPED at emission (async on internal parent — no CallConvSwift fallback)");
+
+        var closureParamSurvivor = holderType!
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .FirstOrDefault(m => m.GetParameters().Any(p => typeof(System.Delegate).IsAssignableFrom(p.ParameterType)));
+        AssertNull(closureParamSurvivor,
+            "InternalHolder.transform(using:) must be DROPPED at emission (closure parameter on internal parent — no CallConvSwift fallback)");
+
+        var closureReturnSurvivor = holderType!
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .FirstOrDefault(m => typeof(System.Delegate).IsAssignableFrom(m.ReturnType));
+        AssertNull(closureReturnSurvivor,
+            "InternalHolder.makeAdder() must be DROPPED at emission (closure return on internal parent — direct CallConvSwift closure return crashes Mono+NativeAOT)");
+
+        TestLogger.Info("InternalHolder: no public ctor (construction barrier); describe()+subscript KEPT via arm 2b; describeAsync()+transform(using:)+makeAdder() DROPPED at emission.");
+    }
+
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.PublicConstructors, typeof(InternalFrozenOperand))]
+    public void TestInternalFrozenOperandOperatorAbsent()
+    {
+        // @frozen @usableFromInline internal struct whose only public member is a
+        // `+` operator. A frozen-struct operator must be emitted as a @_cdecl wrapper
+        // (a static-operator CallConvSwift P/Invoke crashes ILC on NativeAOT), and
+        // that wrapper body names the internal parent — which the separate
+        // wrapper-compilation module cannot reference. There is no CallConvSwift
+        // fallback (arm 2b's sync-member fallback does not apply to operators), so
+        // OperatorHandler.EmitOperator DROPS the operator at emission
+        // (ParentModuleInternalNoFallback) instead of emit-then-strip. Assert no
+        // op_Addition survives on the emitted shell. The DynamicDependency roots the
+        // shell's public surface so the absence reflects emission, not NativeAOT trim.
+        var t = FindGeneratedType("InternalFrozenOperand");
+        AssertNotNull(t, "InternalFrozenOperand shell type expected (used as metadata anchor)");
+
+        var op = t!.GetMethod("op_Addition", BindingFlags.Public | BindingFlags.Static);
+        AssertNull(op,
+            "InternalFrozenOperand.+ must be DROPPED at emission (operator on internal parent — no CallConvSwift fallback)");
+
+        var publicCtors = t!.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
+        AssertEqual(0, publicCtors.Length,
+            "InternalFrozenOperand must not expose a public constructor (internal init — construction barrier)");
+        TestLogger.Info("InternalFrozenOperand: + operator DROPPED at emission; no public ctor.");
     }
 
     public void TestPublicHostInternalMembersAbsent()

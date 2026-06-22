@@ -208,17 +208,25 @@ public static class WrapperValidation
         // leaves the C# indexer bound to a stripped @_cdecl symbol (a runtime
         // EntryPointNotFoundException a compile-only gate cannot catch).
         //
-        // The async, closure-@_cdecl, and operator promotion sites are deliberately
-        // NOT gated on parent-internal, because those kinds have no clean
-        // CallConvSwift fallback: an async member ALWAYS needs a Swift wrapper (which
-        // still names the parent under @_silgen_name), a closure member degrades to
-        // the legacy CallConvSwift path that crashes (InvalidProgramException), and a
-        // frozen-struct operator's direct CallConvSwift P/Invoke segfaults ILC on
-        // NativeAOT (OperatorHandler.cs documents the wrapper exists for exactly that
-        // reason). Gating those would trade an emit-then-strip for a real regression.
-        // They stay post-processor-scoped until a parent-name-free wrapper-body
-        // rewrite and a NativeAOT-safe operator path land. See S07b-followon design
-        // doc.
+        // The async, closure-@_cdecl, and operator promotion sites are NOT handled by
+        // this arm, because those kinds have no clean CallConvSwift fallback: an async
+        // member ALWAYS needs a Swift wrapper (which still names the parent under
+        // @_silgen_name), a closure member degrades to the legacy CallConvSwift path
+        // that crashes (InvalidProgramException), and a frozen-struct operator's direct
+        // CallConvSwift P/Invoke segfaults ILC on NativeAOT (OperatorHandler.cs
+        // documents the wrapper exists for exactly that reason). Because no fallback
+        // exists, the correct outcome for those three shapes on an internal parent is
+        // to DROP the member entirely rather than reject only the wrapper and keep the
+        // member. That drop happens earlier, at emission: async / closure-bearing
+        // methods are caught by MemberValidationPipeline.ValidateMethodEmission and
+        // operators by OperatorHandler.EmitOperator, both with
+        // SkipReason.ParentModuleInternalNoFallback. The net public API is identical to
+        // the previous emit-then-strip + C# reconcile, so the SwiftWrapperPostProcessor
+        // no longer strips any internal-receiver wrapper. (The post-processor remains in
+        // place for the other strip classes it owns — NSInvocation, EveryProtocol /
+        // safety-net placeholders, extension and private _SBW_ protocol blocks, and
+        // standalone public wrapper funcs — none of which this emission-time gating
+        // covers.)
         if (kind is MemberKind.Method or MemberKind.Constructor or MemberKind.Property
             or MemberKind.Subscript)
         {

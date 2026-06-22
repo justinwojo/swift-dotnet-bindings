@@ -156,6 +156,38 @@ namespace BindingsGeneration
                 return false;
             }
 
+            // Public operator on a @usableFromInline internal parent type. Dropped at
+            // emission for EVERY parent kind, and that is correct, not over-broad — the
+            // two parent kinds reach the same outcome for different reasons:
+            //   * Frozen struct (ShouldEmitOperatorWrapper would return true below): the
+            //     operator must be a @_cdecl wrapper — a direct CallConvSwift P/Invoke
+            //     for a static operator function segfaults ILC on NativeAOT — and that
+            //     wrapper body reconstructs the operands by naming the parent type,
+            //     which the separate wrapper-compilation module cannot reference. No
+            //     CallConvSwift fallback exists (arm 2b in WrapperValidation keeps only
+            //     sync method/ctor/property/subscript, never operators), so the broken
+            //     wrapper would emit-then-strip.
+            //   * Class / non-frozen struct (no @_cdecl wrapper emitted): the operator
+            //     is unreachable dead surface. A @usableFromInline internal type is not
+            //     constructible from C# (its init's effective access is internal however
+            //     it is declared), and a static C# operator cannot satisfy a protocol /
+            //     interface requirement the way an arm-2b sync member can — so unlike a
+            //     kept sync member it serves no dispatch purpose. Keeping it would add an
+            //     uncallable operator bound to a direct CallConvSwift P/Invoke against an
+            //     effective-internal symbol; dropping it is strictly cleaner.
+            // Drop here, at emission, before the wrapper-decision below. Mirrors the
+            // ParentModuleInternalNoFallback drop for async/closure methods in
+            // MemberValidationPipeline.ValidateMethodEmission. Reference-safe:
+            // ValidateAndEmitPairs only synthesizes a paired operator (e.g. !=) from
+            // operators actually emitted, so a dropped operator synthesizes no partner.
+            if (parentDecl.IsModuleInternal)
+            {
+                _logger.LogInformation($"Operator '{symbol}' on @usableFromInline internal parent '{parentDecl.Name}' dropped at emission: an internal-parent operator is either a parent-naming @_cdecl wrapper with no CallConvSwift fallback (frozen struct) or unreachable dead surface (class / non-frozen struct).");
+                ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.ParentModuleInternalNoFallback,
+                    "Public operator on a @usableFromInline internal parent type: a frozen-struct operator needs a @_cdecl wrapper that names the internal parent (no CallConvSwift fallback — a static-operator P/Invoke crashes ILC on NativeAOT), and a class / non-frozen-struct operator is unreachable (the internal parent is not constructible from C# and a static operator cannot satisfy a protocol requirement), so the operator is dropped either way.");
+                return false;
+            }
+
             // Determine if the containing type is a C# reference type (class) for null guard emission.
             // Reference types: ClassDecl, EnumDecl, non-frozen structs, frozen structs projected as classes.
             bool isReferenceType = parentDecl is ClassDecl || parentDecl is EnumDecl ||

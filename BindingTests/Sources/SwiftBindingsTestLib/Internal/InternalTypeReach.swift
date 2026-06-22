@@ -45,23 +45,39 @@ import Foundation
 //     path is for conformance validation, not concrete emission.)
 //
 //   * `@usableFromInline internal` *types* with `public` members
-//     (`InternalHolder.describe()` method + `subscript(offset:)`). Swift allows
-//     the members (their declared signatures are public-only), but the generated
-//     wrapper bodies must reference the internal parent type. For a **sync**
-//     method/ctor/property/subscript this is now caught at emission by
-//     `WrapperValidation.GetMemberRejectionReason` arm 2b
-//     (`parent_module_internal`): the broken `@_cdecl` wrapper is rejected and
-//     the member falls back to a direct CallConvSwift P/Invoke against the
-//     member's exported ABI symbol — the `Tj` dispatch thunk for a non-final
-//     class's instance method or subscript getter, the bare silgen symbol for a
-//     constructor or a struct/final-class member — so the member is KEPT, not
-//     stripped, and a public protocol requirement is still satisfied (no
-//     CS0535). The async / closure-bearing / operator internal-receiver shapes
-//     have no clean CallConvSwift fallback and remain post-processing scope: the
-//     `SwiftWrapperPostProcessor` Pattern 2 (B) body-reference scrub strips
-//     the broken wrapper and `CSharpWrapperCoGater` (with its
-//     `BuildTypeProtectedMembers` interface-member protection) removes the
-//     C# member when there's no protocol to satisfy.
+//     (`InternalHolder` + `InternalFrozenOperand`). Swift allows the members
+//     (their declared signatures are public-only), but the generated wrapper
+//     bodies must reference the internal parent type. The emission outcome
+//     splits by whether a clean CallConvSwift fallback exists:
+//       - **Sync** method/ctor/property/subscript (`describe()`,
+//         `subscript(offset:)`) — caught at emission by
+//         `WrapperValidation.GetMemberRejectionReason` arm 2b
+//         (`parent_module_internal`): the broken `@_cdecl` wrapper is rejected
+//         and the member falls back to a direct CallConvSwift P/Invoke against
+//         the member's exported ABI symbol — the `Tj` dispatch thunk for a
+//         non-final class's instance method or subscript getter, the bare silgen
+//         symbol for a constructor or a struct/final-class member — so the
+//         member is KEPT, not stripped, and a public protocol requirement is
+//         still satisfied (no CS0535).
+//       - **Async** / **closure-bearing** methods (`describeAsync()`,
+//         `transform(using:)`, and the closure-RETURN case `makeAdder()`) — no
+//         clean CallConvSwift fallback (async always needs a Swift bridge wrapper
+//         that names the parent; a closure parameter degrades to a faulting legacy
+//         CallConvSwift path; a closure return through a direct CallConvSwift
+//         P/Invoke crashes Mono+NativeAOT), so the member is DROPPED at emission by
+//         `MemberValidationPipeline.ValidateMethodEmission` — which scans the whole
+//         signature, return type included — (`ParentModuleInternalNoFallback`).
+//       - **Frozen-struct operators** (`InternalFrozenOperand.+`) — must be a
+//         `@_cdecl` wrapper (a static-operator CallConvSwift P/Invoke crashes
+//         ILC on NativeAOT) that names the parent, with no fallback, so the
+//         operator is DROPPED at emission by `OperatorHandler.EmitOperator`
+//         (`ParentModuleInternalNoFallback`).
+//     The three emission-time drops are public-API-identical to the previous
+//     emit-then-strip + C# reconcile, but decided at the emission layer, so the
+//     `SwiftWrapperPostProcessor` no longer strips any internal-receiver shape
+//     (the post-processor remains in place for the other strip classes it owns
+//     — `NSInvocation`, EveryProtocol/safety-net placeholders, extension/private
+//     `_SBW_` protocol blocks, and standalone wrapper funcs).
 //
 //   * `@frozen public struct` with `@usableFromInline internal` stored
 //     properties — the public storage boundary. The struct is constructible
@@ -113,29 +129,43 @@ internal func readCarrier(_ carrier: InternalCarrier) -> Int32 {
     return carrier.value
 }
 
-/// `@usableFromInline internal` class with `public` members (a method and a
-/// subscript). Their declared signatures are public-only (Swift refuses
-/// anything else), so the signature-reach walker does not catch them. The
-/// generated wrapper bodies must reference `InternalHolder` as `self`, and the
-/// Swift compiler rejects internal-type references inside `@_cdecl` bodies.
-/// Because `describe()` (method) and `subscript(offset:)` (a sync accessor pair
-/// like a property) are **sync** members with a clean CallConvSwift fallback,
-/// both are now caught at emission by
-/// `WrapperValidation.GetMemberRejectionReason` arm 2b
-/// (`parent_module_internal`): the broken `@_cdecl` wrapper is rejected and each
-/// member falls back to a direct CallConvSwift P/Invoke against the exported
-/// `Tj` dispatch thunk (a non-final class's instance method and subscript-getter
-/// accessor are both vtable-dispatched, so the `Tj` thunk is exported), so the
-/// member is kept (not stripped). The async / closure / operator
-/// internal-receiver shapes lack that fallback and stay post-processing scope
-/// (`SwiftWrapperPostProcessor` Pattern 2 (B) body-reference scrub +
-/// `CSharpWrapperCoGater`, preserving interface-implementation members so types
-/// conforming to public protocols still compile).
+/// `@usableFromInline internal` class with `public` members. Their declared
+/// signatures are public-only (Swift refuses anything else), so the
+/// signature-reach walker does not catch them. The generated wrapper bodies
+/// must reference `InternalHolder` as `self`, and the Swift compiler rejects
+/// internal-type references inside `@_cdecl` (and `@_silgen_name`) bodies. The
+/// members split into two emission outcomes by whether a clean CallConvSwift
+/// fallback exists:
 ///
-/// Both members are unreachable at runtime by the construction barrier (the
+///   * **Sync** members with a fallback — `describe()` (method) and
+///     `subscript(offset:)` (a sync accessor pair like a property) — are caught
+///     at emission by `WrapperValidation.GetMemberRejectionReason` arm 2b
+///     (`parent_module_internal`): the broken `@_cdecl` wrapper is rejected and
+///     each member falls back to a direct CallConvSwift P/Invoke against the
+///     exported `Tj` dispatch thunk (a non-final class's instance method and
+///     subscript-getter accessor are both vtable-dispatched, so the `Tj` thunk
+///     is exported), so the member is KEPT (not stripped).
+///
+///   * **Async** (`describeAsync()`) and **closure-bearing** members — a closure
+///     parameter (`transform(using:)`) or a closure RETURN (`makeAdder()`) — have
+///     NO clean CallConvSwift fallback: an async member always needs a Swift bridge
+///     wrapper (which still names the internal parent under `@_silgen_name`), a
+///     closure parameter degrades to a legacy CallConvSwift path that faults at
+///     runtime, and a closure return through a direct CallConvSwift P/Invoke
+///     crashes Mono+NativeAOT. The correct emission outcome is therefore to DROP
+///     the member, which `MemberValidationPipeline.ValidateMethodEmission` now does
+///     (the parent-module-internal-no-fallback gate, reason
+///     `ParentModuleInternalNoFallback`, scanning the whole signature so the
+///     closure return is caught) — emission-time, before any wrapper is produced,
+///     so nothing is left for the post-processor to strip. This is
+///     public-API-identical to the previous emit-then-strip + C# reconcile, but
+///     decided at the emission layer alongside the sync arm-2b decision.
+///
+/// All four members are unreachable at runtime by the construction barrier (the
 /// `init` is `@usableFromInline internal`, so the emitted shell has no public
 /// constructor), so they are strip-count-hygiene cases asserted via the
-/// `wrapper_stripped_count` tripwire staying 0, not via a runtime call.
+/// `wrapper_stripped_count` tripwire staying 0 and via member-presence/absence
+/// on the emitted shell, not via a runtime call.
 @usableFromInline
 internal class InternalHolder {
     @usableFromInline
@@ -156,6 +186,69 @@ internal class InternalHolder {
     /// blittable `Int32` to mirror the proven property fallback shape.
     public subscript(offset index: Int32) -> Int32 {
         return Int32(label.count) &+ index
+    }
+
+    /// Public **async** method on the internal class. An async member always
+    /// needs a Swift bridge wrapper, and that wrapper still names the internal
+    /// parent — there is no direct CallConvSwift fallback the way a sync member
+    /// has one. So this is DROPPED at emission by
+    /// `MemberValidationPipeline.ValidateMethodEmission`
+    /// (`ParentModuleInternalNoFallback`) rather than emitted-then-stripped.
+    public func describeAsync() async -> String {
+        return label.lowercased()
+    }
+
+    /// Public **closure-bearing** method on the internal class. The closure
+    /// wrapper body would name the internal parent, and the closure path's only
+    /// fallback is a legacy CallConvSwift route that faults at runtime — no clean
+    /// fallback, so this is DROPPED at emission by the same gate.
+    public func transform(using f: (Int32) -> Int32) -> Int32 {
+        return f(Int32(label.count))
+    }
+
+    /// Public method that **returns a closure** (no closure parameter) on the
+    /// internal class. A closure return forces the closure-@_cdecl carrier — a
+    /// closure returned through a direct CallConvSwift P/Invoke crashes Mono and
+    /// NativeAOT (see `WrapperValidation.IsReturnTypeCdeclRequired`) — and that
+    /// wrapper names the internal parent, so there is no fallback. This is the
+    /// closure-RETURN trap: a parameter-only scan would let it slip past gate 3c
+    /// into the arm-2b "keep via direct CallConvSwift" path and bind a crashing
+    /// carrier. `MemberValidationPipeline.ValidateMethodEmission` scans the whole
+    /// signature (return + parameters), so it is DROPPED at emission like the
+    /// closure-parameter case (`ParentModuleInternalNoFallback`).
+    public func makeAdder() -> (Int32) -> Int32 {
+        let base = Int32(label.count)
+        return { base &+ $0 }
+    }
+}
+
+/// `@frozen @usableFromInline internal` struct whose only public member is an
+/// operator. A frozen-struct operator must be emitted as a `@_cdecl` wrapper —
+/// a direct CallConvSwift P/Invoke for a *static* operator function segfaults
+/// ILC on NativeAOT (see `OperatorHandler.ShouldEmitOperatorWrapper`). That
+/// wrapper body names the internal parent, which the separate
+/// wrapper-compilation module cannot reference, and there is no CallConvSwift
+/// fallback. So the operator is DROPPED at emission by
+/// `OperatorHandler.EmitOperator` (`ParentModuleInternalNoFallback`) rather than
+/// emitted-then-stripped.
+///
+/// Like `InternalCarrier`, the `init` is internal, so the emitted shell is not
+/// constructible from C# — this is a strip-count-hygiene case asserted via the
+/// `wrapper_stripped_count` tripwire staying 0 and the operator's absence from
+/// the emitted shell, not via a runtime call.
+@frozen
+@usableFromInline
+internal struct InternalFrozenOperand {
+    @usableFromInline
+    internal var value: Int32
+
+    @usableFromInline
+    internal init(value: Int32) {
+        self.value = value
+    }
+
+    public static func + (lhs: InternalFrozenOperand, rhs: InternalFrozenOperand) -> InternalFrozenOperand {
+        return InternalFrozenOperand(value: lhs.value &+ rhs.value)
     }
 }
 

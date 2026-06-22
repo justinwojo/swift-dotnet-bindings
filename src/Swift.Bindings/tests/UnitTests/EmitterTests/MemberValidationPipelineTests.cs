@@ -1309,6 +1309,189 @@ public class MemberValidationPipelineTests
         Assert.True(result.ShouldEmit);
     }
 
+    // Gate 3c — a PUBLIC member on a @usableFromInline internal parent type. The
+    // member compiles in Swift, but the only way to dispatch it across the binding
+    // boundary is a wrapper whose body names the internal parent as `self`, which
+    // the separate wrapper-compilation module cannot reference. Sync members survive
+    // by rejecting just the wrapper and binding a direct CallConvSwift P/Invoke
+    // (WrapperValidation arm 2b); the async and closure-bearing shapes have no such
+    // fallback and must be DROPPED here at emission. Operators take the analogous
+    // drop in OperatorHandler.EmitOperator (they never reach ValidateMethodEmission).
+
+    [Fact]
+    public void ValidateMethodEmission_AsyncOnModuleInternalParent_ReturnsSkip()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDeclForE2E("InternalHolder", moduleDecl, isGeneric: false);
+        parentDecl.IsModuleInternal = true;
+
+        var method = CreateMethod("describeAsync", new NamedTypeSpec("Swift.String"));
+        method.IsAsync = true;
+        method.ParentDecl = parentDecl;
+        method.ModuleDecl = moduleDecl;
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.ParentModuleInternalNoFallback, result.Reason);
+        Assert.Contains("Async", result.Details!);
+        Assert.Contains("internal parent", result.Details!);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_ClosureBearingOnModuleInternalParent_ReturnsSkip()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDeclForE2E("InternalHolder", moduleDecl, isGeneric: false);
+        parentDecl.IsModuleInternal = true;
+
+        // transform(using: (Int) -> Int) -> Int — a closure that would otherwise be
+        // supported, so the ONLY reason it is skipped is the internal parent.
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            new NamedTypeSpec("Swift.Int"));
+        var method = CreateMethodWithArgs("transform", new NamedTypeSpec("Swift.Int"), closureType);
+        method.ParentDecl = parentDecl;
+        method.ModuleDecl = moduleDecl;
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.ParentModuleInternalNoFallback, result.Reason);
+        Assert.Contains("Closure", result.Details!);
+        Assert.Contains("internal parent", result.Details!);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_ClosureReturningOnModuleInternalParent_ReturnsSkip()
+    {
+        // The closure-RETURN trap: a sync method whose RETURN type is a closure (no
+        // closure parameters). A closure return routed through a direct CallConvSwift
+        // P/Invoke crashes Mono+NativeAOT (WrapperValidation.IsReturnTypeCdeclRequired),
+        // so it must be DROPPED at emission — but a parameter-only scan (CSSignature
+        // .Skip(1)) misses the return at index 0 and lets it slip into the arm-2b
+        // "keep via direct CallConvSwift" path. Gate 3c must scan the whole signature.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDeclForE2E("InternalHolder", moduleDecl, isGeneric: false);
+        parentDecl.IsModuleInternal = true;
+
+        // makeAdder() -> (Int) -> Int — closure in the RETURN, no closure parameters.
+        var closureReturn = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            new NamedTypeSpec("Swift.Int"));
+        var method = CreateMethod("makeAdder", closureReturn);
+        method.ParentDecl = parentDecl;
+        method.ModuleDecl = moduleDecl;
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.ParentModuleInternalNoFallback, result.Reason);
+        Assert.Contains("Closure", result.Details!);
+        Assert.Contains("internal parent", result.Details!);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_SyncPlainOnModuleInternalParent_NotGatedBy3c()
+    {
+        // Over-broad guard: a SYNC, non-closure public member on an internal parent
+        // must NOT be dropped by gate 3c — it survives via WrapperValidation arm 2b
+        // (wrapper rejected, member bound through a direct CallConvSwift P/Invoke).
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDeclForE2E("InternalHolder", moduleDecl, isGeneric: false);
+        parentDecl.IsModuleInternal = true;
+
+        var method = CreateMethod("plainValue", new NamedTypeSpec("Swift.Int"));
+        method.ParentDecl = parentDecl;
+        method.ModuleDecl = moduleDecl;
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.True(result.ShouldEmit);
+        Assert.NotEqual(SkipReason.ParentModuleInternalNoFallback, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_AsyncOnPublicParent_NotGatedBy3c()
+    {
+        // Parent-specificity guard: the identical async member on a PUBLIC parent
+        // emits — gate 3c keys on the internal parent, not on the async shape.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDeclForE2E("PublicHolder", moduleDecl, isGeneric: false);
+        // IsModuleInternal stays false (public parent)
+
+        var method = CreateMethod("describeAsync", new NamedTypeSpec("Swift.String"));
+        method.IsAsync = true;
+        method.ParentDecl = parentDecl;
+        method.ModuleDecl = moduleDecl;
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.True(result.ShouldEmit);
+        Assert.NotEqual(SkipReason.ParentModuleInternalNoFallback, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_ClosureBearingOnPublicParent_NotGatedBy3c()
+    {
+        // Parent-specificity guard: the identical closure-bearing member on a PUBLIC
+        // parent is not dropped by gate 3c — and genuinely emits (the supported
+        // (Int) -> Int closure has no other skip reason), so asserting ShouldEmit
+        // catches a regression that skipped it for any reason, not just our SkipReason.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDeclForE2E("PublicHolder", moduleDecl, isGeneric: false);
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            new NamedTypeSpec("Swift.Int"));
+        var method = CreateMethodWithArgs("transform", new NamedTypeSpec("Swift.Int"), closureType);
+        method.ParentDecl = parentDecl;
+        method.ModuleDecl = moduleDecl;
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.True(result.ShouldEmit);
+        Assert.NotEqual(SkipReason.ParentModuleInternalNoFallback, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_ClosureReturningOnPublicParent_NotGatedBy3c()
+    {
+        // Parent-specificity guard for the closure-RETURN axis: the whole-signature
+        // scan must not start dropping closure-returning members on PUBLIC parents.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDeclForE2E("PublicHolder", moduleDecl, isGeneric: false);
+
+        var closureReturn = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            new NamedTypeSpec("Swift.Int"));
+        var method = CreateMethod("makeAdder", closureReturn);
+        method.ParentDecl = parentDecl;
+        method.ModuleDecl = moduleDecl;
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        // Assert it genuinely emits (the (Int) -> Int closure return has no other skip
+        // reason), so the whole-signature scan cannot start over-dropping closure
+        // returns on public parents through any path, not just our SkipReason.
+        Assert.True(result.ShouldEmit);
+        Assert.NotEqual(SkipReason.ParentModuleInternalNoFallback, result.Reason);
+    }
+
     #endregion
 
     #region End-to-End Integration Tests (HandleBaseDecl flow)

@@ -20,22 +20,29 @@ known-active defect unless flagged otherwise.
 
 ## Already tracked elsewhere (do not duplicate)
 
-Three residual gaps from *confirmed* findings are architectural and tracked against the
-Phase-2 session plans. Of the sessions named below, S07a/S07b/S15 have since shipped (the
-generate-then-strip C# leg, the harness Swift stripper, and the regex swiftinterface parser
-were all removed); **S08** (layout & lowering truth) remains the one open plan and still lives
-in `src/docs/sessions/`. The completed plans were archived out of the repo once shipped.
+Three residual gaps from *confirmed* findings are architectural and were tracked against the
+Phase-2 session plans — all of which have since shipped. S07a/S07b/S15 removed the
+generate-then-strip C# leg, the harness Swift stripper, and the regex swiftinterface parser;
+**S08** (layout & lowering truth) shipped the `SwiftValueLayout` oracle. Every session plan was
+archived out of the repo once shipped — the `src/docs/sessions/` folder is retired and the
+originals live at `/Users/wojo/Dev/SB-Backup-Docs/architecture-review-2026-06/sessions/`. The
+remaining promote-worthy follow-ups now live in `src/docs/release-execution-plan.md`.
 
 - **R6-1 residual** — the `SwiftWrapperPostProcessor` re-derives stripping decisions textually
   that the module-aware `InternalTypeReferenceWalker` already makes semantically. A top-level
   current-module internal type named after a bare-emitted stdlib primitive (`String`, `Int`,
   …) can still be false-stripped. Not reachable in current code (no such type exists).
-  Durable fix = have the post-processor consult the semantic gate → **S07a/S07b** (retire
-  generate-then-strip).
-- **R6-4 residual** — full unification of the three Optional-layout oracles (`ClassifyFieldType`,
+  Durable fix = have the post-processor's `ReferencesInternalType` consult the module-aware
+  semantic walker instead of its textual regex. (NOT a path to retiring the post-processor — it
+  stays for its non-internal-receiver strips; see `release-execution-plan.md` P1 #1.)
+- **R6-4 residual** — unification of the three Optional-layout oracles (`ClassifyFieldType`,
   `LowerOptional`, `FrozenStructHandler.TryComputeOptionalInlineSize`) behind one
-  `SwiftValueLayout` → **S08** (layout & lowering truth). The R6-4 fix only made the register
-  oracle stop *disagreeing* with the field oracle; it did not merge them.
+  `SwiftValueLayout`. **Largely shipped by S08b:** `SwiftValueLayout` was created (absorbing
+  `OptionalAbiClassifier`), `FrozenStructHandler`'s private sizing tables were deleted, and
+  `ClassifyFieldType` + the `EnumHandler` read sites were rerouted through it. The remaining
+  `LowerOptional`/`TypeLowering` cross-check was **accepted as a documented blind-spot** (a
+  derived-size cross-check is tautological — both operands read the same null-sourced
+  `InlineSize`), guarded by `LowerReturnType_NullInlineSize_NoCrossCheck_…`. No open work.
 - **R6 CoGater + ContextTracker deferred leads** (see R6 below) live in code that **S07a**
   (delete `CSharpWrapperCoGater`) and **S15** (delete the regex swiftinterface parser) plan to
   remove outright — fix opportunistically there rather than patching the doomed code.
