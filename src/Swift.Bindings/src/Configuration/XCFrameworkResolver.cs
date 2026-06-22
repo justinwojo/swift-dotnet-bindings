@@ -1002,7 +1002,11 @@ namespace BindingsGeneration
                 case "string":
                     return node.InnerText;
                 case "integer":
-                    return int.Parse(node.InnerText);
+                    // plist <integer> is a 64-bit signed value (CFNumber). Parse as long so a
+                    // value wider than 32 bits (build metadata, a large UID, a timestamp) doesn't
+                    // overflow and tear down the entire dict — which would silently degrade the
+                    // version + MinimumOSVersion we actually read to a placeholder.
+                    return long.Parse(node.InnerText);
                 case "true":
                     return true;
                 case "false":

@@ -135,11 +135,53 @@ namespace BindingsGeneration.Tests
 
                 Assert.NotNull(result);
                 Assert.Equal("hello", result["StringKey"]);
-                Assert.Equal(42, result["IntKey"]);
+                Assert.Equal(42L, result["IntKey"]); // plist <integer> boxes as a 64-bit long
+                Assert.IsType<long>(result["IntKey"]);
                 Assert.Equal(true, result["BoolKey"]);
                 var arr = Assert.IsType<List<object>>(result["ArrayKey"]);
                 Assert.Equal(2, arr.Count);
                 Assert.Equal("item1", arr[0]);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void ReadPlistDict_IntegerExceedingInt32_PreservesVersionAndMinOS()
+        {
+            // A real third-party framework Info.plist can carry a 64-bit <integer>
+            // (build metadata, a large UID, a nanosecond timestamp). The dict is parsed
+            // eagerly, so a single value wider than 32 bits must not blow up the parse and
+            // discard the WHOLE plist — which would silently degrade version + MinimumOSVersion
+            // to a placeholder with no diagnostic.
+            var runner = new MockCommandRunner();
+            var plistXml = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <plist version="1.0">
+                <dict>
+                    <key>CFBundleShortVersionString</key>
+                    <string>12.8.0</string>
+                    <key>MinimumOSVersion</key>
+                    <string>13.0</string>
+                    <key>BuildMachineOSBuild</key>
+                    <integer>9999999999</integer>
+                </dict>
+                </plist>
+                """;
+            runner.SetResponse("plutil", 0, plistXml);
+
+            var dir = CreateTempDir();
+            try
+            {
+                var plistPath = Path.Combine(dir, "Info.plist");
+                File.WriteAllText(plistPath, "stub"); // non-XML stub: no direct-XML fallback rescue
+
+                var result = PlistReader.ReadPlistDict(plistPath, runner, _logger);
+
+                Assert.NotNull(result);
+                Assert.Equal("12.8.0", result["CFBundleShortVersionString"]);
+                Assert.Equal("13.0", result["MinimumOSVersion"]);
+                // The wide integer itself round-trips as a 64-bit value.
+                Assert.Equal(9999999999L, result["BuildMachineOSBuild"]);
             }
             finally { Directory.Delete(dir, true); }
         }

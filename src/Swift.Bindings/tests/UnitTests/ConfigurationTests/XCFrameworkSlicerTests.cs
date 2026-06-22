@@ -177,6 +177,44 @@ namespace BindingsGeneration.Tests
             Assert.Equal(expected, XCFrameworkSlicer.MatchesRid(slice, rid));
         }
 
+        [Fact]
+        public void WritePrunedInfoPlist_PreservesWideRootInteger_AsInteger()
+        {
+            // ParsePlistValue boxes every parsed <integer> as long, so a preserved root-level
+            // integer key arrives here as long. The writer must still emit <integer>, not fall
+            // through to the default string path — otherwise read→prune→write corrupts the type.
+            var rootDict = new Dictionary<string, object>
+            {
+                ["CFBundlePackageType"] = "XFWK",
+                ["BuildMachineOSBuild"] = 9999999999L, // > int.MaxValue
+                ["AvailableLibraries"] = new List<object>(),
+            };
+            var keptSlices = new List<XCFrameworkSlice>
+            {
+                new XCFrameworkSlice
+                {
+                    BinaryPath = "Lib.framework/Lib",
+                    LibraryIdentifier = "ios-arm64",
+                    LibraryPath = "Lib.framework",
+                    SupportedArchitectures = new List<string> { "arm64" },
+                    SupportedPlatform = "ios",
+                    SupportedPlatformVariant = null,
+                },
+            };
+
+            var dir = MakeTempDir();
+            var plistPath = Path.Combine(dir, "Info.plist");
+            XCFrameworkSlicer.WritePrunedInfoPlist(rootDict, keptSlices, plistPath);
+
+            var doc = new XmlDocument();
+            doc.Load(plistPath);
+            var valueNode = doc.SelectSingleNode(
+                "/plist/dict/key[text()='BuildMachineOSBuild']/following-sibling::*[1]");
+            Assert.NotNull(valueNode);
+            Assert.Equal("integer", valueNode!.Name);
+            Assert.Equal("9999999999", valueNode.InnerText);
+        }
+
         // x64 RIDs are arch-aware: platform must match AND the slice's fat binary must contain
         // the RID's CPU arch (x86_64). An arm64-only slice matches the platform but is declined
         // on architecture, which is what makes the Intel path fail loud instead of shipping arm64.

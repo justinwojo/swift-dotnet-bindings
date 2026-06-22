@@ -379,10 +379,19 @@ namespace BindingsGeneration
                 case bool b:
                     parent.AppendChild(doc.CreateElement(b ? "true" : "false"));
                     break;
+                // Both int and long map to plist <integer>. The reader (ParsePlistValue) boxes
+                // every parsed <integer> as long, so a preserved root key round-tripped through
+                // here arrives as long — without this arm it would fall through to the default
+                // string path and rewrite <integer> as <string>.
                 case int i:
                     var intEl = doc.CreateElement("integer");
                     intEl.InnerText = i.ToString();
                     parent.AppendChild(intEl);
+                    break;
+                case long l:
+                    var longEl = doc.CreateElement("integer");
+                    longEl.InnerText = l.ToString();
+                    parent.AppendChild(longEl);
                     break;
                 case List<object> arr:
                     var arrEl = doc.CreateElement("array");
