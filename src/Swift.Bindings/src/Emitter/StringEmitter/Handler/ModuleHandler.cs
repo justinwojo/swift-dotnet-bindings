@@ -507,6 +507,27 @@ namespace BindingsGeneration
             {
                 csWriter.WriteLines($"        try {{ global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof({typeofExpr}), global::Swift.Runtime.PayloadConstructionSemantics.{semantics}); }} catch {{ }}");
             }
+            // Fail-closed Mono-safety invariant. BOTH conformance loops below invoke a
+            // static-virtual on the TType operand — RegisterConformanceFactory resolves
+            // TType.GetProtocolConformanceDescriptor and RegisterWitnessTable resolves
+            // GetOrThrowDirect. On Mono an OPEN-generic TType crashes the JIT instead of
+            // dispatching, so the conformance recorder (ModuleEmissionContext.RecordConformance)
+            // already skips any type under an open-generic ancestor — every pair reaching here is
+            // a concrete literal today. Assert that here so a future recorder regression surfaces
+            // as a generation-time error rather than as a Mono/NativeAOT runtime crash in a
+            // consumer app. Only the TType (left) operand is gated; the protocol operand may
+            // legally be a CLOSED generic interface (e.g. IEquatable<Codec.Encoding>).
+            foreach (var (typeName, protocolName) in conformances)
+            {
+                if (typeName.Contains('<'))
+                {
+                    throw new InvalidOperationException(
+                        $"SWIFTBIND047: conformance registration requires a concrete-literal type, but '{typeName}' "
+                        + $"(conforming to '{protocolName}') is an open generic. Emitting RegisterConformanceFactory/"
+                        + "RegisterWitnessTable for it would produce a Mono-unsafe static-virtual dispatch; the "
+                        + "conformance recorder must skip open-generic types.");
+                }
+            }
             foreach (var (typeName, protocolName) in conformances)
             {
                 csWriter.WriteLines($"        try {{ global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<{typeName}, {protocolName}>(); }} catch {{ }}");

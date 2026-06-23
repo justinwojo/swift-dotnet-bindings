@@ -240,7 +240,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
                     csWriter.WriteLine($"public SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
                     csWriter.WriteLine($"IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();");
-                    csWriter.WriteLine("void ISwiftObject.SuppressPayloadFinalizer() => GC.SuppressFinalize(_payload);");
+                    csWriter.WriteLine(FinalizerSeamEmitter.SuppressPayloadFinalizerLine("_payload"));
                     csWriter.WriteLine();
                     // No wrapper finalizer: the _payload SwiftSafeHandle is itself a
                     // CriticalFinalizerObject whose own finalizer releases the Swift value

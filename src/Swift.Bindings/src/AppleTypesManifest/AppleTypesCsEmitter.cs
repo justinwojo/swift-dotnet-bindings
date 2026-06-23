@@ -293,7 +293,7 @@ public sealed class AppleTypesCsEmitter
         sb.Append(bodyPad); sb.AppendLine($"public SwiftSafeHandle<{leaf}> Payload => _payload;");
         sb.AppendLine();
         sb.Append(bodyPad); sb.AppendLine("IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();");
-        sb.Append(bodyPad); sb.AppendLine("void ISwiftObject.SuppressPayloadFinalizer() => global::System.GC.SuppressFinalize(_payload);");
+        sb.Append(bodyPad); sb.AppendLine(FinalizerSeamEmitter.SuppressPayloadFinalizerLine("_payload", qualifyGc: true));
         sb.AppendLine();
         sb.Append(bodyPad); sb.AppendLine("static TypeMetadata ISwiftObject.GetTypeMetadata()");
         sb.Append(bodyPad); sb.AppendLine("    => _cachedMetadata ??= PInvoke_GetMetadata();");

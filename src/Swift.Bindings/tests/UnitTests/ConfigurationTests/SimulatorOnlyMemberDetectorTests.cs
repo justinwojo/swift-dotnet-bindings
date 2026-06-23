@@ -367,6 +367,66 @@ namespace BindingsGeneration.Tests
             Assert.Equal(content, result);
             Assert.Equal(0, count);
         }
+
+        [Fact]
+        public void ApplySimulatorGuards_BraceInsideStringDefault_DoesNotTruncateGuard()
+        {
+            // A sim-only wrapper whose body contains a `}` inside a string literal (the Swift default
+            // value `prefix: String = "}"` round-trips into the wrapper body). A brace-blind block scan
+            // would treat that in-string `}` as the function's closing brace, place `#endif` right after
+            // it, and leave the real body tail (the `return` and the true closing brace) OUTSIDE the
+            // simulator guard — emitted unconditionally and referencing a sim-only symbol, which breaks
+            // the device compile. The whole function must sit inside the guard.
+            var mangledName = "$s_MyType_simOnly_String";
+            var hash = EmitterUtility.DeterministicHash8(mangledName);
+
+            var content = string.Join("\n", new[]
+            {
+                "// Method @_cdecl wrapper for MyModule.MyType.simOnly.",
+                "@_cdecl(\"SBW_MyModule_MyType_simOnly_" + hash + "\")",
+                "func SBW_MyModule_MyType_simOnly_" + hash + "(prefix: UnsafeRawPointer) -> Int32 {",
+                "    let closer = \"}\"",
+                "    return MyType().simOnly(prefix, closer)",
+                "}",
+                "",
+                "// Method @_cdecl wrapper for MyModule.MyType.shared.",
+                "@_cdecl(\"SBW_MyModule_MyType_shared_AABBCCDD\")",
+                "func SBW_MyModule_MyType_shared_AABBCCDD() -> Int32 {",
+                "    return 0",
+                "}"
+            });
+
+            var simOnly = MakeResult(("MyType.simOnly", mangledName));
+            var (result, count) = SimulatorOnlyMemberDetector.ApplySimulatorGuards(content, "MyModule", simOnly);
+
+            Assert.Equal(1, count);
+
+            // The body tail (the real return) must be INSIDE the first guard region, not after #endif.
+            var lines = result.Split('\n');
+            bool inGuard = false;
+            bool returnSeenInsideGuard = false;
+            bool closingBraceSeenInsideGuard = false;
+            foreach (var line in lines)
+            {
+                if (line.Contains("#if targetEnvironment(simulator)")) { inGuard = true; continue; }
+                if (line.Contains("#endif")) { inGuard = false; continue; }
+                if (inGuard && line.Contains("return MyType().simOnly")) returnSeenInsideGuard = true;
+                if (inGuard && line.Trim() == "}") closingBraceSeenInsideGuard = true;
+            }
+            Assert.True(returnSeenInsideGuard, "Function body tail must stay inside the simulator guard");
+            Assert.True(closingBraceSeenInsideGuard, "Real closing brace must stay inside the simulator guard");
+
+            // The shared (device) function must NOT be guarded.
+            inGuard = false;
+            bool sharedGuarded = false;
+            foreach (var line in lines)
+            {
+                if (line.Contains("#if targetEnvironment(simulator)")) inGuard = true;
+                else if (line.Contains("#endif")) inGuard = false;
+                else if (inGuard && line.Contains("shared_AABBCCDD")) sharedGuarded = true;
+            }
+            Assert.False(sharedGuarded, "Shared device function must not be guarded");
+        }
     }
 
     #endregion

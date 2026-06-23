@@ -431,6 +431,9 @@ namespace BindingsGeneration
             // Cache the current qualified path; rebuild when the stack changes.
             string? currentPath = null;
             bool pathDirty = false;
+            // Carry block-comment nesting across lines so a brace inside a string/comment doesn't
+            // corrupt the depth and mis-attribute later symbols to the wrong enclosing type.
+            int blockCommentDepth = 0;
 
             for (int i = 0; i < lines.Count; i++)
             {
@@ -444,9 +447,9 @@ namespace BindingsGeneration
                     pendingType = ExtractTypeName(trimmed);
                 }
 
-                foreach (char c in lines[i])
+                StructuralBraceScanner.ScanLine(lines[i], ref blockCommentDepth, delta =>
                 {
-                    if (c == '{')
+                    if (delta > 0)
                     {
                         depth++;
                         if (pendingType != null)
@@ -456,7 +459,7 @@ namespace BindingsGeneration
                             pathDirty = true;
                         }
                     }
-                    else if (c == '}')
+                    else
                     {
                         depth--;
                         // Pop types whose scope has closed (openDepth > current depth)
@@ -466,7 +469,7 @@ namespace BindingsGeneration
                             pathDirty = true;
                         }
                     }
-                }
+                });
 
                 if (pathDirty)
                 {
@@ -1812,11 +1815,15 @@ namespace BindingsGeneration
             int depth = 0;
             for (int j = fromLine; j >= 0; j--)
             {
-                foreach (char c in lines[j])
-                {
-                    if (c == '}') depth++;
-                    else if (c == '{') depth--;
-                }
+                // Walking backward, a line closes (+1) on each structural '}' and opens (-1) on each
+                // structural '{'; that is the negation of the forward opens-minus-closes net delta.
+                // Reset block-comment state per line — a reverse scan meets a '/* */' close before its
+                // open, so cross-line comment nesting can't be tracked here; on brace-free strings and
+                // comments this stays byte-identical to the prior raw count, and the per-line string and
+                // line-comment awareness is strictly better than the old comment-blind scan.
+                int blockCommentDepth = 0;
+                bool sawOpen = false;
+                depth -= StructuralBraceScanner.NetLineDelta(lines[j], ref blockCommentDepth, ref sawOpen);
                 if (depth < 0)
                 {
                     // Found an unmatched '{' — this is our enclosing scope
@@ -1855,19 +1862,18 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Finds the end of a brace-delimited block starting at the given line.
+        /// Finds the end of a brace-delimited block starting at the given line. Braces inside string
+        /// literals and comments are ignored so an emitted string such as <c>"}"</c> does not close the
+        /// block early.
         /// </summary>
         internal static int FindBlockEnd(List<string> lines, int start)
         {
             int depth = 0;
             bool foundOpen = false;
+            int blockCommentDepth = 0;
             for (int j = start; j < lines.Count; j++)
             {
-                foreach (char c in lines[j])
-                {
-                    if (c == '{') { depth++; foundOpen = true; }
-                    else if (c == '}') depth--;
-                }
+                depth += StructuralBraceScanner.NetLineDelta(lines[j], ref blockCommentDepth, ref foundOpen);
                 if (foundOpen && depth <= 0)
                     return j;
             }

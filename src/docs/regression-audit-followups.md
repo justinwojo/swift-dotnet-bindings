@@ -26,7 +26,9 @@ generate-then-strip C# leg, the harness Swift stripper, and the regex swiftinter
 **S08** (layout & lowering truth) shipped the `SwiftValueLayout` oracle. Every session plan was
 archived out of the repo once shipped — the `src/docs/sessions/` folder is retired and the
 originals live at `/Users/wojo/Dev/SB-Backup-Docs/architecture-review-2026-06/sessions/`. The
-remaining promote-worthy follow-ups now live in `src/docs/release-execution-plan.md`.
+promote-worthy follow-ups that were collected for the architecture-review release have all
+shipped; the remaining lower-priority maintainability/hygiene items (S18, AF13) were remoted to
+`roadmap.md` (Low Priority).
 
 - **R6-1 residual** — the `SwiftWrapperPostProcessor` re-derives stripping decisions textually
   that the module-aware `InternalTypeReferenceWalker` already makes semantically. A top-level
@@ -34,7 +36,8 @@ remaining promote-worthy follow-ups now live in `src/docs/release-execution-plan
   …) can still be false-stripped. Not reachable in current code (no such type exists).
   Durable fix = have the post-processor's `ReferencesInternalType` consult the module-aware
   semantic walker instead of its textual regex. (NOT a path to retiring the post-processor — it
-  stays for its non-internal-receiver strips; see `release-execution-plan.md` P1 #1.)
+  stays for its non-internal-receiver strips; see the internal-receiver RESOLVED row in
+  `roadmap.md` + `.claude/rules/constraints.md` + memory `feedback_internal_receiver_wrapper_gate`.)
 - **R6-4 residual** — unification of the three Optional-layout oracles (`ClassifyFieldType`,
   `LowerOptional`, `FrozenStructHandler.TryComputeOptionalInlineSize`) behind one
   `SwiftValueLayout`. **Largely shipped by S08b:** `SwiftValueLayout` was created (absorbing

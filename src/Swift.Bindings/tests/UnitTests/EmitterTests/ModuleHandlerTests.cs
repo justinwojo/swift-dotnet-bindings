@@ -1100,6 +1100,47 @@ public class ModuleHandlerTests
 
     #endregion
 
+    #region Conformance Registration Concrete-Literal Guard
+
+    [Fact]
+    public void Emit_OpenGenericConformanceType_FailsClosedRatherThanEmittingMonoUnsafeRegistration()
+    {
+        // Mono-safety invariant: the module initializer's RegisterConformanceFactory<TType, …> and
+        // RegisterWitnessTable<TType, …> both invoke a static-virtual on TType, which crashes the
+        // Mono JIT when TType is an OPEN generic. The conformance recorder skips open-generic types,
+        // so an open-generic TType reaching the emit loop is a recorder regression. Emission must
+        // fail closed at generation time rather than ship a binding that crashes the consumer.
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            EmitModuleWithDependencies(
+                "TestModule",
+                new List<string>(),
+                preEmitHook: ctx => ctx.RecordConformance("Box<T>", "IFoo")));
+
+        Assert.Contains("Box<T>", ex.Message);
+        Assert.Contains("concrete-literal", ex.Message);
+    }
+
+    [Fact]
+    public void Emit_ConcreteTypeConformingToClosedGenericInterface_EmitsRegistrationWithoutThrowing()
+    {
+        // The guard is on the TType (left) operand ONLY. A concrete type conforming to a CLOSED
+        // generic protocol interface (e.g. Codec.Encoding : IEquatable<Codec.Encoding>) is fully
+        // Mono-safe — the static-virtual dispatches on the concrete Codec.Encoding — and must not be
+        // rejected just because the protocol operand contains a '<'.
+        var (csOutput, _) = EmitModuleWithDependencies(
+            "TestModule",
+            new List<string>(),
+            preEmitHook: ctx => ctx.RecordConformance(
+                "Codec.Encoding",
+                "global::System.IEquatable<Codec.Encoding>"));
+
+        Assert.Contains(
+            "RegisterConformanceFactory<Codec.Encoding, global::System.IEquatable<Codec.Encoding>>()",
+            csOutput);
+    }
+
+    #endregion
+
     #region Namespace Emission Tests
 
     [Fact]

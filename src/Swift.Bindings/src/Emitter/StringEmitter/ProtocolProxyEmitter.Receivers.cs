@@ -1125,13 +1125,32 @@ public partial class ProtocolProxyEmitter
         // error channel to carry it.
         string asyncResultUnwrap = method.IsAsync ? ".GetAwaiter().GetResult()" : string.Empty;
 
+        // The C# interface reshapes an async requirement to a trailing `CancellationToken
+        // cancellationToken = default`. When the SAME protocol also declares a sync namesake projecting
+        // to the same C# name (Swift `func foo() async` + `func fooAsync()`, AF05 ruling b), BOTH
+        // overloads coexist and a bare `impl.FooAsync(args)` binds the SYNC (exact-arity) overload —
+        // whose return is not a Task, so the `.GetAwaiter().GetResult()` unwrap above fails to compile
+        // (CS1061). Pass the trailing token explicitly so the call binds the async overload; a
+        // reverse-dispatched async witness carries no token, so `default` is the correct value. Harmless
+        // when no sync namesake exists — it just makes the always-present default-token argument explicit
+        // (same bound overload, same behavior). Mirrors the real reverse-async witness receiver's
+        // asyncImplArgs. For a SYNC method this is exactly `argsString` (no token — a sync C# overload has
+        // no CancellationToken parameter), so the sibling-fallback impl calls below — which are reached
+        // only for sync methods (async is gated out of the sibling path at siblingFallbacks setup) — stay
+        // byte-identical. Using one expression at every impl-call site keeps them from drifting.
+        string implCallArgs = method.IsAsync
+            ? (argsString.Length > 0
+                ? $"{argsString}, default(global::System.Threading.CancellationToken)"
+                : "default(global::System.Threading.CancellationToken)")
+            : argsString;
+
         if (useMethodSiblingFallback)
         {
             // The Swift owner body fans out across sibling vtables and may dispatch into whichever
             // sibling proxy the C# impl populated — not necessarily the one matching this interface.
             // Params are already unmarshalled once above; try this interface first, then each
             // recorded sibling interface, then fall back to the dead-impl null value.
-            EmitMethodLookupHit(writer, interfaceName, "primary", pascalMethodName, argsString, hasReturn, isStringMethodReturn, returnConv);
+            EmitMethodLookupHit(writer, interfaceName, "primary", pascalMethodName, implCallArgs, hasReturn, isStringMethodReturn, returnConv);
             int siblingIdx = 0;
             foreach (var sibling in siblingFallbacks!)
             {
@@ -1142,14 +1161,14 @@ public partial class ProtocolProxyEmitter
                 // interface actually emitted — reusing pascalMethodName would emit a call to a
                 // method the sibling interface never defined (CS1061/CS1955).
                 var siblingPascalMethodName = ComputeReceiverPascalMethodName(method, sibling.Proto, hasReturn, isSelfReturning);
-                EmitMethodLookupHit(writer, siblingIface, $"s{siblingIdx}", siblingPascalMethodName, argsString, hasReturn, isStringMethodReturn, returnConv);
+                EmitMethodLookupHit(writer, siblingIface, $"s{siblingIdx}", siblingPascalMethodName, implCallArgs, hasReturn, isStringMethodReturn, returnConv);
                 siblingIdx++;
             }
             EmitSiblingFanOutFailFast(writer, protocolDecl, $"{method.Name}()");
         }
         else if (hasReturn)
         {
-            writer.WriteLine($"var result = impl.{pascalMethodName}({argsString}){asyncResultUnwrap};");
+            writer.WriteLine($"var result = impl.{pascalMethodName}({implCallArgs}){asyncResultUnwrap};");
             if (isStringMethodReturn)
             {
                 writer.WriteLine("return MarshalStringToUtf8Slice(result);");
@@ -1166,7 +1185,7 @@ public partial class ProtocolProxyEmitter
         }
         else
         {
-            writer.WriteLine($"impl.{pascalMethodName}({argsString}){asyncResultUnwrap};");
+            writer.WriteLine($"impl.{pascalMethodName}({implCallArgs}){asyncResultUnwrap};");
         }
 
         // Async receivers on this legacy fallback path block the Task on the sync-ABI slot (Issue 1)

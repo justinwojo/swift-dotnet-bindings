@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System.Diagnostics.CodeAnalysis;
@@ -114,12 +115,21 @@ public interface ITypeDatabase
     /// class methods, metadata-P/Invoke presence) onto the already-registered record for
     /// <paramref name="name"/>, leaving every structural field untouched. Applied even after the
     /// registry is frozen, because these facts are not knowable until the type's body is emitted.
-    /// No-op default so the many test mocks that implement <see cref="ITypeDatabase"/> need not
-    /// override it; the real <see cref="TypeDatabase"/> overrides it.
+    /// <para>The default body THROWS rather than no-op'ing. An emission-stamp (a nested-type
+    /// rename, a surviving-method count) is committed to by the rest of emission BEFORE it reaches
+    /// here, so an <see cref="ITypeDatabase"/> that silently swallowed the stamp would leave the
+    /// generated code referencing a name the database never recorded — a silent miscompile. The
+    /// real <see cref="TypeDatabase"/> overrides this; a test double that never drives an
+    /// emission-stamp path never calls it, so the throw fires only on a genuine swallow rather than
+    /// on every mock that merely implements the interface.</para>
     /// </summary>
     /// <param name="name">The Swift type name whose record receives the emission facts.</param>
     /// <param name="result">The emission-discovered facts to apply.</param>
-    public void ApplyEmissionResult(SwiftTypeName name, TypeEmissionResult result) { }
+    public void ApplyEmissionResult(SwiftTypeName name, TypeEmissionResult result)
+        => throw new System.NotImplementedException(
+            $"ITypeDatabase.ApplyEmissionResult('{name}') reached the no-implementation default. "
+            + "An emission-discovered fact would be silently discarded; the implementing database "
+            + "must override ApplyEmissionResult (the concrete TypeDatabase does).");
 
     /// <summary>
     /// Finding 47: marks the registry immutable to structural writes. After this,

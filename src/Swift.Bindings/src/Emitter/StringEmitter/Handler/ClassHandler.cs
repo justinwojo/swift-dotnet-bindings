@@ -516,7 +516,7 @@ namespace BindingsGeneration
             csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
             csWriter.WriteLine($"{newKeyword}public SwiftClassHandle<{typeNameWithGenerics}> Payload => _handle;");
             csWriter.WriteLine($"IntPtr ISwiftObject.SwiftHandle => _handle.DangerousGetHandle();");
-            csWriter.WriteLine("void ISwiftObject.SuppressPayloadFinalizer() => GC.SuppressFinalize(_handle);");
+            csWriter.WriteLine(FinalizerSeamEmitter.SuppressPayloadFinalizerLine("_handle"));
             csWriter.WriteLine($"internal {newKeyword}IntPtr GetSwiftHandle() => _handle.DangerousGetHandle();");
             csWriter.WriteLine();
             var newDispose = needsNewModifier ? "new " : "";

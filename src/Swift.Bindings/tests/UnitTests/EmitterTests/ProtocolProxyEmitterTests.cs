@@ -1940,6 +1940,64 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
+    public void EmitProxyClass_LegacyBlockingAsyncReceiver_WithSyncNamesake_BindsAsyncOverloadViaExplicitCancellationToken()
+    {
+        // AF05 ruling-b completion on the LEGACY blocking receiver. A protocol pairs a
+        // non-real-async-witness async requirement with a SYNC namesake projecting to the SAME C# name.
+        // Async methods carry a trailing `CancellationToken cancellationToken = default`, so:
+        //   • async `fetch(_:_:_:_:_:) async -> Int32` → `Task<int> FetchAsync(int×5, CancellationToken)`
+        //   • sync  `fetchAsync(_:_:_:_:_:) -> Int32`   → `int FetchAsync(int×5)`
+        // are two DISTINCT overloads (ruling b keeps both). The async one is arity 5 (> the real
+        // reverse-async-witness max), so it lands on the LEGACY blocking receiver, which forwards
+        // `impl.FetchAsync(args).GetAwaiter().GetResult()`. A BARE arg list binds the sync
+        // `int FetchAsync(int×5)` overload (exact arity) whose return is not awaitable → `.GetAwaiter()`
+        // is a CS1061 in the generated proxy. The receiver must pass the trailing token explicitly so the
+        // call binds the async `Task<int>` overload. Red-without-fix: the impl call closed right before
+        // `.GetAwaiter()` with no token, binding the wrong overload (the proxy then fails to compile).
+        RegisterSwiftInt32();
+        var protocolDecl = CreateSimpleProtocol("AsyncBlockingOverload");
+        // Async requirement: Int32 return + 5 Int32 params → arity 5 keeps it off the real-async witness.
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "fetch",
+            MangledName = "$sfetch",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = true,
+            CSSignature = new List<ArgumentDecl> { Int32Arg(), Int32Arg(), Int32Arg(), Int32Arg(), Int32Arg(), Int32Arg() },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsSynthesizedAccessor = false
+        });
+        // Sync namesake: projects to `int FetchAsync(int×5)`, the colliding exact-arity overload.
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "fetchAsync",
+            MangledName = "$sfetchAsync",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            CSSignature = new List<ArgumentDecl> { Int32Arg(), Int32Arg(), Int32Arg(), Int32Arg(), Int32Arg(), Int32Arg() },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsSynthesizedAccessor = false
+        });
+        var output = EmitProxyClass(protocolDecl);
+
+        // The async legacy-blocking receiver forwards through the impl with the trailing token explicit, so
+        // the call binds `Task<int> FetchAsync(int×5, CancellationToken)` and the await-unwrap compiles.
+        // The token must sit INSIDE the impl call (immediately before the unwrap), not after it.
+        var asyncReceiverBody = ExtractMethodBody(output, "private static IntPtr Receive_fetch_");
+        Assert.Contains(
+            "default(global::System.Threading.CancellationToken)).GetAwaiter().GetResult()",
+            asyncReceiverBody);
+    }
+
+    [Fact]
     public void EmitProxyClass_AsyncReceiver_FailFastsWithMemberName_SyncReceiverKeepsPlainFailFast()
     {
         // Finding 36: on the LEGACY blocking reverse-dispatch path the async receiver blocks the Task on

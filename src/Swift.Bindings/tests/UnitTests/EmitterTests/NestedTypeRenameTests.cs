@@ -356,6 +356,131 @@ public class NestedTypeRenameTests
         Assert.Equal("Card.WalletTypeType.WalletType", innerRecord!.CSharpTypeName.Name);
     }
 
+    [Fact]
+    public void PrecomputeNestedTypeRenames_DatabaseDoesNotImplementApplyEmissionResult_ThrowsRatherThanSilentlySwallowingRename()
+    {
+        // Fail-safe guard: a type database that drives emission but leaves ApplyEmissionResult at the
+        // interface default must FAIL LOUDLY when the rename pass stamps a nested-type rename — never
+        // silently swallow it. A swallowed stamp leaves emitted code referencing a name the database
+        // never recorded (the rest of emission has already committed to the rename by this point).
+        //
+        // Same Container/alertType/AlertType collision shape as the cross-module test above, but the
+        // rename pass runs against a database whose ApplyEmissionResult is the (throwing) DIM default.
+        var inner = new TypeDatabase();
+        var depModule = new ModuleTypeDatabase("DepLib", "/tmp/DepLib.dylib");
+
+        var containerSwiftName = SwiftTypeName.FromModuleQualifiedName("DepLib.Container");
+        depModule.RegisterType(containerSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("DepLib", "Container"),
+            SwiftTypeName = containerSwiftName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+
+        var alertTypeSwiftName = SwiftTypeName.FromModuleQualifiedName("DepLib.Container.AlertType");
+        depModule.RegisterType(alertTypeSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("DepLib", "Container.AlertType"),
+            SwiftTypeName = alertTypeSwiftName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+
+        inner.AddModuleDatabase(depModule);
+
+        var depModuleDecl = new ModuleDecl
+        {
+            Name = "DepLib",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var alertTypeDecl = CreateStructDecl("AlertType", alertTypeSwiftName, depModuleDecl);
+        var containerDecl = new StructDecl
+        {
+            Name = "Container",
+            SwiftTypeName = containerSwiftName,
+            MangledName = "$sN",
+            Properties = new List<PropertyDecl>
+            {
+                new()
+                {
+                    Name = "alertType",
+                    SwiftTypeSpec = new NamedTypeSpec("DepLib.Container")
+                    {
+                        InnerType = new NamedTypeSpec("AlertType")
+                    },
+                    IsStatic = false,
+                    HasStorage = true,
+                    Accessors = new List<AccessorDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = depModuleDecl
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { alertTypeDecl },
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = depModuleDecl,
+            ModuleDecl = depModuleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$sMa"
+        };
+        alertTypeDecl.ParentDecl = containerDecl;
+        depModuleDecl.Types.Add(containerDecl);
+
+        var nonStamping = new NonStampingTypeDatabase(inner);
+
+        var ex = Assert.Throws<NotImplementedException>(
+            () => NameProvider.PrecomputeNestedTypeRenames(depModuleDecl, nonStamping));
+        Assert.Contains("ApplyEmissionResult", ex.Message);
+    }
+
+    /// <summary>
+    /// An <see cref="ITypeDatabase"/> that delegates every member to a real
+    /// <see cref="TypeDatabase"/> EXCEPT <see cref="ITypeDatabase.ApplyEmissionResult"/>, which it
+    /// leaves to the interface's (throwing) default. Models a database that drives emission but never
+    /// wired the emission-stamp mutation — the exact shape the fail-safe default catches.
+    /// </summary>
+    private sealed class NonStampingTypeDatabase : ITypeDatabase
+    {
+        private readonly TypeDatabase _inner;
+        public NonStampingTypeDatabase(TypeDatabase inner) => _inner = inner;
+
+        public bool IsTypeProcessed(SwiftTypeName swiftTypeName) => _inner.IsTypeProcessed(swiftTypeName);
+        public bool IsTypeRegistered(SwiftTypeName swiftTypeName) => _inner.IsTypeRegistered(swiftTypeName);
+        public bool TryGetTypeRecord(SwiftTypeName swiftTypeName, out TypeRecord record)
+            => _inner.TryGetTypeRecord(swiftTypeName, out record);
+        public bool TryGetTypeRecordWithoutSupplement(SwiftTypeName swiftTypeName, out TypeRecord record)
+            => _inner.TryGetTypeRecordWithoutSupplement(swiftTypeName, out record);
+        public string GetLibraryPath(string moduleName) => _inner.GetLibraryPath(moduleName);
+        public string AsyncLibraryName => _inner.AsyncLibraryName;
+        // GenerationMode is a pure interface default (computed from AsyncLibraryName, which this
+        // double supplies) — inherited rather than delegated, since the concrete TypeDatabase does
+        // not expose it as its own member.
+        public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record) => _inner.UpdateTypeRecord(name, record);
+        public void Freeze() => _inner.Freeze();
+        public IReadOnlyCollection<(string Namespace, string ProxyName)> GetCrossModuleSuppressedProxyClassNames()
+            => _inner.GetCrossModuleSuppressedProxyClassNames();
+        public void AddDependencyModuleDecl(ModuleDecl moduleDecl) => _inner.AddDependencyModuleDecl(moduleDecl);
+        public IReadOnlyList<ModuleDecl> GetDependencyModuleDecls() => _inner.GetDependencyModuleDecls();
+        public void RegisterStrippedConformance(SwiftTypeName concreteType, SwiftTypeName protocolName)
+            => _inner.RegisterStrippedConformance(concreteType, protocolName);
+        public bool HasStrippedConformance(SwiftTypeName concreteType, SwiftTypeName protocolName)
+            => _inner.HasStrippedConformance(concreteType, protocolName);
+        // ApplyEmissionResult deliberately NOT overridden → inherits the throwing interface default.
+    }
+
     private static StructDecl CreateStructDecl(string name, SwiftTypeName swiftName, ModuleDecl moduleDecl)
     {
         return new StructDecl

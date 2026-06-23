@@ -31,5 +31,10 @@
          Expressions), so this keeps the build project generator-assembly-independent. -->
     <Compile Include="..\src\Swift.Bindings\src\Configuration\SwiftWrapperPostProcessor.cs"
              Link="Helpers\SwiftWrapperPostProcessor.cs" />
+    <!-- SwiftWrapperPostProcessor.FindBlockEnd routes its brace walk through the shared
+         string/comment-aware scanner; link-compile it too. Self-contained (only System), so the
+         build project stays generator-assembly-independent. -->
+    <Compile Include="..\src\Swift.Bindings\src\Configuration\StructuralBraceScanner.cs"
+             Link="Helpers\StructuralBraceScanner.cs" />
   </ItemGroup>
 </Project>

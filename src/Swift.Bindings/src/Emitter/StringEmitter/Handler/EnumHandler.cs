@@ -246,7 +246,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
                 csWriter.WriteLine($"public SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
                 csWriter.WriteLine($"IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();");
-                csWriter.WriteLine("void ISwiftObject.SuppressPayloadFinalizer() => GC.SuppressFinalize(_payload);");
+                csWriter.WriteLine(FinalizerSeamEmitter.SuppressPayloadFinalizerLine("_payload"));
                 csWriter.WriteLine("#pragma warning disable CS0649");
                 csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
                 csWriter.WriteLine("internal bool _isCachedSingleton;");

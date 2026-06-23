@@ -515,19 +515,18 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Finds the end of a function block by tracking brace depth.
+        /// Finds the end of a function block by tracking structural brace depth. Braces inside string
+        /// literals and comments are ignored (a default value like <c>= "}"</c> must not close the block
+        /// early and truncate the simulator-only guard for the device build).
         /// </summary>
         private static int FindBlockEnd(string[] lines, int start)
         {
             int depth = 0;
             bool sawOpenBrace = false;
+            int blockCommentDepth = 0;
             for (int j = start; j < lines.Length; j++)
             {
-                foreach (char c in lines[j])
-                {
-                    if (c == '{') { depth++; sawOpenBrace = true; }
-                    else if (c == '}') depth--;
-                }
+                depth += StructuralBraceScanner.NetLineDelta(lines[j], ref blockCommentDepth, ref sawOpenBrace);
                 if (sawOpenBrace && depth <= 0 && j > start)
                     return j;
             }

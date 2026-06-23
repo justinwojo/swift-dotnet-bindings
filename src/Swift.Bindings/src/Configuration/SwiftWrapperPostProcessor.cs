@@ -318,19 +318,18 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Finds the end of a brace-delimited block starting at the given index.
+        /// Finds the end of a brace-delimited block starting at the given index. Braces inside string
+        /// literals and comments are ignored so a default value like <c>= "}"</c> does not close the
+        /// block early.
         /// </summary>
         internal static int FindBlockEnd(IReadOnlyList<string> lines, int start)
         {
             int depth = 0;
             bool sawOpenBrace = false;
+            int blockCommentDepth = 0;
             for (int j = start; j < lines.Count; j++)
             {
-                foreach (char c in lines[j])
-                {
-                    if (c == '{') { depth++; sawOpenBrace = true; }
-                    else if (c == '}') depth--;
-                }
+                depth += StructuralBraceScanner.NetLineDelta(lines[j], ref blockCommentDepth, ref sawOpenBrace);
                 if (sawOpenBrace && depth <= 0 && j > start)
                     return j;
             }
