@@ -1048,15 +1048,54 @@ public class ModuleHandlerTests
     }
 
     [Fact]
-    public void Emit_AssertsRuntimeContractVersion_InModuleInitializer()
+    public void Emit_AssertsRuntimeContractVersion_TiedToPackageMinor()
     {
-        // Finding 11/32: the module initializer opens with an unconditional
-        // RuntimeContract.AssertCompatible(N) handshake; N tracks the runtime's RuntimeContract.Version,
-        // bumped 1->2 when the payload-semantics contract landed. A binding generated against an older
-        // runtime (or vice versa) fails loudly here at module load rather than mis-dispatching later.
+        // The emitted handshake epoch is DERIVED from the single-sourced package version
+        // (major*1000 + minor), not a hand-maintained literal — so the binding's load-time epoch,
+        // the runtime's RuntimeContract.Version, and the bounded NuGet range cannot silently drift
+        // apart. This guard ties all three to one parse of one source. (Before deriving, the literal
+        // was 2 while epoch("0.0.0-dev") is 0 — i.e. this assertion was RED with the old hand const.)
+        var expectedEpoch = RuntimeVersionRange.Epoch(BindingProjectEmitter.DefaultSwiftRuntimeVersion);
+
         var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>());
 
-        Assert.Contains("global::Swift.Runtime.RuntimeContract.AssertCompatible(2)", csOutput);
+        Assert.Contains($"global::Swift.Runtime.RuntimeContract.AssertCompatible({expectedEpoch})", csOutput);
+        Assert.Equal(expectedEpoch, ModuleHandler.EmittedRuntimeContractVersion);
+
+        // Cross-side lockstep: the generator's emitted epoch and the runtime's own derived epoch are
+        // both single-sourced from the same package version, so they must agree at every build (both
+        // 0 in dev, both the minor at a release).
+        Assert.Equal(Swift.Runtime.RuntimeContract.Version, ModuleHandler.EmittedRuntimeContractVersion);
+
+        // The two epoch parsers (generator-side RuntimeVersionRange.Epoch, runtime-side
+        // RuntimeContract.ParseEpoch — necessarily duplicated since the runtime can't reference
+        // generator code) must map identically, or the lockstep above could pass in dev yet diverge
+        // at a release version.
+        foreach (var v in new[] { "0.0.0-dev", "0.15.3", "0.16.0", "0.16.0-preview.1", "1.0.0", "1.15.0", "x.8.0" })
+            Assert.Equal(RuntimeVersionRange.Epoch(v), Swift.Runtime.RuntimeContract.ParseEpoch(v));
+    }
+
+    [Fact]
+    public void Emit_RuntimeContractEpoch_FollowsTargetedRuntime_NotBakedDefault()
+    {
+        // When a binding pins an OLDER runtime via --swift-runtime-version, its bounded NuGet
+        // range follows that pin — but the load-time handshake epoch must follow it TOO, or restore
+        // succeeds against the pinned runtime while [ModuleInitializer] hard-aborts at load (the
+        // asserted epoch sitting above the older runtime's supported window). Program.cs derives the
+        // pin's epoch into ModuleEmissionContext.RuntimeContractEpoch; emission must honor it over the
+        // baked default. Here we inject a distinct epoch to stand in for the pin.
+        var defaultEpoch = RuntimeVersionRange.Epoch(BindingProjectEmitter.DefaultSwiftRuntimeVersion);
+        var pinnedEpoch = RuntimeVersionRange.Epoch("0.16.0"); // 16 — chosen distinct from the dev default (0).
+        Assert.NotEqual(defaultEpoch, pinnedEpoch);
+
+        var (csOutput, _) = EmitModuleWithDependencies(
+            "TestModule",
+            new List<string>(),
+            preEmitHook: ctx => ctx.RuntimeContractEpoch = pinnedEpoch);
+
+        Assert.Contains($"global::Swift.Runtime.RuntimeContract.AssertCompatible({pinnedEpoch})", csOutput);
+        // The baked default is fully overridden — the pinned epoch is the only one emitted.
+        Assert.DoesNotContain($"AssertCompatible({defaultEpoch})", csOutput);
     }
 
     #endregion

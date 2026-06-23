@@ -36,6 +36,24 @@ public sealed class ModuleEmissionContext
     public string? ResolvedNamespace { get; set; }
 
     /// <summary>
+    /// Load-time runtime-contract <em>epoch</em> to emit into this module's
+    /// <c>RuntimeContract.AssertCompatible(...)</c> call, derived (<c>major*1000 + minor</c>) from
+    /// the <em>same</em> resolved runtime version the binding's bounded
+    /// <c>SwiftBindings.Runtime</c> <c>PackageReference</c> targets — i.e.
+    /// <c>--swift-runtime-version</c> when supplied, else the generator's baked default. The
+    /// asserted epoch and the package range must agree on the targeted minor: a binding pinned to an
+    /// older runtime via <c>--swift-runtime-version</c> restores against that runtime, so it must
+    /// also assert <em>that</em> runtime's epoch or the module initializer hard-aborts at load
+    /// against the very runtime NuGet resolved. The primary generation path always sets this once per
+    /// module (in <c>Program.cs</c>, right after the context is constructed) — to the baked-default
+    /// epoch in the common no-override case (byte-identical to before), or to the pinned runtime's
+    /// epoch under <c>--swift-runtime-version</c>. It stays null only where nothing assigns it (the
+    /// shared <c>ModuleEmissionContext.Default</c> singleton and emitter unit tests); the emission
+    /// site then falls back to the baked-default epoch.
+    /// </summary>
+    public int? RuntimeContractEpoch { get; set; }
+
+    /// <summary>
     /// The active <see cref="NamespacePatternResolver"/> for the current generation pass.
     /// Threaded through so emitters that need to qualify cross-module references (e.g. the
     /// sibling-property fallback receivers, which emit <c>global::&lt;ns&gt;.IFoo</c> for

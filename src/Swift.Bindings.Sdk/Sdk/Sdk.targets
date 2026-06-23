@@ -624,7 +624,7 @@ done; true"
       echo &quot;@(SwiftFrameworkDependency->'%(ModuleDatabasePath)', '%0A')&quot; | while IFS= read -r db; do \
         if [ -n &quot;%24db&quot; ] &amp;&amp; [ -f &quot;%24db&quot; ]; then shasum -a 256 &quot;%24db&quot;; fi; \
       done; \
-      echo &quot;$(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) $(AssemblyName) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) $(SwiftAppleSupplementPrototypeDir) $(SwiftFrameworkType) $(SwiftAppleSupplementVersion) @(SwiftFrameworkDependency, '|') @(_AutoFrameworkDependency, '|') @(SwiftLinkFramework, '|') @(SwiftLinkLibrary, '|')&quot; \
+      echo &quot;$(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) $(AssemblyName) $(SwiftRuntimeVersion) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) $(SwiftAppleSupplementPrototypeDir) $(SwiftFrameworkType) $(SwiftAppleSupplementVersion) @(SwiftFrameworkDependency, '|') @(_AutoFrameworkDependency, '|') @(SwiftLinkFramework, '|') @(SwiftLinkLibrary, '|')&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
@@ -1619,6 +1619,13 @@ done; true"
       <_SwiftGenCmd>$(_SwiftGenCmd) -o "$(_SwiftBindingIntermediateDir)"</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --platform $(_SwiftBindingPlatform)</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'$(SwiftPlatformTarget)' != ''">$(_SwiftGenCmd) --platform-target $(SwiftPlatformTarget)</_SwiftGenCmd>
+      <!-- Tie the generated module initializer's RuntimeContract epoch to the SAME runtime version
+           the implicit SwiftBindings.Runtime PackageReference targets ($(SwiftRuntimeVersion), the
+           range floor in Sdk.props). Both Apple-framework paths pass this; omitting it here let a
+           binding pinned to an older runtime restore cleanly yet hard-abort at module load because the
+           emitted epoch fell back to the generator's baked default. Always populated (defaults to
+           0.0.0-dev → epoch 0 → dev bypass), so it is unconditional like the Apple paths. -->
+      <_SwiftGenCmd>$(_SwiftGenCmd) --swift-runtime-version $(SwiftRuntimeVersion)</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --wrapper-architectures $(SwiftWrapperArchitectures)</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --sdk-mode -v $(SwiftGeneratorVerbosity)</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'$(PackageId)' != ''">$(_SwiftGenCmd) --package-id "$(PackageId)"</_SwiftGenCmd>

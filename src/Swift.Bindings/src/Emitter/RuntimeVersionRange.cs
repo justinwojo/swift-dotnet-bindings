@@ -72,6 +72,38 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Maps a package version to its dispatch-contract <em>epoch</em> — the integer the
+        /// load-time <c>RuntimeContract</c> handshake compares — as <c>major*1000 + minor</c>,
+        /// single-sourced from the same <c>major.minor</c> that <see cref="Build"/> uses for the
+        /// bounded NuGet range. Tying the load gate's epoch and the restore gate's range to one
+        /// parse makes them fracture on the same boundary and removes the hand-maintained-literal
+        /// drift the contract integer used to have.
+        /// </summary>
+        /// <remarks>
+        /// The <c>major*1000</c> term keeps <c>0.15</c> (epoch 15) distinct from a future
+        /// <c>1.15</c> (epoch 1015) and keeps a real <c>1.0.0</c> release (epoch 1000) clear of the
+        /// <c>0.0.0-dev</c> sentinel (epoch 0) — the in-tree/ProjectReference build whose epoch the
+        /// handshake treats as always-compatible. A pre-release suffix on the minor is ignored
+        /// (<c>0.16.0-preview.1</c> → 16), matching <see cref="Build"/>'s minor-ceiling behavior.
+        /// Returns 0 (the dev sentinel) when the version cannot be parsed as <c>major.minor.*</c>,
+        /// so an unparseable string degrades to the always-compatible bypass rather than a
+        /// malformed gate; the pack-time guard — not this load-gate epoch — is what fails closed on
+        /// a malformed shipped version.
+        /// </remarks>
+        public static int Epoch(string version)
+        {
+            var firstDot = version.IndexOf('.');
+            if (firstDot <= 0) return 0;
+            var majorStr = version.Substring(0, firstDot);
+            if (!int.TryParse(majorStr, out var major)) return 0;
+            var rest = version.Substring(firstDot + 1);
+            var secondDot = rest.IndexOf('.');
+            var minorStr = secondDot < 0 ? rest : rest.Substring(0, secondDot);
+            if (!int.TryParse(minorStr, out var minor)) return 0;
+            return major * 1000 + minor;
+        }
+
+        /// <summary>
         /// Builds a minimum-only NuGet range <c>[X.Y.Z,)</c> — a floor with no ceiling.
         /// Used only for the <c>SwiftBindings.Apple</c> supplement's outbound
         /// <c>SwiftBindings.Runtime</c> dependency: the supplement is always brokered

@@ -773,7 +773,7 @@ public static class BindingsGeneratorCommand
             return;
         }
 
-        var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, out var depModuleCollisions, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase, descriptorAssemblyNameOverride: assemblyNameOverride);
+        var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, out var depModuleCollisions, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase, descriptorAssemblyNameOverride: assemblyNameOverride, swiftRuntimeVersion: swiftRuntimeVersion);
         if (!success)
         {
             context.ExitCode = 1;

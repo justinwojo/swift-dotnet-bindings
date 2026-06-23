@@ -131,4 +131,35 @@
     <None Include="../../icon.png" Pack="true" PackagePath="" />
   </ItemGroup>
 
+  <!-- Single-source RuntimeContract.BuildVersion from $(SwiftBindingsSdkVersion) (Directory.Build.props
+       default 0.0.0-dev; overridden via -p: at pack time), exactly like the generator's
+       _GenerateSwiftBindingsVersionConstant target. RuntimeContract.Version derives its contract
+       epoch from this string, so the runtime's load-time epoch is single-sourced from the same
+       package version that feeds the generator's emitted epoch and the bounded NuGet range — the
+       three can no longer drift. Emitting into obj/ (per-TFM, never committed) keeps the working
+       tree clean while a packed runtime embeds its real shipped version. WriteOnlyWhenDifferent
+       avoids a recompile when the version is unchanged; the file under $(IntermediateOutputPath) is
+       already excluded from the default Compile glob, so the explicit include adds no duplicate. -->
+  <Target Name="_GenerateRuntimeContractVersionConstant" BeforeTargets="BeforeCompile;CoreCompile">
+    <PropertyGroup>
+      <_GeneratedContractVersionFile>$(IntermediateOutputPath)GeneratedContractVersion.cs</_GeneratedContractVersionFile>
+    </PropertyGroup>
+    <ItemGroup>
+      <_GeneratedContractVersionLine Include="// &lt;auto-generated&gt; Single-sourced contract version. Do not edit." />
+      <_GeneratedContractVersionLine Include="namespace Swift.Runtime" />
+      <_GeneratedContractVersionLine Include="{" />
+      <_GeneratedContractVersionLine Include="    public static partial class RuntimeContract" />
+      <_GeneratedContractVersionLine Include="    {" />
+      <_GeneratedContractVersionLine Include="        internal const string BuildVersion = &quot;$(SwiftBindingsSdkVersion)&quot;%3B" />
+      <_GeneratedContractVersionLine Include="    }" />
+      <_GeneratedContractVersionLine Include="}" />
+    </ItemGroup>
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+    <WriteLinesToFile File="$(_GeneratedContractVersionFile)" Lines="@(_GeneratedContractVersionLine)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <Compile Include="$(_GeneratedContractVersionFile)" />
+      <FileWrites Include="$(_GeneratedContractVersionFile)" />
+    </ItemGroup>
+  </Target>
+
 </Project>

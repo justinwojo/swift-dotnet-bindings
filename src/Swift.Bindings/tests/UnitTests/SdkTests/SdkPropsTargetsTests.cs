@@ -807,6 +807,71 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void Targets_EveryBindingEmissionCommand_ForwardsSwiftRuntimeVersion()
+        {
+            // The generated [ModuleInitializer]'s RuntimeContract.AssertCompatible(epoch) is
+            // derived from the runtime version the generator is told to target. The implicit
+            // SwiftBindings.Runtime PackageReference pins $(SwiftRuntimeVersion) (its range floor),
+            // so EVERY binding-emission generator invocation must forward that same value. If one
+            // path omits it, a binding pinned to an older runtime restores cleanly yet hard-aborts
+            // at module load because the emitted epoch silently fell back to the generator's baked
+            // default.
+            //
+            // Assert per command-builder block, not per whole target: _GenerateSwiftBindingsAppleFramework
+            // holds TWO emission branches (Swift-direct and ObjC-direct), so a whole-target Contains
+            // would still pass if one branch dropped the flag while the other kept it. Each binding-
+            // emission command builder is a PropertyGroup that initializes _SwiftGenCmd to
+            // `dotnet exec ...Swift.Bindings.dll`; the wrapper/bridge/slice/dep utility builders use
+            // _SwiftWrapperCmd/_SwiftBridgeCmd (or a bare Exec) and emit no epoch, so they are excluded.
+            const string builderInit = "<_SwiftGenCmd>dotnet exec";
+            const string flag = "--swift-runtime-version $(SwiftRuntimeVersion)";
+            int idx = 0, count = 0;
+            while ((idx = TargetsContent.IndexOf(builderInit, idx, StringComparison.Ordinal)) >= 0)
+            {
+                var blockEnd = TargetsContent.IndexOf("</PropertyGroup>", idx, StringComparison.Ordinal);
+                Assert.True(blockEnd > idx, "A _SwiftGenCmd command-builder PropertyGroup is unterminated.");
+                var block = TargetsContent.Substring(idx, blockEnd - idx);
+                count++;
+                Assert.True(
+                    block.Contains(flag, StringComparison.Ordinal),
+                    $"Binding-emission command builder #{count} must forward '{flag}' so the emitted RuntimeContract epoch tracks the targeted runtime.");
+                idx = blockEnd;
+            }
+            // Regular SwiftFramework + Apple Swift-direct + Apple ObjC-direct = 3 today; a new
+            // emission builder must also forward the flag (the loop above enforces that).
+            Assert.True(count >= 3, $"Expected at least 3 binding-emission command builders; found {count}.");
+        }
+
+        [Fact]
+        public void Targets_BothFingerprints_HashSwiftRuntimeVersion()
+        {
+            // $(SwiftRuntimeVersion) now feeds the emitted RuntimeContract epoch (forwarded as
+            // --swift-runtime-version to every binding-emission command). The incremental-build
+            // fingerprint gates whether the generator re-runs, so $(SwiftRuntimeVersion) MUST be in
+            // both the XCFramework-mode and Apple-framework-mode fingerprint hashes — otherwise
+            // changing the pinned runtime version leaves the stamp unchanged, the generator is
+            // skipped, and stale generated .cs carrying the OLD epoch is reused while restore moves
+            // the app onto the new runtime (the load-time gate then aborts). The echo strings are the
+            // hashed inputs; the variable must appear inside each (the file stores the embedded quote
+            // as the literal entity &quot;).
+            foreach (var (label, echoAnchor) in new[]
+            {
+                ("XCFramework", "echo &quot;$(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform)"),
+                ("AppleFramework", "echo &quot;$(_SwiftAppleFrameworkSdkPath)"),
+            })
+            {
+                var start = TargetsContent.IndexOf(echoAnchor, StringComparison.Ordinal);
+                Assert.True(start >= 0, $"{label} fingerprint echo not found.");
+                var end = TargetsContent.IndexOf("&quot;", start + echoAnchor.Length, StringComparison.Ordinal);
+                Assert.True(end > start, $"{label} fingerprint echo is not terminated.");
+                var echoString = TargetsContent.Substring(start, end - start);
+                Assert.True(
+                    echoString.Contains("$(SwiftRuntimeVersion)", StringComparison.Ordinal),
+                    $"{label} fingerprint must hash $(SwiftRuntimeVersion) so a runtime-version change re-runs the generator instead of reusing a stale epoch.");
+            }
+        }
+
+        [Fact]
         public void Targets_FingerprintIncludesPlatform()
         {
             Assert.Contains("$(_SwiftBindingPlatform)", TargetsContent);

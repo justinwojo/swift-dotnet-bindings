@@ -308,19 +308,4 @@ public class CacheFirstDispatchTests
         Assert.Null(result);
     }
 
-    [Fact]
-    public void RuntimeContract_AssertCompatible_MatchingVersion_DoesNotThrow()
-    {
-        // The runtime's own version is always compatible with itself.
-        RuntimeContract.AssertCompatible(RuntimeContract.Version);
-    }
-
-    [Fact]
-    public void RuntimeContract_AssertCompatible_MismatchedVersion_Throws()
-    {
-        var ex = Assert.Throws<SwiftRuntimeContractMismatchException>(
-            () => RuntimeContract.AssertCompatible(RuntimeContract.Version + 1));
-        Assert.Equal(RuntimeContract.Version + 1, ex.GeneratedAgainstVersion);
-        Assert.Equal(RuntimeContract.Version, ex.RuntimeVersion);
-    }
 }

@@ -188,6 +188,18 @@ partial class Build
     // one folder (content/ and contentFiles/) and we assert every shipped copy.
     void AssertProducedNupkgsCarryRealVersion(AbsolutePath outputDir, string version, string appleVersion, bool skipApple)
     {
+        // Contract-gate truth: the runtime derives its load-time contract epoch from this same
+        // version (RuntimeContract.Version = major*1000 + minor). The dev sentinel maps to epoch 0,
+        // which the handshake treats as always-compatible — so shipping a runtime whose version
+        // parses to epoch 0 would silently disable the gate for EVERY consumer. A released version
+        // must carry a real, non-zero epoch. (The same minor is the bounded NuGet range's fracture
+        // boundary, so the load gate and the restore gate stay tied to one parse of one source.)
+        if (BindingsGeneration.RuntimeVersionRange.Epoch(version) == 0)
+            throw new System.InvalidOperationException(
+                $"Pack version '{version}' parses to runtime-contract epoch 0 (the dev sentinel). A " +
+                "released SwiftBindings.Runtime must carry a real, non-zero contract epoch or its " +
+                "load-time handshake would bypass for every consumer.");
+
         var sdkNupkg = outputDir / $"SwiftBindings.Sdk.{version}.nupkg";
         var templatesNupkg = outputDir / $"SwiftBindings.Templates.{version}.nupkg";
 

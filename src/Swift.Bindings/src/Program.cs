@@ -49,7 +49,7 @@ namespace BindingsGeneration
             GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibraryName, swiftInterfacePath, symbolGraphPath, bridgeHintsPath, namespacePattern, logger, loggerFactory, out _, out _, out _, out _, dependencyModuleNames: null, moduleDatabasePaths: null);
         }
 
-        internal static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, out HashSet<string>? nestedTypesInCollidingClass, out DepModuleCollisionDetector.SlicedCollisionResult depModuleCollisions, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null, bool keepBuiltinDatabaseForTargetModule = false, Producers.InterfaceFactsAggregator? factsAggregator = null, string? descriptorAssemblyNameOverride = null)
+        internal static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, out HashSet<string>? nestedTypesInCollidingClass, out DepModuleCollisionDetector.SlicedCollisionResult depModuleCollisions, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null, bool keepBuiltinDatabaseForTargetModule = false, Producers.InterfaceFactsAggregator? factsAggregator = null, string? descriptorAssemblyNameOverride = null, string? swiftRuntimeVersion = null)
         {
             internalTypeNames = null;
             moduleNameForCollision = null;
@@ -427,6 +427,13 @@ namespace BindingsGeneration
 
                 // Create per-module emission context (replaces static mutable state + ResetForModule)
                 var emissionContext = new ModuleEmissionContext();
+                // Tie the module initializer's RuntimeContract.AssertCompatible(...) epoch to the SAME
+                // resolved runtime version the bounded SwiftBindings.Runtime PackageReference targets
+                // (BindingProjectEmitter resolves it identically: --swift-runtime-version, else the
+                // baked default). If they diverged, a binding pinned to an older runtime would restore
+                // cleanly and then hard-abort at module load against the very runtime NuGet resolved.
+                emissionContext.RuntimeContractEpoch =
+                    RuntimeVersionRange.Epoch(swiftRuntimeVersion ?? BindingProjectEmitter.DefaultSwiftRuntimeVersion);
                 emissionContext.SetUnderscoreSuppressedNames(underscoreSuppressedNames);
                 emissionContext.SetCollisionContext(moduleNameForCollision, nestedTypesInCollidingClass);
 

@@ -48,12 +48,34 @@ namespace BindingsGeneration
     public class ModuleHandler : BaseHandler, IModuleHandler
     {
         /// <summary>
-        /// Runtime-dispatch contract version emitted into each generated module initializer's
-        /// <c>RuntimeContract.AssertCompatible(...)</c> call (Finding 32). Bump in lockstep with
-        /// <c>Swift.Runtime.RuntimeContract.Version</c> whenever the module-init ↔ runtime
-        /// dispatch contract changes shape. See RuntimeContract.cs for the bump discipline.
+        /// Runtime-dispatch contract <em>epoch</em> for the generator's baked default runtime
+        /// version. Derived — not a hand-maintained literal — from the same single-sourced package
+        /// version (<c>major*1000 + minor</c>) that the runtime's <c>RuntimeContract.Version</c>
+        /// derives from and that the bounded <c>SwiftBindings.Runtime</c> NuGet range fractures on,
+        /// so the binding's load-time handshake epoch, the runtime's epoch, and the restore-time
+        /// range can no longer silently drift apart. A dev/in-tree build (<c>0.0.0-dev</c>) yields
+        /// epoch 0, which the handshake treats as always-compatible. See RuntimeContract.cs for the
+        /// gate.
+        /// <para>
+        /// This is the <em>no-override</em> epoch. When a binding pins a specific runtime via
+        /// <c>--swift-runtime-version</c>, the emission instead uses the epoch of that targeted
+        /// version (carried on <see cref="ModuleEmissionContext.RuntimeContractEpoch"/>), so the
+        /// asserted epoch and the emitted package range agree on the same minor — see
+        /// <see cref="ResolveEmittedContractEpoch"/>.
+        /// </para>
         /// </summary>
-        internal const int EmittedRuntimeContractVersion = 2;
+        internal static int EmittedRuntimeContractVersion =>
+            RuntimeVersionRange.Epoch(BindingProjectEmitter.DefaultSwiftRuntimeVersion);
+
+        /// <summary>
+        /// The contract epoch to emit for THIS module: the targeted runtime's epoch when the
+        /// emission context carries one (the <c>--swift-runtime-version</c> path, which also drives
+        /// the bounded package range), else the baked-default epoch. Keeping the asserted epoch tied
+        /// to the same resolved runtime version the <c>PackageReference</c> targets is what stops a
+        /// pinned-older-runtime binding from restoring cleanly and then hard-aborting at module load.
+        /// </summary>
+        internal static int ResolveEmittedContractEpoch(ModuleEmissionContext? emissionCtx) =>
+            emissionCtx?.RuntimeContractEpoch ?? EmittedRuntimeContractVersion;
 
         private readonly NamespacePatternResolver _namespacePatternResolver;
 
@@ -451,7 +473,7 @@ namespace BindingsGeneration
                         // was generated against a different runtime dispatch contract than the
                         // loaded SwiftBindings.Runtime, fail loudly at module load rather than let
                         // an incompatible binding silently fall through to a later dispatch failure.
-                        global::Swift.Runtime.RuntimeContract.AssertCompatible({{EmittedRuntimeContractVersion}});
+                        global::Swift.Runtime.RuntimeContract.AssertCompatible({{ResolveEmittedContractEpoch(emissionCtx)}});
                         global::Swift.Runtime.SwiftFrameworkResolver.RegisterForAssembly(typeof(__SwiftFrameworkResolver_{{moduleName}}).Assembly);
                 """);
             foreach (var typeName in factoryTypes)
