@@ -251,6 +251,86 @@ public class TypeHandlersOutputTests
     }
 
     [Fact]
+    public void Emit_NonFrozenStruct_Ungated_EmitsEagerPayloadSizeField()
+    {
+        // Baseline: a type with no OS-availability floor keeps the eager static field initializer
+        // (zero blast radius — the lazy form is reserved for gated types).
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDecl("CacheKey", moduleDecl, isFrozen: false, requiresMemoryManagement: true);
+
+        var (csOutput, _) = EmitType(structDecl, typeDatabase, new NonFrozenStructHandler(new NullLogger<NonFrozenStructHandler>()));
+
+        Assert.Contains("static nuint _payloadSize = SwiftObjectHelper<CacheKey>.GetTypeMetadata().Size;", csOutput);
+        Assert.DoesNotContain("_payloadSizeCache", csOutput);
+    }
+
+    [Fact]
+    public void Emit_NonFrozenStruct_OsGated_EmitsLazyPayloadSizeProperty()
+    {
+        // An OS-gated type's eager `_payloadSize` field initializer runs in the static cctor on the
+        // FIRST reference to the type — before the member-level runtime guard — so on a host OS below
+        // the type's Swift @available floor that cctor resolves metadata that does not exist and
+        // aborts uncatchably on Mono. The emitter must instead defer the resolution to a lazily-
+        // computed property, so a below-floor touch throws a catchable PlatformNotSupportedException
+        // through the member guard rather than crashing at type-load.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDecl("CacheKey", moduleDecl, isFrozen: false, requiresMemoryManagement: true);
+        structDecl.AvailabilityAnnotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "99.0", null, null, false, false, null, null)
+        };
+
+        var (csOutput, _) = EmitType(structDecl, typeDatabase, new NonFrozenStructHandler(new NullLogger<NonFrozenStructHandler>()));
+
+        Assert.Contains("static nuint? _payloadSizeCache;", csOutput);
+        Assert.Contains(
+            "static nuint _payloadSize => (nuint)(_payloadSizeCache ??= SwiftObjectHelper<CacheKey>.GetTypeMetadata().Size);",
+            csOutput);
+        // The eager field initializer form must be gone — it is the cctor-time crash surface.
+        Assert.DoesNotContain("static nuint _payloadSize = SwiftObjectHelper<CacheKey>.GetTypeMetadata().Size;", csOutput);
+    }
+
+    [Fact]
+    public void Emit_NonFrozenStruct_OsGated_Generic_ShortCircuitsHelperPInvokeAccessorBelowFloor()
+    {
+        // The GENERIC sibling of the gated-`_payloadSize` fix. A generic non-frozen struct routes
+        // `_payloadSize` through the helper-class metadata accessor wrapped in
+        // TypeMetadata.RegisterAndGetSize (SwiftObjectHelper<Foo<T>> would crash Mono's generic
+        // sharing). That eager initializer still runs in the static cctor on first reference — before
+        // the member guard — so for a gated generic type the native accessor must be short-circuited
+        // below the floor. Unlike the non-generic case it stays EAGER (NativeAOT relies on the cctor
+        // populating the metadata cache + NewFromPayloadDispatcher); only the accessor call is guarded
+        // by the positive "is available" condition, with a 0 fallback that is never read because every
+        // member guard throws PlatformNotSupportedException first.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDecl("CacheKey", moduleDecl, isFrozen: false, requiresMemoryManagement: true);
+        structDecl.GenericParameters.Add(new GenericArgumentDecl(
+            "τ_0_0",
+            "T",
+            new List<GenericParameterConformance>(),
+            new List<GenericParameterConformance>()));
+        structDecl.AvailabilityAnnotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "99.0", null, null, false, false, null, null)
+        };
+
+        var (csOutput, _) = EmitType(structDecl, typeDatabase, new NonFrozenStructHandler(new NullLogger<NonFrozenStructHandler>()));
+
+        // Eager RegisterAndGetSize helper-PInvoke initializer preserved, but guarded by availability.
+        Assert.Contains("? TypeMetadata.RegisterAndGetSize(typeof(CacheKey<T>),", csOutput);
+        Assert.Contains(": (nuint)0;", csOutput);
+        Assert.Contains("!global::System.OperatingSystem.IsOSPlatformVersionAtLeast(\"ios\", 99, 0)", csOutput);
+        // The unconditional eager initializer (cctor-time crash surface) must be gone, and a generic
+        // gated type must NOT degrade to the non-generic lazy property (that would change registration
+        // timing NativeAOT relies on).
+        Assert.DoesNotContain("static nuint _payloadSize = TypeMetadata.RegisterAndGetSize(typeof(CacheKey<T>),", csOutput);
+        Assert.DoesNotContain("_payloadSizeCache", csOutput);
+    }
+
+    [Fact]
     public void Emit_FrozenStructHandler_ForValueStruct_EmitsUnsafeStruct()
     {
         var typeDatabase = CreateTypeDatabase();

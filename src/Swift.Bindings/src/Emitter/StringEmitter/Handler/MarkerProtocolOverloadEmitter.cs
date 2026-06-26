@@ -180,6 +180,14 @@ namespace BindingsGeneration
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
 
+                // The @_silgen_name wrapper this calls is availability-gated (see EmitSwiftWrapper); on an OS
+                // below the merged floor its body dereferences a weak-linked, null gated symbol (uncatchable
+                // SIGSEGV). Throw a catchable exception before the P/Invoke.
+                AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(
+                    csWriter,
+                    WrapperEmitterHelpers.MergeAvailability(methodDecl.AvailabilityAnnotations, methodDecl.ParentDecl),
+                    methodDecl.ParentDecl is { Name: { Length: > 0 } pn } ? $"{pn}.{csMethodName}" : csMethodName);
+
                 var callArgs = new List<string>();
                 if (isInstance)
                     callArgs.Add("this.Payload.DangerousGetHandle()");

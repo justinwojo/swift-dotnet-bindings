@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System.Reflection;
@@ -333,6 +334,56 @@ public class TypeMetadataTests : IClassFixture<TypeMetadataTests.TestFixture>
         // The underlying-type fallback was removed because it produces wrong
         // Optional<T> layout (tag-byte vs extra-inhabitant encoding).
         Assert.False(TypeMetadata.TryGetTypeMetadata<UnregisteredEnum>(out _));
+    }
+
+    // Tests for null-metadata → catchable exception (OS-gated weak-linked type backstop)
+    //
+    // When a Swift type's metadata accessor is weak-linked (its availability floor exceeds the
+    // binary's min-OS) and resolves to null on an older OS, the TypeMetadata handle is zero.
+    // Reading the value witness table off a null handle previously dereferenced a null pointer
+    // (or threw a bare NullReferenceException). The generated marshalling reads .Size/.Stride/
+    // .Alignment, which all route through ValueWitnessTable — so these must throw a catchable,
+    // self-explanatory PlatformNotSupportedException, never a native segfault or a bare NRE.
+
+    [Fact]
+    public static void Size_OnNullMetadata_ThrowsPlatformNotSupported()
+    {
+        var invalid = MakePhonyMetadata(0);
+        Assert.False(invalid.IsValid);
+        Assert.Throws<PlatformNotSupportedException>(() => { var _ = invalid.Size; });
+    }
+
+    [Fact]
+    public static void Stride_OnNullMetadata_ThrowsPlatformNotSupported()
+    {
+        var invalid = MakePhonyMetadata(0);
+        Assert.Throws<PlatformNotSupportedException>(() => { var _ = invalid.Stride; });
+    }
+
+    [Fact]
+    public static void Alignment_OnNullMetadata_ThrowsPlatformNotSupported()
+    {
+        var invalid = MakePhonyMetadata(0);
+        Assert.Throws<PlatformNotSupportedException>(() => { var _ = invalid.Alignment; });
+    }
+
+    [Fact]
+    public static unsafe void ValueWitnessTable_OnNullMetadata_ThrowsPlatformNotSupported()
+    {
+        var invalid = MakePhonyMetadata(0);
+        Assert.Throws<PlatformNotSupportedException>(() => { var _ = invalid.ValueWitnessTable; });
+    }
+
+    [Fact]
+    public static void Kind_OnNullMetadata_ThrowsPlatformNotSupported()
+    {
+        // Kind reads the metadata kind word, not the value witness table, but a null handle is the
+        // same OS-gated/weak-linked condition — so it must surface the SAME catchable
+        // PlatformNotSupportedException as Size/Stride/Alignment/ValueWitnessTable, not a divergent
+        // exception type that a consumer's `catch (PlatformNotSupportedException)` would miss.
+        var invalid = MakePhonyMetadata(0);
+        Assert.False(invalid.IsValid);
+        Assert.Throws<PlatformNotSupportedException>(() => { var _ = invalid.Kind; });
     }
 
     [Fact]

@@ -53,6 +53,7 @@ namespace BindingsGeneration
             var resultName = ReturnLocalName;
             csWriter.WriteLine($"{accessModifier} static bool TryCreate({_wrapperSignature.ParametersStringWithoutDefaults()}{(_wrapperSignature.Parameters.Count > 0 ? ", " : "")}out {typeName} {resultName})");
             EmitBodyStart(csWriter);
+            EmitAvailabilityGuard(csWriter);
             EmitUnsafeBlockStart(csWriter);
 
             // Declare TypeMetadata, payload, and GCHandle variables for generic/closure args.

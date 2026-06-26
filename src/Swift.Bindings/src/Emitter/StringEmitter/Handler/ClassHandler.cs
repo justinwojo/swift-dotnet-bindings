@@ -774,24 +774,11 @@ namespace BindingsGeneration
                     MetadataWrapperEmitter.EmitIfNeeded(_swiftWriter, moduleName, moduleQualified, symbol, _emissionCtx, _classDecl);
 
                     // Try wrapper DLL first (Cdecl), fall back to dylib (CallConvSwift)
-                    // when the wrapper wasn't compiled for this module.
-                    _writer.WriteLines("""
-                        static TypeMetadata ISwiftObject.GetTypeMetadata()
-                        {
-                            try
-                            {
-                                return PInvoke_getMetadata();
-                            }
-                            catch (System.DllNotFoundException)
-                            {
-                                return PInvoke_getMetadata_fallback();
-                            }
-                            catch (System.EntryPointNotFoundException)
-                            {
-                                return PInvoke_getMetadata_fallback();
-                            }
-                        }
-                        """);
+                    // when the wrapper wasn't compiled for this module. For an availability-gated
+                    // type the wrapper returns null below its OS floor — surfaced here as a
+                    // PlatformNotSupportedException instead of a zero TypeMetadata.
+                    var metadataAvailability = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(null, _classDecl);
+                    _writer.WriteLines(MetadataWrapperEmitter.BuildGetTypeMetadataWithFallback(metadataAvailability, moduleQualified));
                     _writer.WriteLine();
 
                     var hasNew = HasMetadataPInvokeInResolvedAncestors(_classDecl);
@@ -1007,12 +994,13 @@ namespace BindingsGeneration
                 return;
             }
 
-            _emissionCtx.RecordSwiftObjectType(_typeNameWithGenerics);
+            var typeAvailability = AvailabilityHelpers.MergeAvailabilityFromAncestors(null, _classDecl);
+            _emissionCtx.RecordSwiftObjectType(_typeNameWithGenerics, typeAvailability);
             _emissionCtx.RecordPayloadSemantics(_typeNameWithGenerics, semantics);
             foreach (var protocolName in ProtocolConformanceHelper.GetConformanceProtocolNames(
                 _classDecl.Conformances, _moduleDecl.Name, _typeNameWithGenerics, _typeDatabase))
             {
-                _emissionCtx.RecordConformance(_typeNameWithGenerics, protocolName);
+                _emissionCtx.RecordConformance(_typeNameWithGenerics, protocolName, typeAvailability);
             }
         }
 

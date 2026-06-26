@@ -181,13 +181,23 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     public bool IsValid => handle != IntPtr.Zero;
 
     /// <summary>
-    /// Throws a SwiftRuntimeException if the TypeMetadata is invalid
+    /// Throws a catchable <see cref="PlatformNotSupportedException"/> when the metadata handle is
+    /// null. Post-availability-guard, the dominant cause is an OS-gated type whose metadata accessor
+    /// was weak-linked and resolved to null on an OS below the type's floor; a registration failure
+    /// is the only other way to get here. Either way the metadata is unreadable, so every reader
+    /// (<see cref="Kind"/>, the <see cref="ValueWitnessTable"/>, and the Size/Stride/Alignment that
+    /// route through it) surfaces the SAME actionable exception rather than a bare
+    /// NullReferenceException (which reads like an internal bug) or a native segfault from
+    /// dereferencing a null pointer.
     /// </summary>
-    /// <exception cref="SwiftRuntimeException"></exception>
+    /// <exception cref="PlatformNotSupportedException"></exception>
     void ThrowOnInvalid()
     {
         if (!IsValid)
-            throw new SwiftRuntimeException("TypeMetadata is invalid.");
+            throw new PlatformNotSupportedException(
+                "Swift type metadata is null. The Swift type is likely unavailable on the current " +
+                "OS version (its metadata accessor was weak-linked and resolved to null), or the " +
+                "type failed to register; its metadata cannot be read.");
     }
 
     // This comes from the Swift ABI documentation - https://github.com/swiftlang/swift/blob/23e3f5f5de2ed046f3183264589be1f9a54f7e1e/include/swift/ABI/MetadataValues.h#L117
@@ -213,7 +223,17 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     /// <summary>
     /// Returns a pointer to the value witness table for the given type
     /// </summary>
-    public unsafe ValueWitnessTable* ValueWitnessTable => IsValid ? (ValueWitnessTable*)(*((IntPtr*)handle - 1)) : throw new NullReferenceException("TypeMetadata is null");
+    public unsafe ValueWitnessTable* ValueWitnessTable
+    {
+        get
+        {
+            // Routes through the same null-handle guard as Kind so a null (typically OS-gated,
+            // weak-linked) metadata accessor surfaces one consistent, catchable
+            // PlatformNotSupportedException instead of a native segfault from dereferencing null.
+            ThrowOnInvalid();
+            return (ValueWitnessTable*)(*((IntPtr*)handle - 1));
+        }
+    }
 
     /// <summary>
     /// Returns the size of the Swift type in bytes

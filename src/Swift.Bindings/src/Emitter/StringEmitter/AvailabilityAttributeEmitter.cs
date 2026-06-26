@@ -154,6 +154,153 @@ internal static class AvailabilityAttributeEmitter
         }
     }
 
+    /// Display names for the runtime-guard exception message, keyed by .NET platform id.
+    private static readonly Dictionary<string, string> PlatformDisplayNames = new(StringComparer.Ordinal)
+    {
+        ["ios"] = "iOS",
+        ["macos"] = "macOS",
+        ["tvos"] = "tvOS",
+        ["watchos"] = "watchOS",
+        ["maccatalyst"] = "Mac Catalyst",
+        ["visionos"] = "visionOS",
+    };
+
+    /// <summary>
+    /// Emits a runtime OS-version guard at the top of a generated member body that throws
+    /// <see cref="System.PlatformNotSupportedException"/> when the current OS is below the
+    /// member's <b>effective</b> availability floor. <paramref name="effectiveAnnotations"/> must
+    /// be the member's availability MERGED with every enclosing type's (e.g. via
+    /// <see cref="AvailabilityHelpers.MergeAvailabilityFromAncestors"/>) — the guard emits one
+    /// clause per floored platform with NO dedup against the parent type.
+    ///
+    /// <para>The guard deliberately does NOT dedup against the enclosing type's floor the way the
+    /// <c>[SupportedOSPlatform]</c> attribute emitters (<see cref="EmitAvailabilityAttributes"/> /
+    /// <see cref="EmitSupportedOSPlatformsFromAnnotations"/>) do. That dedup is correct for the
+    /// attribute because C# type-nesting genuinely inherits a type's <c>[SupportedOSPlatform]</c>
+    /// onto its members at COMPILE time — but there is no equivalent at RUNTIME. A static method,
+    /// constructor, or operator on an OS-gated type is reachable on an older OS with no metadata
+    /// access in between, so its weak-linked <c>@_cdecl</c> symbol can still be null even though
+    /// the member itself declares no stricter floor. The guard must therefore fire on the full
+    /// inherited floor, not just the portion the member adds beyond its parent.</para>
+    ///
+    /// <para>Why this is necessary at all: <c>[SupportedOSPlatform]</c> is a COMPILE-TIME analyzer
+    /// hint only (CA1416). At runtime, a Swift symbol whose availability floor is newer than the
+    /// binary's minimum-OS is weak-linked and resolves to null on an older OS; our generated
+    /// <c>@_cdecl</c> wrapper body calls it unconditionally, so the call lands on a null function
+    /// pointer and SIGSEGVs (pc=0) — a native fault that no C# <c>try/catch</c> can intercept.
+    /// Throwing a managed exception BEFORE the P/Invoke converts that uncatchable crash into a
+    /// catchable, self-explanatory error. The guard uses the platform-agnostic
+    /// <c>OperatingSystem.IsOSPlatform</c>/<c>IsOSPlatformVersionAtLeast</c> APIs (which cover
+    /// every Apple platform uniformly, including visionOS) and only fires on a platform that is
+    /// explicitly floored — platforms covered by Swift's trailing <c>*</c> are left unrestricted,
+    /// matching <c>@available(iOS X, *)</c> semantics.</para>
+    /// </summary>
+    public static void EmitRuntimeAvailabilityGuard(
+        CSharpWriter csWriter,
+        IReadOnlyList<AvailabilityAnnotation>? effectiveAnnotations,
+        string apiDescription)
+    {
+        var guarded = ResolveStrictestFloors(effectiveAnnotations);
+        if (guarded.Count == 0)
+            return;
+
+        var condition = BuildBelowFloorCondition(guarded);
+
+        var floors = string.Join(" / ", guarded.Select(g =>
+            $"{(PlatformDisplayNames.TryGetValue(g.platform, out var disp) ? disp : g.platform)} {g.version}"));
+        var message = $"{apiDescription} is not available on this OS version; it requires {floors} or later.";
+
+        csWriter.WriteLine($"if ({condition})");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        csWriter.WriteLine($"throw new global::System.PlatformNotSupportedException(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\");");
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
+    }
+
+    /// <summary>
+    /// Builds the boolean expression that is true when the type's effective availability floor is
+    /// SATISFIED on the running OS — the positive form of the runtime guard's "below floor" test.
+    /// Returns <c>null</c> when the type carries no platform floor (always available), letting the
+    /// caller emit the operation unconditionally. Used by the module initializer to wrap eager
+    /// generic registration / metadata warmup of an OS-gated <c>ISwiftObject</c> type so an
+    /// availability-blind launch-time touch cannot abort on a host OS below the floor — a native
+    /// Mono generic-instantiation abort that no managed <c>try/catch</c> can intercept.
+    /// </summary>
+    public static string? BuildIsAvailableCondition(
+        IReadOnlyList<AvailabilityAnnotation>? effectiveAnnotations)
+    {
+        var guarded = ResolveStrictestFloors(effectiveAnnotations);
+        if (guarded.Count == 0)
+            return null;
+
+        return $"!({BuildBelowFloorCondition(guarded)})";
+    }
+
+    /// <summary>
+    /// Resolves the strictest introduced-version per .NET platform from a set of Swift @available
+    /// annotations, lifting macCatalyst→iOS so the floor matches the floor the @_cdecl wrapper is
+    /// exported at. Returns a stably-ordered list of (platform, normalized-version) pairs; empty
+    /// when the annotations declare no platform floor.
+    /// </summary>
+    private static List<(string platform, string version)> ResolveStrictestFloors(
+        IReadOnlyList<AvailabilityAnnotation>? effectiveAnnotations)
+    {
+        // Lift macCatalyst→iOS exactly as the attribute/Swift-availability emitters do, so the
+        // guarded floor matches the floor the @_cdecl wrapper is actually exported at.
+        var annotations = AvailabilityHelpers.LiftMacCatalystFloorToIOS(effectiveAnnotations);
+        if (annotations == null || annotations.Count == 0)
+            return new List<(string, string)>();
+
+        // Strictest introduced-version per .NET platform.
+        var strictest = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var ann in annotations)
+        {
+            if (ann.Platform == null || ann.IntroducedVersion == null) continue;
+            if (!PlatformMapping.TryGetValue(ann.Platform, out var dotnetPlatform)) continue;
+
+            if (!strictest.TryGetValue(dotnetPlatform, out var existing) ||
+                IsStrictlyNewer(ann.IntroducedVersion, existing))
+            {
+                strictest[dotnetPlatform] = ann.IntroducedVersion;
+            }
+        }
+
+        // Stable order for deterministic output.
+        return strictest
+            .Select(kv => (platform: kv.Key, version: NormalizeVersion(kv.Value)))
+            .OrderBy(g => g.platform, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Renders the "running below floor" boolean expression: one OR'd clause per floored platform,
+    /// each true iff we are running ON that platform BELOW its floor. Platforms not listed (Swift's
+    /// trailing <c>*</c>) match no clause, so the expression is false there. Emits every numeric
+    /// component the floor declares (major.minor[.build[.revision]]) so a patch-level floor like
+    /// iOS 17.4.1 is not silently rounded down to 17.4 and under-fired.
+    /// </summary>
+    private static string BuildBelowFloorCondition(List<(string platform, string version)> guarded)
+    {
+        var conditions = guarded.Select(g =>
+            $"(global::System.OperatingSystem.IsOSPlatform(\"{g.platform}\") && " +
+            $"!global::System.OperatingSystem.IsOSPlatformVersionAtLeast(\"{g.platform}\", {BuildVersionArguments(g.version)}))");
+        return string.Join(" || ", conditions);
+    }
+
+    /// <summary>
+    /// Renders the numeric arguments for <c>OperatingSystem.IsOSPlatformVersionAtLeast</c> from a
+    /// normalized version string: always at least <c>major, minor</c>, plus the build and revision
+    /// components when the floor declares them (so <c>17.4.1</c> → <c>17, 4, 1</c>, not <c>17, 4</c>).
+    /// </summary>
+    private static string BuildVersionArguments(string normalizedVersion)
+    {
+        var declaredComponents = normalizedVersion.Split('.').Length;
+        var count = Math.Clamp(declaredComponents, 2, 4);
+        var parsed = ParseVersion(normalizedVersion);
+        return string.Join(", ", parsed.Take(count));
+    }
+
     /// <summary>
     /// Emits accessor-level <c>[SupportedOSPlatform]</c> attributes for a property's
     /// setter, covering only the platforms where the setter's introduced version is

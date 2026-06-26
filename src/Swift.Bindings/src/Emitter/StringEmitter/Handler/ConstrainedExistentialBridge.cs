@@ -424,6 +424,11 @@ public static class ConstrainedExistentialBridge
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
+        // The parameterized-existential bridge wrapper is availability-gated; on an OS below the
+        // existential's floor its body dereferences a weak-linked, null gated symbol (uncatchable
+        // SIGSEGV). Throw a catchable exception before the P/Invoke.
+        AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(csWriter, availability, constructorName);
+
         var callArgString = string.Join(", ", pInvokeArgs);
         csWriter.WriteLine($"var resultPtr = {pInvokeCall}({callArgString});");
 

@@ -213,9 +213,11 @@ namespace BindingsGeneration
                 csWriter.Indent++;
 
                 // Emit payload field and property - enums need this for property accessors
-                csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
+                var enumAvailabilityCondition = AvailabilityAttributeEmitter.BuildIsAvailableCondition(
+                    AvailabilityHelpers.MergeAvailabilityFromAncestors(null, enumDecl));
                 if (ownPInvokeContext != null)
                 {
+                    csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
                     // Generic enums: call the helper class metadata accessor directly with
                     // per-param metadata (and per-conformance witness tables for constrained
                     // generics). SwiftObjectHelper<GenericEnum<T>> in a static field
@@ -235,10 +237,38 @@ namespace BindingsGeneration
                     // already skips the type before we reach this point, so PwtEntries is
                     // always populated correctly here.
                     var metadataArgs = string.Join(", ", ownPInvokeContext.GetTypeMetadataAccessorArgumentList());
-                    csWriter.WriteLine($"static nuint _payloadSize = TypeMetadata.RegisterAndGetSize(typeof({typeNameWithGenerics}), {ownPInvokeContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs}), NewFromPayloadCore);");
+                    var registerAndGetSize = $"TypeMetadata.RegisterAndGetSize(typeof({typeNameWithGenerics}), {ownPInvokeContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs}), NewFromPayloadCore)";
+                    if (enumAvailabilityCondition != null)
+                    {
+                        // OS-gated generic enum: keep the registration eager (NativeAOT relies on the
+                        // cctor populating the metadata cache + NewFromPayloadDispatcher) but short-circuit
+                        // the native metadata accessor below the floor — on a host OS below the type's
+                        // Swift @available floor it resolves metadata that does not exist and aborts
+                        // uncatchably on Mono. Below the floor the size stays 0 and is never read (every
+                        // member guard throws PlatformNotSupportedException first).
+                        csWriter.WriteLine($"static nuint _payloadSize = {enumAvailabilityCondition} ? {registerAndGetSize} : (nuint)0;");
+                    }
+                    else
+                    {
+                        csWriter.WriteLine($"static nuint _payloadSize = {registerAndGetSize};");
+                    }
+                }
+                else if (enumAvailabilityCondition != null)
+                {
+                    // OS-gated enum: the eager `_payloadSize` field initializer would resolve metadata
+                    // in the static cctor on the first reference to the type — before the member-level
+                    // runtime guard — and on a host OS below the type's Swift @available floor that
+                    // metadata does not exist and the cctor aborts uncatchably on Mono. Defer the
+                    // resolution to a lazily-computed property so a below-floor touch instead throws a
+                    // catchable PlatformNotSupportedException through the member guard.
+                    csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
+                    csWriter.WriteLine("static nuint? _payloadSizeCache;");
+                    csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
+                    csWriter.WriteLine($"static nuint _payloadSize => (nuint)(_payloadSizeCache ??= SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata().Size);");
                 }
                 else
                 {
+                    csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
                     csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata().Size;");
                 }
                 csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");

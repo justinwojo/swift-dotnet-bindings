@@ -961,6 +961,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
             $"public static unsafe global::System.Threading.Tasks.Task<{returnCsType}> {csMethodName}({string.Join(", ", publicParams)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+        AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(
+            csWriter, mergedAvailability,
+            $"{parentCsName}.{method.Name}");
         // Finding 39: RunContinuationsAsynchronously so the continuation does not run inline on
         // Swift's executor (the textbook reverse-deadlock setup); matches every other async TCS site.
         csWriter.WriteLine(

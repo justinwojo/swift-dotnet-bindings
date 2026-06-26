@@ -410,6 +410,11 @@ internal static class ConformerKeyPathInitFactoryEmitter
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
+            // The KeyPath-init trampoline this P/Invokes is availability-gated (see EmitSwiftTrampolines).
+            // On an OS below the merged dep-class+conformer floor its body dereferences a weak-linked,
+            // null gated symbol (uncatchable SIGSEGV). Throw a catchable exception before marshalling.
+            AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(csWriter, availability, methodName);
+
             var callArgs = new List<string>();
             foreach (var scalar in shape.Scalars)
             {

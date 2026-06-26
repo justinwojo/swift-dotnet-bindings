@@ -73,12 +73,13 @@ namespace BindingsGeneration
                 return;
             }
 
-            _emissionCtx.RecordSwiftObjectType(_typeNameWithGenerics);
+            var typeAvailability = AvailabilityHelpers.MergeAvailabilityFromAncestors(null, _enumDecl);
+            _emissionCtx.RecordSwiftObjectType(_typeNameWithGenerics, typeAvailability);
             _emissionCtx.RecordPayloadSemantics(_typeNameWithGenerics, Swift.Runtime.PayloadConstructionSemantics.Adopt);
             foreach (var protocolName in ProtocolConformanceHelper.GetConformanceProtocolNames(
                 _enumDecl.Conformances, _moduleDecl.Name, _typeNameWithGenerics, _typeDatabase))
             {
-                _emissionCtx.RecordConformance(_typeNameWithGenerics, protocolName);
+                _emissionCtx.RecordConformance(_typeNameWithGenerics, protocolName, typeAvailability);
             }
         }
 
@@ -137,23 +138,10 @@ namespace BindingsGeneration
                     // when the wrapper wasn't compiled for this module.
                     // This handles multi-module frameworks where some modules' wrappers
                     // fail to compile (e.g., sub-modules with inaccessible SPI members).
-                    _writer.WriteLines("""
-                        static TypeMetadata ISwiftObject.GetTypeMetadata()
-                        {
-                            try
-                            {
-                                return PInvoke_getMetadata();
-                            }
-                            catch (System.DllNotFoundException)
-                            {
-                                return PInvoke_getMetadata_fallback();
-                            }
-                            catch (System.EntryPointNotFoundException)
-                            {
-                                return PInvoke_getMetadata_fallback();
-                            }
-                        }
-                        """);
+                    // For an availability-gated type the wrapper returns null below its OS
+                    // floor — surfaced here as a PlatformNotSupportedException, not a zero metadata.
+                    var metadataAvailability = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(null, _enumDecl);
+                    _writer.WriteLines(MetadataWrapperEmitter.BuildGetTypeMetadataWithFallback(metadataAvailability, moduleQualified));
                     _writer.WriteLine();
 
                     foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo

@@ -804,6 +804,51 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_GenericEnum_OsGated_ShortCircuitsHelperPInvokeAccessorBelowFloor()
+    {
+        // An OS-gated GENERIC enum keeps the eager RegisterAndGetSize initializer (NativeAOT relies on
+        // the cctor populating the metadata cache AND NewFromPayloadDispatcher), but the native helper
+        // metadata accessor MUST be short-circuited below the type's Swift @available floor. The static
+        // cctor runs on the FIRST reference to the type — before the member-level runtime guard — so on
+        // a host OS below the floor an unconditional accessor call resolves metadata that does not exist
+        // and aborts uncatchably on Mono. Wrapping RegisterAndGetSize in the positive "is available"
+        // condition makes a below-floor cctor leave the size 0 (never read — every member guard throws
+        // PlatformNotSupportedException first), while a supported OS still registers eagerly.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("ValueProviderStorage", moduleDecl, isFrozen: true);
+        enumDecl.GenericParameters.Add(new GenericArgumentDecl(
+            "τ_0_0",
+            "T",
+            new List<GenericParameterConformance>(),
+            new List<GenericParameterConformance>()));
+        enumDecl.AvailabilityAnnotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "99.0", null, null, false, false, null, null)
+        };
+
+        var boxedCase = CreateCase("boxed");
+        boxedCase.AssociatedValues.Add(new NamedTypeSpec("τ_0_0"));
+        enumDecl.Cases.Add(boxedCase);
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // The registration call is preserved (eager on a supported OS) but guarded by the positive
+        // availability condition, with a 0 fallback below the floor.
+        Assert.Contains(
+            "? TypeMetadata.RegisterAndGetSize(typeof(ValueProviderStorage<T>), ValueProviderStorage_PInvoke.PInvoke_getMetadata(TypeMetadataRequest.Complete,",
+            csOutput);
+        Assert.Contains(": (nuint)0;", csOutput);
+        Assert.Contains("!global::System.OperatingSystem.IsOSPlatformVersionAtLeast(\"ios\", 99, 0)", csOutput);
+        // The UNCONDITIONAL eager initializer (the cctor-time crash surface below floor) must be gone.
+        Assert.DoesNotContain(
+            "static nuint _payloadSize = TypeMetadata.RegisterAndGetSize(typeof(ValueProviderStorage<T>),",
+            csOutput);
+        // Generic gated types keep the eager-registration form, NOT the non-generic lazy property.
+        Assert.DoesNotContain("_payloadSizeCache", csOutput);
+    }
+
+    [Fact]
     public void Emit_GenericEnum_TryGetBareTypeParameterPayload_EmitsClassVsStructDispatch()
     {
         // TryGet<Case> on a generic enum whose payload is a bare

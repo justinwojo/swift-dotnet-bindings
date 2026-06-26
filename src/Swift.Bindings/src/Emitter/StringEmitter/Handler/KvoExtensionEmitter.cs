@@ -198,6 +198,13 @@ internal static class KvoExtensionEmitter
             csWriter.Indent--;
             csWriter.WriteLine("{");
             csWriter.Indent++;
+            // The observe @_cdecl shim is availability-gated (see EmitSwiftShims); on an OS below the
+            // merged class+property floor its body dereferences a weak-linked, null gated symbol
+            // (uncatchable SIGSEGV). Throw a catchable exception before reaching Observe…Native.
+            AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(
+                csWriter,
+                WrapperEmitterHelpers.MergeAvailability(prop.AvailabilityAnnotations, classDecl),
+                $"{className}.Observe{propPascal}");
             csWriter.WriteLine("global::System.ArgumentNullException.ThrowIfNull(obj);");
             csWriter.WriteLine("global::System.ArgumentNullException.ThrowIfNull(changed);");
             csWriter.WriteLine("var gch = global::System.Runtime.InteropServices.GCHandle.Alloc(changed);");

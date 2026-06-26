@@ -477,6 +477,7 @@ namespace BindingsGeneration
             EmitMainActorMemberAnnotation(csWriter);
             EmitSignatureConstructor(csWriter);
             EmitBodyStart(csWriter);
+            EmitAvailabilityGuard(csWriter);
             EmitMainActorGuard(csWriter);
             EmitUnsafeBlockStart(csWriter);
             EmitSafeHandleAddRef(csWriter);
@@ -559,6 +560,10 @@ namespace BindingsGeneration
             csWriter.WriteLine($"private static unsafe ObjCRuntime.NativeHandle {helperName}({helperParams})");
             csWriter.WriteLine("{");
             csWriter.Indent++;
+
+            // The Swift init runs in this helper (the public constructor calls it from `: base(...)`),
+            // so the availability guard must sit at the top of the helper, ahead of the P/Invoke.
+            EmitAvailabilityGuard(csWriter);
 
             // For an ObjC-rooted @MainActor initializer the Swift init runs in THIS helper, which the
             // public constructor invokes from its `: base(helper(...))` initializer — i.e. before the
@@ -703,6 +708,7 @@ namespace BindingsGeneration
         private void EmitMethodBody(CSharpWriter csWriter, SwiftWriter swiftWriter)
         {
             EmitBodyStart(csWriter);
+            EmitAvailabilityGuard(csWriter);
             EmitMainActorGuard(csWriter);
             EmitUnsafeBlockStart(csWriter);
             EmitConsumedNonCopyableSelfGuard(csWriter);
@@ -1367,6 +1373,27 @@ namespace BindingsGeneration
         {
             csWriter.WriteLine("{");
             csWriter.Indent++;
+        }
+
+        /// <summary>
+        /// Emits a runtime OS-version guard at the top of the member body so a call on an OS below
+        /// the member's EFFECTIVE availability floor throws a catchable <see cref="System.PlatformNotSupportedException"/>
+        /// BEFORE the P/Invoke reaches a Swift wrapper that would dereference a weak-linked, null gated
+        /// symbol (an uncatchable SIGSEGV). The floor is the member's own availability merged with the
+        /// full enclosing-type chain (a static/instance member on an OS-gated type is reachable on an
+        /// older OS even when it declares no stricter floor of its own) — see
+        /// <see cref="AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard"/>.
+        /// </summary>
+        private void EmitAvailabilityGuard(CSharpWriter csWriter)
+        {
+            var parentName = _env.ParentDecl?.Name;
+            var memberName = _env.MethodDecl.Name;
+            var description = string.IsNullOrEmpty(parentName) ? memberName : $"{parentName}.{memberName}";
+            AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(
+                csWriter,
+                WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
+                    _env.MethodDecl.AvailabilityAnnotations, _env.ParentDecl),
+                description);
         }
 
         /// <summary>

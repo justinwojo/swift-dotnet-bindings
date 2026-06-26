@@ -654,6 +654,27 @@ public sealed class ModuleEmissionContext
     /// </summary>
     public IReadOnlyList<string> EmittedSwiftObjectTypes => _emittedSwiftObjectTypes;
 
+    private readonly Dictionary<string, IReadOnlyList<AvailabilityAnnotation>> _typeEffectiveAvailability =
+        new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Returns the effective OS-availability floor (own annotations merged with every enclosing
+    /// type's) recorded for an emitted type — keyed by the qualified name as it appears in
+    /// <see cref="EmittedSwiftObjectTypes"/> / <see cref="EmittedConformances"/> — or <c>null</c>
+    /// when the type carries no floor. Consumed by <see cref="ModuleHandler"/> to wrap the module
+    /// initializer's eager generic registration / metadata warmup in a positive availability guard,
+    /// so launching on an OS below a gated type's floor cannot trigger an uncatchable native
+    /// Mono generic-instantiation abort before any managed frame's <c>try/catch</c> is active.
+    /// </summary>
+    public IReadOnlyList<AvailabilityAnnotation>? GetTypeEffectiveAvailability(string qualifiedTypeName) =>
+        _typeEffectiveAvailability.TryGetValue(qualifiedTypeName, out var annotations) ? annotations : null;
+
+    private void RecordTypeAvailability(string qualifiedName, IReadOnlyList<AvailabilityAnnotation>? availability)
+    {
+        if (availability is { Count: > 0 })
+            _typeEffectiveAvailability[qualifiedName] = availability;
+    }
+
     /// <summary>
     /// Each emitted ISwiftObject type's declared <see cref="Swift.Runtime.PayloadConstructionSemantics"/>
     /// paired with the <c>typeof(...)</c> argument that names it in the module initializer. Non-generic
@@ -696,12 +717,14 @@ public sealed class ModuleEmissionContext
     /// Skipped for nested types inside an open generic outer — see
     /// <see cref="HasOpenGenericAncestor"/>.
     /// </summary>
-    public void RecordSwiftObjectType(string csharpTypeName)
+    public void RecordSwiftObjectType(string csharpTypeName,
+        IReadOnlyList<AvailabilityAnnotation>? effectiveAvailability = null)
     {
         if (HasOpenGenericAncestor())
             return;
         var qualifiedName = GetQualifiedTypeName(csharpTypeName);
         _emittedSwiftObjectTypes.Add(qualifiedName);
+        RecordTypeAvailability(qualifiedName, effectiveAvailability);
     }
 
     /// <summary>
@@ -895,7 +918,8 @@ public sealed class ModuleEmissionContext
     /// Qualifies type references inside generic protocol interfaces (e.g., IEquatable&lt;Encoding&gt;
     /// becomes IEquatable&lt;Codec.Encoding&gt; when Encoding is nested inside Codec).
     /// </summary>
-    public void RecordConformance(string csharpTypeName, string protocolInterfaceName)
+    public void RecordConformance(string csharpTypeName, string protocolInterfaceName,
+        IReadOnlyList<AvailabilityAnnotation>? effectiveAvailability = null)
     {
         if (HasOpenGenericAncestor())
             return;
@@ -906,6 +930,7 @@ public sealed class ModuleEmissionContext
             qualifiedProtocol = qualifiedProtocol.Replace($"<{csharpTypeName}>", $"<{qualifiedName}>");
         }
         _emittedConformances.Add((qualifiedName, qualifiedProtocol));
+        RecordTypeAvailability(qualifiedName, effectiveAvailability);
     }
 
     private string GetQualifiedTypeName(string csharpTypeName)

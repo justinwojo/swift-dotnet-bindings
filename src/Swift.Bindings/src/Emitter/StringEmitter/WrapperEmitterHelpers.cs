@@ -138,6 +138,37 @@ public static class WrapperEmitterHelpers
     }
 
     /// <summary>
+    /// Builds a full <c>#available(...)</c> runtime-guard expression covering every
+    /// strictest-per-platform floor in <paramref name="annotations"/>, or the empty string
+    /// when there are no floors (the type is available at the module's deployment target).
+    ///
+    /// <para>Unlike <see cref="BuildBranchAvailabilityGuard"/>, this is NOT relative to an
+    /// enclosing extension floor — it guards the body of a top-level <c>@_cdecl</c> wrapper,
+    /// whose enclosing scope carries no availability context, so every per-platform floor is
+    /// emitted. The wrapper must NOT also carry a declaration-level <c>@available</c>: that
+    /// would raise the wrapper's own availability context to the floor and make this inner
+    /// <c>#available</c> always-true (Swift "unnecessary check ... guard will always be true"),
+    /// dead-coding the else branch the guard exists to reach.</para>
+    /// </summary>
+    public static string BuildAvailabilityGuardExpression(IReadOnlyList<AvailabilityAnnotation>? annotations)
+    {
+        var keys = CollectStrictestAvailabilityKeys(annotations);
+        if (keys.Count == 0)
+            return string.Empty;
+        return "#available(" + string.Join(", ", keys) + ", *)";
+    }
+
+    /// <summary>
+    /// Renders the strictest-per-platform availability floors as a human-readable
+    /// "iOS 26.2, macOS 26.2" string for diagnostic messages (e.g. the
+    /// <see cref="System.PlatformNotSupportedException"/> thrown when a gated type's
+    /// metadata is requested below its floor). Returns the empty string when there are
+    /// no floors.
+    /// </summary>
+    public static string DescribeAvailabilityFloors(IReadOnlyList<AvailabilityAnnotation>? annotations)
+        => string.Join(", ", CollectStrictestAvailabilityKeys(annotations));
+
+    /// <summary>
     /// Compares two dot-separated OS version strings numerically (e.g., "13.0" &lt; "26.0").
     /// Returns 1 when <paramref name="left"/> &gt; <paramref name="right"/>, -1 when smaller,
     /// 0 when equal. Missing components are treated as 0 so "13" == "13.0".

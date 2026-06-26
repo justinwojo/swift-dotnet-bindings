@@ -1,8 +1,8 @@
 {
-  "git_sha": "cf5895e1",
+  "git_sha": "652832fb",
   "platforms": {
     "simulator": {
-      "pass_count": 3005,
+      "pass_count": 3019,
       "skips": [
         {
           "class": "AsyncClosureContextLifetimeTests",

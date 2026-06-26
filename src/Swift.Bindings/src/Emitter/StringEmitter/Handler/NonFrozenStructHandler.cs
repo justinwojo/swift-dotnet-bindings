@@ -249,7 +249,9 @@ namespace BindingsGeneration
                         _logger.LogWarning($"No handler found for field {propertyDecl.Name}");
                 }
 
-                WritePrivateFields(csWriter, typeNameWithGenerics, ownPInvokeContext);
+                var availabilityCondition = AvailabilityAttributeEmitter.BuildIsAvailableCondition(
+                    AvailabilityHelpers.MergeAvailabilityFromAncestors(null, structDecl));
+                WritePrivateFields(csWriter, typeNameWithGenerics, ownPInvokeContext, availabilityCondition);
                 WritePayload(csWriter, typeNameWithGenerics);
 
                 // VWT Destroy via CallConvSwift is proven safe on both runtimes —
@@ -411,12 +413,24 @@ namespace BindingsGeneration
         /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types.
         /// When present, _payloadSize uses the helper class metadata accessor instead of
         /// SwiftObjectHelper&lt;GenericType&lt;T&gt;&gt; which crashes Mono's generic sharing.</param>
+        /// <param name="availabilityCondition">Non-null when the type carries an OS-availability floor:
+        /// the positive "available on the running OS" expression from
+        /// <c>AvailabilityAttributeEmitter.BuildIsAvailableCondition</c>. The eager
+        /// <c>static nuint _payloadSize = ...GetTypeMetadata().Size;</c> field initializer runs in the
+        /// static constructor on the FIRST reference to the type — before the member-level runtime guard
+        /// — so for a type whose Swift @available exceeds the running OS that cctor resolves metadata
+        /// that does not exist and aborts uncatchably on Mono. For a non-generic gated type the
+        /// resolution is deferred to a lazily-computed property (past the guard). For a generic gated
+        /// type the registration must stay eager (NativeAOT relies on the cctor populating the metadata
+        /// cache + NewFromPayloadDispatcher), so the native metadata accessor is instead short-circuited
+        /// below the floor by this condition. Either way a below-floor touch throws a catchable
+        /// PlatformNotSupportedException through the member guard.</param>
         private static void WritePrivateFields(CSharpWriter csWriter, string typeNameWithGenerics,
-            PInvokeHelperContext? pinvokeHelperContext = null)
+            PInvokeHelperContext? pinvokeHelperContext = null, string? availabilityCondition = null)
         {
-            csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
             if (pinvokeHelperContext != null)
             {
+                csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
                 // Generic types: call the helper class metadata accessor with per-param
                 // metadata (and per-conformance witness tables for constrained generics).
                 // SwiftObjectHelper<GenericType<T>> in a static field initializer crashes
@@ -435,10 +449,33 @@ namespace BindingsGeneration
                 // already skips the type before we reach this point, so PwtEntries is
                 // always populated correctly here.
                 var metadataArgs = string.Join(", ", pinvokeHelperContext.GetTypeMetadataAccessorArgumentList());
-                csWriter.WriteLine($"static nuint _payloadSize = TypeMetadata.RegisterAndGetSize(typeof({typeNameWithGenerics}), {pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs}), NewFromPayloadCore);");
+                var registerAndGetSize = $"TypeMetadata.RegisterAndGetSize(typeof({typeNameWithGenerics}), {pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs}), NewFromPayloadCore)";
+                if (availabilityCondition != null)
+                {
+                    // OS-gated generic: keep the registration eager (NativeAOT relies on the cctor
+                    // populating the metadata cache + NewFromPayloadDispatcher) but short-circuit the
+                    // native metadata accessor below the floor — on a host OS below the type's Swift
+                    // @available floor it resolves metadata that does not exist and aborts uncatchably
+                    // on Mono. Below the floor the size stays 0 and is never read (every member guard
+                    // throws PlatformNotSupportedException first).
+                    csWriter.WriteLine($"static nuint _payloadSize = {availabilityCondition} ? {registerAndGetSize} : (nuint)0;");
+                }
+                else
+                {
+                    csWriter.WriteLine($"static nuint _payloadSize = {registerAndGetSize};");
+                }
+            }
+            else if (availabilityCondition != null)
+            {
+                // OS-gated non-generic type: defer metadata resolution out of the static cctor (see param doc).
+                csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
+                csWriter.WriteLine("static nuint? _payloadSizeCache;");
+                csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
+                csWriter.WriteLine($"static nuint _payloadSize => (nuint)(_payloadSizeCache ??= SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata().Size);");
             }
             else
             {
+                csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
                 csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata().Size;");
             }
             csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");

@@ -466,6 +466,10 @@ internal static class KeyPathBagValueSpecializationEmitter
         csWriter.Indent++;
         csWriter.WriteLine("if (by is null) throw new System.ArgumentNullException(nameof(by));");
         csWriter.WriteLine("if (self is null) throw new System.ArgumentNullException(nameof(self));");
+        // The KeyPath bag-value @_cdecl wrapper is availability-gated; on an OS below the merged floor
+        // its body dereferences a weak-linked, null gated symbol (uncatchable SIGSEGV). Throw a
+        // catchable exception before the P/Invoke.
+        AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(csWriter, ov.MergedAvailability, ov.PublicMethodName);
         var callArgs = new List<string> { "by.DangerousGetHandle()" };
         foreach (var p in ov.OtherParams)
             callArgs.Add(p.Name);

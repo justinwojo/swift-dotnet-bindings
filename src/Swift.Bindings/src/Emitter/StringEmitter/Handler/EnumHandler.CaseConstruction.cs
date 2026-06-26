@@ -195,6 +195,10 @@ namespace BindingsGeneration
             csWriter.WriteLine($"public static unsafe {enumTypeName} {capitalizedName}({parameterString})");
             csWriter.WriteLine("{");
             csWriter.Indent++;
+            AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(
+                csWriter,
+                WrapperEmitterHelpers.MergeAvailabilityFromAncestors(caseDecl.AvailabilityAnnotations, enumDecl),
+                $"{enumDecl.Name}.{capitalizedName}");
             csWriter.WriteLine($"var {resultVarName} = new {enumTypeName}();");
 
             // (useCdeclWrapper computed above, before any emission, for the Defect A fail-closed guard.)

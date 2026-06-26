@@ -1583,6 +1583,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
         csWriter.WriteLine($"public {unsafeStr}{staticStr}{csReturnType} {methodName}({string.Join(", ", publicParams)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+        AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(
+            csWriter, mergedAvailability,
+            $"{parentTypeDecl.Name}.{methodName}");
 
         // Build P/Invoke call
         var pinvokeCallArgs = new List<string>();

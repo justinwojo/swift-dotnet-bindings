@@ -257,7 +257,23 @@ internal static class AppEntityKeyPathSingletonEmitter
             csWriter.WriteLine($"    new {fieldType}({pinvokeName}()));");
             AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
                 csWriter, mergedAvailability, parentAnnotations: null);
-            csWriter.WriteLine($"public static {fieldType} {pascalName} => _lazy_{pascalName}.Value;");
+            csWriter.WriteLine($"public static {fieldType} {pascalName}");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("get");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            // The KeyPath trampoline this P/Invokes is availability-gated (see EmitSwiftTrampolines).
+            // On an OS below the merged floor, forcing _lazy_…Value runs the trampoline, whose body
+            // dereferences a weak-linked, null gated symbol (uncatchable SIGSEGV). Throw a catchable
+            // exception at the property boundary so the Lazy initializer never runs there.
+            AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(
+                csWriter, mergedAvailability, $"{containerCsName}.{pascalName}");
+            csWriter.WriteLine($"return _lazy_{pascalName}.Value;");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
         }
 
         csWriter.Indent--;

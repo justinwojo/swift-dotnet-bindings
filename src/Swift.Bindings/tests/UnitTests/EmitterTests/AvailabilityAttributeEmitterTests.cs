@@ -665,4 +665,271 @@ public class AvailabilityAttributeEmitterTests
         Assert.Contains("SupportedOSPlatform(\"maccatalyst18.0\")", output);
         Assert.DoesNotContain("maccatalyst17.0", output);
     }
+
+    // --- Runtime OS-version guard (EmitRuntimeAvailabilityGuard) ---
+    //
+    // [SupportedOSPlatform] is a compile-time CA1416 hint only — it provides NO runtime guard.
+    // A Swift symbol whose availability floor exceeds the binary's min-OS is weak-linked and
+    // resolves to null on an older OS; the generated @_cdecl wrapper calls it unconditionally
+    // and SIGSEGVs (pc=0) — uncatchable by C# try/catch. EmitRuntimeAvailabilityGuard throws a
+    // managed PlatformNotSupportedException BEFORE that call. The guard keys on the member's
+    // EFFECTIVE floor — its own availability MERGED with every enclosing type's — with NO
+    // dedup against the parent: unlike the compile-time attribute (which C# nesting inherits),
+    // there is no runtime attribute inheritance, so a member on an OS-gated type must guard the
+    // full inherited floor even when it declares no stricter floor of its own. Callers pass the
+    // already-merged effective annotations (via MergeAvailabilityFromAncestors).
+
+    [Fact]
+    public void RuntimeGuard_NoAnnotations_NoOutput()
+    {
+        var (csWriter, stringWriter) = CreateWriter();
+        AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(csWriter, null, "TestType.member");
+        csWriter.Flush();
+        Assert.Equal("", stringWriter.ToString());
+    }
+
+    [Fact]
+    public void RuntimeGuard_EmptyAnnotations_NoOutput()
+    {
+        var (csWriter, stringWriter) = CreateWriter();
+        AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(
+            csWriter, Array.Empty<AvailabilityAnnotation>(), "TestType.member");
+        csWriter.Flush();
+        Assert.Equal("", stringWriter.ToString());
+    }
+
+    [Fact]
+    public void RuntimeGuard_DeprecationOnly_NoFloor_NoOutput()
+    {
+        // Unconditional deprecation carries no platform/introduced version, so there is nothing
+        // to guard — the runtime guard must stay silent (no spurious always-false `if`).
+        var (csWriter, stringWriter) = CreateWriter();
+        var annotations = new List<AvailabilityAnnotation>
+        {
+            new(null, null, null, null, true, false, "Use something else", null)
+        };
+        AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(csWriter, annotations, "TestType.member");
+        csWriter.Flush();
+        Assert.Equal("", stringWriter.ToString());
+    }
+
+    [Fact]
+    public void RuntimeGuard_iOSFloor_EmitsThrowingGuard()
+    {
+        var (csWriter, stringWriter) = CreateWriter();
+        var annotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "26.2", null, null, false, false, null, null)
+        };
+        AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(
+            csWriter, annotations, "AppStore.someApi");
+        csWriter.Flush();
+        var output = stringWriter.ToString();
+        // Fires only when running ON iOS BELOW the 26.2 floor; uses the platform-agnostic APIs.
+        Assert.Contains("global::System.OperatingSystem.IsOSPlatform(\"ios\")", output);
+        // Negated floor check — the guard throws when NOT at-least the floor.
+        Assert.Contains("!global::System.OperatingSystem.IsOSPlatformVersionAtLeast(\"ios\", 26, 2)", output);
+        Assert.Contains("throw new global::System.PlatformNotSupportedException(", output);
+        // Message names the API and the required floor.
+        Assert.Contains("AppStore.someApi", output);
+        Assert.Contains("iOS 26.2", output);
+    }
+
+    [Fact]
+    public void RuntimeGuard_EffectiveParentFloor_EmitsGuard_NoDedup()
+    {
+        // The CORE fix: a type-gated member with NO stricter floor of its own still inherits the
+        // type's floor at runtime, so the merged effective floor (iOS 26.2) MUST emit a guard.
+        // The old behavior deduped this against the parent and emitted nothing, leaving a
+        // type-gated constructor/static/operator able to reach the weak-linked symbol and crash.
+        var (csWriter, stringWriter) = CreateWriter();
+        var effective = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "26.2", null, null, false, false, null, null)
+        };
+        AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(csWriter, effective, "T.m");
+        csWriter.Flush();
+        var output = stringWriter.ToString();
+        Assert.Contains("!global::System.OperatingSystem.IsOSPlatformVersionAtLeast(\"ios\", 26, 2)", output);
+        Assert.Contains("throw new global::System.PlatformNotSupportedException(", output);
+    }
+
+    [Fact]
+    public void RuntimeGuard_PatchVersionFloor_EmitsAllComponents()
+    {
+        // A patch-level floor (iOS 17.4.1) must guard on all three components, not round down to
+        // 17.4 — otherwise the guard under-fires on 17.4.0 even though the named floor is 17.4.1.
+        var (csWriter, stringWriter) = CreateWriter();
+        var annotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "17.4.1", null, null, false, false, null, null)
+        };
+        AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(csWriter, annotations, "T.m");
+        csWriter.Flush();
+        var output = stringWriter.ToString();
+        Assert.Contains("!global::System.OperatingSystem.IsOSPlatformVersionAtLeast(\"ios\", 17, 4, 1)", output);
+        Assert.Contains("iOS 17.4.1", output);
+    }
+
+    [Fact]
+    public void RuntimeGuard_StrictestPerPlatformWins()
+    {
+        // Stacked annotations (parent + method + conformer) can list the same platform twice;
+        // the guard must keep the highest floor so it doesn't under-guard the call site.
+        var (csWriter, stringWriter) = CreateWriter();
+        var annotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "13.0", null, null, false, false, null, null),
+            new("iOS", "26.0", null, null, false, false, null, null),
+        };
+        AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(csWriter, annotations, "T.m");
+        csWriter.Flush();
+        var output = stringWriter.ToString();
+        Assert.Contains("IsOSPlatformVersionAtLeast(\"ios\", 26, 0)", output);
+        Assert.DoesNotContain("13", output);
+    }
+
+    [Fact]
+    public void RuntimeGuard_MultiPlatform_OrsOneClausePerPlatform()
+    {
+        var (csWriter, stringWriter) = CreateWriter();
+        var annotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "26.0", null, null, false, false, null, null),
+            new("macOS", "15.0", null, null, false, false, null, null),
+        };
+        AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(csWriter, annotations, "T.m");
+        csWriter.Flush();
+        var output = stringWriter.ToString();
+        Assert.Contains("IsOSPlatform(\"ios\")", output);
+        Assert.Contains("IsOSPlatform(\"macos\")", output);
+        Assert.Contains(" || ", output);
+        // Both floors named in the message.
+        Assert.Contains("iOS 26.0", output);
+        Assert.Contains("macOS 15.0", output);
+    }
+
+    [Fact]
+    public void RuntimeGuard_LiftsExplicitCatalystToIOSFloor()
+    {
+        // iOS 18 + explicit macCatalyst 17 — the guard must require maccatalyst 18 (the floor
+        // swiftc enforces for -target ...-macabi), matching the [SupportedOSPlatform] lift, so a
+        // Catalyst consumer on 17.x is guarded rather than crashing on the weak-linked symbol.
+        var (csWriter, stringWriter) = CreateWriter();
+        var annotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "18.0", null, null, false, false, null, null),
+            new("macCatalyst", "17.0", null, null, false, false, null, null),
+        };
+        AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(csWriter, annotations, "T.m");
+        csWriter.Flush();
+        var output = stringWriter.ToString();
+        Assert.Contains("IsOSPlatformVersionAtLeast(\"maccatalyst\", 18, 0)", output);
+        Assert.DoesNotContain("17", output);
+        Assert.Contains("IsOSPlatformVersionAtLeast(\"ios\", 18, 0)", output);
+    }
+
+    [Fact]
+    public void RuntimeGuard_DoesNotDedupAgainstParent_UnlikeAttribute()
+    {
+        // The compile-time [SupportedOSPlatform] attribute dedups against the enclosing type (C#
+        // nesting inherits it at compile time), but the runtime guard must NOT — there is no
+        // runtime attribute inheritance. For a member whose effective floor is [iOS 26 (== parent),
+        // tvOS 26 (member-only)], the attribute drops the parent-covered iOS clause while the guard
+        // keeps it. This asserts that intentional divergence.
+        var effective = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "26.0", null, null, false, false, null, null),
+            new("tvOS", "26.0", null, null, false, false, null, null),
+        };
+        var parent = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "26.0", null, null, false, false, null, null), // iOS covered by parent
+        };
+
+        var (attrWriter, attrSw) = CreateWriter();
+        AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(attrWriter, effective, parent);
+        attrWriter.Flush();
+        var attrOut = attrSw.ToString();
+
+        var (guardWriter, guardSw) = CreateWriter();
+        AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(guardWriter, effective, "T.m");
+        guardWriter.Flush();
+        var guardOut = guardSw.ToString();
+
+        // Attribute dedups the parent-covered iOS floor; the runtime guard does NOT.
+        Assert.DoesNotContain("ios26.0", attrOut);
+        Assert.Contains("IsOSPlatform(\"ios\")", guardOut);
+        // tvOS (member-only) survives on both sides.
+        Assert.Contains("tvos26.0", attrOut);
+        Assert.Contains("IsOSPlatform(\"tvos\")", guardOut);
+    }
+
+    // --- Positive availability condition (BuildIsAvailableCondition) ---
+    //
+    // The module initializer wraps eager generic registration / metadata warmup of an
+    // OS-gated ISwiftObject type in a POSITIVE availability check so launching on a host
+    // OS below the type's floor cannot trigger an uncatchable native Mono generic-
+    // instantiation abort. BuildIsAvailableCondition is the negation of the runtime guard's
+    // below-floor condition: null when the type has no floor (always available → no guard).
+
+    [Fact]
+    public void IsAvailableCondition_NoAnnotations_ReturnsNull()
+    {
+        Assert.Null(AvailabilityAttributeEmitter.BuildIsAvailableCondition(null));
+        Assert.Null(AvailabilityAttributeEmitter.BuildIsAvailableCondition(Array.Empty<AvailabilityAnnotation>()));
+    }
+
+    [Fact]
+    public void IsAvailableCondition_DeprecationOnly_NoFloor_ReturnsNull()
+    {
+        // No introduced version → no floor to gate → no guard needed (an unconditionally
+        // deprecated-but-always-present type must still register eagerly).
+        var annotations = new List<AvailabilityAnnotation>
+        {
+            new(null, null, null, null, true, false, "Use something else", null)
+        };
+        Assert.Null(AvailabilityAttributeEmitter.BuildIsAvailableCondition(annotations));
+    }
+
+    [Fact]
+    public void IsAvailableCondition_iOSFloor_NegatesBelowFloorCondition()
+    {
+        var annotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "99.0", null, null, false, false, null, null)
+        };
+        var condition = AvailabilityAttributeEmitter.BuildIsAvailableCondition(annotations);
+        Assert.NotNull(condition);
+        // Positive form: NOT (running on iOS below 99.0).
+        Assert.StartsWith("!(", condition);
+        Assert.Contains("global::System.OperatingSystem.IsOSPlatform(\"ios\")", condition);
+        Assert.Contains("!global::System.OperatingSystem.IsOSPlatformVersionAtLeast(\"ios\", 99, 0)", condition);
+    }
+
+    [Fact]
+    public void IsAvailableCondition_IsExactNegationOfRuntimeGuardCondition()
+    {
+        // The positive gate and the throwing member guard must agree on the same floor: the
+        // module-init "run only if available" check is exactly the negation of the member
+        // guard's "throw if below floor" check, so a type warmed at launch is precisely the
+        // set of types whose members would NOT throw on that OS.
+        var annotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "26.2", null, null, false, false, null, null),
+            new("macOS", "15.0", null, null, false, false, null, null),
+        };
+        var positive = AvailabilityAttributeEmitter.BuildIsAvailableCondition(annotations);
+
+        var (csWriter, stringWriter) = CreateWriter();
+        AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(csWriter, annotations, "T.m");
+        csWriter.Flush();
+        var guardOutput = stringWriter.ToString();
+
+        Assert.NotNull(positive);
+        // Strip the leading "!(" and trailing ")" to recover the below-floor expression and
+        // confirm the throwing guard's `if (...)` uses that exact same expression.
+        var belowFloor = positive!.Substring(2, positive.Length - 3);
+        Assert.Contains($"if ({belowFloor})", guardOutput);
+    }
 }

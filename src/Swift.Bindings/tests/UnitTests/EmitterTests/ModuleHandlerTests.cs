@@ -1141,6 +1141,100 @@ public class ModuleHandlerTests
 
     #endregion
 
+    #region Module-Init Availability Gating
+
+    // A type whose Swift @available floor exceeds the running OS aborts UNCATCHABLY on Mono when
+    // the module initializer forces its closed generic method context / metadata warmup at launch
+    // (mini_init_method_rgctx → mini_instantiate_gshared_info → abort) — the surrounding try/catch
+    // only intercepts managed exceptions. So each per-type eager registration is wrapped in a
+    // POSITIVE availability check; below the floor the registration is simply skipped and the type
+    // resolves lazily (throwing a catchable PlatformNotSupportedException via the member guard) on
+    // a new-enough OS. Ungated types are unchanged (zero blast radius).
+
+    private static string LineContaining(string output, string needle) =>
+        output.Split('\n').Select(l => l.TrimEnd('\r')).FirstOrDefault(l => l.Contains(needle));
+
+    [Fact]
+    public void Emit_GatedSwiftObjectType_WrapsFactoryRegistrationInAvailabilityGuard()
+    {
+        var (csOutput, _) = EmitModuleWithDependencies(
+            "TestModule",
+            new List<string>(),
+            preEmitHook: ctx => ctx.RecordSwiftObjectType(
+                "TestModule.FutureGatedType",
+                new List<AvailabilityAnnotation>
+                {
+                    new("iOS", "99.0", null, null, false, false, null, null)
+                }));
+
+        var line = LineContaining(csOutput, "RegisterSwiftObjectFactory<TestModule.FutureGatedType>");
+        Assert.NotNull(line);
+        // The eager factory + metadata warmup runs only when the iOS 99 floor is satisfied.
+        Assert.Contains("if (", line);
+        Assert.Contains("!global::System.OperatingSystem.IsOSPlatformVersionAtLeast(\"ios\", 99, 0)", line);
+        // The metadata warmup is inside the same guarded line — not left eager.
+        Assert.Contains("SwiftObjectHelper<TestModule.FutureGatedType>.GetTypeMetadata()", line);
+    }
+
+    [Fact]
+    public void Emit_UngatedSwiftObjectType_EmitsFactoryRegistrationWithoutGuard()
+    {
+        var (csOutput, _) = EmitModuleWithDependencies(
+            "TestModule",
+            new List<string>(),
+            preEmitHook: ctx => ctx.RecordSwiftObjectType("TestModule.PlainType"));
+
+        var line = LineContaining(csOutput, "RegisterSwiftObjectFactory<TestModule.PlainType>");
+        Assert.NotNull(line);
+        // No availability floor → no guard wrapping the registration.
+        Assert.DoesNotContain("IsOSPlatformVersionAtLeast", line);
+        Assert.DoesNotContain("if (", line);
+    }
+
+    [Fact]
+    public void Emit_GatedConformance_WrapsConformanceAndWitnessRegistrationsInGuard()
+    {
+        var (csOutput, _) = EmitModuleWithDependencies(
+            "TestModule",
+            new List<string>(),
+            preEmitHook: ctx => ctx.RecordConformance(
+                "TestModule.GatedConformer",
+                "ITestProto",
+                new List<AvailabilityAnnotation>
+                {
+                    new("iOS", "99.0", null, null, false, false, null, null)
+                }));
+
+        // BOTH conformance registration channels (factory + witness table) invoke a static-virtual
+        // on the conforming type; each must be gated so a below-floor launch can't abort.
+        var factoryLine = LineContaining(csOutput, "RegisterConformanceFactory<TestModule.GatedConformer, ITestProto>");
+        Assert.NotNull(factoryLine);
+        Assert.Contains("!global::System.OperatingSystem.IsOSPlatformVersionAtLeast(\"ios\", 99, 0)", factoryLine);
+
+        var witnessLine = LineContaining(csOutput, "RegisterWitnessTable<TestModule.GatedConformer, ITestProto>");
+        Assert.NotNull(witnessLine);
+        Assert.Contains("!global::System.OperatingSystem.IsOSPlatformVersionAtLeast(\"ios\", 99, 0)", witnessLine);
+    }
+
+    [Fact]
+    public void Emit_UngatedConformance_EmitsRegistrationsWithoutGuard()
+    {
+        var (csOutput, _) = EmitModuleWithDependencies(
+            "TestModule",
+            new List<string>(),
+            preEmitHook: ctx => ctx.RecordConformance("TestModule.PlainConformer", "ITestProto"));
+
+        var factoryLine = LineContaining(csOutput, "RegisterConformanceFactory<TestModule.PlainConformer, ITestProto>");
+        Assert.NotNull(factoryLine);
+        Assert.DoesNotContain("IsOSPlatformVersionAtLeast", factoryLine);
+
+        var witnessLine = LineContaining(csOutput, "RegisterWitnessTable<TestModule.PlainConformer, ITestProto>");
+        Assert.NotNull(witnessLine);
+        Assert.DoesNotContain("IsOSPlatformVersionAtLeast", witnessLine);
+    }
+
+    #endregion
+
     #region Namespace Emission Tests
 
     [Fact]

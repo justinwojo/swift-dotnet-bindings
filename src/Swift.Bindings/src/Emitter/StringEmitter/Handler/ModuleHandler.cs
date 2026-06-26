@@ -476,6 +476,26 @@ namespace BindingsGeneration
                         global::Swift.Runtime.RuntimeContract.AssertCompatible({{ResolveEmittedContractEpoch(emissionCtx)}});
                         global::Swift.Runtime.SwiftFrameworkResolver.RegisterForAssembly(typeof(__SwiftFrameworkResolver_{{moduleName}}).Assembly);
                 """);
+
+            // Eager generic registration / metadata warmup of an availability-gated type aborts
+            // uncatchably on Mono when the running OS is below the type's floor: forcing the closed
+            // generic method context (mini_init_method_rgctx → mini_instantiate_gshared_info) or the
+            // trailing metadata accessor for a type whose Swift @available exceeds the host OS is a
+            // native process abort — the surrounding try/catch only intercepts MANAGED exceptions.
+            // So wrap each per-type eager registration in a POSITIVE availability check: run it only
+            // when the type's effective floor is satisfied here. The member-level guards already
+            // convert a below-floor call into a catchable PlatformNotSupportedException, so an
+            // un-warmed gated type still resolves correctly (just lazily) on a new-enough OS.
+            void EmitGuardedRegistration(string typeName, string body)
+            {
+                var guard = AvailabilityAttributeEmitter.BuildIsAvailableCondition(
+                    emissionCtx?.GetTypeEffectiveAvailability(typeName));
+                if (guard != null)
+                    csWriter.WriteLines($"        if ({guard}) {{ {body} }}");
+                else
+                    csWriter.WriteLines($"        {body}");
+            }
+
             foreach (var typeName in factoryTypes)
             {
                 // Wrap each registration in try-catch so one failing type doesn't crash the
@@ -490,11 +510,13 @@ namespace BindingsGeneration
                 // via SwiftObjectHelper<T>.GetTypeMetadata() at actual call time works fine.
                 if (typeName.Contains('<'))
                 {
-                    csWriter.WriteLines($"        try {{ global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<{typeName}>(); }} catch {{ }}");
+                    EmitGuardedRegistration(typeName,
+                        $"try {{ global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<{typeName}>(); }} catch {{ }}");
                 }
                 else
                 {
-                    csWriter.WriteLines($"        try {{ global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<{typeName}>(); global::Swift.Runtime.SwiftObjectHelper<{typeName}>.GetTypeMetadata(); }} catch {{ }}");
+                    EmitGuardedRegistration(typeName,
+                        $"try {{ global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<{typeName}>(); global::Swift.Runtime.SwiftObjectHelper<{typeName}>.GetTypeMetadata(); }} catch {{ }}");
                 }
             }
             // Pre-register each emitted type's declared payload-construction semantics (Finding 11).
@@ -530,7 +552,8 @@ namespace BindingsGeneration
             }
             foreach (var (typeName, protocolName) in conformances)
             {
-                csWriter.WriteLines($"        try {{ global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<{typeName}, {protocolName}>(); }} catch {{ }}");
+                EmitGuardedRegistration(typeName,
+                    $"try {{ global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<{typeName}, {protocolName}>(); }} catch {{ }}");
             }
             // Pre-register witness tables for ALL protocol conformances.
             // This eagerly computes and caches the witness table during module initialization
@@ -540,7 +563,8 @@ namespace BindingsGeneration
             // ensures the witness table is cached and the runtime path uses the cache.
             foreach (var (typeName, protocolName) in conformances)
             {
-                csWriter.WriteLines($"        try {{ global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterWitnessTable<{typeName}, {protocolName}>(); }} catch {{ }}");
+                EmitGuardedRegistration(typeName,
+                    $"try {{ global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterWitnessTable<{typeName}, {protocolName}>(); }} catch {{ }}");
             }
             // Register simple enum metadata via P/Invoke to @_cdecl Swift wrappers.
             // Simple C# enums can't implement ISwiftObject, so their Swift metadata must be

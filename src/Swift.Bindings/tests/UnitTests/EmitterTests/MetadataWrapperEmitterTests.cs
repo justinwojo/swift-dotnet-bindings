@@ -185,6 +185,136 @@ public class MetadataWrapperEmitterTests
         Assert.DoesNotContain("unsafeBitCast", swiftOutput);
     }
 
+    /// <summary>
+    /// A type whose OS-availability floor is above the module deployment target (e.g. an
+    /// iOS 26.2 StoreKit type bound at the iOS 15 .NET floor) has a weak-imported metadata
+    /// accessor that is null on older OS versions. The wrapper must guard the type reference
+    /// behind a runtime <c>#available</c> check and return <c>nil</c> when unavailable, so the
+    /// metadata accessor is never branched-through on older OS (the TestFlight SIGSEGV at pc=0).
+    /// The return type widens to optional, and the declaration-level <c>@available</c> is
+    /// deliberately omitted — emitting it would make the inner <c>#available</c> always-true
+    /// and dead-code the else branch.
+    /// </summary>
+    [Fact]
+    public void EmitIfNeeded_AvailabilityGatedType_GuardsReferenceAndReturnsNil()
+    {
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+        var ctx = new ModuleEmissionContext();
+        var symbol = "SBW_GetMetadata_StoreKit_StoreKit_Product_PriceIncreaseInfo_ABCD1234";
+
+        var gatedStruct = MakeStruct("StoreKit.Product.PriceIncreaseInfo", new List<AvailabilityAnnotation>
+        {
+            new("iOS", "26.2", null, null, false, false, null, null),
+            new("macOS", "26.2", null, null, false, false, null, null),
+        });
+
+        MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, "StoreKit", "StoreKit.Product.PriceIncreaseInfo", symbol, ctx, gatedStruct);
+
+        var output = sw.ToString();
+        // Runtime guard present, gating the only reference to the gated type's metadata.
+        Assert.Contains("if #available(", output);
+        Assert.Contains("iOS 26.2", output);
+        Assert.Contains("return nil", output);
+        // Return type widened to optional so nil is representable.
+        Assert.Contains("-> UnsafeMutableRawPointer?", output);
+        // The gated reference is still emitted, but only inside the guarded branch.
+        Assert.Contains("unsafeBitCast(StoreKit.Product.PriceIncreaseInfo.self as Any.Type, to: UnsafeMutableRawPointer.self)", output);
+        // No declaration-level @available — it would make the #available always-true.
+        Assert.DoesNotContain("@available(", output);
+    }
+
+    /// <summary>
+    /// A type available at the module deployment floor must keep the original unconditional
+    /// shape: no runtime guard, non-optional return, no declaration-level @available. This
+    /// guarantees the gated-type fix does not churn the output for the overwhelming majority
+    /// of types.
+    /// </summary>
+    [Fact]
+    public void EmitIfNeeded_NonGatedType_RemainsUnconditional()
+    {
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+        var ctx = new ModuleEmissionContext();
+        var symbol = "SBW_GetMetadata_ImagePipeline_ImagePipeline_ImageService_ABCD1234";
+
+        var plainStruct = MakeStruct("ImagePipeline.ImageService", availability: null);
+
+        MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, "ImagePipeline", "ImagePipeline.ImageService", symbol, ctx, plainStruct);
+
+        var output = sw.ToString();
+        Assert.Contains("-> UnsafeMutableRawPointer", output);
+        Assert.DoesNotContain("-> UnsafeMutableRawPointer?", output);
+        Assert.DoesNotContain("#available", output);
+        Assert.DoesNotContain("@available(", output);
+        Assert.DoesNotContain("return nil", output);
+    }
+
+    /// <summary>
+    /// For a gated type, the generated C# GetTypeMetadata() must convert the wrapper's null
+    /// return (zero TypeMetadata) into a PlatformNotSupportedException at the method boundary —
+    /// before any caller can observe a zero metadata that would later fault on a value-witness
+    /// dereference (Size / ValueWitnessTable).
+    /// </summary>
+    [Fact]
+    public void BuildGetTypeMetadataWithFallback_GatedType_ThrowsPlatformNotSupported()
+    {
+        var availability = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "26.2", null, null, false, false, null, null),
+            new("macOS", "26.2", null, null, false, false, null, null),
+        };
+
+        var body = MetadataWrapperEmitter.BuildGetTypeMetadataWithFallback(availability, "StoreKit.Product.PriceIncreaseInfo");
+
+        Assert.Contains("if (!__metadata.IsValid)", body);
+        Assert.Contains("global::System.PlatformNotSupportedException", body);
+        Assert.Contains("StoreKit.Product.PriceIncreaseInfo", body);
+        Assert.Contains("iOS 26.2", body);
+        // The fallback chain is preserved.
+        Assert.Contains("PInvoke_getMetadata_fallback()", body);
+    }
+
+    /// <summary>
+    /// For a non-gated type the C# GetTypeMetadata() body is unchanged — direct return, no
+    /// PlatformNotSupportedException, no IsValid gate.
+    /// </summary>
+    [Fact]
+    public void BuildGetTypeMetadataWithFallback_NonGatedType_DirectReturn()
+    {
+        var body = MetadataWrapperEmitter.BuildGetTypeMetadataWithFallback(null, "ImagePipeline.ImageService");
+
+        Assert.Contains("return PInvoke_getMetadata();", body);
+        Assert.Contains("return PInvoke_getMetadata_fallback();", body);
+        Assert.DoesNotContain("PlatformNotSupportedException", body);
+        Assert.DoesNotContain("IsValid", body);
+    }
+
+    private static StructDecl MakeStruct(string moduleQualifiedName, List<AvailabilityAnnotation>? availability)
+        => new StructDecl
+        {
+            Name = moduleQualifiedName.Substring(moduleQualifiedName.LastIndexOf('.') + 1),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(moduleQualifiedName),
+            MangledName = "$s",
+            Properties = new(),
+            Methods = new(),
+            Types = new(),
+            Operators = new(),
+            GenericParameters = new(),
+            Conformances = new List<TypeConformance>
+            {
+                new(SwiftTypeName.FromModuleQualifiedName(moduleQualifiedName),
+                    SwiftTypeName.FromModuleQualifiedName("Swift.Copyable"), ""),
+                new(SwiftTypeName.FromModuleQualifiedName(moduleQualifiedName),
+                    SwiftTypeName.FromModuleQualifiedName("Swift.Escapable"), "")
+            },
+            ParentDecl = null!,
+            ModuleDecl = null!,
+            IsFrozen = true,
+            MetadataAccessor = "",
+            AvailabilityAnnotations = availability
+        };
+
     [Fact]
     public void CopyableType_NotSkipped()
     {

@@ -372,6 +372,11 @@ namespace BindingsGeneration
                     }
                 }
 
+                // The Swift @_cdecl operator wrapper is availability-gated (see EmitSwiftWrapper), so on an
+                // OS below the operator's effective floor its body dereferences a weak-linked, null gated
+                // symbol — an uncatchable SIGSEGV. Throw a catchable exception before reaching the P/Invoke.
+                EmitOperatorAvailabilityGuard(csWriter, operatorDecl, csOperator);
+
                 // Emit handle extraction for ObjC-bridged/rooted parameters
                 EmitObjCHandleExtraction(csWriter, pInvokeSignature, wrapperSignature);
 
@@ -414,6 +419,9 @@ namespace BindingsGeneration
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
 
+                // See the binary-operator note above: guard the weak-linked gated-symbol crash before the P/Invoke.
+                EmitOperatorAvailabilityGuard(csWriter, operatorDecl, csOperator);
+
                 // Emit handle extraction for ObjC-bridged/rooted parameters
                 EmitObjCHandleExtraction(csWriter, pInvokeSignature, wrapperSignature);
 
@@ -436,6 +444,24 @@ namespace BindingsGeneration
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
             }
+        }
+
+        /// <summary>
+        /// Emits the runtime OS-version guard for a generated operator. The floor is the operator's own
+        /// availability merged with its full enclosing-type chain, so an operator on an OS-gated type is
+        /// guarded even when it declares no stricter floor of its own. Mirrors the guard the regular
+        /// method/constructor paths get via <see cref="AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard"/>.
+        /// </summary>
+        private static void EmitOperatorAvailabilityGuard(CSharpWriter csWriter, OperatorDecl operatorDecl, string csOperator)
+        {
+            var parentName = operatorDecl.ParentDecl?.Name;
+            var description = string.IsNullOrEmpty(parentName)
+                ? $"operator {csOperator}"
+                : $"{parentName}.operator {csOperator}";
+            AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(
+                csWriter,
+                WrapperEmitterHelpers.MergeAvailability(operatorDecl.AvailabilityAnnotations, operatorDecl.ParentDecl),
+                description);
         }
 
         /// <summary>
