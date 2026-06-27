@@ -16,8 +16,6 @@ Swift Bindings reads the ABI metadata from a compiled Swift framework and produc
 
 Also handles pure Objective-C frameworks — a full replacement for Objective Sharpie with ready-to-compile output. See [below](#objective-c-support).
 
-For the story behind this project — why I created it, the process of building it, and lessons learned along the way — check out the [full write-up on my blog](https://wojosoftware.com/blog/swift-dotnet-bindings/).
-
 ## Why This Exists
 
 Apple is moving away from Objective-C. Every year, more frameworks ship as Swift-only with no Objective-C equivalent:
@@ -54,7 +52,7 @@ Any xcframework → SwiftBindings tool → C# binding
 
 This project is a fork of Microsoft's [`dotnet/runtimelab` (feature/swift-bindings branch)](https://github.com/dotnet/runtimelab/tree/feature/swift-bindings) — an experimental effort that established the foundational architecture (ABI JSON parsing, Swift symbol demangling, type database, code emitter) but was never intended as a shipping product. Development went inactive with support limited to basic classes, structs, and simple method signatures.
 
-Since forking, the project has grown from that proof-of-concept into a comprehensive binding generator — **1,000+ commits since the fork, ~140K lines of production code and ~150K lines of tests**.
+Since forking, the project has grown from that proof-of-concept into a comprehensive binding generator — **1,000+ commits since the fork, ~230K lines of production code and ~360K lines of tests**.
 
 ## What It Can Do
 
@@ -241,7 +239,7 @@ For full details, see [Known Limitations](https://github.com/justinwojo/swift-do
 
 ## Project Status
 
-Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — backed by **11,500+ unit tests** and **2,100+ runtime tests** passing on both iOS Simulator (Mono JIT) and physical device (NativeAOT).
+Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — backed by **14,000+ unit tests** and **2,900+ runtime tests** passing on both iOS Simulator (Mono JIT) and physical device (NativeAOT).
 
 ## Contributing
 
