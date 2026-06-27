@@ -39,7 +39,9 @@ partial class Build
                      "stdlib-conformances.json (write-back). Pass nothing else — sim SDK + arm64 triple.")
         .Executes(() =>
         {
-            EnsureGeneratorBuilt();
+            // This generator mode consumes a swift-api-digester ABI dump + the conformance table,
+            // never a `.swiftinterface`, so it does not need the SwiftInterfaceParser host binary.
+            EnsureGeneratorBuilt(ensureSwiftInterfaceParser: false);
 
             // Any SDK carries the Swift module; the iOS-simulator slice is always present on a
             // dev host. The conformance graph is platform-invariant for the curated value types.

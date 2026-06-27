@@ -27,7 +27,10 @@ partial class Build
         .Description("Probe the live Apple SDK for every Apple-types manifest entry; detect VWT drift.")
         .Executes(() =>
         {
-            EnsureGeneratorBuilt();
+            // The manifest probe reads the live Apple SDK, not a `.swiftinterface`, so the
+            // SwiftInterfaceParser host binary isn't needed here (and Compile, a dependency of this
+            // target, already stages it regardless).
+            EnsureGeneratorBuilt(ensureSwiftInterfaceParser: false);
 
             var args = new System.Collections.Generic.List<string>
             {

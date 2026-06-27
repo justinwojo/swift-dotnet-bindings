@@ -328,7 +328,7 @@ partial class Build
     {
         Log.Information("=== Regenerating bindings for {Module} ===", ModuleName);
 
-        // Ensure generator is built
+        // Ensure generator is built (also stages the SwiftInterfaceParser host binary it needs).
         EnsureGeneratorBuilt();
 
         // Clean output
@@ -513,8 +513,21 @@ partial class Build
         StampTargetPlatformSidecar(BtOutputDir, platformOverride ?? ApplePlatform.IOS);
     }
 
-    void EnsureGeneratorBuilt()
+    void EnsureGeneratorBuilt(bool ensureSwiftInterfaceParser = true)
     {
+        // The generator hard-fails ("Could not locate the SwiftInterfaceParser host binary") when
+        // the parser is absent AND the input carries a `.swiftinterface`. The binding-tests and
+        // runtime regen paths that feed a `.swiftinterface`/`--xcframework` all funnel through this
+        // method, so staging the parser here is the single chokepoint that covers them (binding-tests
+        // sim/device/tvos via RunRegenerateBindings, macOS/Catalyst via RunRegenerateMacOSBindings,
+        // the manual `-s` runtime path). Done before the generator-dll freshness early-return below
+        // so a fresh dll paired with a missing parser still rebuilds the parser. Generator modes
+        // that consume no `.swiftinterface` (the stdlib-conformances ABI-dump pass, the
+        // apple-types-manifest probe) pass ensureSwiftInterfaceParser: false to skip a build they
+        // don't need.
+        if (ensureSwiftInterfaceParser)
+            EnsureSwiftInterfaceParserBuilt();
+
         // Freshness check, not existence check. A stale generator dll — source edited but
         // the dll not rebuilt — would otherwise be trusted unconditionally, and every
         // binding-tests gate would silently run the OLD generator (the recurring
