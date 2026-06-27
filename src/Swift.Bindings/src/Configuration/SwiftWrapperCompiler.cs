@@ -214,6 +214,10 @@ namespace BindingsGeneration
             var allStrippedSymbols = new HashSet<string>();
             var subCauseTotals = NewSubCauseTotals();
             var cleanedFiles = new List<string>();
+            // Unique staging tree for the two-slice build; assigned at step 3. Tracked out here so
+            // the finally drops it if it was never promoted (compile/validation failure or the
+            // no-slice early return). On success it is MOVED to the canonical path.
+            string? stagingXcfwPath = null;
 
             try
             {
@@ -295,15 +299,19 @@ namespace BindingsGeneration
                     CreateResourceBundleStubs(bundleNames, outputDirectory, logger, simulatorResolution.DylibPath);
                 }
 
-                // 3. Create xcframework directory structure
+                // 3. Create xcframework directory structure. Build both slices into a unique
+                // staging tree OUTSIDE the canonical path, validate, then atomically promote — so
+                // a timed-out/killed swiftc on either slice can never leave a partial or
+                // half-written tree at the canonical path the SDK consumes. (The previous
+                // delete-then-build destroyed the prior good tree before the first swiftc ran.)
                 var xcframeworkPath = Path.Combine(outputDirectory, $"{wrapperModuleName}.xcframework");
-                if (Directory.Exists(xcframeworkPath))
-                    Directory.Delete(xcframeworkPath, true);
+                RecoverStrandedSupersededXcframework(xcframeworkPath, logger);
+                stagingXcfwPath = MakeStagingXcframeworkPath(outputDirectory, wrapperModuleName, simSlice.SliceId);
 
                 var sliceCount = 0;
 
                 // 4. Compile simulator slice
-                var simFrameworkDir = Path.Combine(xcframeworkPath, simSlice.SliceId, $"{wrapperModuleName}.framework");
+                var simFrameworkDir = Path.Combine(stagingXcfwPath, simSlice.SliceId, $"{wrapperModuleName}.framework");
                 Directory.CreateDirectory(simFrameworkDir);
                 WriteFrameworkPlist(simFrameworkDir, wrapperModuleName, minOS, simSlice.PlistPlatformName);
 
@@ -414,12 +422,18 @@ namespace BindingsGeneration
                 }
 
                 if (sliceCount > 0)
+                {
+                    // Validate before reporting the slice built — a timed-out/killed swiftc throws
+                    // above; a truncated/wrong-arch binary is rejected here.
+                    ValidateCompiledSliceBinary(simBinaryPath, simSlice.Architecture, commandRunner, logger);
                     logger.LogInformation("Compiled simulator slice for {Module}.", wrapperModuleName);
+                }
 
                 // 5. Compile device slice (if available)
                 if (deviceResolution != null)
                 {
-                    var devFrameworkDir = Path.Combine(xcframeworkPath, deviceSlice.SliceId, $"{wrapperModuleName}.framework");
+                    var deviceSliceCountBefore = sliceCount;
+                    var devFrameworkDir = Path.Combine(stagingXcfwPath, deviceSlice.SliceId, $"{wrapperModuleName}.framework");
                     Directory.CreateDirectory(devFrameworkDir);
                     WriteFrameworkPlist(devFrameworkDir, wrapperModuleName, minOS, deviceSlice.PlistPlatformName);
 
@@ -553,8 +567,14 @@ namespace BindingsGeneration
                         sliceCount++;
                     }
 
-                    if (sliceCount > 1)
+                    if (sliceCount > deviceSliceCountBefore)
+                    {
+                        // Validate the device binary independently of the sim slice (a sim-only
+                        // thunk failure can leave sliceCount at 1 here even though the device slice
+                        // was built and must still be checked before promotion).
+                        ValidateCompiledSliceBinary(devBinaryPath, deviceSlice.Architecture, commandRunner, logger);
                         logger.LogInformation("Compiled device slice for {Module}.", wrapperModuleName);
+                    }
                 }
 
                 // Guard: if no slices were compiled (all Swift stripped + thunks failed), return failure
@@ -572,9 +592,11 @@ namespace BindingsGeneration
                     };
                 }
 
-                // 6. Write xcframework Info.plist
-                WriteXCFrameworkPlist(xcframeworkPath, wrapperModuleName, deviceResolution != null,
+                // 6. Write xcframework Info.plist into the staging tree, then atomically promote
+                // the validated tree to the canonical path.
+                WriteXCFrameworkPlist(stagingXcfwPath, wrapperModuleName, deviceResolution != null,
                     slice: simSlice, deviceSlice: deviceSlice);
+                PromoteStagedXcframework(stagingXcfwPath, xcframeworkPath, logger);
 
                 logger.LogInformation("{Module}.xcframework built successfully at {Path} ({SliceCount} slice(s)).",
                     wrapperModuleName, xcframeworkPath, sliceCount);
@@ -612,6 +634,15 @@ namespace BindingsGeneration
                 {
                     if (Directory.Exists(cleanedDir))
                         Directory.Delete(cleanedDir, true);
+                }
+                catch { /* best-effort cleanup */ }
+
+                // Drop the staging tree if it was not promoted. On success it was MOVED to the
+                // canonical path, so this is a no-op.
+                try
+                {
+                    if (stagingXcfwPath != null && Directory.Exists(stagingXcfwPath))
+                        Directory.Delete(stagingXcfwPath, true);
                 }
                 catch { /* best-effort cleanup */ }
             }
@@ -673,6 +704,10 @@ namespace BindingsGeneration
             var allStrippedSymbols = new HashSet<string>();
             var subCauseTotals = NewSubCauseTotals();
             var cleanedFiles = new List<string>();
+            // Unique staging tree for this slice's build output; assigned inside the try once the
+            // slice id is known. Tracked out here so the finally can drop it if it was never
+            // promoted (compile/timeout/validation failure, or a no-binary early return).
+            string? stagingXcfwPath = null;
 
             try
             {
@@ -718,13 +753,21 @@ namespace BindingsGeneration
                 // 3. Resolve deployment target from source framework
                 var minOS = ResolveDeploymentTarget(dylibPath, logger, commandRunner);
 
-                // 4. Create xcframework directory structure
+                // 4. Create xcframework directory structure. Build into a unique staging tree
+                // OUTSIDE the canonical path: swiftc (which can time out and be killed mid-write
+                // under CI contention) never touches the canonical xcframework the SDK consumes.
+                // We validate the staged binary and atomically promote it only on success, so the
+                // canonical path stays byte-for-byte intact (or absent) on any failure/timeout.
                 var isSimulator = slice.IsSimulator;
                 var sliceId = slice.SliceId;
                 var xcframeworkPath = Path.Combine(outputDirectory, $"{wrapperModuleName}.xcframework");
-                var frameworkDir = Path.Combine(xcframeworkPath, sliceId, $"{wrapperModuleName}.framework");
+                // Recover a tree stranded by a process killed mid-promote on a prior run, so a
+                // failure this run still leaves the last good build at the canonical path.
+                RecoverStrandedSupersededXcframework(xcframeworkPath, logger);
+                stagingXcfwPath = MakeStagingXcframeworkPath(outputDirectory, wrapperModuleName, sliceId);
+                var frameworkDir = Path.Combine(stagingXcfwPath, sliceId, $"{wrapperModuleName}.framework");
                 var outputBinaryPath = Path.Combine(frameworkDir, wrapperModuleName);
-                CreateXCFrameworkStructure(xcframeworkPath, frameworkDir, wrapperModuleName, minOS, slice);
+                CreateXCFrameworkStructure(stagingXcfwPath, frameworkDir, wrapperModuleName, minOS, slice);
 
                 // 5. Resolve SDK path
                 var sdkPath = ResolveSdkPath(slice.SdkName, commandRunner);
@@ -869,6 +912,14 @@ namespace BindingsGeneration
                     };
                 }
 
+                // Validate the staged binary, then atomically promote it to the canonical path.
+                // A timed-out or killed swiftc throws above (never reaching here); a
+                // truncated/wrong-arch binary is rejected here — so the canonical tree only ever
+                // receives a real, complete slice, and HasWrapperXCFramework is only ever recorded
+                // off a validated artifact.
+                ValidateCompiledSliceBinary(outputBinaryPath, slice.Architecture, commandRunner, logger);
+                PromoteStagedXcframework(stagingXcfwPath, xcframeworkPath, logger);
+
                 logger.LogInformation("{Module}.xcframework built successfully at {Path}",
                     wrapperModuleName, xcframeworkPath);
 
@@ -905,6 +956,16 @@ namespace BindingsGeneration
                 {
                     if (Directory.Exists(cleanedDir))
                         Directory.Delete(cleanedDir, true);
+                }
+                catch { /* best-effort cleanup */ }
+
+                // Drop the staging tree if it was not promoted (compile/timeout/validation
+                // failure, or a no-binary early return). On success it was MOVED to the canonical
+                // path, so Directory.Exists is false here and this is a no-op.
+                try
+                {
+                    if (stagingXcfwPath != null && Directory.Exists(stagingXcfwPath))
+                        Directory.Delete(stagingXcfwPath, true);
                 }
                 catch { /* best-effort cleanup */ }
             }
@@ -1071,66 +1132,83 @@ namespace BindingsGeneration
             // Resolve deployment target
             var minOS = ResolveDeploymentTarget(simulatorResolution.DylibPath, logger, commandRunner);
 
-            // Create xcframework directory structure
+            // Create xcframework directory structure. Build both slices into a unique staging
+            // tree, validate, then atomically promote — same hazard as the wrapper paths: a
+            // timed-out/killed swiftc must never leave a partial tree at the canonical path.
             var xcframeworkPath = Path.Combine(outputDirectory, $"{bridgeModuleName}.xcframework");
-            if (Directory.Exists(xcframeworkPath))
-                Directory.Delete(xcframeworkPath, true);
+            RecoverStrandedSupersededXcframework(xcframeworkPath, logger);
+            var stagingXcfwPath = MakeStagingXcframeworkPath(outputDirectory, bridgeModuleName, simSlice.SliceId);
 
-            var sliceCount = 0;
-
-            // Compile simulator slice
-            var simFrameworkDir = Path.Combine(xcframeworkPath, simSlice.SliceId, $"{bridgeModuleName}.framework");
-            Directory.CreateDirectory(simFrameworkDir);
-            WriteFrameworkPlist(simFrameworkDir, bridgeModuleName, minOS, simSlice.PlistPlatformName);
-
-            var simSdkPath = ResolveSdkPath(simSlice.SdkName, commandRunner);
-            var simTargetTriple = simSlice.GetTargetTriple(minOS);
-            var simBinaryPath = Path.Combine(simFrameworkDir, bridgeModuleName);
-
-            InvokeSwiftCompiler(
-                bridgeFiles, simBinaryPath, bridgeModuleName,
-                simTargetTriple, simSdkPath,
-                simulatorResolution.FrameworkSearchPath, commandRunner, logger,
-                primaryAdditionalSearchPaths, originalModuleName: moduleName);
-            sliceCount++;
-
-            logger.LogInformation("Compiled simulator slice for {Module}.", bridgeModuleName);
-
-            // Compile device slice (if available)
-            if (deviceResolution != null)
+            try
             {
-                var devFrameworkDir = Path.Combine(xcframeworkPath, deviceSlice.SliceId, $"{bridgeModuleName}.framework");
-                Directory.CreateDirectory(devFrameworkDir);
-                WriteFrameworkPlist(devFrameworkDir, bridgeModuleName, minOS, deviceSlice.PlistPlatformName);
+                var sliceCount = 0;
 
-                var devSdkPath = ResolveSdkPath(deviceSlice.SdkName, commandRunner);
-                var devTargetTriple = deviceSlice.GetTargetTriple(minOS);
-                var devBinaryPath = Path.Combine(devFrameworkDir, bridgeModuleName);
+                // Compile simulator slice
+                var simFrameworkDir = Path.Combine(stagingXcfwPath, simSlice.SliceId, $"{bridgeModuleName}.framework");
+                Directory.CreateDirectory(simFrameworkDir);
+                WriteFrameworkPlist(simFrameworkDir, bridgeModuleName, minOS, simSlice.PlistPlatformName);
+
+                var simSdkPath = ResolveSdkPath(simSlice.SdkName, commandRunner);
+                var simTargetTriple = simSlice.GetTargetTriple(minOS);
+                var simBinaryPath = Path.Combine(simFrameworkDir, bridgeModuleName);
 
                 InvokeSwiftCompiler(
-                    bridgeFiles, devBinaryPath, bridgeModuleName,
-                    devTargetTriple, devSdkPath,
-                    deviceResolution.FrameworkSearchPath, commandRunner, logger,
-                    deviceAdditionalSearchPaths, originalModuleName: moduleName);
+                    bridgeFiles, simBinaryPath, bridgeModuleName,
+                    simTargetTriple, simSdkPath,
+                    simulatorResolution.FrameworkSearchPath, commandRunner, logger,
+                    primaryAdditionalSearchPaths, originalModuleName: moduleName);
+                ValidateCompiledSliceBinary(simBinaryPath, simSlice.Architecture, commandRunner, logger);
                 sliceCount++;
 
-                logger.LogInformation("Compiled device slice for {Module}.", bridgeModuleName);
+                logger.LogInformation("Compiled simulator slice for {Module}.", bridgeModuleName);
+
+                // Compile device slice (if available)
+                if (deviceResolution != null)
+                {
+                    var devFrameworkDir = Path.Combine(stagingXcfwPath, deviceSlice.SliceId, $"{bridgeModuleName}.framework");
+                    Directory.CreateDirectory(devFrameworkDir);
+                    WriteFrameworkPlist(devFrameworkDir, bridgeModuleName, minOS, deviceSlice.PlistPlatformName);
+
+                    var devSdkPath = ResolveSdkPath(deviceSlice.SdkName, commandRunner);
+                    var devTargetTriple = deviceSlice.GetTargetTriple(minOS);
+                    var devBinaryPath = Path.Combine(devFrameworkDir, bridgeModuleName);
+
+                    InvokeSwiftCompiler(
+                        bridgeFiles, devBinaryPath, bridgeModuleName,
+                        devTargetTriple, devSdkPath,
+                        deviceResolution.FrameworkSearchPath, commandRunner, logger,
+                        deviceAdditionalSearchPaths, originalModuleName: moduleName);
+                    ValidateCompiledSliceBinary(devBinaryPath, deviceSlice.Architecture, commandRunner, logger);
+                    sliceCount++;
+
+                    logger.LogInformation("Compiled device slice for {Module}.", bridgeModuleName);
+                }
+
+                // Write xcframework Info.plist into staging, then atomically promote to canonical.
+                WriteXCFrameworkPlist(stagingXcfwPath, bridgeModuleName, deviceResolution != null,
+                    slice: simSlice, deviceSlice: deviceSlice);
+                PromoteStagedXcframework(stagingXcfwPath, xcframeworkPath, logger);
+
+                logger.LogInformation("{Module}.xcframework built successfully at {Path} ({SliceCount} slice(s)).",
+                    bridgeModuleName, xcframeworkPath, sliceCount);
+
+                return new SwiftWrapperCompilationResult
+                {
+                    XCFrameworkPath = xcframeworkPath,
+                    CompiledFileCount = bridgeFiles.Count,
+                    StrippedBlockCount = 0,
+                    SliceCount = sliceCount
+                };
             }
-
-            // Write xcframework Info.plist
-            WriteXCFrameworkPlist(xcframeworkPath, bridgeModuleName, deviceResolution != null,
-                slice: simSlice, deviceSlice: deviceSlice);
-
-            logger.LogInformation("{Module}.xcframework built successfully at {Path} ({SliceCount} slice(s)).",
-                bridgeModuleName, xcframeworkPath, sliceCount);
-
-            return new SwiftWrapperCompilationResult
+            finally
             {
-                XCFrameworkPath = xcframeworkPath,
-                CompiledFileCount = bridgeFiles.Count,
-                StrippedBlockCount = 0,
-                SliceCount = sliceCount
-            };
+                try
+                {
+                    if (Directory.Exists(stagingXcfwPath))
+                        Directory.Delete(stagingXcfwPath, true);
+                }
+                catch { /* best-effort cleanup */ }
+            }
         }
 
         /// <summary>
@@ -1162,21 +1240,40 @@ namespace BindingsGeneration
             // Resolve deployment target
             var minOS = ResolveDeploymentTarget(dylibPath, logger, commandRunner);
 
-            // Create xcframework directory structure
+            // Create xcframework directory structure. Build into a unique staging tree, validate,
+            // and atomically promote — same hazard as the wrapper slice: a timed-out/killed swiftc
+            // must never leave a partial binary at the canonical path the SDK consumes.
             var xcframeworkPath = Path.Combine(outputDirectory, $"{bridgeModuleName}.xcframework");
-            var frameworkDir = Path.Combine(xcframeworkPath, slice.SliceId, $"{bridgeModuleName}.framework");
-            CreateXCFrameworkStructure(xcframeworkPath, frameworkDir, bridgeModuleName, minOS, slice);
+            RecoverStrandedSupersededXcframework(xcframeworkPath, logger);
+            var stagingXcfwPath = MakeStagingXcframeworkPath(outputDirectory, bridgeModuleName, slice.SliceId);
+            var frameworkDir = Path.Combine(stagingXcfwPath, slice.SliceId, $"{bridgeModuleName}.framework");
+            CreateXCFrameworkStructure(stagingXcfwPath, frameworkDir, bridgeModuleName, minOS, slice);
 
             // Resolve SDK path and build target triple
             var sdkPath = ResolveSdkPath(slice.SdkName, commandRunner);
             var targetTriple = slice.GetTargetTriple(minOS);
             var outputBinaryPath = Path.Combine(frameworkDir, bridgeModuleName);
 
-            // Compile bridge — no post-processing, no thunks, no pre-compiled module
-            InvokeSwiftCompiler(
-                bridgeFiles, outputBinaryPath, bridgeModuleName,
-                targetTriple, sdkPath, frameworkSearchPath, commandRunner, logger,
-                additionalFrameworkSearchPaths, originalModuleName: moduleName);
+            try
+            {
+                // Compile bridge — no post-processing, no thunks, no pre-compiled module
+                InvokeSwiftCompiler(
+                    bridgeFiles, outputBinaryPath, bridgeModuleName,
+                    targetTriple, sdkPath, frameworkSearchPath, commandRunner, logger,
+                    additionalFrameworkSearchPaths, originalModuleName: moduleName);
+
+                ValidateCompiledSliceBinary(outputBinaryPath, slice.Architecture, commandRunner, logger);
+                PromoteStagedXcframework(stagingXcfwPath, xcframeworkPath, logger);
+            }
+            finally
+            {
+                try
+                {
+                    if (Directory.Exists(stagingXcfwPath))
+                        Directory.Delete(stagingXcfwPath, true);
+                }
+                catch { /* best-effort cleanup */ }
+            }
 
             logger.LogInformation("{Module}.xcframework built successfully at {Path}",
                 bridgeModuleName, xcframeworkPath);
@@ -1323,6 +1420,139 @@ namespace BindingsGeneration
             var platformName = slice?.PlistPlatformName ?? "iPhoneSimulator";
             WriteFrameworkPlist(frameworkDir, wrapperModuleName, minOS, platformName);
             WriteXCFrameworkPlist(xcframeworkPath, wrapperModuleName, includeDeviceSlice: false, slice: slice);
+        }
+
+        /// <summary>
+        /// Computes a unique, same-directory staging path for a wrapper/bridge slice build. Building
+        /// into a staging tree — instead of straight into the canonical <c>{module}.xcframework</c>
+        /// path — means a timed-out or killed <c>swiftc</c> can never leave a partial/missing binary
+        /// at the path the SDK consumes: the canonical tree is touched only by an atomic promote
+        /// AFTER the staged binary is validated. The staging name deliberately avoids the literal
+        /// <c>.xcframework</c> token so a <c>*.xcframework*</c> glob can't pick it up, and lives in the
+        /// canonical path's parent so the promote is a same-volume rename.
+        /// </summary>
+        internal static string MakeStagingXcframeworkPath(
+            string outputDirectory, string moduleName, string sliceId)
+            => Path.Combine(outputDirectory, $"{moduleName}.xcfwstaging-{sliceId}-{Guid.NewGuid():N}");
+
+        /// <summary>
+        /// Validates a freshly compiled wrapper/bridge slice binary before it is promoted to the
+        /// canonical xcframework path or reported as a successful build. Guards against a swiftc step
+        /// that timed out / was killed mid-write (missing or truncated <c>-o</c> target). Throws
+        /// <see cref="InvalidOperationException"/> — which callers treat exactly like a compile
+        /// failure — when the binary is missing, empty, not a Mach-O image, or lacks the expected
+        /// architecture. <c>lipo</c> is authoritative for thin and fat binaries.
+        /// </summary>
+        internal static void ValidateCompiledSliceBinary(
+            string binaryPath, string expectedArch, ICommandRunner commandRunner, ILogger logger)
+        {
+            var fileInfo = new FileInfo(binaryPath);
+            if (!fileInfo.Exists || fileInfo.Length == 0)
+                throw new InvalidOperationException(
+                    $"Wrapper compilation produced no binary at '{binaryPath}' (missing or empty) — " +
+                    "the swiftc step likely timed out or was killed mid-write.");
+
+            if (!IsMachOImageFile(binaryPath))
+                throw new InvalidOperationException(
+                    $"Wrapper binary at '{binaryPath}' is not a valid Mach-O image (truncated or corrupt output).");
+
+            var (exitCode, stdout, stderr) = commandRunner.Run("lipo", $"-archs \"{binaryPath}\"");
+            if (exitCode != 0)
+                throw new InvalidOperationException(
+                    $"Could not read architectures of wrapper binary '{binaryPath}' (lipo exit {exitCode}): {stderr}");
+            var archs = stdout.Split(
+                new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+            if (!archs.Contains(expectedArch, StringComparer.Ordinal))
+                throw new InvalidOperationException(
+                    $"Wrapper binary '{binaryPath}' is missing the expected architecture '{expectedArch}' " +
+                    $"(found: {(archs.Length > 0 ? string.Join(", ", archs) : "none")}).");
+
+            logger.LogDebug("Validated wrapper slice binary {Path} (arch {Arch}, {Bytes} bytes).",
+                binaryPath, expectedArch, fileInfo.Length);
+        }
+
+        /// <summary>
+        /// Atomically promotes a validated staging xcframework tree to the canonical path using a
+        /// recoverable swap (mirrors the SDK <c>_merge_slices</c> <c>.superseded</c> pattern). The
+        /// canonical tree is parked at a <c>.superseded</c> sibling before the staged tree moves in,
+        /// so a crash between the two renames never leaves the canonical path empty-and-unrecoverable:
+        /// the next build's <see cref="RecoverStrandedSupersededXcframework"/> restores it. A failed
+        /// move-in rolls the original back. Both directories share the canonical path's parent, so
+        /// each rename is a same-volume operation; <see cref="Directory.Move(string,string)"/> cannot
+        /// overwrite a non-empty destination, which is why the canonical tree is parked first rather
+        /// than deleted.
+        /// </summary>
+        internal static void PromoteStagedXcframework(
+            string stagingXcfwPath, string canonicalXcfwPath, ILogger logger)
+        {
+            var superseded = canonicalXcfwPath + ".superseded";
+            if (Directory.Exists(superseded))
+                Directory.Delete(superseded, true); // stale from a prior interrupted promote
+
+            var parked = false;
+            if (Directory.Exists(canonicalXcfwPath))
+            {
+                Directory.Move(canonicalXcfwPath, superseded);
+                parked = true;
+            }
+
+            try
+            {
+                Directory.Move(stagingXcfwPath, canonicalXcfwPath);
+            }
+            catch
+            {
+                // Roll the original back so a failed promote never destroys the prior good tree.
+                if (parked && !Directory.Exists(canonicalXcfwPath) && Directory.Exists(superseded))
+                    Directory.Move(superseded, canonicalXcfwPath);
+                throw;
+            }
+
+            // The validated wrapper is now installed at the canonical path — the promote SUCCEEDED.
+            // Dropping the parked prior tree is pure housekeeping, so a delete failure here must NOT
+            // propagate: callers convert any throw out of compilation into a null result and record
+            // HasWrapperXCFramework=False, which would drop the consumer NativeReference for a wrapper
+            // that is actually present on disk. A leftover '.superseded' is harmless — the next build's
+            // RecoverStrandedSupersededXcframework drops it once it sees the canonical tree present.
+            if (Directory.Exists(superseded))
+            {
+                try
+                {
+                    Directory.Delete(superseded, true);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(
+                        ex,
+                        "Could not remove the parked '{Superseded}' tree after a successful promote; " +
+                        "it will be cleaned up on the next build.",
+                        superseded);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Recovers a canonical xcframework left only at its <c>.superseded</c> sibling by a process
+        /// that died between the two renames in <see cref="PromoteStagedXcframework"/>. Restores the
+        /// parked tree only when the canonical path is absent (otherwise the <c>.superseded</c> is a
+        /// stale leftover and is dropped). A cheap no-op in the common case where neither parked tree
+        /// exists.
+        /// </summary>
+        internal static void RecoverStrandedSupersededXcframework(string canonicalXcfwPath, ILogger logger)
+        {
+            var superseded = canonicalXcfwPath + ".superseded";
+            if (!Directory.Exists(superseded))
+                return;
+            if (!Directory.Exists(canonicalXcfwPath))
+            {
+                logger.LogInformation(
+                    "Recovered xcframework parked at '{Superseded}' from an interrupted build.", superseded);
+                Directory.Move(superseded, canonicalXcfwPath);
+            }
+            else
+            {
+                Directory.Delete(superseded, true);
+            }
         }
 
         /// <summary>
@@ -1646,7 +1876,10 @@ namespace BindingsGeneration
 
             logger.LogDebug("Invoking: xcrun {Args}", args);
 
-            var (exitCode, stdout, stderr) = commandRunner.Run("xcrun", args, timeoutMs: 120000);
+            // Configurable wall-clock cap (raised default; env/property override) — the wrapper
+            // compile is the step that times out under runner contention on large modules.
+            var swiftcTimeoutMs = GeneratorTimeouts.ResolveSwiftcTimeoutMs();
+            var (exitCode, stdout, stderr) = commandRunner.Run("xcrun", args, timeoutMs: swiftcTimeoutMs);
 
             // Profile-runtime auto-link retry: bound frameworks compiled with
             // `-fprofile-instr-generate` reference `___llvm_profile_runtime_user`,
@@ -1667,7 +1900,7 @@ namespace BindingsGeneration
                     var retryFlags = $"-Xlinker \"{profileArchive}\" ";
                     var retryArgs = BuildArgs(retryFlags);
                     logger.LogDebug("Retrying: xcrun {Args}", retryArgs);
-                    (exitCode, stdout, stderr) = commandRunner.Run("xcrun", retryArgs, timeoutMs: 120000);
+                    (exitCode, stdout, stderr) = commandRunner.Run("xcrun", retryArgs, timeoutMs: swiftcTimeoutMs);
                 }
             }
 
@@ -1975,24 +2208,7 @@ namespace BindingsGeneration
                 using var stream = System.IO.File.OpenRead(path);
                 Span<byte> magic = stackalloc byte[8];
                 var read = stream.Read(magic);
-                if (read < 4)
-                    return false;
-                // Mach-O thin (32/64-bit, both endians):
-                //   MH_MAGIC_64 LE (CF FA ED FE), MH_MAGIC LE (CE FA ED FE)
-                //   MH_MAGIC_64 BE (FE ED FA CF), MH_MAGIC BE (FE ED FA CE)
-                // Mach-O fat (universal):
-                //   FAT_MAGIC    (CA FE BA BE) / FAT_CIGAM    (BE BA FE CA)
-                //   FAT_MAGIC_64 (CA FE BA BF) / FAT_CIGAM_64 (BF BA FE CA)
-                bool machO =
-                       (magic[0] == 0xCF && magic[1] == 0xFA && magic[2] == 0xED && magic[3] == 0xFE)
-                    || (magic[0] == 0xCE && magic[1] == 0xFA && magic[2] == 0xED && magic[3] == 0xFE)
-                    || (magic[0] == 0xFE && magic[1] == 0xED && magic[2] == 0xFA && magic[3] == 0xCF)
-                    || (magic[0] == 0xFE && magic[1] == 0xED && magic[2] == 0xFA && magic[3] == 0xCE)
-                    || (magic[0] == 0xCA && magic[1] == 0xFE && magic[2] == 0xBA && magic[3] == 0xBE)
-                    || (magic[0] == 0xCA && magic[1] == 0xFE && magic[2] == 0xBA && magic[3] == 0xBF)
-                    || (magic[0] == 0xBE && magic[1] == 0xBA && magic[2] == 0xFE && magic[3] == 0xCA)
-                    || (magic[0] == 0xBF && magic[1] == 0xBA && magic[2] == 0xFE && magic[3] == 0xCA);
-                if (machO)
+                if (BeginsWithMachOMagic(magic, read))
                     return true;
                 // ar(1) static archive: "!<arch>\n" — 8 bytes (0x21 3C 61 72 63 68 3E 0A).
                 if (read >= 8
@@ -2002,6 +2218,54 @@ namespace BindingsGeneration
                     return true;
                 }
                 return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// True when the first bytes of a file are a Mach-O thin or fat (universal) image magic,
+        /// in either endianness. Shared by <see cref="IsLinkableFrameworkBinary"/> and
+        /// <see cref="IsMachOImageFile"/> so the magic table is defined once.
+        /// </summary>
+        private static bool BeginsWithMachOMagic(ReadOnlySpan<byte> magic, int read)
+        {
+            if (read < 4)
+                return false;
+            // Mach-O thin (32/64-bit, both endians):
+            //   MH_MAGIC_64 LE (CF FA ED FE), MH_MAGIC LE (CE FA ED FE)
+            //   MH_MAGIC_64 BE (FE ED FA CF), MH_MAGIC BE (FE ED FA CE)
+            // Mach-O fat (universal):
+            //   FAT_MAGIC    (CA FE BA BE) / FAT_CIGAM    (BE BA FE CA)
+            //   FAT_MAGIC_64 (CA FE BA BF) / FAT_CIGAM_64 (BF BA FE CA)
+            return
+                   (magic[0] == 0xCF && magic[1] == 0xFA && magic[2] == 0xED && magic[3] == 0xFE)
+                || (magic[0] == 0xCE && magic[1] == 0xFA && magic[2] == 0xED && magic[3] == 0xFE)
+                || (magic[0] == 0xFE && magic[1] == 0xED && magic[2] == 0xFA && magic[3] == 0xCF)
+                || (magic[0] == 0xFE && magic[1] == 0xED && magic[2] == 0xFA && magic[3] == 0xCE)
+                || (magic[0] == 0xCA && magic[1] == 0xFE && magic[2] == 0xBA && magic[3] == 0xBE)
+                || (magic[0] == 0xCA && magic[1] == 0xFE && magic[2] == 0xBA && magic[3] == 0xBF)
+                || (magic[0] == 0xBE && magic[1] == 0xBA && magic[2] == 0xFE && magic[3] == 0xCA)
+                || (magic[0] == 0xBF && magic[1] == 0xBA && magic[2] == 0xFE && magic[3] == 0xCA);
+        }
+
+        /// <summary>
+        /// True when <paramref name="path"/> exists and begins with a Mach-O thin/fat magic. Used
+        /// to reject a truncated/corrupt wrapper binary (an <c>ar</c> archive is NOT accepted here —
+        /// a compiled framework slice is always a linked Mach-O image, never a static archive).
+        /// </summary>
+        internal static bool IsMachOImageFile(string path)
+        {
+            try
+            {
+                if (!System.IO.File.Exists(path))
+                    return false;
+                using var stream = System.IO.File.OpenRead(path);
+                Span<byte> magic = stackalloc byte[8];
+                var read = stream.Read(magic);
+                return BeginsWithMachOMagic(magic, read);
             }
             catch
             {

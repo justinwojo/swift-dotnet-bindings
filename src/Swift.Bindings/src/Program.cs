@@ -911,9 +911,20 @@ namespace BindingsGeneration
             string? primaryArch,
             IReadOnlyList<string> extraArchs,
             Func<string?, SwiftWrapperCompilationResult?> compileForArch,
-            ILogger logger)
+            ILogger logger,
+            out IReadOnlyList<string> unmergedExtraArchs)
         {
             var compilationResult = compileForArch(primaryArch);
+
+            // Extra architectures that the caller asked us to fold in but that did NOT make it into the
+            // final fat build — either because their per-arch compile produced nothing (soft-skip) or a
+            // compile/lipo throw aborted the fold. This is reported as a fact, not a verdict: the caller
+            // decides whether an undelivered extra is a fatal contract violation (explicit --target-architectures)
+            // or a tolerable best-effort degrade (auto-matched archs / additive bridge slices). Stays empty
+            // unless we actually entered the fold, so a null/failed primary (already fatal on its own) and the
+            // no-extras case never masquerade as a coverage shortfall.
+            var unmerged = new List<string>();
+            var merged = new List<string>();
 
             var wrapperXcfwPath = compilationResult?.XCFrameworkPath;
             if (extraArchs.Count > 0 && !string.IsNullOrEmpty(wrapperXcfwPath) && Directory.Exists(wrapperXcfwPath))
@@ -937,10 +948,14 @@ namespace BindingsGeneration
                         if (Directory.Exists(secondaryAside)) Directory.Delete(secondaryAside, true);
                         Directory.Move(extraPath, secondaryAside);
                         WrapperXCFrameworkMerger.MergeFatSlices(primaryAside, secondaryAside, logger);
+                        merged.Add(arch);
                     }
 
-                    logger.LogInformation("Merged wrapper xcframework into a fat build ({Archs}).",
-                        string.Join(" + ", new[] { primaryArch ?? "arm64" }.Concat(extraArchs)));
+                    if (merged.Count > 0)
+                    {
+                        logger.LogInformation("Merged wrapper xcframework into a fat build ({Archs}).",
+                            string.Join(" + ", new[] { primaryArch ?? "arm64" }.Concat(merged)));
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -962,15 +977,51 @@ namespace BindingsGeneration
                 }
                 finally
                 {
-                    // Always move the primary back into place. MergeFatSlices is transactional — it
-                    // builds the fat result in a staging copy and only swaps it in after the whole
-                    // merge succeeds — so a mid-merge throw (a failed extra compile or lipo) leaves the
-                    // primary tree byte-for-byte intact, and the restored primary still carries a valid
-                    // primary-arch wrapper with a matching single-arch plist.
-                    if (Directory.Exists(primaryAside)) Directory.Move(primaryAside, wrapperXcfwPath);
+                    // Always restore the primary back into place. MergeFatSlices is transactional —
+                    // it builds the fat result in a staging copy and only swaps it in after the whole
+                    // merge succeeds — and each per-arch compile now builds into its own staging tree
+                    // and promotes atomically, so a mid-fold throw (a failed extra compile or lipo)
+                    // leaves the primary tree byte-for-byte intact at '.primary'.
+                    //
+                    // Restoration is itself rollback-safe: a stray tree sitting at the canonical path
+                    // (an unexpected partial) is cleared FIRST via an atomic rename so the restore can
+                    // never throw on a non-empty destination, and if restoration still fails we keep
+                    // '.primary' on disk and surface a loud diagnostic rather than silently losing the
+                    // working wrapper (which would record HasWrapperXCFramework off a missing tree and
+                    // drop the NativeReference for every consumer).
+                    if (Directory.Exists(primaryAside))
+                    {
+                        try
+                        {
+                            if (Directory.Exists(wrapperXcfwPath))
+                            {
+                                var quarantine = wrapperXcfwPath + ".foldpartial";
+                                if (Directory.Exists(quarantine)) Directory.Delete(quarantine, true);
+                                Directory.Move(wrapperXcfwPath, quarantine);
+                                try { Directory.Delete(quarantine, true); } catch { /* best-effort */ }
+                            }
+                            Directory.Move(primaryAside, wrapperXcfwPath);
+                        }
+                        catch (Exception restoreEx)
+                        {
+                            logger.LogError(restoreEx,
+                                "Failed to restore the primary wrapper xcframework to '{Path}' after the "
+                                + "architecture fold. The working primary-arch wrapper is preserved at "
+                                + "'{Aside}' — move it back into place to recover.",
+                                wrapperXcfwPath, primaryAside);
+                        }
+                    }
+                }
+
+                // Computed only after a real fold attempt: every requested extra that never reached the merged
+                // fat build. Order-preserving against the requested list.
+                foreach (var arch in extraArchs)
+                {
+                    if (!merged.Contains(arch)) unmerged.Add(arch);
                 }
             }
 
+            unmergedExtraArchs = unmerged;
             return compilationResult;
         }
 
@@ -1216,20 +1267,31 @@ namespace BindingsGeneration
             // Compile the wrapper using existing .swift files in the output directory.
             SwiftWrapperCompilationResult? compilationResult = null;
             Exception? compilationException = null;
+            IReadOnlyList<string> unmergedExtraArchs = Array.Empty<string>();
 
             try
             {
-                compilationResult = CompileWrapperForArchitectures(primaryArch, extraArchs, CompileForArch, logger);
+                compilationResult = CompileWrapperForArchitectures(
+                    primaryArch, extraArchs, CompileForArch, logger, out unmergedExtraArchs);
             }
             catch (Exception ex)
             {
                 compilationException = ex;
             }
 
+            // An explicit --target-architectures list is a contract: an extra arch the fold failed to
+            // deliver must fail the build, not silently degrade to a narrower wrapper. Auto-matched
+            // archs (autoMatchSource) stay best-effort, so their undelivered extras are not contractual.
+            var contractualUnmet = autoMatchSource
+                ? (IReadOnlyList<string>)Array.Empty<string>()
+                : unmergedExtraArchs;
+
             // In compile-wrapper-only mode, always use SDK-mode outcome handling
-            // (downgrade fatal to warning) since this target runs within SDK builds.
+            // (downgrade fatal to warning) since this target runs within SDK builds — EXCEPT a
+            // contractual arch shortfall, which From() keeps fatal regardless of sdkMode.
             var outcome = WrapperBuildOutcome.From(
-                compilationResult, asyncLibraryAutoWired: false, sdkMode: true, compilationException);
+                compilationResult, asyncLibraryAutoWired: false, sdkMode: true, compilationException,
+                contractualUnmet);
             outcome.LogTo(logger);
 
             IReadOnlyList<CoGatedMember> coGated = Array.Empty<CoGatedMember>();
@@ -1258,7 +1320,7 @@ namespace BindingsGeneration
 
             XCFrameworkMetadataExtractor.UpdateMetadataPropsWrapperStatus(
                 outputDirectory, hasWrapperXcfw, wrapperModuleName,
-                compilationResult?.SliceCount ?? 0, logger);
+                compilationResult?.SliceCount ?? 0, logger, contractualUnmet);
 
             return outcome.ExitCode;
         }
@@ -1475,7 +1537,10 @@ namespace BindingsGeneration
             Exception? compilationException = null;
             try
             {
-                compilationResult = CompileWrapperForArchitectures(primaryArch, extraArchs, CompileBridgeForArch, logger);
+                // Bridge slices are additive: an undelivered extra arch is best-effort, never a contract
+                // violation, so the unmerged-arch signal is intentionally discarded here.
+                compilationResult = CompileWrapperForArchitectures(
+                    primaryArch, extraArchs, CompileBridgeForArch, logger, out _);
             }
             catch (Exception ex)
             {

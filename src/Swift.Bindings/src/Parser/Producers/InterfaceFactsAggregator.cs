@@ -67,7 +67,7 @@ public sealed class InterfaceFactsAggregator
         logger.LogInformation("Using SwiftSyntax interface facts producer at: {Path}", binaryPath);
         return new InterfaceFactsAggregator(new IInterfaceFactsProducer[]
         {
-            new SwiftSyntaxInterfaceFactsProducer(binaryPath),
+            new SwiftSyntaxInterfaceFactsProducer(binaryPath, GeneratorTimeouts.ResolveParserTimeout()),
         });
     }
 

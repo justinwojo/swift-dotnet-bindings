@@ -1493,6 +1493,37 @@ namespace BindingsGeneration.Tests
             Assert.DoesNotContain("Mixed.xcframework\n", output.Replace("MixedSwiftBindings.xcframework", "WRAPPER"));
         }
 
+        [Fact]
+        public void ValidateWrapperCompilation_UnmetArchContractPersisted_FailsClosedSWIFTBIND056()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Fix #4 SDK-side enforcement: the generator restored the working primary (HasWrapper=True)
+            // and exited non-zero on an unmet EXPLICIT-arch contract, but ContinueOnError on the
+            // compile-wrapper Exec swallows that exit code. _UpdateSwiftWrapperMetadata re-peeks the
+            // persisted _SwiftBindingWrapperUnmetContractArchitectures element and
+            // _ValidateSwiftWrapperCompilation must turn the non-empty value into a build-failing
+            // SWIFTBIND056 — never silently shipping a wrapper narrower than the caller demanded.
+            var (output, exitCode) = RunValidateWrapperContractDump("x86_64");
+
+            Assert.True(exitCode != 0, $"Expected SWIFTBIND056 to fail the build.\nOutput: {output}");
+            Assert.Contains("SWIFTBIND056", output);
+            Assert.Contains("x86_64", output);
+        }
+
+        [Fact]
+        public void ValidateWrapperCompilation_ContractSatisfiedEmptyElement_DoesNotFire()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Negative control: a satisfied contract persists an EMPTY _SwiftBindingWrapperUnmetContract-
+            // Architectures element. The re-peek's text() query matches no non-empty node, so the
+            // property stays unset and SWIFTBIND056 must NOT misfire — the fat-fold delivered every
+            // requested arch (or the caller asked for 'auto'), and the build proceeds.
+            var (output, exitCode) = RunValidateWrapperContractDump("");
+
+            Assert.True(exitCode == 0, $"SWIFTBIND056 must not fire on a satisfied contract.\nOutput: {output}");
+            Assert.DoesNotContain("SWIFTBIND056", output);
+        }
+
         // ── _BuildMixedObjCCompanion: when the source framework is Mixed, the SDK builds the
         //    emitted ObjC companion (Restore → Build → GetTargetPath) so its managed assembly
         //    can be EMBEDDED into the Swift binding's single nupkg (one xcframework → one
@@ -1825,6 +1856,73 @@ namespace BindingsGeneration.Tests
                   <Target Name="_UpdateSwiftBridgeMetadata" />
                   <Target Name="TestDump" DependsOnTargets="_ResolveSwiftNativeReferences">
                     <Message Importance="High" Text="NREF:@(NativeReference)" />
+                  </Target>
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(bindingDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(bindingDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
+            return (result.StdOut + "\n" + result.StdErr, result.ExitCode);
+        }
+
+        /// <summary>
+        /// Runs the REAL _UpdateSwiftWrapperMetadata + _ValidateSwiftWrapperCompilation pair over a
+        /// binding-metadata.props whose <c>_SwiftBindingWrapperUnmetContractArchitectures</c> element
+        /// carries <paramref name="unmetContractArchs"/>. This is the SDK-side half of fix #4 that a
+        /// generator exit code alone cannot enforce: the compile-wrapper Exec runs with
+        /// ContinueOnError="WarnAndContinue", so the generator's non-zero exit on an unmet explicit-arch
+        /// contract is swallowed — the violation only fails the build because _UpdateSwiftWrapperMetadata
+        /// re-peeks the persisted element and _ValidateSwiftWrapperCompilation turns a non-empty value
+        /// into a SWIFTBIND056 error. An empty element (a satisfied contract) leaves the property unset.
+        /// </summary>
+        private (string Output, int ExitCode) RunValidateWrapperContractDump(string unmetContractArchs)
+        {
+            var bindingDir = Path.Combine(_tempDir, "ContractValidate.Swift.iOS");
+            Directory.CreateDirectory(bindingDir);
+            var intermediateDir = Path.Combine(bindingDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+
+            // The working primary is on disk and recorded present (HasWrapper=True) — the contract
+            // violation is purely the unmet EXTRA arch, persisted in its own element (non-empty here).
+            var metadataProps = $"""
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingHasWrapperXCFramework>True</_SwiftBindingHasWrapperXCFramework>
+                    <_SwiftBindingWrapperModuleName>MixedSwiftBindings</_SwiftBindingWrapperModuleName>
+                    <_SwiftBindingWrapperSliceCount>1</_SwiftBindingWrapperSliceCount>
+                    <_SwiftBindingWrapperUnmetContractArchitectures>{unmetContractArchs}</_SwiftBindingWrapperUnmetContractArchitectures>
+                  </PropertyGroup>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), metadataProps);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            // Stub every other AfterTargets="_UpdateSwiftWrapperMetadata" hook and the heavy deps so only
+            // _UpdateSwiftWrapperMetadata (re-peek) and _ValidateSwiftWrapperCompilation (the gate) run.
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                    <_SwiftBindingWrapperModuleName>MixedSwiftBindings</_SwiftBindingWrapperModuleName>
+                  </PropertyGroup>
+                  <Target Name="_ComputeSwiftFingerprint" />
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ValidateSwiftPackageItems" />
+                  <Target Name="_GenerateSwiftBindings" />
+                  <Target Name="_ImportSwiftBindingMetadata" />
+                  <Target Name="_CompileSwiftUIBridge" />
+                  <Target Name="TestDump" DependsOnTargets="_UpdateSwiftWrapperMetadata">
+                    <Message Importance="High" Text="VALIDATED" />
                   </Target>
                 </Project>
                 """;

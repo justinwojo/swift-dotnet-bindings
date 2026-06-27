@@ -58,6 +58,12 @@
          need only a single input, instead of being hardcoded across CliOptions, BindingProjectEmitter,
          and XCFrameworkMetadataExtractor. -->
     <SwiftAppleSupplementVersion Condition="'$(SwiftAppleSupplementVersion)' == ''">0.0.0-dev</SwiftAppleSupplementVersion>
+    <!-- Wall-clock timeouts (whole seconds) for the two long-running external generator steps.
+         Left empty by default so the generator's own raised defaults apply (parser 300s, swiftc
+         600s); a large/contended runner can lengthen them here without an SDK release. The
+         generator clamps to [30, 3600]. These are bridged to the generator process as environment
+         variables in Sdk.targets (_SwiftGeneratorEnv) — NOT here, because a value the consumer
+         sets in its project body would not yet be visible at Sdk.props evaluation time. -->
     <!-- Require wrapper compilation to succeed (set to false for libraries with known internal type issues) -->
     <SwiftWrapperRequired Condition="'$(SwiftWrapperRequired)' == ''">true</SwiftWrapperRequired>
     <!-- Auto-extract symbol graph for doc comments (set to false to disable) -->

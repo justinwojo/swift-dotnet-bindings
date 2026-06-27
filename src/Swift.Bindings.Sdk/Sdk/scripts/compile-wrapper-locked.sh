@@ -41,9 +41,24 @@ CMD_FILE="$4"
 LOCKDIR="${LOCK_BASE}.d"
 STALE_MINUTES=20   # backstop: a wrapper compile is ~5s; a lock older than this is abandoned
 
+has_unmet_arch_contract() {
+  # True when the props record an explicitly-requested architecture the last fold failed to
+  # deliver: a non-empty <_SwiftBindingWrapperUnmetContractArchitectures> value (opening tag,
+  # optional whitespace, then a real token — not '<' or whitespace).
+  grep -Eq '<_SwiftBindingWrapperUnmetContractArchitectures>[[:space:]]*[^[:space:]<]' "$PROPS" 2>/dev/null
+}
+
 is_complete() {
-  # A genuinely-published wrapper: metadata flag flipped True AND the artifact on disk.
-  [ -d "$XCFW" ] && grep -Eq '<_SwiftBindingHasWrapperXCFramework>[[:space:]]*True[[:space:]]*</_SwiftBindingHasWrapperXCFramework>' "$PROPS" 2>/dev/null
+  # A genuinely-published wrapper: metadata flag flipped True AND the artifact on disk AND no
+  # outstanding architecture-contract violation. The last clause matters because a fat-fold
+  # failure restores the primary (so HasWrapper=True + dir present), which would otherwise look
+  # "complete" and let an incremental build skip recompilation forever — never re-attempting the
+  # failed extra arch and never clearing the persisted violation. Treating an outstanding
+  # violation as not-complete forces a recompile that either delivers the arch (clearing the
+  # flag) or fails the build again, which is the correct fail-closed behavior.
+  [ -d "$XCFW" ] \
+    && grep -Eq '<_SwiftBindingHasWrapperXCFramework>[[:space:]]*True[[:space:]]*</_SwiftBindingHasWrapperXCFramework>' "$PROPS" 2>/dev/null \
+    && ! has_unmet_arch_contract
 }
 
 cleanup() {

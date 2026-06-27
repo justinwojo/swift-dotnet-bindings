@@ -564,6 +564,65 @@ namespace BindingsGeneration.Tests
             Assert.Equal("2", pg.Element("_SwiftBindingWrapperSliceCount")?.Value);
         }
 
+        [Fact]
+        public void UpdateWrapperStatus_PersistsUnmetContractArchitectures()
+        {
+            // An explicit arch the fold failed to deliver is persisted so the SDK can fail the build
+            // even though ContinueOnError swallows the generator exit code.
+            WriteInitialProps(hasWrapper: true, sliceCount: 1);
+
+            XCFrameworkMetadataExtractor.UpdateMetadataPropsWrapperStatus(
+                _tempDir, hasWrapper: true, "TestSwiftBindings", 1, _logger,
+                unmetContractArchitectures: new[] { "x86_64" });
+
+            var doc = System.Xml.Linq.XDocument.Load(Path.Combine(_tempDir, "binding-metadata.props"));
+            var pg = doc.Root!.Element("PropertyGroup")!;
+            // HasWrapper stays True (primary restored) — the violation rides the separate prop.
+            Assert.Equal("True", pg.Element("_SwiftBindingHasWrapperXCFramework")?.Value);
+            Assert.Equal("x86_64", pg.Element("_SwiftBindingWrapperUnmetContractArchitectures")?.Value);
+        }
+
+        [Fact]
+        public void UpdateWrapperStatus_MultipleUnmetArchs_JoinedWithSemicolon()
+        {
+            WriteInitialProps(hasWrapper: true, sliceCount: 1);
+
+            XCFrameworkMetadataExtractor.UpdateMetadataPropsWrapperStatus(
+                _tempDir, hasWrapper: true, "TestSwiftBindings", 1, _logger,
+                unmetContractArchitectures: new[] { "x86_64", "arm64" });
+
+            var doc = System.Xml.Linq.XDocument.Load(Path.Combine(_tempDir, "binding-metadata.props"));
+            var pg = doc.Root!.Element("PropertyGroup")!;
+            Assert.Equal("x86_64;arm64", pg.Element("_SwiftBindingWrapperUnmetContractArchitectures")?.Value);
+        }
+
+        [Fact]
+        public void UpdateWrapperStatus_ClearsStaleUnmetContractWhenSatisfied()
+        {
+            // A prior build persisted a violation; a clean recompile (no unmet archs) must CLEAR it,
+            // otherwise the SDK <Error> would fire forever even after the fat fold succeeds.
+            var propsPath = Path.Combine(_tempDir, "binding-metadata.props");
+            File.WriteAllText(propsPath, """
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingPackageVersion>1.2.3</_SwiftBindingPackageVersion>
+                    <_SwiftBindingModuleName>TestModule</_SwiftBindingModuleName>
+                    <_SwiftBindingHasWrapperXCFramework>True</_SwiftBindingHasWrapperXCFramework>
+                    <_SwiftBindingWrapperSliceCount>1</_SwiftBindingWrapperSliceCount>
+                    <_SwiftBindingWrapperUnmetContractArchitectures>x86_64</_SwiftBindingWrapperUnmetContractArchitectures>
+                  </PropertyGroup>
+                </Project>
+                """);
+
+            XCFrameworkMetadataExtractor.UpdateMetadataPropsWrapperStatus(
+                _tempDir, hasWrapper: true, "TestSwiftBindings", 2, _logger,
+                unmetContractArchitectures: null);
+
+            var doc = System.Xml.Linq.XDocument.Load(propsPath);
+            var pg = doc.Root!.Element("PropertyGroup")!;
+            Assert.Equal(string.Empty, pg.Element("_SwiftBindingWrapperUnmetContractArchitectures")?.Value);
+        }
+
         private void WriteInitialProps(bool hasWrapper, int sliceCount)
         {
             var propsPath = Path.Combine(_tempDir, "binding-metadata.props");

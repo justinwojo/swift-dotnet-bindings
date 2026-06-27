@@ -1721,11 +1721,12 @@ namespace BindingsGeneration.Tests
                 }
 
                 var result = BindingsGenerator.CompileWrapperForArchitectures(
-                    primaryArch: null, extraArchs: new List<string>(), Stub, NullLogger.Instance);
+                    primaryArch: null, extraArchs: new List<string>(), Stub, NullLogger.Instance, out var unmerged);
 
                 Assert.Equal(new string?[] { null }, calls); // primary pass only
                 Assert.Equal(primaryDir, result!.XCFrameworkPath);
                 Assert.True(System.IO.Directory.Exists(primaryDir)); // untouched — no aside/restore
+                Assert.Empty(unmerged); // no extras requested → nothing reported unmerged
             }
             finally
             {
@@ -1757,11 +1758,13 @@ namespace BindingsGeneration.Tests
                 }
 
                 var result = BindingsGenerator.CompileWrapperForArchitectures(
-                    primaryArch: null, extraArchs: new List<string> { "x86_64" }, Stub, NullLogger.Instance);
+                    primaryArch: null, extraArchs: new List<string> { "x86_64" }, Stub, NullLogger.Instance,
+                    out var unmerged);
 
                 Assert.Equal(new string?[] { null, "x86_64" }, calls); // primary, then the extra arch
                 Assert.Equal(primaryDir, result!.XCFrameworkPath);
                 Assert.True(System.IO.Directory.Exists(primaryDir)); // moved aside, then restored in place
+                Assert.Equal(new[] { "x86_64" }, unmerged); // extra produced nothing → reported unmerged
             }
             finally
             {
@@ -1793,17 +1796,53 @@ namespace BindingsGeneration.Tests
                 // null and record _SwiftBindingHasWrapperXCFramework=False off that null, dropping the
                 // NativeReference for EVERY consumer even though the primary is restored on disk.
                 var result = BindingsGenerator.CompileWrapperForArchitectures(
-                    primaryArch: null, extraArchs: new List<string> { "x86_64" }, Stub, NullLogger.Instance);
+                    primaryArch: null, extraArchs: new List<string> { "x86_64" }, Stub, NullLogger.Instance,
+                    out var unmerged);
 
                 // Returns the primary result (non-null) so downstream metadata records a present wrapper,
                 // and the primary directory is restored in place rather than left aside / erased.
                 Assert.NotNull(result);
                 Assert.Equal(primaryDir, result!.XCFrameworkPath);
                 Assert.True(System.IO.Directory.Exists(primaryDir));
+                // The throw still reports the undelivered extra so an explicit-arch caller can fail loud.
+                Assert.Equal(new[] { "x86_64" }, unmerged);
             }
             finally
             {
                 foreach (var d in new[] { primaryDir, extraDir, primaryDir + ".primary", primaryDir + ".x86_64" })
+                    if (System.IO.Directory.Exists(d)) System.IO.Directory.Delete(d, true);
+            }
+        }
+
+        [Fact]
+        public void CompileWrapperForArchs_MultipleExtrasNoneDelivered_ReportsAllUnmergedInOrder()
+        {
+            var primaryDir = System.IO.Directory.CreateTempSubdirectory("cwa_primary_").FullName;
+            try
+            {
+                // Primary builds; both extras "produce nothing" (soft-skip), so neither folds in. The
+                // unmerged list must enumerate them in the requested order so the SDK error names them
+                // deterministically.
+                SwiftWrapperCompilationResult? Stub(string? arch) => arch == null
+                    ? new SwiftWrapperCompilationResult
+                    {
+                        XCFrameworkPath = primaryDir,
+                        CompiledFileCount = 0,
+                        StrippedBlockCount = 0,
+                    }
+                    : null;
+
+                var result = BindingsGenerator.CompileWrapperForArchitectures(
+                    primaryArch: null, extraArchs: new List<string> { "x86_64", "arm64e" }, Stub,
+                    NullLogger.Instance, out var unmerged);
+
+                Assert.Equal(primaryDir, result!.XCFrameworkPath);
+                Assert.True(System.IO.Directory.Exists(primaryDir));
+                Assert.Equal(new[] { "x86_64", "arm64e" }, unmerged);
+            }
+            finally
+            {
+                foreach (var d in new[] { primaryDir, primaryDir + ".primary" })
                     if (System.IO.Directory.Exists(d)) System.IO.Directory.Delete(d, true);
             }
         }

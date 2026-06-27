@@ -171,6 +171,97 @@ namespace BindingsGeneration.Tests
             Assert.Equal(LogLevel.Warning, entry.Level);
             Assert.DoesNotContain("SWIFTBIND050", entry.Message);
         }
+
+        // ── Architecture-contract violation (explicit --target-architectures slice undelivered) ──
+        // A successful primary result is used throughout so the override — not the base evaluation —
+        // is what produces the fatal outcome.
+        private static SwiftWrapperCompilationResult SucceededPrimary() => new SwiftWrapperCompilationResult
+        {
+            XCFrameworkPath = "/tmp/primary.xcframework",
+            CompiledFileCount = 4,
+            StrippedBlockCount = 0,
+        };
+
+        [Fact]
+        public void From_ContractualUnmet_StaysFatalEvenInSdkMode()
+        {
+            // The whole point: SDK mode downgrades an ordinary wrapper Fatal to a SWIFTBIND050 warning,
+            // but an explicitly-requested arch the fold failed to deliver must NOT be downgraded.
+            var outcome = WrapperBuildOutcome.From(
+                SucceededPrimary(), asyncLibraryAutoWired: false, sdkMode: true,
+                compilationException: null,
+                contractualUnmetArchitectures: new[] { "x86_64" });
+
+            Assert.Equal(WrapperCompilationOutcome.Fatal, outcome.RawOutcome);
+            Assert.Equal(WrapperCompilationOutcome.Fatal, outcome.EffectiveOutcome);
+            Assert.True(outcome.IsFatal);
+            Assert.False(outcome.IsWarning);
+            Assert.Equal(1, outcome.ExitCode);
+            Assert.Equal("SWIFTBIND056", outcome.DiagnosticCode);
+            Assert.Contains("SWIFTBIND056", outcome.Message);
+            Assert.Contains("x86_64", outcome.Message);
+        }
+
+        [Fact]
+        public void From_ContractualUnmet_NonSdkMode_IsFatal()
+        {
+            var outcome = WrapperBuildOutcome.From(
+                SucceededPrimary(), asyncLibraryAutoWired: false, sdkMode: false,
+                compilationException: null,
+                contractualUnmetArchitectures: new[] { "arm64", "x86_64" });
+
+            Assert.True(outcome.IsFatal);
+            Assert.Equal(1, outcome.ExitCode);
+            Assert.Equal("SWIFTBIND056", outcome.DiagnosticCode);
+            Assert.Contains("arm64", outcome.Message);
+            Assert.Contains("x86_64", outcome.Message);
+        }
+
+        [Fact]
+        public void From_ContractualUnmetEmpty_DoesNotForceFatal()
+        {
+            // Auto mode / satisfied contract: callers pass an empty list, so a successful primary stays
+            // a success even though the override parameter is present.
+            var outcome = WrapperBuildOutcome.From(
+                SucceededPrimary(), asyncLibraryAutoWired: false, sdkMode: true,
+                compilationException: null,
+                contractualUnmetArchitectures: System.Array.Empty<string>());
+
+            Assert.False(outcome.IsFatal);
+            Assert.NotEqual("SWIFTBIND056", outcome.DiagnosticCode);
+            Assert.Equal(0, outcome.ExitCode);
+        }
+
+        [Fact]
+        public void From_ContractualUnmetNull_BehavesLikeNoOverride()
+        {
+            // The default (null) argument must leave the historical severity path untouched.
+            var outcome = WrapperBuildOutcome.From(
+                compilationResult: null, asyncLibraryAutoWired: false,
+                sdkMode: false, compilationException: null,
+                contractualUnmetArchitectures: null);
+
+            Assert.Equal(WrapperCompilationOutcome.Success, outcome.RawOutcome);
+            Assert.False(outcome.IsFatal);
+            Assert.Null(outcome.DiagnosticCode);
+        }
+
+        [Fact]
+        public void LogTo_ContractualUnmet_LogsError_WithSwiftbind056AndArch()
+        {
+            var logger = new CapturingLogger();
+            var outcome = WrapperBuildOutcome.From(
+                SucceededPrimary(), asyncLibraryAutoWired: false, sdkMode: true,
+                compilationException: null,
+                contractualUnmetArchitectures: new[] { "x86_64" });
+
+            outcome.LogTo(logger);
+
+            var entry = Assert.Single(logger.Entries);
+            Assert.Equal(LogLevel.Error, entry.Level);
+            Assert.Contains("SWIFTBIND056", entry.Message);
+            Assert.Contains("x86_64", entry.Message);
+        }
     }
 
     public class BridgeBuildOutcomeTests

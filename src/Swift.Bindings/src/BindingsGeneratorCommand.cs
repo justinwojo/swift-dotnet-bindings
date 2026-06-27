@@ -985,18 +985,26 @@ public static class BindingsGeneratorCommand
                 }
             }
 
+            IReadOnlyList<string> unmergedExtraArchs = Array.Empty<string>();
             try
             {
                 compilationResult = BindingsGenerator.CompileWrapperForArchitectures(
-                    primaryArch, extraArchs, CompileForArch, logger);
+                    primaryArch, extraArchs, CompileForArch, logger, out unmergedExtraArchs);
             }
             catch (Exception ex)
             {
                 compilationException = ex;
             }
 
+            // An explicit --target-architectures list is a contract: an extra arch the fold failed to
+            // deliver fails the build instead of silently shipping a narrower wrapper. Auto-matched
+            // archs stay best-effort.
+            var contractualUnmet = autoMatchSource
+                ? (IReadOnlyList<string>)Array.Empty<string>()
+                : unmergedExtraArchs;
+
             var outcome = WrapperBuildOutcome.From(
-                compilationResult, asyncLibraryAutoWired, sdkMode, compilationException);
+                compilationResult, asyncLibraryAutoWired, sdkMode, compilationException, contractualUnmet);
             outcome.LogTo(logger);
             if (outcome.IsFatal)
             {
@@ -1133,22 +1141,32 @@ public static class BindingsGeneratorCommand
             // already pass to -d at the CLI.
             SwiftWrapperCompilationResult? directResult = null;
             Exception? directException = null;
+            IReadOnlyList<string> directUnmergedExtraArchs = Array.Empty<string>();
             try
             {
                 directResult = BindingsGenerator.CompileWrapperForArchitectures(
-                    directPrimaryArch, directExtraArchs, CompileDirectForArch, logger);
+                    directPrimaryArch, directExtraArchs, CompileDirectForArch, logger,
+                    out directUnmergedExtraArchs);
             }
             catch (Exception ex)
             {
                 directException = ex;
             }
 
+            // An explicit --target-architectures list is a contract here too. directExtraArchs was already
+            // pruned of arches the active slice can't natively compile (those are deferred to the SDK's
+            // fat-sim second slice, NOT a violation), so anything still undelivered is a real shortfall.
+            var directContractualUnmet = autoMatchSourceDirect
+                ? (IReadOnlyList<string>)Array.Empty<string>()
+                : directUnmergedExtraArchs;
+
             // Direct mode never auto-wires --async-library inside the xcframework
-            // helper, so failures are always treated as Warnings (not Fatal). Surface
-            // them and continue — the C# bindings are still correct on disk and the
-            // user can rerun with --skip-wrapper-compilation to bypass.
+            // helper, so plain failures are treated as Warnings (not Fatal) — but an unmet explicit
+            // architecture contract stays fatal (From keeps it fatal regardless of sdkMode). Surface
+            // and continue otherwise — the C# bindings are still correct on disk and the user can
+            // rerun with --skip-wrapper-compilation to bypass.
             var directOutcome = WrapperBuildOutcome.From(
-                directResult, asyncLibraryAutoWired: false, sdkMode, directException);
+                directResult, asyncLibraryAutoWired: false, sdkMode, directException, directContractualUnmet);
             directOutcome.LogTo(logger);
             if (directOutcome.IsFatal)
             {
@@ -1198,8 +1216,10 @@ public static class BindingsGeneratorCommand
 
                 try
                 {
+                    // Bridge slices are additive — an undelivered extra arch is best-effort, never a
+                    // contract violation — so the unmerged-arch signal is intentionally discarded.
                     BindingsGenerator.CompileWrapperForArchitectures(
-                        directPrimaryArch, directExtraArchs, CompileBridgeForArch, logger);
+                        directPrimaryArch, directExtraArchs, CompileBridgeForArch, logger, out _);
                     logger.LogInformation(
                         "Apple direct: compiled SwiftUI bridge primary slice ({Count} file(s)).",
                         directBridgeFiles.Count);

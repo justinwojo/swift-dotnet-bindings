@@ -346,6 +346,9 @@ namespace BindingsGeneration.Tests
                 mockRunner.SetResponse("clang -c", 0, "", "");
                 mockRunner.SetResponse("swiftc", 0, "", "");
                 mockRunner.SetResponse("plutil", 0, "{\"MinimumOSVersion\":\"16.0\"}", "");
+                // Simulate a successful compile so the post-compile slice-binary validation sees a real
+                // Mach-O at swiftc's -o target (and lipo reports the expected arch).
+                mockRunner.SynthesizeMachOOutputs = true;
 
                 var slice = new SliceVariant
                 {

@@ -118,8 +118,22 @@ namespace BindingsGeneration
             }
             catch (OperationCanceledException)
             {
+                // Kill the WHOLE process tree, not just the driver. `xcrun swiftc` forks a
+                // swift-frontend child (and clang/ld grandchildren); killing only the driver
+                // orphans them — they keep holding CPU/RAM on an already-contended runner and
+                // can keep writing to the half-built -o target. entireProcessTree reaps them all.
                 if (!process.HasExited)
-                    process.Kill();
+                {
+                    try { process.Kill(entireProcessTree: true); }
+                    catch { /* race: child already exited between HasExited and Kill */ }
+                }
+                // Block (bounded) until the killed tree is actually reaped, so a forked
+                // swift-frontend isn't still writing to the half-built -o target when the caller
+                // begins cleanup/promotion. The output tree itself is removed by the caller
+                // (SwiftWrapperCompiler deletes the unique staging tree); the runner only owns
+                // process teardown.
+                try { process.WaitForExit(10000); }
+                catch { /* best effort */ }
                 throw new TimeoutException($"Command timed out after {timeoutMs}ms: {command} {arguments}");
             }
 

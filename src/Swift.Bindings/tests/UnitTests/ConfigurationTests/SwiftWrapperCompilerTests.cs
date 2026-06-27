@@ -2109,6 +2109,9 @@ namespace BindingsGeneration.Tests
                 var runner = new MockCommandRunner();
                 runner.SetResponse("--show-sdk-path", 0, "/sdk/path");
                 runner.SetResponse("swiftc", 0, "");
+                // Simulate a successful compile so the post-compile slice-binary validation sees a real
+                // Mach-O at swiftc's -o target (and lipo reports the expected arch).
+                runner.SynthesizeMachOOutputs = true;
 
                 var result = SwiftWrapperCompiler.Compile(
                     dir, "TestLib", "/fw/search", dylibPath,
@@ -2147,6 +2150,9 @@ namespace BindingsGeneration.Tests
                 var runner = new MockCommandRunner();
                 runner.SetResponse("--show-sdk-path", 0, "/sdk/path");
                 runner.SetResponse("swiftc", 0, "");
+                // Simulate a successful compile so the post-compile slice-binary validation sees a real
+                // Mach-O at swiftc's -o target (and lipo reports the expected arch).
+                runner.SynthesizeMachOOutputs = true;
 
                 // Create dylib stub
                 var fwDir = Path.Combine(dir, "fw");
@@ -3564,6 +3570,272 @@ namespace BindingsGeneration.Tests
             {
                 try { Directory.Delete(_dir, true); } catch { /* best effort */ }
             }
+        }
+    }
+
+    #endregion
+
+    #region N. Slice-binary validation, atomic promote, and stranded-superseded recovery
+
+    /// <summary>
+    /// Direct behavioral coverage for the timeout-hardening staging pipeline: a half-written or
+    /// wrong-arch slice binary must be rejected (never promoted to the canonical xcframework), the
+    /// staging→canonical promote must be a recoverable swap, and a tree stranded at <c>.superseded</c>
+    /// by a crash between the two renames must be recovered on the next build. These exercise the
+    /// filesystem behavior directly rather than through a happy-path compile mock.
+    /// </summary>
+    public class SwiftWrapperStagingPromoteTests
+    {
+        private static readonly byte[] MachOMagic64Le = { 0xCF, 0xFA, 0xED, 0xFE, 0x00, 0x00, 0x00, 0x00 };
+
+        private static string CreateTempDir()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"swc_promote_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+
+        private static void WriteMachO(string path)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllBytes(path, MachOMagic64Le);
+        }
+
+        // --- ValidateCompiledSliceBinary ---
+
+        [Fact]
+        public void ValidateCompiledSliceBinary_MissingBinary_Throws()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var binary = Path.Combine(dir, "missing.dylib");
+                var ex = Assert.Throws<InvalidOperationException>(() =>
+                    SwiftWrapperCompiler.ValidateCompiledSliceBinary(
+                        binary, "arm64", new MockCommandRunner(), NullLogger.Instance));
+                Assert.Contains("missing or empty", ex.Message);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void ValidateCompiledSliceBinary_EmptyBinary_Throws()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var binary = Path.Combine(dir, "empty.dylib");
+                File.WriteAllBytes(binary, Array.Empty<byte>());
+                var ex = Assert.Throws<InvalidOperationException>(() =>
+                    SwiftWrapperCompiler.ValidateCompiledSliceBinary(
+                        binary, "arm64", new MockCommandRunner(), NullLogger.Instance));
+                Assert.Contains("missing or empty", ex.Message);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void ValidateCompiledSliceBinary_NotMachO_Throws()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var binary = Path.Combine(dir, "garbage.dylib");
+                File.WriteAllText(binary, "this is not a mach-o image, it is plain text");
+                var ex = Assert.Throws<InvalidOperationException>(() =>
+                    SwiftWrapperCompiler.ValidateCompiledSliceBinary(
+                        binary, "arm64", new MockCommandRunner(), NullLogger.Instance));
+                Assert.Contains("not a valid Mach-O", ex.Message);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void ValidateCompiledSliceBinary_WrongArch_Throws()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var binary = Path.Combine(dir, "thin.dylib");
+                WriteMachO(binary);
+                var runner = new MockCommandRunner();
+                runner.SetResponse("-archs", 0, "arm64"); // real binary is arm64-only
+                var ex = Assert.Throws<InvalidOperationException>(() =>
+                    SwiftWrapperCompiler.ValidateCompiledSliceBinary(
+                        binary, "x86_64", runner, NullLogger.Instance)); // but x86_64 was expected
+                Assert.Contains("missing the expected architecture", ex.Message);
+                Assert.Contains("x86_64", ex.Message);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void ValidateCompiledSliceBinary_MachOWithExpectedArch_DoesNotThrow()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var binary = Path.Combine(dir, "thin.dylib");
+                WriteMachO(binary);
+                var runner = new MockCommandRunner();
+                runner.SetResponse("-archs", 0, "arm64 x86_64");
+                // No throw == pass.
+                SwiftWrapperCompiler.ValidateCompiledSliceBinary(
+                    binary, "arm64", runner, NullLogger.Instance);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        // --- PromoteStagedXcframework ---
+
+        [Fact]
+        public void PromoteStagedXcframework_NoPriorCanonical_MovesStagingIntoPlace()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var canonical = Path.Combine(dir, "Module.xcframework");
+                var staging = canonical + ".staging";
+                Directory.CreateDirectory(staging);
+                File.WriteAllText(Path.Combine(staging, "marker.txt"), "staged");
+
+                SwiftWrapperCompiler.PromoteStagedXcframework(staging, canonical, NullLogger.Instance);
+
+                Assert.True(File.Exists(Path.Combine(canonical, "marker.txt")));
+                Assert.False(Directory.Exists(staging));
+                Assert.False(Directory.Exists(canonical + ".superseded"));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void PromoteStagedXcframework_PriorCanonical_ReplacedAndSupersededCleaned()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var canonical = Path.Combine(dir, "Module.xcframework");
+                var staging = canonical + ".staging";
+                Directory.CreateDirectory(canonical);
+                File.WriteAllText(Path.Combine(canonical, "old.txt"), "old");
+                Directory.CreateDirectory(staging);
+                File.WriteAllText(Path.Combine(staging, "new.txt"), "new");
+
+                SwiftWrapperCompiler.PromoteStagedXcframework(staging, canonical, NullLogger.Instance);
+
+                Assert.True(File.Exists(Path.Combine(canonical, "new.txt")));
+                Assert.False(File.Exists(Path.Combine(canonical, "old.txt"))); // prior tree replaced
+                Assert.False(Directory.Exists(staging));
+                Assert.False(Directory.Exists(canonical + ".superseded")); // parked tree cleaned up
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void PromoteStagedXcframework_StaleSuperseded_PrecleanedThenPromotes()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var canonical = Path.Combine(dir, "Module.xcframework");
+                var staging = canonical + ".staging";
+                var superseded = canonical + ".superseded";
+                Directory.CreateDirectory(superseded); // leftover from a prior interrupted promote
+                File.WriteAllText(Path.Combine(superseded, "stale.txt"), "stale");
+                Directory.CreateDirectory(canonical);
+                File.WriteAllText(Path.Combine(canonical, "old.txt"), "old");
+                Directory.CreateDirectory(staging);
+                File.WriteAllText(Path.Combine(staging, "new.txt"), "new");
+
+                SwiftWrapperCompiler.PromoteStagedXcframework(staging, canonical, NullLogger.Instance);
+
+                Assert.True(File.Exists(Path.Combine(canonical, "new.txt")));
+                Assert.False(Directory.Exists(superseded));
+                Assert.False(Directory.Exists(staging));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void PromoteStagedXcframework_MoveInFails_RollsBackPriorCanonical()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var canonical = Path.Combine(dir, "Module.xcframework");
+                var staging = canonical + ".staging"; // deliberately never created → move-in fails
+                Directory.CreateDirectory(canonical);
+                File.WriteAllText(Path.Combine(canonical, "old.txt"), "old");
+
+                Assert.ThrowsAny<Exception>(() =>
+                    SwiftWrapperCompiler.PromoteStagedXcframework(staging, canonical, NullLogger.Instance));
+
+                // The prior good tree is rolled back from .superseded, never destroyed.
+                Assert.True(File.Exists(Path.Combine(canonical, "old.txt")));
+                Assert.False(Directory.Exists(canonical + ".superseded"));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        // --- RecoverStrandedSupersededXcframework ---
+
+        [Fact]
+        public void RecoverStrandedSupersededXcframework_CanonicalAbsent_RestoresFromSuperseded()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var canonical = Path.Combine(dir, "Module.xcframework");
+                var superseded = canonical + ".superseded";
+                Directory.CreateDirectory(superseded); // crash left the tree parked here
+                File.WriteAllText(Path.Combine(superseded, "marker.txt"), "parked");
+
+                SwiftWrapperCompiler.RecoverStrandedSupersededXcframework(canonical, NullLogger.Instance);
+
+                Assert.True(File.Exists(Path.Combine(canonical, "marker.txt")));
+                Assert.False(Directory.Exists(superseded));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void RecoverStrandedSupersededXcframework_CanonicalPresent_DropsStaleSuperseded()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var canonical = Path.Combine(dir, "Module.xcframework");
+                var superseded = canonical + ".superseded";
+                Directory.CreateDirectory(canonical);
+                File.WriteAllText(Path.Combine(canonical, "current.txt"), "current");
+                Directory.CreateDirectory(superseded);
+                File.WriteAllText(Path.Combine(superseded, "stale.txt"), "stale");
+
+                SwiftWrapperCompiler.RecoverStrandedSupersededXcframework(canonical, NullLogger.Instance);
+
+                Assert.True(File.Exists(Path.Combine(canonical, "current.txt"))); // canonical untouched
+                Assert.False(Directory.Exists(superseded)); // stale parked tree dropped
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void RecoverStrandedSupersededXcframework_NoSuperseded_IsNoOp()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var canonical = Path.Combine(dir, "Module.xcframework");
+                Directory.CreateDirectory(canonical);
+                File.WriteAllText(Path.Combine(canonical, "current.txt"), "current");
+
+                // No throw, no mutation.
+                SwiftWrapperCompiler.RecoverStrandedSupersededXcframework(canonical, NullLogger.Instance);
+
+                Assert.True(File.Exists(Path.Combine(canonical, "current.txt")));
+                Assert.False(Directory.Exists(canonical + ".superseded"));
+            }
+            finally { Directory.Delete(dir, true); }
         }
     }
 

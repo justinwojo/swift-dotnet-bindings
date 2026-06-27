@@ -57,7 +57,10 @@ public sealed class SwiftSyntaxInterfaceFactsProducer : IInterfaceFactsProducer
     public SwiftSyntaxInterfaceFactsProducer(string binaryPath, TimeSpan? timeout = null)
     {
         _binaryPath = binaryPath ?? throw new ArgumentNullException(nameof(binaryPath));
-        _timeout = timeout ?? TimeSpan.FromSeconds(60);
+        // Resolve the default from the single timeout source (env-overridable, raised from the
+        // historical 60s) so a direct construction without an explicit timeout gets the same
+        // headroom as the production path, not the old hardcoded value.
+        _timeout = timeout ?? GeneratorTimeouts.ResolveParserTimeout();
     }
 
     /// <summary>
@@ -185,6 +188,10 @@ public sealed class SwiftSyntaxInterfaceFactsProducer : IInterfaceFactsProducer
         if (!process.WaitForExit((int)_timeout.TotalMilliseconds))
         {
             try { process.Kill(entireProcessTree: true); } catch { /* best effort */ }
+            // Block (bounded) until the killed tree is reaped so its pipes/children are torn down
+            // before we unwind — otherwise an orphaned swift-frontend can keep consuming a
+            // contended runner after we've already reported the timeout.
+            try { process.WaitForExit(10000); } catch { /* best effort */ }
             throw new InvalidOperationException(
                 $"SwiftInterfaceParser timed out after {_timeout.TotalSeconds}s on '{swiftInterfacePath}'.");
         }

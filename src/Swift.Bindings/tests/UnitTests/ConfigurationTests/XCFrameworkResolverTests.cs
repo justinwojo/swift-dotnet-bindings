@@ -18,6 +18,17 @@ namespace BindingsGeneration.Tests
 
         public List<(string Command, string Arguments)> Invocations { get; } = new();
 
+        /// <summary>
+        /// When true, the runner faithfully simulates a SUCCESSFUL compile/link: a command that exits
+        /// zero and carries a <c>-o &lt;path&gt;</c> target writes a minimal valid Mach-O image there,
+        /// and an un-mocked <c>lipo -archs</c> probe reports a universal arch list. This satisfies the
+        /// post-compile slice-binary validation (existence + Mach-O magic + expected arch) that a real
+        /// swiftc would otherwise produce, so happy-path wrapper-compile tests can run without a
+        /// toolchain. Off by default so failure/negative tests still observe a missing binary. An
+        /// explicit <see cref="SetResponse"/> always wins over the synthesized lipo default.
+        /// </summary>
+        public bool SynthesizeMachOOutputs { get; set; }
+
         public void SetResponse(string matchKey, int exitCode, string stdOut, string stdErr = "")
         {
             _responses[matchKey] = (exitCode, stdOut, stdErr);
@@ -29,13 +40,79 @@ namespace BindingsGeneration.Tests
 
             // Match against both command name and arguments
             var fullKey = $"{command} {arguments}";
+            (int ExitCode, string StdOut, string StdErr)? matched = null;
             foreach (var (key, response) in _responses)
             {
                 if (fullKey.Contains(key))
-                    return response;
+                {
+                    matched = response;
+                    break;
+                }
             }
 
-            return (0, "", "");
+            if (SynthesizeMachOOutputs)
+            {
+                // A successful compile/link writes its -o target; mirror that so validation sees a real
+                // (magic-bearing, non-empty) binary instead of the missing file a bare mock leaves.
+                if ((matched?.ExitCode ?? 0) == 0)
+                    TrySynthesizeDashOOutput(arguments);
+
+                // Default an un-mocked `lipo -archs <binary>` to a universal slice list so the arch
+                // assertion passes on any host (an explicit SetResponse still takes precedence above).
+                if (matched == null && command == "lipo" && arguments.Contains("-archs"))
+                    return (0, "arm64 x86_64 arm64e", "");
+            }
+
+            return matched ?? (0, "", "");
+        }
+
+        /// <summary>
+        /// Writes a minimal valid 64-bit Mach-O magic (MH_MAGIC_64, little-endian) to the <c>-o</c>
+        /// target found in <paramref name="arguments"/>, creating its parent directory. Best-effort:
+        /// a synthesis failure just surfaces as the same missing-binary error the test guards against.
+        /// </summary>
+        private static void TrySynthesizeDashOOutput(string arguments)
+        {
+            var path = ExtractDashOTarget(arguments);
+            if (string.IsNullOrEmpty(path))
+                return;
+            try
+            {
+                var dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir))
+                    Directory.CreateDirectory(dir);
+                File.WriteAllBytes(path, new byte[] { 0xCF, 0xFA, 0xED, 0xFE, 0x00, 0x00, 0x00, 0x00 });
+            }
+            catch { /* best-effort: missing binary still fails the test as before */ }
+        }
+
+        /// <summary>
+        /// Extracts the target of a standalone <c>-o</c> flag (quoted or bare) — the compile/link output
+        /// binary — from a command-line argument string, or null if none is present.
+        /// </summary>
+        private static string? ExtractDashOTarget(string arguments)
+        {
+            var idx = arguments.IndexOf("-o ", StringComparison.Ordinal);
+            while (idx >= 0)
+            {
+                if (idx == 0 || char.IsWhiteSpace(arguments[idx - 1]))
+                {
+                    var rest = arguments.Substring(idx + 3).TrimStart();
+                    if (rest.StartsWith("\"", StringComparison.Ordinal))
+                    {
+                        var end = rest.IndexOf('"', 1);
+                        if (end > 1)
+                            return rest.Substring(1, end - 1);
+                    }
+                    else if (rest.Length > 0)
+                    {
+                        var end = rest.IndexOf(' ');
+                        return end > 0 ? rest.Substring(0, end) : rest;
+                    }
+                }
+                idx = arguments.IndexOf("-o ", idx + 1, StringComparison.Ordinal);
+            }
+            return null;
         }
     }
 

@@ -33,6 +33,20 @@
     <_SwiftBindingIntermediateDir>$(IntermediateOutputPath)swift-binding/</_SwiftBindingIntermediateDir>
   </PropertyGroup>
 
+  <!-- Bridge the optional generator-timeout properties to the generator process as environment
+       variables. Computed in .targets (NOT .props) so a value the consumer sets in its project
+       body is visible. Passed via <Exec EnvironmentVariables=...> on the generator invocations,
+       where it augments/overrides the inherited environment — so the project property wins over an
+       ambient (emergency) shell SWIFTBINDINGS_*_TIMEOUT_SECONDS. Built with no stray separators so
+       MSBuild never sees an empty list entry; empty overall when neither property is set, in which
+       case the Exec simply inherits the parent environment and the generator applies its defaults. -->
+  <PropertyGroup>
+    <_SwiftGeneratorEnv></_SwiftGeneratorEnv>
+    <_SwiftGeneratorEnv Condition="'$(SwiftWrapperCompileTimeoutSeconds)' != ''">SWIFTBINDINGS_SWIFTC_TIMEOUT_SECONDS=$(SwiftWrapperCompileTimeoutSeconds)</_SwiftGeneratorEnv>
+    <_SwiftGeneratorEnv Condition="'$(SwiftInterfaceParserTimeoutSeconds)' != '' AND '$(_SwiftGeneratorEnv)' != ''">$(_SwiftGeneratorEnv);SWIFTBINDINGS_PARSER_TIMEOUT_SECONDS=$(SwiftInterfaceParserTimeoutSeconds)</_SwiftGeneratorEnv>
+    <_SwiftGeneratorEnv Condition="'$(SwiftInterfaceParserTimeoutSeconds)' != '' AND '$(_SwiftGeneratorEnv)' == ''">SWIFTBINDINGS_PARSER_TIMEOUT_SECONDS=$(SwiftInterfaceParserTimeoutSeconds)</_SwiftGeneratorEnv>
+  </PropertyGroup>
+
   <!-- Platform detection from $(TargetFramework). Lives here, not in Sdk.props,
        because Sdk.props is imported before the project body — for single-TFM
        projects (the dotnet new swift-binding default), $(TargetFramework) is
@@ -828,6 +842,7 @@ done; true"
 
     <Exec Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftBindingUpToDate)' != 'true'"
           Command="$(_SwiftGenCmd)" ConsoleToMSBuild="true"
+          EnvironmentVariables="$(_SwiftGeneratorEnv)"
           StandardOutputImportance="low" StandardErrorImportance="high"
           IgnoreStandardErrorWarningFormat="true" />
 
@@ -997,7 +1012,13 @@ done; true"
       <_AFW_WrapperModule>$(_SwiftAppleFrameworkModule)SwiftBindings</_AFW_WrapperModule>
       <_AFW_XCF>$(_SwiftBindingIntermediateDir)$(_AFW_WrapperModule).xcframework</_AFW_XCF>
       <_AFW_NeedsSecondSlice>false</_AFW_NeedsSecondSlice>
-      <!-- Check if the xcframework exists but only has one slice -->
+      <!-- Check if the xcframework exists but only has one slice. This is an
+           existence-only gate by design: if the first-slice xcframework is present
+           we DO need to fold in the second slice. Whether its binary is actually a
+           sound Mach-O is validated separately, right before create-xcframework
+           below (the SWIFTBIND043 guard) — flipping this gate to false on a corrupt
+           first slice would silently skip the merge and leave the malformed
+           xcframework at the canonical path for a downstream step to consume. -->
       <_AFW_NeedsSecondSlice Condition="Exists('$(_AFW_XCF)')">true</_AFW_NeedsSecondSlice>
     </PropertyGroup>
 
@@ -1205,6 +1226,28 @@ done; true"
          mistaken for THIS build's success and committed. -->
     <RemoveDir Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
                Directories="$(_SwiftBindingIntermediateDir)_merge_slices/merged.xcframework" />
+
+    <!-- Defense-in-depth: validate BOTH input framework binaries are real,
+         non-empty Mach-O images before handing them to xcodebuild
+         -create-xcframework. The _AFW_NeedsSecondSlice gate above only checks that
+         the first-slice xcframework DIRECTORY exists, not that its binary is sound.
+         A contended CI runner can leave a prior build's first-slice framework
+         half-written (binary missing, or truncated after a killed swiftc); the
+         existence-only gate then passes the corrupt slice straight into
+         create-xcframework, which dies with an opaque exit 70. lipo -info is the
+         deterministic Apple-native probe — it reads the Mach-O header / fat arch
+         table and exits non-zero on a missing, empty, or non-Mach-O file. Surfacing
+         the failure here converts the cryptic xcodebuild crash into an actionable
+         diagnostic that names the bad input. -->
+    <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
+          Command="bad=''; for bin in &quot;$(_AFW_FirstSliceFramework)/$(_AFW_WrapperModule)&quot; &quot;$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)&quot;; do if [ ! -s &quot;$bin&quot; ] || ! lipo -info &quot;$bin&quot; &gt;/dev/null 2&gt;&amp;1; then bad=&quot;$bad$bin &quot;; fi; done; if [ -n &quot;$bad&quot; ]; then echo &quot;INVALID: $bad&quot;; fi"
+          ConsoleToMSBuild="true" StandardOutputImportance="low" IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_AFW_InvalidWrapperBinaries" />
+    </Exec>
+
+    <Error Condition="'$(_AFW_NeedsSecondSlice)' == 'true' AND $(_AFW_InvalidWrapperBinaries.Contains('INVALID:'))"
+           Code="SWIFTBIND043"
+           Text="The Swift wrapper xcframework for '$(_AFW_WrapperModule)' has a missing or corrupt Mach-O binary, so the device/simulator slice merge cannot proceed: $(_AFW_InvalidWrapperBinaries). This usually means a wrapper compile was killed mid-write (e.g. a swiftc timeout on a contended CI runner). Delete the intermediate directory '$(_SwiftBindingIntermediateDir)' and rebuild; if it recurs, raise the wrapper compile timeout via &lt;SwiftWrapperCompileTimeoutSeconds&gt; (whole seconds)." />
 
     <!-- Merge both slices into a NEW staging xcframework (original still intact) -->
     <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
@@ -1663,6 +1706,7 @@ done; true"
 
     <Exec Condition="'@(SwiftFramework)' != '' AND '$(_SwiftBindingUpToDate)' != 'true'"
           Command="$(_SwiftGenCmd)" ConsoleToMSBuild="true"
+          EnvironmentVariables="$(_SwiftGeneratorEnv)"
           StandardOutputImportance="low" StandardErrorImportance="high"
           IgnoreStandardErrorWarningFormat="true" />
   </Target>
@@ -1872,6 +1916,17 @@ done; true"
                         AND '$(_SwiftBindingHasWrapperXCFramework)' != 'True'"
              Code="SWIFTBIND051"
              Text="Swift wrapper compilation failed for '$(_SwiftBindingWrapperModuleName)'. Constructor, destroy, and async wrappers will not be available — APIs that depend on them will throw DllNotFoundException at runtime. Set &lt;SwiftWrapperRequired&gt;true&lt;/SwiftWrapperRequired&gt; to promote this to a build error." />
+
+    <!-- An explicitly-requested architecture slice failed to build and was NOT folded into the fat
+         wrapper. The generator restored the working primary (so HasWrapper stays True) and exited
+         non-zero, but ContinueOnError="WarnAndContinue" on the compile-wrapper Exec swallows that exit
+         code — so the violation is enforced here off the persisted metadata. ALWAYS an error,
+         independent of SwiftWrapperRequired: requesting an explicit architecture list is opting into a
+         contract, and silently shipping a narrower wrapper would drop the requested simulator/Intel
+         slice at the consumer's RID. -->
+    <Error Condition="'$(_SwiftBindingWrapperUnmetContractArchitectures)' != ''"
+           Code="SWIFTBIND056"
+           Text="Swift wrapper '$(_SwiftBindingWrapperModuleName)' was explicitly requested for architecture(s) [$(_SwiftBindingWrapperUnmetContractArchitectures)] via &lt;SwiftTargetArchitectures&gt;, but those slices failed to build and were not folded into the fat wrapper. The build is failed rather than silently shipping a narrower wrapper that drops the requested simulator/Intel slice. Resolve the per-architecture compile failure (a swiftc timeout on a contended runner is relieved by raising &lt;SwiftWrapperCompileTimeoutSeconds&gt;) and rebuild, or set &lt;SwiftTargetArchitectures&gt;auto&lt;/SwiftTargetArchitectures&gt; to allow a best-effort degrade." />
 
     <!-- When wrapper failed and user-authored ProjectReferences exist, provide
          two-pass build guidance. Uses _UserProjectReference (captured early in
@@ -2527,6 +2582,7 @@ done; true"
     <Exec Condition="'@(SwiftFramework)' != '' AND '$(_SwiftWrapperSkip)' != 'true'"
           Command="/bin/bash &quot;$(MSBuildThisFileDirectory)scripts/compile-wrapper-locked.sh&quot; &quot;$(_SwiftBindingIntermediateDir)wrapper-compile.lock&quot; &quot;$(_SwiftBindingIntermediateDir)binding-metadata.props&quot; &quot;$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework&quot; &quot;$(_SwiftWrapperCmdFile)&quot;"
           ConsoleToMSBuild="true"
+          EnvironmentVariables="$(_SwiftGeneratorEnv)"
           StandardOutputImportance="low" StandardErrorImportance="high"
           IgnoreStandardErrorWarningFormat="true"
           ContinueOnError="WarnAndContinue" />
@@ -2550,6 +2606,16 @@ done; true"
              Query="/Project/PropertyGroup/_SwiftBindingWrapperSliceCount/text()"
              Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
       <Output TaskParameter="Result" PropertyName="_SwiftBindingWrapperSliceCount" />
+    </XmlPeek>
+    <!-- Re-peek the architecture-contract violation the generator persisted (empty when satisfied).
+         _ValidateSwiftWrapperCompilation reads this to fail the build (SWIFTBIND056) when an explicitly
+         requested arch slice didn't make it into the fat wrapper — the generator's non-zero exit alone
+         is swallowed by ContinueOnError on the compile-wrapper Exec. The Query matches only a non-empty
+         text node, so a satisfied (empty-element) contract leaves the property unset. -->
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+             Query="/Project/PropertyGroup/_SwiftBindingWrapperUnmetContractArchitectures/text()"
+             Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+      <Output TaskParameter="Result" PropertyName="_SwiftBindingWrapperUnmetContractArchitectures" />
     </XmlPeek>
   </Target>
 

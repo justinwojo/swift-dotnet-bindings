@@ -408,12 +408,20 @@ namespace BindingsGeneration
         /// <param name="wrapperModuleName">The wrapper module name following the "{Module}SwiftBindings" convention.</param>
         /// <param name="sliceCount">Number of architecture slices in the wrapper xcframework.</param>
         /// <param name="logger">Logger instance.</param>
+        /// <param name="unmetContractArchitectures">
+        /// Explicitly-requested architectures the fat-fold failed to deliver. Persisted into
+        /// <c>_SwiftBindingWrapperUnmetContractArchitectures</c> so the SDK can fail the build even though
+        /// <c>ContinueOnError="WarnAndContinue"</c> on the compile-wrapper Exec swallows the generator exit
+        /// code (and HasWrapper stays True off the restored primary). Always written — empty when the
+        /// contract is satisfied — so a clean recompile clears a violation persisted by a prior build.
+        /// </param>
         public static void UpdateMetadataPropsWrapperStatus(
             string outputDirectory,
             bool hasWrapper,
             string wrapperModuleName,
             int sliceCount,
-            ILogger logger)
+            ILogger logger,
+            IReadOnlyList<string>? unmetContractArchitectures = null)
         {
             var propsPath = Path.Combine(outputDirectory, "binding-metadata.props");
             if (!File.Exists(propsPath))
@@ -430,12 +438,17 @@ namespace BindingsGeneration
                 return;
             }
 
+            var unmetContract = unmetContractArchitectures is { Count: > 0 }
+                ? string.Join(";", unmetContractArchitectures)
+                : string.Empty;
+
             SetOrAddElement(propertyGroup, "_SwiftBindingHasWrapperXCFramework", hasWrapper.ToString());
             SetOrAddElement(propertyGroup, "_SwiftBindingWrapperSliceCount", sliceCount.ToString());
+            SetOrAddElement(propertyGroup, "_SwiftBindingWrapperUnmetContractArchitectures", unmetContract);
 
             doc.Save(propsPath);
-            logger.LogInformation("Updated wrapper status in binding-metadata.props: hasWrapper={HasWrapper}, sliceCount={SliceCount}",
-                hasWrapper, sliceCount);
+            logger.LogInformation("Updated wrapper status in binding-metadata.props: hasWrapper={HasWrapper}, sliceCount={SliceCount}, unmetContractArchs={Unmet}",
+                hasWrapper, sliceCount, string.IsNullOrEmpty(unmetContract) ? "(none)" : unmetContract);
         }
 
         /// <summary>
