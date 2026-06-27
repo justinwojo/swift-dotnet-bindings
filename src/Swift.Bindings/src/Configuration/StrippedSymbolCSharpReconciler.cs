@@ -133,6 +133,21 @@ namespace BindingsGeneration
             if (strippedPInvokeNames.Count == 0)
                 return CoGatingResult.Empty(content);
 
+            // Step A5: Reconcile the generated [ModuleInitializer] aggregator BEFORE the
+            // generic caller walk. Its body is a flat list of independent, best-effort
+            // registration statements (factory / payload-semantics / conformance / enum-metadata),
+            // each emitted as a single self-contained `try { ... } catch { }` line. Exactly one
+            // class of those — the enum-metadata `RegisterMetadata(typeof(X), FromHandle(
+            // __GetEnumMetadata_Y()))` registration — calls a wrapper-symbol P/Invoke, so when
+            // that accessor's symbol is stripped the registration line references a removed extern.
+            // Step B would see that reference and delete the ENTIRE initializer as a "caller",
+            // taking every unrelated factory/payload/conformance registration with it — which
+            // silently un-registers types whose payload-construction semantics or metadata the
+            // runtime then can't resolve on NativeAOT (the reflective fallback is trimmed). Remove
+            // only the offending single-line statement(s) here; with the reference gone, Step B
+            // leaves the initializer (and all its surviving registrations) intact.
+            StripOrphanedModuleInitializerRegistrations(lines, strippedPInvokeNames, removals);
+
             // Step B: Find Level 1 callers (methods/constructors calling stripped P/Invokes).
             var strippedCallerNames = new HashSet<string>();
             var callerNameToTypes = new Dictionary<string, HashSet<string>>();
@@ -823,6 +838,87 @@ namespace BindingsGeneration
 
                 i = blockEnd + 1;
             }
+        }
+
+        /// <summary>
+        /// Removes the individual best-effort registration statement(s) inside the generated
+        /// <c>[ModuleInitializer]</c> aggregator that call a stripped wrapper-symbol P/Invoke,
+        /// leaving the initializer method (and every other registration in it) intact.
+        /// <para>
+        /// The initializer body is a flat list of self-contained single-line statements — the
+        /// emitter writes each as one <c>WriteLines("...")</c> call (an optional availability
+        /// <c>if (...) { ... }</c> guard is still single-line), so a removed line can never leave
+        /// a dangling open brace. Of those statements only the enum-metadata registration
+        /// (<c>RegisterMetadata(typeof(X), FromHandle(__GetEnumMetadata_Y()))</c>) calls a wrapper
+        /// P/Invoke; when its accessor symbol is stripped, this drops just that one line. With the
+        /// reference gone, the generic caller walk (Step B) no longer mistakes the whole aggregator
+        /// for a thin forwarder and delete it — which would silently un-register every type's
+        /// factory / payload-construction-semantics / conformance, breaking NativeAOT type
+        /// resolution where the reflective fallback is trimmed.
+        /// </para>
+        /// </summary>
+        private static void StripOrphanedModuleInitializerRegistrations(
+            List<string> lines, HashSet<string> strippedPInvokeNames, HashSet<int> removals)
+        {
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (removals.Contains(i)) continue;
+                if (!lines[i].TrimStart().StartsWith("[ModuleInitializer]", StringComparison.Ordinal))
+                    continue;
+
+                // The opening brace sits a line or two below the attribute (past the method
+                // signature). Scan a short window rather than FindOpeningBrace, which bails on the
+                // intervening signature line.
+                int braceOpen = -1;
+                for (int k = i; k < Math.Min(i + 4, lines.Count); k++)
+                {
+                    if (lines[k].Contains('{')) { braceOpen = k; break; }
+                }
+                if (braceOpen < 0) continue;
+
+                int blockEnd = FindBlockEnd(lines, braceOpen);
+                for (int j = braceOpen + 1; j < blockEnd; j++)
+                {
+                    if (removals.Contains(j)) continue;
+                    if (!IsSelfContainedStatementLine(lines[j])) continue;
+                    foreach (var name in strippedPInvokeNames)
+                    {
+                        if (ContainsCallTo(lines[j], name))
+                        {
+                            removals.Add(j);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// True when <paramref name="line"/> is a complete, brace- and paren-balanced statement
+        /// (e.g. a single-line <c>try { ... } catch { }</c> registration) so removing it on its own
+        /// cannot orphan an open block. Returns false for block openers/closers (a leading or net
+        /// unbalanced brace) so the initializer's own <c>{</c>/<c>}</c> are never dropped. The
+        /// generated registration lines carry no brace/paren characters inside string literals, so a
+        /// raw scan is sufficient here.
+        /// </summary>
+        private static bool IsSelfContainedStatementLine(string line)
+        {
+            int brace = 0, paren = 0;
+            foreach (char c in line)
+            {
+                switch (c)
+                {
+                    case '{': brace++; break;
+                    case '}': brace--; break;
+                    case '(': paren++; break;
+                    case ')': paren--; break;
+                }
+                if (brace < 0 || paren < 0) return false;
+            }
+            if (brace != 0 || paren != 0) return false;
+            var trimmed = line.TrimEnd();
+            return trimmed.EndsWith(";", StringComparison.Ordinal)
+                || trimmed.EndsWith("}", StringComparison.Ordinal);
         }
 
         /// <summary>

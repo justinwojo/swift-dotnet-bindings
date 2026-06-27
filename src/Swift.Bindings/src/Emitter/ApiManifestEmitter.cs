@@ -12,13 +12,14 @@ using Microsoft.Extensions.Logging;
 namespace BindingsGeneration
 {
     /// <summary>
-    /// F52: emits <c>{Module}.api-manifest.json</c> — the consumer-visible binding contract,
+    /// Emits <c>{Module}.api-manifest.json</c> — the consumer-visible binding contract,
     /// mapping each emitted public member's post-collision C# signature to the native entry
     /// symbol its P/Invoke binds. The ratchet gate (<c>build/Build.ApiManifestGate.cs</c>) diffs
     /// this against a committed baseline and fails when an UNCHANGED C# signature retargets to a
-    /// DIFFERENT symbol — the overload-disambiguation hazard the content-sorted rank (F52 C.1)
-    /// closes at the source. The manifest is the durable safety net: even if a future change
-    /// reintroduces a source-order-sensitive suffix assignment, the gate catches the retarget
+    /// DIFFERENT symbol — the overload-disambiguation hazard. Collision suffixes are assigned in
+    /// declaration order, so the bare-name owner (and thus the symbol a stable C# signature binds)
+    /// can shift if upstream reorders its overloads; the manifest is the durable detector that
+    /// surfaces exactly that — any retarget of a stable signature, whatever its cause, is caught
     /// before it ships. Added/removed members are reported by the gate but are not failures
     /// (only a retarget on a stable signature breaks the ABI contract).
     /// </summary>

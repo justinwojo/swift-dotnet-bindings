@@ -46,6 +46,51 @@ public class ProtocolSignatureHelperTests
         Assert.Equal("Process(string)", key);
     }
 
+    [Fact]
+    public void GetProjectedCSharpMethodKey_GenericVsNonGeneric_SameProjectedParams_DistinctKeys()
+    {
+        // A generic overload and a non-generic namesake whose projected C# parameter types are
+        // otherwise identical are LEGAL, DISTINCT C# overloads — arity is part of overload identity,
+        // so `Request(A, B)` and `Request<T>(A, B)` coexist. The projected key must encode the
+        // method's own generic arity; an arity-blind key collision-groups the two, suffixes one to
+        // `Request2`, and when a protocol declares the non-generic shape bare the concrete impl's
+        // renamed member no longer satisfies the interface → CS0535. (Alamofire's
+        // CompositeEventMonitor.Request reproduced exactly this.)
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var nonGeneric = CreateMethodWithParam("transform", "Swift.String", moduleDecl);
+        var generic = CreateGenericMethodWithParam("transform", "Swift.String", moduleDecl);
+
+        var nonGenericKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(nonGeneric, typeDatabase);
+        var genericKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(generic, typeDatabase);
+
+        Assert.NotEqual(nonGenericKey, genericKey);
+        // The non-generic key is the bare projected signature an interface requirement declares.
+        Assert.Equal("Transform(string)", nonGenericKey);
+        // The generic key carries an arity marker so it can never alias the non-generic slot.
+        Assert.Equal("Transform(string)`1", genericKey);
+    }
+
+    [Fact]
+    public void GetProjectedCSharpMethodKey_TwoGenericsDifferentArity_DistinctKeys()
+    {
+        // Arity is ENCODED, not merely "is generic": a one-parameter generic and a two-parameter
+        // generic with identical projected params stay distinct C# overloads, so their keys differ.
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var arity1 = CreateGenericMethodWithParam("transform", "Swift.String", moduleDecl, genericArity: 1);
+        var arity2 = CreateGenericMethodWithParam("transform", "Swift.String", moduleDecl, genericArity: 2);
+
+        var key1 = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(arity1, typeDatabase);
+        var key2 = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(arity2, typeDatabase);
+
+        Assert.NotEqual(key1, key2);
+        Assert.EndsWith("`1", key1);
+        Assert.EndsWith("`2", key2);
+    }
+
     #endregion
 
     #region Intra-protocol async/sync vtable-slot keys
@@ -1165,6 +1210,24 @@ public class ProtocolSignatureHelperTests
             IsAsync = isAsync,
             IsSynthesizedAccessor = false
         };
+    }
+
+    // Same shape as CreateMethodWithParam, but with `genericArity` method-level generic parameters so
+    // the projected key picks up the trailing arity marker. The generic params are concrete-named
+    // placeholders; only their COUNT feeds the key (the param type stays the concrete `paramTypeName`),
+    // which is exactly the axis the arity marker disambiguates.
+    private static MethodDecl CreateGenericMethodWithParam(string name, string paramTypeName, ModuleDecl moduleDecl, int genericArity = 1)
+    {
+        var generics = new List<GenericArgumentDecl>();
+        for (int i = 0; i < genericArity; i++)
+        {
+            generics.Add(new GenericArgumentDecl(
+                $"τ_0_{i}", $"T{i}",
+                new List<GenericParameterConformance>(),
+                new List<GenericParameterConformance>()));
+        }
+
+        return CreateMethodWithParam(name, paramTypeName, moduleDecl) with { GenericParameters = generics };
     }
 
     #region StripOptionalClassLikeForOverloadIdentity Tests

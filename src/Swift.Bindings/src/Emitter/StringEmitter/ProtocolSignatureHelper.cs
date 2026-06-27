@@ -280,7 +280,21 @@ internal static class ProtocolSignatureHelper
             paramTypes.Add("System.Threading.CancellationToken");
         }
 
-        return $"{methodName}({string.Join(",", paramTypes)})";
+        var key = $"{methodName}({string.Join(",", paramTypes)})";
+
+        // Method-level generic arity is part of C# overload identity: a generic method and a
+        // non-generic (or differently-arity) namesake with otherwise-identical projected params are
+        // DISTINCT C# overloads — `Request(A, B)` and `Request<T>(A, B<T>)` coexist legally — so they
+        // must NOT collision-group together. An arity-blind key groups them, suffixes one (`Request2`),
+        // and when the colliding generic requirement isn't expressible on the C# interface (so only the
+        // concrete is declared, bare) the impl's renamed member no longer satisfies the interface →
+        // CS0535. Append the arity marker ONLY for generic methods so the arity-0 keys — the vast
+        // majority — stay byte-identical and don't churn the api-manifest baseline. The marker sits
+        // after the closing ')', and arity ≥ 1, so it can never equal a non-generic key.
+        if (decl.GenericParameters.Count > 0)
+            key += $"`{decl.GenericParameters.Count}";
+
+        return key;
     }
 
     /// <summary>

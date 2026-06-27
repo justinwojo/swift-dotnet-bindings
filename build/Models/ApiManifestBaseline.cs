@@ -9,7 +9,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 /// <summary>
-/// Typed model for <c>build/baselines/api-manifest-baseline.json</c> — the F52 ABI-contract
+/// Typed model for <c>build/baselines/api-manifest-baseline.json</c> — the ABI-contract
 /// ratchet. Each entry pins one emitted public member's <c>(module, C# signature)</c> to the
 /// native entry symbol its P/Invoke binds, as recorded by the generator's
 /// <c>BindingsGeneration.ApiManifestEmitter</c> into <c>{Module}.api-manifest.json</c>.
@@ -23,7 +23,7 @@ using System.Text.Json.Serialization;
 /// <list type="bullet">
 ///   <item><description><b>RETARGET</b> (same <c>(module, signature)</c> now binds a DIFFERENT
 ///     symbol) is a <b>failure</b>: the consumer-visible C# API silently rebinds to other native
-///     code — the overload-disambiguation hazard F52 closes. Either it's a real regression, or an
+///     code — the overload-disambiguation hazard the gate catches. Either it's a real regression, or an
 ///     intentional, reviewed ABI change that must reseed the baseline in the same commit.</description></item>
 ///   <item><description><b>ADDED</b> (a signature absent from the baseline) and <b>REMOVED</b>
 ///     (a baseline signature no longer emitted) are reported but are <b>not</b> failures — adding

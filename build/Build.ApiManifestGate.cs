@@ -1,17 +1,17 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 //
-// Build.ApiManifestGate.cs — F52 ABI-contract ratchet for `nuke binding-tests --compile-only`.
+// Build.ApiManifestGate.cs — ABI-contract ratchet for `nuke binding-tests --compile-only`.
 //
 // After bindings are generated, the generator writes one `{Module}.api-manifest.json` per
 // emitted module (see BindingsGeneration.ApiManifestEmitter), mapping each public member's
 // post-collision C# signature to the native entry symbol its P/Invoke binds. This gate scans
 // those manifests and diffs them against the committed baseline
 // (`build/baselines/api-manifest-baseline.json`), FAILING when a stable `(module, signature)`
-// now binds a DIFFERENT symbol — a silent ABI retarget, the exact hazard the F52 content-sorted
-// overload-disambiguation rank closes at the source. The manifest + gate are the durable safety
-// net: even if a future change reintroduces source-order-sensitive suffixing, the retarget is
-// caught here before it ships. Added/removed members are reported but never fail the gate.
+// now binds a DIFFERENT symbol — a silent ABI retarget. Collision suffixes are assigned in
+// declaration order, so the bare-name owner (and the symbol a stable signature binds) can shift
+// when upstream reorders its overloads; the manifest + gate are the durable detector that catches
+// any such retarget here before it ships. Added/removed members are reported but never fail the gate.
 //
 // Fail-closed by default (consistent with the rest of --compile-only); `--permissive` downgrades
 // to warnings for local exploration. Reseed with `nuke SeedApiManifestBaseline` after an

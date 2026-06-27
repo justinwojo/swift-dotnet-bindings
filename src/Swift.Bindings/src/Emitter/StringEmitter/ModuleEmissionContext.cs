@@ -1144,11 +1144,11 @@ public sealed class ModuleEmissionContext
     public string GetMethodEmissionSymbolOrMangled(MethodDecl methodDecl) =>
         _emissionSymbolByMethod.TryGetValue(methodDecl, out var symbol) ? symbol : methodDecl.MangledName;
 
-    // ==================== API Manifest (F52 retarget gate) ====================
+    // ==================== API Manifest (retarget gate) ====================
 
     // Accumulates the consumer-visible binding contract: each emitted, overload-
     // disambiguated public member's C# signature key → the native entry symbol the
-    // P/Invoke binds. Recorded at the SAME two chokepoints the F52 content-sorted
+    // P/Invoke binds. Recorded at the SAME two chokepoints the overload
     // disambiguation runs (the type-body method/ctor loop in IHandler and the free-
     // function loop in ModuleHandler), where the post-collision C# name
     // (MethodEnvironment.CSharpMethodName) and the promoted entry symbol
@@ -1164,11 +1164,11 @@ public sealed class ModuleEmissionContext
     // compares baseline↔current on matching keys, so any stable key affects both
     // sides equally. Properties/subscripts are intentionally out of v1 scope: they
     // carry no overload disambiguation, so they are not the "same C# name retargets to
-    // a different symbol" hazard F52 guards.
+    // a different symbol" hazard the gate guards.
     private readonly SortedDictionary<string, string> _apiManifest = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// F52: records one emitted public member's C# signature key → native entry symbol
+    /// Records one emitted public member's C# signature key → native entry symbol
     /// into the API manifest. Called from the overload-disambiguation chokepoints once
     /// the post-collision C# name is known.
     /// </summary>

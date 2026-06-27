@@ -435,7 +435,7 @@ partial class Build
                 Log.Information("Dependency bindings: {File}", BtOutputDir / $"{DepModuleName}.cs");
             }
 
-            // Move the dependency API manifest alongside the main one so the F52 api-manifest gate
+            // Move the dependency API manifest alongside the main one so the api-manifest gate
             // ratchets the dependency module's ABI too. Without this, the manifest is deleted with
             // depOutputDir below and a symbol retarget in the dependency binding goes unnoticed
             // (the gate scans only BtOutputDir's top-level *.api-manifest.json).
@@ -864,7 +864,7 @@ partial class Build
                 // fail-closed unless --permissive, consistent with the wrapper-build gate.
                 RunParityGate(failClosed);
 
-                // F52 API-manifest ABI-contract gate: diff each generated
+                // API-manifest ABI-contract gate: diff each generated
                 // `{Module}.api-manifest.json` (C# signature → native entry symbol) against
                 // build/baselines/api-manifest-baseline.json and fail on any RETARGET (a stable
                 // C# signature now binding a different symbol). Runs by default on the

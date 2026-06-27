@@ -204,11 +204,11 @@ namespace BindingsGeneration
                     var projectedKeyCollisionCounts = new Dictionary<string, int>(StringComparer.Ordinal);
                     var pipeline = new MemberValidationPipeline(env.TypeDatabase);
 
-                    // F52: content-derived collision ranks for free functions (mirrors HandleBaseDecl).
+                    // Declaration-order collision ranks for free functions (mirrors HandleBaseDecl).
                     // Build over the same emitting partition the loop below uses — validation-passed then
                     // primary-signature-deduped (free functions are never constructors) — so the suffix a
-                    // colliding overload receives is a pure function of its full Swift signature, stable under
-                    // source reorder. Members in no collision group are absent → read as rank 0 (legacy).
+                    // colliding overload receives follows the order the overloads are declared: first-declared
+                    // keeps the bare name. Members in no collision group are absent → read as rank 0.
                     var freeFunctionRanks = BuildFreeFunctionCollisionRankMap(moduleDecl.Methods, pipeline, env.TypeDatabase);
 
                     foreach (MethodDecl methodDecl in moduleDecl.Methods)
@@ -260,9 +260,9 @@ namespace BindingsGeneration
                         // Secondary dedup: projected C# public signature.
                         // Non-constructor collisions are disambiguated with numeric suffix.
                         var projectedKey = GetProjectedCSharpMethodKey(methodDecl, env.TypeDatabase, _logger);
-                        // F52: content-derived suffix — the member's rank within its same-projected-key
-                        // overload group (by full Swift signature), not its source position. Rank 0 (also the
-                        // default outside any collision group) keeps the natural name.
+                        // Declaration-order suffix — the member's rank within its same-projected-key overload
+                        // group (first-declared owns the bare name). Rank 0 (also the default outside any
+                        // collision group) keeps the natural name.
                         int collisionIndex = freeFunctionRanks.GetValueOrDefault(methodDecl, 0);
                         var reservedKey = ApplyCollisionSuffixToKey(projectedKey, collisionIndex);
                         if (!emittedProjectedSignatures.Add(reservedKey))
@@ -297,7 +297,7 @@ namespace BindingsGeneration
                             methodEnv.CollisionIndex = collisionIndex;
                             methodEnv.EmittedProjectedSignatures = emittedProjectedSignatures;
                             methodHandler.Emit(csWriter, swiftWriter, methodEnv, conductor, context);
-                            // F52: record the consumer-visible contract for this emitted free function —
+                            // Record the consumer-visible contract for this emitted free function —
                             // its post-collision C# signature → the entry symbol the P/Invoke binds. Mirrors
                             // the type-body chokepoint in IHandler; the module is the implicit parent so the
                             // key is the bare C# name (a free function can't collide with a type member's key).
@@ -406,7 +406,7 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Builds the F52 content-derived collision-rank map for top-level free functions. Walks
+        /// Builds the declaration-order collision-rank map for top-level free functions. Walks
         /// <paramref name="methods"/> in source order through the same filter chain the emission loop uses —
         /// validation (<see cref="BaseHandler.ClassifyOverridePrePassEmission"/> with the loop's null
         /// <c>ValidationContext</c>) then primary-signature dedup (first-wins on
@@ -418,7 +418,7 @@ namespace BindingsGeneration
             IEnumerable<MethodDecl> methods, MemberValidationPipeline pipeline, ITypeDatabase typeDatabase)
         {
             var primarySeen = new HashSet<string>(StringComparer.Ordinal);
-            var emitting = new List<(MethodDecl, string, string)>();
+            var emitting = new List<(MethodDecl, string)>();
             foreach (var m in methods)
             {
                 var (willEmit, isTombstone) = ClassifyOverridePrePassEmission(m, pipeline, validationCtx: null, typeDatabase);
@@ -427,7 +427,7 @@ namespace BindingsGeneration
                 if (!primarySeen.Add(signatureKey)) continue;
                 var projectedKey = GetProjectedCSharpMethodKey(m, typeDatabase, _logger,
                     siblingPropertyNames: null, treatAsClosureTombstone: isTombstone);
-                emitting.Add((m, projectedKey, signatureKey));
+                emitting.Add((m, projectedKey));
             }
             return BuildCollisionRankMap(emitting);
         }

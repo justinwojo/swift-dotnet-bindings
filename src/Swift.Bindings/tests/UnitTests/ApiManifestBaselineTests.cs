@@ -8,13 +8,14 @@ using Xunit;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// Tests for <see cref="ApiManifestBaseline"/> — the F52 ABI-contract ratchet backing
-/// <c>nuke binding-tests</c>'s API-manifest gate. The load-bearing case is the silent retarget a
-/// content-stable view would otherwise hide: a stable <c>(module, C# signature)</c> rebinds to a
-/// DIFFERENT native entry symbol (the overload-disambiguation hazard the content-sorted rank
-/// closes). The gate fails on retarget but NOT on an added or removed member, so the same overload
-/// reorder that shifts a suffix without retargeting stays green. Each test feeds synthetic entries
-/// straight into the pure <see cref="ApiManifestBaseline.Compare"/>.
+/// Tests for <see cref="ApiManifestBaseline"/> — the ABI-contract ratchet backing
+/// <c>nuke binding-tests</c>'s API-manifest gate. The load-bearing case is a silent retarget: a
+/// stable <c>(module, C# signature)</c> rebinds to a DIFFERENT native entry symbol (the
+/// overload-disambiguation hazard). Because collision suffixes are assigned in declaration order, an
+/// upstream reorder can shift the bare-name owner and produce exactly such a retarget — the gate is
+/// the net that catches it. The gate fails on retarget but NOT on an added or removed member, so a
+/// reorder that shifts a suffix without retargeting any stable signature stays green. Each test feeds
+/// synthetic entries straight into the pure <see cref="ApiManifestBaseline.Compare"/>.
 /// </summary>
 public class ApiManifestBaselineTests
 {
@@ -87,9 +88,9 @@ public class ApiManifestBaselineTests
     [Fact]
     public void Compare_TwoOverloadsSwapSymbols_BothRetarget()
     {
-        // The exact F52 failure shape: a source reorder retargets Process and Process2 onto each
-        // other's symbol while both signatures stay present. A content-stable rank prevents this;
-        // the gate is the safety net that catches it if the rank ever regresses.
+        // A source reorder retargets Process and Process2 onto each other's symbol while both
+        // signatures stay present. Suffixes are assigned in declaration order, so such a reorder can
+        // happen on a binding regen — and the gate is the safety net that catches the retarget.
         var baseline = Seeded(E("C.Process(int)", "SBW_P0"), E("C.Process2(int)", "SBW_P1"));
         var current = new[] { E("C.Process(int)", "SBW_P1"), E("C.Process2(int)", "SBW_P0") };
 

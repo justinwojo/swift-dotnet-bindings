@@ -2604,4 +2604,86 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
+    #region O. Module-Initializer Aggregator Protection
+
+    // The generated [ModuleInitializer] is a flat aggregator of independent best-effort
+    // registrations (framework resolver, NewFromPayload factories, payload-construction
+    // semantics, conformances, enum metadata). Exactly one class of those — the enum-metadata
+    // RegisterMetadata(typeof(X), FromHandle(__GetEnumMetadata_Y())) line — calls a wrapper
+    // P/Invoke. When that accessor symbol is stripped, the generic caller walk would otherwise
+    // see the initializer "call" the removed extern and delete the WHOLE method, silently
+    // un-registering every unrelated type's payload semantics / factory / conformance. On
+    // NativeAOT (where the reflective fallback is trimmed) that surfaces as a runtime
+    // "Failed to find PayloadConstructionSemantics" throw for a type whose registration was
+    // collateral damage. The reconciler must drop only the offending single-line statement.
+    public class ReconcilerModuleInitializerTests
+    {
+        private const string ResolverWithStrippedEnumMetadata =
+            "namespace MyLib {\n" +
+            "    #pragma warning disable CA2255\n" +
+            "    #pragma warning disable CA1416\n" +
+            "    internal static class __SwiftFrameworkResolver_MyLib\n" +
+            "    {\n" +
+            "        [ModuleInitializer]\n" +
+            "        internal static void Initialize()\n" +
+            "        {\n" +
+            "            global::Swift.Runtime.RuntimeContract.AssertCompatible(0);\n" +
+            "            global::Swift.Runtime.SwiftFrameworkResolver.RegisterForAssembly(typeof(__SwiftFrameworkResolver_MyLib).Assembly);\n" +
+            "            try { global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<BigNum>(); global::Swift.Runtime.SwiftObjectHelper<BigNum>.GetTypeMetadata(); } catch { }\n" +
+            "            try { global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(BigNum), global::Swift.Runtime.PayloadConstructionSemantics.Adopt); } catch { }\n" +
+            "            try { global::Swift.Runtime.TypeMetadata.RegisterMetadata(typeof(Cipher.Mode), global::Swift.Runtime.TypeMetadata.FromHandle(__GetEnumMetadata_Cipher_Mode())); } catch { }\n" +
+            "            try { global::Swift.Runtime.TypeMetadata.RegisterMetadata(typeof(Block.Error), global::Swift.Runtime.TypeMetadata.FromHandle(__GetEnumMetadata_Block_Error())); } catch { }\n" +
+            "        }\n" +
+            "    [System.Runtime.InteropServices.DllImport(\"MyLibSwiftBindings\", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = \"SBW_GetMetadata_MyLib_Cipher_Mode_AAAA\")]\n" +
+            "    private static extern IntPtr __GetEnumMetadata_Cipher_Mode();\n" +
+            "    [System.Runtime.InteropServices.DllImport(\"MyLibSwiftBindings\", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = \"SBW_GetMetadata_MyLib_Block_Error_BBBB\")]\n" +
+            "    private static extern IntPtr __GetEnumMetadata_Block_Error();\n" +
+            "    }\n" +
+            "    #pragma warning restore CA1416\n" +
+            "    #pragma warning restore CA2255\n" +
+            "}\n";
+
+        [Fact]
+        public void Process_StrippedEnumMetadata_PreservesInitializerAndSiblingRegistrations()
+        {
+            // Only Block.Error's metadata accessor is stripped.
+            var stripped = new HashSet<string> { "SBW_GetMetadata_MyLib_Block_Error_BBBB" };
+            var result = StrippedSymbolCSharpReconciler.Process(ResolverWithStrippedEnumMetadata, stripped);
+
+            // The initializer method and its unrelated best-effort registrations survive in full.
+            Assert.Contains("internal static void Initialize()", result.Content);
+            Assert.Contains("RegisterForAssembly", result.Content);
+            Assert.Contains("RegisterSwiftObjectFactory<BigNum>", result.Content);
+            Assert.Contains("RegisterPayloadSemantics(typeof(BigNum)", result.Content);
+            // The sibling enum-metadata registration whose symbol was NOT stripped survives.
+            Assert.Contains("__GetEnumMetadata_Cipher_Mode()", result.Content);
+        }
+
+        [Fact]
+        public void Process_StrippedEnumMetadata_RemovesOnlyOffendingRegistrationAndExtern()
+        {
+            var stripped = new HashSet<string> { "SBW_GetMetadata_MyLib_Block_Error_BBBB" };
+            var result = StrippedSymbolCSharpReconciler.Process(ResolverWithStrippedEnumMetadata, stripped);
+
+            // The stripped accessor's registration line, its extern, and the dead symbol all vanish,
+            // with no dangling reference left behind to fail the C# compile.
+            Assert.DoesNotContain("__GetEnumMetadata_Block_Error", result.Content);
+            Assert.DoesNotContain("SBW_GetMetadata_MyLib_Block_Error_BBBB", result.Content);
+            Assert.DoesNotContain("typeof(Block.Error)", result.Content);
+        }
+
+        [Fact]
+        public void Process_NoStrippedSymbolInInitializer_LeavesResolverUnchanged()
+        {
+            // A symbol stripped elsewhere that the initializer never references must not perturb it.
+            var stripped = new HashSet<string> { "SBW_unrelated_method_CCCC" };
+            var result = StrippedSymbolCSharpReconciler.Process(ResolverWithStrippedEnumMetadata, stripped);
+            Assert.False(result.ContentChanged);
+            Assert.Contains("__GetEnumMetadata_Block_Error()", result.Content);
+            Assert.Contains("__GetEnumMetadata_Cipher_Mode()", result.Content);
+        }
+    }
+
+    #endregion
+
 }
