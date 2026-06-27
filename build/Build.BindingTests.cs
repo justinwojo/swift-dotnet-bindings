@@ -387,6 +387,13 @@ partial class Build
         if (exitCode != 0)
         {
             Log.Warning("Generator exited with code {ExitCode}", exitCode);
+            // The generator runs with logOutput:false so a passing run stays quiet, but that also
+            // hides WHY it failed (a --strict-inputs SWIFTBIND027 degradation, an exception, a
+            // wrapper-compile abort). StartProcess still captures the stream, so replay it here on
+            // failure — without this, a CI failure at this gate is opaque (the reason never reaches
+            // the Actions log).
+            foreach (var line in genProcess.Output)
+                Log.Information("[generator] {Text}", line.Text);
             if (strict)
                 throw new Exception($"Generator exited with code {exitCode} (strict mode)");
             Log.Information("This is expected if the test library includes features beyond current generator support.");
@@ -423,6 +430,8 @@ partial class Build
             if (depProcess.ExitCode != 0)
             {
                 Log.Warning("Dependency bindings generation exited with code {Code}", depProcess.ExitCode);
+                foreach (var line in depProcess.Output)
+                    Log.Information("[dep-generator] {Text}", line.Text);
                 if (strict)
                     throw new Exception($"Dependency bindings generator exited with code {depProcess.ExitCode} (strict mode)");
             }
