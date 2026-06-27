@@ -533,6 +533,220 @@ public class EveryProtocolEmitterTests
         Assert.StartsWith("describe(", EveryProtocolEmitter.GetMethodSiblingMapKey(describe));
     }
 
+    #region Cross-carrier same-signature partitioning
+
+    // A plain Swift protocol routes its EveryProtocol conformance through the plain `EveryProtocol`
+    // carrier; an @objc/NSObjectProtocol protocol routes through the NSObject-rooted
+    // `EveryObjCProtocol` carrier. When both declare the SAME member signature, Swift's
+    // cross-extension witness resolution cannot satisfy a conformance on one concrete carrier from a
+    // witness body emitted on the other — so each carrier must own (emit) its own witness. A
+    // carrier-blind single-owner plan emits the body on one carrier only and leaves the other
+    // carrier's `extension ...: P {}` empty and unsatisfiable, which swiftc rejects ("type
+    // 'EveryObjCProtocol' does not conform to protocol ...") and fails wrapper compilation. These
+    // tests pin the per-carrier partition for methods, properties, and the sibling-fallback maps.
+
+    [Fact]
+    public void ComputeMethodEmissionPlans_SameSignatureAcrossCarriers_EachCarrierOwnsItsOwnWitness()
+    {
+        var plain = CreateProtocolWithMethod("PlainGreeter", "greet");
+        var objc = CreateObjCProtocolWithMethod("ObjCGreeter", "greet");
+        _emitter.PreScanProtocols(new[] { plain, objc });
+
+        var plans = _emitter.ComputeMethodEmissionPlans(new[] { plain, objc });
+
+        // Two distinct plans — one per carrier — not a single shared owner.
+        Assert.Equal(2, new HashSet<EveryProtocolEmitter.MethodEmissionPlan>(plans.Values).Count);
+        Assert.Same(plain, PlanFor(plans, plain).Owner);
+        Assert.Same(objc, PlanFor(plans, objc).Owner);
+    }
+
+    [Fact]
+    public void ComputeMethodEmissionPlans_SameSignatureSameCarrier_StillSharesOneOwner()
+    {
+        // Guard against over-partitioning: two plain protocols (same carrier) sharing a signature
+        // must still collapse to ONE owner with both as siblings — the legacy same-carrier dedup.
+        var first = CreateProtocolWithMethod("AlphaGreeter", "greet");
+        var second = CreateProtocolWithMethod("BetaGreeter", "greet");
+        _emitter.PreScanProtocols(new[] { first, second });
+
+        var plans = _emitter.ComputeMethodEmissionPlans(new[] { first, second });
+
+        var plan = Assert.Single(new HashSet<EveryProtocolEmitter.MethodEmissionPlan>(plans.Values));
+        Assert.Equal("AlphaGreeter", plan.Owner.Name); // lex-min owner within the shared carrier
+        Assert.Equal(2, plan.Siblings.Count);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_SameSignatureAcrossCarriers_BothCarriersEmitSatisfyingWitness()
+    {
+        var plain = CreateProtocolWithMethod("PlainGreeter", "greet");
+        var objc = CreateObjCProtocolWithMethod("ObjCGreeter", "greet");
+        _emitter.PreScanProtocols(new[] { plain, objc });
+        var plans = _emitter.ComputeMethodEmissionPlans(new[] { plain, objc });
+
+        var plainOutput = EmitFullConformanceWithMethodPlans(plain, plans);
+        var objcOutput = EmitFullConformanceWithMethodPlans(objc, plans);
+
+        // Each carrier emits its OWN witness body; neither is an empty, unsatisfiable extension
+        // relying on a cross-carrier witness that cannot exist. Pre-fix, the lex-min owner
+        // (ObjCGreeter, EveryObjCProtocol) owned the sole body and the plain protocol's
+        // EveryProtocol extension emitted empty — so plainOutput lacked the witness.
+        Assert.Contains("extension EveryProtocol: TestModule.PlainGreeter", plainOutput);
+        Assert.Contains("public func greet()", plainOutput);
+        Assert.Contains("extension EveryObjCProtocol: TestModule.ObjCGreeter", objcOutput);
+        Assert.Contains("public func greet()", objcOutput);
+    }
+
+    [Fact]
+    public void ComputePropertyEmissionPlans_SameSignatureAcrossCarriers_EachCarrierOwnsItsOwnProperty()
+    {
+        var plain = CreateProtocolWithProperty("PlainHolder", "value", hasGetter: true, hasSetter: false);
+        var objc = CreateObjCProtocolWithProperty("ObjCHolder", "value", hasGetter: true, hasSetter: false);
+        _emitter.PreScanProtocols(new[] { plain, objc });
+
+        var plans = _emitter.ComputePropertyEmissionPlans(new[] { plain, objc });
+
+        Assert.Equal(2, new HashSet<EveryProtocolEmitter.PropertyEmissionPlan>(plans.Values).Count);
+        // Keys are carrier-prefixed: the shared property name appears once per carrier, each owned
+        // by its own declaring protocol.
+        var plainKey = $"EveryProtocol\u0001value|Swift.Int";
+        var objcKey = $"EveryObjCProtocol\u0001value|Swift.Int";
+        Assert.True(plans.ContainsKey(plainKey));
+        Assert.True(plans.ContainsKey(objcKey));
+        Assert.Same(plain, plans[plainKey].Owner);
+        Assert.Same(objc, plans[objcKey].Owner);
+    }
+
+    [Fact]
+    public void ComputeSiblingMethodFallbacks_SameSignatureAcrossCarriers_AreNotSiblings()
+    {
+        var plain = CreateProtocolWithMethod("PlainGreeter", "greet");
+        var objc = CreateObjCProtocolWithMethod("ObjCGreeter", "greet");
+        _emitter.PreScanProtocols(new[] { plain, objc });
+
+        var fallbacks = _emitter.ComputeSiblingMethodFallbacks(new[] { plain, objc });
+
+        // Cross-carrier protocols are NOT mutual fallback siblings: each carrier's witness fan-out
+        // only reaches same-carrier receivers, so each group is solo (count < 2) and no fallback
+        // entry is recorded. Pre-fix they shared one group and each got a sibling entry.
+        Assert.Empty(fallbacks);
+    }
+
+    [Fact]
+    public void ComputeSiblingPropertyFallbacks_SameSignatureAcrossCarriers_AreNotSiblings()
+    {
+        var plain = CreateProtocolWithProperty("PlainHolder", "value", hasGetter: true, hasSetter: false);
+        var objc = CreateObjCProtocolWithProperty("ObjCHolder", "value", hasGetter: true, hasSetter: false);
+        _emitter.PreScanProtocols(new[] { plain, objc });
+
+        var fallbacks = _emitter.ComputeSiblingPropertyFallbacks(new[] { plain, objc });
+
+        Assert.Empty(fallbacks);
+    }
+
+    [Fact]
+    public void ComputeSubscriptEmissionPlans_SameSignatureAcrossCarriers_EachCarrierOwnsItsOwnSubscript()
+    {
+        var plain = CreateProtocolWithSubscript("PlainIndexable");
+        var objc = CreateObjCProtocolWithSubscript("ObjCIndexable");
+        _emitter.PreScanProtocols(new[] { plain, objc });
+
+        var plans = _emitter.ComputeSubscriptEmissionPlans(new[] { plain, objc });
+
+        // Two distinct plans — one per carrier — not a single shared owner. Pre-fix the carrier-blind
+        // group key collapsed both into one plan owned by the lex-min protocol, leaving the other
+        // carrier's subscript extension empty and unsatisfiable.
+        Assert.Equal(2, new HashSet<EveryProtocolEmitter.SubscriptEmissionPlan>(plans.Values).Count);
+        Assert.Same(plain, SubscriptPlanFor(plans, plain).Owner);
+        Assert.Same(objc, SubscriptPlanFor(plans, objc).Owner);
+    }
+
+    [Fact]
+    public void ComputeSiblingSubscriptFallbacks_SameSignatureAcrossCarriers_AreNotSiblings()
+    {
+        var plain = CreateProtocolWithSubscript("PlainIndexable");
+        var objc = CreateObjCProtocolWithSubscript("ObjCIndexable");
+        _emitter.PreScanProtocols(new[] { plain, objc });
+
+        var fallbacks = _emitter.ComputeSiblingSubscriptFallbacks(new[] { plain, objc });
+
+        // Each carrier's subscript group is solo, so no mutual fallback siblings are recorded.
+        // Pre-fix they shared one group and each got a sibling entry.
+        Assert.Empty(fallbacks);
+    }
+
+    private static EveryProtocolEmitter.MethodEmissionPlan PlanFor(
+        IReadOnlyDictionary<(string ProtoQName, string CarrierAndSignature), EveryProtocolEmitter.MethodEmissionPlan> plans,
+        ProtocolDecl proto)
+    {
+        var qname = EveryProtocolEmitter.GetProtocolFallbackKey(proto);
+        return plans.Where(kv => kv.Key.ProtoQName == qname).Select(kv => kv.Value).Distinct().Single();
+    }
+
+    private ProtocolDecl CreateObjCProtocolWithMethod(string name, string methodName)
+    {
+        var protocol = CreateProtocolWithMethod(name, methodName);
+        // NSObjectProtocol inheritance routes the conformance through the NSObject-rooted
+        // EveryObjCProtocol carrier (see EveryProtocolEmitter.GetCarrierClassName).
+        protocol.InheritedProtocols.Add(new NamedTypeSpec("ObjectiveC.NSObjectProtocol"));
+        return protocol;
+    }
+
+    private ProtocolDecl CreateObjCProtocolWithProperty(string name, string propertyName, bool hasGetter, bool hasSetter)
+    {
+        var protocol = CreateProtocolWithProperty(name, propertyName, hasGetter, hasSetter);
+        protocol.InheritedProtocols.Add(new NamedTypeSpec("ObjectiveC.NSObjectProtocol"));
+        return protocol;
+    }
+
+    private static EveryProtocolEmitter.SubscriptEmissionPlan SubscriptPlanFor(
+        IReadOnlyDictionary<(string ProtoQName, string SubscriptKey), EveryProtocolEmitter.SubscriptEmissionPlan> plans,
+        ProtocolDecl proto)
+    {
+        var qname = EveryProtocolEmitter.GetProtocolFallbackKey(proto);
+        return plans.Where(kv => kv.Key.ProtoQName == qname).Select(kv => kv.Value).Distinct().Single();
+    }
+
+    private ProtocolDecl CreateProtocolWithSubscript(string name)
+    {
+        var protocol = CreateSimpleProtocol(name);
+        protocol.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            MangledName = "$s_test_subscript",
+            ReturnTypeSpec = new NamedTypeSpec("Swift.String"),
+            IndexParameters = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "index",
+                    PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        return protocol;
+    }
+
+    private ProtocolDecl CreateObjCProtocolWithSubscript(string name)
+    {
+        var protocol = CreateProtocolWithSubscript(name);
+        // NSObjectProtocol inheritance routes the conformance through the NSObject-rooted
+        // EveryObjCProtocol carrier (see EveryProtocolEmitter.GetCarrierClassName).
+        protocol.InheritedProtocols.Add(new NamedTypeSpec("ObjectiveC.NSObjectProtocol"));
+        return protocol;
+    }
+
+    #endregion
+
     #region S13 Pillar C — real-async reverse-dispatch witness
 
     // -- The classifier oracle EmitsRealAsyncWitness is method-shape-ONLY: it consults nothing but the
@@ -1708,7 +1922,7 @@ public class EveryProtocolEmitterTests
     }
 
     private string EmitFullConformanceWithMethodPlans(ProtocolDecl protocolDecl,
-        IReadOnlyDictionary<(string ProtoQName, string FullSignature), EveryProtocolEmitter.MethodEmissionPlan> methodPlans)
+        IReadOnlyDictionary<(string ProtoQName, string CarrierAndSignature), EveryProtocolEmitter.MethodEmissionPlan> methodPlans)
     {
         var stringWriter = new StringWriter();
         var writer = new SwiftWriter(stringWriter);

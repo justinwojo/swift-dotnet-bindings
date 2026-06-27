@@ -452,8 +452,10 @@ public class ProtocolProxyEmitterTests
 
             // Exercise the real populator (not a re-encoded predicate) so a future change to
             // ComputePropertyEmissionPlans that re-diverges from IncludesProperty is caught here.
-            var plans = EveryProtocolEmitter.ComputePropertyEmissionPlans(new[] { protocol });
-            bool planIncludes = plans.ContainsKey($"{prop.Name}|{prop.SwiftTypeSpec}");
+            // Plan keys are carrier-prefixed; a plain protocol routes to the "EveryProtocol" carrier.
+            var everyProtocolEmitter = new EveryProtocolEmitter(_typeDatabase, NullLogger.Instance, "TestModule");
+            var plans = everyProtocolEmitter.ComputePropertyEmissionPlans(new[] { protocol });
+            bool planIncludes = plans.ContainsKey($"EveryProtocol\u0001{prop.Name}|{prop.SwiftTypeSpec}");
             Assert.True(includesProperty == planIncludes,
                 $"IncludesProperty and ComputePropertyEmissionPlans diverged for [{label}]");
         }

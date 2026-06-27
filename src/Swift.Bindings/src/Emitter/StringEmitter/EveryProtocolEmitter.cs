@@ -81,6 +81,43 @@ public class EveryProtocolEmitter
         ? "EveryEntityProtocol"
         : (_useObjCBase ? "EveryObjCProtocol" : "EveryProtocol");
 
+    /// <summary>
+    /// Separator joining a carrier-class name to a member's signature in the emission-plan and
+    /// sibling-fallback group keys. A control character that cannot appear in a Swift signature
+    /// or in a carrier identifier, so the carrier prefix is never confusable with the signature.
+    /// </summary>
+    private const string CarrierKeySeparator = "\u0001";
+
+    /// <summary>
+    /// Resolves which umbrella carrier class a protocol's EveryProtocol conformance is emitted on
+    /// — <c>EveryEntityProtocol</c> (RealityFoundation.Entity-rooted), <c>EveryObjCProtocol</c>
+    /// (NSObjectProtocol-only @objc), or the plain <c>EveryProtocol</c>. Mirrors the per-protocol
+    /// routing decision in <see cref="EmitProtocolConformance"/> exactly — same
+    /// <see cref="_allProtocols"/> / <see cref="_typeDatabase"/> inputs and the same
+    /// Entity-over-ObjC precedence as <see cref="BaseClassName"/> — so the member-emission plans
+    /// and sibling-fallback maps can partition members by the concrete Swift class their witness
+    /// will live on.
+    ///
+    /// <para>Swift cross-extension witness resolution only satisfies a conformance from a witness
+    /// emitted on the SAME concrete type: a body in <c>extension EveryProtocol: X</c> cannot
+    /// satisfy <c>extension EveryObjCProtocol: Y</c>, even for an identical signature. So a member
+    /// shared by two protocols that route to DIFFERENT carriers must emit its OWN owner body on
+    /// each carrier. Merging both into one cross-carrier group picks a single owner on one carrier
+    /// and leaves the other carrier's extension empty and unsatisfiable ("does not conform"),
+    /// which then fails wrapper compilation. Prefixing every group key with the carrier keeps the
+    /// ownership/sibling partition carrier-local so each carrier gets a satisfying witness.</para>
+    /// </summary>
+    private string GetCarrierClassName(ProtocolDecl protocolDecl)
+    {
+        if (HasClassSuperclassRequirement(protocolDecl, _typeDatabase, _allProtocols)
+            && IsEntityRootedProtocol(protocolDecl, _typeDatabase, _allProtocols))
+            return "EveryEntityProtocol";
+        if (IsClassBoundProtocol(protocolDecl, _allProtocols)
+            && IsNSObjectProtocolOnly(protocolDecl, _allProtocols))
+            return "EveryObjCProtocol";
+        return "EveryProtocol";
+    }
+
     public EveryProtocolEmitter(ITypeDatabase typeDatabase, ILogger logger, string moduleName, ModuleEmissionContext? emissionContext = null)
     {
         _typeDatabase = typeDatabase;
@@ -593,27 +630,36 @@ public class EveryProtocolEmitter
     /// All siblings in the group are recorded on the returned <see cref="PropertyEmissionPlan"/>
     /// so the owner body can fan out across each sibling's vtable.</para>
     ///
-    /// <para>Key format: <c>$"{property.Name}|{property.SwiftTypeSpec}"</c> — properties
-    /// sharing the same name but different types are already dropped upstream by the
-    /// type-count gate in <c>ModuleHandler.EmitEveryProtocolConformances</c>, so this key
-    /// only collides for true same-name+same-type+different-accessor-set groups.</para>
+    /// <para>Key format: <c>$"{carrier}{property.Name}|{property.SwiftTypeSpec}"</c>, where
+    /// <c>carrier</c> is <see cref="GetCarrierClassName"/>. Properties sharing the same name but
+    /// different types are already dropped upstream by the type-count gate in
+    /// <c>ModuleHandler.EmitEveryProtocolConformances</c>, so the signature part only collides for
+    /// true same-name+same-type+different-accessor-set groups. The carrier prefix further keeps
+    /// protocols that route to DIFFERENT umbrella classes (plain <c>EveryProtocol</c> vs.
+    /// <c>EveryObjCProtocol</c> vs. <c>EveryEntityProtocol</c>) in SEPARATE groups — they emit
+    /// witnesses on distinct concrete Swift classes, and Swift cross-extension witness resolution
+    /// cannot bridge a witness from one to a conformance on the other.</para>
     ///
-    /// <para>Returns a map keyed by <c>$"{name}|{typeKey}"</c>. Properties with only one
-    /// declaring protocol are still recorded (owner = that protocol, sibling lists contain
-    /// only the owner) so callers can uniformly query the plan.</para>
+    /// <para>Returns a map keyed by that carrier-prefixed key; the lookup in
+    /// <see cref="EmitProtocolExtension"/> reconstructs it via <see cref="GetCarrierClassName"/> on
+    /// the protocol being emitted. Properties with only one declaring protocol are still recorded
+    /// (owner = that protocol, sibling lists contain only the owner) so callers can uniformly query
+    /// the plan. Instance (not static) because <see cref="GetCarrierClassName"/> needs the
+    /// pre-scanned <see cref="_allProtocols"/> / <see cref="_typeDatabase"/> routing state.</para>
     /// </summary>
-    public static IReadOnlyDictionary<string, PropertyEmissionPlan> ComputePropertyEmissionPlans(
+    public IReadOnlyDictionary<string, PropertyEmissionPlan> ComputePropertyEmissionPlans(
         IEnumerable<ProtocolDecl> protocols,
         IEnumerable<ProtocolDecl>? filteredPeers = null)
     {
         var groups = new Dictionary<string, List<(ProtocolDecl Proto, PropertyDecl Prop, bool HasSetter)>>(StringComparer.Ordinal);
         foreach (var p in protocols)
         {
+            var carrier = GetCarrierClassName(p);
             foreach (var prop in p.Properties)
             {
                 if (prop.IsStatic || prop.IsObjCOptional || !prop.IsProtocolRequirement)
                     continue;
-                var key = $"{prop.Name}|{prop.SwiftTypeSpec}";
+                var key = $"{carrier}{CarrierKeySeparator}{prop.Name}|{prop.SwiftTypeSpec}";
                 if (!groups.TryGetValue(key, out var list))
                 {
                     list = new List<(ProtocolDecl, PropertyDecl, bool)>();
@@ -624,19 +670,21 @@ public class EveryProtocolEmitter
         }
 
         // Collect group keys that filtered peers also declare. A filtered protocol with the
-        // same (propertyName, propertyType) as an emitted owner means Swift CEWR can still
-        // route a filtered-existential dispatch through the owner's body — see the
-        // HasFilteredPeers parameter on PropertyEmissionPlan for the rationale.
+        // same (carrier, propertyName, propertyType) as an emitted owner means Swift CEWR can
+        // still route a filtered-existential dispatch through the owner's body — see the
+        // HasFilteredPeers parameter on PropertyEmissionPlan for the rationale. The carrier
+        // prefix keeps the match carrier-local, mirroring the owner-group partition above.
         var filteredKeys = new HashSet<string>(StringComparer.Ordinal);
         if (filteredPeers is not null)
         {
             foreach (var p in filteredPeers)
             {
+                var carrier = GetCarrierClassName(p);
                 foreach (var prop in p.Properties)
                 {
                     if (prop.IsStatic || prop.IsObjCOptional || !prop.IsProtocolRequirement)
                         continue;
-                    filteredKeys.Add($"{prop.Name}|{prop.SwiftTypeSpec}");
+                    filteredKeys.Add($"{carrier}{CarrierKeySeparator}{prop.Name}|{prop.SwiftTypeSpec}");
                 }
             }
         }
@@ -697,17 +745,22 @@ public class EveryProtocolEmitter
     /// fallback list, each receiver tries its own interface first, then walks siblings —
     /// so any populated branch correctly locates the proxy regardless of registration order.</para>
     /// </summary>
-    public static IReadOnlyDictionary<(string ProtoQName, string PropertyName), IReadOnlyList<ModuleEmissionContext.SiblingPropertyFallback>>
+    public IReadOnlyDictionary<(string ProtoQName, string PropertyName), IReadOnlyList<ModuleEmissionContext.SiblingPropertyFallback>>
         ComputeSiblingPropertyFallbacks(IEnumerable<ProtocolDecl> protocols)
     {
         var groups = new Dictionary<string, List<(ProtocolDecl Proto, PropertyDecl Prop, bool HasSetter)>>(StringComparer.Ordinal);
         foreach (var p in protocols)
         {
+            // Carrier-prefix the group key so two protocols routing to DIFFERENT umbrella
+            // carriers never become mutual fallback siblings — the owner-body fan-out
+            // (ComputePropertyEmissionPlans) is itself carrier-partitioned, so a receiver in
+            // one carrier's vtable is only ever reached for same-carrier protocols.
+            var carrier = GetCarrierClassName(p);
             foreach (var prop in p.Properties)
             {
                 if (prop.IsStatic || prop.IsObjCOptional || !prop.IsProtocolRequirement)
                     continue;
-                var key = $"{prop.Name}|{prop.SwiftTypeSpec}";
+                var key = $"{carrier}{CarrierKeySeparator}{prop.Name}|{prop.SwiftTypeSpec}";
                 if (!groups.TryGetValue(key, out var list))
                 {
                     list = new List<(ProtocolDecl, PropertyDecl, bool)>();
@@ -811,16 +864,17 @@ public class EveryProtocolEmitter
     /// owner and non-owner siblings are recorded so the dispatch loop in
     /// <c>EmitProtocolExtension</c> can look up the plan from either side.</para>
     /// </summary>
-    public static IReadOnlyDictionary<(string ProtoQName, string SubscriptKey), SubscriptEmissionPlan>
+    public IReadOnlyDictionary<(string ProtoQName, string SubscriptKey), SubscriptEmissionPlan>
         ComputeSubscriptEmissionPlans(IEnumerable<ProtocolDecl> protocols,
             IEnumerable<ProtocolDecl>? filteredPeers = null)
     {
         var groups = new Dictionary<string, List<(ProtocolDecl Proto, SubscriptDecl Sub, int Index, bool HasSetter)>>(StringComparer.Ordinal);
         foreach (var p in protocols)
         {
+            var carrier = GetCarrierClassName(p);
             foreach (var (sub, idx) in EnumerateIndexedSubscripts(p))
             {
-                var key = GetSubscriptSiblingKey(sub);
+                var key = $"{carrier}{CarrierKeySeparator}{GetSubscriptSiblingKey(sub)}";
                 if (!groups.TryGetValue(key, out var list))
                 {
                     list = new List<(ProtocolDecl, SubscriptDecl, int, bool)>();
@@ -830,16 +884,18 @@ public class EveryProtocolEmitter
             }
         }
 
-        // Mirror of ComputePropertyEmissionPlans: collect signature keys that filtered peers
-        // also declare so HasFilteredPeers can flip on the multi-branch nil-check fan-out.
+        // Mirror of ComputePropertyEmissionPlans: collect carrier-prefixed signature keys that
+        // filtered peers also declare so HasFilteredPeers can flip on the multi-branch nil-check
+        // fan-out. The carrier prefix keeps the match carrier-local (see GetCarrierClassName).
         var filteredKeys = new HashSet<string>(StringComparer.Ordinal);
         if (filteredPeers is not null)
         {
             foreach (var p in filteredPeers)
             {
+                var carrier = GetCarrierClassName(p);
                 foreach (var (sub, _) in EnumerateIndexedSubscripts(p))
                 {
-                    filteredKeys.Add(GetSubscriptSiblingKey(sub));
+                    filteredKeys.Add($"{carrier}{CarrierKeySeparator}{GetSubscriptSiblingKey(sub)}");
                 }
             }
         }
@@ -887,15 +943,18 @@ public class EveryProtocolEmitter
     /// protocols in the same sibling group with their per-protocol subscript indices,
     /// ordered lexicographically. Subscripts not in a sibling group are omitted.
     /// </summary>
-    public static IReadOnlyDictionary<(string ProtoQName, string SubscriptKey), IReadOnlyList<ModuleEmissionContext.SiblingSubscriptFallback>>
+    public IReadOnlyDictionary<(string ProtoQName, string SubscriptKey), IReadOnlyList<ModuleEmissionContext.SiblingSubscriptFallback>>
         ComputeSiblingSubscriptFallbacks(IEnumerable<ProtocolDecl> protocols)
     {
         var groups = new Dictionary<string, List<(ProtocolDecl Proto, SubscriptDecl Sub, int Index, bool HasSetter)>>(StringComparer.Ordinal);
         foreach (var p in protocols)
         {
+            // Carrier-prefix so cross-carrier protocols never become mutual fallback siblings
+            // (see ComputeSiblingPropertyFallbacks for the rationale).
+            var carrier = GetCarrierClassName(p);
             foreach (var (sub, idx) in EnumerateIndexedSubscripts(p))
             {
-                var key = GetSubscriptSiblingKey(sub);
+                var key = $"{carrier}{CarrierKeySeparator}{GetSubscriptSiblingKey(sub)}";
                 if (!groups.TryGetValue(key, out var list))
                 {
                     list = new List<(ProtocolDecl, SubscriptDecl, int, bool)>();
@@ -964,18 +1023,29 @@ public class EveryProtocolEmitter
     /// so the partition matches the legacy <c>globalEmittedSignatures</c> dedup exactly and
     /// solo methods keep byte-identical single-branch output.</para>
     ///
-    /// <para>Returns a map keyed by <c>(GetProtocolFallbackKey(proto), fullSignature)</c>; both
-    /// owner and non-owner entries are recorded so the dispatch loop can look the plan up from
-    /// either side. This is an instance method (not static like the property/subscript versions)
+    /// <para>Returns a map keyed by <c>(GetProtocolFallbackKey(proto), carrier-prefixed signature)</c>;
+    /// the second element is <c>{carrier}{CarrierKeySeparator}{fullSignature}</c> so two protocols
+    /// sharing one signature but routed to different carriers stay in separate plans. Both owner and
+    /// non-owner entries are recorded so the dispatch loop can look the plan up from either side.
+    /// This is an instance method (not static like the property/subscript versions)
     /// because <see cref="GetSwiftMethodFullSignature"/> needs the type projection state.</para>
     /// </summary>
-    public IReadOnlyDictionary<(string ProtoQName, string FullSignature), MethodEmissionPlan>
+    public IReadOnlyDictionary<(string ProtoQName, string CarrierAndSignature), MethodEmissionPlan>
         ComputeMethodEmissionPlans(IEnumerable<ProtocolDecl> protocols,
             IEnumerable<ProtocolDecl>? filteredPeers = null)
     {
         var groups = new Dictionary<string, List<(ProtocolDecl Proto, MethodDecl Method, int Index)>>(StringComparer.Ordinal);
         foreach (var p in protocols)
         {
+            // Carrier-prefix the group key so two protocols routing to DIFFERENT umbrella carriers
+            // (plain EveryProtocol vs. EveryObjCProtocol vs. EveryEntityProtocol) never share one
+            // owner. They emit witnesses on distinct concrete Swift classes, and Swift
+            // cross-extension witness resolution cannot satisfy a conformance on one carrier from a
+            // body emitted on another — so a single cross-carrier owner would leave the other
+            // carrier's extension empty and unsatisfiable ("does not conform"), failing wrapper
+            // compilation. The triggering shape is a plain Swift protocol and an
+            // @objc/NSObjectProtocol protocol that declare one identical method signature.
+            var carrier = GetCarrierClassName(p);
             foreach (var (method, idx) in EnumerateProtocolMethodsForDispatch(p))
             {
                 // Owner/peer dedup keys off the EMITTED Swift witness shape. A real-async witness
@@ -985,7 +1055,7 @@ public class EveryProtocolEmitter
                 // A sync method, and an async method whose shape falls back to the blocking sync witness,
                 // both keep the async-OMITTED key so they still share one owner + empty-extension peer.
                 // The C# fan-out distinction lives in ComputeSiblingMethodFallbacks (includeAsyncEffect:true).
-                var key = GetSwiftMethodFullSignature(method, includeAsyncEffect: EmitsRealAsyncWitness(method));
+                var key = $"{carrier}{CarrierKeySeparator}{GetSwiftMethodFullSignature(method, includeAsyncEffect: EmitsRealAsyncWitness(method))}";
                 if (!groups.TryGetValue(key, out var list))
                 {
                     list = new List<(ProtocolDecl, MethodDecl, int)>();
@@ -995,14 +1065,18 @@ public class EveryProtocolEmitter
             }
         }
 
-        // Mirror of ComputeSubscriptEmissionPlans: collect signatures that filtered peers also
-        // declare so HasFilteredPeers can flip on the nil-check fan-out for an otherwise-solo owner.
+        // Mirror of ComputeSubscriptEmissionPlans: collect carrier-prefixed signatures that filtered
+        // peers also declare so HasFilteredPeers can flip on the nil-check fan-out for an
+        // otherwise-solo owner. The carrier prefix keeps the match carrier-local.
         var filteredKeys = new HashSet<string>(StringComparer.Ordinal);
         if (filteredPeers is not null)
         {
             foreach (var p in filteredPeers)
+            {
+                var carrier = GetCarrierClassName(p);
                 foreach (var (method, _) in EnumerateProtocolMethodsForDispatch(p))
-                    filteredKeys.Add(GetSwiftMethodFullSignature(method, includeAsyncEffect: EmitsRealAsyncWitness(method)));
+                    filteredKeys.Add($"{carrier}{CarrierKeySeparator}{GetSwiftMethodFullSignature(method, includeAsyncEffect: EmitsRealAsyncWitness(method))}");
+            }
         }
 
         // A sibling only contributes a fan-out BRANCH if its protocol actually emits a per-protocol
@@ -1113,6 +1187,11 @@ public class EveryProtocolEmitter
         var groups = new Dictionary<string, List<(ProtocolDecl Proto, MethodDecl Method, int Index)>>(StringComparer.Ordinal);
         foreach (var p in protocols)
         {
+            // Carrier-prefix so cross-carrier protocols never become mutual fallback siblings — the
+            // owner-body fan-out (ComputeMethodEmissionPlans) is carrier-partitioned, so a receiver
+            // in one carrier's vtable is only reached for same-carrier protocols (see
+            // ComputeSiblingPropertyFallbacks for the rationale).
+            var carrier = GetCarrierClassName(p);
             foreach (var (method, idx) in EnumerateProtocolMethodsForDispatch(p))
             {
                 // C# receiver siblings key off MEMBER identity (includeAsyncEffect: true): a sync
@@ -1134,7 +1213,7 @@ public class EveryProtocolEmitter
                 // groups this splits are the mixed value/inout ones the receivers cannot dispatch.
                 var inoutShape = string.Join(",", method.CSSignature.Skip(1)
                     .Select(p => (p.IsInOut || (p.SwiftTypeSpec?.IsInOut ?? false)) ? "1" : "0"));
-                var key = GetSwiftMethodFullSignature(method, includeAsyncEffect: true) + "|inout:" + inoutShape;
+                var key = $"{carrier}{CarrierKeySeparator}" + GetSwiftMethodFullSignature(method, includeAsyncEffect: true) + "|inout:" + inoutShape;
                 if (!groups.TryGetValue(key, out var list))
                 {
                     list = new List<(ProtocolDecl, MethodDecl, int)>();
@@ -1231,7 +1310,7 @@ public class EveryProtocolEmitter
         HashSet<string>? globalEmittedSignatures, HashSet<string>? nonThrowingOverrides = null,
         IReadOnlyDictionary<string, PropertyEmissionPlan>? propertyPlans = null,
         IReadOnlyDictionary<(string ProtoQName, string SubscriptKey), SubscriptEmissionPlan>? subscriptPlans = null,
-        IReadOnlyDictionary<(string ProtoQName, string FullSignature), MethodEmissionPlan>? methodPlans = null)
+        IReadOnlyDictionary<(string ProtoQName, string CarrierAndSignature), MethodEmissionPlan>? methodPlans = null)
     {
         var protocolName = protocolDecl.SwiftTypeName.ModuleQualifiedName;
         var vtableInstanceName = GetVtableInstanceName(protocolDecl);
@@ -1307,7 +1386,9 @@ public class EveryProtocolEmitter
             // win, leaving the get+set extension empty and rejected by swiftc as
             // "does not conform — missing set witness".
             PropertyEmissionPlan? plan = null;
-            var planKey = $"{property.Name}|{property.SwiftTypeSpec}";
+            // Carrier-prefixed to match the partition in ComputePropertyEmissionPlans: a property
+            // shared across umbrella carriers has a distinct plan (and owner) per carrier.
+            var planKey = $"{GetCarrierClassName(protocolDecl)}{CarrierKeySeparator}{property.Name}|{property.SwiftTypeSpec}";
             if (propertyPlans != null && propertyPlans.TryGetValue(planKey, out plan))
             {
                 if (plan.Owner != protocolDecl)
@@ -1457,7 +1538,12 @@ public class EveryProtocolEmitter
             // groups (return is part of the key), so each still emits its own body — same as the
             // legacy dedup, which the wrapper strip/retry mechanism handles.
             MethodEmissionPlan? methodPlan = null;
-            if (methodPlans != null && methodPlans.TryGetValue((protoQNameForMethods, witnessGroupKey), out methodPlan))
+            // Carrier-prefixed to match the partition in ComputeMethodEmissionPlans, whose plans dict
+            // is keyed by the carrier-prefixed group key: a method shared across umbrella carriers has
+            // a distinct owner/plan per carrier. (witnessGroupKey stays bare for the per-extension body
+            // dedup and the legacy globalEmittedSignatures fallback, both carrier-constant.)
+            var methodPlanLookupKey = $"{GetCarrierClassName(protocolDecl)}{CarrierKeySeparator}{witnessGroupKey}";
+            if (methodPlans != null && methodPlans.TryGetValue((protoQNameForMethods, methodPlanLookupKey), out methodPlan))
             {
                 if (methodPlan.Owner != protocolDecl)
                 {
@@ -2004,7 +2090,7 @@ public class EveryProtocolEmitter
         HashSet<string>? globalEmittedSignatures, HashSet<string>? nonThrowingOverrides,
         IReadOnlyDictionary<string, PropertyEmissionPlan>? propertyPlans,
         IReadOnlyDictionary<(string ProtoQName, string SubscriptKey), SubscriptEmissionPlan>? subscriptPlans,
-        IReadOnlyDictionary<(string ProtoQName, string FullSignature), MethodEmissionPlan>? methodPlans = null)
+        IReadOnlyDictionary<(string ProtoQName, string CarrierAndSignature), MethodEmissionPlan>? methodPlans = null)
     {
         // Reset per-protocol routing state — the NSObjectProtocol-only gate below sets
         // _useObjCBase=true only for the protocols that need EveryObjCProtocol; the

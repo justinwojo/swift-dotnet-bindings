@@ -1428,8 +1428,10 @@ namespace BindingsGeneration
             // witness resolution. The owner's body fans out across every sibling vtable so
             // dispatch through any sibling existential finds the populated vtable. Has-setter
             // wins over get-only; lex tie-break for determinism.
-            // See EveryProtocolEmitter.ComputePropertyEmissionPlans.
-            var propertyPlans = EveryProtocolEmitter.ComputePropertyEmissionPlans(planInputProtocols, filteredPeers);
+            // See EveryProtocolEmitter.ComputePropertyEmissionPlans. Instance call: the grouping
+            // is partitioned by carrier class, which needs the emitter's pre-scanned protocol/type
+            // state.
+            var propertyPlans = emitter.ComputePropertyEmissionPlans(planInputProtocols, filteredPeers);
 
             // Sibling fallback map: when ProtocolProxyEmitter emits a property receiver for
             // a property in a sibling group, the receiver tries its own interface first and
@@ -1440,14 +1442,14 @@ namespace BindingsGeneration
             // see a handle registered as a different sibling's proxy and returns empty /
             // no-ops, producing order-dependent dispatch bugs.
             emissionCtx?.SetSiblingPropertyFallbacks(
-                EveryProtocolEmitter.ComputeSiblingPropertyFallbacks(planInputProtocols));
+                emitter.ComputeSiblingPropertyFallbacks(planInputProtocols));
 
             // Sibling-subscript plan + fallback map: mirror of the property sibling pipeline.
             // The owner of a shared subscript signature emits the body with fan-out across
             // every sibling's per-protocol vtable index; siblings emit empty extensions.
-            var subscriptPlans = EveryProtocolEmitter.ComputeSubscriptEmissionPlans(planInputProtocols, filteredPeers);
+            var subscriptPlans = emitter.ComputeSubscriptEmissionPlans(planInputProtocols, filteredPeers);
             emissionCtx?.SetSiblingSubscriptFallbacks(
-                EveryProtocolEmitter.ComputeSiblingSubscriptFallbacks(planInputProtocols));
+                emitter.ComputeSiblingSubscriptFallbacks(planInputProtocols));
 
             // Sibling-method plan + fallback map: same-signature-method counterpart of the property
             // and subscript sibling pipelines. The owner of a shared method signature emits the body
