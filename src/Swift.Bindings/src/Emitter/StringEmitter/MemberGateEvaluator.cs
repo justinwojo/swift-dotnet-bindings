@@ -96,9 +96,16 @@ public class MemberGateEvaluator
                 return GateResult.Skipped(SkipReason.AnyTypeFallback, "Property type contains AnyType as a generic type argument, which violates generic constraints.");
         }
 
-        // P5: Unsupported module references (types registered in type database are allowed through)
-        if (MemberEmissionValidator.ReferencesUnsupportedModule(property.SwiftTypeSpec, _typeDatabase))
-            return GateResult.Skipped(SkipReason.SwiftUIConstraint, "Property type references unsupported module (SwiftUI/Combine).");
+        // P5: Unsupported module references (types registered in type database are allowed through).
+        // No scalar carve-out in protocol context — a projected LocalizedStringResource requirement
+        // would still dispatch through the witness/proxy path, which transports the resilient struct.
+        var propUnsupported = ValidationRuleSet.ClassifyUnsupportedReference(
+            property.SwiftTypeSpec, _typeDatabase, out var propOffending);
+        if (propUnsupported != ValidationRuleSet.UnsupportedReferenceKind.None)
+            return GateResult.Skipped(ValidationRuleSet.ToSkipReason(propUnsupported),
+                propUnsupported == ValidationRuleSet.UnsupportedReferenceKind.NetUnavailable
+                    ? $"Property type references .NET-unavailable type '{propOffending}'."
+                    : "Property type references unsupported module (SwiftUI/Combine).");
 
         // P6: Bound generic with non-ISwiftObject args
         if (property.SwiftTypeSpec is NamedTypeSpec propNamedType &&
@@ -213,11 +220,19 @@ public class MemberGateEvaluator
         if (protocolContext != null && HasAnyTypeGenericArgInMethodSignature(method, protocolContext))
             return GateResult.Skipped(SkipReason.AnyTypeFallback, "Method return type or parameter contains AnyType as a generic type argument.");
 
-        // Unsupported module references (types registered in type database are allowed through)
-        bool hasUnsupportedModuleRef = method.CSSignature.Any(arg =>
-            MemberEmissionValidator.ReferencesUnsupportedModule(arg.SwiftTypeSpec, _typeDatabase));
-        if (hasUnsupportedModuleRef)
-            return GateResult.Skipped(SkipReason.SwiftUIConstraint, "Method signature references unsupported module (SwiftUI/Combine).");
+        // Unsupported module references (types registered in type database are allowed through).
+        // No scalar carve-out in protocol context — a projected requirement still dispatches
+        // through the witness/proxy path, which transports the resilient struct.
+        foreach (var arg in method.CSSignature)
+        {
+            var kind = ValidationRuleSet.ClassifyUnsupportedReference(
+                arg.SwiftTypeSpec, _typeDatabase, out var offending);
+            if (kind != ValidationRuleSet.UnsupportedReferenceKind.None)
+                return GateResult.Skipped(ValidationRuleSet.ToSkipReason(kind),
+                    kind == ValidationRuleSet.UnsupportedReferenceKind.NetUnavailable
+                        ? $"Method signature references .NET-unavailable type '{offending}'."
+                        : "Method signature references unsupported module (SwiftUI/Combine).");
+        }
 
         // Pattern 2 emission-time gate — method signature reaches a name in
         // ModuleDecl.InternalTypeNames. Mirrors S6 in EvaluateSubscript and the
@@ -287,10 +302,18 @@ public class MemberGateEvaluator
             }
         }
 
-        // S5: Unsupported module references (types registered in type database are allowed through)
-        if (MemberEmissionValidator.ReferencesUnsupportedModule(subscript.ReturnTypeSpec, _typeDatabase) ||
-            subscript.IndexParameters.Any(p => MemberEmissionValidator.ReferencesUnsupportedModule(p.SwiftTypeSpec, _typeDatabase)))
-            return GateResult.Skipped(SkipReason.SwiftUIConstraint, "Subscript signature references unsupported module (SwiftUI/Combine).");
+        // S5: Unsupported module references (types registered in type database are allowed through).
+        // No scalar carve-out for subscripts — they marshal through the UTF-8/raw subscript path,
+        // which is not taught the LocalizedStringResource conversion.
+        foreach (var spec in subscript.IndexParameters.Select(p => p.SwiftTypeSpec).Prepend(subscript.ReturnTypeSpec))
+        {
+            var kind = ValidationRuleSet.ClassifyUnsupportedReference(spec, _typeDatabase, out var offending);
+            if (kind != ValidationRuleSet.UnsupportedReferenceKind.None)
+                return GateResult.Skipped(ValidationRuleSet.ToSkipReason(kind),
+                    kind == ValidationRuleSet.UnsupportedReferenceKind.NetUnavailable
+                        ? $"Subscript signature references .NET-unavailable type '{offending}'."
+                        : "Subscript signature references unsupported module (SwiftUI/Combine).");
+        }
 
         // S6: Pattern 2 emission-time gate — subscript signature reaches a name in
         // ModuleDecl.InternalTypeNames. Mirrors EvaluateHardGates / EvaluatePropertyHardGates
@@ -341,15 +364,20 @@ public class MemberGateEvaluator
                     "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.");
         }
 
-        // Unsupported module references (types registered in type database are allowed through)
-        bool hasUnsupportedModuleRef = method.CSSignature.Any(arg =>
-            MemberEmissionValidator.ReferencesUnsupportedModule(arg.SwiftTypeSpec, _typeDatabase));
-        if (hasUnsupportedModuleRef)
+        // Unsupported module references (types registered in type database are allowed through).
+        // A bare scalar LocalizedStringResource param/return is carved out on the simple concrete
+        // wire path (non-async, non-generic, non-generic-parent) so it can project as a string;
+        // every other net-unavailable / SwiftUI-Combine reference still drops.
+        bool allowScalar = MarshallingHelpers.AllowsProjectableScalarCarveOut(method);
+        foreach (var arg in method.CSSignature)
         {
-            var unsupportedArg = method.CSSignature.First(arg =>
-                MemberEmissionValidator.ReferencesUnsupportedModule(arg.SwiftTypeSpec, _typeDatabase));
-            return GateResult.Skipped(SkipReason.SwiftUIConstraint,
-                $"Method signature references unsupported module (SwiftUI/Combine) in '{unsupportedArg.SwiftTypeSpec}'.");
+            var kind = ValidationRuleSet.ClassifyUnsupportedReference(
+                arg.SwiftTypeSpec, _typeDatabase, out var offending, allowProjectableScalar: allowScalar);
+            if (kind != ValidationRuleSet.UnsupportedReferenceKind.None)
+                return GateResult.Skipped(ValidationRuleSet.ToSkipReason(kind),
+                    kind == ValidationRuleSet.UnsupportedReferenceKind.NetUnavailable
+                        ? $"Method signature references .NET-unavailable type '{offending}' in '{arg.SwiftTypeSpec}'."
+                        : $"Method signature references unsupported module (SwiftUI/Combine) in '{arg.SwiftTypeSpec}'.");
         }
 
         // Internal type references — parameter/return types that are internal to the module
@@ -393,8 +421,13 @@ public class MemberGateEvaluator
             return GateResult.Skipped(SkipReason.UnsupportedSignature, "Property type uses generic type without type arguments.");
 
         // Unsupported module references (types registered in type database are allowed through)
-        if (MemberEmissionValidator.ReferencesUnsupportedModule(property.SwiftTypeSpec, _typeDatabase))
-            return GateResult.Skipped(SkipReason.SwiftUIConstraint, "Property type references unsupported module (SwiftUI/Combine).");
+        var hardPropKind = ValidationRuleSet.ClassifyUnsupportedReference(
+            property.SwiftTypeSpec, _typeDatabase, out var hardPropOffending);
+        if (hardPropKind != ValidationRuleSet.UnsupportedReferenceKind.None)
+            return GateResult.Skipped(ValidationRuleSet.ToSkipReason(hardPropKind),
+                hardPropKind == ValidationRuleSet.UnsupportedReferenceKind.NetUnavailable
+                    ? $"Property type references .NET-unavailable type '{hardPropOffending}'."
+                    : "Property type references unsupported module (SwiftUI/Combine).");
 
         // Non-ISwiftObject bound generic
         if (property.SwiftTypeSpec is NamedTypeSpec propNamedType &&

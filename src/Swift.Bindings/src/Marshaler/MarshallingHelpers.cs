@@ -20,6 +20,7 @@ namespace BindingsGeneration
         public static bool IsConvertibleType(TypeSpec? typeSpec)
         {
             return IsSwiftString(typeSpec) ||
+                   IsLocalizedStringResource(typeSpec) ||
                    IsSwiftArray(typeSpec) ||
                    IsSwiftDictionary(typeSpec) ||
                    IsSwiftSet(typeSpec) ||
@@ -57,14 +58,55 @@ namespace BindingsGeneration
         public static bool IsSwiftString(TypeSpec? typeSpec) => MatchesSwiftTypeName(typeSpec, SwiftStringTypeName);
 
         /// <summary>
+        /// Checks whether the type spec represents <c>Foundation.LocalizedStringResource</c>
+        /// (iOS 16+). Its public ABI is a String wrapper, so on the simple concrete @_cdecl
+        /// wire path it is projected to a C# <c>string</c> via <see cref="StringProjection"/>:
+        /// the wire format is identical to a Swift.String, and the wrapper body converts with
+        /// <c>LocalizedStringResource(stringLiteral:)</c> (param) / <c>String(localized:)</c>
+        /// (return). The type is not yet present in the .NET Foundation assembly, so any
+        /// non-scalar use (container/closure/protocol position) stays dropped — see the
+        /// <c>allowProjectableScalar</c> carve-out in
+        /// <see cref="ValidationRuleSet.ClassifyUnsupportedReference"/>.
+        /// </summary>
+        public static bool IsLocalizedStringResource(TypeSpec? typeSpec)
+            => typeSpec is NamedTypeSpec named && named.Name == "Foundation.LocalizedStringResource";
+
+        /// <summary>
+        /// Whether a method/constructor is on the simple concrete @_cdecl wire path that can
+        /// carry a carved-out scalar <c>LocalizedStringResource</c> as a string. Async,
+        /// method-generic, and generic-parent members route to specialized emitters that do
+        /// not know the LSR ↔ string conversion, so they must NOT receive the carve-out (the
+        /// member is dropped with an accurate net-unavailable reason instead).
+        /// </summary>
+        public static bool AllowsProjectableScalarCarveOut(MethodDecl method)
+            => !method.IsAsync
+               && !method.IsGeneric
+               && !HasGenericParent(method.ParentDecl);
+
+        /// <summary>
+        /// Property counterpart of <see cref="AllowsProjectableScalarCarveOut(MethodDecl)"/>.
+        /// Async properties are re-emitted as methods upstream (so a PropertyDecl reaching the
+        /// gate is synchronous); generic-parent properties route through the
+        /// constrained-extension/specialization paths that do not know the LSR ↔ string conversion.
+        /// </summary>
+        public static bool AllowsProjectableScalarCarveOut(PropertyDecl property)
+            => !HasGenericParent(property.ParentDecl);
+
+        private static bool HasGenericParent(BaseDecl? parentDecl)
+            => parentDecl is TypeDecl typeDecl && typeDecl.GenericParameters.Count > 0;
+
+        /// <summary>
         /// Whether a SwiftString parameter should be decomposed into two nint words for @_cdecl
         /// constructor/method wrappers. The @_cdecl Swift wrappers receive String as two Int words
         /// (_sW0_, _sW1_), so the C# P/Invoke must emit matching nint pairs instead of a Buffer struct.
         /// Invariant: SwiftString.Buffer is exactly 16 bytes (two nint-sized words).
+        /// A carved-out scalar <see cref="IsLocalizedStringResource"/> param marshals as a string
+        /// (StringProjection) and the @_cdecl wrapper reconstructs the resource from the same two
+        /// Int words, so it decomposes identically.
         /// </summary>
         public static bool ShouldDecomposeStringForCdecl(MethodDecl methodDecl, TypeSpec? typeSpec)
             => (methodDecl.UsesCdeclConstructorWrapper || methodDecl.UsesCdeclMethodWrapper)
-                && IsSwiftString(typeSpec);
+                && (IsSwiftString(typeSpec) || IsLocalizedStringResource(typeSpec));
 
         /// <summary>
         /// Checks whether the type spec represents Foundation.Data.
@@ -240,7 +282,10 @@ namespace BindingsGeneration
             if (returnTypeForCdecl.SwiftTypeSpec.IsEmptyTuple)
                 return false;
 
-            if (returnTypeForCdecl.SwiftTypeSpec is NamedTypeSpec nts && nts.Name == "Swift.String")
+            // String and the LocalizedStringResource carve-out both return their UTF-8 bytes via
+            // the resultPtr out-parameter (SBW_Utf8Slice) — @_cdecl can't return a Swift struct.
+            if (returnTypeForCdecl.SwiftTypeSpec is NamedTypeSpec nts &&
+                (nts.Name == "Swift.String" || IsLocalizedStringResource(nts)))
                 return true;
 
             // Existential returns: @_cdecl can't return existential containers directly.

@@ -1256,9 +1256,12 @@ namespace BindingsGeneration
             foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(a => !a.IsGeneric && !_env.BoundGenericsHandler.IsBoundGeneric(a) && !_env.ClosureHandler.IsClosure(a) && !_env.TupleHandler.IsTuple(a) && !_env.ExistentialHandler.IsExistential(a) && (_env.MethodDecl.IsAccessor || !MarshallingHelpers.IsConvertibleType(a.SwiftTypeSpec))))
             {
                 // @_cdecl property wrapper: String params are passed as (IntPtr, int) directly.
-                // Skip PayloadBuffer extraction — there's no SwiftString to extract from.
+                // Skip PayloadBuffer extraction — there's no SwiftString to extract from. A carved-out
+                // scalar LocalizedStringResource setter is passed the same (Utf8Ptr, Utf8Len) pair,
+                // so it skips the buffer/Handle extraction identically.
                 if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
-                    argumentDecl.SwiftTypeSpec is NamedTypeSpec strArgNts && strArgNts.Name == "Swift.String")
+                    argumentDecl.SwiftTypeSpec is NamedTypeSpec strArgNts &&
+                    (strArgNts.Name == "Swift.String" || MarshallingHelpers.IsLocalizedStringResource(strArgNts)))
                     continue;
 
                 TypeRecord typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argumentDecl.SwiftTypeSpec);

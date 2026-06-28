@@ -55,6 +55,14 @@ public static class NativeThunkEmitter
         if (!WrapperValidation.IsXCFrameworkMode(env.TypeDatabase))
             return false;
 
+        // Gate-reduced rescue overloads keep the full-ABI MangledName but emit fewer arguments,
+        // so they MUST be realized by a @_cdecl wrapper whose Swift body calls the declaration by
+        // name and lets Swift supply the dropped trailing defaults. A thunk emits `bl <symbol>`
+        // straight to that full-ABI symbol with no way to fill a default, so it would leave the
+        // dropped parameter's register uninitialized → runtime fault. Force the @_cdecl path.
+        if (methodDecl.IsGateReducedOverload)
+            return false;
+
         // Async functions use swifttailcc (coroutine-based) — completely different ABI
         if (methodDecl.IsAsync)
             return false;

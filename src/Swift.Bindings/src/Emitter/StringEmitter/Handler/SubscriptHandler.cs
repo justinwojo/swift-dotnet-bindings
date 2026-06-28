@@ -64,12 +64,24 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // Skip subscripts referencing unsupported modules (SwiftUI, Combine) unless registered in type database
-                if (MemberEmissionValidator.ReferencesUnsupportedModule(subscriptDecl.ReturnTypeSpec, typeDatabase) ||
-                    subscriptDecl.IndexParameters.Any(p => MemberEmissionValidator.ReferencesUnsupportedModule(p.SwiftTypeSpec, typeDatabase)))
+                // Skip subscripts referencing unsupported modules (SwiftUI, Combine) unless registered in type
+                // database. No scalar carve-out — subscripts marshal through the UTF-8/raw path, not the
+                // LocalizedStringResource-aware @_cdecl wrapper. A net-unavailable type gets the accurate reason.
+                var subscriptUnsupported = ValidationRuleSet.UnsupportedReferenceKind.None;
+                string? subscriptOffending = null;
+                foreach (var spec in subscriptDecl.IndexParameters.Select(p => p.SwiftTypeSpec).Prepend(subscriptDecl.ReturnTypeSpec))
+                {
+                    subscriptUnsupported = ValidationRuleSet.ClassifyUnsupportedReference(spec, typeDatabase, out subscriptOffending);
+                    if (subscriptUnsupported != ValidationRuleSet.UnsupportedReferenceKind.None)
+                        break;
+                }
+                if (subscriptUnsupported != ValidationRuleSet.UnsupportedReferenceKind.None)
                 {
                     ReportCollector.RecordMemberSkipped(subscriptDecl,
-                        SkipReason.SwiftUIConstraint, "Subscript signature references unsupported module.");
+                        ValidationRuleSet.ToSkipReason(subscriptUnsupported),
+                        subscriptUnsupported == ValidationRuleSet.UnsupportedReferenceKind.NetUnavailable
+                            ? $"Subscript signature references .NET-unavailable type '{subscriptOffending}'."
+                            : "Subscript signature references unsupported module.");
                     continue;
                 }
 

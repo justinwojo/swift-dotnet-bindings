@@ -176,11 +176,19 @@ public static class MemberEmissionValidator
             }
         }
 
-        // B19: Skip properties referencing SwiftUI/Combine types (unless registered in type database)
-        if (MemberEmissionValidator.ReferencesUnsupportedModule(property.SwiftTypeSpec, typeDatabase))
+        // B19: Skip properties referencing SwiftUI/Combine types (unless registered in type database).
+        // A bare scalar LocalizedStringResource property is carved out on the simple concrete wire
+        // path (non-generic-parent) so it projects to a C# string; net-unavailable types in any other
+        // position drop with an accurate NetUnavailableType reason rather than a false SwiftUIConstraint.
+        var propAllowScalar = MarshallingHelpers.AllowsProjectableScalarCarveOut(property);
+        var propKind = ValidationRuleSet.ClassifyUnsupportedReference(
+            property.SwiftTypeSpec, typeDatabase, out var propOffending, allowProjectableScalar: propAllowScalar);
+        if (propKind != ValidationRuleSet.UnsupportedReferenceKind.None)
         {
-            skipDetails = "Property type references unsupported module (SwiftUI/Combine).";
-            return SkipReason.SwiftUIConstraint;
+            skipDetails = propKind == ValidationRuleSet.UnsupportedReferenceKind.NetUnavailable
+                ? $"Property type references .NET-unavailable type '{propOffending}'."
+                : "Property type references unsupported module (SwiftUI/Combine).";
+            return ValidationRuleSet.ToSkipReason(propKind);
         }
 
         // Check AsyncStream properties — IsAsyncStream now admits AsyncThrowingStream too. The
@@ -992,12 +1000,19 @@ public static class MemberEmissionValidator
 
         // B19: Skip methods whose return type or parameters reference SwiftUI/Combine types (unless registered in type database).
         // Must run BEFORE the constructor early-return so constructors with unsupported params are also skipped.
+        // Mirrors the scalar LocalizedStringResource carve-out in EvaluateHardGates (which ran first):
+        // without it, a method EvaluateHardGates admitted would be re-rejected here.
+        var methodAllowScalar = MarshallingHelpers.AllowsProjectableScalarCarveOut(method);
         foreach (var arg in method.CSSignature)
         {
-            if (ReferencesUnsupportedModule(arg.SwiftTypeSpec, typeDatabase))
+            var kind = ValidationRuleSet.ClassifyUnsupportedReference(
+                arg.SwiftTypeSpec, typeDatabase, out var offending, allowProjectableScalar: methodAllowScalar);
+            if (kind != ValidationRuleSet.UnsupportedReferenceKind.None)
             {
-                skipDetails = $"Method signature references unsupported module (SwiftUI/Combine) in '{arg.SwiftTypeSpec}'.";
-                return SkipReason.SwiftUIConstraint;
+                skipDetails = kind == ValidationRuleSet.UnsupportedReferenceKind.NetUnavailable
+                    ? $"Method signature references .NET-unavailable type '{offending}' in '{arg.SwiftTypeSpec}'."
+                    : $"Method signature references unsupported module (SwiftUI/Combine) in '{arg.SwiftTypeSpec}'.";
+                return ValidationRuleSet.ToSkipReason(kind);
             }
         }
 

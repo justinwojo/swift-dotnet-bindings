@@ -72,6 +72,26 @@ namespace BindingsGeneration.Tests
         #region ShouldEmitThunk — Rejection Cases
 
         [Fact]
+        public void ShouldEmitThunk_GateReducedOverload_ReturnsFalse()
+        {
+            // A gate-reduced rescue overload keeps the full-ABI MangledName but emits fewer args, so
+            // it must be realized by a @_cdecl wrapper (whose Swift body fills the dropped trailing
+            // defaults), never a native thunk — a thunk `bl`s the full-ABI symbol with the dropped
+            // parameter's register uninitialized → runtime fault. Baseline: an otherwise
+            // thunk-eligible class constructor (@MainActor does not block the thunk, so the rescue
+            // can't rely on isolation to dodge it — this flag is the only thing that forces @_cdecl).
+            var env = CreateMethodEnv(
+                methodType: MethodType.Instance,
+                isConstructor: true,
+                parentDecl: CreateClassDecl());
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+
+            env.MethodDecl.IsGateReducedOverload = true;
+
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
         public void ShouldEmitThunk_AsyncMethod_ReturnsFalse()
         {
             var env = CreateMethodEnv(isAsync: true, parentDecl: CreateClassDecl());

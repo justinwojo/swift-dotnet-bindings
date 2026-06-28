@@ -675,11 +675,29 @@ namespace BindingsGeneration
                 // @_cdecl property/subscript wrapper: String params via UTF-8 pointer + length.
                 // Swift @_cdecl receives UnsafePointer<UInt8> + Int, reconstructs String from UTF-8.
                 // Constructor/method wrappers use SwiftString.Buffer (two-word) path instead.
+                // A carved-out scalar LocalizedStringResource setter takes the same UTF-8 bytes; the
+                // Swift wrapper rebuilds the resource via LocalizedStringResource(stringLiteral:).
                 if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
-                    argument.SwiftTypeSpec is NamedTypeSpec argStrNamed && argStrNamed.Name == "Swift.String")
+                    argument.SwiftTypeSpec is NamedTypeSpec argStrNamed &&
+                    (argStrNamed.Name == "Swift.String" || MarshallingHelpers.IsLocalizedStringResource(argStrNamed)))
                 {
                     AddParameter("IntPtr", csName + "Utf8Ptr");
                     AddParameter("nint", csName + "Utf8Len");
+                    continue;
+                }
+
+                // SwiftString ABI decomposition: @_cdecl constructor/method wrappers receive String
+                // as two Int words. Decompose SwiftString.Buffer into two nint fields to match the
+                // Swift @_cdecl parameter layout, avoiding ARM64 AAPCS64 struct-to-register ambiguity
+                // when 4+ strings fill x0-x7. Non-@_cdecl paths retain FrozenBuffer (struct) passing.
+                // Runs BEFORE the TypeRecord-based branches: a carved-out LocalizedStringResource has
+                // an auto-bridged, NON-frozen TypeRecord, so the ObjCBridged / non-frozen-SafeHandle
+                // branches below would otherwise intercept it before this two-word path (Swift.String's
+                // own TypeRecord is frozen, so it would reach here either way).
+                if (MarshallingHelpers.ShouldDecomposeStringForCdecl(_env.MethodDecl, argument.SwiftTypeSpec))
+                {
+                    AddParameter("nint", csName + "_w0");
+                    AddParameter("nint", csName + "_w1");
                     continue;
                 }
 
@@ -772,17 +790,6 @@ namespace BindingsGeneration
                 {
                     AddParameter(new MarshalledType.CdeclFrozenStruct(
                         argumentTypeRecord.CSharpTypeName.FullyQualifiedName), csName);
-                    continue;
-                }
-
-                // SwiftString ABI decomposition: @_cdecl wrappers receive String as two Int words.
-                // Decompose SwiftString.Buffer into two nint fields to match the Swift @_cdecl
-                // parameter layout, avoiding ARM64 AAPCS64 struct-to-register ambiguity when
-                // 4+ strings fill x0-x7. Non-@_cdecl paths retain FrozenBuffer (struct) passing.
-                if (MarshallingHelpers.ShouldDecomposeStringForCdecl(_env.MethodDecl, argument.SwiftTypeSpec))
-                {
-                    AddParameter("nint", csName + "_w0");
-                    AddParameter("nint", csName + "_w1");
                     continue;
                 }
 

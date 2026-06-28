@@ -162,6 +162,16 @@ public enum SkipReason
     /// public-API-identical to the previous emit-then-strip + C# reconcile.
     /// </summary>
     ParentModuleInternalNoFallback,
+    /// <summary>
+    /// Member signature references a Swift type that is auto-bridged but not yet present in the
+    /// .NET Foundation (or similar) assembly — e.g. <c>Foundation.LocalizedStringResource</c> in a
+    /// container/closure position, or <c>Foundation.Predicate</c>. The owning module IS supported;
+    /// only the individual type is unavailable in .NET. Distinct from <see cref="SwiftUIConstraint"/>
+    /// (a genuine SwiftUI/Combine-module reference) and <see cref="UnsupportedType"/> (a type that
+    /// merely needs exporting) so the report attributes the drop to the real cause rather than
+    /// misclassifying a Foundation type as SwiftUI/Combine.
+    /// </summary>
+    NetUnavailableType,
     Unknown,
 }
 

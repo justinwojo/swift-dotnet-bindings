@@ -179,6 +179,27 @@ public class TypeProjectionFactoryTests
     }
 
     [Fact]
+    public void Project_FoundationLocalizedStringResource_ReturnsStringProjection()
+    {
+        // Foundation.LocalizedStringResource → StringProjection. The type is
+        // auto-bridged by Swift but absent from the .NET Foundation assembly, so
+        // it is projected to a C# string on the simple concrete wire path
+        // (param rebuilt via LocalizedStringResource(stringLiteral:), return
+        // resolved via String(localized:)). Factory short-circuits before the
+        // type database lookup, like Foundation.Data / Foundation.Date.
+        var db = new MockTypeDatabase();
+        var ctx = CreateContext(db);
+        var typeSpec = new NamedTypeSpec("Foundation.LocalizedStringResource");
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.NotNull(projection);
+        Assert.IsType<StringProjection>(projection);
+        Assert.Equal("string", projection.PublicType);
+        Assert.Equal("SwiftString", projection.PInvokeType);
+    }
+
+    [Fact]
     public void Project_NativeRemappedNonFrozen_ReturnsNativeRemappedProjection()
     {
         // Foundation.URL → non-frozen, NativeTypeName = NSUrl, CSharpTypeName = SwiftURL

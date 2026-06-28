@@ -200,7 +200,11 @@ public static class PropertyWrapperEmitter
         var propertySwiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(propertyDecl.SwiftTypeSpec);
         bool isClass = env.ParentDecl is ClassDecl;
         bool isStatic = propertyDecl.IsStatic;
-        bool isString = WitnessDispatchEmitter.IsStringType(propertyDecl.SwiftTypeSpec);
+        // LocalizedStringResource projects to a C# string and rides the SBW_Utf8Slice property
+        // path; broaden locally rather than touching WitnessDispatchEmitter.IsStringType so the
+        // resilient type stays out of witness/protocol dispatch (where it remains gate-dropped).
+        bool isLsr = MarshallingHelpers.IsLocalizedStringResource(propertyDecl.SwiftTypeSpec);
+        bool isString = WitnessDispatchEmitter.IsStringType(propertyDecl.SwiftTypeSpec) || isLsr;
         bool isNonCopyableParent = !isClass && !isStatic && WrapperValidation.IsNonCopyableStructParent(env.ParentDecl);
 
         // Ensure SBW_Utf8Slice infrastructure is emitted for string properties
@@ -387,7 +391,9 @@ public static class PropertyWrapperEmitter
         // Emit return based on type category
         if (isString)
         {
-            EmitStringGetterBody(swiftWriter, propAccess);
+            // LocalizedStringResource getter: resolve the resource to a String (iOS 16+) before
+            // it rides the SBW_Utf8Slice path.
+            EmitStringGetterBody(swiftWriter, isLsr ? $"String(localized: {propAccess})" : propAccess);
         }
         else if (isDecomposedOptionalGetter)
         {
@@ -494,7 +500,10 @@ public static class PropertyWrapperEmitter
         var moduleName = parentTypeDecl.SwiftTypeName.Module;
         bool isClass = env.ParentDecl is ClassDecl;
         bool isStatic = propertyDecl.IsStatic;
-        bool isString = WitnessDispatchEmitter.IsStringType(propertyDecl.SwiftTypeSpec);
+        // LocalizedStringResource projects to a C# string and rides the SBW_Utf8Slice setter path;
+        // broaden locally (see getter) so the resilient type stays out of witness/protocol dispatch.
+        bool isLsr = MarshallingHelpers.IsLocalizedStringResource(propertyDecl.SwiftTypeSpec);
+        bool isString = WitnessDispatchEmitter.IsStringType(propertyDecl.SwiftTypeSpec) || isLsr;
 
         // Build parameter list — phase ordering from CdeclSignatureContract.
         var swiftParams = new List<string>();
@@ -666,7 +675,9 @@ public static class PropertyWrapperEmitter
         }
 
         // Get the value expression (may be reconstructed with suffix "Val" or "Opt" depending on path)
-        string valueExpr = isString ? "newValue" :
+        // LocalizedStringResource setter: wrap the reconstructed String back into a resource (iOS 16+).
+        string valueExpr = isLsr ? "Foundation.LocalizedStringResource(stringLiteral: newValue)" :
+            isString ? "newValue" :
             (cdeclCallArgValueExpr ?? (reconstructionLines.Count > 0 ? "newValueVal" : "newValue"));
 
         // Emit assignment

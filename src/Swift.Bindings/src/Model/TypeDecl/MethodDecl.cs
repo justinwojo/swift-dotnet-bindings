@@ -454,6 +454,22 @@ namespace BindingsGeneration
         /// member is tombstone-eligible (see ClosureParamTombstoneEmitter.IsEligible).
         /// </summary>
         public bool IsClosureParamTombstone { get; set; } = false;
+
+        /// <summary>
+        /// When true, this decl is a reduced overload synthesized by the pre-gate
+        /// trailing-default rescue: a clone of a member that the gate dropped solely because a
+        /// trailing default-valued parameter had an unbindable type, with those trailing
+        /// parameters removed. The clone KEEPS the original full-ABI <c>MangledName</c> but emits
+        /// FEWER arguments, so it is correct ONLY when realized by a @_cdecl wrapper whose Swift
+        /// body calls the declaration by name with the kept arguments and lets Swift supply the
+        /// dropped trailing defaults. A native ARM64 thunk cannot do this — it emits
+        /// <c>bl &lt;swift_symbol&gt;</c> straight to the full-ABI symbol and has no way to fill a
+        /// Swift default, so it would call that symbol with the dropped parameter's register left
+        /// uninitialized (garbage → runtime fault). The handler prefers a thunk over a @_cdecl
+        /// wrapper whenever one is eligible, so this flag forces the @_cdecl path:
+        /// <see cref="NativeThunkEmitter.ShouldEmitThunk"/> returns false for any decl carrying it.
+        /// </summary>
+        public bool IsGateReducedOverload { get; set; } = false;
     }
 
     /// <summary>

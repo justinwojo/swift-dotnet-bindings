@@ -321,7 +321,12 @@ public static class MethodWrapperEmitter
         // Determine return mapping
         var returnTypeSpec = methodDecl.CSSignature.First().SwiftTypeSpec;
         bool isVoidReturn = returnTypeSpec.IsEmptyTuple;
-        bool isString = !isVoidReturn && WitnessDispatchEmitter.IsStringType(returnTypeSpec);
+        // LocalizedStringResource projects to a C# string and rides the SBW_Utf8Slice String return
+        // path; broaden locally rather than touching WitnessDispatchEmitter.IsStringType so the
+        // resilient type stays out of witness/protocol dispatch (where it remains gate-dropped).
+        bool isLsrReturn = !isVoidReturn && MarshallingHelpers.IsLocalizedStringResource(returnTypeSpec);
+        bool isString = !isVoidReturn &&
+            (WitnessDispatchEmitter.IsStringType(returnTypeSpec) || isLsrReturn);
 
         var (returnMapping, needsResultPtr) = isVoidReturn
             ? (new CdeclReturnMapping("Void", CdeclReturnKind.Direct), false)
@@ -587,6 +592,13 @@ public static class MethodWrapperEmitter
                     : $"{selfRef}.{swiftMethodName}({callArgString})";
             }
         }
+
+        // LocalizedStringResource return: convert the resource to a String before it rides the
+        // SBW_Utf8Slice String return path. String(localized:) resolves the resource against the
+        // current locale (iOS 16+). Wrapping the fully-built call expression covers every branch
+        // above, plus the throwing path (the `try` prefix is added downstream around this expr).
+        if (isLsrReturn)
+            callExpr = $"String(localized: {callExpr})";
 
         // For generic parent class types, emit protocol + conformance for type erasure
         string? protocolName = null;

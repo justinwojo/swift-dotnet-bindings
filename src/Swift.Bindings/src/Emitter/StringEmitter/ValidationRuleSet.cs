@@ -40,16 +40,75 @@ public static class ValidationRuleSet
     #region TypeSpec-Level Gates
 
     /// <summary>
+    /// Why a TypeSpec reference is unsupported. Lets callers distinguish a Foundation type
+    /// that is simply not yet present in the .NET assemblies (correctable by projecting or
+    /// noting the gap) from a genuine SwiftUI/Combine-module / unemittable reference.
+    /// </summary>
+    public enum UnsupportedReferenceKind
+    {
+        /// <summary>The reference is supported (or, for a carved-out scalar, projectable).</summary>
+        None,
+
+        /// <summary>
+        /// References a Swift type that is auto-bridged but not present in the .NET Foundation
+        /// (or similar) assembly — e.g. <c>Foundation.LocalizedStringResource</c>,
+        /// <c>Foundation.Predicate</c>. The owning Foundation module IS supported; only the
+        /// individual type is unavailable in .NET, so the SwiftUI/Combine skip reason misclassifies it.
+        /// </summary>
+        NetUnavailable,
+
+        /// <summary>
+        /// References a SwiftUI/Combine-module type, a .NET static class, a type the emitter will
+        /// skip/never produce, or a module-internal type — the existing "unsupported module" buckets.
+        /// </summary>
+        OtherUnsupported,
+    }
+
+    /// <summary>
     /// Returns true if the TypeSpec references a type from an unsupported module (SwiftUI, Combine, etc.)
     /// that is NOT registered in the type database. Types registered in the database (e.g., SwiftUI.Color,
     /// SwiftUI.Font from SwiftUIDatabase.xml) are considered supported and pass through.
     /// Recursively checks generic parameters, tuple elements, and closure args/return.
     /// Also rejects types that are .NET static classes (cannot be used as variables/parameters).
+    /// Thin shim over <see cref="ClassifyUnsupportedReference"/> for the many boolean callers.
     /// </summary>
     public static bool ReferencesUnsupportedModule(TypeSpec? typeSpec, ITypeDatabase? typeDatabase = null)
+        => ClassifyUnsupportedReference(typeSpec, typeDatabase, out _) != UnsupportedReferenceKind.None;
+
+    /// <summary>
+    /// Maps an <see cref="UnsupportedReferenceKind"/> to the report <see cref="SkipReason"/>:
+    /// a .NET-unavailable Foundation type gets <see cref="SkipReason.NetUnavailableType"/>; every
+    /// other unsupported reference keeps the historical <see cref="SkipReason.SwiftUIConstraint"/>
+    /// at the member-gate sites that previously hardcoded it.
+    /// </summary>
+    public static SkipReason ToSkipReason(UnsupportedReferenceKind kind)
+        => kind == UnsupportedReferenceKind.NetUnavailable
+            ? SkipReason.NetUnavailableType
+            : SkipReason.SwiftUIConstraint;
+
+    /// <summary>
+    /// Classifies <em>why</em> a TypeSpec reference is unsupported (see <see cref="UnsupportedReferenceKind"/>),
+    /// surfacing the first offending module-qualified type name via <paramref name="offendingType"/>.
+    /// Recursively descends generic parameters, tuple elements, closure args/return, and protocol
+    /// compositions; nested positions are always classified strictly (no scalar carve-out).
+    /// <para>
+    /// When <paramref name="allowProjectableScalar"/> is true, a bare top-level
+    /// <c>Foundation.LocalizedStringResource</c> (no generic parameters) classifies as
+    /// <see cref="UnsupportedReferenceKind.None"/> so a caller on the simple concrete @_cdecl wire
+    /// path can project it as a string. Recursion never propagates the flag, so a nested
+    /// <c>[LocalizedStringResource]</c> / <c>LocalizedStringResource?</c> still classifies as
+    /// <see cref="UnsupportedReferenceKind.NetUnavailable"/> (its native carrier would mismatch).
+    /// </para>
+    /// </summary>
+    public static UnsupportedReferenceKind ClassifyUnsupportedReference(
+        TypeSpec? typeSpec,
+        ITypeDatabase? typeDatabase,
+        out string? offendingType,
+        bool allowProjectableScalar = false)
     {
+        offendingType = null;
         if (typeSpec == null)
-            return false;
+            return UnsupportedReferenceKind.None;
 
         switch (typeSpec)
         {
@@ -57,11 +116,25 @@ public static class ValidationRuleSet
                 // Types that are static classes in .NET — cannot be used as variables,
                 // parameters, return types, or generic type arguments (CS0718/CS0723).
                 if (IsNetStaticClassType(namedType.Name))
-                    return true;
+                {
+                    offendingType = namedType.Name;
+                    return UnsupportedReferenceKind.OtherUnsupported;
+                }
                 // Types that are auto-bridged but not yet present in the .NET Foundation
-                // (or similar) assembly. Referencing them would produce CS0234.
+                // (or similar) assembly. Referencing them would produce CS0234 — UNLESS a
+                // caller on the simple concrete wire path can project a bare scalar
+                // LocalizedStringResource as a string (param/return only; never nested).
                 if (IsNetUnavailableBridgedType(namedType.Name))
-                    return true;
+                {
+                    if (allowProjectableScalar &&
+                        namedType.GenericParameters.Count == 0 &&
+                        MarshallingHelpers.IsLocalizedStringResource(namedType))
+                    {
+                        return UnsupportedReferenceKind.None;
+                    }
+                    offendingType = namedType.Name;
+                    return UnsupportedReferenceKind.NetUnavailable;
+                }
                 // Types the current module's type handlers will skip (populated by
                 // TypeSkipPrePass before member emission begins). Referencing a
                 // skipped generic (e.g., MusicKit.MusicRelationshipProperty<_,_>) would
@@ -69,7 +142,10 @@ public static class ValidationRuleSet
                 // emitted. Enforces the invariant "if a type is skipped, every use of
                 // it must be skipped too."
                 if (namedType.HasModule() && IsTypeSkippedWithUmbrellaRemap(namedType))
-                    return true;
+                {
+                    offendingType = namedType.Name;
+                    return UnsupportedReferenceKind.OtherUnsupported;
+                }
                 // Types the emitter will never produce (e.g., single-case no-payload
                 // enums marked Unemittable). Skip anything referencing them so we don't
                 // leave dangling references to a type that will never exist.
@@ -78,7 +154,8 @@ public static class ValidationRuleSet
                         SwiftTypeName.FromModuleQualifiedName(namedType.Name), out var unemittableRecord) &&
                     unemittableRecord.Flags.HasFlag(TypeRecordFlags.Unemittable))
                 {
-                    return true;
+                    offendingType = namedType.Name;
+                    return UnsupportedReferenceKind.OtherUnsupported;
                 }
                 if (namedType.HasModule() && IsUnsupportedConstraintModule(namedType.Module))
                 {
@@ -89,42 +166,48 @@ public static class ValidationRuleSet
                         !typeDatabase.TryGetTypeRecord(
                             SwiftTypeName.FromModuleQualifiedName(namedType.Name), out _))
                     {
-                        return true;
+                        offendingType = namedType.Name;
+                        return UnsupportedReferenceKind.OtherUnsupported;
                     }
                     // Registered non-generic type — fall through to generic parameter check
                 }
                 foreach (var genericParam in namedType.GenericParameters)
                 {
-                    if (ReferencesUnsupportedModule(genericParam, typeDatabase))
-                        return true;
+                    var kind = ClassifyUnsupportedReference(genericParam, typeDatabase, out offendingType);
+                    if (kind != UnsupportedReferenceKind.None)
+                        return kind;
                 }
-                return false;
+                return UnsupportedReferenceKind.None;
 
             case TupleTypeSpec tupleType:
                 foreach (var element in tupleType.Elements)
                 {
-                    if (ReferencesUnsupportedModule(element, typeDatabase))
-                        return true;
+                    var kind = ClassifyUnsupportedReference(element, typeDatabase, out offendingType);
+                    if (kind != UnsupportedReferenceKind.None)
+                        return kind;
                 }
-                return false;
+                return UnsupportedReferenceKind.None;
 
             case ClosureTypeSpec closureType:
-                if (ReferencesUnsupportedModule(closureType.Arguments, typeDatabase))
-                    return true;
-                if (ReferencesUnsupportedModule(closureType.ReturnType, typeDatabase))
-                    return true;
-                return false;
+                var argKind = ClassifyUnsupportedReference(closureType.Arguments, typeDatabase, out offendingType);
+                if (argKind != UnsupportedReferenceKind.None)
+                    return argKind;
+                var retKind = ClassifyUnsupportedReference(closureType.ReturnType, typeDatabase, out offendingType);
+                if (retKind != UnsupportedReferenceKind.None)
+                    return retKind;
+                return UnsupportedReferenceKind.None;
 
             case ProtocolListTypeSpec protocolList:
                 foreach (var protocol in protocolList.Protocols.Keys)
                 {
-                    if (ReferencesUnsupportedModule(protocol, typeDatabase))
-                        return true;
+                    var kind = ClassifyUnsupportedReference(protocol, typeDatabase, out offendingType);
+                    if (kind != UnsupportedReferenceKind.None)
+                        return kind;
                 }
-                return false;
+                return UnsupportedReferenceKind.None;
 
             default:
-                return false;
+                return UnsupportedReferenceKind.None;
         }
     }
 

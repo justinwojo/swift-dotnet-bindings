@@ -39,6 +39,12 @@ internal record CdeclReturnMapping(string CdeclReturnType, CdeclReturnKind Kind)
         if (typeSpec is NamedTypeSpec strNamed && strNamed.Name == "Swift.String")
             return (new CdeclReturnMapping("SBW_Utf8Slice", CdeclReturnKind.String), true);
 
+        // Foundation.LocalizedStringResource (iOS 16+): identical wire to Swift.String — the @_cdecl
+        // wrapper converts the resource to a String (String(localized:)) and returns it via
+        // SBW_Utf8Slice. Only reached for the carved-out scalar return on the simple concrete path.
+        if (typeSpec is NamedTypeSpec lsrNamed && lsrNamed.Name == "Foundation.LocalizedStringResource")
+            return (new CdeclReturnMapping("SBW_Utf8Slice", CdeclReturnKind.String), true);
+
         // AnyObject: IS a class reference by definition — use Unmanaged.passRetained().toOpaque().
         // AnyObject may appear as ProtocolListTypeSpec (from existential parsing) or as plain
         // NamedTypeSpec (from TypeSpecParser). Without this gate, it falls through to IndirectResult

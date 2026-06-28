@@ -453,8 +453,10 @@ namespace BindingsGeneration
             // @_cdecl property wrapper: String returns via Utf8Slice (C struct), not SwiftString.
             // The Swift @_cdecl wrapper returns SBW_Utf8Slice; C# receives it as Utf8Slice.
             // No MarshalFromSwift needed — PropertyHandler's getter body handles the conversion.
+            // A carved-out scalar LocalizedStringResource getter rides the same Utf8Slice wire.
             if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
-                argument.SwiftTypeSpec is NamedTypeSpec cdeclStrNts && cdeclStrNts.Name == "Swift.String")
+                argument.SwiftTypeSpec is NamedTypeSpec cdeclStrNts &&
+                (cdeclStrNts.Name == "Swift.String" || MarshallingHelpers.IsLocalizedStringResource(cdeclStrNts)))
             {
                 SetReturnType("Utf8Slice");
                 return;
@@ -671,8 +673,11 @@ namespace BindingsGeneration
 
                 // @_cdecl property wrapper: String params use UTF-8 pointer + length.
                 // nint matches Swift's Int (64-bit on ARM64) to avoid truncation.
+                // A carved-out scalar LocalizedStringResource setter takes the same UTF-8 bytes;
+                // the Swift wrapper rebuilds the resource via LocalizedStringResource(stringLiteral:).
                 if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
-                    argument.SwiftTypeSpec is NamedTypeSpec cdeclStrArgNts && cdeclStrArgNts.Name == "Swift.String")
+                    argument.SwiftTypeSpec is NamedTypeSpec cdeclStrArgNts &&
+                    (cdeclStrArgNts.Name == "Swift.String" || MarshallingHelpers.IsLocalizedStringResource(cdeclStrArgNts)))
                 {
                     AddParameter("IntPtr", csParamName + "Utf8Ptr");
                     AddParameter("nint", csParamName + "Utf8Len");

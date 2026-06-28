@@ -326,6 +326,15 @@ public class TypeProjectionFactory
         if (name == "Foundation.Date")
             return new DateProjection();
 
+        // Foundation.LocalizedStringResource (iOS 16+) projects to a C# string: its wire format
+        // is identical to Swift.String (StringProjection), and the @_cdecl wrapper converts with
+        // LocalizedStringResource(stringLiteral:) / String(localized:). Only reachable here for the
+        // carved-out scalar param/return/property on the simple concrete wire path — every other
+        // position (container/closure/protocol) is dropped by ClassifyUnsupportedReference before
+        // projection, so no Apple supplement reference is needed (the emitted C# names only string).
+        if (name == "Foundation.LocalizedStringResource")
+            return new StringProjection();
+
         // Pointer types are always mapped to System.IntPtr
         if (AppleFrameworkRegistry.IsPointerType(name))
             return new BlittableProjection("System.IntPtr");

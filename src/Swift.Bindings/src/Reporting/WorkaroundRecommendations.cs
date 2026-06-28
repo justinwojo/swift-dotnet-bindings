@@ -68,6 +68,8 @@ public static class WorkaroundRecommendations
             "Public async/closure-bearing method or frozen-struct operator on a @usableFromInline internal parent type. Its wrapper must name the internal parent and no direct CallConvSwift fallback exists, so the member is dropped. Move the member onto a public type, or expose it through a public Swift wrapper.",
         SkipReason.IndeterminateStructLayout =>
             "The frozen struct has a stored field that is a generic value-type instantiation (e.g. ClosedRange<Int>, Result<T,E>) whose inline size depends on its type arguments and cannot be derived cross-compile. Write a Swift wrapper that exposes the data through a supported, concretely-sized type.",
+        SkipReason.NetUnavailableType =>
+            "The Swift type is auto-bridged but not yet present in the .NET Foundation assembly. Write a Swift wrapper that exposes the data through a supported type (e.g. a plain String).",
         SkipReason.Unknown =>
             "Investigate the specific member in the generator output.",
         _ => null,
@@ -133,6 +135,8 @@ public static class WorkaroundRecommendations
             "public async/closure/operator member on a @usableFromInline internal parent type with no direct CallConvSwift fallback",
         SkipReason.IndeterminateStructLayout =>
             "frozen struct stored field has an indeterminate cross-compile Buffer layout (generic value-type instantiation)",
+        SkipReason.NetUnavailableType =>
+            "Foundation type not yet available in .NET",
         SkipReason.Unknown =>
             "unclassified skip reason",
         _ => null,

@@ -135,6 +135,260 @@ public class DefaultParameterOverloadEmitterTests
 
     #endregion
 
+    #region BuildGateReducedDecl Tests
+
+    [Fact]
+    public void BuildGateReducedDecl_KeepsOriginalMangledName()
+    {
+        // Unlike BuildOverloadDecl (which forces a DBW_ silgen-shim symbol), the gate-reduced
+        // clone keeps the original silgen MangledName: it is routed back through the normal
+        // handler as a fresh primary that calls the Swift declaration directly (Swift supplies
+        // the dropped trailing default).
+        var method = CreateMethodWithArgs(
+            CreateArg("tip", hasDefault: false),
+            CreateArg("arrowEdge", hasDefault: true));
+
+        var reduced = DefaultParameterOverloadEmitter.BuildGateReducedDecl(method, dropCount: 1);
+
+        Assert.Equal(method.MangledName, reduced.MangledName);
+        // Contrast with BuildOverloadDecl, which forces a _dbw_ silgen-shim symbol.
+        Assert.DoesNotContain("_dbw_", reduced.MangledName);
+    }
+
+    [Fact]
+    public void BuildGateReducedDecl_DoesNotForceWrapperLibrary()
+    {
+        // BuildOverloadDecl unconditionally sets UsesWrapperLibrary=true; the gate-reduced
+        // clone must carry the original's value through unchanged so the handler makes its own
+        // @_cdecl wrapper decision (forcing it true would mis-trip ShouldEmitWrapper).
+        var method = CreateMethodWithArgs(
+            CreateArg("tip", hasDefault: false),
+            CreateArg("arrowEdge", hasDefault: true));
+        method.UsesWrapperLibrary = false;
+
+        var reduced = DefaultParameterOverloadEmitter.BuildGateReducedDecl(method, dropCount: 1);
+
+        Assert.False(reduced.UsesWrapperLibrary);
+    }
+
+    [Fact]
+    public void BuildGateReducedDecl_DropsTrailingParams()
+    {
+        // init(tip:arrowEdge:) → init(tip:): drop the single trailing default.
+        var method = CreateMethodWithArgs(
+            CreateArg("tip", hasDefault: false),
+            CreateArg("arrowEdge", hasDefault: true));
+
+        var reduced = DefaultParameterOverloadEmitter.BuildGateReducedDecl(method, dropCount: 1);
+
+        // CSSignature[0] is the return type; one kept param remains.
+        Assert.Equal(2, reduced.CSSignature.Count);
+        Assert.Equal("tip", reduced.CSSignature[1].Name);
+    }
+
+    [Fact]
+    public void BuildGateReducedDecl_PreservesConstructorAndFailability()
+    {
+        var method = CreateMethodWithArgs(
+            CreateArg("tip", hasDefault: false),
+            CreateArg("arrowEdge", hasDefault: true));
+        method.IsConstructor = true;
+        method.IsFailable = true;
+
+        var reduced = DefaultParameterOverloadEmitter.BuildGateReducedDecl(method, dropCount: 1);
+
+        Assert.True(reduced.IsConstructor);
+        Assert.True(reduced.IsFailable);
+    }
+
+    [Fact]
+    public void BuildGateReducedDecl_PreservesOwnershipOnKeptParam()
+    {
+        // Ownership is an intrinsic, position-independent property; a kept consuming param must
+        // not silently revert to Default (same double-free hazard BuildOverloadDecl guards).
+        var resource = CreateArg("resource", hasDefault: false);
+        resource.Ownership = ParameterOwnership.Owned;
+        var method = CreateMethodWithArgs(
+            resource,
+            CreateArg("flags", hasDefault: true));
+
+        var reduced = DefaultParameterOverloadEmitter.BuildGateReducedDecl(method, dropCount: 1);
+
+        Assert.Equal(ParameterOwnership.Owned, reduced.CSSignature[1].Ownership);
+    }
+
+    [Fact]
+    public void BuildGateReducedDecl_PreservesOverrideFlag()
+    {
+        // The reduced decl re-enters emission as a fresh primary; a dropped IsOverride would emit
+        // a name-hiding method instead of a C# override, breaking managed polymorphism.
+        var method = CreateMethodWithArgs(
+            CreateArg("tip", hasDefault: false),
+            CreateArg("arrowEdge", hasDefault: true));
+        method.IsOverride = true;
+
+        var reduced = DefaultParameterOverloadEmitter.BuildGateReducedDecl(method, dropCount: 1);
+
+        Assert.True(reduced.IsOverride);
+    }
+
+    [Fact]
+    public void BuildGateReducedDecl_PreservesActorIsolationFlags()
+    {
+        // A dropped @MainActor flag makes the reduced @_cdecl wrapper omit its actor annotation
+        // → Swift "call to main actor-isolated ... in a synchronous nonisolated context" error.
+        var method = CreateMethodWithArgs(
+            CreateArg("tip", hasDefault: false),
+            CreateArg("arrowEdge", hasDefault: true));
+        method.IsActorIsolated = true;
+        method.IsMainActorIsolated = true;
+
+        var reduced = DefaultParameterOverloadEmitter.BuildGateReducedDecl(method, dropCount: 1);
+
+        Assert.True(reduced.IsActorIsolated);
+        Assert.True(reduced.IsMainActorIsolated);
+    }
+
+    [Fact]
+    public void BuildGateReducedDecl_PreservesSpiProtectedFlag()
+    {
+        // A dropped @_spi flag lets a non-externally-callable member slip past the rescue's
+        // re-validation (which only sees the clone), then fail to link from the wrapper module.
+        var method = CreateMethodWithArgs(
+            CreateArg("tip", hasDefault: false),
+            CreateArg("arrowEdge", hasDefault: true));
+        method.IsSpiProtected = true;
+
+        var reduced = DefaultParameterOverloadEmitter.BuildGateReducedDecl(method, dropCount: 1);
+
+        Assert.True(reduced.IsSpiProtected);
+    }
+
+    [Fact]
+    public void BuildGateReducedDecl_PreservesFinalAndExtensionFlags()
+    {
+        // IsFinal / IsExtensionMethod drive dispatch (Tj thunk vs direct/static symbol); a wrong
+        // value here computes the wrong entry-point symbol on any non-wrapped fallback path.
+        var method = CreateMethodWithArgs(
+            CreateArg("tip", hasDefault: false),
+            CreateArg("arrowEdge", hasDefault: true));
+        method.IsFinal = true;
+        method.IsExtensionMethod = true;
+
+        var reduced = DefaultParameterOverloadEmitter.BuildGateReducedDecl(method, dropCount: 1);
+
+        Assert.True(reduced.IsFinal);
+        Assert.True(reduced.IsExtensionMethod);
+    }
+
+    [Fact]
+    public void BuildGateReducedDecl_PreservesSelfOwnership()
+    {
+        // consuming/borrowing self (funcSelfKind) is distinct from per-parameter Ownership; a lost
+        // IsConsuming on a ~Copyable parent reverts the wrapper off the move()/MarkConsumed path.
+        var method = CreateMethodWithArgs(
+            CreateArg("tip", hasDefault: false),
+            CreateArg("arrowEdge", hasDefault: true));
+        method.IsConsuming = true;
+
+        var reduced = DefaultParameterOverloadEmitter.BuildGateReducedDecl(method, dropCount: 1);
+
+        Assert.True(reduced.IsConsuming);
+    }
+
+    [Fact]
+    public void BuildGateReducedDecl_PreservesTypedThrows()
+    {
+        // Typed throws forces a @_cdecl wrapper (swifterror register carries a raw typed value);
+        // dropping ThrownErrorType would mis-route error extraction.
+        var method = CreateMethodWithArgs(
+            CreateArg("tip", hasDefault: false),
+            CreateArg("arrowEdge", hasDefault: true));
+        method.Throws = true;
+        method.ThrownErrorType = new NamedTypeSpec("TestModule.ParseError");
+
+        var reduced = DefaultParameterOverloadEmitter.BuildGateReducedDecl(method, dropCount: 1);
+
+        Assert.NotNull(reduced.ThrownErrorType);
+        Assert.True(reduced.HasTypedThrows);
+    }
+
+    [Fact]
+    public void BuildGateReducedDecl_ResetsEmissionMutableState()
+    {
+        // The clone re-enters dedup + emission as a fresh primary, so any emission-time state from
+        // the source must NOT leak in (it would mis-route the P/Invoke or claim a stale name).
+        var method = CreateMethodWithArgs(
+            CreateArg("tip", hasDefault: false),
+            CreateArg("arrowEdge", hasDefault: true));
+        method.MarkEmitted();
+        method.EmittedCSharpName = "StaleName";
+        method.UsesCdeclMethodWrapper = true;
+
+        var reduced = DefaultParameterOverloadEmitter.BuildGateReducedDecl(method, dropCount: 1);
+
+        Assert.False(reduced.WasEmitted);
+        Assert.Null(reduced.EmittedCSharpName);
+        Assert.Equal(WrapperStrategy.None, reduced.WrapperStrategy);
+    }
+
+    [Fact]
+    public void BuildGateReducedDecl_SetsGateReducedOverloadFlag()
+    {
+        // The clone keeps the full-ABI MangledName but emits fewer args, so it MUST be realized by
+        // a @_cdecl wrapper (which fills the dropped defaults), never a native thunk (which would
+        // `bl` the full symbol with the dropped param's register uninitialized). The flag forces
+        // that: NativeThunkEmitter.ShouldEmitThunk returns false for any decl carrying it.
+        var method = CreateMethodWithArgs(
+            CreateArg("tip", hasDefault: false),
+            CreateArg("arrowEdge", hasDefault: true));
+        Assert.False(method.IsGateReducedOverload);
+
+        var reduced = DefaultParameterOverloadEmitter.BuildGateReducedDecl(method, dropCount: 1);
+
+        Assert.True(reduced.IsGateReducedOverload);
+    }
+
+    [Fact]
+    public void BuildGateReducedDecl_PreservesConstLiteralOnKeptParam()
+    {
+        // A kept _const param must stay _const: the wrap-required gate consults IsConstLiteral via
+        // the @_cdecl eligibility check, which REJECTS _const params (the boundary passes a runtime
+        // value to a compile-time-literal parameter). A dropped flag would let the gate accept a
+        // candidate the emitter then can't compile.
+        var min = CreateArg("min", hasDefault: false);
+        min.IsConstLiteral = true;
+        var method = CreateMethodWithArgs(
+            min,
+            CreateArg("arrowEdge", hasDefault: true));
+
+        var reduced = DefaultParameterOverloadEmitter.BuildGateReducedDecl(method, dropCount: 1);
+
+        Assert.True(reduced.CSSignature[1].IsConstLiteral);
+    }
+
+    [Fact]
+    public void BuildGateReducedDecl_PreservesSubscriptIndexAndDefaultExpressionOnKeptParam()
+    {
+        // IsUnlabeledSubscriptIndex selects `_` vs the real label; SwiftDefaultExpression is the
+        // raw default text. Both are per-parameter parser facts the kept arg must carry over.
+        var idx = CreateArg("index0", hasDefault: false);
+        idx.IsUnlabeledSubscriptIndex = true;
+        var kept = CreateArg("kept", hasDefault: true);
+        kept.SwiftDefaultExpression = "7";
+        var method = CreateMethodWithArgs(
+            idx,
+            kept,
+            CreateArg("trailing", hasDefault: true));
+
+        var reduced = DefaultParameterOverloadEmitter.BuildGateReducedDecl(method, dropCount: 1);
+
+        Assert.True(reduced.CSSignature[1].IsUnlabeledSubscriptIndex);
+        Assert.Equal("7", reduced.CSSignature[2].SwiftDefaultExpression);
+    }
+
+    #endregion
+
     #region TryEmitOverloads Skip Guard Tests
 
     [Fact]

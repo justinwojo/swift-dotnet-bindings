@@ -375,6 +375,26 @@ public static class CdeclParamMapper
                     $"{argLabel}{label}Val");
         }
 
+        // Foundation.LocalizedStringResource (iOS 16+): C# marshals it as a string (StringProjection),
+        // so the @_cdecl wrapper receives the same wire shape as Swift.String and reconstructs the
+        // String, then builds the resource via its ExpressibleByStringLiteral initializer. Only reached
+        // for the carved-out scalar param on the simple concrete wire path (containers/closures/protocol
+        // positions are dropped before emission by ClassifyUnsupportedReference).
+        if (swiftTypeSpec is NamedTypeSpec lsrNamed && lsrNamed.Name == "Foundation.LocalizedStringResource")
+        {
+            if (useUtf8Strings)
+            {
+                return Simple(CdeclParamCategory.String,
+                        $"_ {label}Utf8Ptr: UnsafePointer<UInt8>, _ {label}Utf8Len: Int",
+                        $"let {label}Val = Foundation.LocalizedStringResource(stringLiteral: String(bytes: UnsafeBufferPointer(start: {label}Utf8Ptr, count: {label}Utf8Len), encoding: .utf8)!)",
+                        $"{argLabel}{label}Val");
+            }
+            return Simple(CdeclParamCategory.String,
+                    $"_ _sW0_{label}: Int, _ _sW1_{label}: Int",
+                    $"let {label}Val = Foundation.LocalizedStringResource(stringLiteral: unsafeBitCast((_sW0_{label}, _sW1_{label}), to: String.self))",
+                    $"{argLabel}{label}Val");
+        }
+
         // String: @_cdecl bridges String ↔ NSString* (ObjC interop) which is incompatible
         // with the raw SwiftString.Buffer that C# passes via CallConvCdecl.
         if (swiftTypeSpec is NamedTypeSpec strNamed && strNamed.Name == "Swift.String")

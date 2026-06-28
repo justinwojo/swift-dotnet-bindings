@@ -1035,8 +1035,14 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             return;
         }
 
-        // @_cdecl property wrapper: String getters return SBW_Utf8Slice → decode to string
-        if (getter.Method.UsesCdeclPropertyWrapper && WitnessDispatchEmitter.IsStringType(propertyDecl.SwiftTypeSpec))
+        // @_cdecl property wrapper: String getters return SBW_Utf8Slice → decode to string.
+        // A carved-out scalar LocalizedStringResource getter is resolved Swift-side with
+        // String(localized:) and rides the same Utf8Slice wire, so it decodes identically.
+        // (Broadened locally, not via WitnessDispatchEmitter.IsStringType — LSR stays out of
+        // witness/protocol dispatch.)
+        if (getter.Method.UsesCdeclPropertyWrapper &&
+            (WitnessDispatchEmitter.IsStringType(propertyDecl.SwiftTypeSpec) ||
+             MarshallingHelpers.IsLocalizedStringResource(propertyDecl.SwiftTypeSpec)))
         {
             csWriter.WriteLine($"get => SwiftMarshal.ReadUtf8Slice({methodName}());");
             return;
@@ -1246,8 +1252,13 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             return;
         }
 
-        // @_cdecl property wrapper: String setters encode to UTF-8 bytes, pin, and pass pointer + length
-        if (setter.Method.UsesCdeclPropertyWrapper && WitnessDispatchEmitter.IsStringType(propertyDecl.SwiftTypeSpec))
+        // @_cdecl property wrapper: String setters encode to UTF-8 bytes, pin, and pass pointer + length.
+        // A carved-out scalar LocalizedStringResource setter takes the same UTF-8 bytes; the Swift
+        // wrapper rebuilds the resource via LocalizedStringResource(stringLiteral:). (Broadened
+        // locally, not via WitnessDispatchEmitter.IsStringType — LSR stays out of witness dispatch.)
+        if (setter.Method.UsesCdeclPropertyWrapper &&
+            (WitnessDispatchEmitter.IsStringType(propertyDecl.SwiftTypeSpec) ||
+             MarshallingHelpers.IsLocalizedStringResource(propertyDecl.SwiftTypeSpec)))
         {
             csWriter.WriteLines($$"""
                 set {

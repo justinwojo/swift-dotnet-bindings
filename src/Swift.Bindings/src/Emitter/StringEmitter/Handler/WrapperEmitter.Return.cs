@@ -152,9 +152,12 @@ namespace BindingsGeneration
 
             // @_cdecl method wrapper: String returns SBW_Utf8Slice via resultPtr.
             // Unlike property wrappers (which return Utf8Slice for PropertyHandler to decode),
-            // methods decode inline because there's no outer getter layer.
+            // methods decode inline because there's no outer getter layer. A carved-out scalar
+            // LocalizedStringResource return is resolved Swift-side with String(localized:) and
+            // crosses the wire as the same SBW_Utf8Slice, so it decodes identically.
             if (_env.MethodDecl.UsesCdeclMethodWrapper &&
-                returnArg.SwiftTypeSpec is NamedTypeSpec cdeclMethStrNts && cdeclMethStrNts.Name == "Swift.String")
+                returnArg.SwiftTypeSpec is NamedTypeSpec cdeclMethStrNts &&
+                (cdeclMethStrNts.Name == "Swift.String" || MarshallingHelpers.IsLocalizedStringResource(cdeclMethStrNts)))
             {
                 csWriter.WriteLine($"return SwiftMarshal.ReadUtf8Slice({ResultPtrName});");
                 return;
@@ -162,8 +165,10 @@ namespace BindingsGeneration
 
             // @_cdecl property wrapper: String returns SBW_Utf8Slice via resultPtr (out-parameter)
             // because @_cdecl can't return Swift structs. Read the Utf8Slice from the result buffer.
+            // The LocalizedStringResource carve-out rides the same Utf8Slice wire.
             if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
-                returnArg.SwiftTypeSpec is NamedTypeSpec cdeclStrNts && cdeclStrNts.Name == "Swift.String")
+                returnArg.SwiftTypeSpec is NamedTypeSpec cdeclStrNts &&
+                (cdeclStrNts.Name == "Swift.String" || MarshallingHelpers.IsLocalizedStringResource(cdeclStrNts)))
             {
                 csWriter.WriteLines($$"""
                     unsafe {

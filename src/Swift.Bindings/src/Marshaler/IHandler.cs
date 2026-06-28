@@ -396,6 +396,20 @@ namespace BindingsGeneration
                             methodDecl.IsClosureParamTombstone = true;
                             // Fall through — no `continue`. Dedup + handler.Emit run normally.
                         }
+                        else if (TryBuildTrailingDefaultGateReduction(
+                                     methodDecl, pipeline, validationCtx, typeDatabase,
+                                     sortedDecl, siblingPropertyNames, context, out var reducedDecl))
+                        {
+                            // The full member is dropped solely because a trailing default-valued
+                            // parameter has an unbindable type (e.g. `arrowEdge: SwiftUI.Edge = .top`).
+                            // Swift lets callers omit it, so emit the reduced overload that drops the
+                            // offending trailing defaults — the @_cdecl wrapper calls the Swift
+                            // declaration with the kept arguments and Swift supplies the defaults.
+                            // Substitute the reduced decl and fall through to the normal dedup +
+                            // handler path (which emits a real C# constructor/method for it).
+                            methodDecl = reducedDecl;
+                            // Fall through — no `continue`.
+                        }
                         else
                         {
                             if (!methodDecl.IsAccessor)
@@ -584,6 +598,95 @@ namespace BindingsGeneration
 
                 csWriter.WriteLine();
             }
+        }
+
+        /// <summary>
+        /// Pre-gate trailing-default rescue. When a constructor or method is dropped by the
+        /// emission gate, tries to build a reduced overload that drops the smallest suffix of
+        /// trailing default-valued parameters needed to clear the gate (keeping the most
+        /// parameters). Returns true with <paramref name="reducedDecl"/> only when (a) a reduced
+        /// form passes the full validation pipeline and (b) no emittable sibling already projects
+        /// to the same C# signature. The full member's drop is the trigger, so the rescue is
+        /// purely additive — it can only turn a drop into an emit.
+        ///
+        /// This recovers members dropped solely because a trailing default-valued parameter has an
+        /// unbindable type (e.g. a `SwiftUI.Edge arrowEdge = .top` on an otherwise bindable init):
+        /// Swift lets callers omit such parameters, and the reduced overload's @_cdecl wrapper calls
+        /// the Swift declaration with the kept arguments, letting Swift supply the dropped defaults.
+        /// </summary>
+        private bool TryBuildTrailingDefaultGateReduction(
+            MethodDecl methodDecl,
+            MemberValidationPipeline pipeline,
+            ValidationContext validationCtx,
+            ITypeDatabase typeDatabase,
+            IReadOnlyList<BaseDecl> siblings,
+            IReadOnlySet<string>? siblingPropertyNames,
+            TypeHandlerContext context,
+            out MethodDecl reducedDecl)
+        {
+            reducedDecl = null!;
+
+            if (methodDecl.IsAccessor)
+                return false;
+
+            // Only rescue a member the gate dropped because of a parameter's TYPE. A module-internal
+            // or compiler-synthesized (implicit inherited) constructor is dropped for a different
+            // reason: the Swift declaration itself is not externally callable. Swift omits the
+            // inherited initializer when a subclass declares its own designated inits, so a reduced
+            // overload's @_cdecl wrapper would emit an uncompilable call (e.g. "extra argument" /
+            // "missing argument") into a constructor that does not exist on the subclass.
+            if (methodDecl.IsModuleInternal || methodDecl.IsImplicit)
+                return false;
+
+            int trailingDefaults = DefaultParameterOverloadEmitter.CountTrailingDefaults(methodDecl);
+            if (trailingDefaults == 0)
+                return false;
+
+            // Bound by the post-processor's own overload cap to avoid pathological fan-out, and
+            // walk smallest-drop first so the most parameters are kept.
+            int maxDrop = Math.Min(trailingDefaults, 4);
+            for (int drop = 1; drop <= maxDrop; drop++)
+            {
+                var candidate = DefaultParameterOverloadEmitter.BuildGateReducedDecl(methodDecl, drop);
+                if (!pipeline.ValidateMethodEmission(candidate, validationCtx).ShouldEmit)
+                    continue;
+
+                // The reduced clone keeps the FULL ABI symbol (MangledName) but emits FEWER
+                // arguments — correct ONLY when the candidate routes through a @_cdecl wrapper whose
+                // Swift body calls the declaration with the kept args and lets Swift supply the
+                // dropped trailing defaults. A candidate that passes the emission gate but CANNOT be
+                // wrapped (a public member on a @usableFromInline-internal parent, a custom-actor-
+                // isolated member, non-XCFramework mode, and other CannotWrap shapes) instead falls
+                // back to a direct CallConvSwift P/Invoke against that full-ABI symbol; the reduced
+                // arg list then mismatches the symbol's ABI → runtime crash, which no compile gate
+                // catches. Decline unless a wrapper is actually emitted. A larger drop can flip a
+                // CannotWrap shape (e.g. by removing a closure param), so `continue` rather than abort.
+                var candidateEnv = new MethodEnvironment(
+                    candidate, typeDatabase, siblingPropertyNames,
+                    context.PInvokeHelperContext, context.CompositionCollector);
+                var wrapperDecision = candidate.IsConstructor
+                    ? WrapperValidation.DetermineConstructorWrapperDecision(candidateEnv)
+                    : WrapperValidation.DetermineMethodWrapperDecision(candidateEnv);
+                if (wrapperDecision != WrapperDecision.WrapperRequired)
+                    continue;
+
+                // Redundancy/collision guard: skip the rescue when an emittable sibling already
+                // projects to the same C# signature. A constructor sibling would win the dedup slot
+                // anyway (constructor collisions are dropped, not renamed); for both kinds the rescue
+                // would otherwise duplicate a member the consumer can already call.
+                var candidateKey = GetProjectedCSharpMethodKey(candidate, typeDatabase, _logger, siblingPropertyNames);
+                bool siblingProvides = siblings.OfType<MethodDecl>().Any(sib =>
+                    !ReferenceEquals(sib, methodDecl) &&
+                    GetProjectedCSharpMethodKey(sib, typeDatabase, _logger, siblingPropertyNames) == candidateKey &&
+                    pipeline.ValidateMethodEmission(sib, validationCtx).ShouldEmit);
+                if (siblingProvides)
+                    return false;
+
+                reducedDecl = candidate;
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>

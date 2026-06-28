@@ -453,6 +453,68 @@ public static class DefaultParameterOverloadEmitter
     }
 
     /// <summary>
+    /// Builds a reduced clone of <paramref name="original"/> with the last
+    /// <paramref name="dropCount"/> trailing parameters removed, preserving every other parser
+    /// ABI fact (silgen MangledName, all flags, attributes) unchanged.
+    ///
+    /// Unlike <see cref="BuildOverloadDecl(MethodDecl, int)"/> (which forces a DBW_ silgen-shim
+    /// symbol and UsesWrapperLibrary=true for the post-processor's @_silgen_name path), this
+    /// clone is meant to be routed back through the NORMAL constructor/method handler as a
+    /// fresh primary: the handler then makes its own @_cdecl wrapper decision and emits a real
+    /// C# constructor/method calling the Swift declaration with the kept arguments (Swift
+    /// supplies the dropped trailing defaults). Used by the pre-gate trailing-default rescue,
+    /// which emits a reduced overload when the full member is dropped solely because a trailing
+    /// default-valued parameter has an unbindable type.
+    /// </summary>
+    internal static MethodDecl BuildGateReducedDecl(MethodDecl original, int dropCount)
+    {
+        // Clone via `with` so EVERY parser ABI fact carries over unchanged — override / final /
+        // actor-isolation / SPI / extension-method / consuming-or-borrowing-self / typed-throws /
+        // variadic / … — and only the parameter list shrinks. Hand-copying a hand-picked subset
+        // silently dropped semantically load-bearing flags: a lost @MainActor flag makes the
+        // reduced @_cdecl wrapper miss its actor annotation (Swift isolation error), a lost
+        // override flag emits a name-hiding method instead of an override, and a lost @_spi flag
+        // lets a non-externally-callable member slip past the rescue's re-validation. Emission-
+        // mutable state (WasEmitted / EmittedCSharpName / WrapperStrategy) is reset because the
+        // reduced decl re-enters dedup + emission as a fresh primary; it is already default here
+        // (the original was dropped at validation, before any emission ran), but the explicit
+        // reset keeps that invariant from silently breaking if validation later sets one.
+        var reduced = original with
+        {
+            GenericParameters = new List<GenericArgumentDecl>(original.GenericParameters),
+            CSSignature = new List<ArgumentDecl>(),
+            WasEmitted = false,
+            EmittedCSharpName = null,
+            WrapperStrategy = WrapperStrategy.None,
+            // Force the @_cdecl Swift-source wrapper (which fills the dropped trailing defaults)
+            // and suppress the native thunk (which would `bl` the full-ABI symbol with the dropped
+            // parameter's register uninitialized → runtime fault).
+            IsGateReducedOverload = true,
+        };
+
+        // Clone each kept ArgumentDecl with `with` so EVERY per-parameter parser fact carries over
+        // — IsConstLiteral, SwiftDefaultExpression, IsUnlabeledSubscriptIndex, Ownership, IsInOut,
+        // IsGeneric, HasDefaultArg — and only ParentDecl is re-pointed at the reduced clone.
+        // Hand-copying a hand-picked subset silently dropped load-bearing flags: a lost
+        // IsConstLiteral lets a `_const` param look non-const, so the wrap-required gate accepts a
+        // candidate the @_cdecl emitter must reject (it passes a runtime value to a compile-time
+        // literal parameter → Swift wrapper compile error). CSharpName is the one emission-mutable
+        // field reset to null: the reduced decl re-enters dedup as a fresh primary and re-dedupes
+        // its parameter names against its own (shorter) signature.
+        var returnArg = original.CSSignature[0];
+        reduced.CSSignature.Add(returnArg with { ParentDecl = reduced, CSharpName = null });
+
+        var args = original.CSSignature.Skip(1).ToList();
+        var keepCount = args.Count - dropCount;
+        for (int i = 0; i < keepCount; i++)
+        {
+            reduced.CSSignature.Add(args[i] with { ParentDecl = reduced, CSharpName = null });
+        }
+
+        return reduced;
+    }
+
+    /// <summary>
     /// Emits a Swift wrapper function that calls the original method
     /// with fewer arguments, letting Swift fill in the defaults.
     /// </summary>
