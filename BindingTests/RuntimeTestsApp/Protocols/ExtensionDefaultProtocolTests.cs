@@ -55,4 +55,40 @@ public class ExtensionDefaultProtocolTests : TestBase
         AssertEqual("Get started with our app.", message, "GetTipMessage existential dispatch");
         TestLogger.Info($"GetTipMessage returned \"{message}\"");
     }
+
+    // ─── Read-only extension-default PROPERTIES surfaced as synthetic getters ───
+    // shouldDisplayTip / tipPriorityScore are declared on `extension TipLike`, not as
+    // protocol requirements. The symbol graph never emits them on conformers, so the
+    // generator surfaces them as synthetic getter methods (GetX()) on each concrete type.
+
+    public void TestWelcomeTipShouldDisplay()
+    {
+        using var tip = SwiftBindingsTestLib.Functions.CreateWelcomeTip();
+        // tipId == "welcome" (non-empty) → shouldDisplayTip == true.
+        AssertTrue(tip.GetShouldDisplayTip(), "WelcomeTip.GetShouldDisplayTip()");
+        TestLogger.Info($"WelcomeTip.GetShouldDisplayTip() = {tip.GetShouldDisplayTip()}");
+    }
+
+    public void TestEmptyTipShouldNotDisplay()
+    {
+        using var tip = SwiftBindingsTestLib.Functions.CreateEmptyTip();
+        // tipId == "" (empty) → shouldDisplayTip == false. Discriminates real self-dispatch
+        // from a constant: the same extension default returns the other boolean here.
+        AssertFalse(tip.GetShouldDisplayTip(), "EmptyTip.GetShouldDisplayTip()");
+        TestLogger.Info($"EmptyTip.GetShouldDisplayTip() = {tip.GetShouldDisplayTip()}");
+    }
+
+    public void TestWelcomeTipPriorityScore()
+    {
+        using var tip = SwiftBindingsTestLib.Functions.CreateWelcomeTip();
+        // Int32(tipId.count) == Int32("welcome".count) == 7 — proves a non-Bool primitive
+        // value round-trips through the synthetic getter, not just true/false.
+        AssertEqual(7, tip.GetTipPriorityScore(), "WelcomeTip.GetTipPriorityScore()");
+    }
+
+    public void TestEmptyTipPriorityScore()
+    {
+        using var tip = SwiftBindingsTestLib.Functions.CreateEmptyTip();
+        AssertEqual(0, tip.GetTipPriorityScore(), "EmptyTip.GetTipPriorityScore()");
+    }
 }

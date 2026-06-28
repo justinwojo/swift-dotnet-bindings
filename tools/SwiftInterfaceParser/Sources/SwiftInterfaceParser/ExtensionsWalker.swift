@@ -214,6 +214,14 @@ final class ExtensionsWalker: SyntaxVisitor {
         let isStatic = hasModifier(node.modifiers, "static")
         let isDeprecated = hasDeprecatedAttribute(node.attributes)
         let hasSetter = detectSetter(binding.accessorBlock)
+        // Effectful getters (`{ get throws }` / `{ get async }`) can't be surfaced
+        // as synthetic free-function getter wrappers — the wrapper would have to
+        // honor the effect, which the synthetic-MethodDecl getter pipeline doesn't
+        // model. Drop them at the source, where the full accessor AST is available:
+        // the swiftinterface printer emits accessors multi-line (the `throws`/`async`
+        // keyword on its own line), and `buildVarRawSignature` keeps only the first
+        // accessor line, so a downstream raw-signature scan can't see the effect.
+        if detectEffectfulGetter(binding.accessorBlock) { return }
 
         extensionMemberCandidates.append(ExtensionMemberCandidateInfo(
             extendedTypeName: extendedType,
@@ -400,6 +408,37 @@ final class ExtensionsWalker: SyntaxVisitor {
             return false
         case .getter:
             // `var x: Int { return 0 }` form — no setter syntax possible.
+            return false
+        }
+    }
+
+    // MARK: - Effectful-getter detection
+
+    /// True when any accessor carries an effect specifier (`async` and/or
+    /// `throws`) — an effectful `{ get throws }` / `{ get async }` getter.
+    /// Inspects the structured accessor AST (not the truncated raw signature),
+    /// so it is robust to the multi-line accessor blocks the swiftinterface
+    /// printer emits, where `buildVarRawSignature` keeps only the first line.
+    private func detectEffectfulGetter(_ accessorBlock: AccessorBlockSyntax?) -> Bool {
+        guard let accessorBlock = accessorBlock else { return false }
+        switch accessorBlock.accessors {
+        case .accessors(let list):
+            for accessor in list {
+                // Scope to the `get` accessor (mirroring detectSetter's `kw == "set"`):
+                // effect specifiers are get-only in Swift today, but checking the
+                // specifier keeps this matched to its name and robust if effectful
+                // setters ever land — a read-write property is dropped by the setter
+                // gate regardless.
+                guard accessor.accessorSpecifier.text == "get" else { continue }
+                if let effects = accessor.effectSpecifiers,
+                   effects.asyncSpecifier != nil || effects.throwsClause != nil {
+                    return true
+                }
+            }
+            return false
+        case .getter:
+            // `var x: Int { return 0 }` single-expression form — no accessor
+            // syntax, so no effect specifier is expressible.
             return false
         }
     }

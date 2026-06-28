@@ -53,8 +53,12 @@ public static class ProtocolExtensionEmitter
                 if (extMethod.WhereConstraints.Count > 0)
                     continue;
 
-                // Skip properties (defer to later session)
-                if (extMethod.IsProperty)
+                // Read-write protocol-extension property defaults are deferred — surfacing a
+                // setter needs a paired write-back wrapper that doesn't exist yet. Read-only
+                // (get-only) properties are surfaced as synthetic getter METHODS (GetX()) via
+                // the property arm of TryInjectMethod, reusing the same free-function wrapper +
+                // synthetic-MethodDecl pipeline as the extension-default methods on this type.
+                if (extMethod.IsProperty && extMethod.HasSetter)
                     continue;
 
                 // Skip static methods (defer to later session)
@@ -173,8 +177,12 @@ public static class ProtocolExtensionEmitter
         var typeName = conformingType.SwiftTypeName.ModuleQualifiedName;
         var flatTypeName = FlattenTypeName(conformingType.SwiftTypeName);
 
-        // Parse the raw signature to extract parameter types and return type
-        var parseResult = ParseExtensionSignature(extMethod, typeDatabase, logger);
+        // Parse the raw signature to extract parameter types and return type.
+        // Properties have no parameter list, so the `func {name}(` anchor never matches —
+        // they parse through a property-specific arm that yields a zero-parameter result.
+        var parseResult = extMethod.IsProperty
+            ? ParsePropertyReturn(extMethod, typeDatabase, logger)
+            : ParseExtensionSignature(extMethod, typeDatabase, logger);
         if (parseResult == null)
             return;
 
@@ -603,6 +611,105 @@ public static class ProtocolExtensionEmitter
         }
 
         return (parameters, returnTypeSpec, returnTypeName);
+    }
+
+    /// <summary>
+    /// Parses the declared type of a read-only protocol-extension PROPERTY default from its
+    /// raw swiftinterface signature (e.g. "public var shouldDisplayTip: Swift.Bool { get }").
+    /// Properties carry no parameter list, so <see cref="ParseExtensionSignature"/>'s
+    /// `func {name}(` anchor never matches — this slices the type between the property name's
+    /// `:` and the accessor block `{`, returning a zero-parameter result so the getter flows
+    /// through the same wrapper + synthetic-MethodDecl pipeline as a 0-arg extension method.
+    /// Returns null if the type can't be isolated/parsed, the accessor is async or throwing
+    /// (a getter the synchronous, non-throwing wrapper body can't honor), or the getter
+    /// returns `Self` (no return signal exists for property defaults). The primary drop for
+    /// effectful (async/throwing) getters happens upstream on the structured accessor AST in
+    /// the facts walker, which is robust to the multi-line accessor blocks the swiftinterface
+    /// printer emits; the accessor-tail scan here is a defense-in-depth check for the
+    /// single-line accessor representation.
+    /// </summary>
+    private static (List<(string label, TypeSpec typeSpec, string swiftType)> parameters,
+                     TypeSpec? returnTypeSpec, string returnTypeName)?
+        ParsePropertyReturn(
+            ProtocolExtensionMethodDecl extMethod,
+            ITypeDatabase typeDatabase,
+            ILogger logger)
+    {
+        var line = extMethod.RawSignature;
+        var emptyParams = new List<(string label, TypeSpec typeSpec, string swiftType)>();
+
+        // Anchor on the property name so any leading "public var "/"var " (and attributes)
+        // are skipped without assuming a fixed prefix.
+        var nameIdx = line.IndexOf($"var {extMethod.MethodName}", StringComparison.Ordinal);
+        if (nameIdx < 0)
+            return null;
+
+        // The first ':' after the name begins the declared type. Swift property types carry
+        // no top-level ':' (a dictionary's ':' lives inside '[...]'), so this is unambiguous.
+        var colonIdx = line.IndexOf(':', nameIdx);
+        if (colonIdx < 0)
+            return null;
+
+        var afterColon = line.Substring(colonIdx + 1);
+
+        // The accessor block ('{ get }', '{ get throws }', '{ get async }') terminates the
+        // type. Defer async AND throwing getters: this path emits a plain synchronous,
+        // non-throwing read (`return instance.name`), and the throws signal can't be
+        // recovered downstream — IsThrowingSignature/ExtractQualifiers key off the func
+        // parameter list, which a property has none of, so a `{ get throws }` getter would
+        // otherwise emit an invalid wrapper (throwing access with no `try`). Effectful
+        // getters are PRIMARILY dropped upstream in the facts walker off the structured
+        // accessor AST — robust to the multi-line accessor blocks the swiftinterface printer
+        // emits (where the `throws`/`async` keyword lands on its own line and the captured
+        // raw signature is truncated at `{`). This tail scan is the single-line defense-in-
+        // depth: only the `{ accessor }` tail is scanned, so a type name containing
+        // "async"/"throws" can't false-positive.
+        var braceIdx = afterColon.IndexOf('{');
+        var accessorPart = braceIdx >= 0 ? afterColon.Substring(braceIdx) : string.Empty;
+        if (accessorPart.Contains("async") || accessorPart.Contains("throws"))
+        {
+            logger.LogDebug("Skipping extension property {Property}: async/throwing getter not supported",
+                extMethod.MethodName);
+            return null;
+        }
+
+        var typeStr = (braceIdx >= 0 ? afterColon.Substring(0, braceIdx) : afterColon).Trim();
+        if (string.IsNullOrWhiteSpace(typeStr))
+            return null;
+
+        // Defer `var foo: Self { get }` extension defaults: the facts walker records no
+        // ReturnsSelf signal for properties (it's a method-only flag), so the wrapper would
+        // emit a void function (returnTypeSpec == null && !ReturnsSelf) while the synthetic
+        // MethodDecl resolves the return to the concrete conformer — an ABI mismatch. Drop
+        // rather than mis-emit; a real Self-return path needs the walker to carry the signal.
+        if (extMethod.ReturnsSelf || typeStr == "Self")
+        {
+            logger.LogDebug("Skipping extension property {Property}: Self-returning getter not supported",
+                extMethod.MethodName);
+            return null;
+        }
+
+        TypeSpec? typeSpec;
+        try
+        {
+            // ParsePrefix (not the EOF-strict Parse), mirroring the method return path's
+            // lenience — the accessor block is already sliced off, so typeStr is the type.
+            typeSpec = TypeSpecParser.ParsePrefix(typeStr);
+        }
+        catch
+        {
+            logger.LogDebug("Skipping extension property {Property}: TypeSpecParser error for type '{Type}'",
+                extMethod.MethodName, typeStr);
+            return null;
+        }
+        if (typeSpec == null)
+        {
+            logger.LogDebug("Skipping extension property {Property}: could not parse type '{Type}'",
+                extMethod.MethodName, typeStr);
+            return null;
+        }
+
+        return (emptyParams, typeSpec, typeStr);
     }
 
     /// <summary>
@@ -1615,9 +1722,13 @@ public static class ProtocolExtensionEmitter
             callArgs.Add(RenderCallArg(label, uniqueParamNames[i], typeSpec, existentialHandler, typeDatabase, ctx));
         }
 
-        // Emit method call
+        // Emit member access. A read-only extension PROPERTY is read as a getter
+        // (`instance.name`, no parens); a method is invoked (`instance.name(args)`).
         var tryPrefix = isThrows ? "try " : "";
-        var callStr = $"{tryPrefix}instance.{NameProvider.EscapeSwiftKeyword(extMethod.MethodName)}({string.Join(", ", callArgs)})";
+        var memberRef = $"instance.{NameProvider.EscapeSwiftKeyword(extMethod.MethodName)}";
+        var callStr = extMethod.IsProperty
+            ? $"{tryPrefix}{memberRef}"
+            : $"{tryPrefix}{memberRef}({string.Join(", ", callArgs)})";
 
         // For mutating methods on struct conformers, write back the mutated value
         // to the original pointer after the call. Non-frozen structs are heap-allocated

@@ -129,6 +129,29 @@ internal static class ProtocolExtensionTestHelpers
         };
     }
 
+    /// <summary>
+    /// Creates a read-only (or read-write) protocol-extension PROPERTY default decl
+    /// (IsProperty=true), mirroring what the swiftinterface facts walker produces for
+    /// `extension P { public var name: T { get } }`.
+    /// </summary>
+    internal static ProtocolExtensionMethodDecl CreateExtProperty(
+        string propertyName, string rawSignature, bool hasSetter = false)
+    {
+        return new ProtocolExtensionMethodDecl
+        {
+            ProtocolQualifiedName = "",
+            MethodName = propertyName,
+            RawSignature = rawSignature,
+            ReturnsSelf = false,
+            IsMainActorIsolated = false,
+            IsStatic = false,
+            IsProperty = true,
+            HasSetter = hasSetter,
+            PrintedName = propertyName,
+            WhereConstraints = new List<string>()
+        };
+    }
+
     internal static Dictionary<string, List<ProtocolExtensionMethodDecl>> CreateExtensionMethodDict(
         string protocolQualifiedName, params ProtocolExtensionMethodDecl[] methods)
     {

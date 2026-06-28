@@ -299,6 +299,137 @@ public class ProtocolExtensionEmitterTests
         Assert.Empty(ctx.ProtocolExtSwiftWrapperLines);
     }
 
+    // ─── Read-only extension-default PROPERTIES → synthetic getter methods ──
+
+    [Fact]
+    public void ReadOnlyBoolProperty_InjectedAsSyntheticGetterMethod()
+    {
+        // A get-only `var` declared in a protocol extension (TipKit.Tip.shouldDisplay shape)
+        // is surfaced on the concrete conformer as a zero-parameter synthetic getter method
+        // that flows through the SAME free-function wrapper pipeline as extension-default
+        // methods. The Swift wrapper reads the property (no parens), and the synthetic
+        // MethodDecl carries the protocol-ext free-function flags.
+        var (moduleDecl, conformingType, typeDatabase) = CreateSetup("TestModule", "WelcomeTip", "TipLike");
+        var extMethods = CreateExtensionMethodDict("TestModule.TipLike",
+            CreateExtProperty("shouldDisplayTip", "public var shouldDisplayTip: Swift.Bool { get }"));
+
+        var ctx = new ModuleEmissionContext();
+        ProtocolExtensionEmitter.InjectExtensionMethods(moduleDecl, extMethods, typeDatabase, Logger, ctx);
+
+        // Injected as exactly one synthetic method.
+        Assert.Single(conformingType.Methods);
+        var injected = conformingType.Methods[0];
+        Assert.Equal("shouldDisplayTip", injected.Name);
+        // Zero parameters: CSSignature is [returnType] only.
+        Assert.Single(injected.CSSignature);
+        // Routed through the free-function protocol-ext wrapper path, not an accessor.
+        Assert.True(injected.IsProtocolExtensionMethod);
+        Assert.True(injected.UsesFreeFunctionWrapper);
+        Assert.True(injected.UsesWrapperLibrary);
+        Assert.False(injected.IsAccessor);
+        // Bool primitive return → cdecl (SBW_ + @_cdecl), matching the method siblings.
+        Assert.True(injected.UsesCdeclMethodWrapper);
+
+        var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
+        Assert.Contains("@_cdecl(\"SBW_WelcomeTip_shouldDisplayTip\")", wrapperLines);
+        Assert.Contains("-> Bool", wrapperLines);
+        // Property read, NOT an invocation.
+        Assert.Contains("return instance.shouldDisplayTip", wrapperLines);
+        Assert.DoesNotContain("instance.shouldDisplayTip(", wrapperLines);
+        // Class conformer self-reconstruction.
+        Assert.Contains("Unmanaged<TestModule.WelcomeTip>.fromOpaque(self_).takeUnretainedValue()", wrapperLines);
+    }
+
+    [Fact]
+    public void ReadWriteProperty_NotInjected()
+    {
+        // A read-write extension-default property (get set) is deferred — surfacing the
+        // setter would need a paired write-back wrapper that doesn't exist. The HasSetter
+        // gate must drop it before any wrapper is emitted.
+        var (moduleDecl, conformingType, typeDatabase) = CreateSetup("TestModule", "WelcomeTip", "TipLike");
+        var extMethods = CreateExtensionMethodDict("TestModule.TipLike",
+            CreateExtProperty("displayCount", "public var displayCount: Swift.Int32 { get set }", hasSetter: true));
+
+        var ctx = new ModuleEmissionContext();
+        ProtocolExtensionEmitter.InjectExtensionMethods(moduleDecl, extMethods, typeDatabase, Logger, ctx);
+
+        Assert.Empty(conformingType.Methods);
+        Assert.Empty(ctx.ProtocolExtSwiftWrapperLines);
+    }
+
+    [Fact]
+    public void AsyncStreamReturningProperty_RejectedByReturnGate()
+    {
+        // `var statusUpdates: AsyncStream<...> { get }` (TipKit.Tip.statusUpdates shape):
+        // the accessor is a plain `{ get }`, so it is NOT mistaken for an async getter —
+        // it parses, then the return-type gate drops it because AsyncStream is neither a
+        // primitive, a registered class, nor a supported existential. This also pins that
+        // the async-accessor guard does not false-positive on the "Async" in the type name.
+        var (moduleDecl, conformingType, typeDatabase) = CreateSetup("TestModule", "WelcomeTip", "TipLike");
+        var extMethods = CreateExtensionMethodDict("TestModule.TipLike",
+            CreateExtProperty("statusUpdates", "public var statusUpdates: _Concurrency.AsyncStream<Swift.Int32> { get }"));
+
+        var ctx = new ModuleEmissionContext();
+        ProtocolExtensionEmitter.InjectExtensionMethods(moduleDecl, extMethods, typeDatabase, Logger, ctx);
+
+        Assert.Empty(conformingType.Methods);
+        Assert.Empty(ctx.ProtocolExtSwiftWrapperLines);
+    }
+
+    [Fact]
+    public void AsyncGetterProperty_NotInjected()
+    {
+        // A `{ get async }` getter cannot be read synchronously in the wrapper body —
+        // ParsePropertyReturn drops it on the async accessor keyword.
+        var (moduleDecl, conformingType, typeDatabase) = CreateSetup("TestModule", "WelcomeTip", "TipLike");
+        var extMethods = CreateExtensionMethodDict("TestModule.TipLike",
+            CreateExtProperty("liveScore", "public var liveScore: Swift.Int32 { get async }"));
+
+        var ctx = new ModuleEmissionContext();
+        ProtocolExtensionEmitter.InjectExtensionMethods(moduleDecl, extMethods, typeDatabase, Logger, ctx);
+
+        Assert.Empty(conformingType.Methods);
+        Assert.Empty(ctx.ProtocolExtSwiftWrapperLines);
+    }
+
+    [Fact]
+    public void ThrowingGetterProperty_NotInjected()
+    {
+        // A `{ get throws }` getter can't be recovered as throwing downstream
+        // (IsThrowingSignature keys off the func parameter list, which a property lacks),
+        // so emitting it would produce an invalid non-throwing wrapper that performs a
+        // throwing access with no `try`. ParsePropertyReturn drops it on the accessor
+        // `throws` keyword. A type name containing "throws" must NOT false-positive — only
+        // the accessor tail is scanned.
+        var (moduleDecl, conformingType, typeDatabase) = CreateSetup("TestModule", "WelcomeTip", "TipLike");
+        var extMethods = CreateExtensionMethodDict("TestModule.TipLike",
+            CreateExtProperty("riskyScore", "public var riskyScore: Swift.Int32 { get throws }"));
+
+        var ctx = new ModuleEmissionContext();
+        ProtocolExtensionEmitter.InjectExtensionMethods(moduleDecl, extMethods, typeDatabase, Logger, ctx);
+
+        Assert.Empty(conformingType.Methods);
+        Assert.Empty(ctx.ProtocolExtSwiftWrapperLines);
+    }
+
+    [Fact]
+    public void SelfReturningGetterProperty_NotInjected()
+    {
+        // A `var copy: Self { get }` extension default: the facts walker carries no
+        // ReturnsSelf for properties, so the wrapper would emit a void function while the
+        // synthetic decl resolves the return to the concrete conformer — an ABI mismatch.
+        // ParsePropertyReturn drops it rather than mis-emit.
+        var (moduleDecl, conformingType, typeDatabase) = CreateSetup("TestModule", "WelcomeTip", "TipLike");
+        var extMethods = CreateExtensionMethodDict("TestModule.TipLike",
+            CreateExtProperty("selfCopy", "public var selfCopy: Self { get }"));
+
+        var ctx = new ModuleEmissionContext();
+        ProtocolExtensionEmitter.InjectExtensionMethods(moduleDecl, extMethods, typeDatabase, Logger, ctx);
+
+        Assert.Empty(conformingType.Methods);
+        Assert.Empty(ctx.ProtocolExtSwiftWrapperLines);
+    }
+
     // ─── Helper Methods ──────────────────────────────────────────────
 
     /// <summary>
