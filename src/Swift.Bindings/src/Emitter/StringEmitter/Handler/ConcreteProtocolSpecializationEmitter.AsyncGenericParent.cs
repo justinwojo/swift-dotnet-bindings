@@ -133,7 +133,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 continue;
             if (!IsEmittableParentOnlyAsyncPairing(
                     method, parentTypeDecl, pairing, typeDatabase, moduleName,
-                    out _, out _))
+                    out _, out _, out _))
                 continue;
             return true;
         }
@@ -191,7 +191,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
 
         if (!IsEmittableParentOnlyAsyncPairing(
                 method, parentTypeDecl, pairing, typeDatabase, moduleName,
-                out var substitutedReturnSpec, out var returnIsBlittable))
+                out var substitutedReturnSpec, out var returnIsBlittable, out var isVoid))
         {
             return false;
         }
@@ -212,9 +212,17 @@ public static partial class ConcreteProtocolSpecializationEmitter
             $"SBW_CSM_{moduleName}_{parentTypeDecl.Name}_{safeConformerName}_{method.Name}_{mangledHash}_async";
 
         // C# signature dedup — same shape as the sync emitter, scoped to the
-        // extension class via the caller-supplied `emittedSignatures` set.
+        // extension class via the caller-supplied `emittedSignatures` set. The key
+        // includes the projected parameter-type list: two Swift overloads with the
+        // same name but different (admitted) parameter lists project to distinct C#
+        // signatures, so keying on name alone would silently drop the second. Every
+        // admitted parameter is Utf8Slice → `string`, so the list is `string` repeated
+        // once per user parameter (arity is the discriminator across `string`-only
+        // overloads; the spelled types keep it forward-correct if the admitted-param
+        // universe ever widens).
         var csMethodName = NameProvider.ToPascalCase(method.Name) + "Async";
-        var sigKey = $"async|{csMethodName}";
+        var paramSig = string.Join(",", method.CSSignature.Skip(1).Select(_ => "string"));
+        var sigKey = $"async|{csMethodName}|{paramSig}";
         if (!emittedSignatures.Add(sigKey))
         {
             logger.LogDebug(
@@ -241,8 +249,14 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // module-qualified Swift type name (so `Foundation.MusicLibraryResponse` survives
         // round-trip into a different module's Swift wrapper); the C# side uses the
         // TypeDatabase's projected C# name (`StringResponse`, with its namespace if any).
-        var returnSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(substitutedReturnSpec);
-        var returnCsType = ResolvePublicCSharpType(substitutedReturnSpec, typeDatabase);
+        // Void methods carry no return type — the substitutedReturnSpec is the empty tuple
+        // and both spellings stay null; the emitters branch on isVoid before using them.
+        var returnSwiftType = isVoid
+            ? null
+            : ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(substitutedReturnSpec);
+        var returnCsType = isVoid
+            ? null
+            : ResolvePublicCSharpType(substitutedReturnSpec, typeDatabase);
 
         bool throws = method.Throws;
 
@@ -266,7 +280,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         EmitParentOnlyAsyncSwiftWrapper(
             swiftWriter, method, parentSwiftName, returnSwiftType,
             cdeclSymbol, moduleName, throws, typeDatabase, emissionContext,
-            mergedAvailability);
+            mergedAvailability, isVoid);
 
         // ── Emit error helper P/Invokes (throws only) ─────────────────
         // SBW_GetErrorDescription + SBW_ReleaseError are dedup-keyed by C# type
@@ -322,7 +336,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         EmitParentOnlyAsyncCSharpExtension(
             csWriter, method, parentCsName, returnCsType,
             cdeclSymbol, csMethodName, wrapperLibPath, throws,
-            mergedAvailability, parentTypeDecl, typeDatabase, returnIsBlittable);
+            mergedAvailability, parentTypeDecl, typeDatabase, returnIsBlittable, isVoid);
 
         method.MarkEmitted();
 
@@ -348,10 +362,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
         ITypeDatabase typeDatabase,
         string moduleName,
         out TypeSpec substitutedReturnSpec,
-        out bool returnIsBlittable)
+        out bool returnIsBlittable,
+        out bool isVoid)
     {
         substitutedReturnSpec = null!;
         returnIsBlittable = false;
+        isVoid = false;
 
         // Hint-scope + module-allowlist + opaque/objc guards — parity with the closed-
         // conformer async path's IsEmittableAsyncPairing.
@@ -404,7 +420,20 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // associated-type reference — without a known resolution we'd emit invalid Swift
         // and C# referencing a placeholder identifier.
         var returnSpec = method.CSSignature.First().SwiftTypeSpec;
-        if (returnSpec.IsEmptyTuple) return false; // void-returning async — not yet supported
+        if (returnSpec.IsEmptyTuple)
+        {
+            // Void-returning async: a real eligibility fork, not merely lifting the
+            // rejection. Nothing crosses back, so there is no return type to substitute,
+            // resolve, or classify — and no result buffer is allocated, passed, or freed
+            // on either side. The conformer guards above still gate which generic-parent
+            // instantiations emit. The emitter mirrors this `isVoid` branch exactly
+            // (success completion carries only the GCHandle context; the @_cdecl wrapper
+            // drops `resultPtr`), keeping predicate and emitter in lockstep as required
+            // by the pipeline's RoutedElsewhere contract.
+            isVoid = true;
+            substitutedReturnSpec = returnSpec;
+            return true;
+        }
 
         var current = returnSpec;
         for (int i = 0; i < pairing.Count; i++)
@@ -544,13 +573,14 @@ public static partial class ConcreteProtocolSpecializationEmitter
         SwiftWriter swiftWriter,
         MethodDecl method,
         string parentSwiftName,
-        string returnSwiftType,
+        string? returnSwiftType,
         string cdeclSymbol,
         string moduleName,
         bool throws,
         ITypeDatabase typeDatabase,
         ModuleEmissionContext emissionContext,
-        IReadOnlyList<AvailabilityAnnotation>? mergedAvailability)
+        IReadOnlyList<AvailabilityAnnotation>? mergedAvailability,
+        bool isVoid)
     {
         // Producer-cancel registry: emit the shared Swift infra (_SBWTaskEntry, _sbwRegisterTask,
         // _sbwAssignTask, _sbwUnregisterTask, @_cdecl SBW_CancelTask_{module}) once per module so the
@@ -559,17 +589,17 @@ public static partial class ConcreteProtocolSpecializationEmitter
         CancellationTaskEmitter.EmitIfNeeded(swiftWriter, moduleName, emissionContext);
 
         // Param layout (must match the C# pinvokeParams below in the same order):
-        //   resultPtr: UnsafeMutableRawPointer (indirect return)
+        //   resultPtr: UnsafeMutableRawPointer (indirect return) — OMITTED for void
         //   <Utf8Slice user params...> (each → Utf8Ptr + Utf8Len pair)
         //   self_: UnsafeRawPointer (non-mutating borrowed const pointer)
         //   completion: @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void
-        //   errorCallback (throws only): same signature
+        //     — void carries only (UnsafeMutableRawPointer) -> Void (context, no result)
+        //   errorCallback (throws only): always (errorPtr, context) -> Void
         //   context: UnsafeMutableRawPointer (GCHandle for TCS)
         //   cancelKey: Int64 (producer-cancel registry key)
-        var swiftParams = new List<string>
-        {
-            "_ resultPtr: UnsafeMutableRawPointer",
-        };
+        var swiftParams = new List<string>();
+        if (!isVoid)
+            swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
 
         // Per-param Utf8Slice marshalling. The selective-opt-out gate above has
         // already filtered to Utf8Slice only — every arg here is Swift.String.
@@ -598,8 +628,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
         }
 
         swiftParams.Add("_ self_: UnsafeRawPointer");
-        swiftParams.Add(
-            "_ completion: @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void");
+        swiftParams.Add(isVoid
+            ? "_ completion: @convention(c) (UnsafeMutableRawPointer) -> Void"
+            : "_ completion: @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void");
         if (throws)
         {
             swiftParams.Add(
@@ -653,11 +684,22 @@ public static partial class ConcreteProtocolSpecializationEmitter
         if (throws)
         {
             swiftWriter.WriteLine("        do {");
-            swiftWriter.WriteLine(
-                $"            let _result = try await __self.{methodCallSwift}({callArgsSwift})");
-            swiftWriter.WriteLine(
-                $"            resultPtr.initializeMemory(as: ({returnSwiftType}).self, repeating: _result, count: 1)");
-            swiftWriter.WriteLine("            completion(resultPtr, context)");
+            if (isVoid)
+            {
+                // Void: no result buffer. `try await` the call, then signal completion
+                // with the context alone — the success completion is (context) -> Void.
+                swiftWriter.WriteLine(
+                    $"            try await __self.{methodCallSwift}({callArgsSwift})");
+                swiftWriter.WriteLine("            completion(context)");
+            }
+            else
+            {
+                swiftWriter.WriteLine(
+                    $"            let _result = try await __self.{methodCallSwift}({callArgsSwift})");
+                swiftWriter.WriteLine(
+                    $"            resultPtr.initializeMemory(as: ({returnSwiftType}).self, repeating: _result, count: 1)");
+                swiftWriter.WriteLine("            completion(resultPtr, context)");
+            }
             swiftWriter.WriteLine("        } catch {");
             swiftWriter.WriteLine(
                 "            let errorPtr = Unmanaged.passRetained(error as AnyObject).toOpaque()");
@@ -666,11 +708,20 @@ public static partial class ConcreteProtocolSpecializationEmitter
         }
         else
         {
-            swiftWriter.WriteLine(
-                $"        let _result = await __self.{methodCallSwift}({callArgsSwift})");
-            swiftWriter.WriteLine(
-                $"        resultPtr.initializeMemory(as: ({returnSwiftType}).self, repeating: _result, count: 1)");
-            swiftWriter.WriteLine("        completion(resultPtr, context)");
+            if (isVoid)
+            {
+                swiftWriter.WriteLine(
+                    $"        await __self.{methodCallSwift}({callArgsSwift})");
+                swiftWriter.WriteLine("        completion(context)");
+            }
+            else
+            {
+                swiftWriter.WriteLine(
+                    $"        let _result = await __self.{methodCallSwift}({callArgsSwift})");
+                swiftWriter.WriteLine(
+                    $"        resultPtr.initializeMemory(as: ({returnSwiftType}).self, repeating: _result, count: 1)");
+                swiftWriter.WriteLine("        completion(resultPtr, context)");
+            }
         }
 
         swiftWriter.WriteLine("    }");
@@ -694,7 +745,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         CSharpWriter csWriter,
         MethodDecl method,
         string parentCsName,
-        string returnCsType,
+        string? returnCsType,
         string cdeclSymbol,
         string csMethodName,
         string wrapperLibPath,
@@ -702,8 +753,20 @@ public static partial class ConcreteProtocolSpecializationEmitter
         IReadOnlyList<AvailabilityAnnotation>? mergedAvailability,
         TypeDecl parentTypeDecl,
         ITypeDatabase typeDatabase,
-        bool returnIsBlittable)
+        bool returnIsBlittable,
+        bool isVoid)
     {
+        // Void shape: a non-generic TaskCompletionSource/Task, a context-only success
+        // completion callback, and NO result buffer (no alloc, no marshal, no free). The
+        // holder keeps its stable 3-slot layout { tcs, resultPtrOrZero, cancelReg } — void
+        // parks IntPtr.Zero in slot 1 so the cancel-registration dispose (slot 2) and the
+        // error callback's conditional free stay byte-identical across void and value.
+        var tcsType = isVoid
+            ? "global::System.Threading.Tasks.TaskCompletionSource"
+            : $"global::System.Threading.Tasks.TaskCompletionSource<{returnCsType}>";
+        var taskType = isVoid
+            ? "global::System.Threading.Tasks.Task"
+            : $"global::System.Threading.Tasks.Task<{returnCsType}>";
         // Pre-compute the Utf8Slice user-param list. The selective-opt-out gate has
         // already filtered method.CSSignature.Skip(1) down to Utf8Slice only — every
         // entry that survives here projects to a `string` public param + (IntPtr ptr,
@@ -755,27 +818,55 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // The holder still carries resultPtr so the error callback (throws only) can
         // free its uninitialized buffer — Swift never wrote to it on the error branch
         // and never handed it to NewFromPayload.
-        csWriter.WriteLine(
-            $"private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {successCallbackField} = &{successCallbackMethod};");
-        csWriter.WriteLine(
-            "[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
-        csWriter.WriteLine(
-            $"private static unsafe void {successCallbackMethod}(IntPtr resultPtr, IntPtr context)");
+        // Void success completion is (context) -> Void — no resultPtr parameter, no
+        // MarshalFromSwift, and `TrySetResult()` takes no argument. Value completion is
+        // (resultPtr, context) -> Void with the marshal + value-carrying TrySetResult.
+        if (isVoid)
+        {
+            csWriter.WriteLine(
+                $"private static unsafe delegate* unmanaged[Cdecl]<IntPtr, void> {successCallbackField} = &{successCallbackMethod};");
+            csWriter.WriteLine(
+                "[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+            csWriter.WriteLine(
+                $"private static unsafe void {successCallbackMethod}(IntPtr context)");
+        }
+        else
+        {
+            csWriter.WriteLine(
+                $"private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {successCallbackField} = &{successCallbackMethod};");
+            csWriter.WriteLine(
+                "[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+            csWriter.WriteLine(
+                $"private static unsafe void {successCallbackMethod}(IntPtr resultPtr, IntPtr context)");
+        }
         csWriter.WriteLine("{");
         csWriter.Indent++;
         csWriter.WriteLine("var handle = global::System.Runtime.InteropServices.GCHandle.FromIntPtr(context);");
         csWriter.WriteLine("try");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        csWriter.WriteLine(
-            $"var result = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{returnCsType}>(resultPtr);");
-        csWriter.WriteLine(
-            $"if (handle.Target is object[] holder && holder[0] is global::System.Threading.Tasks.TaskCompletionSource<{returnCsType}> tcs)");
-        csWriter.WriteLine("{");
-        csWriter.Indent++;
-        csWriter.WriteLine("tcs.TrySetResult(result);");
-        csWriter.Indent--;
-        csWriter.WriteLine("}");
+        if (isVoid)
+        {
+            csWriter.WriteLine(
+                $"if (handle.Target is object[] holder && holder[0] is {tcsType} tcs)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("tcs.TrySetResult();");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+        }
+        else
+        {
+            csWriter.WriteLine(
+                $"var result = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{returnCsType}>(resultPtr);");
+            csWriter.WriteLine(
+                $"if (handle.Target is object[] holder && holder[0] is {tcsType} tcs)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("tcs.TrySetResult(result);");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+        }
         csWriter.Indent--;
         csWriter.WriteLine("}");
         // Outer catch — [UnmanagedCallersOnly] callbacks MUST NOT let exceptions escape;
@@ -789,7 +880,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         csWriter.WriteLine("{");
         csWriter.Indent++;
         csWriter.WriteLine(
-            $"if (handle.IsAllocated && handle.Target is object[] holder2 && holder2[0] is global::System.Threading.Tasks.TaskCompletionSource<{returnCsType}> tcs2)");
+            $"if (handle.IsAllocated && handle.Target is object[] holder2 && holder2[0] is {tcsType} tcs2)");
         csWriter.WriteLine("{");
         csWriter.Indent++;
         csWriter.WriteLine("tcs2.TrySetException(ex);");
@@ -851,9 +942,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
             csWriter.WriteLine("{");
             csWriter.Indent++;
             csWriter.WriteLine(
-                $"if (handle.Target is object[] holder && holder[0] is global::System.Threading.Tasks.TaskCompletionSource<{returnCsType}> tcs)");
+                $"if (handle.Target is object[] holder && holder[0] is {tcsType} tcs)");
             csWriter.WriteLine("{");
             csWriter.Indent++;
+            // Value path: holder[1] is the result buffer to free (Swift never wrote it on
+            // the error branch). Void path: holder[1] is IntPtr.Zero, so the conditional
+            // free below is a no-op — no buffer was ever allocated.
             csWriter.WriteLine("resultPtr = (IntPtr)(nint)holder[1]!;");
             // Build a SwiftException via the standard ThrowSwiftError helper. Wrap in
             // try/catch so we capture the constructed exception without unwinding past
@@ -896,10 +990,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
         //   resultPtr → <Utf8Slice user params: ptr+len pairs> → self_ → completion
         //     → errorCallback (if throws) → context → cancelKey
         csWriter.WriteLine();
-        var pinvokeParams = new List<string>
-        {
-            "IntPtr resultPtr",
-        };
+        var pinvokeParams = new List<string>();
+        if (!isVoid)
+            pinvokeParams.Add("IntPtr resultPtr");
         foreach (var utf8Arg in utf8Args)
         {
             var csName = NameProvider.GetCSharpParameterName(utf8Arg);
@@ -907,7 +1000,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
             pinvokeParams.Add($"nint {csName}Utf8Len");
         }
         pinvokeParams.Add("IntPtr self_");
-        pinvokeParams.Add("delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> completion");
+        pinvokeParams.Add(isVoid
+            ? "delegate* unmanaged[Cdecl]<IntPtr, void> completion"
+            : "delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> completion");
         if (throws)
             pinvokeParams.Add("delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> errorCallback");
         pinvokeParams.Add("IntPtr context");
@@ -958,7 +1053,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         csWriter.WriteLine(
             $"/// <summary>Parent-only async specialization: {parentCsName}.{method.Name}.</summary>");
         csWriter.WriteLine(
-            $"public static unsafe global::System.Threading.Tasks.Task<{returnCsType}> {csMethodName}({string.Join(", ", publicParams)})");
+            $"public static unsafe {taskType} {csMethodName}({string.Join(", ", publicParams)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
         AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(
@@ -967,8 +1062,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // Finding 39: RunContinuationsAsynchronously so the continuation does not run inline on
         // Swift's executor (the textbook reverse-deadlock setup); matches every other async TCS site.
         csWriter.WriteLine(
-            $"var {tcsName} = new global::System.Threading.Tasks.TaskCompletionSource<{returnCsType}>(global::System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);");
-        // Size source diverges by return shape:
+            $"var {tcsName} = new {tcsType}(global::System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);");
+        // Result buffer allocation — void has no result, so no buffer is allocated (the
+        // holder parks IntPtr.Zero in its slot 1 below). Size source diverges by return shape:
         //   SafeHandle-backed (non-frozen struct):
         //     `SwiftMarshal.GetSwiftTypeSize<T>()` queries Swift TypeMetadata.Size — required
         //     because the Swift size can differ from the C# `sizeof` of the wrapper (the
@@ -979,15 +1075,18 @@ public static partial class ConcreteProtocolSpecializationEmitter
         //     etc.), so `sizeof({returnCsType})` is the exact right size. Cannot use
         //     `GetSwiftTypeSize<T>` here — its `where T : ISwiftObject` constraint excludes
         //     `int`/`double`/`float`/etc., which is the CS0315 the predicate widen tripped on.
-        if (returnIsBlittable)
+        if (!isVoid)
         {
-            csWriter.WriteLine(
-                $"var {asyncResultPtrName} = (IntPtr)global::System.Runtime.InteropServices.NativeMemory.Alloc((nuint)sizeof({returnCsType}));");
-        }
-        else
-        {
-            csWriter.WriteLine(
-                $"var {asyncResultPtrName} = (IntPtr)global::System.Runtime.InteropServices.NativeMemory.Alloc((nuint)global::Swift.Runtime.InteropServices.SwiftMarshal.GetSwiftTypeSize<{returnCsType}>());");
+            if (returnIsBlittable)
+            {
+                csWriter.WriteLine(
+                    $"var {asyncResultPtrName} = (IntPtr)global::System.Runtime.InteropServices.NativeMemory.Alloc((nuint)sizeof({returnCsType}));");
+            }
+            else
+            {
+                csWriter.WriteLine(
+                    $"var {asyncResultPtrName} = (IntPtr)global::System.Runtime.InteropServices.NativeMemory.Alloc((nuint)global::Swift.Runtime.InteropServices.SwiftMarshal.GetSwiftTypeSize<{returnCsType}>());");
+            }
         }
         // Producer-cancel registry key (distinct from the GCHandle context). A cancellable token
         // registers a callback that task-cancels the suspended Swift producer (SBW_CancelTask) and
@@ -1006,7 +1105,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         csWriter.WriteLine("{");
         csWriter.Indent++;
         csWriter.WriteLine(
-            $"var (__tcs, __tok, __id) = ((global::System.Threading.Tasks.TaskCompletionSource<{returnCsType}>, global::System.Threading.CancellationToken, long))state!;");
+            $"var (__tcs, __tok, __id) = (({tcsType}, global::System.Threading.CancellationToken, long))state!;");
         csWriter.WriteLine("SBW_CancelTask(__id);");
         csWriter.WriteLine("__tcs.TrySetCanceled(__tok);");
         csWriter.Indent--;
@@ -1019,8 +1118,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // Holder carries the TCS, the resultPtr, and the cancel registration to whichever callback
         // fires so C# can free the buffer AND dispose the registration in both paths. Boxing IntPtr
         // (nint) into object[] is safe because the runtime preserves the pointer value verbatim;
-        // CancellationTokenRegistration is a struct, boxed here and unboxed in the callbacks.
-        csWriter.WriteLine($"var {holderName} = new object[] {{ {tcsName}, (object)(nint){asyncResultPtrName}, {cancelRegName} }};");
+        // CancellationTokenRegistration is a struct, boxed here and unboxed in the callbacks. Void
+        // parks IntPtr.Zero in slot 1 (no result buffer) so the layout — and the cancel-registration
+        // dispose at slot 2 in every callback — stays identical across void and value.
+        var holderResultSlot = isVoid ? "(object)(nint)IntPtr.Zero" : $"(object)(nint){asyncResultPtrName}";
+        csWriter.WriteLine($"var {holderName} = new object[] {{ {tcsName}, {holderResultSlot}, {cancelRegName} }};");
         csWriter.WriteLine(
             $"var {handleName} = global::System.Runtime.InteropServices.GCHandle.Alloc({holderName});");
         csWriter.WriteLine("try");
@@ -1032,7 +1134,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
         //   (throws) → context. Each Utf8Slice arg also contributes a (csName, bareName)
         //   entry to utf8SliceLocals which drives the byte[] prelude + nested `fixed`
         //   block stack.
-        var callArgs = new List<string> { asyncResultPtrName };
+        var callArgs = new List<string>();
+        if (!isVoid)
+            callArgs.Add(asyncResultPtrName);
         var utf8SliceLocals = new List<(string csName, string bareName)>();
         foreach (var utf8Arg in utf8Args)
         {
@@ -1081,10 +1185,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // Synchronous-path safety net: if anything throws before Swift could schedule the
         // Task (a null string param makes UTF8.GetBytes throw; a missing symbol throws
         // DllNotFoundException) neither callback will fire, so we free the buffer + handle
-        // and dispose the cancel registration here.
+        // and dispose the cancel registration here. Void allocated no buffer, so there is
+        // nothing to free.
         csWriter.WriteLine($"{cancelRegName}.Dispose();");
         csWriter.WriteLine($"if ({handleName}.IsAllocated) {handleName}.Free();");
-        csWriter.WriteLine($"global::System.Runtime.InteropServices.NativeMemory.Free((void*){asyncResultPtrName});");
+        if (!isVoid)
+            csWriter.WriteLine($"global::System.Runtime.InteropServices.NativeMemory.Free((void*){asyncResultPtrName});");
         // The wrapper never launched, so its `defer { _sbwUnregisterTask }` will not run.
         // Reclaim any WINDOW-A cancellation tombstone left for this id (no-op if none) —
         // a token that fired in the synchronous window planted it before this throw.

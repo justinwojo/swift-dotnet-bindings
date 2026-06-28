@@ -901,6 +901,142 @@ public class ConcreteSpecializationEngineTests
     }
 
     [Fact]
+    public void EmitConcreteSpecializations_ParentOnlyAsyncVoidMethod_NonGenericTaskAndContextOnlyCompletion()
+    {
+        // Void-return parent-only async (`func donate() async` on a generic struct parent —
+        // the ActivityKit `Activity<T>.update`/`end` and TipKit `Tips.Event<T>.donate` shape).
+        // Before the void fork in IsEmittableParentOnlyAsyncPairing, an empty-tuple return was
+        // hard-rejected and no wrapper emitted at all. After: the C# extension returns a
+        // NON-generic Task (no Task<…>, no TaskCompletionSource<…>) and the Swift completion
+        // callback carries ONLY the GCHandle context — no result pointer is allocated or passed.
+        var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
+
+        var engine = new ConcreteSpecializationEngine(db);
+
+        var voidMethod = CreateParentOnlyAsyncVoidMethodDecl(
+            "Donator", "donate", throws: false, withStringParam: false);
+        var typeDecl = CreateGenericStructWithParentOnlyAsyncVoidMethods(
+            "Donator", "SwiftBindingsTestLib.AsyncBagItem", voidMethod);
+
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializationsForGenericParent(
+            csWriter, swiftWriter, typeDecl, db, new ModuleEmissionContext(), engine, NullLogger.Instance);
+
+        var cs = csOutput.ToString();
+        var swift = swiftOutput.ToString();
+
+        // The overload emitted at all.
+        Assert.Contains("DonateAsync", cs);
+        // Non-generic Task surface: a void method must NOT introduce a generic Task or TCS.
+        Assert.DoesNotContain("TaskCompletionSource<", cs);
+        Assert.DoesNotContain("global::System.Threading.Tasks.Task<", cs);
+        // The public extension method returns the non-generic Task.
+        Assert.Contains("global::System.Threading.Tasks.Task DonateAsync(", cs);
+        // A plain (non-generic) TaskCompletionSource backs it.
+        Assert.Contains("new global::System.Threading.Tasks.TaskCompletionSource(", cs);
+
+        // "No result buffer" ABI, pinned positively and negatively:
+        //   - no result buffer is allocated on the void path (value path NativeMemory.Allocs one),
+        Assert.DoesNotContain("NativeMemory.Alloc", cs);
+        //   - the holder's result slot is the IntPtr.Zero placeholder (stable 3-slot layout), and
+        Assert.Contains("(object)(nint)IntPtr.Zero", cs);
+        //   - the success callback / completion are the 1-arg (context-only) shape, never the
+        //     2-arg (resultPtr, context) shape the value path uses.
+        Assert.Contains("delegate* unmanaged[Cdecl]<IntPtr, void>", cs);
+        Assert.DoesNotContain("delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void>", cs);
+
+        // Swift completion is context-only (1 arg), and is invoked with just the context.
+        Assert.Contains("_ completion: @convention(c) (UnsafeMutableRawPointer) -> Void", swift);
+        Assert.Contains("completion(context)", swift);
+        // No result pointer is threaded into the wrapper, and no 2-arg success completion exists.
+        Assert.DoesNotContain("_ resultPtr:", swift);
+        Assert.Contains("await __self.donate()", swift);
+    }
+
+    [Fact]
+    public void EmitConcreteSpecializations_ParentOnlyAsyncVoidThrowingMethod_InstallsErrorCallbackNoResultBuffer()
+    {
+        // Throwing void parent-only async (`func donate(_ name: String) async throws`). The
+        // wrapper must install BOTH the 1-arg success completion AND the 2-arg errorCallback
+        // inside a do/catch, route the thrown error through errorCallback(errorPtr, context),
+        // and still allocate NO result buffer. The C# error path faults the non-generic Task
+        // via TrySetException — there is no result slot to read.
+        var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
+
+        var engine = new ConcreteSpecializationEngine(db);
+
+        var voidThrowing = CreateParentOnlyAsyncVoidMethodDecl(
+            "Donator", "donate", throws: true, withStringParam: true);
+        var typeDecl = CreateGenericStructWithParentOnlyAsyncVoidMethods(
+            "Donator", "SwiftBindingsTestLib.AsyncBagItem", voidThrowing);
+
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializationsForGenericParent(
+            csWriter, swiftWriter, typeDecl, db, new ModuleEmissionContext(), engine, NullLogger.Instance);
+
+        var cs = csOutput.ToString();
+        var swift = swiftOutput.ToString();
+
+        // Swift: both callbacks present, do/catch routing, context-only success completion.
+        Assert.Contains("_ completion: @convention(c) (UnsafeMutableRawPointer) -> Void", swift);
+        Assert.Contains("_ errorCallback: @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void", swift);
+        Assert.Contains("try await __self.donate(", swift);
+        Assert.Contains("completion(context)", swift);
+        Assert.Contains("errorCallback(errorPtr, context)", swift);
+        // No result buffer on the throwing void path either.
+        Assert.DoesNotContain("_ resultPtr:", swift);
+
+        // C#: still a non-generic Task; the error path faults via TrySetException.
+        Assert.DoesNotContain("TaskCompletionSource<", cs);
+        Assert.Contains("global::System.Threading.Tasks.Task DonateAsync(", cs);
+        Assert.Contains("TrySetException", cs);
+    }
+
+    [Fact]
+    public void EmitConcreteSpecializations_ParentOnlyAsyncVoidOverloads_BothAritiesEmit()
+    {
+        // sigKey param-dedup: two same-named void async overloads on one parent —
+        // `donate() async` and `donate(_ name: String) async`. Both project to the C# name
+        // DonateAsync and land in the SAME per-conformer extension class. If the dedup key
+        // were name-only (`async|DonateAsync`), the second overload would be silently dropped.
+        // Keying on the projected parameter list lets both arities coexist.
+        var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
+
+        var engine = new ConcreteSpecializationEngine(db);
+
+        var noParam = CreateParentOnlyAsyncVoidMethodDecl(
+            "Donator", "donate", throws: false, withStringParam: false);
+        var stringParam = CreateParentOnlyAsyncVoidMethodDecl(
+            "Donator", "donate", throws: false, withStringParam: true);
+        var typeDecl = CreateGenericStructWithParentOnlyAsyncVoidMethods(
+            "Donator", "SwiftBindingsTestLib.AsyncBagItem", noParam, stringParam);
+
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializationsForGenericParent(
+            csWriter, swiftWriter, typeDecl, db, new ModuleEmissionContext(), engine, NullLogger.Instance);
+
+        var cs = csOutput.ToString();
+
+        // The parameterless overload: first user param is the defaulted CancellationToken.
+        Assert.Contains("DonateAsync(this Donator<", cs);
+        Assert.Contains("self, global::System.Threading.CancellationToken cancellationToken = default)", cs);
+        // The string overload: a `string` user param precedes the CancellationToken.
+        Assert.Contains("self, string name, global::System.Threading.CancellationToken cancellationToken = default)", cs);
+    }
+
+    [Fact]
     public void ComputePairingCount_SingleParam_ReturnsConformerCount()
     {
         var specParams = new List<ConcreteSpecializationEngine.SpecializableParam>
@@ -2538,6 +2674,82 @@ public class ConcreteSpecializationEngineTests
         };
 
         method.ParentDecl = structDecl;
+        return structDecl;
+    }
+
+    // Builds a parent-only async VOID method decl: CSSignature[0] is the empty-tuple return
+    // (`isVoid`), optionally followed by one Swift.String user param (admitted Utf8Slice) and
+    // optionally throwing. The empty-tuple return is what IsEmittableParentOnlyAsyncPairing's
+    // void fork keys on. A per-arity suffix on the mangled name keeps two same-named overloads'
+    // cdecl symbols distinct.
+    private static MethodDecl CreateParentOnlyAsyncVoidMethodDecl(
+        string typeName, string methodName, bool throws, bool withStringParam)
+    {
+        var sig = new List<ArgumentDecl>
+        {
+            // index 0 = return type; empty tuple → void
+            new() { Name = "", PrivateName = "", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = TupleTypeSpec.Empty, IsGeneric = false }
+        };
+        if (withStringParam)
+        {
+            sig.Add(new() { Name = "name", PrivateName = "name", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec("Swift.String"), IsGeneric = false });
+        }
+
+        return new MethodDecl
+        {
+            Name = methodName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            MangledName = $"$s{typeName}{methodName}{(withStringParam ? "1p" : "0p")}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = throws,
+            IsAsync = true,
+            IsSynthesizedAccessor = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            CSSignature = sig,
+            AvailabilityAnnotations = null
+        };
+    }
+
+    // Builds a frozen generic struct whose single PAT generic is hint-resolved, carrying the
+    // supplied parent-only async void methods. Module is SwiftBindingsTestLib so the hint
+    // protocol's registry scope matches (mirrors CreateGenericStructWithParentOnlyAsyncMethod).
+    private static StructDecl CreateGenericStructWithParentOnlyAsyncVoidMethods(
+        string typeName, string protocolName, params MethodDecl[] methods)
+    {
+        var protocolTypeName = SwiftTypeName.FromModuleQualifiedName(protocolName);
+
+        var parentConformance = new GenericParameterConformance(
+            new[] { "τ_0_0" }, protocolTypeName, ConformanceKind.Protocol);
+
+        var parentGenericParam = new GenericArgumentDecl(
+            "τ_0_0", "T",
+            new List<GenericParameterConformance> { parentConformance },
+            new List<GenericParameterConformance>());
+
+        var structDecl = new StructDecl
+        {
+            Name = typeName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"SwiftBindingsTestLib.{typeName}"),
+            MangledName = "",
+            IsFrozen = true,
+            GenericParameters = new List<GenericArgumentDecl> { parentGenericParam },
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(methods),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            MetadataAccessor = "",
+            AvailabilityAnnotations = null
+        };
+
+        foreach (var m in methods)
+        {
+            m.ParentDecl = structDecl;
+        }
         return structDecl;
     }
 

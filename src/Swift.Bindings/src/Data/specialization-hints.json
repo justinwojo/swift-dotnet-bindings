@@ -148,6 +148,13 @@
       ]
     },
     {
+      "protocol": "SwiftBindingsTestLib.DonationItem",
+      "conformers": [
+        { "swiftType": "SwiftBindingsTestLib.StringDonationItem", "csharpType": "StringDonationItem" },
+        { "swiftType": "SwiftBindingsTestLib.IntDonationItem", "csharpType": "IntDonationItem" }
+      ]
+    },
+    {
       "protocol": "SwiftBindingsTestLib.ProtocolBag_Filterable",
       "conformers": [
         {
