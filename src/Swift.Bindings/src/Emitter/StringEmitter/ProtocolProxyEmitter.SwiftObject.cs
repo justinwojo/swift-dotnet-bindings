@@ -615,15 +615,19 @@ public partial class ProtocolProxyEmitter
             // overloads whose distinct Swift parameter types both project to Swift.AnyType are two
             // witness requirements (two producer indices); keying the index here on the collapsed
             // C# projection would give them one index and skew every later method's accessor symbol
-            // (EntryPointNotFoundException). See WitnessDispatchEmitter.GetMethodKey.
-            var slotKey = WitnessDispatchEmitter.GetMethodKey(method);
+            // (EntryPointNotFoundException). EffectiveWitnessSlotKey additionally splits a disambiguated
+            // label-only pair (identical Swift types, differing labels) into two slots — matching the
+            // producer — so the Swift-backed proxy can forward each sibling to its own witness.
+            var slotKey = ProtocolMethodDisambiguator.EffectiveWitnessSlotKey(method, protocolDecl, _typeDatabase);
             if (methodIndices.ContainsKey(slotKey))
                 continue;
 
             var idx = methodIndex++;
             methodIndices[slotKey] = idx;
 
-            var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
+            // Effective projected key so a disambiguated pair emits TWO distinct P/Invoke decls (one per
+            // slot), keeping the consumer P/Invoke set aligned with the producer and the call-site walk.
+            var projectedKey = ProtocolMethodDisambiguator.EffectiveProjectedKey(method, protocolDecl, _typeDatabase, propertyNames: null);
             if (!emittedCSharpKeys.Add(projectedKey))
                 continue;
 

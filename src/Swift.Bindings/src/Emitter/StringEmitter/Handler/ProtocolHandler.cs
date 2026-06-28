@@ -348,8 +348,12 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // Create a unique key for the method (name + parameter types)
-                var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(methodDecl, env.TypeDatabase, protocolDecl);
+                // Create a unique key for the method (name + parameter types).
+                // EffectiveRawKey: for a label-only-overload sibling (e.g. delegate callbacks
+                // conversationManager(_:didActivate:) / (_:didDeactivate:)) this is the label-INCLUSIVE
+                // slot key, so the siblings stay distinct here and BOTH emit; for every other method it is
+                // the unchanged label-erased signature key.
+                var methodKey = ProtocolMethodDisambiguator.EffectiveRawKey(methodDecl, protocolDecl, env.TypeDatabase);
                 if (emittedMethods.Contains(methodKey))
                 {
                     _logger.LogDebug($"Skipping duplicate method '{methodDecl.Name}' in interface {protocolDecl.Name}");
@@ -359,16 +363,14 @@ namespace BindingsGeneration
                 emittedMethods.Add(methodKey);
 
                 // Secondary dedup: different Swift types can project to the same C# type.
-                // NOTE: Protocol method collision disambiguation is intentionally deferred.
-                // Unlike concrete types (IHandler/ModuleHandler), protocol methods define an
-                // interface contract — renaming a method to "Method2" requires corresponding
-                // name changes in: (1) ProtocolProxyEmitter.EmitMethodImplementation,
-                // (2) witness dispatch symbol emission, (3) extension default DIMs, and
-                // (4) protocol inheritance chains. The collision suffix must be threaded through
-                // the entire proxy/witness/extension pipeline to maintain CS0535 compliance.
-                // Until that plumbing is in place, duplicate projected signatures are skipped.
-                // Concrete type disambiguation was added in commit 81e22a1e.
-                var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(methodDecl, env.TypeDatabase, protocolDecl);
+                // When two requirements share a base name + projected param types but differ only by argument
+                // LABELS, ProtocolMethodDisambiguator gives each a label-derived name (built ObjC-selector
+                // style), and EffectiveProjectedKey computes the projected key under that name — so the
+                // siblings produce DISTINCT projected keys and both survive instead of all-but-one being
+                // dropped. Pure type-erasure collisions (same labels, types that project alike) still collapse
+                // here, exactly as before. The name is threaded through every proxy/receiver/validator site
+                // below via the same disambiguator so the interface contract stays CS0535-clean.
+                var projectedKey = ProtocolMethodDisambiguator.EffectiveProjectedKey(methodDecl, protocolDecl, env.TypeDatabase, propertyNames: null);
                 if (!emittedCSharpKeys.Add(projectedKey))
                 {
                     skippedMethodKeys.Add(methodKey);
@@ -1042,7 +1044,10 @@ namespace BindingsGeneration
                 methodDecl.CSSignature.Select(a => a.SwiftTypeSpec));
 
             var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
-            var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue,
+            // Disambiguator override: a label-only-overload sibling emits under its label-derived name
+            // (e.g. ConversationManagerDidActivate) instead of the bare PascalCased method name; identity
+            // for every other method (returns methodDecl.Name).
+            var methodName = NameProvider.GetPublicMethodName(ProtocolMethodDisambiguator.EffectiveNameInput(methodDecl, protocolContext, typeDatabase), methodDecl.IsAsync, hasReturnValue: hasReturnValue,
                 propertyNames: propertyNames, isSelfReturning: isSelfReturning,
                 parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
@@ -1368,7 +1373,9 @@ namespace BindingsGeneration
             var returnTypeSpec = methodDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
             bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
             var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
-            var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue,
+            // Disambiguator override: keeps the emitted-signature dedup key in step with the label-derived
+            // name the interface declares, so two label-only siblings produce DISTINCT emitted signatures.
+            var methodName = NameProvider.GetPublicMethodName(ProtocolMethodDisambiguator.EffectiveNameInput(methodDecl, protocolContext, typeDatabase), methodDecl.IsAsync, hasReturnValue: hasReturnValue,
                 propertyNames: propertyNames, isSelfReturning: isSelfReturning,
                 parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
@@ -1479,7 +1486,9 @@ namespace BindingsGeneration
             }
 
             var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
-            var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturn,
+            // Disambiguator override: the nint→int convenience DIM must carry the same label-derived name
+            // as its full-width sibling, or the two label-only overloads' DIMs would collide.
+            var methodName = NameProvider.GetPublicMethodName(ProtocolMethodDisambiguator.EffectiveNameInput(methodDecl, protocolContext, typeDatabase), methodDecl.IsAsync, hasReturnValue: hasReturn,
                 propertyNames: propertyNames, isSelfReturning: isSelfReturning,
                 parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 

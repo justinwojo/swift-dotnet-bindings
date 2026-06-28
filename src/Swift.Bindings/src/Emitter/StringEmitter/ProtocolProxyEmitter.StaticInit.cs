@@ -297,7 +297,7 @@ public partial class ProtocolProxyEmitter
                 // LAYOUT: a method with no Swift vtable slot has no struct field to assign into.
                 if (!ProtocolVtableMembers.IncludesMethod(method, protocolDecl, vtableClosureHandler))
                     continue;
-                var collapsingKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocolDecl);
+                var collapsingKey = ProtocolMethodDisambiguator.EffectiveRawKey(method, protocolDecl, _typeDatabase);
                 if (_skippedMethodKeys.Contains(collapsingKey))
                     continue;
                 // RAW-SIGNATURE DEDUP: mirror the interface's one-method-per-raw-key invariant and
@@ -307,7 +307,7 @@ public partial class ProtocolProxyEmitter
                 // pointing at a receiver for a non-existent C# overload.
                 if (!emittedRawKeys.Add(collapsingKey))
                     continue;
-                var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
+                var projectedKey = ProtocolMethodDisambiguator.EffectiveProjectedKey(method, protocolDecl, _typeDatabase, propertyNames: null);
                 if (!emittedCSharpKeys.Add(projectedKey))
                     continue;
                 EmitLocalVtableMethodAssignment(writer, method, idx);
@@ -375,10 +375,10 @@ public partial class ProtocolProxyEmitter
                 methodIndices[slotKey] = idx;
                 if (!ProtocolVtableMembers.IncludesMethod(method, protocolDecl, vtableClosureHandler))
                     continue;
-                var collapsingKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocolDecl);
+                var collapsingKey = ProtocolMethodDisambiguator.EffectiveRawKey(method, protocolDecl, _typeDatabase);
                 if (_skippedMethodKeys.Contains(collapsingKey))
                     continue;
-                var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
+                var projectedKey = ProtocolMethodDisambiguator.EffectiveProjectedKey(method, protocolDecl, _typeDatabase, propertyNames: null);
                 if (!emittedCSharpKeys.Add(projectedKey))
                     continue;
                 EmitSwiftVtableMethodAssignment(writer, method, idx);
@@ -688,9 +688,9 @@ public partial class ProtocolProxyEmitter
                 // second overload — an orphan reference to a receiver the guarded loop never emitted
                 // (CS0103). The slot's struct field still exists (keyed on the raw producer key) and
                 // is left at IntPtr.Zero, matching the documented fillability model.
-                var collapsingKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, parentDecl);
+                var collapsingKey = ProtocolMethodDisambiguator.EffectiveRawKey(method, parentDecl, _typeDatabase);
                 if (!emittedRawKeys.Add(collapsingKey)) continue;
-                var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, parentDecl);
+                var projectedKey = ProtocolMethodDisambiguator.EffectiveProjectedKey(method, parentDecl, _typeDatabase, propertyNames: null);
                 if (!emittedCSharpKeys.Add(projectedKey)) continue;
                 EmitLocalVtableMethodAssignment(writer, method, idx);
             }
@@ -740,7 +740,7 @@ public partial class ProtocolProxyEmitter
                 var idx = methodSlotIndices[slotKey];
                 methodIndices[slotKey] = idx;
                 if (!ProtocolVtableMembers.IncludesMethod(method, parentDecl, vtableClosureHandler)) continue;
-                var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, parentDecl);
+                var projectedKey = ProtocolMethodDisambiguator.EffectiveProjectedKey(method, parentDecl, _typeDatabase, propertyNames: null);
                 if (!emittedCSharpKeys.Add(projectedKey)) continue;
                 EmitSwiftVtableMethodAssignment(writer, method, idx, localVtableField);
             }

@@ -567,22 +567,20 @@ public class WitnessDispatchEmitterTests
     }
 
     [Fact]
-    public void OverloadDisambiguation_LabelOnlyOverloadPair_CollapsesToOneSlot_NoTrailingIndexShift()
+    public void OverloadDisambiguation_LabelOnlyOverloadPair_SplitsIntoTwoSlots_TrailingMethodShifts()
     {
-        // A label-only overload pair — same base name, same parameter TYPES, differing only
-        // by Swift argument label (`func move(to: Int32)` / `func move(from: Int32)`) — must
-        // collapse to a SINGLE forward-witness accessor here, because GetMethodKey (the
-        // canonical forward/SBW slot key) is intentionally label-BLIND. This is the producer
-        // walk; the two C# consumer walks (ProtocolProxyEmitter.InterfaceImpl /.SwiftObject)
-        // key off the SAME GetMethodKey, so they collapse the pair identically. The load-bearing
-        // invariant the R5-1a fix rests on: a trailing dispatchable method must land at the
-        // index the collapsed pair leaves it at (here index 1, NOT 2). If a future change made
-        // this key label-SENSITIVE (the way EveryProtocolEmitter.GetMethodKey is, for the
-        // reverse/vtable axis), `move` would consume indices 0 AND 1 here while the still-blind
-        // consumers expected `tag` at 1 — reintroducing the SBW index-shift
-        // EntryPointNotFoundException R5-1a closed. (The second overload being non-individually
-        // dispatchable is the deferred protocol-collision-rename limitation documented at
-        // ProtocolHandler.cs and Receivers.cs, not a defect this test asserts away.)
+        // A label-only overload pair — same base name, same parameter TYPES, differing only by
+        // Swift argument label (`func move(to: Int32)` / `func move(from: Int32)`) — now SPLITS into
+        // two forward-witness accessors. Both siblings survive as distinct C# interface members
+        // (MoveTo / MoveFrom), so a Swift-backed proxy must be able to forward each to its OWN Swift
+        // witness — which needs its own SBW slot. The producer keys index allocation on
+        // ProtocolMethodDisambiguator.EffectiveWitnessSlotKey, which returns the label-INCLUSIVE slot
+        // key for a disambiguated method (label-blind otherwise). The two C# consumer walks
+        // (ProtocolProxyEmitter.InterfaceImpl /.SwiftObject) take the SAME effective key, so all three
+        // walks split identically — no SBW index mismatch. The load-bearing consequence: a trailing
+        // dispatchable method shifts by one (here `tag` lands at index 2, not 1), in lockstep across
+        // all three walks. (This is the deferred protocol-collision-rename limitation now FIXED;
+        // before, the pair collapsed to one slot and `move(from:)` was dropped from the interface.)
         var protocolDecl = CreateSimpleProtocol("Mover");
         protocolDecl.Methods.Add(CreateMethodWithParams("move",
             returnType: TupleTypeSpec.Empty,
@@ -596,13 +594,13 @@ public class WitnessDispatchEmitterTests
 
         var output = EmitDispatch(protocolDecl);
 
-        // The label-only pair collapses to exactly one accessor at index 0 ...
+        // The label-only pair splits into TWO accessors at indices 0 and 1 ...
         Assert.Contains("SBW_Mover_method_move_0", output);
-        Assert.DoesNotContain("SBW_Mover_method_move_1", output);
-        // ... so the trailing dispatchable method occupies index 1, never index 2. This is the
-        // lockstep both C# forward walks rely on (same label-blind GetMethodKey → same indices).
-        Assert.Contains("SBW_Mover_method_tag_1", output);
-        Assert.DoesNotContain("SBW_Mover_method_tag_2", output);
+        Assert.Contains("SBW_Mover_method_move_1", output);
+        // ... so the trailing dispatchable method shifts to index 2 (never 1). All three forward
+        // walks consume the same effective slot key, so producer and consumer indices agree.
+        Assert.Contains("SBW_Mover_method_tag_2", output);
+        Assert.DoesNotContain("SBW_Mover_method_tag_1", output);
     }
 
     #endregion

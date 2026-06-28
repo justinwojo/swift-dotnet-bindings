@@ -269,7 +269,10 @@ public class WitnessDispatchEmitter
             if (!IsMethodWitnessDispatchEligible(method))
                 continue;
 
-            var methodKey = GetMethodKey(method);
+            // EffectiveWitnessSlotKey splits a disambiguated label-only pair into two forward slots (label-inclusive
+            // key) while leaving every other method on the label-blind key — the two C# forward walks take the SAME
+            // effective key, so producer and consumer indices stay in lockstep.
+            var methodKey = ProtocolMethodDisambiguator.EffectiveWitnessSlotKey(method, protocolDecl, _typeDatabase);
             if (methodIndices.ContainsKey(methodKey))
                 continue;
 

@@ -391,14 +391,17 @@ public class ProtocolConformanceValidator
         foreach (var protoMethod in protocolDecl.Methods)
         {
             if (protoMethod.IsConstructor || protoMethod.MethodType == MethodType.Static) continue;
-            var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(protoMethod, _typeDatabase, protocolDecl);
+            // Effective* keys keep the validator's emitted-set iteration in lockstep with the emitter:
+            // a label-only-overload pair iterates as two distinct requirements (distinct slot/projected
+            // keys), so each is matched against its own concrete counterpart instead of collapsing to one.
+            var methodKey = ProtocolMethodDisambiguator.EffectiveRawKey(protoMethod, protocolDecl, _typeDatabase);
             if (!requiredMethods.Add(methodKey)) continue;
 
             // Skip methods that won't appear in the interface (mirrors ProtocolHandler gates)
             if (IsMethodSkippedFromInterface(protoMethod, boundGenericsHandler, protocolDecl))
                 continue;
 
-            var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(protoMethod, _typeDatabase, protocolDecl);
+            var projectedKey = ProtocolMethodDisambiguator.EffectiveProjectedKey(protoMethod, protocolDecl, _typeDatabase, propertyNames: null);
             if (!emittedCSharpKeys.Add(projectedKey))
                 continue;
 
@@ -457,7 +460,7 @@ public class ProtocolConformanceValidator
             bool protoHasReturn = protoReturnTypeSpec != null && !protoReturnTypeSpec.IsEmptyTuple;
             var protoIsSelfReturning = MethodEnvironment.IsSelfReturningMethod(protoMethod);
             var interfaceMethodName = NameProvider.GetPublicMethodName(
-                protoMethod.Name, protoMethod.IsAsync,
+                ProtocolMethodDisambiguator.EffectiveNameInput(protoMethod, protocolDecl, _typeDatabase), protoMethod.IsAsync,
                 hasReturnValue: protoHasReturn,
                 isSelfReturning: protoIsSelfReturning,
                 parameterCount: protoMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
@@ -682,7 +685,7 @@ public class ProtocolConformanceValidator
         var returnTypeSpec = protoMethod.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(protoMethod);
-        var methodName = NameProvider.GetPublicMethodName(protoMethod.Name, protoMethod.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning,
+        var methodName = NameProvider.GetPublicMethodName(ProtocolMethodDisambiguator.EffectiveNameInput(protoMethod, protocolContext, _typeDatabase), protoMethod.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning,
             parameterCount: protoMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
         var visibleGenericNames = BaseHandler.CollectVisibleGenericParamNames(protoMethod);

@@ -106,7 +106,10 @@ public partial class ProtocolProxyEmitter
                 if (!ProtocolVtableMembers.IncludesMethod(method, protocolDecl, closureHandler))
                     continue;
                 // FILLABILITY: skip-set membership is keyed on the projected/collapsing key.
-                var collapsingKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocolDecl);
+                // EffectiveRawKey mirrors ProtocolHandler: a label-only-overload sibling keys on its
+                // label-INCLUSIVE slot key here (so both siblings get a receiver), every other method on
+                // the unchanged label-erased signature key — matching what populated _skippedMethodKeys.
+                var collapsingKey = ProtocolMethodDisambiguator.EffectiveRawKey(method, protocolDecl, _typeDatabase);
                 if (_skippedMethodKeys.Contains(collapsingKey))
                     continue;
                 // RAW-SIGNATURE DEDUP: the interface emits exactly ONE method per raw Swift
@@ -121,7 +124,7 @@ public partial class ProtocolProxyEmitter
                 // skipped slot is correctly left null (the documented fillability model).
                 if (!emittedRawKeys.Add(collapsingKey))
                     continue;
-                var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
+                var projectedKey = ProtocolMethodDisambiguator.EffectiveProjectedKey(method, protocolDecl, _typeDatabase, propertyNames: null);
                 if (!emittedCSharpKeys.Add(projectedKey))
                     continue;
                 // Only emit receiver for new methods
@@ -484,7 +487,7 @@ public partial class ProtocolProxyEmitter
                 $"EmitDispatchableClosureReturningMethodReceiver called on method '{method.Name}' without a closure return type.");
 
         var receiverName = $"Receive_{method.Name}_{index}";
-        var pascalMethodName = NameProvider.GetMethodName(method.Name, propertyNames: null);
+        var pascalMethodName = NameProvider.GetMethodName(ProtocolMethodDisambiguator.EffectiveNameInput(method, protocolDecl, _typeDatabase), propertyNames: null);
         var delegateType = closureHandler.GetCSharpDelegateType(retClosure);
         var returnedThunkName = $"_MethodClosureThunk_{method.Name}_{index}";
 
@@ -576,7 +579,7 @@ public partial class ProtocolProxyEmitter
             ? new HashSet<string>(canonicalPropertyNames)
             : new HashSet<string>();
         var pascalMethodName = NameProvider.GetPublicMethodName(
-            method.Name, method.IsAsync, hasReturnValue: false,
+            ProtocolMethodDisambiguator.EffectiveNameInput(method, protocolDecl, _typeDatabase), method.IsAsync, hasReturnValue: false,
             propertyNames: receiverPropertyNames,
             isSelfReturning: false,
             parameterCount: 1);
@@ -1472,7 +1475,7 @@ public partial class ProtocolProxyEmitter
                 }
             }
         }
-        return NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn,
+        return NameProvider.GetPublicMethodName(ProtocolMethodDisambiguator.EffectiveNameInput(method, proto, _typeDatabase), method.IsAsync, hasReturn,
             propertyNames: receiverPropertyNames,
             isSelfReturning: isSelfReturning,
             parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));

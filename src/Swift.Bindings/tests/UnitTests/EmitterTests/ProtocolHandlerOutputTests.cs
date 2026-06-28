@@ -292,6 +292,74 @@ public class ProtocolHandlerOutputTests
         Assert.Contains("ref TestModule.Row row", proxyPart);
     }
 
+    [Fact]
+    public void Emit_ProtocolWithLabelOnlyOverloads_DisambiguatesWithLabelDerivedNames()
+    {
+        // A delegate-callback protocol whose two requirements share a base name AND project to the same
+        // C# parameter types but differ only by argument labels — the LCK/RoomPlan shape:
+        //   func conversationManager(_:didActivate:)
+        //   func conversationManager(_:didDeactivate:)
+        // Before disambiguation the projected C# overloads collide once labels are erased and all but one
+        // is dropped as DuplicateSignature. Both must now survive as DISTINCT members, named ObjC-selector
+        // style from the labels.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        MethodDecl DelegateMethod(string secondLabel, string mangled) => new()
+        {
+            Name = "conversationManager",
+            MangledName = mangled,
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),            // return: Void
+                CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl), // _ manager: Int
+                CreateArgument(secondLabel, new NamedTypeSpec("Swift.Int"), moduleDecl),  // <label> session: Int
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "ConversationDelegate",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ConversationDelegate"),
+            MangledName = "$s10TestModule20ConversationDelegateP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = true,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                DelegateMethod("didActivate", "$s10TestModule20ConversationDelegateP19conversationManager_11didActivateySi_SitF"),
+                DelegateMethod("didDeactivate", "$s10TestModule20ConversationDelegateP19conversationManager_13didDeactivateySi_SitF"),
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Both label-distinct overloads must survive as DISTINCT C# members.
+        Assert.Contains("ConversationManagerDidActivate", csOutput);
+        Assert.Contains("ConversationManagerDidDeactivate", csOutput);
+
+        // The interface (not merely the proxy) must declare BOTH.
+        var interfacePart = csOutput.Substring(0, csOutput.IndexOf("Proxy"));
+        Assert.Contains("ConversationManagerDidActivate", interfacePart);
+        Assert.Contains("ConversationManagerDidDeactivate", interfacePart);
+    }
+
     private static TypeDatabase CreateTypeDatabase()
     {
         var typeDatabase = new TypeDatabase();

@@ -2260,14 +2260,18 @@ namespace BindingsGeneration
                     if (method.IsConstructor || method.MethodType == MethodType.Static)
                         continue;
 
-                    var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, typeDatabase, protocolDecl);
+                    // Effective* keeps these NotSupported stubs in lockstep with the disambiguated
+                    // interface: a label-only-overload pair emits two distinct stubs under their
+                    // label-derived names instead of collapsing onto one (which would leave the
+                    // sibling interface member unimplemented → CS0535).
+                    var methodKey = ProtocolMethodDisambiguator.EffectiveRawKey(method, protocolDecl, typeDatabase);
                     if (!emittedMethods.Add(methodKey))
                         continue;
 
                     var returnType = ResolveMethodReturnType(method, typeDatabase);
                     var parameters = ResolveMethodParameters(method, typeDatabase);
                     bool hasReturnValue = method.CSSignature.Count > 0 && !method.CSSignature.First().SwiftTypeSpec.IsEmptyTuple;
-                    var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturnValue,
+                    var methodName = NameProvider.GetPublicMethodName(ProtocolMethodDisambiguator.EffectiveNameInput(method, protocolDecl, typeDatabase), method.IsAsync, hasReturnValue,
                         parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
                     if (method.IsAsync)

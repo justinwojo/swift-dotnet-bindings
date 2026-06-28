@@ -116,12 +116,16 @@ public partial class ProtocolProxyEmitter
 
             // Two distinct keys, intentionally: the SBW slot index is allocated on the SWIFT-domain
             // requirement key (slotKey) so it tracks the producer walk and the P/Invoke decl walk —
-            // an AnyType-collapsed overload pair stays two indices, not one (see
-            // WitnessDispatchEmitter.GetMethodKey). The skip-set lookups below use the projected C#
-            // key (methodKey), because ProtocolHandler populates _skippedMethodKeys /
-            // _closureSkippedMethodKeys with ProtocolSignatureHelper.GetMethodSignatureKey.
-            var slotKey = WitnessDispatchEmitter.GetMethodKey(method);
-            var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocolDecl);
+            // an AnyType-collapsed overload pair stays two indices, not one, and a disambiguated
+            // label-only pair is SPLIT into two indices via EffectiveWitnessSlotKey (matching the other
+            // two forward walks). The skip-set lookups below use the projected C# key (methodKey),
+            // because ProtocolHandler populates _skippedMethodKeys / _closureSkippedMethodKeys with
+            // ProtocolSignatureHelper.GetMethodSignatureKey.
+            var slotKey = ProtocolMethodDisambiguator.EffectiveWitnessSlotKey(method, protocolDecl, _typeDatabase);
+            // EffectiveRawKey: a label-only-overload sibling keys on its label-INCLUSIVE slot key (so both
+            // siblings emit their interface impl and the skip-set lookup matches ProtocolHandler), every
+            // other method on the unchanged label-erased signature key (AnyType-collapse preserved).
+            var methodKey = ProtocolMethodDisambiguator.EffectiveRawKey(method, protocolDecl, _typeDatabase);
             if (methodIndices.ContainsKey(slotKey))
                 continue;
             var idx = methodIndex++;
@@ -146,15 +150,15 @@ public partial class ProtocolProxyEmitter
                     // has a property Foo). Without it, two methods that emit under
                     // different C# names can falsely share a dedup key, dropping one
                     // emission entirely.
-                    var projectedKeySkipped = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl, emittedCSharpPropertyNames);
+                    var projectedKeySkipped = ProtocolMethodDisambiguator.EffectiveProjectedKey(method, protocolDecl, _typeDatabase, emittedCSharpPropertyNames);
                     if (emittedCSharpKeys.ContainsKey(projectedKeySkipped))
                         continue;
                     emittedCSharpKeys[projectedKeySkipped] = method;
-                    EmitNotSupportedMethodStub(writer, method, "closure parameters cannot be marshalled", emittedCSharpPropertyNames);
+                    EmitNotSupportedMethodStub(writer, method, protocolDecl, "closure parameters cannot be marshalled", emittedCSharpPropertyNames);
                 }
                 continue;
             }
-            var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl, emittedCSharpPropertyNames);
+            var projectedKey = ProtocolMethodDisambiguator.EffectiveProjectedKey(method, protocolDecl, _typeDatabase, emittedCSharpPropertyNames);
             if (emittedCSharpKeys.ContainsKey(projectedKey))
                 continue;
             emittedCSharpKeys[projectedKey] = method;
@@ -452,7 +456,10 @@ public partial class ProtocolProxyEmitter
                 if (method.IsConstructor || method.MethodType == MethodType.Static)
                     continue;
 
-                var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, inheritedProto, inheritedOwnPropertyNames);
+                // Disambiguator context is the DECLARING (inherited) protocol: a label-only-overload pair
+                // inherited from an ancestor must reproduce the same label-derived names the ancestor's own
+                // interface emitted, or the inherited stub won't satisfy the base interface (CS0535).
+                var projectedKey = ProtocolMethodDisambiguator.EffectiveProjectedKey(method, inheritedProto, _typeDatabase, inheritedOwnPropertyNames);
                 if (emittedCSharpKeys.TryGetValue(projectedKey, out var existingMethod))
                 {
                     // Same C# overload key already emitted. If the inherited base method's
@@ -464,7 +471,7 @@ public partial class ProtocolProxyEmitter
                     continue;
                 }
                 emittedCSharpKeys[projectedKey] = method;
-                EmitInheritedMethodStub(writer, method, emittedCSharpPropertyNames);
+                EmitInheritedMethodStub(writer, method, inheritedProto, emittedCSharpPropertyNames);
             }
         }
     }
@@ -515,7 +522,7 @@ public partial class ProtocolProxyEmitter
     /// Emits a NotSupportedException stub for an inherited protocol method.
     /// </summary>
     private void EmitInheritedMethodStub(CSharpWriter writer, MethodDecl method,
-        IReadOnlySet<string>? propertyNames = null)
+        ProtocolDecl declaringProto, IReadOnlySet<string>? propertyNames = null)
     {
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
@@ -542,7 +549,7 @@ public partial class ProtocolProxyEmitter
             parameters.Add("global::System.Threading.CancellationToken cancellationToken = default");
 
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
-        var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn,
+        var methodName = NameProvider.GetPublicMethodName(ProtocolMethodDisambiguator.EffectiveNameInput(method, declaringProto, _typeDatabase), method.IsAsync, hasReturn,
             propertyNames: propertyNames,
             isSelfReturning: isSelfReturning,
             parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
@@ -663,7 +670,7 @@ public partial class ProtocolProxyEmitter
         var inheritedInterfacePropertyNames = _emissionContext.GetInterfacePropertyNames(inheritedProtoQualifiedName)
             ?? new HashSet<string>(inheritedProto.Properties.Select(p => NameProvider.GetPropertyName(p.Name)));
         var inheritedMethodName = NameProvider.GetPublicMethodName(
-            inheritedMethod.Name, inheritedMethod.IsAsync, inheritedHasReturn,
+            ProtocolMethodDisambiguator.EffectiveNameInput(inheritedMethod, inheritedProto, _typeDatabase), inheritedMethod.IsAsync, inheritedHasReturn,
             propertyNames: inheritedInterfacePropertyNames,
             isSelfReturning: MethodEnvironment.IsSelfReturningMethod(inheritedMethod),
             parameterCount: inheritedMethod.CSSignature.Skip(1)
@@ -694,7 +701,7 @@ public partial class ProtocolProxyEmitter
             var refinedParameterCount = refinedMethod.CSSignature.Skip(1)
                 .Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple);
             var refinedMethodName = NameProvider.GetPublicMethodName(
-                refinedMethod.Name, refinedMethod.IsAsync, refinedHasReturn,
+                ProtocolMethodDisambiguator.EffectiveNameInput(refinedMethod, refinedMethod.ParentDecl as ProtocolDecl, _typeDatabase), refinedMethod.IsAsync, refinedHasReturn,
                 propertyNames: propertyNames,
                 isSelfReturning: refinedIsSelfReturning,
                 parameterCount: refinedParameterCount);
@@ -1330,7 +1337,7 @@ public partial class ProtocolProxyEmitter
         var argsString = string.Join(", ", csharpImplArgs);
 
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
-        var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn,
+        var methodName = NameProvider.GetPublicMethodName(ProtocolMethodDisambiguator.EffectiveNameInput(method, protocolDecl, _typeDatabase), method.IsAsync, hasReturn,
             propertyNames: propertyNames, isSelfReturning: isSelfReturning,
             parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
         var dispatchClassification = dispatchEmitter.ClassifyMethodDispatchWithReason(method);
@@ -2673,7 +2680,7 @@ public partial class ProtocolProxyEmitter
     /// Emits a NotSupportedException stub for a method that is in the interface
     /// but can't be dispatched by the proxy (e.g. closure or existential parameter marshalling).
     /// </summary>
-    private void EmitNotSupportedMethodStub(CSharpWriter writer, MethodDecl method, string reason, IReadOnlySet<string>? propertyNames = null)
+    private void EmitNotSupportedMethodStub(CSharpWriter writer, MethodDecl method, ProtocolDecl protocolDecl, string reason, IReadOnlySet<string>? propertyNames = null)
     {
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
@@ -2713,7 +2720,7 @@ public partial class ProtocolProxyEmitter
         var argsString = string.Join(", ", argNames);
 
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
-        var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn,
+        var methodName = NameProvider.GetPublicMethodName(ProtocolMethodDisambiguator.EffectiveNameInput(method, protocolDecl, _typeDatabase), method.IsAsync, hasReturn,
             propertyNames: propertyNames, isSelfReturning: isSelfReturning,
             parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 

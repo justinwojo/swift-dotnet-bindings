@@ -141,6 +141,16 @@ internal static class ProtocolSignatureHelper
 
         /// <summary>Optional logger for projection-failure warnings (class/default-overload path only).</summary>
         public ILogger? Logger { get; init; }
+
+        /// <summary>
+        /// When non-null, replaces the method's natural base name (the value
+        /// <see cref="PublicMethodNameContext.ForMethod"/> would derive from <c>decl.Name</c>) BEFORE the
+        /// name-shaping passes run. Used by <see cref="ProtocolMethodDisambiguator"/> to project the
+        /// label-derived disambiguated name (e.g. <c>conversationManagerDidActivate</c>) so the key this
+        /// builder produces matches the C# member the interface emitter will actually declare. Null on
+        /// every natural path — the key then stays byte-identical.
+        /// </summary>
+        public string? NameOverride { get; init; }
     }
 
     /// <summary>
@@ -183,6 +193,10 @@ internal static class ProtocolSignatureHelper
             var nameContext = PublicMethodNameContext.ForMethod(decl, opts.PropertyNames);
             if (!opts.IncludeParentTypeName)
                 nameContext = nameContext with { ParentTypeName = null };
+            // Disambiguator override: swap the natural base name for the label-derived one BEFORE shaping,
+            // so the same PascalCase / property-rename / async-suffix passes apply to it identically.
+            if (opts.NameOverride != null)
+                nameContext = nameContext with { MethodName = opts.NameOverride };
             methodName = NameProvider.GetPublicMethodName(nameContext);
         }
 
