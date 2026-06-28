@@ -92,4 +92,33 @@ public class GenericClosureBridgeLeakTests : TestBase
         AssertEqual(n, alloc, $"each throw-after-callback call allocates exactly one closure result; got alloc={alloc}");
         AssertTrue(live <= n / 10, $"the closure +1 must be released on the error path; got live={live} (alloc={alloc}, dealloc={dealloc})");
     }
+
+    /// <summary>
+    /// Gate (c) lifetime probe: a generic type parameter in closure ARGUMENT position
+    /// (<c>apply&lt;T&gt;(_ value: T, _ transform: (T) -&gt; T)</c>) flows the input through a C#-allocated
+    /// value-witness buffer. C# marshals the value into the buffer (<c>+1</c>), the Swift wrapper forwards
+    /// the buffer pointer to the closure, and the callback reads it back with a borrowed <c>+1</c>. The
+    /// generated method must value-witness <c>Destroy</c> the buffer in its <c>finally</c> (and the
+    /// borrowed wrapper's finalizer must release its read), or every call leaks the input object. This
+    /// loops the success path and asserts both the input and the closure result balance.
+    /// </summary>
+    public void TestGenericArgInput_ValueBufferReleasedOnSuccess()
+    {
+        using var fixture = new GenericArgClosureFixture();
+
+        DrainFinalizers();
+        LifetimeTracker.Reset();
+
+        const int n = 500;
+        for (int i = 0; i < n; i++)
+        {
+            using var input = new TrackedRef(i);
+            using var result = fixture.Apply<TrackedRef>(t => new TrackedRef(t.Tag), input);
+        }
+
+        DrainFinalizers();
+        var (alloc, dealloc, live) = LifetimeTracker.GetStats();
+        AssertEqual(2 * n, alloc, $"each call allocates the input plus one closure result; got alloc={alloc}");
+        AssertTrue(live <= n / 10, $"the value-buffer +1 and borrowed read must both release; got live={live} (alloc={alloc}, dealloc={dealloc})");
+    }
 }

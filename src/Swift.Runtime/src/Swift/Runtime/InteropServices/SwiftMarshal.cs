@@ -414,6 +414,61 @@ public static class SwiftMarshal
     }
 
     /// <summary>
+    /// The <b>borrowed</b> sibling of <see cref="MarshalMovedValueFromSlot{T}"/>: reads a
+    /// <typeparamref name="T"/> out of a value slot the caller still owns, taking an <b>independent</b>
+    /// reference and leaving the slot's own <c>+1</c> intact (no value-witness <c>Destroy</c>). Used for
+    /// a generic type parameter in closure <i>argument</i> position: the Swift bridge specializes
+    /// <c>T = UnsafeMutableRawPointer</c> and hands the C# callback the address of the (caller-owned)
+    /// value buffer, which the user's closure only borrows for the duration of the synchronous call.
+    /// <list type="bullet">
+    /// <item><b>True class</b> (metadata <c>Kind == Class</c>): the slot holds the instance pointer;
+    /// copy it out with an ObjC-aware retain so the wrapper handed to the user balances on
+    /// <c>Dispose</c>/finalize — <see cref="MarshalBorrowedClassFromSlot{T}"/>.</item>
+    /// <item><b>Reference-backed non-POD value</b> (Adopt/Copy/Move semantics, non-POD value-witness):
+    /// take an <c>InitializeWithCopy</c> <c>+1</c> into a fresh wrapper via
+    /// <see cref="MarshalExtractedPayloadValue{T}"/>, leaving the source slot's reference untouched.
+    /// Move is included here (not in the bitwise fall-through) precisely because the slot stays
+    /// caller-owned under a borrow — see the inline note at the call site.</item>
+    /// <item><b>POD / inline</b>: a plain bitwise read carries no ARC reference, so it is simply read
+    /// by value.</item>
+    /// </list>
+    /// This is the symmetric input-side counterpart of the moved read the generic-closure bridge already
+    /// uses for its result slot, minus the consuming <c>Destroy</c> (the method, not the closure, owns
+    /// the argument under noescape borrowing).
+    /// </summary>
+    /// <typeparam name="T">The generic type parameter occupying the slot.</typeparam>
+    /// <param name="slot">Address of the caller-owned, initialized value slot. For classes it holds the object pointer.</param>
+    /// <param name="metadata">Runtime metadata for <typeparamref name="T"/>: detects a true class and drives the borrowed copy-out.</param>
+    public static unsafe T MarshalBorrowedValueFromSlot<T>(void* slot, TypeMetadata metadata)
+    {
+        if (typeof(ISwiftObject).IsAssignableFrom(typeof(T))
+            && !typeof(T).IsValueType
+            && !typeof(ISwiftStruct).IsAssignableFrom(typeof(T))
+            && metadata.Kind == TypeMetadataKind.Class)
+        {
+            return MarshalBorrowedClassFromSlot<T>((IntPtr)slot);
+        }
+
+        // Move types (e.g. SwiftString, whose wrapper takes the bytes whole) must take an INDEPENDENT
+        // InitializeWithCopy +1 here, exactly like Adopt/Copy. The plain MarshalFromSwift fall-through
+        // does a consuming bitwise read — it transfers the slot's only +1 into the new wrapper without
+        // retaining — which is correct for a moved (consuming) read but wrong for a borrow: the slot
+        // stays caller-owned, so the caller's finally Destroy would then over-release the now-shared
+        // reference (UAF on dispose/finalize). Route Move through the same copy-out as Adopt/Copy.
+        PayloadConstructionSemantics sem = GetPayloadSemantics<T>();
+        if ((sem == PayloadConstructionSemantics.Adopt
+                || sem == PayloadConstructionSemantics.Copy
+                || sem == PayloadConstructionSemantics.Move)
+            && metadata.IsValid
+            && metadata.ValueWitnessTable->IsNonPOD)
+        {
+            return MarshalExtractedPayloadValue<T>(slot, metadata.Size);
+        }
+
+        return MarshalFromSwift<T>((IntPtr)slot);
+    }
+
+    /// <summary>
     /// Extracts a payload value of type <typeparamref name="T"/> out of a Swift wire carrier — the
     /// <c>Some</c> payload of <c>SwiftOptional&lt;T&gt;</c> or the success/failure payload of
     /// <c>SwiftResult</c> — into a freshly-constructed managed wrapper that owns an <b>independent</b>

@@ -676,16 +676,26 @@ public class ClosureHandler
         if (!closureTypeSpec.Throws)
             return false;
 
-        // (c) All non-generic closure arguments must be supported, and generic type parameters
-        // must NOT appear in argument position. The cdecl callback signature is built from
-        // ALL closure args (each becomes a void*), but the C# closureArgTypes list only
-        // includes concrete types (skipping generic params). This creates an ABI mismatch
-        // where Swift passes more void* args than C# expects. Gate out until we properly
-        // count generic args in the C# callback.
+        // (c) A generic type parameter MAY appear in argument position: the bridge specializes
+        // T = UnsafeMutableRawPointer, so the Swift cdecl callback already passes one void* per
+        // generic arg, the C# callback now declares one void* per generic arg to match, and the
+        // borrowed value buffer behind that void* is read back to T on the C# side. The generic
+        // arg is still required to be one of the method's OWN generic params (validated below via
+        // GetGenericParamNames mapping). All non-generic closure arguments must remain supported.
         foreach (var arg in closureTypeSpec.EachArgument())
         {
             if (arg is NamedTypeSpec argNamed && IsGenericTypeParameter(argNamed.Name))
-                return false; // Generic args in input position — ABI mismatch (P0)
+            {
+                // (c1) An `inout` generic closure argument — `(inout T) throws -> T` — is rejected.
+                // The bridge specializes T = UnsafeMutableRawPointer and renders the argument as an
+                // ordinary by-value void* in both the C# callback and the Swift `@_cdecl` wrapper,
+                // invoking the closure WITHOUT `&`. That produces a Swift wrapper that cannot
+                // type-check against the inout closure signature, so fall out of the bridge entirely
+                // (the member degrades rather than emitting an uncompilable wrapper).
+                if (argNamed.IsInOut)
+                    return false;
+                continue; // Generic arg in input position — marshalled via VWT value-buffer pointer
+            }
             if (!IsSupportedClosureParameterType(arg))
                 return false;
             // (c2) Concrete closure args must be reference types (classes). The Swift wrapper
@@ -705,7 +715,12 @@ public class ClosureHandler
         // generic parameter as the closure's return type. This ensures T=UnsafeMutableRawPointer
         // specialization is safe — the method just passes through whatever the closure returns.
         var closureGenericParams = GetGenericParamNames(closureTypeSpec);
-        if (closureGenericParams.Count == 0)
+        // The bridge monomorphizes exactly ONE generic parameter (T = UnsafeMutableRawPointer). A
+        // closure that mixes two distinct generics — `(T, U) throws -> T` — would collapse U onto T:
+        // wrong C# Func<> arity/types, wrong value-buffer metadata, and a Swift wrapper that
+        // monomorphizes the wrong parameter. Require a single tau. `(T, T) throws -> T` dedups to
+        // {T} (Count 1) and stays eligible; `() throws -> T` (return-only) is also {T}.
+        if (closureGenericParams.Count != 1)
             return false;
 
         // The closure's return type must be a generic type parameter
@@ -723,6 +738,30 @@ public class ClosureHandler
             // Also allow void methods with void closure return (side-effect pattern)
             // But that case is handled differently — the generic closure return must be a type param
             return false;
+        }
+
+        // (d2) Every bare generic non-closure parameter must be the SAME generic parameter as the
+        // closure's single tau. The bridge renders each admitted bare generic param as that one T
+        // (and as UnsafeMutableRawPointer in the Swift wrapper). A bare param of a DIFFERENT generic
+        // — `func apply<T, U>(_ value: T, _ extra: U, _ f: (T) throws -> T)` — would be mis-rendered
+        // as T (wrong C# signature and value-buffer metadata); and if that other generic is
+        // separately constrained, the monomorphized Swift wrapper fails to type-check while C# still
+        // references its symbol. The closure parameter itself is a ClosureTypeSpec, not a
+        // NamedTypeSpec, so it is skipped here. Nested generics (`Array<U>`) are not bare and are
+        // rejected separately by the emitter's bridge-passability check.
+        foreach (var paramSig in methodDecl.CSSignature.Skip(1))
+        {
+            if (paramSig.SwiftTypeSpec is NamedTypeSpec paramNamed
+                && IsGenericTypeParameter(paramNamed.Name))
+            {
+                // An `inout` bare generic parameter — `func apply<T>(_ value: inout T, …)` — is
+                // rejected for the same reason as an inout generic closure arg (gate (c1)): the
+                // bridge passes the value buffer as a by-value UnsafeMutableRawPointer and the Swift
+                // wrapper never forwards `&`, so the monomorphized wrapper fails to type-check
+                // against the inout method signature while C# still references its symbol.
+                if (paramSig.IsInOut || paramNamed.Name != closureReturnNamed.Name)
+                    return false;
+            }
         }
 
         // The generic param must belong to the method's own generic signature (not type-level)

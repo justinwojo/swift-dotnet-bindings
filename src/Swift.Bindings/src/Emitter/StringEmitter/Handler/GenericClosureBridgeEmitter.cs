@@ -17,6 +17,40 @@ public static class GenericClosureBridgeEmitter
     // State is stored on ModuleEmissionContext (per-module instance).
 
     /// <summary>
+    /// One closure argument in declaration order: whether it is a method-generic parameter
+    /// (specialized to a value-witness buffer pointer and read back to <c>T</c> on the C# side) versus
+    /// a concrete class argument (marshalled by its projected C# type), plus the original
+    /// <see cref="TypeSpec"/> and the C# surface type ("T" for a generic arg).
+    /// </summary>
+    private readonly record struct GcbClosureArg(bool IsGeneric, TypeSpec Spec, string CSharpType);
+
+    /// <summary>
+    /// True if the method's generic parameter appears anywhere other than the closure's RETURN
+    /// position — i.e. in a closure argument or a non-closure parameter. Those positions are
+    /// monomorphized to <c>UnsafeMutableRawPointer</c>, so the void (T = Void) variant cannot bind them
+    /// and is suppressed. Mirrors the predicate <see cref="EmitSwiftWrappers"/> and
+    /// <see cref="EmitCSharp"/> both gate the void variant on.
+    /// </summary>
+    private static bool TUsedOutsideClosureReturn(
+        MethodDecl methodDecl, ArgumentDecl closureArg, ClosureTypeSpec closureTypeSpec)
+    {
+        foreach (var arg in closureTypeSpec.EachArgument())
+            if (arg is NamedTypeSpec n && TypeSpecHelpers.IsGenericTypeParameter(n.Name))
+                return true;
+        foreach (var arg in methodDecl.CSSignature.Skip(1))
+        {
+            if (arg == closureArg) continue;
+            if (IsGenericNonClosureParam(arg))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>True if the parameter is a bare method-generic type parameter (e.g. <c>value: T</c>).</summary>
+    private static bool IsGenericNonClosureParam(ArgumentDecl arg)
+        => arg.SwiftTypeSpec is NamedTypeSpec ns && TypeSpecHelpers.IsGenericTypeParameter(ns.Name);
+
+    /// <summary>
     /// Attempts to emit a generic closure bridge for the given method.
     /// Returns true if the method was handled (caller should skip normal emission).
     /// Returns false if the method is not eligible (caller proceeds normally).
@@ -133,6 +167,15 @@ public static class GenericClosureBridgeEmitter
     /// </summary>
     private static bool IsBridgePassableParam(ArgumentDecl arg, ITypeDatabase typeDatabase)
     {
+        // A bare generic type parameter (e.g. `value: T`) is passable: the bridge specializes
+        // T = UnsafeMutableRawPointer, so the C# side allocates a value-witness buffer, marshals the
+        // T into it, and passes the buffer pointer as a plain IntPtr (the Swift wrapper forwards it to
+        // the closure unchanged). MethodClosureBridge.ClassifyParam has no TypeRecord for a bare
+        // generic param and would classify it Unsupported, so admit it explicitly here.
+        if (arg.SwiftTypeSpec is NamedTypeSpec genericNamed
+            && TypeSpecHelpers.IsGenericTypeParameter(genericNamed.Name))
+            return true;
+
         // ABI passability allowlist is canonical on MethodClosureBridge.IsAbiCategoryPassable,
         // but GenericClosureBridgeEmitter's body-emission switches (around lines 646/654 for
         // the C# P/Invoke params and 908/916 for the C# call site) do not yet carry a
@@ -173,16 +216,29 @@ public static class GenericClosureBridgeEmitter
         // Get argument label for the closure parameter
         string closureLabel = GetSwiftArgLabel(closureArg);
 
-        // Build non-closure parameter info
+        // Build non-closure parameter info. A bare generic non-closure parameter (`value: T`) is
+        // rendered as `UnsafeMutableRawPointer` — the wrapper monomorphizes T = UnsafeMutableRawPointer,
+        // so "T" is not in scope here; the C# side passes a value-witness buffer pointer for it and the
+        // Swift method infers T = UnsafeMutableRawPointer from this argument and the closure signature.
         var nonClosureParams = new List<(ArgumentDecl arg, string swiftName, string swiftType, string label)>();
         foreach (var arg in methodDecl.CSSignature.Skip(1))
         {
             if (arg == closureArg) continue;
             var name = NameProvider.EscapeSwiftKeyword(NameProvider.GetCSharpParameterName(arg));
-            var type = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
+            var type = IsGenericNonClosureParam(arg)
+                ? "UnsafeMutableRawPointer"
+                : ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
             var label = GetSwiftArgLabel(arg);
             nonClosureParams.Add((arg, name, type, label));
         }
+
+        // The void (T = Void) wrapper/overload is only valid when the generic parameter appears
+        // SOLELY in the closure's return position (the classic `(X) throws -> T` shape, specialized to
+        // `(X) throws -> Void`). Once T also appears in a closure ARGUMENT or a non-closure parameter,
+        // those positions are rendered `UnsafeMutableRawPointer` and cannot simultaneously bind to
+        // T = Void — the void wrapper would be a Swift type error (and the C# overload would reference
+        // `T` in a non-generic method), so it is suppressed rather than emitted-then-stripped.
+        bool emitVoidVariant = !TUsedOutsideClosureReturn(methodDecl, closureArg, closureTypeSpec);
 
         // The @_silgen_name wrapper hardcodes synthetic Swift identifiers in the same scope
         // as the user's non-closure params — the cdecl rebind local, the self pointer param
@@ -308,6 +364,7 @@ public static class GenericClosureBridgeEmitter
         }
 
         // --- Void variant (T = Void, no resultBuf) ---
+        if (emitVoidVariant)
         {
             var swiftParams = new List<string>();
             swiftParams.Add($"_ {csClosureName}FuncPtr: UnsafeMutableRawPointer?");
@@ -409,62 +466,73 @@ public static class GenericClosureBridgeEmitter
         var voidSymbol = $"{methodDecl.MangledName}_XC_void";
         var asyncLibName = env.TypeDatabase.AsyncLibraryName ?? "SwiftBindings";
 
-        // Resolve non-generic closure argument C# types (concrete types only, skip generic params).
-        // closureArgSpecs keeps the matching TypeSpec so the callback marshal can pick the borrowed
-        // class path (owning +1) vs the value path — see ClosureHandler.BorrowedCallbackArgMarshal.
-        var closureArgTypes = new List<string>();
-        var closureArgSpecs = new List<TypeSpec>();
+        // Resolve ALL closure arguments in declaration order. A generic type parameter in argument
+        // position becomes a `T` surface type marshalled through a value-witness buffer pointer; a
+        // concrete arg keeps its projected C# type. Every arg — generic or concrete — contributes one
+        // void* to the Swift cdecl callback, so the C# callback must declare and forward one void* per
+        // arg too (the historical skip-generics list under-counted them, the gate-(c) ABI mismatch).
+        var closureArgs = new List<GcbClosureArg>();
         foreach (var arg in closureTypeSpec.EachArgument())
         {
             if (arg is NamedTypeSpec named && TypeSpecHelpers.IsGenericTypeParameter(named.Name))
-                continue;
-            closureArgTypes.Add(GetCSharpTypeForClosureArg(arg, env));
-            closureArgSpecs.Add(arg);
+                closureArgs.Add(new GcbClosureArg(IsGeneric: true, arg, "T"));
+            else
+                closureArgs.Add(new GcbClosureArg(IsGeneric: false, arg, GetCSharpTypeForClosureArg(arg, env)));
         }
+
+        // The void (T = Void) variant is invalid once T appears outside the closure return — see
+        // EmitSwiftWrappers. Skip its callback, field, P/Invoke, and public overload entirely.
+        bool emitVoidVariant = !TUsedOutsideClosureReturn(methodDecl, closureArg, closureTypeSpec);
 
         var callbackNameRet = $"GenericClosureBridge_{mangledHash}_Callback";
         var callbackNameVoid = $"GenericClosureBridge_{mangledHash}_VoidCallback";
 
         // --- Callbacks ---
-        EmitReturningCallback(csWriter, closureArgTypes, callbackNameRet, moduleName);
-        EmitVoidCallback(csWriter, closureArgTypes, callbackNameVoid, moduleName);
+        EmitReturningCallback(csWriter, closureArgs.Count, callbackNameRet, moduleName);
+        if (emitVoidVariant)
+            EmitVoidCallback(csWriter, closureArgs.Count, callbackNameVoid, moduleName);
 
         // --- Static callback pointer fields ---
-        var retDelegateParts = BuildCallbackDelegateType(closureArgTypes, hasResultBuf: true);
-        var voidDelegateParts = BuildCallbackDelegateType(closureArgTypes, hasResultBuf: false);
+        var retDelegateParts = BuildCallbackDelegateType(closureArgs.Count, hasResultBuf: true);
         csWriter.WriteLine($"private static readonly unsafe IntPtr s_{callbackNameRet} = (IntPtr)(delegate* unmanaged[Cdecl]<{retDelegateParts}>)&{callbackNameRet};");
-        csWriter.WriteLine($"private static readonly unsafe IntPtr s_{callbackNameVoid} = (IntPtr)(delegate* unmanaged[Cdecl]<{voidDelegateParts}>)&{callbackNameVoid};");
+        if (emitVoidVariant)
+        {
+            var voidDelegateParts = BuildCallbackDelegateType(closureArgs.Count, hasResultBuf: false);
+            csWriter.WriteLine($"private static readonly unsafe IntPtr s_{callbackNameVoid} = (IntPtr)(delegate* unmanaged[Cdecl]<{voidDelegateParts}>)&{callbackNameVoid};");
+        }
         csWriter.WriteLine();
 
         // --- P/Invoke declarations ---
         EmitCreateErrorPInvoke(csWriter, moduleName, asyncLibName, env, ctx);
         EmitErrorHelperPInvokes(csWriter, moduleName, asyncLibName, env, ctx);
         EmitPInvokeDeclarations(csWriter, pInvokeName, returningSymbol, voidSymbol, asyncLibName,
-            methodDecl, env, closureArg);
+            methodDecl, env, closureArg, emitVoidVariant);
 
         // --- Public methods ---
         var classParent = parentDecl as ClassDecl;
         var selfExpr = classParent != null
             ? (classParent.IsObjCRooted ? "Handle" : "_handle.DangerousGetHandle()")
             : "_payload.DangerousGetHandle()";
-        EmitPublicReturningMethod(csWriter, methodDecl, methodName, closureArgTypes, closureArgSpecs,
-            callbackNameRet, pInvokeName, csClosureName, closureTypeSpec, env, selfExpr);
-        EmitPublicVoidMethod(csWriter, methodDecl, methodName, closureArgTypes, closureArgSpecs,
-            callbackNameVoid, pInvokeName, csClosureName, closureTypeSpec, env, selfExpr);
+        EmitPublicReturningMethod(csWriter, methodDecl, methodName, closureArgs,
+            callbackNameRet, pInvokeName, csClosureName, closureTypeSpec, env, selfExpr, closureArg);
+        if (emitVoidVariant)
+            EmitPublicVoidMethod(csWriter, methodDecl, methodName, closureArgs,
+                callbackNameVoid, pInvokeName, csClosureName, closureTypeSpec, env, selfExpr);
     }
 
     private static void EmitReturningCallback(
         CSharpWriter csWriter,
-        List<string> closureArgTypes,
+        int closureArgCount,
         string callbackName,
         string moduleName)
     {
         // Callback params: (closureArgs..., resultBuf, errorOut, context)
-        // Each closure arg arrives as a separate void* from the Swift cdecl callback.
+        // Each closure arg arrives as a separate void* from the Swift cdecl callback — generic args
+        // included, so the count matches the Swift cdecl signature exactly (no ABI under-count).
         // The GCHandle stores object[] { Action<IntPtr[], IntPtr> } where the delegate
         // was created by the public generic method with T captured via closure.
         var paramParts = new List<string>();
-        for (int i = 0; i < closureArgTypes.Count; i++)
+        for (int i = 0; i < closureArgCount; i++)
             paramParts.Add($"void* arg{i}");
         paramParts.Add("void* resultBuf");
         paramParts.Add("void** errorOut");
@@ -484,9 +552,9 @@ public static class GenericClosureBridgeEmitter
         csWriter.WriteLine("var invoke = (Action<IntPtr[], IntPtr>)state[0];");
 
         // Build args array from individual void* params
-        if (closureArgTypes.Count > 0)
+        if (closureArgCount > 0)
         {
-            var argEntries = Enumerable.Range(0, closureArgTypes.Count)
+            var argEntries = Enumerable.Range(0, closureArgCount)
                 .Select(i => $"(IntPtr)arg{i}");
             csWriter.WriteLine($"invoke(new IntPtr[] {{ {string.Join(", ", argEntries)} }}, (IntPtr)resultBuf);");
         }
@@ -511,13 +579,14 @@ public static class GenericClosureBridgeEmitter
 
     private static void EmitVoidCallback(
         CSharpWriter csWriter,
-        List<string> closureArgTypes,
+        int closureArgCount,
         string callbackName,
         string moduleName)
     {
-        // Void callback: (closureArgs..., errorOut, context) — no resultBuf
+        // Void callback: (closureArgs..., errorOut, context) — no resultBuf. Only emitted when T is
+        // confined to the closure return (so every closure arg here is concrete; no generic args).
         var paramParts = new List<string>();
-        for (int i = 0; i < closureArgTypes.Count; i++)
+        for (int i = 0; i < closureArgCount; i++)
             paramParts.Add($"void* arg{i}");
         paramParts.Add("void** errorOut");
         paramParts.Add("IntPtr contextPtr");
@@ -536,9 +605,9 @@ public static class GenericClosureBridgeEmitter
         csWriter.WriteLine("var invoke = (Action<IntPtr[]>)state[0];");
 
         // Build args array from individual void* params
-        if (closureArgTypes.Count > 0)
+        if (closureArgCount > 0)
         {
-            var argEntries = Enumerable.Range(0, closureArgTypes.Count)
+            var argEntries = Enumerable.Range(0, closureArgCount)
                 .Select(i => $"(IntPtr)arg{i}");
             csWriter.WriteLine($"invoke(new IntPtr[] {{ {string.Join(", ", argEntries)} }});");
         }
@@ -582,7 +651,8 @@ public static class GenericClosureBridgeEmitter
         string asyncLibName,
         MethodDecl methodDecl,
         MethodEnvironment env,
-        ArgumentDecl closureArg)
+        ArgumentDecl closureArg,
+        bool emitVoidVariant)
     {
         // --- Returning variant P/Invoke ---
         var retParams = new List<string>();
@@ -606,6 +676,8 @@ public static class GenericClosureBridgeEmitter
         csWriter.WriteLine();
 
         // --- Void variant P/Invoke ---
+        if (!emitVoidVariant)
+            return;
         var voidParams = new List<string>();
         voidParams.Add("IntPtr blockFuncPtr");
         voidParams.Add("IntPtr blockContext");
@@ -667,19 +739,26 @@ public static class GenericClosureBridgeEmitter
         CSharpWriter csWriter,
         MethodDecl methodDecl,
         string methodName,
-        List<string> closureArgTypes,
-        List<TypeSpec> closureArgSpecs,
+        List<GcbClosureArg> closureArgs,
         string callbackName,
         string pInvokeName,
         string csClosureName,
         ClosureTypeSpec closureTypeSpec,
         MethodEnvironment env,
-        string selfExpr)
+        string selfExpr,
+        ArgumentDecl closureArg)
     {
-        // Build Func<ArgTypes..., T> type
-        var funcTypeParams = new List<string>(closureArgTypes);
+        // Build Func<ArgTypes..., T> type — a generic closure arg surfaces as `T`, a concrete arg as
+        // its projected C# type, then the (generic) return `T`. For `(T) throws -> T` this is Func<T,T>.
+        var funcTypeParams = closureArgs.Select(a => a.CSharpType).ToList();
         funcTypeParams.Add("T");
         var funcType = $"Func<{string.Join(", ", funcTypeParams)}>";
+
+        // Generic non-closure parameters (`value: T`) marshalled through their own value-witness buffer.
+        var genericValueParams = methodDecl.CSSignature.Skip(1)
+            .Where(a => a != closureArg && IsGenericNonClosureParam(a))
+            .Select(a => NameProvider.GetCSharpParameterName(a))
+            .ToList();
 
         var publicParams = new List<string>();
         publicParams.Add($"{funcType} {csClosureName}");
@@ -695,6 +774,19 @@ public static class GenericClosureBridgeEmitter
         csWriter.WriteLine("var size = metadata.Size;");
         csWriter.WriteLine("if (size == 0) size = 1;");
         csWriter.WriteLine("void* resultBuf = NativeMemory.AlignedAlloc(size, (nuint)metadata.Alignment);");
+
+        // Each generic non-closure value (`value: T`) is passed to the Swift wrapper as its own
+        // value-witness buffer pointer. Declare the pointer + a liveness flag BEFORE the try so the
+        // finally can release them; the alloc + +1-taking MarshalToSwift happen inside the try. The
+        // flag flips true only after MarshalToSwift returns (the +1 is taken), mirroring resultSlotLive:
+        // a throw before that leaves the flag false, so the finally frees the raw bytes without
+        // Destroying a slot that holds no reference.
+        foreach (var p in genericValueParams)
+        {
+            var bufName = GenericValueBufferName(p);
+            csWriter.WriteLine($"void* {bufName} = null;");
+            csWriter.WriteLine($"bool {bufName}Live = false;");
+        }
         // The Swift callback writes the closure result (+1) into resultBuf during the P/Invoke; the
         // moved read below transfers that +1 to the returned wrapper. resultSlotLive tracks whether
         // an unconsumed +1 is currently in resultBuf: the callback sets it true the instant it
@@ -709,18 +801,35 @@ public static class GenericClosureBridgeEmitter
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
+        // Allocate + marshal each generic non-closure value (+1) into its buffer before the call.
+        foreach (var p in genericValueParams)
+        {
+            var bufName = GenericValueBufferName(p);
+            csWriter.WriteLine($"{bufName} = NativeMemory.AlignedAlloc(size, (nuint)metadata.Alignment);");
+            csWriter.WriteLine($"var {bufName}Span = new Span<byte>({bufName}, (int)metadata.Size);");
+            csWriter.WriteLine($"SwiftMarshal.MarshalToSwift({p}, ref {bufName}Span);");
+            csWriter.WriteLine($"{bufName}Live = true;");
+        }
+
         // Create the invoke delegate that captures T and the user's Func via closure.
         // The callback (non-generic, [UnmanagedCallersOnly]) extracts and calls this delegate.
         // Delegate signature: Action<IntPtr[], IntPtr> (argsArray, resultBufPtr)
         csWriter.WriteLine("Action<IntPtr[], IntPtr> invoke = (IntPtr[] args, IntPtr resBufPtr) =>");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        // Marshal each closure arg from IntPtr — callback params are borrowed references. Class args
-        // take an owning +1 (MarshalBorrowedClassFromSwift) so the wrapper handed to the user's
-        // closure balances on Dispose/finalize instead of over-releasing a borrowed handle.
-        for (int i = 0; i < closureArgTypes.Count; i++)
-            csWriter.WriteLine($"var a{i} = {env.ClosureHandler.BorrowedCallbackArgMarshal(closureArgSpecs[i], closureArgTypes[i], $"args[{i}]")};");
-        var userCallArgs = Enumerable.Range(0, closureArgTypes.Count).Select(i => $"a{i}");
+        // Marshal each closure arg from IntPtr — callback params are borrowed references. A generic
+        // arg's void* is the address of the (caller-owned) value buffer: read it back to T with an
+        // independent +1 via the borrowed slot reader. A concrete class arg takes an owning +1
+        // (MarshalBorrowedClassFromSwift) so the wrapper handed to the user's closure balances on
+        // Dispose/finalize instead of over-releasing a borrowed handle.
+        for (int i = 0; i < closureArgs.Count; i++)
+        {
+            if (closureArgs[i].IsGeneric)
+                csWriter.WriteLine($"var a{i} = SwiftMarshal.MarshalBorrowedValueFromSlot<T>((void*)args[{i}], metadata);");
+            else
+                csWriter.WriteLine($"var a{i} = {env.ClosureHandler.BorrowedCallbackArgMarshal(closureArgs[i].Spec, closureArgs[i].CSharpType, $"args[{i}]")};");
+        }
+        var userCallArgs = Enumerable.Range(0, closureArgs.Count).Select(i => $"a{i}");
         csWriter.WriteLine($"var result = {csClosureName}({string.Join(", ", userCallArgs)});");
         csWriter.WriteLine("var resBufSpan = new Span<byte>((void*)resBufPtr, (int)metadata.Size);");
         // The Swift wrapper passes the SAME resultBuf to this callback (it is the outer method's
@@ -805,6 +914,16 @@ public static class GenericClosureBridgeEmitter
         csWriter.WriteLine("finally");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+        // Release each generic non-closure value buffer: the +1 taken by MarshalToSwift is balanced by
+        // the closure's borrowed read (which took its own independent +1), so destroy the buffer's +1
+        // here, then free the raw bytes. Guarded by the per-buffer liveness flag so a throw before the
+        // +1 was taken only frees raw memory.
+        foreach (var p in genericValueParams)
+        {
+            var bufName = GenericValueBufferName(p);
+            csWriter.WriteLine($"if ({bufName}Live) SwiftMarshal.DestroyWireBufferRetains((IntPtr){bufName}, metadata);");
+            csWriter.WriteLine($"if ({bufName} != null) NativeMemory.AlignedFree({bufName});");
+        }
         // A throw between the callback's +1 write and the moved read (or from the moved read itself)
         // leaves an unconsumed +1 in resultBuf; release it via the non-generic, Mono-safe wire-buffer
         // destroy (no fresh generic instantiation forced inside a finally) before the raw free.
@@ -822,8 +941,7 @@ public static class GenericClosureBridgeEmitter
         CSharpWriter csWriter,
         MethodDecl methodDecl,
         string methodName,
-        List<string> closureArgTypes,
-        List<TypeSpec> closureArgSpecs,
+        List<GcbClosureArg> closureArgs,
         string callbackName,
         string pInvokeName,
         string csClosureName,
@@ -831,8 +949,10 @@ public static class GenericClosureBridgeEmitter
         MethodEnvironment env,
         string selfExpr)
     {
-        var actionType = closureArgTypes.Count > 0
-            ? $"Action<{string.Join(", ", closureArgTypes)}>"
+        // The void variant is only emitted when T is confined to the closure return, so every closure
+        // arg here is concrete (no generic args) and no generic non-closure params exist.
+        var actionType = closureArgs.Count > 0
+            ? $"Action<{string.Join(", ", closureArgs.Select(a => a.CSharpType))}>"
             : "Action";
 
         var publicParams = new List<string>();
@@ -849,9 +969,9 @@ public static class GenericClosureBridgeEmitter
         csWriter.Indent++;
         // Callback params are borrowed references. Class args take an owning +1 so the wrapper handed
         // to the user's closure balances on Dispose/finalize — see BorrowedCallbackArgMarshal.
-        for (int i = 0; i < closureArgTypes.Count; i++)
-            csWriter.WriteLine($"var a{i} = {env.ClosureHandler.BorrowedCallbackArgMarshal(closureArgSpecs[i], closureArgTypes[i], $"args[{i}]")};");
-        var userCallArgs = Enumerable.Range(0, closureArgTypes.Count).Select(i => $"a{i}");
+        for (int i = 0; i < closureArgs.Count; i++)
+            csWriter.WriteLine($"var a{i} = {env.ClosureHandler.BorrowedCallbackArgMarshal(closureArgs[i].Spec, closureArgs[i].CSharpType, $"args[{i}]")};");
+        var userCallArgs = Enumerable.Range(0, closureArgs.Count).Select(i => $"a{i}");
         csWriter.WriteLine($"{csClosureName}({string.Join(", ", userCallArgs)});");
         csWriter.Indent--;
         csWriter.WriteLine("};");
@@ -912,7 +1032,8 @@ public static class GenericClosureBridgeEmitter
             if (closureSpec != null && ClosureHandler.HasGenericTypeParameters(closureSpec))
                 continue;
             var csName = NameProvider.GetCSharpParameterName(arg);
-            var csType = GetPublicParamType(arg, env);
+            // A generic non-closure param (`value: T`) surfaces as the method's own `T` type parameter.
+            var csType = IsGenericNonClosureParam(arg) ? "T" : GetPublicParamType(arg, env);
             publicParams.Add($"{csType} {csName}");
         }
     }
@@ -936,6 +1057,14 @@ public static class GenericClosureBridgeEmitter
                 opt.GenericParameters.Count == 1 && opt.GenericParameters[0] is ClosureTypeSpec)
                 continue;
             var csName = NameProvider.GetCSharpParameterName(arg);
+            // A generic non-closure param is passed as the value-witness buffer pointer the returning
+            // method allocated and marshalled into (the void overload, which never has a generic
+            // non-closure param, never reaches this branch). See GenericValueBufferName.
+            if (IsGenericNonClosureParam(arg))
+            {
+                callArgs.Add($"(IntPtr){GenericValueBufferName(csName)}");
+                continue;
+            }
             var category = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
             switch (category)
             {
@@ -951,6 +1080,13 @@ public static class GenericClosureBridgeEmitter
             }
         }
     }
+
+    /// <summary>
+    /// The local name of the value-witness buffer the returning method allocates for a generic
+    /// non-closure parameter named <paramref name="csName"/>. Distinct from the public parameter name
+    /// (the <c>T</c> wrapper) so both can coexist in the method body.
+    /// </summary>
+    private static string GenericValueBufferName(string csName) => $"{csName}__valueBuf";
 
     private static string GetCSharpTypeForClosureArg(TypeSpec typeSpec, MethodEnvironment env)
     {
@@ -981,10 +1117,10 @@ public static class GenericClosureBridgeEmitter
         return typeRecord.CSharpTypeName.FullyQualifiedName;
     }
 
-    private static string BuildCallbackDelegateType(List<string> closureArgTypes, bool hasResultBuf)
+    private static string BuildCallbackDelegateType(int closureArgCount, bool hasResultBuf)
     {
         var parts = new List<string>();
-        for (int i = 0; i < closureArgTypes.Count; i++)
+        for (int i = 0; i < closureArgCount; i++)
             parts.Add("void*");
         if (hasResultBuf) parts.Add("void*");
         parts.Add("void**"); // errorOut

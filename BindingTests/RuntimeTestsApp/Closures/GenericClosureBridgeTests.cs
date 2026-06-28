@@ -196,4 +196,109 @@ public class GenericClosureBridgeTests : TestBase
         AssertEqual("primary", result.Name, "GenericClosureBridge returns the forwarded source object");
         TestLogger.Info("GenericClosureBridge read<T> class-return round-trip passed");
     }
+
+    // ─── GenericClosureBridge gate (c): generic type parameter in closure ARGUMENT position ───
+    //
+    // `apply<T>(_ value: T, _ transform: (T) throws -> T) rethrows -> T` puts the method's own generic
+    // parameter in closure-input position. Historically gated out: the C# [UnmanagedCallersOnly]
+    // callback declared one void* only per CONCRETE arg, so the Swift cdecl callback (one void* per
+    // arg, generic included) passed more void* than C# expected — an ABI mismatch. The fix counts ALL
+    // closure args in the callback and passes the generic argument as a value-witness buffer pointer:
+    // C# allocates a T-sized buffer, marshals the value (+1) in, and the Swift wrapper forwards that
+    // pointer to the closure, which the callback reads back to T with a borrowed +1
+    // (MarshalBorrowedValueFromSlot). These are the runtime proofs that the value round-trips IN
+    // through the buffer, the C# closure transforms it, and the result flows back OUT through resultBuf.
+
+    /// <summary>
+    /// The generic value is handed to the C# closure, transformed, and the new value flows back as the
+    /// method result. Proves the input buffer carries the real <c>T</c> (not garbage) and the result
+    /// slot carries the transformed object: <c>21 → ×2 → 42</c>.
+    /// </summary>
+    public void TestGenericArgInput_Apply_TransformsValue()
+    {
+        using var fixture = new GenericArgClosureFixture();
+        using var input = new LevelKnob(21);
+        using var result = fixture.Apply<LevelKnob>(k => new LevelKnob(k.Level * 2), input);
+        AssertEqual(42, result.Level, "generic closure-arg value round-tripped IN and the transform flowed OUT");
+        TestLogger.Info("GenericClosureBridge gate (c) apply transform round-trip passed");
+    }
+
+    /// <summary>
+    /// Identity-forward through a generic argument: the borrowed read hands the SAME object to the
+    /// closure, which returns it unchanged. The forwarded value must be observable, not corrupted.
+    /// </summary>
+    public void TestGenericArgInput_Apply_Identity()
+    {
+        using var fixture = new GenericArgClosureFixture();
+        using var input = new LevelKnob(7);
+        using var result = fixture.Apply<LevelKnob>(k => k, input);
+        AssertEqual(7, result.Level, "identity-forwarded generic argument preserves the value");
+        TestLogger.Info("GenericClosureBridge gate (c) apply identity round-trip passed");
+    }
+
+    /// <summary>
+    /// Two generic arguments in input position (<c>(T, T) throws -> T</c>) — exercises the multi-arg
+    /// void* count in the callback: each generic argument becomes its own buffer pointer / void*.
+    /// </summary>
+    public void TestGenericArgInput_Combine_TwoArgs()
+    {
+        using var fixture = new GenericArgClosureFixture();
+        using var a = new LevelKnob(20);
+        using var b = new LevelKnob(22);
+        using var result = fixture.Combine<LevelKnob>((x, y) => new LevelKnob(x.Level + y.Level), a, b);
+        AssertEqual(42, result.Level, "both generic arguments reached the closure in order and merged");
+        TestLogger.Info("GenericClosureBridge gate (c) combine two-arg round-trip passed");
+    }
+
+    /// <summary>
+    /// The generic argument is a <b>Move</b>-semantics type (<c>SwiftString</c>): the borrowed read in
+    /// the callback must take an INDEPENDENT <c>+1</c> on the heap-backed storage, not bitwise-transfer
+    /// the value-buffer's only reference. A large (&gt;15-byte) string forces the heap-allocated,
+    /// reference-counted storage path (small strings are inline/POD and carry no reference): the buffer
+    /// holds a <c>+1</c> on <c>_StringStorage</c>, the borrowed wrapper handed to the closure must own a
+    /// separate <c>+1</c>, and the method's <c>finally</c> Destroys the buffer's reference. Reading the
+    /// borrowed string back to a correct value — and surviving a forced finalizer drain afterwards —
+    /// proves the borrowed read did not alias-then-double-release the storage (over-release / UAF).
+    /// </summary>
+    public void TestGenericArgInput_Apply_StringMovePath_RoundTrips()
+    {
+        using var fixture = new GenericArgClosureFixture();
+        const string large = "this string is definitely longer than fifteen bytes";
+        using var input = (SwiftString)large;
+        using var result = fixture.Apply<SwiftString>(
+            s => (SwiftString)s.ToString().ToUpperInvariant(), input);
+        AssertEqual(large.ToUpperInvariant(), result.ToString(),
+            "Move-semantics generic argument round-tripped through a borrowed +1 read");
+
+        // Surface any over-release of the borrowed string's heap storage: a bitwise-transfer borrow
+        // would leave the wrapper and the value-buffer sharing one reference, and the finally Destroy
+        // plus the wrapper's finalizer would double-free it.
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        TestLogger.Info("GenericClosureBridge gate (c) SwiftString Move-path round-trip passed");
+    }
+
+    /// <summary>
+    /// The closure is throwing (<c>(T) throws -> T</c>) and the method is <c>rethrows</c>: a C# closure
+    /// that throws must surface back to the caller (the callback mints a Swift error, Swift rethrows,
+    /// C# re-raises). The value-buffer must still be released on the error path (covered for leaks by
+    /// <see cref="GenericClosureBridgeLeakTests"/>).
+    /// </summary>
+    public void TestGenericArgInput_ThrowingClosure_Surfaces()
+    {
+        using var fixture = new GenericArgClosureFixture();
+        using var input = new LevelKnob(1);
+        bool threw = false;
+        try
+        {
+            fixture.Apply<LevelKnob>(k => throw new InvalidOperationException("boom"), input);
+        }
+        catch (Exception)
+        {
+            threw = true;
+        }
+        AssertTrue(threw, "a throwing C# closure surfaces back through the rethrows generic bridge");
+        TestLogger.Info("GenericClosureBridge gate (c) throwing-closure surface passed");
+    }
 }
