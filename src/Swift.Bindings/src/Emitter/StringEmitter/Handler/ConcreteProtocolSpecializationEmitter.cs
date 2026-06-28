@@ -880,6 +880,16 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         swiftParams.Add($"_ _dW1{b}: Int");
                         callArgs.Add($"{argLabel}unsafeBitCast((_dW0{b}, _dW1{b}), to: Foundation.Data.self)");
                         break;
+                    case MethodClosureBridge.ParamAbiCategory.FrozenStruct
+                        when arg.SwiftTypeSpec is NamedTypeSpec frozenParamNamed
+                            && typeDatabase.TryGetTypeRecord(frozenParamNamed, out var frozenParamRecord)
+                            && ProjectsAsBlittableValueStruct(frozenParamNamed, frozenParamRecord):
+                        // Frozen, trivially-copyable struct: the C# side pins &v and passes
+                        // (IntPtr)p. Swift loads via assumingMemoryBound+pointee, the same shape as
+                        // the InlineSwiftStruct (Data) and non-frozen-struct PayloadHandle arms.
+                        swiftParams.Add($"_ {b}: UnsafeRawPointer");
+                        callArgs.Add($"{argLabel}{b}.assumingMemoryBound(to: {ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec)}.self).pointee");
+                        break;
                     default:
                         swiftParams.Add($"_ {b}: UnsafeRawPointer");
                         callArgs.Add($"{argLabel}{b}");
@@ -1381,6 +1391,24 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         preludeLocals.Add($"nint {bareName}_w1 = System.Runtime.CompilerServices.Unsafe.Add(ref System.Runtime.CompilerServices.Unsafe.As<global::Swift.Foundation.Data, nint>(ref {bareName}Swift), 1);");
                         callArgs.Add($"{bareName}_w0");
                         callArgs.Add($"{bareName}_w1");
+                        break;
+                    }
+                    case MethodClosureBridge.ParamAbiCategory.FrozenStruct
+                        when arg.SwiftTypeSpec is NamedTypeSpec frozenParamNamed
+                            && typeDatabase.TryGetTypeRecord(frozenParamNamed, out var frozenParamRecord)
+                            && ProjectsAsBlittableValueStruct(frozenParamNamed, frozenParamRecord):
+                    {
+                        // Frozen, trivially-copyable struct projected as a C# value struct
+                        // (ISwiftObject): pin-and-pass the bytes via (IntPtr)(&v) inside an unsafe
+                        // block -- no `fixed` needed for an unmanaged local. The Swift wrapper reads
+                        // it back through assumingMemoryBound(to:).pointee. Same shape as the
+                        // InlineSwiftStruct (Foundation.Data) arm, but keyed on the type's own
+                        // value-struct projection rather than the allowlist.
+                        var frozenCsType = ResolvePublicCSharpType(arg.SwiftTypeSpec, typeDatabase);
+                        publicParams.Add($"{frozenCsType} {csName}");
+                        pinvokeParams.Add($"IntPtr {csName}");
+                        callArgs.Add($"(IntPtr)(&{csName})");
+                        needsUnsafe = true;
                         break;
                     }
                     default:
@@ -1935,6 +1963,15 @@ public static partial class ConcreteProtocolSpecializationEmitter
             ? (info.IdiomaticPublicType, info.MarshalToPublicSuffix)
             : (null, null);
 
+    /// <summary>
+    /// Test-only contract assertion: whether <paramref name="record"/> (named by
+    /// <paramref name="named"/>) projects to a C# value struct implementing ISwiftObject and so
+    /// is eligible for the frozen-trivial CSM return/param paths (pin-and-pass + indirect-result).
+    /// Delegates to <see cref="ProjectsAsBlittableValueStruct"/>.
+    /// </summary>
+    internal static bool ProjectsAsBlittableValueStructForTesting(NamedTypeSpec named, TypeRecord record)
+        => ProjectsAsBlittableValueStruct(named, record);
+
     // Conformers whose C# binding is a blittable value-type (rather than a class with
     // SafeHandle) and therefore gets pin-and-pass marshalling instead of
     // `.Payload.DangerousGetHandle()`. Two flavors live here:
@@ -1958,6 +1995,44 @@ public static partial class ConcreteProtocolSpecializationEmitter
         ["Foundation.Data"] = new("global::Swift.Foundation.Data", IsISwiftObject: true, IdiomaticPublicType: "byte[]", MarshalToPublicSuffix: ".ToByteArray()"),
         ["Foundation.UUID"] = new("System.Guid", IsISwiftObject: false)
     };
+
+    /// <summary>
+    /// True when a frozen, trivially-copyable Swift struct projects to a C# value struct that
+    /// implements ISwiftObject -- the shape eligible for CSM pin-and-pass parameter marshalling
+    /// and indirect-result return marshalling (e.g. an ECDSA <c>signature(for:) -> ECDSASignature</c>).
+    ///
+    /// Such a struct is laid out inline (no SafeHandle/Buffer), so a parameter crosses the @_cdecl
+    /// boundary as a pinned <c>(IntPtr)(&amp;v)</c> byte copy (Swift reads it back via
+    /// <c>assumingMemoryBound(to:).pointee</c>) and a return is sized via <c>GetSwiftTypeSize&lt;T&gt;</c>
+    /// and read back via <c>MarshalFromSwift&lt;T&gt;</c> (both constrained to <c>T : ISwiftObject</c>),
+    /// then byte-copied with no retain semantics before the wire buffer is freed.
+    ///
+    /// Excludes types whose C# projection is NOT an inline ISwiftObject value struct:
+    ///   - non-frozen / RequiresMemoryManagement structs (project to a class with SafeHandle/Buffer)
+    ///   - NativeTypeName-remapped types (e.g. Foundation.UUID -> System.Guid) -- not ISwiftObject
+    ///   - known Apple value types (CGFloat, simd_*) -- remapped to .NET primitives, handled separately
+    ///   - ObjC-bridged / -bridgeable structs (cross as object pointers, not struct bytes)
+    ///   - non-copyable (~Copyable) structs (a byte copy would violate move-only semantics)
+    ///   - structs the pre-emission pass records as skipped (a frozen value struct whose Buffer
+    ///     layout is indeterminate, or whose sub-word Optional&lt;primitive&gt; fields shift a
+    ///     following field's byte offset, is recorded skipped and never declared) -- admitting one
+    ///     would emit a CSM overload referencing a C# type that is never generated (CS0246). The
+    ///     flag checks above cannot see this: such a struct is still frozen and non-RMM, so the
+    ///     authoritative "will this type be emitted?" oracle is the skipped-type set, keyed by the
+    ///     record's canonical declaration identity (the same key the member gate consults).
+    /// </summary>
+    private static bool ProjectsAsBlittableValueStruct(NamedTypeSpec named, TypeRecord record)
+    {
+        return record.Kind == TypeRecordKind.Struct
+            && MarshallingHelpers.IsTypeFrozen(record)
+            && !MarshallingHelpers.RequiresMemoryManagement(record)
+            && record.NativeTypeName == null
+            && !record.Flags.HasFlag(TypeRecordFlags.ObjCBridged)
+            && !record.Flags.HasFlag(TypeRecordFlags.ObjCBridgeable)
+            && !record.Flags.HasFlag(TypeRecordFlags.NonCopyable)
+            && !TypeDatabaseExtensions.IsKnownAppleValueType(named)
+            && !ReportCollector.IsTypeSkipped(record.SwiftTypeName);
+    }
 
     private static ConformerCategory ClassifyConformerForSwiftParam(
         ConcreteSpecializationEngine.ConcreteConformer conformer,
@@ -2252,6 +2327,19 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         && returnTypeSpec is NamedTypeSpec inlineNamed
                         && InlineSwiftStructAllowlist.TryGetValue(inlineNamed.Name, out var inlineRetInfo)
                         && inlineRetInfo.IsISwiftObject)
+                    {
+                        indirectReturnIsSwiftObject = true;
+                    }
+                    // A frozen, trivially-copyable struct that isn't an allowlisted inline struct
+                    // still projects to a C# value struct implementing ISwiftObject (e.g. an ECDSA
+                    // `signature(for:) -> ECDSASignature`). The pure-value indirect-result path
+                    // (frozen, no RequiresMemoryManagement) sizes it via GetSwiftTypeSize<T>, reads
+                    // it back via MarshalFromSwift<T>, and just byte-copies then frees the wire -- no
+                    // retains to manage. Admit it so typed-struct returns concretize, not only Data.
+                    if (!indirectReturnIsSwiftObject
+                        && returnTypeSpec is NamedTypeSpec valueStructNamed
+                        && typeDatabase.TryGetTypeRecord(valueStructNamed, out var valueStructRecord)
+                        && ProjectsAsBlittableValueStruct(valueStructNamed, valueStructRecord))
                     {
                         indirectReturnIsSwiftObject = true;
                     }
@@ -2695,6 +2783,18 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 // arm). Admit it here so the predicate↔emitter contract holds — the param-render
                 // switches below carry the matching NativeRemapped/Data arms.
                 if (IsConcreteFoundationDataParam(arg))
+                    continue;
+                // A frozen, trivially-copyable struct param projects to a C# value struct
+                // implementing ISwiftObject. The CSM param-render switches give it a pin-and-pass
+                // arm (C# passes `(IntPtr)(&v)`; the Swift wrapper reads it back via
+                // assumingMemoryBound(to:).pointee), so admit it here even though FrozenStruct is
+                // not in the closure-bridge layer's passable set. ProjectsAsBlittableValueStruct
+                // keeps it tight -- RMM/remapped/ObjC/non-copyable structs (no value-struct
+                // projection) still reject.
+                if (category == MethodClosureBridge.ParamAbiCategory.FrozenStruct
+                    && arg.SwiftTypeSpec is NamedTypeSpec frozenParamNamed
+                    && typeDatabase.TryGetTypeRecord(frozenParamNamed, out var frozenParamRecord)
+                    && ProjectsAsBlittableValueStruct(frozenParamNamed, frozenParamRecord))
                     continue;
                 return false;
             }

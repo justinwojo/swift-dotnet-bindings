@@ -590,3 +590,47 @@ public struct DefaultedThrowingHasher {
     public var lastTag: Int { _lastTag }
     public var lastOptionsCount: Int { _lastOptionsCount }
 }
+
+// MARK: - CSM with a frozen-trivial struct as the indirect return
+//
+// Mirrors CryptoKit's `P256.Signing.PrivateKey.signature(for:) -> ECDSASignature`
+// and `PublicKey.isValidSignature(_:for:)`: a method with a `D: DataProtocol`
+// input whose return is a typed struct (NOT Foundation.Data). When that struct is
+// @frozen with only trivial (BitwiseCopyable) fields it projects to a C# value
+// `struct : ISwiftObject`, returned through the indirect-result buffer via the
+// pure-value (byte-copy) path. CSM previously admitted only Data / non-frozen-struct
+// / class returns and dropped this shape, leaving the NIST-ECDSA signing surface
+// unreachable from C#. >16 bytes forces the indirect-result return path.
+@frozen
+public struct FixedSignature {
+    public let w0: UInt64
+    public let w1: UInt64
+    public let w2: UInt64
+    public let w3: UInt64
+    public init(w0: UInt64, w1: UInt64, w2: UInt64, w3: UInt64) {
+        self.w0 = w0; self.w1 = w1; self.w2 = w2; self.w3 = w3
+    }
+}
+
+public enum FrozenSignatureNamespace {
+    /// DataProtocol input -> frozen-trivial struct return (the ECDSA `signature(for:)`
+    /// shape). The deterministic digest lets the C# test assert an exact known answer.
+    public static func sign<D: DataProtocol>(_ message: D) -> FixedSignature {
+        var sum: UInt64 = 0
+        var xor: UInt64 = 0
+        var count: UInt64 = 0
+        for region in message.regions {
+            for byte in region { sum &+= UInt64(byte); xor ^= UInt64(byte); count &+= 1 }
+        }
+        return FixedSignature(w0: sum, w1: xor, w2: count, w3: sum &* 31 &+ xor)
+    }
+
+    /// Verify shape: frozen-trivial struct as a non-generic parameter alongside the
+    /// DataProtocol generic param, returning Bool. Mirrors
+    /// `PublicKey.isValidSignature(_ signature: ECDSASignature, for: D)`.
+    public static func isValidSignature<D: DataProtocol>(_ signature: FixedSignature, for message: D) -> Bool {
+        let recomputed = sign(message)
+        return recomputed.w0 == signature.w0 && recomputed.w1 == signature.w1
+            && recomputed.w2 == signature.w2 && recomputed.w3 == signature.w3
+    }
+}

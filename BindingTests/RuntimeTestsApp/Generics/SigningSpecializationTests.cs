@@ -182,4 +182,89 @@ public class SigningSpecializationTests : TestBase
             throw new AssertionException(
                 "Verify(len 2, len 5) — Bool return should be false; mixed conformers (ContextTag, PlainMessage) exercise the 2x2 cartesian overload");
     }
+
+    // --- Frozen-TRIVIAL value-struct return + param (the P256 ECDSASignature shape) ---
+    //
+    // FixedSignature is @frozen with only UInt64 fields — no RequiresMemoryManagement, so it
+    // projects to a C# value `struct : ISwiftObject` (not the class-with-buffer that
+    // SignatureBlob's String field forces). The old CSM return gate admitted Data, non-frozen,
+    // and frozen-WITH-memory struct returns but rejected this pure-value shape, so
+    // FrozenSignatureNamespace.Sign emitted only an uncallable open-generic SB0001 stub. The
+    // matching gap on the param side: a frozen-trivial value struct as a non-generic argument
+    // (IsValidSignature's first parameter) was not passable. These tests pin both halves —
+    // the indirect-result return marshals via GetSwiftTypeSize/MarshalFromSwift, and the param
+    // crosses pinned as (IntPtr)(&v) → assumingMemoryBound(to:).pointee.
+    //
+    // Known answer for message bytes {1,2,3}: sum=6, xor=0 (1^2^3), count=3, w3 = sum*31+xor = 186.
+
+    public void TestFrozenSignature_Sign_ByteArray_KnownAnswer()
+    {
+        // Part A: frozen-trivial value-struct return via the byte[] (RawBuffer) conformer.
+        FixedSignature sig = FrozenSignatureNamespace.Sign(new byte[] { 1, 2, 3 });
+        AssertEqual(6UL, sig.W0, "Sign(byte[]) W0 (sum) must round-trip the value-struct return");
+        AssertEqual(0UL, sig.W1, "Sign(byte[]) W1 (xor) must round-trip");
+        AssertEqual(3UL, sig.W2, "Sign(byte[]) W2 (count) must round-trip");
+        AssertEqual(186UL, sig.W3, "Sign(byte[]) W3 (sum*31+xor) must round-trip");
+    }
+
+    public void TestFrozenSignature_Sign_Data_KnownAnswer()
+    {
+        // Part A: same value-struct return via the Foundation.Data (InlineSwiftStruct) conformer,
+        // proving the relaxed return gate emits a per-conformer overload, not one hard-wired form.
+        var data = global::Swift.Foundation.Data.FromByteArray(new byte[] { 1, 2, 3 });
+        FixedSignature sig = FrozenSignatureNamespace.Sign(data);
+        AssertEqual(6UL, sig.W0, "Sign(Data) W0 (sum) must round-trip the value-struct return");
+        AssertEqual(0UL, sig.W1, "Sign(Data) W1 (xor) must round-trip");
+        AssertEqual(3UL, sig.W2, "Sign(Data) W2 (count) must round-trip");
+        AssertEqual(186UL, sig.W3, "Sign(Data) W3 must round-trip");
+    }
+
+    public void TestFrozenSignature_Sign_DistinctMessages_ProduceDistinctSignatures()
+    {
+        // Observability: distinct inputs must yield distinct value-struct returns. A
+        // result-pointer regression (never writing the indirect result) would make both equal.
+        FixedSignature a = FrozenSignatureNamespace.Sign(new byte[] { 1, 2, 3 });
+        FixedSignature b = FrozenSignatureNamespace.Sign(new byte[] { 9, 9 });
+        // {9,9}: sum=18, xor=0, count=2, w3=18*31=558.
+        AssertEqual(18UL, b.W0, "Sign({9,9}) W0 (sum) must reflect the actual input bytes");
+        AssertEqual(2UL, b.W2, "Sign({9,9}) W2 (count) must reflect the actual input length");
+        if (a.W0 == b.W0 && a.W2 == b.W2 && a.W3 == b.W3)
+            throw new AssertionException(
+                "Sign of distinct messages produced identical signatures — indirect result not written per call");
+    }
+
+    public void TestFrozenSignature_Verify_ConstructedSignature_ReturnsTrue()
+    {
+        // Part B: a C#-CONSTRUCTED FixedSignature crosses as a non-generic frozen-trivial value
+        // param. IsValidSignature recomputes Sign(message) Swift-side and compares fields, so a
+        // correct round-trip proves the struct's bytes (6,0,3,186) survive the pin-and-pass.
+        var sig = new FixedSignature(6, 0, 3, 186);
+        if (!FrozenSignatureNamespace.IsValidSignature(sig, new byte[] { 1, 2, 3 }))
+            throw new AssertionException(
+                "IsValidSignature(constructed sig, {1,2,3}) — value-struct param bytes must reach Swift intact (true expected)");
+    }
+
+    public void TestFrozenSignature_Verify_WrongSignature_ReturnsFalse()
+    {
+        // Part B negative: a value-struct param whose bytes do NOT match the recomputed signature
+        // must verify false — guards against the param being read as garbage/zeroed (which could
+        // spuriously match an all-zero recompute).
+        var wrong = new FixedSignature(1, 2, 3, 4);
+        if (FrozenSignatureNamespace.IsValidSignature(wrong, new byte[] { 1, 2, 3 }))
+            throw new AssertionException(
+                "IsValidSignature(wrong sig, {1,2,3}) — mismatched value-struct param must verify false");
+    }
+
+    public void TestFrozenSignature_SignThenVerify_RoundTrip()
+    {
+        // Part A + Part B end-to-end: take the value struct Sign RETURNS and pass it straight
+        // back as the value-struct PARAM. Exercises both the return-marshal and pin-and-pass
+        // paths on the same bytes with no C# reconstruction in between.
+        var data = global::Swift.Foundation.Data.FromByteArray(new byte[] { 7, 8, 9, 10 });
+        FixedSignature produced = FrozenSignatureNamespace.Sign(data);
+        var verifyData = global::Swift.Foundation.Data.FromByteArray(new byte[] { 7, 8, 9, 10 });
+        if (!FrozenSignatureNamespace.IsValidSignature(produced, verifyData))
+            throw new AssertionException(
+                "Sign-then-verify round-trip — Sign's value-struct return must verify against the same message");
+    }
 }

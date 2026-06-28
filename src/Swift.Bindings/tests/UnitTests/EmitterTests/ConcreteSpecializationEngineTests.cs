@@ -14,6 +14,9 @@ namespace BindingsGeneration.Tests;
 /// Tests for <see cref="ConcreteSpecializationEngine"/> — protocol conformer discovery
 /// from hints and ABI, and specializable method detection.
 /// </summary>
+// Collection-serialized: one test drives the process-global ReportCollector skipped-type set
+// to exercise the value-struct predicate's skip-set consultation.
+[Collection("ReportCollector")]
 public class ConcreteSpecializationEngineTests
 {
     private static ITypeDatabase CreateEmptyTypeDatabase() => new EmptyTypeDatabase();
@@ -998,6 +1001,173 @@ public class ConcreteSpecializationEngineTests
             .GetInlineSwiftStructReturnProjectionForTesting("Foundation.UUID");
         Assert.Null(publicType);
         Assert.Null(suffix);
+    }
+
+    private static TypeRecord MakeStructRecord(string moduleQualifiedName, TypeRecordFlags flags,
+        CSharpTypeName? nativeTypeName = null, TypeRecordKind kind = TypeRecordKind.Struct)
+    {
+        var dot = moduleQualifiedName.IndexOf('.');
+        var ns = dot > 0 ? moduleQualifiedName.Substring(0, dot) : moduleQualifiedName;
+        var name = dot > 0 ? moduleQualifiedName.Substring(dot + 1) : moduleQualifiedName;
+        return new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName(ns, name),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(moduleQualifiedName),
+            MetadataAccessor = string.Empty,
+            Flags = flags,
+            Kind = kind,
+            NativeTypeName = nativeTypeName,
+        };
+    }
+
+    [Fact]
+    public void BlittableValueStructProjection_FrozenTrivialStruct_IsAdmitted()
+    {
+        // A frozen struct with no RequiresMemoryManagement (only trivial fields) projects to a
+        // C# value `struct : ISwiftObject` — the FixedSignature / P256 ECDSASignature shape. It
+        // is the case the CSM return gate previously rejected; it must now be admitted for both
+        // the indirect-result return path and the non-generic pin-and-pass param path.
+        var named = new NamedTypeSpec("TestModule.FixedSignature");
+        var record = MakeStructRecord("TestModule.FixedSignature", TypeRecordFlags.Frozen);
+        Assert.True(ConcreteProtocolSpecializationEmitter
+            .ProjectsAsBlittableValueStructForTesting(named, record));
+    }
+
+    [Fact]
+    public void BlittableValueStructProjection_FrozenWithMemory_IsRejected()
+    {
+        // Frozen + RequiresMemoryManagement (e.g. a frozen struct holding a String, the
+        // SignatureBlob shape) projects to a C# class-with-buffer, NOT a value struct. The old
+        // gate already admitted this via its class/memory arm, so the value-struct predicate
+        // must NOT claim it (it has no inline value-struct projection to pin-and-pass).
+        var named = new NamedTypeSpec("TestModule.SignatureBlob");
+        var record = MakeStructRecord("TestModule.SignatureBlob",
+            TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement);
+        Assert.False(ConcreteProtocolSpecializationEmitter
+            .ProjectsAsBlittableValueStructForTesting(named, record));
+    }
+
+    [Fact]
+    public void BlittableValueStructProjection_NonFrozenStruct_IsRejected()
+    {
+        // Non-frozen structs project to a SafeHandle-backed C# class; not a pin-and-pass value.
+        var named = new NamedTypeSpec("TestModule.OpaqueStruct");
+        var record = MakeStructRecord("TestModule.OpaqueStruct", TypeRecordFlags.None);
+        Assert.False(ConcreteProtocolSpecializationEmitter
+            .ProjectsAsBlittableValueStructForTesting(named, record));
+    }
+
+    [Fact]
+    public void BlittableValueStructProjection_NativeRemappedStruct_IsRejected()
+    {
+        // A frozen struct remapped to a .NET built-in (NativeTypeName set, e.g. Foundation.UUID
+        // → System.Guid) is NOT an ISwiftObject, so GetSwiftTypeSize<T>/MarshalFromSwift<T> would
+        // fail the T : ISwiftObject constraint. The predicate must reject it.
+        var named = new NamedTypeSpec("Foundation.UUID");
+        var record = MakeStructRecord("Foundation.UUID", TypeRecordFlags.Frozen,
+            nativeTypeName: CSharpTypeName.FromNamespaceAndName("System", "Guid"));
+        Assert.False(ConcreteProtocolSpecializationEmitter
+            .ProjectsAsBlittableValueStructForTesting(named, record));
+    }
+
+    [Fact]
+    public void BlittableValueStructProjection_KnownAppleValueType_IsRejected()
+    {
+        // A known Apple framework value type (e.g. a simd matrix, from the valueTypesOnly `simd`
+        // module) has its own dedicated marshalling and may remap to a .NET primitive rather than
+        // an ISwiftObject; the predicate excludes it even when frozen with no NativeTypeName on
+        // the synthetic record.
+        var named = new NamedTypeSpec("simd.simd_float4x4");
+        var record = MakeStructRecord("simd.simd_float4x4", TypeRecordFlags.Frozen);
+        Assert.False(ConcreteProtocolSpecializationEmitter
+            .ProjectsAsBlittableValueStructForTesting(named, record));
+    }
+
+    [Fact]
+    public void BlittableValueStructProjection_NonCopyableStruct_IsRejected()
+    {
+        // A ~Copyable frozen struct cannot be byte-copied across the boundary without violating
+        // move-only semantics, so it must not take the pin-and-pass / byte-copy path.
+        var named = new NamedTypeSpec("TestModule.MoveOnly");
+        var record = MakeStructRecord("TestModule.MoveOnly",
+            TypeRecordFlags.Frozen | TypeRecordFlags.NonCopyable);
+        Assert.False(ConcreteProtocolSpecializationEmitter
+            .ProjectsAsBlittableValueStructForTesting(named, record));
+    }
+
+    [Fact]
+    public void BlittableValueStructProjection_TypeSkipPrePassSkippedStruct_IsRejected()
+    {
+        // A frozen, non-RMM struct can still be recorded skipped by the pre-emission pass — e.g. a
+        // frozen value struct whose sub-word Optional<primitive> field shifts a following field's
+        // byte offset (TypeSkipPrePass Condition 4), or whose Buffer layout is indeterminate
+        // (Condition 3). Such a struct is never declared, so a CSM overload returning or taking it
+        // by value would reference a C# type that is never generated (CS0246). The flag checks above
+        // cannot see this — the struct is still frozen and non-RMM — so the predicate must consult
+        // the authoritative skipped-type set, the same oracle the member gate uses.
+        var named = new NamedTypeSpec("TestModule.SubWordOptionalSig");
+        var record = MakeStructRecord("TestModule.SubWordOptionalSig", TypeRecordFlags.Frozen);
+
+        var moduleDecl = BuildEmptyModule("TestModule");
+        var structDecl = BuildFrozenStruct(moduleDecl, "SubWordOptionalSig", "TestModule.SubWordOptionalSig");
+
+        ReportCollector.Start(moduleDecl);
+        try
+        {
+            // Active session but NOT yet skipped: every flag condition is satisfied, so the predicate
+            // admits it. This proves the session being active is not itself what flips the result.
+            Assert.True(ConcreteProtocolSpecializationEmitter
+                .ProjectsAsBlittableValueStructForTesting(named, record));
+
+            ReportCollector.RecordTypeSkipped(structDecl, SkipReason.IndeterminateStructLayout,
+                "frozen value struct sub-word optional layout mismatch");
+            Assert.True(ReportCollector.IsTypeSkipped("TestModule.SubWordOptionalSig"));
+
+            // Now recorded skipped → the predicate must reject it even though all flag checks pass.
+            Assert.False(ConcreteProtocolSpecializationEmitter
+                .ProjectsAsBlittableValueStructForTesting(named, record));
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+    }
+
+    private static ModuleDecl BuildEmptyModule(string name) => new ModuleDecl
+    {
+        Name = name,
+        ParentDecl = null,
+        ModuleDecl = null,
+        Properties = new List<PropertyDecl>(),
+        Methods = new List<MethodDecl>(),
+        Types = new List<TypeDecl>(),
+        Dependencies = new List<string>(),
+        Protocols = new List<ProtocolDecl>(),
+        AvailabilityAnnotations = null,
+    };
+
+    private static StructDecl BuildFrozenStruct(ModuleDecl moduleDecl, string name, string moduleQualifiedName)
+    {
+        var structDecl = new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(moduleQualifiedName),
+            MangledName = "",
+            IsFrozen = true,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            Conformances = new List<TypeConformance>(),
+            MetadataAccessor = "",
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            AvailabilityAnnotations = null,
+        };
+        moduleDecl.Types.Add(structDecl);
+        return structDecl;
     }
 
     [Fact]
