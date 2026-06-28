@@ -12,14 +12,28 @@ public partial class ProtocolProxyEmitter
 
         writer.WriteLines($"""
             private static IntPtr _protocolWitnessTable;
-            private static {swiftVtableName} _swiftVTable;
-            private static {localVtableName} _localVTable;
-            // Application-lifetime: vtable must outlive all proxy instances. Never disposed.
-            private static GCHandle _localVTableHandle;
             private static bool _vtableInitialized;
             private static readonly object _vtableLock = new object();
 
             """);
+
+        // The child's own reverse-dispatch vtable fields are referenced ONLY by
+        // EmitChildVtablePopulation (gated on _setVtableEmitted) and are typed by the
+        // `{P}SwiftVTable`/`{P}LocalVTable` structs. A read-only proxy emits neither struct
+        // (see EmitProxyClass) and never populates these fields, so emitting them would be a
+        // dangling reference to a suppressed type. Suppress them in lock-step. The cross-module
+        // parent vtable fields are emitted separately (EmitCrossModuleParentScaffolding) and are
+        // unaffected.
+        if (!_isReadOnlyProxy)
+        {
+            writer.WriteLines($"""
+                private static {swiftVtableName} _swiftVTable;
+                private static {localVtableName} _localVTable;
+                // Application-lifetime: vtable must outlive all proxy instances. Never disposed.
+                private static GCHandle _localVTableHandle;
+
+                """);
+        }
 
         // Finding 33: per-proxy (per-module) EveryProtocol metadata. The opaque existential
         // layout stamps this into ObjectMetadata, and GetTypeMetadata() returns it. Sourced
@@ -159,7 +173,14 @@ public partial class ProtocolProxyEmitter
         {
             writer.WriteLine("// No Set" + protocolDecl.Name + "_vtable Swift trampoline was emitted for this protocol;");
             writer.WriteLine("// the proxy is read-only for its own surface (Swift→C# wrap path only).");
-            writer.WriteLine("// Cross-module parent vtable init below still runs so inherited dispatch works.");
+            // A read-only proxy never reverse-dispatches, so CollectCrossModuleParents returns empty
+            // for it and the parent-init loop below emits nothing. A non-read-only proxy that merely
+            // lacks its own Set{Protocol}_vtable (empty marker / static-only / noncopyable) still
+            // populates its cross-module parents' vtables below for inherited dispatch.
+            if (_isReadOnlyProxy)
+                writer.WriteLine("// Read-only proxy: cross-module parent vtable init is suppressed too.");
+            else
+                writer.WriteLine("// Cross-module parent vtable init below still runs so inherited dispatch works.");
         }
 
         if (emitChildVtablePopulation)

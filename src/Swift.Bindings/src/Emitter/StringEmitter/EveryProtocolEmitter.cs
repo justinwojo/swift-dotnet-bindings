@@ -6630,6 +6630,80 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
+    /// A protocol that CANNOT host an EveryProtocol reverse-dispatch conformance for a
+    /// forward-SAFE structural reason, yet whose <c>any P</c> existential is still a valid
+    /// READ target through its own witness table. These get a forward-only (read-only) proxy
+    /// instead of being fully suppressed — the suppression turned a getter returning
+    /// <c>any P</c> / <c>[any P]</c> / <c>(any P)?</c> into a throwing
+    /// <c>NotSupportedException</c> stub (the RealityFoundation <c>Material</c> /
+    /// <c>PhysicsJoint</c> shape).
+    ///
+    /// The forward-safe reasons are an explicit allowlist, NOT every reverse-conformance
+    /// skip:
+    ///   - <see cref="ProtocolDecl.HasUnsatisfiedHiddenRequirements"/> — an <c>__</c>-prefixed
+    ///     requirement swift-api-digester strips from the ABI JSON. It only concerns the
+    ///     reverse witness; the existential reads fine.
+    ///   - <see cref="InheritsUnsatisfiedStdlibProtocol"/> — inherits a stdlib protocol
+    ///     (Equatable / Hashable / CustomStringConvertible / …) EveryProtocol can't synthesize.
+    ///     The non-inherited members are still forward-dispatchable.
+    ///
+    /// Forward-UNSAFE skip reasons are deliberately excluded: missing/suppressed requirements,
+    /// missing TBD method descriptors, and <c>@convention(c)</c> closure parameters all signal
+    /// incomplete or unavailable ABI surface, so a forward read would move the failure from
+    /// conformance compilation to wrapper link / runtime. Superclass-constrained protocols are
+    /// excluded here because they are the ORIGINAL read-only population, admitted by the
+    /// caller's class-superclass branch (this predicate is the disjoint forward-safe arm).
+    /// Protocols with their own or inherited associated types are excluded by the caller (their
+    /// interface is generic and cannot host the proxy's [DllImport]/[UnmanagedCallersOnly]
+    /// members).
+    /// </summary>
+    internal static bool HasForwardSafeReverseImpossibleReason(
+        ProtocolDecl protocolDecl,
+        ITypeDatabase typeDatabase,
+        IReadOnlyList<ProtocolDecl>? allProtocols = null)
+    {
+        // The original read-only population is the class-superclass arm in the caller; this
+        // predicate is the disjoint non-class arm, so a class-superclass requirement disqualifies.
+        if (HasClassSuperclassRequirement(protocolDecl, typeDatabase, allProtocols))
+            return false;
+
+        // Must be reverse-impossible for a forward-SAFE reason: a stripped `__`-prefixed hidden
+        // requirement, or inheritance of an unsatisfiable stdlib protocol. Both leave `any P` a
+        // valid read target through its own witness table.
+        if (!protocolDecl.HasUnsatisfiedHiddenRequirements
+            && !InheritsUnsatisfiedStdlibProtocol(protocolDecl, allProtocols))
+            return false;
+
+        // ...AND carry NO forward-UNSAFE skip reason. A protocol can be reverse-impossible for a
+        // forward-safe reason AND simultaneously carry one of these signals (e.g.
+        // `P: CustomStringConvertible` whose required method has no TBD descriptor). The forward
+        // read dispatches each readable member through the existential's own witness table, but
+        // these signals mean a required member's ABI surface is missing/unavailable, so a forward
+        // read of THAT member moves the failure from conformance compilation to wrapper link /
+        // runtime. Fail closed — keep the full suppression (throwing stub) for the mixed case.
+        // Mirrors the forward-unsafe subset of WillSkipConformance; HasSelfRequirement, associated
+        // types, and class-bound protocols are already excluded by the caller's filter chain.
+        //
+        // IsMixedGenericProtocol is the method-level companion of the subscript-generic exclusion
+        // below: when a method-level-generic requirement coexists with a non-generic instance
+        // member, the Swift wrapper emits NO witness-dispatch accessors for the WHOLE protocol
+        // (EmitWitnessDispatchFunctions is gated protocol-wide on !IsMixedGenericProtocol because
+        // the type-projection pipeline mis-renders the non-generic members when a method-level
+        // generic is in scope). The C# forward-read proxy gates per-member, so its plain
+        // dispatchable property/method would still emit a NativeMethods P/Invoke whose @_cdecl
+        // target was never generated -> runtime EntryPointNotFoundException. Fail closed.
+        if (protocolDecl.HasMissingRequirements
+            || protocolDecl.HasConventionCClosureParameters
+            || protocolDecl.HasMissingTbdMethodDescriptors
+            || HasSuppressedRequiredMember(protocolDecl)
+            || IsMixedGenericProtocol(protocolDecl)
+            || protocolDecl.Subscripts.Any(s => !s.IsStatic && HasSubscriptLevelGenericDependentMember(s)))
+            return false;
+
+        return true;
+    }
+
+    /// <summary>
     /// Checks if a protocol inherits (directly or transitively) from a standard library
     /// protocol that has requirements EveryProtocol can't satisfy. These protocols have
     /// property or initializer requirements that aren't included in the vtable.

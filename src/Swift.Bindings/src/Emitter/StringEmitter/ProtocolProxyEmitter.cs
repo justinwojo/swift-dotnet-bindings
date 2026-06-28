@@ -271,9 +271,19 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine("{");
         writer.Indent++;
 
-        // Emit vtable structs
-        EmitSwiftVtableStruct(writer, protocolDecl);
-        EmitLocalVtableStruct(writer, protocolDecl);
+        // Emit vtable structs. A read-only (Swift-vended-only) proxy has no reverse
+        // EveryProtocol conformance, so EveryProtocolEmitter emits no Swift `{P}_vtable`
+        // struct and no Set{P}_vtable trampoline. The C# `{P}SwiftVTable`/`{P}LocalVTable`
+        // mirrors (and the `_swiftVTable`/`_localVTable`/`_localVTableHandle` fields that
+        // reference them, emitted in EmitStaticFields) would then be dead AND would diverge
+        // from the Swift side — the ArtifactParityGate `vtable-cs-only` violation. Suppress
+        // them so the C# mirror tracks the Swift side exactly. The unit-test path keeps the
+        // legacy (always-emit) behaviour: _isReadOnlyProxy is false without an emission context.
+        if (!_isReadOnlyProxy)
+        {
+            EmitSwiftVtableStruct(writer, protocolDecl);
+            EmitLocalVtableStruct(writer, protocolDecl);
+        }
 
         // Emit static fields
         EmitStaticFields(writer, protocolDecl);

@@ -20,6 +20,21 @@ public partial class ProtocolProxyEmitter
     /// </summary>
     private List<ProtocolDecl> CollectCrossModuleParents(ProtocolDecl protocolDecl)
     {
+        // A read-only (forward-only) proxy has no reverse EveryProtocol conformance and never
+        // reverse-dispatches an inherited requirement: the forward read of `any P` dispatches
+        // through the existential's OWN witness table. The cross-module-parent reverse machinery
+        // (per-parent vtable structs + receivers + the Set{Parent}_vtable P/Invoke, and its
+        // execution from InitializeVtable) is therefore dead for it. Worse, a parent's
+        // Set{Parent}_vtable Swift trampoline is emitted only for parents collected off
+        // `suitableProtocols` — never for read-only protocols — so leaving this on would make the
+        // read-only proxy's static cctor call a never-emitted Set{Parent}_vtable and throw
+        // EntryPointNotFoundException at type load (first forward wrap). Returning empty here
+        // suppresses BOTH callers (scaffolding emission and InitializeVtable population) in
+        // lockstep — this is the single collection point. Unit-test path is unaffected:
+        // _isReadOnlyProxy is false without an emission context.
+        if (_isReadOnlyProxy)
+            return new List<ProtocolDecl>();
+
         var moduleDecl = protocolDecl.ModuleDecl;
         if (moduleDecl == null || moduleDecl.DependencyProtocols.Count == 0)
             return new List<ProtocolDecl>();

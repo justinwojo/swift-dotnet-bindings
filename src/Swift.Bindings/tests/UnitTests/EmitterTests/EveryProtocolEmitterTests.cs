@@ -2557,6 +2557,44 @@ public class EveryProtocolEmitterTests
         Assert.True(ModuleHandler.InheritsProtocolWithAssociatedTypes(childProto, allProtocols));
     }
 
+    [Fact]
+    public void InheritsProtocolWithAssociatedTypes_SelfRequirementOnly_DoesNotBlockWhenSelfRequirementBlocksFalse()
+    {
+        // A Self-requirement-ONLY inherited protocol (no associated types) — e.g. Equatable/
+        // Hashable/Comparable — is the forward-only READ proxy's Population-B case: `any P` is a
+        // valid existential and the inherited Self requirement is never dispatched through the
+        // forward proxy. With selfRequirementBlocks:false it must NOT block (Joint admission fix);
+        // with the default (true) it still blocks (suitableProtocols reverse-conformance path).
+        var parentProto = CreateSimpleProtocol("Comparable");
+        parentProto.HasSelfRequirement = true; // no AssociatedTypes
+
+        var childProto = CreateSimpleProtocol("Sortable");
+        childProto.GenericSignature = "<Self : TestModule.Comparable>";
+
+        var allProtocols = new List<ProtocolDecl> { parentProto, childProto };
+
+        Assert.True(ModuleHandler.InheritsProtocolWithAssociatedTypes(childProto, allProtocols, selfRequirementBlocks: true));
+        Assert.False(ModuleHandler.InheritsProtocolWithAssociatedTypes(childProto, allProtocols, selfRequirementBlocks: false));
+    }
+
+    [Fact]
+    public void InheritsProtocolWithAssociatedTypes_GenuineAssociatedTypes_BlocksRegardlessOfSelfRequirementBlocks()
+    {
+        // Genuine associated types make `any P` an invalid existential, so the read-only forward
+        // path must STILL reject — selfRequirementBlocks:false relaxes ONLY the Self-requirement
+        // half, never the associated-type half.
+        var parentProto = CreateSimpleProtocol("DataSerializer");
+        parentProto.AssociatedTypes.Add(new AssociatedTypeDecl { Name = "SerializedObject" });
+
+        var childProto = CreateSimpleProtocol("ResponseSerializer");
+        childProto.GenericSignature = "<Self : TestModule.DataSerializer>";
+
+        var allProtocols = new List<ProtocolDecl> { parentProto, childProto };
+
+        Assert.True(ModuleHandler.InheritsProtocolWithAssociatedTypes(childProto, allProtocols, selfRequirementBlocks: true));
+        Assert.True(ModuleHandler.InheritsProtocolWithAssociatedTypes(childProto, allProtocols, selfRequirementBlocks: false));
+    }
+
     #endregion
 
     private static ProtocolDecl CreateSimpleProtocol(string name)
@@ -4855,6 +4893,131 @@ public class EveryProtocolEmitterTests
         var myProto = CreateProtocolWithInheritance("MyProto", "Swift.Hashable");
 
         Assert.True(EveryProtocolEmitter.InheritsUnsatisfiedStdlibProtocol(myProto));
+    }
+
+    #endregion
+
+    #region Forward-Safe Reverse-Impossible Reason Gate Tests
+
+    [Fact]
+    public void HasForwardSafeReverseImpossibleReason_HiddenRequirementNonSuperclass_ReturnsTrue()
+    {
+        // Population A (the RealityFoundation Material shape): a non-class-superclass protocol
+        // whose reverse conformance is blocked ONLY by a stripped `__`-prefixed hidden
+        // requirement. The existential is still a valid read target, so it earns a forward-only
+        // proxy. (Not reproducible in BindingTests — the test toolchain keeps `__` names — so
+        // this unit test is its coverage.)
+        var protocol = CreateProtocolWithMethod("MaterialFunction", "name");
+        protocol.HasUnsatisfiedHiddenRequirements = true;
+
+        Assert.True(EveryProtocolEmitter.HasForwardSafeReverseImpossibleReason(protocol, _typeDatabase));
+    }
+
+    [Theory]
+    [InlineData("Equatable")]
+    [InlineData("Hashable")]
+    [InlineData("CustomStringConvertible")]
+    public void HasForwardSafeReverseImpossibleReason_StdlibInheritanceNonSuperclass_ReturnsTrue(string stdlibProtocol)
+    {
+        // Population B (the RealityFoundation PhysicsJoint shape, and the deterministic
+        // BindingTests repro): a non-class-superclass protocol that inherits a stdlib protocol
+        // EveryProtocol can't witness. Reverse-impossible, forward-readable for the non-Self
+        // members.
+        var protocol = CreateProtocolWithInheritance("ForwardReadable", $"Swift.{stdlibProtocol}");
+
+        Assert.True(EveryProtocolEmitter.HasForwardSafeReverseImpossibleReason(protocol, _typeDatabase));
+    }
+
+    [Fact]
+    public void HasForwardSafeReverseImpossibleReason_ClassSuperclassEvenWithHiddenRequirement_ReturnsFalse()
+    {
+        // Disjointness: a class-superclass-constrained protocol is the ORIGINAL read-only
+        // population, admitted by ModuleHandler's superclass arm — NOT this forward-safe arm.
+        // The `!HasClassSuperclassRequirement` guard short-circuits even when a forward-safe
+        // reason (hidden requirement) is also present, so the two arms never both fire.
+        var uikit = new ModuleTypeDatabase("UIKit", "/fake/UIKit.framework/UIKit");
+        var gestureName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIGestureRecognizer");
+        uikit.RegisterType(gestureName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("UIKit", "UIGestureRecognizer"),
+            SwiftTypeName = gestureName,
+            MetadataAccessor = "$sSo19UIGestureRecognizerCMa",
+            Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+        });
+        _typeDatabase.AddModuleDatabase(uikit);
+
+        var protocol = CreateProtocolWithMethod("GestureBackedDelegate", "doSomething");
+        protocol.InheritedProtocols.Add(new NamedTypeSpec("UIKit.UIGestureRecognizer"));
+        protocol.HasUnsatisfiedHiddenRequirements = true;
+
+        Assert.False(EveryProtocolEmitter.HasForwardSafeReverseImpossibleReason(protocol, _typeDatabase));
+    }
+
+    [Fact]
+    public void HasForwardSafeReverseImpossibleReason_ForwardUnsafeReasonOnly_ReturnsFalse()
+    {
+        // A forward-UNSAFE skip reason (here: missing TBD method descriptors) must NOT admit a
+        // forward-only proxy. The descriptor is genuinely absent from the framework, so a forward
+        // read would move the failure to wrapper link / runtime rather than projecting cleanly.
+        var protocol = CreateProtocolWithMethod("ConversationManagerDelegate", "didActivate");
+        protocol.HasMissingTbdMethodDescriptors = true;
+
+        Assert.False(EveryProtocolEmitter.HasForwardSafeReverseImpossibleReason(protocol, _typeDatabase));
+    }
+
+    [Fact]
+    public void HasForwardSafeReverseImpossibleReason_NoBlockingReason_ReturnsFalse()
+    {
+        // A protocol with no reverse-impossible reason at all is not a read-only proxy — it gets
+        // a normal EveryProtocol conformance, so the forward-safe arm must not claim it.
+        var protocol = CreateProtocolWithMethod("PlainProtocol", "doSomething");
+
+        Assert.False(EveryProtocolEmitter.HasForwardSafeReverseImpossibleReason(protocol, _typeDatabase));
+    }
+
+    [Fact]
+    public void HasForwardSafeReverseImpossibleReason_StdlibInheritancePlusForwardUnsafeReason_ReturnsFalse()
+    {
+        // Mixed case: a forward-SAFE reason (inherits Swift.CustomStringConvertible) coexists with
+        // a forward-UNSAFE one (a required method's TBD descriptor is absent). The forward read of
+        // that member would move the failure to wrapper link / runtime, so the predicate must fail
+        // closed and keep the throwing-stub suppression — the forward-safe reason alone is NOT
+        // enough to admit when an unsafe reason is also present.
+        var protocol = CreateProtocolWithInheritance("ForwardReadable", "Swift.CustomStringConvertible");
+        protocol.HasMissingTbdMethodDescriptors = true;
+
+        Assert.False(EveryProtocolEmitter.HasForwardSafeReverseImpossibleReason(protocol, _typeDatabase));
+    }
+
+    [Fact]
+    public void HasForwardSafeReverseImpossibleReason_HiddenRequirementPlusConventionCClosure_ReturnsFalse()
+    {
+        // Mixed case, other axis: the forward-safe hidden-requirement reason (Population A) coexists
+        // with a @convention(c) closure parameter (forward-unsafe). Still fail closed.
+        var protocol = CreateProtocolWithMethod("MaterialFunction", "name");
+        protocol.HasUnsatisfiedHiddenRequirements = true;
+        protocol.HasConventionCClosureParameters = true;
+
+        Assert.False(EveryProtocolEmitter.HasForwardSafeReverseImpossibleReason(protocol, _typeDatabase));
+    }
+
+    [Fact]
+    public void HasForwardSafeReverseImpossibleReason_StdlibInheritancePlusMixedGenericMethod_ReturnsFalse()
+    {
+        // Mixed case, method-generic axis. The base protocol is admissible: it inherits
+        // Swift.CustomStringConvertible (forward-safe) and carries a plain `value: Int` property.
+        // Adding a method-level-generic requirement alongside that non-generic member makes it
+        // IsMixedGenericProtocol, for which the Swift wrapper emits NO witness-dispatch accessors
+        // for the WHOLE protocol (EmitWitnessDispatchFunctions is gated protocol-wide). The C#
+        // forward-read proxy gates per-member, so it would still emit the plain property's
+        // NativeMethods P/Invoke into a never-generated @_cdecl symbol -> EntryPointNotFoundException.
+        // The predicate must fail closed once the generic requirement is present.
+        var protocol = CreateProtocolWithInheritance("ForwardReadableMixedGeneric", "Swift.CustomStringConvertible");
+        Assert.True(EveryProtocolEmitter.HasForwardSafeReverseImpossibleReason(protocol, _typeDatabase));
+
+        protocol.Methods.Add(CreateMethodWithMethodLevelGeneric("transform"));
+        Assert.False(EveryProtocolEmitter.HasForwardSafeReverseImpossibleReason(protocol, _typeDatabase));
     }
 
     #endregion

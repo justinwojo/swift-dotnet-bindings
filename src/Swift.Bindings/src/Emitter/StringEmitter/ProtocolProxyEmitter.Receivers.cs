@@ -2022,18 +2022,35 @@ public partial class ProtocolProxyEmitter
         // first-wins latch and no priming step in the ctor.
         var containerInitLines = useClassBoundContainerLayout
             ? "_swiftContainer.Payload1 = (IntPtr)ProtocolWitnessTableHandle;"
-            : _isReadOnlyProxy
-                // Read-only (Swift-vended-only) proxy that nonetheless lands on the opaque layout
-                // (class-superclass requirement not surfaced as TypeRecordFlags.ClassBound): the
-                // eager s_everyProtocolMetadata field is suppressed for these proxies, so route
-                // through GetTypeMetadata() — which fails clean with NotSupportedException. This
-                // whole impl-ctor is the unsupported C#→Swift synthesis direction for a read-only
-                // proxy anyway (ProtocolWitnessTableHandle / CreateEveryProtocol are dangling),
-                // so throwing here is the correct behaviour, not a regression.
-                ? "_swiftContainer.ObjectMetadata = GetTypeMetadata();\n                _swiftContainer[0] = ProtocolWitnessTableHandle;"
-                : "_swiftContainer.ObjectMetadata = s_everyProtocolMetadata;\n                _swiftContainer[0] = ProtocolWitnessTableHandle;";
+            : "_swiftContainer.ObjectMetadata = s_everyProtocolMetadata;\n                _swiftContainer[0] = ProtocolWitnessTableHandle;";
 
-        // Constructor for C# implementation
+        // Constructor for C# implementation.
+        if (_isReadOnlyProxy)
+        {
+            // A read-only (Swift-vended-only) proxy has NO reverse EveryProtocol conformance:
+            // the @_cdecl Create{...} factory and ProtocolWitnessTableHandle it would need are
+            // never emitted, so the C#→Swift synthesis direction is unsupported. Fail fast with
+            // a clear NotSupportedException as the FIRST statement, before touching the dangling
+            // Create P/Invoke (calling it would surface as an opaque EntryPointNotFoundException).
+            // The supported direction is the forward read via the ExistentialContainer1 ctor below.
+            writer.WriteLines($$"""
+                /// <summary>
+                /// Not supported. A C# type cannot conform back to {{interfaceName}}: this proxy is
+                /// forward-only (read-only), wrapping Swift-vended <c>any {{interfaceName}}</c> values.
+                /// </summary>
+                /// <param name="implementation">Unused; this constructor always throws.</param>
+                public {{proxyClassName}}({{interfaceName}} implementation)
+                {
+                    throw new global::System.NotSupportedException(
+                        "Cannot create a Swift-backed proxy from a C# implementation of '{{interfaceName}}': "
+                        + "this protocol is forward-only (read-only). Swift-vended 'any {{interfaceName}}' values "
+                        + "can be read, but a C# type cannot conform back to it.");
+                }
+
+                """);
+        }
+        else
+        {
         writer.WriteLines($$"""
             /// <summary>
             /// Creates a proxy wrapping a C# implementation of {{interfaceName}}.
@@ -2102,6 +2119,13 @@ public partial class ProtocolProxyEmitter
                 Swift.Runtime.SwiftDisposeScope.TryRegister(this);
             }
 
+            """);
+        }
+
+        // The container ctor is the forward-read path, emitted for ALL proxies INCLUDING
+        // read-only ones: it wraps a Swift-vended `any P` existential and needs no reverse
+        // dispatch, so it is the sole supported constructor for a read-only proxy.
+        writer.WriteLines($$"""
             /// <summary>
             /// Creates a proxy from an existing Swift existential container.
             /// This constructor is used internally by generated marshalling code.

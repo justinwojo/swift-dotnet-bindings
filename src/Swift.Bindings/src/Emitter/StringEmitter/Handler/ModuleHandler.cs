@@ -1280,16 +1280,19 @@ namespace BindingsGeneration
                 }
             }
 
-            // Read-only (Swift-vended-only) proxy protocols: superclass-constrained and NOT
-            // Entity-rooted. EveryProtocol / EveryEntityProtocol cannot subclass the required
-            // class, so no conformance is emitted and the HasClassSuperclassRequirement gate
-            // above filtered them out of suitableProtocols. The C# proxy is still emitted so
+            // Read-only (Swift-vended-only) proxy protocols: those whose reverse EveryProtocol
+            // conformance can't be synthesized for a FORWARD-SAFE reason, so no conformance is
+            // emitted and the suitableProtocols filter chain dropped them — yet `any P` is still
+            // a valid READ target through its own witness table. The C# proxy is still emitted so
             // Swift-vended `any P` returns and `[any P]` array elements can be wrapped and
             // dispatched through the existential's OWN witness table — the witness-dispatch
             // accessors reconstruct `any P` via its static type (`load(as: (any P).self)`),
-            // which needs no EveryProtocol conformance. Mirrors the suitableProtocols filter
-            // chain but KEEPS the superclass-constrained (non-Entity-rooted) protocols it drops,
-            // and excludes any that already made it into suitableProtocols.
+            // which needs no EveryProtocol conformance. Two disjoint admission reasons (see the
+            // .Where below): a non-Entity-rooted class-superclass requirement, OR a non-class
+            // protocol blocked only by a stripped hidden requirement / an inherited unsatisfiable
+            // stdlib protocol. Mirrors the suitableProtocols filter chain but KEEPS the protocols
+            // it drops for those reasons, and excludes any that already made it into
+            // suitableProtocols.
             var suitableNames = new HashSet<string>(suitableProtocols.Select(p => p.Name), StringComparer.Ordinal);
             var readOnlyProxyProtocols = protocols
                 .Where(p => !p.HasSelfRequirement && p.AssociatedTypes.Count == 0)
@@ -1301,12 +1304,42 @@ namespace BindingsGeneration
                 .Where(p => !HasMembersReferencingUnsupportedModule(p, typeDatabase))
                 .Where(p => !EveryProtocolEmitter.IsClassBoundProtocol(p, protocols)
                             || EveryProtocolEmitter.IsNSObjectProtocolOnly(p, protocols))
-                // The defining trait: a class-superclass requirement that is NOT Entity-rooted.
-                .Where(p => EveryProtocolEmitter.HasClassSuperclassRequirement(p, typeDatabase, protocols)
-                            && !EveryProtocolEmitter.IsEntityRootedProtocol(p, typeDatabase, protocols))
+                // Admit a protocol as a forward-only proxy under EITHER of two disjoint,
+                // forward-readable reasons its reverse conformance can't be synthesized:
+                //   (1) a class-superclass requirement that is NOT Entity-rooted — the
+                //       original read-only population (`extension EveryProtocol: P` is
+                //       unsatisfiable because EveryProtocol has no class lineage, yet the
+                //       superclass-constrained `any P` reads fine). This arm additionally
+                //       excludes a stdlib-inheriting superclass protocol, matching the
+                //       prior standalone filter exactly.
+                //   (2) a non-class-superclass protocol that still can't host the reverse
+                //       witness for a forward-SAFE structural reason — a stripped
+                //       `__`-prefixed hidden requirement, or an inherited stdlib protocol
+                //       EveryProtocol can't witness. Without this the suppressed proxy turned
+                //       a getter returning `any P` / `[any P]` / `(any P)?` into a throwing
+                //       NotSupportedException stub. The forward read (`load(as: (any P).self)`
+                //       + witness-table dispatch) is identical for both arms.
+                .Where(p => (EveryProtocolEmitter.HasClassSuperclassRequirement(p, typeDatabase, protocols)
+                                && !EveryProtocolEmitter.IsEntityRootedProtocol(p, typeDatabase, protocols)
+                                && !EveryProtocolEmitter.InheritsUnsatisfiedStdlibProtocol(p, protocols))
+                            || EveryProtocolEmitter.HasForwardSafeReverseImpossibleReason(p, typeDatabase, protocols))
                 .Where(p => !EveryProtocolEmitter.InheritsCaseIterable(p, protocols))
-                .Where(p => !InheritsProtocolWithAssociatedTypes(p, protocols, typeDatabase))
-                .Where(p => !EveryProtocolEmitter.InheritsUnsatisfiedStdlibProtocol(p, protocols))
+                // A mixed-generic protocol (a method-level-generic requirement coexisting with a
+                // non-generic instance member) emits NO Swift witness-dispatch accessors at all —
+                // EmitWitnessDispatchFunctions is gated protocol-wide on !IsMixedGenericProtocol
+                // (below and at the suitable-protocol loop), so even a plain dispatchable property
+                // gets no @_cdecl accessor. The C# forward-read proxy gates per-member, so it would
+                // still emit that property's NativeMethods P/Invoke -> dangling symbol ->
+                // EntryPointNotFoundException at runtime. Fail closed (keep the throwing stub).
+                // This standalone filter also covers the class-superclass admission arm above,
+                // which bypasses HasForwardSafeReverseImpossibleReason's matching exclusion.
+                .Where(p => !EveryProtocolEmitter.IsMixedGenericProtocol(p))
+                // selfRequirementBlocks:false — a forward-only proxy reads `any P` through P's OWN
+                // witness table and never dispatches an inherited Self-typed requirement, so an
+                // inherited Self-requirement-ONLY stdlib protocol (Equatable/Hashable/Comparable —
+                // no associated types) is forward-safe and admitted. Genuine associated types,
+                // where `any P` would be an invalid existential, still block.
+                .Where(p => !InheritsProtocolWithAssociatedTypes(p, protocols, typeDatabase, selfRequirementBlocks: false))
                 .Where(p => !HasMembersReferencingInternalTypes(p, typeDatabase, moduleDecl.Name))
                 .Where(p => !suitableNames.Contains(p.Name))
                 .ToList();
@@ -1727,15 +1760,26 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Checks if a protocol transitively inherits from any protocol with associated types
-        /// or Self requirements. These protocols cannot get EveryProtocol conformances because
-        /// the associated type cannot be determined.
+        /// or (when <paramref name="selfRequirementBlocks"/> is true) Self requirements. These
+        /// protocols cannot get a reverse EveryProtocol conformance because the associated type
+        /// cannot be determined / the Self requirement cannot be witnessed.
         /// </summary>
-        internal static bool InheritsProtocolWithAssociatedTypes(ProtocolDecl protocolDecl, IReadOnlyList<ProtocolDecl>? allProtocols = null, ITypeDatabase? typeDatabase = null)
+        /// <param name="selfRequirementBlocks">
+        /// When true (default, the reverse-conformance suitableProtocols path), an inherited
+        /// protocol that carries ONLY a Self requirement (e.g. <c>Equatable</c>/<c>Hashable</c>/
+        /// <c>Comparable</c>, which have no associated types but a Self-typed <c>==</c>/<c>&lt;</c>)
+        /// still blocks. When false (the forward-only READ proxy path), it does NOT: a
+        /// Self-requirement-only inherited stdlib protocol is the Population-B forward-safe case —
+        /// <c>any P</c> remains a valid existential and the inherited Self requirement is never
+        /// dispatched through the forward proxy, only <c>P</c>'s own members are. Genuine
+        /// associated types (where <c>any P</c> would be invalid) still block in BOTH modes.
+        /// </param>
+        internal static bool InheritsProtocolWithAssociatedTypes(ProtocolDecl protocolDecl, IReadOnlyList<ProtocolDecl>? allProtocols = null, ITypeDatabase? typeDatabase = null, bool selfRequirementBlocks = true)
         {
-            return InheritsProtocolWithAssociatedTypesRecursive(protocolDecl, allProtocols, typeDatabase, new HashSet<string>(StringComparer.Ordinal));
+            return InheritsProtocolWithAssociatedTypesRecursive(protocolDecl, allProtocols, typeDatabase, new HashSet<string>(StringComparer.Ordinal), selfRequirementBlocks);
         }
 
-        private static bool InheritsProtocolWithAssociatedTypesRecursive(ProtocolDecl protocolDecl, IReadOnlyList<ProtocolDecl>? allProtocols, ITypeDatabase? typeDatabase, HashSet<string> visited)
+        private static bool InheritsProtocolWithAssociatedTypesRecursive(ProtocolDecl protocolDecl, IReadOnlyList<ProtocolDecl>? allProtocols, ITypeDatabase? typeDatabase, HashSet<string> visited, bool selfRequirementBlocks)
         {
             var qualifiedName = protocolDecl.SwiftTypeName?.ToString() ?? protocolDecl.Name;
             if (!visited.Add(qualifiedName))
@@ -1782,9 +1826,9 @@ namespace BindingsGeneration
                         p.SwiftTypeName?.ToString() == name);
                     if (inheritedDecl != null)
                     {
-                        if (inheritedDecl.AssociatedTypes.Count > 0 || inheritedDecl.HasSelfRequirement)
+                        if (inheritedDecl.AssociatedTypes.Count > 0 || (selfRequirementBlocks && inheritedDecl.HasSelfRequirement))
                             return true;
-                        if (InheritsProtocolWithAssociatedTypesRecursive(inheritedDecl, allProtocols, typeDatabase, visited))
+                        if (InheritsProtocolWithAssociatedTypesRecursive(inheritedDecl, allProtocols, typeDatabase, visited, selfRequirementBlocks))
                             return true;
                     }
                 }
@@ -1797,7 +1841,7 @@ namespace BindingsGeneration
                     if (typeDatabase.TryGetTypeRecord(inheritedSwiftName, out var record) &&
                         record.Kind == TypeRecordKind.Protocol &&
                         (record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) ||
-                         record.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement)))
+                         (selfRequirementBlocks && record.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement))))
                         return true;
                 }
             }

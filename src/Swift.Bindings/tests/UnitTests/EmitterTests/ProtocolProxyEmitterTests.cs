@@ -145,6 +145,43 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
+    public void EmitProxyClass_ReadOnlyProxy_ImplConstructorFailsFastWithoutTouchingDanglingFactory()
+    {
+        // The C#-implementation ctor is the unsupported reverse (C#→Swift) direction for a
+        // read-only proxy: the @_cdecl Create{...} factory and ProtocolWitnessTableHandle it
+        // would call are never emitted (dangling). It must throw NotSupportedException as its
+        // FIRST act, before any P/Invoke — otherwise the dangling Create call surfaces as an
+        // opaque EntryPointNotFoundException. The forward-read container ctor must still exist.
+        var protocolDecl = CreateSimpleProtocol("EntityGestureRecognizer");
+        var ctx = new ModuleEmissionContext();
+        ctx.MarkReadOnlyProxy(protocolDecl.Name);
+
+        var output = EmitProxyClassWithContext(protocolDecl, ctx);
+
+        var implCtor = ExtractMethodBody(output,
+            "public EntityGestureRecognizerProxy(IEntityGestureRecognizer implementation)");
+        Assert.Contains("throw new global::System.NotSupportedException", implCtor);
+        // No P/Invoke at all on the read-only impl ctor — the dangling factory is never touched.
+        Assert.DoesNotContain("NativeMethods.", implCtor);
+        // The forward-read path (the container ctor) is still emitted for read-only proxies.
+        Assert.Contains("public EntityGestureRecognizerProxy(ExistentialContainer1 container", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_NonReadOnlyProxy_ImplConstructorStillSynthesizesViaFactory()
+    {
+        // Contrast: an UNMARKED proxy of the same shape keeps the real synthesis impl ctor that
+        // P/Invokes the EveryProtocol factory — proving the throwing stub is keyed on the
+        // read-only marking, not on the protocol shape.
+        var output = EmitProxyClass(CreateSimpleProtocol("EntityGestureRecognizer"));
+
+        var implCtor = ExtractMethodBody(output,
+            "public unsafe EntityGestureRecognizerProxy(IEntityGestureRecognizer implementation)");
+        Assert.Contains("NativeMethods.", implCtor);
+        Assert.DoesNotContain("throw new global::System.NotSupportedException", implCtor);
+    }
+
+    [Fact]
     public void EmitProxyClass_InheritsAvailabilityFromProtocol()
     {
         // The proxy class declaration should inherit the source protocol's
@@ -1736,6 +1773,67 @@ public class ProtocolProxyEmitterTests
         // receiver + ONE local-vtable assignment, exactly like the same-module path.
         Assert.Equal(1, EmitterTestHelpers.CountOccurrences(output, "static void Receive_record_"));
         Assert.Equal(1, EmitterTestHelpers.CountOccurrences(output, "= &Receive_record_"));
+    }
+
+    [Fact]
+    public void EmitProxyClass_ReadOnlyProxyWithCrossModuleParent_EmitsNoParentReverseScaffolding()
+    {
+        // A read-only (forward-only) proxy never reverse-dispatches an inherited requirement: the
+        // forward read of `any P` goes through the existential's OWN witness table. The cross-module
+        // parent reverse machinery (per-parent vtable + receivers + Set{Parent}_vtable P/Invoke and
+        // its execution in InitializeVtable) is dead for it — AND the parent's Set{Parent}_vtable
+        // Swift trampoline is emitted only for parents collected off suitableProtocols (never
+        // read-only ones), so leaving it on would make the read-only proxy's static cctor call a
+        // never-emitted Set{Parent}_vtable and throw EntryPointNotFoundException at type load.
+        // CollectCrossModuleParents returns empty for a read-only proxy, suppressing both the
+        // scaffolding and the InitializeVtable population in lockstep.
+        RegisterCrossModuleProtocol("OtherModule", "ParentProto");
+
+        var parentModule = new ModuleDecl
+        {
+            Name = "OtherModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var parent = CreateSimpleProtocol("ParentProto");
+        parent.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OtherModule.ParentProto");
+        parent.ModuleDecl = parentModule;
+        parent.Methods.Add(CreateMethodDecl("crossModulePing"));
+
+        var childModule = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+        childModule.DependencyProtocols["OtherModule"] = new List<ProtocolDecl> { parent };
+
+        var child = CreateSimpleProtocol("ChildProto");
+        child.ModuleDecl = childModule;
+        child.InheritedProtocols.Add(new NamedTypeSpec("OtherModule.ParentProto"));
+
+        // Discrimination guard: WITHOUT the read-only marking the same child emits the cross-module
+        // parent scaffolding, so the parent member name appears (receivers / vtable fields / init).
+        var nonReadOnly = EmitProxyClass(child);
+        Assert.Contains("crossModulePing", nonReadOnly);
+
+        // WITH the read-only marking, no cross-module parent scaffolding is emitted at all — the
+        // parent member name is entirely absent, so there is no dangling Set{Parent}_vtable call.
+        var ctx = new ModuleEmissionContext();
+        ctx.MarkReadOnlyProxy(child.Name);
+        var readOnly = EmitProxyClassWithContext(child, ctx);
+        Assert.DoesNotContain("crossModulePing", readOnly);
     }
 
     #endregion
