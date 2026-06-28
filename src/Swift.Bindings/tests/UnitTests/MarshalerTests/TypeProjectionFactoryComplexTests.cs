@@ -312,6 +312,43 @@ public class TypeProjectionFactoryComplexTests
     }
 
     [Fact]
+    public void Project_MarkerOnlyExistential_TakesBareAnyBoxUnboxArm()
+    {
+        // `any Sendable` is marker-only → zero-witness → ABI-identical to bare Any. The factory
+        // must set isBareAny so the projection marshals via ExistentialContainer0.Box/Unbox
+        // (the object Box/Unbox path), NOT a proxy / ISwiftExistentialConvertible arm — those
+        // cannot apply to the `object` public surface a marker-only existential degrades to.
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Sendable") });
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(protocolList, ctx);
+
+        var existential = Assert.IsType<ExistentialProjection>(projection);
+        Assert.Equal("object", existential.PublicType);
+        // Box/Unbox arm selected, exactly as for bare Any.
+        Assert.Contains("ExistentialContainer0.Box", existential.GetParameterPlan("p").PInvokeExpression);
+        Assert.Contains("ExistentialContainer0.Unbox",
+            existential.GetReturnPlan("r", ReturnStrategy.Direct).PInvokeExpression);
+    }
+
+    [Fact]
+    public void Project_BareAnyAndMarkerOnly_ProduceIdenticalMarshalling()
+    {
+        // Container-level proof that the two source spellings collapse to the SAME ABI marshalling:
+        // bare `Any` (0 protocols) and `any Sendable` (marker-only) must yield identical Box/Unbox
+        // parameter and return expressions.
+        var ctx = CreateContext();
+        var bareAny = Assert.IsType<ExistentialProjection>(_factory.Project(new ProtocolListTypeSpec(), ctx));
+        var markerOnly = Assert.IsType<ExistentialProjection>(
+            _factory.Project(new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Sendable") }), ctx));
+
+        Assert.Equal(bareAny.GetParameterPlan("p").PInvokeExpression,
+            markerOnly.GetParameterPlan("p").PInvokeExpression);
+        Assert.Equal(bareAny.GetReturnPlan("r", ReturnStrategy.Direct).PInvokeExpression,
+            markerOnly.GetReturnPlan("r", ReturnStrategy.Direct).PInvokeExpression);
+    }
+
+    [Fact]
     public void Project_PATProtocolWithConformers_FactoryPath_ReturnsObject_NotExistentialUnion()
     {
         // S12 inert-engine pin. TypeProjectionFactory.ProjectExistential calls

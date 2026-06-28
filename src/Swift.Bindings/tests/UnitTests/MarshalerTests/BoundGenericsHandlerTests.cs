@@ -42,6 +42,42 @@ public class BoundGenericsHandlerTests
     }
 
     [Fact]
+    public void TranslateBoundGenericTypeToCSharp_DictionaryWithAnySendable_ResolvesToExistentialContainer0()
+    {
+        // Swift: Dictionary<String, any Sendable> — the cross-library Nuke userInfo shape.
+        // `any Sendable` is a marker-only existential: it filters to zero non-marker protocols,
+        // so it is ABI-identical to bare Any and must resolve to ExistentialContainer0 (Box/Unbox),
+        // NOT the dropped AnyType fallback.
+        var anySendable = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Sendable") });
+        var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
+        dictTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictTypeSpec.GenericParameters.Add(anySendable);
+
+        var argDecl = CreateArgumentDecl(dictTypeSpec);
+        var result = _handler.TranslateBoundGenericTypeToCSharp(argDecl);
+
+        Assert.Contains("SwiftDictionary", result);
+        Assert.Contains("ExistentialContainer0", result);
+        Assert.DoesNotContain("AnyType", result);
+    }
+
+    [Fact]
+    public void TranslateBoundGenericTypeToCSharp_ArrayOfAnySendable_ResolvesToExistentialContainer0()
+    {
+        // Swift: Array<any Sendable> — marker-only element shares the bare-Any Container0 ABI.
+        var anySendable = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Sendable") });
+        var arrayTypeSpec = new NamedTypeSpec("Swift.Array");
+        arrayTypeSpec.GenericParameters.Add(anySendable);
+
+        var argDecl = CreateArgumentDecl(arrayTypeSpec);
+        var result = _handler.TranslateBoundGenericTypeToCSharp(argDecl);
+
+        Assert.Contains("SwiftArray", result);
+        Assert.Contains("ExistentialContainer0", result);
+        Assert.DoesNotContain("AnyType", result);
+    }
+
+    [Fact]
     public void TranslateBoundGenericTypeToCSharp_SimdAlias_CollapsesViaSharedService()
     {
         // Swift.SIMD3<Swift.Float> routes through the shared
@@ -230,6 +266,26 @@ public class BoundGenericsHandlerTests
         // Optional<Any> — direct existential in an Optional is a long-standing supported pattern;
         // the gate narrowing does not touch it.
         var spec = BuildOptionalOf(new ProtocolListTypeSpec());
+        Assert.True(_handler.IsContainerWithSupportedDirectExistential(spec));
+    }
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_DictionaryValueAnySendable_Admitted()
+    {
+        // Dictionary<String, any Sendable> — marker-only value is zero-witness, so the gate
+        // admits it via the same ExistentialContainer0 path as bare Any (no TypeRecord needed:
+        // IsValidExistentialForContainer short-circuits on the zero-witness check).
+        var anySendable = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Sendable") });
+        var spec = BuildDictOf(new NamedTypeSpec("Swift.String"), anySendable);
+        Assert.True(_handler.IsContainerWithSupportedDirectExistential(spec));
+    }
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_ArrayOfAnySendable_Admitted()
+    {
+        // Array<any Sendable> — marker-only element admitted via the zero-witness accept.
+        var anySendable = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Sendable") });
+        var spec = BuildArrayOf(anySendable);
         Assert.True(_handler.IsContainerWithSupportedDirectExistential(spec));
     }
 
@@ -3595,6 +3651,301 @@ public class BoundGenericsHandlerTests
         optional.GenericParameters.Add(kp);
 
         Assert.True(handler.IsContainerWithSupportedDirectExistential(optional));
+    }
+
+    #endregion
+
+    #region IsContainerWithSupportedDirectExistential — Result family
+
+    // Pin the Result<Success, Failure> admission branch. The canonical shape is Lottie's
+    // `Result<DotLottieFile, any Error>`: a bound-class success arm and the well-known
+    // `any Error` failure existential. The gate admits a Result iff every existential arm is
+    // valid-for-container AND every non-existential arm projects to a real C# type.
+
+    // TypeDatabase populated for Result<...> admission: Swift.String / Swift.Int as projectable
+    // value arms, a bound-class LoadedAsset (faithful to Lottie's class success payload), and an
+    // Unprojectable user struct that returns a null projection when given generic args.
+    private static TypeDatabase BuildResultAdmissionTypeDatabase()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.NIntType,
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.LoadedAsset"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "LoadedAsset"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.LoadedAsset"),
+                MetadataAccessor = "$s10TestModule11LoadedAssetCMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class
+            });
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Unprojectable"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Unprojectable"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Unprojectable"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+        return typeDatabase;
+    }
+
+    private static NamedTypeSpec BuildResultOf(TypeSpec success, TypeSpec failure)
+    {
+        var result = new NamedTypeSpec("Swift.Result");
+        result.GenericParameters.Add(success);
+        result.GenericParameters.Add(failure);
+        return result;
+    }
+
+    private static ProtocolListTypeSpec AnyError() =>
+        new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Error") });
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_ResultStringSuccess_AnyErrorFailure_Admitted()
+    {
+        // Result<String, any Error> — projectable value success, well-known existential failure.
+        var db = BuildResultAdmissionTypeDatabase();
+        var handler = new BoundGenericsHandler(db);
+
+        var spec = BuildResultOf(new NamedTypeSpec("Swift.String"), AnyError());
+        Assert.True(handler.IsContainerWithSupportedDirectExistential(spec));
+    }
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_ResultClassSuccess_AnyErrorFailure_Admitted()
+    {
+        // Result<LoadedAsset, any Error> — faithful Lottie shape: bound-class success arm
+        // (projects to ClassProjection) + well-known `any Error` failure existential.
+        var db = BuildResultAdmissionTypeDatabase();
+        var handler = new BoundGenericsHandler(db);
+
+        var spec = BuildResultOf(new NamedTypeSpec("TestModule.LoadedAsset"), AnyError());
+        Assert.True(handler.IsContainerWithSupportedDirectExistential(spec));
+    }
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_ResultAnySendableFailure_Admitted()
+    {
+        // Result<String, any Sendable> — marker-only failure arm is zero-witness, admitted via
+        // the same ExistentialContainer0 accept as bare Any.
+        var db = BuildResultAdmissionTypeDatabase();
+        var handler = new BoundGenericsHandler(db);
+
+        var anySendable = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Sendable") });
+        var spec = BuildResultOf(new NamedTypeSpec("Swift.String"), anySendable);
+        Assert.True(handler.IsContainerWithSupportedDirectExistential(spec));
+    }
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_ResultUnprojectableSuccess_Rejected()
+    {
+        // Result<Unprojectable<Int>, any Error> — the success arm passes !IsExistential but
+        // Project() returns null (user struct with generic args hits the factory's null fallback),
+        // so the emitted Result<TSuccess, TFailure> signature would not compile → rejected.
+        var db = BuildResultAdmissionTypeDatabase();
+        var handler = new BoundGenericsHandler(db);
+
+        var unprojectable = new NamedTypeSpec("TestModule.Unprojectable");
+        unprojectable.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var spec = BuildResultOf(unprojectable, AnyError());
+        Assert.False(handler.IsContainerWithSupportedDirectExistential(spec));
+    }
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_ResultUnknownProtocolFailure_Rejected()
+    {
+        // Result<String, any UnknownProtocol> — the failure existential has no TypeRecord and is
+        // not a well-known/zero-witness existential, so it is invalid-for-container → rejected.
+        var db = BuildResultAdmissionTypeDatabase();
+        var handler = new BoundGenericsHandler(db);
+
+        var unknownExistential = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.UnknownProtocol") });
+        var spec = BuildResultOf(new NamedTypeSpec("Swift.String"), unknownExistential);
+        Assert.False(handler.IsContainerWithSupportedDirectExistential(spec));
+    }
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_ResultWrongArity_Rejected()
+    {
+        // A Swift.Result with a single generic argument is malformed; the branch requires
+        // exactly 2 arms, so it falls through to rejection rather than admitting a partial shape.
+        var db = BuildResultAdmissionTypeDatabase();
+        var handler = new BoundGenericsHandler(db);
+
+        var result = new NamedTypeSpec("Swift.Result");
+        result.GenericParameters.Add(AnyError());
+        Assert.False(handler.IsContainerWithSupportedDirectExistential(result));
+    }
+
+    // Result<Success, Failure> is RETURN/property-only: ResultProjection.GetParameterPlan throws
+    // and the bound-generic fast path would otherwise pin a meaningless value.Payload, emitting a
+    // wrapper that compiles but mis-marshals at runtime. HasNonSwiftObjectGenericArg is the
+    // authoritative direction-aware guard: it must DROP a member carrying a Result argument in
+    // parameter position (returns true) while LEAVING the return-position Result admitted (false).
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_ResultAnyErrorParameter_Dropped()
+    {
+        // Result<String, any Error> in PARAMETER position — the well-known existential failure arm
+        // is exactly the Lottie shape; must be dropped so it never emits broken outbound marshalling.
+        var db = BuildResultAdmissionTypeDatabase();
+        var handler = new BoundGenericsHandler(db);
+
+        var spec = BuildResultOf(new NamedTypeSpec("Swift.String"), AnyError());
+        Assert.True(handler.HasNonSwiftObjectGenericArg(spec, isParameterPosition: true));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_ResultAnyErrorReturn_Admitted()
+    {
+        // The SAME Result<String, any Error> in RETURN position stays admitted (resultBypassApplies):
+        // Session 3's whole point is projecting Result in return/property position.
+        var db = BuildResultAdmissionTypeDatabase();
+        var handler = new BoundGenericsHandler(db);
+
+        var spec = BuildResultOf(new NamedTypeSpec("Swift.String"), AnyError());
+        Assert.False(handler.HasNonSwiftObjectGenericArg(spec, isParameterPosition: false));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_ResultClassSuccessParameter_Dropped()
+    {
+        // Result<LoadedAsset, any Error> param — bound-class success arm. The pre-existing per-arm
+        // ISwiftObject loop would NOT catch this (a class arm is ISwiftObject and `any Error` is a
+        // ProtocolListTypeSpec, not a NamedTypeSpec), so the explicit Result-param guard is what drops it.
+        var db = BuildResultAdmissionTypeDatabase();
+        var handler = new BoundGenericsHandler(db);
+
+        var spec = BuildResultOf(new NamedTypeSpec("TestModule.LoadedAsset"), AnyError());
+        Assert.True(handler.HasNonSwiftObjectGenericArg(spec, isParameterPosition: true));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_ResultConcreteArmsParameter_Dropped()
+    {
+        // Result<String, Int> param — both arms are ordinary projectable value types (NO existential
+        // arm at all). The return-only invariant must still hold: GetParameterPlan throws regardless
+        // of arm shape, so the guard drops it (closes the latent concrete-arm hole, not just the
+        // existential-arm regression).
+        var db = BuildResultAdmissionTypeDatabase();
+        var handler = new BoundGenericsHandler(db);
+
+        var spec = BuildResultOf(new NamedTypeSpec("Swift.String"), new NamedTypeSpec("Swift.Int"));
+        Assert.True(handler.HasNonSwiftObjectGenericArg(spec, isParameterPosition: true));
+    }
+
+    // ContainsResultArgument is the accessor-path counterpart to the parameter-direction Result
+    // drop above. Accessors (property setters, subscript index/newValue) bypass Gate 5, so the
+    // property/subscript preflights call this NARROW structural Result detector — it must match a
+    // Result anywhere in a write-in slot's type tree, yet must NOT match legitimate non-Result
+    // existential containers (which the broad HasNonSwiftObjectGenericArg would over-drop).
+
+    [Fact]
+    public void ContainsResultArgument_TopLevelResult_True()
+    {
+        var handler = new BoundGenericsHandler(BuildResultAdmissionTypeDatabase());
+        var spec = BuildResultOf(new NamedTypeSpec("Swift.String"), AnyError());
+        Assert.True(handler.ContainsResultArgument(spec));
+    }
+
+    [Fact]
+    public void ContainsResultArgument_ArrayOfResult_True()
+    {
+        // [Result<String, any Error>] — a Result nested inside an Array still marshals a
+        // C#-constructed SwiftResult outbound, so a setter/index carrying it must drop.
+        var handler = new BoundGenericsHandler(BuildResultAdmissionTypeDatabase());
+        var array = new NamedTypeSpec("Swift.Array");
+        array.GenericParameters.Add(BuildResultOf(new NamedTypeSpec("Swift.String"), AnyError()));
+        Assert.True(handler.ContainsResultArgument(array));
+    }
+
+    [Fact]
+    public void ContainsResultArgument_OptionalOfResult_True()
+    {
+        var handler = new BoundGenericsHandler(BuildResultAdmissionTypeDatabase());
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(BuildResultOf(new NamedTypeSpec("Swift.String"), AnyError()));
+        Assert.True(handler.ContainsResultArgument(optional));
+    }
+
+    [Fact]
+    public void ContainsResultArgument_DictionaryValueResult_True()
+    {
+        // [String: Result<String, any Error>] — Result reachable through the dictionary value arm.
+        var handler = new BoundGenericsHandler(BuildResultAdmissionTypeDatabase());
+        var dict = new NamedTypeSpec("Swift.Dictionary");
+        dict.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dict.GenericParameters.Add(BuildResultOf(new NamedTypeSpec("Swift.String"), AnyError()));
+        Assert.True(handler.ContainsResultArgument(dict));
+    }
+
+    [Fact]
+    public void ContainsResultArgument_TupleWithResultElement_True()
+    {
+        var handler = new BoundGenericsHandler(BuildResultAdmissionTypeDatabase());
+        var tuple = new TupleTypeSpec(new TypeSpec[]
+        {
+            new NamedTypeSpec("Swift.Int"),
+            BuildResultOf(new NamedTypeSpec("Swift.String"), AnyError()),
+        });
+        Assert.True(handler.ContainsResultArgument(tuple));
+    }
+
+    [Fact]
+    public void ContainsResultArgument_DictionaryOfAnySendable_False()
+    {
+        // [String: any Sendable] — the exact settable-property shape (SendableInfoBox.stringKeyed).
+        // It carries NO Result, so the narrow detector must return false; its setter stays supported
+        // (the broad non-ISwiftObject predicate would have wrongly dropped it).
+        var handler = new BoundGenericsHandler(BuildResultAdmissionTypeDatabase());
+        var dict = new NamedTypeSpec("Swift.Dictionary");
+        dict.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dict.GenericParameters.Add(new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Sendable") }));
+        Assert.False(handler.ContainsResultArgument(dict));
+    }
+
+    [Fact]
+    public void ContainsResultArgument_ArrayOfExistential_False()
+    {
+        // [any Describable] — a non-Result existential array (DescribableBag.contents shape).
+        var handler = new BoundGenericsHandler(BuildResultAdmissionTypeDatabase());
+        var array = new NamedTypeSpec("Swift.Array");
+        array.GenericParameters.Add(new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Describable") }));
+        Assert.False(handler.ContainsResultArgument(array));
+    }
+
+    [Fact]
+    public void ContainsResultArgument_PlainValueType_False()
+    {
+        var handler = new BoundGenericsHandler(BuildResultAdmissionTypeDatabase());
+        Assert.False(handler.ContainsResultArgument(new NamedTypeSpec("Swift.String")));
     }
 
     #endregion

@@ -334,6 +334,39 @@ public class BoundGenericsHandler
             return true;
         }
 
+        // Result<Success, Failure> — either type argument may be existential, most commonly the Failure
+        // arm `any Error` (the Lottie `Result<DotLottieFile, any Error>` shape). ResultProjection marshals
+        // each arm through its OWN ITypeProjection, so admit when every existential arm is valid-for-container
+        // AND every non-existential arm projects to a real C# type (else the emitted Result<TSuccess, TFailure>
+        // public signature would not compile).
+        if (MarshallingHelpers.IsSwiftResult(outerNamedType) &&
+            outerNamedType.GenericParameters.Count == 2)
+        {
+            foreach (var arg in outerNamedType.GenericParameters)
+            {
+                if (_existentialHandler.IsExistential(arg))
+                {
+                    if (!IsValidExistentialForContainer(arg))
+                        return false;
+                }
+                else
+                {
+                    // Minimal ProjectionContext is sufficient here: a non-existential arm's projectability
+                    // does not depend on module/generic context (only existential qualification does — see
+                    // ProjectExistential). Mirrors the KeyPath Value-slot admission check above.
+                    var projector = new TypeProjectionFactory();
+                    var projection = projector.Project(arg, new ProjectionContext
+                    {
+                        TypeDatabase = _typeDatabase,
+                        IsParameter = false,
+                    });
+                    if (projection is null)
+                        return false;
+                }
+            }
+            return true;
+        }
+
         return false;
     }
 
@@ -367,9 +400,18 @@ public class BoundGenericsHandler
         var protocolList = _existentialHandler.ToProtocolListTypeSpec(existentialTypeSpec);
         if (protocolList == null || !_existentialHandler.IsSupportedExistential(protocolList))
             return false;
-        // Bare Any (0 effective protocols) is intentionally supported — it's not an unknown protocol,
-        // it's Swift's explicit "any value" type. ExistentialContainer0 is the correct ABI.
-        if (_existentialHandler.IsBareAny(protocolList))
+        // Zero-witness existentials are intentionally supported via ExistentialContainer0 (Box/Unbox):
+        // bare `Any` (0 protocols) AND marker-only compositions (`any Sendable`), which filter to zero
+        // non-marker protocols. Both degrade to the `object` public surface, but that surface IS the
+        // correct Box/Unbox marshalling type — not the unmarshallable-PAT/unknown-protocol `object`
+        // rejected below. (`any Sendable`-valued dictionaries are the cross-library Nuke userInfo shape.)
+        if (ExistentialHandler.IsZeroWitnessExistential(protocolList))
+            return true;
+        // Well-known stdlib existential (`any Error` → Swift.Foundation.AnyError): the projection
+        // marshals it through the hand-rolled AnyError supplement type, independent of any emitted proxy
+        // or Protocol TypeRecord (Swift.Error resolves via SwiftErrorStrategy, not a registered record),
+        // so admit it directly here rather than depending on AllProtocolsHaveTypeRecords below.
+        if (_existentialHandler.TryGetWellKnownProtocolType(protocolList, out _))
             return true;
         if (!_existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
             return false;
@@ -696,13 +738,23 @@ public class BoundGenericsHandler
         // = Void) and ObjC-bridged types are valid generic args; their projections
         // (OptionalProjection / ResultProjection) handle marshalling. All other emitted generics
         // have 'where T : ISwiftObject', making ValueTuple args a CS0311 error.
-        //
-        // Result bypass is return/property-only: ResultProjection.GetParameterPlan throws,
-        // and SwiftResult.FromSuccess/FromFailure yields a C#-only instance whose Payload
-        // access throws. Accepting Result in parameter position would emit constructors /
-        // methods that crash as soon as a C# caller supplies a Result argument.
         bool outerIsOptional = namedTypeSpec.Name == "Swift.Optional";
         bool outerIsResult = namedTypeSpec.Name == "Swift.Result";
+
+        // Result is RETURN/property-only, and this gate is the authoritative enforcer of that
+        // invariant: drop any member carrying a Result argument so it never reaches emission.
+        // ResultProjection.GetParameterPlan unconditionally throws (SwiftResult.FromSuccess/
+        // FromFailure yields a C#-only instance with no native payload to synthesise outbound), but
+        // emission never reaches GetParameterPlan for a Result parameter: the bound-generic fast
+        // path (EmitBoundGenericArguments) treats Result like Array/Dictionary/Set and pins
+        // value.Payload, emitting a wrapper that COMPILES yet mis-marshals at runtime (the pinned
+        // handle is meaningless for a C#-constructed Result). The per-arm checks below only reject a
+        // Result whose arm is itself non-ISwiftObject, so this explicit guard is what actually holds
+        // the return-only invariant across every arm shape (existential `any Error`, concrete
+        // class/enum success payloads, etc.). Return position keeps the bypass (resultBypassApplies).
+        if (outerIsResult && isParameterPosition)
+            return true;
+
         bool resultBypassApplies = outerIsResult && !isParameterPosition;
         bool outerBypassesISwiftObject = outerIsOptional || resultBypassApplies;
 
@@ -745,6 +797,54 @@ public class BoundGenericsHandler
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// True iff <paramref name="spec"/> carries a <c>Swift.Result</c> anywhere this detector walks:
+    /// the spec itself, or recursively any named type's generic arguments (stdlib value containers
+    /// Array/Optional/Dictionary/Set, and user generics alike) and any tuple element. Result is
+    /// read/return only: a C#-constructed <c>SwiftResult</c> (FromSuccess/FromFailure) has no native
+    /// payload to marshal outbound, so a <em>write-in</em> slot carrying a Result — a property setter
+    /// value, a subscript index, or a subscript setter newValue — must drop its member rather than
+    /// emit a wrapper that pins a meaningless <c>value.Payload</c>.
+    ///
+    /// The walk is deliberately broad and fail-safe: the targeted defect is the bound-generic
+    /// value-decompose path (a value container synthesises each element outbound), and over-matching
+    /// a Result nested in some other named generic only DROPS a member gracefully — strictly better
+    /// than risking broken outbound marshalling by under-matching. It does NOT descend into closure
+    /// signatures (<see cref="ClosureTypeSpec"/>): a closure-typed slot marshals through the closure
+    /// thunk path, not this value-pin path, and Result inside a closure signature was never admitted
+    /// by the Result-container change this guards.
+    ///
+    /// This is the accessor-path counterpart to the parameter-direction Result drop in
+    /// <see cref="HasNonSwiftObjectGenericArg(TypeSpec, bool)"/>. Accessors deliberately bypass that
+    /// gate (so the handler's existential bypass/bridge logic can run), so they need this narrow
+    /// Result-only check; reusing the broad non-ISwiftObject predicate here would over-drop
+    /// legitimate existential setters (e.g. <c>[any Describable]</c>).
+    /// </summary>
+    public bool ContainsResultArgument(TypeSpec spec)
+    {
+        switch (spec)
+        {
+            case NamedTypeSpec named:
+                if (named.Name == "Swift.Result")
+                    return true;
+                foreach (var arg in named.GenericParameters)
+                {
+                    if (ContainsResultArgument(arg))
+                        return true;
+                }
+                return false;
+            case TupleTypeSpec tuple:
+                foreach (var element in tuple.Elements)
+                {
+                    if (ContainsResultArgument(element))
+                        return true;
+                }
+                return false;
+            default:
+                return false;
+        }
     }
 
     /// <summary>
@@ -812,14 +912,16 @@ public class BoundGenericsHandler
         bool isStdlibContainer = s_stdlibGenerics.Contains(namedTypeSpec.Name);
         foreach (var genericParameter in namedTypeSpec.GenericParameters)
         {
-            // Bare Any (0 effective protocols) inside stdlib containers should use ExistentialContainer0,
-            // which is the correct ABI type for [String: Any], [Any], etc.
-            // For user-defined generics, bare Any stays as AnyType to avoid ISwiftObject constraint violations.
+            // Zero-witness existentials (bare `Any`, marker-only `any Sendable`) inside stdlib containers
+            // use ExistentialContainer0 — the correct ABI type for [String: Any], [Any], [K: any Sendable].
+            // Both share the 0-witness-table container, so the raw element type must match the bare-Any
+            // Box/Unbox the projection emits. For user-defined generics, they stay as AnyType to avoid
+            // ISwiftObject constraint violations.
             if (isStdlibContainer &&
                 _existentialHandler.IsExistential(genericParameter))
             {
                 var protocolList = _existentialHandler.ToProtocolListTypeSpec(genericParameter);
-                if (protocolList != null && _existentialHandler.IsBareAny(protocolList))
+                if (protocolList != null && ExistentialHandler.IsZeroWitnessExistential(protocolList))
                 {
                     translatedGenericParameters.Add("Swift.Runtime.ExistentialContainer0");
                     continue;

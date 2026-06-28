@@ -95,12 +95,14 @@ namespace BindingsGeneration
                         break;
                     }
                     // Skip subscripts with index parameters that have projections requiring
-                    // complex conversion (dictionary, existential, array, set, optional). Only
+                    // complex conversion (dictionary, existential, array, set, optional). Result is
+                    // also rejected here: it is read/return-only, so a Result index (the parameter
+                    // direction) would marshal a C#-constructed SwiftResult outbound. Only
                     // StringProjection and NativeRemappedProjection have simple conversions
                     // handled by BuildIndexParamConversions.
                     var paramProj = s_projectionFactory.Project(param.SwiftTypeSpec,
                         new ProjectionContext { TypeDatabase = typeDatabase, IsParameter = true });
-                    if (paramProj is DictionaryProjection or ExistentialProjection or ArrayProjection or OptionalProjection or SetProjection)
+                    if (paramProj is DictionaryProjection or ExistentialProjection or ArrayProjection or OptionalProjection or SetProjection or ResultProjection)
                     {
                         hasComplexIndexParam = true;
                         break;
@@ -145,6 +147,18 @@ namespace BindingsGeneration
                     {
                         accessorEnv = new MethodEnvironment(accessorEnv.MethodDecl, accessorEnv.TypeDatabase,
                             accessorEnv.SiblingPropertyNames, context.PInvokeHelperContext, context.CompositionCollector);
+                    }
+
+                    // Result is read/return-only: a write-in slot — a subscript index, or the
+                    // settable-subscript setter's newValue (CSSignature[1] on the setter, which is
+                    // NOT an index param, so the index-projection gate above does not see it) —
+                    // carrying a Result would marshal a C#-constructed SwiftResult outbound (no
+                    // native payload). Drop the whole subscript. Slot 0 is the return, which keeps
+                    // Result support for a read-only Result-returning subscript.
+                    if (accessor.Method.CSSignature.Skip(1).Any(arg => boundGenericsHandler.ContainsResultArgument(arg.SwiftTypeSpec)))
+                    {
+                        allAccessorsValid = false;
+                        break;
                     }
 
                     var signatureHandler = new SignatureHandler(accessorEnv);

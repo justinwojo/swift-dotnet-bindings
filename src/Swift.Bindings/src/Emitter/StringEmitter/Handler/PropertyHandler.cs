@@ -521,6 +521,18 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
 
                 foreach (var argument in accessor.Method.CSSignature.Skip(1))
                 {
+                    // Result is read/return-only: a setter value carrying a Result (the parameter
+                    // direction) would marshal a C#-constructed SwiftResult outbound (no native
+                    // payload to pin). Drop the whole property — the read-only Result getter stays
+                    // supported because it has no setter accessor. Method parameters are gated for
+                    // this in MemberValidationPipeline Gate 5, which accessors bypass.
+                    if (accessorEnv.BoundGenericsHandler.ContainsResultArgument(argument.SwiftTypeSpec))
+                    {
+                        _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} because accessor {accessor.Method.Name} has a Result-typed parameter, unsupported in the write-in direction.");
+                        SkipProperty(SkipReason.UnsupportedSignature, $"Accessor '{accessor.Method.Name}' has a Result-typed parameter; Result is unsupported in the write-in direction.");
+                        return;
+                    }
+
                     if (!accessorEnv.BoundGenericsHandler.IsBoundGeneric(argument))
                     {
                         continue;

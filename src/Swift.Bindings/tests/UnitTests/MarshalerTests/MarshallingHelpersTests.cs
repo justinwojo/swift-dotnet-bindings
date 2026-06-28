@@ -907,4 +907,45 @@ public class MarshallingHelpersTests
     }
 
     #endregion
+
+    #region IsSwiftResult Tests
+
+    [Fact]
+    public void IsSwiftResult_BoundResult_ReturnsTrue()
+    {
+        // Swift.Result<LoadedAsset, any Error> — the matcher keys on the module-qualified
+        // name, independent of the (success, failure) generic arguments.
+        var result = new NamedTypeSpec("Swift.Result");
+        result.GenericParameters.Add(new NamedTypeSpec("TestModule.LoadedAsset"));
+        result.GenericParameters.Add(new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Error") }));
+
+        Assert.True(MarshallingHelpers.IsSwiftResult(result));
+    }
+
+    [Fact]
+    public void IsSwiftResult_BareResult_ReturnsTrue()
+    {
+        Assert.True(MarshallingHelpers.IsSwiftResult(new NamedTypeSpec("Swift.Result")));
+    }
+
+    [Fact]
+    public void IsSwiftResult_Optional_ReturnsFalse()
+    {
+        // Sibling stdlib generic — must not be mistaken for Result.
+        Assert.False(MarshallingHelpers.IsSwiftResult(new NamedTypeSpec("Swift.Optional")));
+    }
+
+    [Fact]
+    public void IsSwiftResult_UnrelatedNamedType_ReturnsFalse()
+    {
+        Assert.False(MarshallingHelpers.IsSwiftResult(new NamedTypeSpec("Swift.Int")));
+    }
+
+    [Fact]
+    public void IsSwiftResult_NullSpec_ReturnsFalse()
+    {
+        Assert.False(MarshallingHelpers.IsSwiftResult(null));
+    }
+
+    #endregion
 }

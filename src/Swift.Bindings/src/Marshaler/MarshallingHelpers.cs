@@ -11,6 +11,7 @@ namespace BindingsGeneration
         private static readonly SwiftTypeName SwiftDictionaryTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Dictionary");
         private static readonly SwiftTypeName SwiftSetTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Set");
         private static readonly SwiftTypeName SwiftOptionalTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional");
+        private static readonly SwiftTypeName SwiftResultTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Result");
 
         /// <summary>
         /// Determines whether the specified type spec represents a type that can be
@@ -113,6 +114,11 @@ namespace BindingsGeneration
         /// Determines whether the specified type spec represents Swift.Optional.
         /// </summary>
         public static bool IsSwiftOptional(TypeSpec? typeSpec) => MatchesSwiftTypeName(typeSpec, SwiftOptionalTypeName);
+
+        /// <summary>
+        /// Determines whether the specified type spec represents Swift.Result&lt;Success, Failure&gt;.
+        /// </summary>
+        public static bool IsSwiftResult(TypeSpec? typeSpec) => MatchesSwiftTypeName(typeSpec, SwiftResultTypeName);
 
         /// <summary>
         /// Determines whether the specified type spec represents the read-only Swift.UnsafeRawBufferPointer.

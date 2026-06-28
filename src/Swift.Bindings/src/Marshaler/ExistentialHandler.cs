@@ -279,6 +279,22 @@ public class ExistentialHandler
         protocolList.Protocols.Count == 0;
 
     /// <summary>
+    /// Returns true when the existential's ABI container is the zero-witness-table
+    /// <see cref="Swift.Runtime.ExistentialContainer0"/> — i.e. bare <c>Any</c> (no protocols) OR a
+    /// marker-only composition (<c>any Sendable</c>, <c>any Sendable &amp; Copyable</c>) whose protocols
+    /// all filter out as markers. Both lower to the SAME ABI: a 5-word opaque existential carrying zero
+    /// witness tables, marshalled via <c>ExistentialContainer0.Box</c>/<c>Unbox</c>. This is the
+    /// container/projection-relevant notion of "bare Any" — broader than <see cref="IsBareAny"/>, which
+    /// matches ONLY the literal zero-protocol <c>Any</c> (the two are distinct in Swift source but
+    /// indistinguishable at the existential-container ABI). Mirrors the <see cref="GetCSharpExistentialType"/>
+    /// container-arity computation (<c>GetNonMarkerProtocols(...).Count</c> == 0 ⟺ Container0). An
+    /// ObjC-only existential is deliberately NOT included: an ObjC protocol contributes a witness table
+    /// (Container1), so it is not zero-witness and has no Box/Unbox path.
+    /// </summary>
+    public static bool IsZeroWitnessExistential(ProtocolListTypeSpec protocolList) =>
+        GetNonMarkerProtocols(protocolList).Count == 0;
+
+    /// <summary>
     /// Determines whether the existential type is a supported type.
     /// Currently supports:
     /// - Protocol compositions with 0-8 protocols (Any through 8-protocol compositions)

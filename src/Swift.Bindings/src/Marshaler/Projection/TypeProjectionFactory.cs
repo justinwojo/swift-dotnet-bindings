@@ -522,7 +522,11 @@ public class TypeProjectionFactory
         // for existential returns; it must keep degrading PATs to "object". Pinned by
         // TypeProjectionFactoryComplexTests.Project_PATProtocolWithConformers_FactoryPath_ReturnsObject_NotExistentialUnion.
         var publicType = handler.GetPublicExistentialType(protocolList);
-        bool isBareAny = handler.IsBareAny(protocolList);
+        // Zero-witness existentials — bare `Any` AND marker-only compositions (`any Sendable`) — share
+        // the ExistentialContainer0 ABI and marshal via Box/Unbox. Treat both as bare Any so the
+        // projection's Box/Unbox arms are selected; the proxy / ISwiftExistentialConvertible arms cannot
+        // apply to the `object` public surface a marker-only existential degrades to.
+        bool isBareAny = ExistentialHandler.IsZeroWitnessExistential(protocolList);
         bool isClassBoundArity1 = handler.IsClassBoundArity1Existential(protocolList);
 
         // Determine proxy class name:

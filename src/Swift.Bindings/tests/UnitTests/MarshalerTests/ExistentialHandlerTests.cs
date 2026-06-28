@@ -122,6 +122,97 @@ public class ExistentialHandlerTests
 
     #endregion
 
+    #region IsZeroWitnessExistential Tests
+
+    // IsZeroWitnessExistential is the container/projection-relevant notion of "bare Any":
+    // an existential whose ABI container is the zero-witness-table ExistentialContainer0,
+    // marshalled via Box/Unbox. It must be TRUE for bare Any AND any marker-only composition
+    // (the two are distinct in Swift source but ABI-identical), and FALSE the moment any
+    // witness-table-bearing protocol (a real Swift protocol OR an ObjC protocol) participates.
+
+    [Fact]
+    public void IsZeroWitnessExistential_BareAny_ReturnsTrue()
+    {
+        // bare Any: 0 protocols, 0 witness tables → Container0.
+        Assert.True(ExistentialHandler.IsZeroWitnessExistential(new ProtocolListTypeSpec()));
+    }
+
+    [Fact]
+    public void IsZeroWitnessExistential_PureMarker_ReturnsTrue()
+    {
+        // `any Sendable` filters to zero non-marker protocols → ABI-identical to bare Any.
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Sendable") });
+        Assert.True(ExistentialHandler.IsZeroWitnessExistential(protocolList));
+    }
+
+    [Fact]
+    public void IsZeroWitnessExistential_MultipleMarkers_ReturnsTrue()
+    {
+        // `any Sendable & Copyable` — every participant is a marker → still zero-witness.
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Swift.Sendable"),
+            new NamedTypeSpec("Swift.Copyable")
+        });
+        Assert.True(ExistentialHandler.IsZeroWitnessExistential(protocolList));
+    }
+
+    [Fact]
+    public void IsZeroWitnessExistential_SingleRealProtocol_ReturnsFalse()
+    {
+        // `any Equatable` carries a witness table → Container1, not zero-witness.
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+        Assert.False(ExistentialHandler.IsZeroWitnessExistential(protocolList));
+    }
+
+    [Fact]
+    public void IsZeroWitnessExistential_MarkerPlusRealProtocol_ReturnsFalse()
+    {
+        // `any Sendable & Codable` — the marker is filtered but Codable's witness table remains.
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Swift.Sendable"),
+            new NamedTypeSpec("Swift.Codable")
+        });
+        Assert.False(ExistentialHandler.IsZeroWitnessExistential(protocolList));
+    }
+
+    [Fact]
+    public void IsZeroWitnessExistential_ObjCOnly_ReturnsFalse()
+    {
+        // An ObjC protocol contributes a witness table (Container1) — deliberately NOT
+        // zero-witness, so it has no Box/Unbox path.
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Foundation.NSObjectProtocol") });
+        Assert.False(ExistentialHandler.IsZeroWitnessExistential(protocolList));
+    }
+
+    [Fact]
+    public void IsZeroWitnessExistential_ObjCPlusMarker_ReturnsFalse()
+    {
+        // Marker filtered, ObjC witness table remains → not zero-witness.
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Foundation.NSObjectProtocol"),
+            new NamedTypeSpec("Swift.Sendable")
+        });
+        Assert.False(ExistentialHandler.IsZeroWitnessExistential(protocolList));
+    }
+
+    [Fact]
+    public void IsZeroWitnessExistential_AgreesWithContainer0Arity()
+    {
+        // Cross-check: zero-witness ⟺ GetCSharpExistentialType == ExistentialContainer0.
+        var marker = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Sendable") });
+        Assert.True(ExistentialHandler.IsZeroWitnessExistential(marker));
+        Assert.Equal("Swift.Runtime.ExistentialContainer0", _handler.GetCSharpExistentialType(marker));
+
+        var real = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+        Assert.False(ExistentialHandler.IsZeroWitnessExistential(real));
+        Assert.Equal("Swift.Runtime.ExistentialContainer1", _handler.GetCSharpExistentialType(real));
+    }
+
+    #endregion
+
     #region GetProtocolListTypeSpec Tests
 
     [Fact]
