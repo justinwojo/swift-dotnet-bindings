@@ -382,6 +382,140 @@ namespace BindingsGeneration.Tests
             finally { Directory.Delete(dir, true); }
         }
 
+        // The wrapper -target deployment version must match the floor the binding advertises
+        // in <SupportedOSPlatformVersion>. macOS's .NET deployment floor is 12.0, so a macOS
+        // source deploying to 12/13/14 must compile its wrapper at that version — clamping to
+        // the iOS 15 floor would produce a wrapper binary that refuses to load on macOS 12-14.
+        [Theory]
+        [InlineData("12.0")]
+        [InlineData("13.0")]
+        [InlineData("14.0")]
+        public void ResolveDeploymentTarget_macOS_AtOrAboveMacFloor_PreservesRaw(string raw)
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var plist = $"""
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <plist version="1.0">
+                    <dict>
+                        <key>MinimumOSVersion</key>
+                        <string>{raw}</string>
+                    </dict>
+                    </plist>
+                    """;
+                File.WriteAllText(Path.Combine(dir, "Info.plist"), plist);
+                var dylibPath = Path.Combine(dir, "MacLib");
+                File.WriteAllText(dylibPath, "");
+
+                var macOS = PlatformInfoFactory.Create(ApplePlatform.macOS);
+                var result = SwiftWrapperCompiler.ResolveDeploymentTarget(
+                    dylibPath, NullLogger.Instance, null, macOS);
+                Assert.Equal(raw, result);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void ResolveDeploymentTarget_macOS_BelowMacFloor_RaisedTo12()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var plist = """
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <plist version="1.0">
+                    <dict>
+                        <key>MinimumOSVersion</key>
+                        <string>10.15</string>
+                    </dict>
+                    </plist>
+                    """;
+                File.WriteAllText(Path.Combine(dir, "Info.plist"), plist);
+                var dylibPath = Path.Combine(dir, "MacLib");
+                File.WriteAllText(dylibPath, "");
+
+                var macOS = PlatformInfoFactory.Create(ApplePlatform.macOS);
+                var result = SwiftWrapperCompiler.ResolveDeploymentTarget(
+                    dylibPath, NullLogger.Instance, null, macOS);
+                Assert.Equal("12.0", result);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void ResolveDeploymentTarget_macOS_NoPlist_FallsBackToMacFloor12()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                // No Info.plist written → not-found fallback must yield the macOS floor, not 15.
+                var dylibPath = Path.Combine(dir, "MacLib");
+                File.WriteAllText(dylibPath, "");
+
+                var macOS = PlatformInfoFactory.Create(ApplePlatform.macOS);
+                var result = SwiftWrapperCompiler.ResolveDeploymentTarget(
+                    dylibPath, NullLogger.Instance, null, macOS);
+                Assert.Equal("12.0", result);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void ResolveDeploymentTarget_macOS_VendorSentinel_FallsBackToMacFloor12()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var plist = """
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <plist version="1.0">
+                    <dict>
+                        <key>MinimumOSVersion</key>
+                        <string>100.0</string>
+                    </dict>
+                    </plist>
+                    """;
+                File.WriteAllText(Path.Combine(dir, "Info.plist"), plist);
+                var dylibPath = Path.Combine(dir, "MacLib");
+                File.WriteAllText(dylibPath, "");
+
+                var macOS = PlatformInfoFactory.Create(ApplePlatform.macOS);
+                var result = SwiftWrapperCompiler.ResolveDeploymentTarget(
+                    dylibPath, NullLogger.Instance, null, macOS);
+                Assert.Equal("12.0", result);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        // Regression guard: iOS keeps the 15.0 floor through the plist path.
+        [Fact]
+        public void ResolveDeploymentTarget_iOS_Below15_StillClampsTo15()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var plist = """
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <plist version="1.0">
+                    <dict>
+                        <key>MinimumOSVersion</key>
+                        <string>13.0</string>
+                    </dict>
+                    </plist>
+                    """;
+                File.WriteAllText(Path.Combine(dir, "Info.plist"), plist);
+                var dylibPath = Path.Combine(dir, "IosLib");
+                File.WriteAllText(dylibPath, "");
+
+                var iOS = PlatformInfoFactory.Create(ApplePlatform.iOS);
+                var result = SwiftWrapperCompiler.ResolveDeploymentTarget(
+                    dylibPath, NullLogger.Instance, null, iOS);
+                Assert.Equal("15.0", result);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
         private static string CreateTempDir()
         {
             var dir = Path.Combine(Path.GetTempPath(), $"swc_dt_{Guid.NewGuid():N}");

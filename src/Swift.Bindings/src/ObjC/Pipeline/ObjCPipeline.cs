@@ -187,7 +187,7 @@ public static class ObjCPipeline
         // Emit metadata props for SDK integration (always, regardless of sdkMode)
         ObjCMetadataPropsEmitter.Emit(
             outputDirectory, resolution.ModuleName, xcframeworkPath,
-            isMixed ? "Mixed" : "ObjC", logger);
+            isMixed ? "Mixed" : "ObjC", logger, pi);
 
         // 6. Dump summary
         DumpSummary(module, logger);

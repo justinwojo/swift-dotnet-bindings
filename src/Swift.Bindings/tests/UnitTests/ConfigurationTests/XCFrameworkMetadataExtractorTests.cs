@@ -148,6 +148,117 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
+    #region B2. Platform-aware MinimumOSVersion Clamping Tests
+
+    public class MetadataMinOSPlatformAwareClampingTests
+    {
+        // macOS's .NET 10 deployment floor is 12.0, not iOS's 15.0. A macOS framework that
+        // deploys to macOS 12/13/14 must keep its source minimum — bumping it to 15 needlessly
+        // excludes macOS 12-14 consumers the runtime fully supports (Swift.Runtime.csproj sets
+        // the macOS SupportedOSPlatformVersion to 12.0).
+        [Theory]
+        [InlineData("12.0")]
+        [InlineData("13.0")]
+        [InlineData("14.0")]
+        public void ClampMinimumOSVersion_macOS_AtOrAboveMacFloor_PreservesRaw(string raw)
+        {
+            var macOS = PlatformInfoFactory.Create(ApplePlatform.macOS);
+            Assert.Equal(raw, XCFrameworkMetadataExtractor.ClampMinimumOSVersion(raw, macOS));
+        }
+
+        [Fact]
+        public void ClampMinimumOSVersion_macOS_BelowMacFloor_RaisedTo12()
+        {
+            var macOS = PlatformInfoFactory.Create(ApplePlatform.macOS);
+            Assert.Equal("12.0", XCFrameworkMetadataExtractor.ClampMinimumOSVersion("10.15", macOS));
+        }
+
+        [Fact]
+        public void ClampMinimumOSVersion_macOS_Null_ReturnsMacFloor12()
+        {
+            var macOS = PlatformInfoFactory.Create(ApplePlatform.macOS);
+            Assert.Equal("12.0", XCFrameworkMetadataExtractor.ClampMinimumOSVersion(null, macOS));
+        }
+
+        [Theory]
+        [InlineData("abc")]
+        [InlineData("16.x")]
+        [InlineData("v12.0")]
+        [InlineData(" ")]
+        public void ClampMinimumOSVersion_macOS_Malformed_ReturnsMacFloor12(string raw)
+        {
+            var macOS = PlatformInfoFactory.Create(ApplePlatform.macOS);
+            Assert.Equal("12.0", XCFrameworkMetadataExtractor.ClampMinimumOSVersion(raw, macOS));
+        }
+
+        [Fact]
+        public void ClampMinimumOSVersion_macOS_VendorSentinel_ReturnsMacFloor12()
+        {
+            // The sentinel ceiling (>= 100) still rejects to the floor — now the macOS floor.
+            var macOS = PlatformInfoFactory.Create(ApplePlatform.macOS);
+            Assert.Equal("12.0", XCFrameworkMetadataExtractor.ClampMinimumOSVersion("100.0", macOS));
+        }
+
+        [Fact]
+        public void ClampMinimumOSVersion_macOS_ValidHigher_PreservesRaw()
+        {
+            var macOS = PlatformInfoFactory.Create(ApplePlatform.macOS);
+            Assert.Equal("15.0", XCFrameworkMetadataExtractor.ClampMinimumOSVersion("15.0", macOS));
+        }
+
+        // iOS/tvOS/Catalyst keep the 15.0 floor — guards that the platform-aware change didn't
+        // lower the floor for the non-macOS platforms.
+        [Theory]
+        [InlineData(ApplePlatform.iOS)]
+        [InlineData(ApplePlatform.tvOS)]
+        [InlineData(ApplePlatform.MacCatalyst)]
+        public void ClampMinimumOSVersion_NonMac_Below15_StillClampsTo15(ApplePlatform platform)
+        {
+            var pi = PlatformInfoFactory.Create(platform);
+            Assert.Equal("15.0", XCFrameworkMetadataExtractor.ClampMinimumOSVersion("13.0", pi));
+        }
+
+        [Theory]
+        [InlineData(ApplePlatform.iOS)]
+        [InlineData(ApplePlatform.tvOS)]
+        [InlineData(ApplePlatform.MacCatalyst)]
+        public void ClampMinimumOSVersion_NonMac_VendorSentinel_ClampsTo15(ApplePlatform platform)
+        {
+            var pi = PlatformInfoFactory.Create(platform);
+            Assert.Equal("15.0", XCFrameworkMetadataExtractor.ClampMinimumOSVersion("100.0", pi));
+        }
+
+        // Parity guard: the clamp floor for EVERY platform is exactly that platform's
+        // PlatformInfo.DefaultMinimumOS — a single source of truth. If a divergent literal
+        // floor is ever re-introduced into the extractor, this breaks.
+        [Theory]
+        [InlineData(ApplePlatform.iOS)]
+        [InlineData(ApplePlatform.macOS)]
+        [InlineData(ApplePlatform.tvOS)]
+        [InlineData(ApplePlatform.MacCatalyst)]
+        public void ClampMinimumOSVersion_FloorIsPlatformDefaultMinimumOS(ApplePlatform platform)
+        {
+            var pi = PlatformInfoFactory.Create(platform);
+            // A clearly-below-any-floor input forces the clamp to return the floor.
+            Assert.Equal(pi.DefaultMinimumOS, XCFrameworkMetadataExtractor.ClampMinimumOSVersion("1.0", pi));
+            // The null/fallback path returns the same floor.
+            Assert.Equal(pi.DefaultMinimumOS, XCFrameworkMetadataExtractor.ClampMinimumOSVersion(null, pi));
+        }
+
+        // The no-PlatformInfo overload falls back to the conservative iOS floor (the highest
+        // Apple floor), so an unknown target can never under-restrict. Ties the bare fallback to
+        // PlatformInfoFactory rather than a free-standing literal.
+        [Fact]
+        public void ClampMinimumOSVersion_NoPlatformInfo_FallsBackToIosFloor()
+        {
+            var iosFloor = PlatformInfoFactory.Create(ApplePlatform.iOS).DefaultMinimumOS;
+            Assert.Equal(iosFloor, XCFrameworkMetadataExtractor.ClampMinimumOSVersion("13.0"));
+            Assert.Equal(iosFloor, XCFrameworkMetadataExtractor.ClampMinimumOSVersion(null));
+        }
+    }
+
+    #endregion
+
     #region C. Full Extraction Tests
 
     public class MetadataExtractionTests
@@ -259,6 +370,113 @@ namespace BindingsGeneration.Tests
 
                 Assert.Equal("100.0", metadata.MinimumOSVersion);
                 Assert.Equal("15.0", metadata.EffectiveMinimumOSVersion);
+            }
+            finally { fixture.Dispose(); }
+        }
+
+        // End-to-end of the primary bug: a macOS framework deploying to macOS 12 must emit
+        // EffectiveMinimumOSVersion=12.0 (what every csproj/props emitter writes into
+        // <SupportedOSPlatformVersion>), NOT a forced 15.0 that excludes macOS 12-14 consumers.
+        [Theory]
+        [InlineData("12.0")]
+        [InlineData("13.0")]
+        [InlineData("14.0")]
+        public void Extract_macOS_AtOrAboveMacFloor_KeepsSourceMin(string raw)
+        {
+            var fixture = new MetadataFixture("MacLib");
+            try
+            {
+                fixture.WriteInnerPlist("3.0.0", raw, "14.0");
+                fixture.WriteOuterPlist();
+
+                var macOS = PlatformInfoFactory.Create(ApplePlatform.macOS);
+                var metadata = XCFrameworkMetadataExtractor.Extract(
+                    fixture.DylibPath, fixture.XCFrameworkPath, "MacLib", _logger, fixture.Runner, macOS);
+
+                Assert.Equal(raw, metadata.MinimumOSVersion);
+                Assert.Equal(raw, metadata.EffectiveMinimumOSVersion); // NOT bumped to 15
+            }
+            finally { fixture.Dispose(); }
+        }
+
+        // Regression guard via the full Extract path: iOS still clamps below-floor up to 15.
+        [Fact]
+        public void Extract_iOS_BelowFloor_StillClampsTo15()
+        {
+            var fixture = new MetadataFixture("IosLib");
+            try
+            {
+                fixture.WriteInnerPlist("3.0.0", "13.0", "18.0");
+                fixture.WriteOuterPlist();
+
+                var iOS = PlatformInfoFactory.Create(ApplePlatform.iOS);
+                var metadata = XCFrameworkMetadataExtractor.Extract(
+                    fixture.DylibPath, fixture.XCFrameworkPath, "IosLib", _logger, fixture.Runner, iOS);
+
+                Assert.Equal("13.0", metadata.MinimumOSVersion);
+                Assert.Equal("15.0", metadata.EffectiveMinimumOSVersion);
+            }
+            finally { fixture.Dispose(); }
+        }
+
+        // ObjC pipeline path: ExtractFromFrameworkPath must read the slice for the generation
+        // target's platform. A macOS-only framework's own slice min-OS (14.0) must be read and
+        // preserved (>= macOS floor 12.0), not lost to the fallback because the lookup only
+        // matched the iOS slice.
+        [Fact]
+        public void ExtractFromFrameworkPath_macOS_ReadsMacOsSliceMinOS()
+        {
+            var fixture = new MetadataFixture("MacObjCLib", "macos-arm64", "macos", supportedPlatformVariant: null);
+            try
+            {
+                fixture.WriteInnerPlist("3.0.0", "14.0", "14.0");
+                fixture.WriteOuterPlist();
+
+                var macOS = PlatformInfoFactory.Create(ApplePlatform.macOS);
+                var metadata = XCFrameworkMetadataExtractor.ExtractFromFrameworkPath(
+                    fixture.XCFrameworkPath, "MacObjCLib", _logger, fixture.Runner, macOS);
+
+                Assert.Equal("14.0", metadata.MinimumOSVersion);          // slice read, not fallback
+                Assert.Equal("14.0", metadata.EffectiveMinimumOSVersion); // >= macOS floor 12, preserved
+            }
+            finally { fixture.Dispose(); }
+        }
+
+        // Regression guard: the iOS slice is still selected and clamped to the iOS floor.
+        [Fact]
+        public void ExtractFromFrameworkPath_iOS_ReadsIosSliceAndClampsTo15()
+        {
+            var fixture = new MetadataFixture("IosObjCLib");
+            try
+            {
+                fixture.WriteInnerPlist("3.0.0", "13.0", "18.0");
+                fixture.WriteOuterPlist();
+
+                var iOS = PlatformInfoFactory.Create(ApplePlatform.iOS);
+                var metadata = XCFrameworkMetadataExtractor.ExtractFromFrameworkPath(
+                    fixture.XCFrameworkPath, "IosObjCLib", _logger, fixture.Runner, iOS);
+
+                Assert.Equal("13.0", metadata.MinimumOSVersion);
+                Assert.Equal("15.0", metadata.EffectiveMinimumOSVersion);
+            }
+            finally { fixture.Dispose(); }
+        }
+
+        // No generation target supplied: preserve the historical iOS-first slice default.
+        [Fact]
+        public void ExtractFromFrameworkPath_NullPlatform_FallsBackToIosSlice()
+        {
+            var fixture = new MetadataFixture("DefaultObjCLib");
+            try
+            {
+                fixture.WriteInnerPlist("3.0.0", "13.0", "18.0");
+                fixture.WriteOuterPlist();
+
+                var metadata = XCFrameworkMetadataExtractor.ExtractFromFrameworkPath(
+                    fixture.XCFrameworkPath, "DefaultObjCLib", _logger, fixture.Runner);
+
+                Assert.Equal("13.0", metadata.MinimumOSVersion);          // iOS slice still found
+                Assert.Equal("15.0", metadata.EffectiveMinimumOSVersion); // iOS fallback floor
             }
             finally { fixture.Dispose(); }
         }
@@ -381,15 +599,27 @@ namespace BindingsGeneration.Tests
     internal sealed class MetadataFixture : IDisposable
     {
         private readonly string _rootDir;
+        private readonly string _libraryIdentifier;
+        private readonly string _supportedPlatform;
+        private readonly string? _supportedPlatformVariant;
         public string XCFrameworkPath { get; }
         public string DylibPath { get; }
         public MockCommandRunner Runner { get; }
 
-        public MetadataFixture(string moduleName)
+        // Defaults describe an iOS simulator slice so existing callers are unchanged;
+        // pass a macOS/tvOS slice descriptor to exercise platform-aware slice selection.
+        public MetadataFixture(
+            string moduleName,
+            string libraryIdentifier = "ios-arm64-simulator",
+            string supportedPlatform = "ios",
+            string? supportedPlatformVariant = "simulator")
         {
             _rootDir = Path.Combine(Path.GetTempPath(), $"meta_test_{Guid.NewGuid():N}");
+            _libraryIdentifier = libraryIdentifier;
+            _supportedPlatform = supportedPlatform;
+            _supportedPlatformVariant = supportedPlatformVariant;
             XCFrameworkPath = Path.Combine(_rootDir, $"{moduleName}.xcframework");
-            var frameworkDir = Path.Combine(XCFrameworkPath, "ios-arm64-simulator", $"{moduleName}.framework");
+            var frameworkDir = Path.Combine(XCFrameworkPath, libraryIdentifier, $"{moduleName}.framework");
             DylibPath = Path.Combine(frameworkDir, moduleName);
             Directory.CreateDirectory(frameworkDir);
             File.WriteAllText(DylibPath, ""); // stub
@@ -433,6 +663,13 @@ namespace BindingsGeneration.Tests
         {
             var moduleName = Path.GetFileNameWithoutExtension(
                 Path.GetFileNameWithoutExtension(XCFrameworkPath)); // strip .xcframework
+            var variantEntry = _supportedPlatformVariant != null
+                ? $"""
+
+                            <key>SupportedPlatformVariant</key>
+                            <string>{_supportedPlatformVariant}</string>
+                    """
+                : "";
             var xml = $"""
                 <?xml version="1.0" encoding="UTF-8"?>
                 <plist version="1.0">
@@ -441,7 +678,7 @@ namespace BindingsGeneration.Tests
                     <array>
                         <dict>
                             <key>LibraryIdentifier</key>
-                            <string>ios-arm64-simulator</string>
+                            <string>{_libraryIdentifier}</string>
                             <key>LibraryPath</key>
                             <string>{moduleName}.framework</string>
                             <key>BinaryPath</key>
@@ -451,9 +688,7 @@ namespace BindingsGeneration.Tests
                                 <string>arm64</string>
                             </array>
                             <key>SupportedPlatform</key>
-                            <string>ios</string>
-                            <key>SupportedPlatformVariant</key>
-                            <string>simulator</string>
+                            <string>{_supportedPlatform}</string>{variantEntry}
                         </dict>
                     </array>
                 </dict>

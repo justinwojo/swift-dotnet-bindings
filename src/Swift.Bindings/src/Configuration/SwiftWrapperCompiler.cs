@@ -285,8 +285,8 @@ namespace BindingsGeneration
                     }
                 }
 
-                // 2. Resolve deployment target
-                var minOS = ResolveDeploymentTarget(simulatorResolution.DylibPath, logger, commandRunner);
+                // 2. Resolve deployment target (clamped to this generation target's floor)
+                var minOS = ResolveDeploymentTarget(simulatorResolution.DylibPath, logger, commandRunner, pi);
 
                 // 2b. Resource bundle stubs: detect SPM resource bundles in the framework
                 // and create empty .bundle directories in the output directory at build time.
@@ -750,8 +750,10 @@ namespace BindingsGeneration
                     };
                 }
 
-                // 3. Resolve deployment target from source framework
-                var minOS = ResolveDeploymentTarget(dylibPath, logger, commandRunner);
+                // 3. Resolve deployment target from source framework (clamped to this slice's
+                // platform floor — the floor is platform-keyed, so derive it from the slice).
+                var minOS = ResolveDeploymentTarget(
+                    dylibPath, logger, commandRunner, PlatformInfoFactory.Create(slice.Platform));
 
                 // 4. Create xcframework directory structure. Build into a unique staging tree
                 // OUTSIDE the canonical path: swiftc (which can time out and be killed mid-write
@@ -1129,8 +1131,8 @@ namespace BindingsGeneration
             logger.LogInformation("Compiling bridge into {Module}.xcframework ({Count} file(s))...",
                 bridgeModuleName, bridgeFiles.Count);
 
-            // Resolve deployment target
-            var minOS = ResolveDeploymentTarget(simulatorResolution.DylibPath, logger, commandRunner);
+            // Resolve deployment target (clamped to this generation target's floor)
+            var minOS = ResolveDeploymentTarget(simulatorResolution.DylibPath, logger, commandRunner, pi);
 
             // Create xcframework directory structure. Build both slices into a unique staging
             // tree, validate, then atomically promote — same hazard as the wrapper paths: a
@@ -1237,8 +1239,9 @@ namespace BindingsGeneration
             logger.LogInformation("Compiling bridge into {Module}.xcframework ({Count} file(s))...",
                 bridgeModuleName, bridgeFiles.Count);
 
-            // Resolve deployment target
-            var minOS = ResolveDeploymentTarget(dylibPath, logger, commandRunner);
+            // Resolve deployment target (clamped to this slice's platform floor)
+            var minOS = ResolveDeploymentTarget(
+                dylibPath, logger, commandRunner, PlatformInfoFactory.Create(slice.Platform));
 
             // Create xcframework directory structure. Build into a unique staging tree, validate,
             // and atomically promote — same hazard as the wrapper slice: a timed-out/killed swiftc
@@ -1287,16 +1290,22 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Reads MinimumOSVersion from the source framework's Info.plist.
-        /// Falls back to "15.0" if not found, missing, or set to a vendor sentinel
-        /// (e.g. some SDKs ship every framework with a sentinel version like "100.0"). Without that filter,
-        /// the value flows into <c>swiftc -target arm64-apple-ios{minOS}-simulator</c>
-        /// and the wrapper compile fails outright.
+        /// Reads MinimumOSVersion from the source framework's Info.plist and clamps it to the
+        /// generation target's deployment floor (the target <c>PlatformInfo.DefaultMinimumOS</c>,
+        /// e.g. iOS 15.0, macOS 12.0). Falls back to that floor if not found, missing, or set to
+        /// a vendor sentinel (e.g. some SDKs ship every framework with a sentinel version like
+        /// "100.0"). The resolved value flows into <c>swiftc -target arm64-apple-{os}{minOS}…</c>,
+        /// so it must match the floor the binding advertises in <c>SupportedOSPlatformVersion</c>
+        /// — otherwise the wrapper binary's minimum-OS would exceed (and refuse to load under)
+        /// the deployment target the csproj declares.
         /// </summary>
         internal static string ResolveDeploymentTarget(
-            string dylibPath, ILogger logger, ICommandRunner? commandRunner = null)
+            string dylibPath, ILogger logger, ICommandRunner? commandRunner = null,
+            PlatformInfo? platformInfo = null)
         {
-            const string fallback = "15.0";
+            // ClampMinimumOSVersion(null, …) yields the target platform's floor, keeping the
+            // not-found/floor fallback on the same single source of truth as the clamp itself.
+            var fallback = XCFrameworkMetadataExtractor.ClampMinimumOSVersion(null, platformInfo);
 
             var frameworkDir = Path.GetDirectoryName(dylibPath);
             if (string.IsNullOrEmpty(frameworkDir))
@@ -1306,11 +1315,10 @@ namespace BindingsGeneration
             var data = PlistReader.ReadPlistDict(infoPlistPath, commandRunner, logger);
             if (data != null && data.TryGetValue("MinimumOSVersion", out var minOS) && minOS is string minOSStr)
             {
-                // Route through the shared clamp so the .NET 10 iOS floor and the
-                // sentinel ceiling stay in lockstep with the metadata extractor.
-                // Features requiring newer SDKs are handled by @available attributes
-                // on generated wrappers.
-                var resolved = XCFrameworkMetadataExtractor.ClampMinimumOSVersion(minOSStr);
+                // Route through the shared clamp so the deployment floor and the sentinel
+                // ceiling stay in lockstep with the metadata extractor. Features requiring
+                // newer SDKs are handled by @available attributes on generated wrappers.
+                var resolved = XCFrameworkMetadataExtractor.ClampMinimumOSVersion(minOSStr, platformInfo);
                 if (resolved != minOSStr)
                     logger.LogInformation("Adjusted deployment target from {Source} to {Resolved} (floor/sentinel filter).", minOSStr, resolved);
                 else

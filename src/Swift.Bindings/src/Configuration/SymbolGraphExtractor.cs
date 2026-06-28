@@ -44,7 +44,7 @@ namespace BindingsGeneration
                 }
 
                 // 2. Build target triple (use actual architecture from resolved slice, not default arm64)
-                var minOS = SwiftWrapperCompiler.ResolveDeploymentTarget(resolution.DylibPath, logger, commandRunner);
+                var minOS = SwiftWrapperCompiler.ResolveDeploymentTarget(resolution.DylibPath, logger, commandRunner, pi);
                 var effectiveSlice = !string.IsNullOrEmpty(resolution.SelectedArchitecture)
                     && resolution.SelectedArchitecture != sliceVariant.Architecture
                     ? sliceVariant.WithArchitecture(resolution.SelectedArchitecture)

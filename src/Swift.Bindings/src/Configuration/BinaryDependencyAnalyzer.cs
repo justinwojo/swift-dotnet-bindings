@@ -381,7 +381,7 @@ namespace BindingsGeneration
                     {
                         var metadata = XCFrameworkMetadataExtractor.Extract(
                             depResolution.DylibPath, siblingPath,
-                            depResolution.ModuleName, logger, runner);
+                            depResolution.ModuleName, logger, runner, platformInfo);
                         packageVersion = metadata.IsVersionPlaceholder ? null : metadata.PackageVersion;
                     }
                     catch

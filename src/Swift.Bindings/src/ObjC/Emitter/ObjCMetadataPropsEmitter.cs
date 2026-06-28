@@ -16,10 +16,11 @@ public static class ObjCMetadataPropsEmitter
         string moduleName,
         string xcframeworkPath,
         string frameworkType,
-        ILogger logger)
+        ILogger logger,
+        PlatformInfo? platformInfo = null)
     {
         // Try to extract real metadata from the xcframework's inner plist
-        var metadata = ExtractObjCMetadata(xcframeworkPath, moduleName, logger);
+        var metadata = ExtractObjCMetadata(xcframeworkPath, moduleName, logger, platformInfo);
 
         var content = $"""
             <Project>
@@ -43,12 +44,12 @@ public static class ObjCMetadataPropsEmitter
     }
 
     private static XCFrameworkMetadata ExtractObjCMetadata(
-        string xcframeworkPath, string moduleName, ILogger logger)
+        string xcframeworkPath, string moduleName, ILogger logger, PlatformInfo? platformInfo)
     {
         try
         {
             return XCFrameworkMetadataExtractor.ExtractFromFrameworkPath(
-                xcframeworkPath, moduleName, logger);
+                xcframeworkPath, moduleName, logger, platformInfo: platformInfo);
         }
         catch (Exception ex)
         {
@@ -59,7 +60,7 @@ public static class ObjCMetadataPropsEmitter
                 PackageVersion = "1.0.0",
                 IsVersionPlaceholder = true,
                 MinimumOSVersion = null,
-                EffectiveMinimumOSVersion = "15.0",
+                EffectiveMinimumOSVersion = XCFrameworkMetadataExtractor.ClampMinimumOSVersion(null, platformInfo),
                 SdkVersion = null,
                 ModuleName = moduleName,
                 Platforms = new List<string>()

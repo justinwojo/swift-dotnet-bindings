@@ -2144,7 +2144,7 @@ namespace BindingsGeneration
                 try
                 {
                     var metadata = XCFrameworkMetadataExtractor.Extract(
-                        depDylibPath, depPath, moduleName, logger, commandRunner);
+                        depDylibPath, depPath, moduleName, logger, commandRunner, platformInfo);
                     packageVersion = metadata.IsVersionPlaceholder ? null : metadata.PackageVersion;
 
                     if (metadata.IsVersionPlaceholder)

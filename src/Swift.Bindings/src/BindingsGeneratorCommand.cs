@@ -1300,7 +1300,7 @@ public static class BindingsGeneratorCommand
                 // framework throws here and hits this block's fatal-error handling.
                 var metadata = XCFrameworkMetadataExtractor.Extract(
                     resolution.DylibPath, resolution.XCFrameworkPath,
-                    resolution.ModuleName, logger);
+                    resolution.ModuleName, logger, platformInfo: platformInfo);
 
                 var wrapperXcfwPath = compilationResult?.XCFrameworkPath;
                 var hasWrapperXcfw = wrapperXcfwPath != null && Directory.Exists(wrapperXcfwPath);
@@ -1473,7 +1473,7 @@ public static class BindingsGeneratorCommand
                 // unchanged. ReadPlatforms gracefully returns empty when xcframeworkPath
                 // points at nothing.
                 var metadata = XCFrameworkMetadataExtractor.Extract(
-                    tbdPath, xcframeworkPath: "", directModuleName, logger);
+                    tbdPath, xcframeworkPath: "", directModuleName, logger, platformInfo: platformInfo);
 
                 var hasWrapperXcfw = compilationResult?.XCFrameworkPath != null
                     && Directory.Exists(compilationResult.XCFrameworkPath);

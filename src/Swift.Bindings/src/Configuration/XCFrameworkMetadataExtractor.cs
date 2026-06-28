@@ -34,7 +34,10 @@ namespace BindingsGeneration
         public string? MinimumOSVersion { get; init; }
 
         /// <summary>
-        /// Clamped to max(raw, "15.0") for .NET 10 iOS floor.
+        /// Raw <see cref="MinimumOSVersion"/> clamped up to the generation target's
+        /// .NET deployment floor (the target <c>PlatformInfo.DefaultMinimumOS</c> —
+        /// e.g. iOS/tvOS/Catalyst 15.0, macOS 12.0). This is the value every csproj/props
+        /// emitter writes into <c>&lt;SupportedOSPlatformVersion&gt;</c>.
         /// </summary>
         public required string EffectiveMinimumOSVersion { get; init; }
 
@@ -59,7 +62,15 @@ namespace BindingsGeneration
     /// </summary>
     public static class XCFrameworkMetadataExtractor
     {
-        private const string MinOSFloor = "15.0";
+        // Conservative fallback floor used only when the generation target's PlatformInfo
+        // isn't threaded through (e.g. dependency version probes that never read the OS floor).
+        // Sourced from the iOS PlatformInfo so the deployment floor has a single definition —
+        // PlatformInfoFactory's per-platform DefaultMinimumOS — instead of a free-standing
+        // literal that can silently drift from it. iOS carries the highest .NET Apple
+        // deployment floor, so this can never under-restrict a platform whose real target is
+        // unknown here. The actual clamp floor is platform-specific: see ClampMinimumOSVersion.
+        private static readonly string DefaultMinOSFloor =
+            PlatformInfoFactory.Create(ApplePlatform.iOS).DefaultMinimumOS;
 
         // Vendor build tooling occasionally emits an "uninitialized" sentinel for
         // MinimumOSVersion (some SDKs ship every framework with a sentinel like "100.0" —
@@ -79,12 +90,17 @@ namespace BindingsGeneration
         /// <param name="moduleName">The Swift module name.</param>
         /// <param name="logger">Logger instance.</param>
         /// <param name="commandRunner">Optional command runner for testing.</param>
+        /// <param name="platformInfo">
+        /// Generation target whose <see cref="PlatformInfo.DefaultMinimumOS"/> is used as the
+        /// minimum-OS clamp floor. Pass null to fall back to the conservative iOS floor.
+        /// </param>
         public static XCFrameworkMetadata Extract(
             string dylibPath,
             string xcframeworkPath,
             string moduleName,
             ILogger logger,
-            ICommandRunner? commandRunner = null)
+            ICommandRunner? commandRunner = null,
+            PlatformInfo? platformInfo = null)
         {
             // Read inner framework Info.plist (may be binary plist)
             string? libraryVersion = null;
@@ -113,8 +129,8 @@ namespace BindingsGeneration
             var isPlaceholder = DetectVersionPlaceholder(libraryVersion);
             var packageVersion = isPlaceholder || string.IsNullOrEmpty(libraryVersion) ? "0.0.0" : libraryVersion;
 
-            // Clamp minimum OS version
-            var effectiveMinOS = ClampMinimumOSVersion(minimumOSVersion);
+            // Clamp minimum OS version to the generation target's deployment floor
+            var effectiveMinOS = ClampMinimumOSVersion(minimumOSVersion, platformInfo);
 
             // Read platforms from outer xcframework Info.plist
             var platforms = ReadPlatforms(xcframeworkPath, logger);
@@ -137,31 +153,40 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Extracts metadata from an xcframework by searching for the framework binary
-        /// inside the first iOS slice. Used by ObjC pipeline when no dylib path is available.
+        /// inside the slice matching the generation target's platform (falling back to the
+        /// iOS slice when no target is supplied). Used by the ObjC pipeline when no dylib
+        /// path is available.
         /// </summary>
         public static XCFrameworkMetadata ExtractFromFrameworkPath(
             string xcframeworkPath,
             string moduleName,
             ILogger logger,
-            ICommandRunner? commandRunner = null)
+            ICommandRunner? commandRunner = null,
+            PlatformInfo? platformInfo = null)
         {
             // Find the framework binary: {xcfw}/{slice}/{Module}.framework/{Module}
             string? frameworkDir = null;
             var plistPath = Path.Combine(xcframeworkPath, "Info.plist");
             if (File.Exists(plistPath))
             {
+                // Select the slice for the generation target's platform so a macOS/tvOS
+                // framework reads its own slice's MinimumOSVersion instead of missing the
+                // lookup and falling back to the floor. Mac Catalyst shares the "ios" plist
+                // token (SupportedPlatform="ios" + variant="maccatalyst"), so it keeps the
+                // prior iOS-slice behavior. A null target preserves the iOS-first default.
+                var targetPlatform = platformInfo?.PlistPlatformString ?? "ios";
                 var slices = XCFrameworkResolver.ParseInfoPlist(plistPath);
-                var iosSlice = slices.FirstOrDefault(s =>
-                    s.SupportedPlatform.Equals("ios", StringComparison.OrdinalIgnoreCase));
-                if (iosSlice != null)
+                var targetSlice = slices.FirstOrDefault(s =>
+                    s.SupportedPlatform.Equals(targetPlatform, StringComparison.OrdinalIgnoreCase));
+                if (targetSlice != null)
                 {
-                    frameworkDir = Path.Combine(xcframeworkPath, iosSlice.LibraryIdentifier,
+                    frameworkDir = Path.Combine(xcframeworkPath, targetSlice.LibraryIdentifier,
                         $"{moduleName}.framework");
                     if (!Directory.Exists(frameworkDir))
                     {
                         // Try LibraryPath from plist
-                        frameworkDir = Path.Combine(xcframeworkPath, iosSlice.LibraryIdentifier,
-                            iosSlice.LibraryPath);
+                        frameworkDir = Path.Combine(xcframeworkPath, targetSlice.LibraryIdentifier,
+                            targetSlice.LibraryPath);
                     }
                 }
             }
@@ -171,14 +196,14 @@ namespace BindingsGeneration
                 var binaryPath = Path.Combine(frameworkDir, moduleName);
                 if (File.Exists(binaryPath))
                 {
-                    return Extract(binaryPath, xcframeworkPath, moduleName, logger, commandRunner);
+                    return Extract(binaryPath, xcframeworkPath, moduleName, logger, commandRunner, platformInfo);
                 }
 
                 // Binary may not exist for ObjC-only stubs, try extracting from plist directly
                 var innerPlist = Path.Combine(frameworkDir, "Info.plist");
                 if (File.Exists(innerPlist))
                 {
-                    return ExtractFromInnerPlist(innerPlist, xcframeworkPath, moduleName, logger, commandRunner);
+                    return ExtractFromInnerPlist(innerPlist, xcframeworkPath, moduleName, logger, commandRunner, platformInfo);
                 }
             }
 
@@ -190,7 +215,7 @@ namespace BindingsGeneration
                 PackageVersion = "1.0.0",
                 IsVersionPlaceholder = true,
                 MinimumOSVersion = null,
-                EffectiveMinimumOSVersion = "15.0",
+                EffectiveMinimumOSVersion = ClampMinimumOSVersion(null, platformInfo),
                 SdkVersion = null,
                 ModuleName = moduleName,
                 Platforms = platforms
@@ -202,7 +227,8 @@ namespace BindingsGeneration
             string xcframeworkPath,
             string moduleName,
             ILogger logger,
-            ICommandRunner? commandRunner)
+            ICommandRunner? commandRunner,
+            PlatformInfo? platformInfo = null)
         {
             string? libraryVersion = null;
             string? minimumOSVersion = null;
@@ -221,7 +247,7 @@ namespace BindingsGeneration
 
             var isPlaceholder = DetectVersionPlaceholder(libraryVersion);
             var packageVersion = isPlaceholder || string.IsNullOrEmpty(libraryVersion) ? "0.0.0" : libraryVersion;
-            var effectiveMinOS = ClampMinimumOSVersion(minimumOSVersion);
+            var effectiveMinOS = ClampMinimumOSVersion(minimumOSVersion, platformInfo);
             var platforms = ReadPlatforms(xcframeworkPath, logger);
 
             return new XCFrameworkMetadata
@@ -249,22 +275,26 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Clamps a raw minimum OS version to at least 15.0 (.NET 10 iOS floor) and
-        /// rejects vendor sentinel values (e.g. a CMake-emitted "100.0") by falling back
-        /// to the floor. See <see cref="MinOSSentinelCeiling"/> for the rationale.
+        /// Clamps a raw minimum OS version up to the generation target's .NET deployment floor
+        /// — <paramref name="platformInfo"/>'s <see cref="PlatformInfo.DefaultMinimumOS"/> (e.g.
+        /// iOS/tvOS/Catalyst 15.0, macOS 12.0); falls back to the conservative iOS floor when no
+        /// target is supplied. Also rejects vendor sentinel values (e.g. a CMake-emitted "100.0")
+        /// by falling back to the floor. See <see cref="MinOSSentinelCeiling"/> for the rationale.
         /// </summary>
-        public static string ClampMinimumOSVersion(string? rawVersion)
+        public static string ClampMinimumOSVersion(string? rawVersion, PlatformInfo? platformInfo = null)
         {
-            if (string.IsNullOrEmpty(rawVersion))
-                return MinOSFloor;
+            var floor = platformInfo?.DefaultMinimumOS ?? DefaultMinOSFloor;
 
-            if (!TryParseVersion(rawVersion, out var rawParsed) || !TryParseVersion(MinOSFloor, out var floorParsed))
-                return MinOSFloor;
+            if (string.IsNullOrEmpty(rawVersion))
+                return floor;
+
+            if (!TryParseVersion(rawVersion, out var rawParsed) || !TryParseVersion(floor, out var floorParsed))
+                return floor;
 
             if (TryParseVersion(MinOSSentinelCeiling, out var ceilingParsed) && rawParsed >= ceilingParsed)
-                return MinOSFloor;
+                return floor;
 
-            return rawParsed >= floorParsed ? rawVersion : MinOSFloor;
+            return rawParsed >= floorParsed ? rawVersion : floor;
         }
 
         /// <summary>
