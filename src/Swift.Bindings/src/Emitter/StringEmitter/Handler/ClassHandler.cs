@@ -430,6 +430,16 @@ namespace BindingsGeneration
                     csWriter, swiftWriter, classDecl,
                     env.TypeDatabase, context.GetEmissionContext(), _logger);
 
+                // Subclass-closed generic-parent trampolines: a concrete (non-generic) class
+                // that closes ALL of a bound-generic base's parameters loses C# inheritance
+                // (the closed instantiation can't be modeled in the TypeName), so it emits
+                // flat and drops every inherited base method. Surface those methods via
+                // per-method concrete @_cdecl shims + a leaf extension class. Independent of
+                // the specialization engine; lives at namespace scope after the leaf body.
+                SubclassClosedParentTrampolineEmitter.EmitSubclassClosedParentTrampolines(
+                    csWriter, swiftWriter, classDecl, moduleDecl,
+                    env.TypeDatabase, context.GetEmissionContext(), _logger);
+
                 // Generic-parent CSM: per-parent-conformer static extension classes
                 // (e.g. HMAC<SHA256>.Update overloads). Must live outside the parent's
                 // body so the receiver can close over the generic.
