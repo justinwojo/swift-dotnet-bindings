@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 namespace BindingsGeneration;
@@ -44,8 +45,36 @@ public class NamedTypeSpec : TypeSpec
     /// </summary>
     public NamedTypeSpec? InnerType { get; set; }
 
+    /// <summary>
+    /// The Swift USR (unified symbol resolution) of the referenced nominal declaration, when the
+    /// ABI JSON reference node carried one. Its mangling suffix letter records the nominal kind
+    /// (<c>V</c> struct, <c>O</c> enum, <c>C</c> class, <c>P</c> protocol) — the only place that
+    /// distinguishes a value type from a class for a type the type database never registered. The
+    /// ObjC bridging synthesis always fabricates a Class record, so an absent value type otherwise
+    /// looks bridgeable; this lets emission-time validation tell them apart. Intentionally excluded
+    /// from <see cref="LLEquals"/> so it never affects type identity or de-duplication.
+    /// </summary>
+    public string? Usr { get; set; }
+
     public bool IsProtocolList { get { return Name == "protocol"; } }
     public string Name { get; private set; }
+
+    /// <summary>
+    /// True when <see cref="Usr"/> records a Swift value-type nominal — a struct (suffix
+    /// <c>V</c>) or an enum (suffix <c>O</c>). A Swift USR for a nominal type reference ends in the
+    /// declaration-kind letter, so the final character is an exact discriminator. Returns false for
+    /// classes (<c>C</c>), protocols (<c>P</c>), Clang/ObjC USRs, and any spec without a USR.
+    /// </summary>
+    public bool IsUsrValueType
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(Usr) || !Usr.StartsWith("s:", System.StringComparison.Ordinal))
+                return false;
+            char kind = Usr[Usr.Length - 1];
+            return kind == 'V' || kind == 'O';
+        }
+    }
 
     protected override string LLToString(bool useFullName)
     {

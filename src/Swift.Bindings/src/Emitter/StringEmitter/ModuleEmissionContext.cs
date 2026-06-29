@@ -1506,6 +1506,32 @@ public sealed class ModuleEmissionContext
         return _degradedExistentials.Add(swiftExistentialType);
     }
 
+    // ============ Degraded Reverse-Dispatch Receivers (suppressed-proxy B3) ============
+
+    private readonly HashSet<string> _degradedReverseDispatchReceivers = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Member descriptors (e.g. <c>Foo.bar setter</c>, <c>Foo.consume(value: any P)</c>) of EveryProtocol
+    /// reverse-dispatch receivers whose existential payload referenced a protocol proxy that was
+    /// suppressed at generation (its EveryProtocol conformance was not emitted). The receiver kept its
+    /// <c>[UnmanagedCallersOnly]</c> symbol + signature but its body degraded to a fail-fast stub, since
+    /// no C#-side proxy exists to marshal the value across the boundary. Recorded once per member;
+    /// <see cref="EmissionReportEmitter.Emit"/> turns the set into one SWIFTBIND061 warning each so the
+    /// degradation is visible rather than only manifesting as a runtime fail-fast.
+    /// </summary>
+    public IReadOnlyCollection<string> DegradedReverseDispatchReceivers => _degradedReverseDispatchReceivers;
+
+    /// <summary>
+    /// Records that a reverse-dispatch receiver degraded to a suppressed-proxy fail-fast stub. Returns
+    /// true on the first sighting of <paramref name="memberDescriptor"/>, false for a repeat or blank.
+    /// </summary>
+    public bool TryRecordDegradedReverseDispatchReceiver(string memberDescriptor)
+    {
+        if (string.IsNullOrEmpty(memberDescriptor))
+            return false;
+        return _degradedReverseDispatchReceivers.Add(memberDescriptor);
+    }
+
     // ==================== Native Thunks ====================
 
     private readonly System.Text.StringBuilder _assemblyBuilder = new();

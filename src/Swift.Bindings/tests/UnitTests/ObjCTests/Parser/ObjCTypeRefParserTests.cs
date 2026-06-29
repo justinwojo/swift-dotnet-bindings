@@ -559,6 +559,60 @@ public class ObjCTypeRefParserTests
         Assert.Equal(ObjCNullability.Unspecified, result.BlockParams[0].Nullability);
     }
 
+    // --- ARC ownership qualifiers ---
+    // clang prints block parameter qualTypes with the pointer's ARC ownership
+    // qualifier as a trailing token (e.g. "NSData * __strong"). These have no C#
+    // binding meaning and must be stripped so the pointer is recognized and mapped.
+
+    [Theory]
+    [InlineData("NSData * __strong")]
+    [InlineData("NSData * __weak")]
+    [InlineData("NSData * __unsafe_unretained")]
+    [InlineData("NSData * __autoreleasing")]
+    public void Parse_ArcOwnershipQualifier_StrippedToPointer(string qualType)
+    {
+        var result = ObjCTypeRefParser.Parse(qualType);
+        Assert.Equal("NSData", result.Name);
+        Assert.True(result.IsPointer);
+    }
+
+    [Fact]
+    public void Parse_ArcQualifier_WithNullability_BothStripped()
+    {
+        var result = ObjCTypeRefParser.Parse("NSData * _Nullable __strong");
+        Assert.Equal("NSData", result.Name);
+        Assert.True(result.IsPointer);
+        Assert.Equal(ObjCNullability.Nullable, result.Nullability);
+    }
+
+    [Fact]
+    public void Parse_Block_ArcQualifiedParams_AllMappedToPointers()
+    {
+        var result = ObjCTypeRefParser.Parse(
+            "void (^)(NSData * __strong, NSURLResponse * __strong, NSError * __strong)");
+        Assert.True(result.IsBlock);
+        Assert.Equal(3, result.BlockParams.Count);
+        Assert.Equal("NSData", result.BlockParams[0].Name);
+        Assert.True(result.BlockParams[0].IsPointer);
+        Assert.Equal("NSURLResponse", result.BlockParams[1].Name);
+        Assert.True(result.BlockParams[1].IsPointer);
+        Assert.Equal("NSError", result.BlockParams[2].Name);
+        Assert.True(result.BlockParams[2].IsPointer);
+    }
+
+    // ARC-qualifier stripping must be whole-token, not a bare substring: a tag or typedef whose
+    // name merely BEGINS with one of the ownership tokens (e.g. "__strongBox") must survive intact.
+    // Only a standalone " __strong" ownership qualifier is stripped.
+    [Theory]
+    [InlineData("struct __strongBox *", "__strongBox")]
+    [InlineData("struct __weakRef *", "__weakRef")]
+    public void Parse_TagNameBeginningWithArcQualifier_NotMangled(string qualType, string expectedName)
+    {
+        var result = ObjCTypeRefParser.Parse(qualType);
+        Assert.Equal(expectedName, result.Name);
+        Assert.True(result.IsPointer);
+    }
+
     // --- 7b: Generic arg nested nullability ---
 
     [Fact]

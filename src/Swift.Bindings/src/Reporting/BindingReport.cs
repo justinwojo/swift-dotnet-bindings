@@ -172,6 +172,17 @@ public enum SkipReason
     /// misclassifying a Foundation type as SwiftUI/Combine.
     /// </summary>
     NetUnavailableType,
+
+    /// <summary>
+    /// References a framework type that has no .NET binding at all: the type database resolves it
+    /// only by synthesizing a bridged ObjC <em>class</em> record, yet the type's Swift USR proves it
+    /// is a value type (struct/enum). The synthesized class reference points at a C# type the
+    /// framework's binding never defines, so emitting the member would produce a CS0234 dangling
+    /// reference. Distinct from <see cref="NetUnavailableType"/> (a curated Foundation type that IS
+    /// available in the OS but absent from the .NET assembly) so the report — and the loud
+    /// generation-time warning — attribute the drop to a genuinely unbindable cross-framework type.
+    /// </summary>
+    AbsentFrameworkType,
     Unknown,
 }
 

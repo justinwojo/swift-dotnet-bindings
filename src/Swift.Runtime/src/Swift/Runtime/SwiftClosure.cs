@@ -198,6 +198,42 @@ public static class SwiftClosureMarshaller
     }
 
     /// <summary>
+    /// Terminates the process when a Swift reverse-dispatch (EveryProtocol) receiver cannot marshal an
+    /// existential payload because that payload's protocol proxy was <b>suppressed</b> at generation
+    /// time — its EveryProtocol conformance was not emitted, so the C#-side proxy class needed to carry
+    /// the value across the boundary does not exist. This is distinct from
+    /// <see cref="FailFastDeadProxyImpl"/> (a runtime lifetime-invariant violation): here the marshalling
+    /// path was never generated, so the receiver is a degraded fail-fast stub from the start. The
+    /// trampoline still keeps its symbol — the vtable static-init address-takes <c>&amp;Receive_*</c>
+    /// before the body is emitted, so a missing symbol would be a compile error — but its body cannot
+    /// fabricate a value (that would silently corrupt the boundary), and a managed throw cannot unwind
+    /// across the <c>UnmanagedCallersOnly</c> native boundary, so this is a controlled
+    /// <see cref="Environment.FailFast(string)"/>.
+    /// <para>This only fires if Swift actually reverse-dispatches the affected member into a live C#
+    /// conformer; a consumer who never implements the protocol in C# never reaches it. On the same
+    /// member's forward-dispatch surface a produce direction (a getter or existential return) throws
+    /// <see cref="NotSupportedException"/> because the suppressed proxy cannot be constructed, while a
+    /// consume direction (a setter or existential parameter) still round-trips a Swift-vended value.</para>
+    /// <para>Throw-helper (see <see cref="FailFastDeadProxyImpl"/>): it always FailFasts; the returned
+    /// <see cref="Exception"/> is never reached and exists only so a value-returning receiver can
+    /// <c>throw</c> it to satisfy C#'s definite-return analysis (CS0161).</para>
+    /// </summary>
+    /// <param name="member">A human-readable member descriptor (e.g. <c>BoxableSink.boxable setter</c>).</param>
+    /// <returns>An <see cref="Exception"/> for the caller to <c>throw</c>; never actually reached
+    /// because <see cref="Environment.FailFast(string)"/> terminates the process first.</returns>
+    public static Exception FailFastSuppressedProxyReceiver(string member)
+    {
+        Environment.FailFast(
+            $"[SwiftBindings] Swift reverse-dispatch into '{member}' is unsupported: an existential " +
+            "payload's protocol proxy was suppressed at generation (its EveryProtocol conformance was " +
+            "not emitted), so there is no C#-side proxy to marshal the value across the boundary. On the " +
+            "forward surface a produce direction (getter / existential return) throws NotSupportedException " +
+            "while a consume direction (setter / existential parameter) still round-trips; this " +
+            "reverse-dispatch trampoline cannot fabricate a value, so it fails fast instead.");
+        return new InvalidOperationException(member); // unreachable: FailFast terminated the process
+    }
+
+    /// <summary>
     /// Terminates the process with a member-named diagnostic when an
     /// <see cref="OperationCanceledException"/> escapes an <b>async</b> Swift protocol-requirement
     /// witness on the reverse-dispatch (EveryProtocol) path. Such a requirement is satisfied through

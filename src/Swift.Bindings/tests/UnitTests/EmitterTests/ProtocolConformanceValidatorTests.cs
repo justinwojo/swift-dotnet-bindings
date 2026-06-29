@@ -414,6 +414,372 @@ public class ProtocolConformanceValidatorTests
 
     #endregion
 
+    #region Conformance-keep agrees with emission-skip (CS0535 guard)
+
+    // A non-generic protocol requires `func provideValue() async -> Int`. The interface emits
+    // `Task<nint> ProvideValueAsync()`. When the concrete witness is an async method on an
+    // UNSPECIALIZED GENERIC parent, the emission pipeline DROPS it (an async wrapper on a generic
+    // parent can't supply the parent's type metadata + self through a direct CallConvSwift P/Invoke).
+    // If the conformance is kept, the generic class declares `: IValueProvider` but never emits the
+    // satisfying member → CS0535 at consumer compile time. So the conformance must be dropped.
+    [Fact]
+    public void CanFullyImplementProtocol_AsyncWitnessOnGenericParent_DropsConformance()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = CreateAsyncIntProvider(moduleDecl);
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        // GENERIC class conformer: GenericParameters populated → IsGeneric == true.
+        var concreteType = CreateClassDecl("ValueBox", moduleDecl);
+        concreteType.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl(
+                TypeName: "T",
+                SugaredTypeName: "T",
+                GenericConformances: new List<GenericParameterConformance>(),
+                AssosiatedTypeConformances: new List<GenericParameterConformance>())
+        };
+        concreteType.Methods.Add(CreateAsyncIntMethod(
+            "provideValue", "$s10TestModule8ValueBoxC12provideValueSiyYaF", concreteType, moduleDecl));
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+
+        // The async-on-generic-parent witness is dropped at emission → conformance must drop too.
+        Assert.False(result);
+    }
+
+    // Discrimination control: the SAME async-Int witness on a NON-generic parent IS emittable, so
+    // the conformance must be KEPT. Guards against the fix degenerating into "always reject async Int".
+    [Fact]
+    public void CanFullyImplementProtocol_AsyncWitnessOnNonGenericParent_KeepsConformance()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = CreateAsyncIntProvider(moduleDecl);
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var concreteType = CreateClassDecl("ValueHolder", moduleDecl);
+        concreteType.Methods.Add(CreateAsyncIntMethod(
+            "provideValue", "$s10TestModule11ValueHolderC12provideValueSiyYaF", concreteType, moduleDecl));
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+
+        Assert.True(result);
+    }
+
+    // Companion to AsyncWitnessOnGenericParent_DropsConformance: the SAME agreement-gate rejection
+    // (async witness on an unspecialized generic parent → the emitter won't emit it) must be RESCUED
+    // when the protocol requirement carries a direct extension default. The interface emits that
+    // requirement as a DIM, so the conformer leans on the default instead of providing the witness —
+    // dropping the whole conformance would needlessly lose a surface that compiles. Mirrors the
+    // instance-property DIM rescue; the method agreement gate must reconsider the default before
+    // returning false.
+    [Fact]
+    public void CanFullyImplementProtocol_AsyncWitnessOnGenericParent_KeptWhenExtensionDefaultExists()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = CreateAsyncIntProvider(moduleDecl);
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        // GENERIC class conformer: the async witness here is dropped at emission (same shape as
+        // AsyncWitnessOnGenericParent_DropsConformance).
+        var concreteType = CreateClassDecl("ValueBox", moduleDecl);
+        concreteType.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl(
+                TypeName: "T",
+                SugaredTypeName: "T",
+                GenericConformances: new List<GenericParameterConformance>(),
+                AssosiatedTypeConformances: new List<GenericParameterConformance>())
+        };
+        concreteType.Methods.Add(CreateAsyncIntMethod(
+            "provideValue", "$s10TestModule8ValueBoxC12provideValueSiyYaF", concreteType, moduleDecl));
+
+        // A real protocol-extension default for provideValue() → the interface emits it as a DIM.
+        var qualifiedProtoName = protocolDecl.SwiftTypeName!.ModuleQualifiedName;
+        var protoMethod = protocolDecl.Methods.First();
+        var methodKey = ProtocolExtensionEmitter.BuildMethodKey(protoMethod);
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            [qualifiedProtoName] = new()
+            {
+                new ProtocolExtensionMethodDecl
+                {
+                    ProtocolQualifiedName = qualifiedProtoName,
+                    MethodName = "provideValue",
+                    PrintedName = methodKey,
+                    RawSignature = "func provideValue() async -> Int",
+                    ReturnsSelf = false,
+                    IsMainActorIsolated = false,
+                    IsStatic = false,
+                    IsProperty = false,
+                    HasSetter = false,
+                    IsDeprecated = false,
+                    IsMutating = false,
+                    WhereConstraints = new List<string>()
+                }
+            }
+        };
+        var extensionDefaultsIndex = new ProtocolExtensionDefaultsIndex(extensionMethods, moduleDecl.Protocols);
+        // The rescue uses the same default-resolution the interface emitter uses for DIM emission.
+        Assert.True(extensionDefaultsIndex.HasMethodDefault(qualifiedProtoName, methodKey));
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase, extensionDefaultsIndex);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+
+        // The dropped witness is covered by the DIM → the conformance must be KEPT, not dropped.
+        Assert.True(result);
+    }
+
+    // Regression (Codex r2): the agreement-gate rescue must use the SAME default resolution the
+    // interface emitter uses to decide DIM emission — direct OR inherited sub-protocol default —
+    // not a direct-only check. A default supplied by a SUB-protocol still produces a DIM on the
+    // PARENT interface (ProtocolHandler emits method DIMs via HasMethodDefault), so a parent
+    // conformance whose witness is dropped at emission is still satisfiable and must be KEPT. A
+    // direct-only rescue (HasDirectMethodDefault) would wrongly drop it.
+    [Fact]
+    public void CanFullyImplementProtocol_AsyncWitnessWithSubProtocolDefault_KeptForParentConformance()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var parentProtocol = CreateAsyncIntProvider(moduleDecl);
+        moduleDecl.Protocols.Add(parentProtocol);
+
+        // A sub-protocol that refines the parent; its extension provides the parent's default.
+        var subProtocol = new ProtocolDecl
+        {
+            Name = "RefinedValueProvider",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.RefinedValueProvider"),
+            MangledName = "$s10TestModule20RefinedValueProviderP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec> { new NamedTypeSpec("TestModule.ValueProvider") },
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(subProtocol);
+
+        // Generic conformer whose async witness is dropped at emission (same shape as above).
+        var concreteType = CreateClassDecl("ValueBox", moduleDecl);
+        concreteType.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl(
+                TypeName: "T",
+                SugaredTypeName: "T",
+                GenericConformances: new List<GenericParameterConformance>(),
+                AssosiatedTypeConformances: new List<GenericParameterConformance>())
+        };
+        concreteType.Methods.Add(CreateAsyncIntMethod(
+            "provideValue", "$s10TestModule8ValueBoxC12provideValueSiyYaF", concreteType, moduleDecl));
+
+        // Register the default under the SUB-protocol, not the parent.
+        var parentQualified = parentProtocol.SwiftTypeName!.ModuleQualifiedName;
+        var protoMethod = parentProtocol.Methods.First();
+        var methodKey = ProtocolExtensionEmitter.BuildMethodKey(protoMethod);
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["TestModule.RefinedValueProvider"] = new()
+            {
+                new ProtocolExtensionMethodDecl
+                {
+                    ProtocolQualifiedName = "TestModule.RefinedValueProvider",
+                    MethodName = "provideValue",
+                    PrintedName = methodKey,
+                    RawSignature = "func provideValue() async -> Int",
+                    ReturnsSelf = false,
+                    IsMainActorIsolated = false,
+                    IsStatic = false,
+                    IsProperty = false,
+                    HasSetter = false,
+                    IsDeprecated = false,
+                    IsMutating = false,
+                    WhereConstraints = new List<string>()
+                }
+            }
+        };
+        var extensionDefaultsIndex = new ProtocolExtensionDefaultsIndex(extensionMethods, moduleDecl.Protocols);
+
+        // The default is on the sub-protocol: a DIRECT check on the parent misses it, but the
+        // emitter's full resolution (HasMethodDefault) finds it via the inheritance graph.
+        Assert.False(extensionDefaultsIndex.HasDirectMethodDefault(parentQualified, methodKey));
+        Assert.True(extensionDefaultsIndex.HasMethodDefault(parentQualified, methodKey));
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase, extensionDefaultsIndex);
+        var result = validator.CanFullyImplementProtocol(concreteType, parentProtocol);
+
+        // The dropped witness is covered by the sub-protocol DIM on the parent interface → KEPT.
+        Assert.True(result);
+    }
+
+    // Property-side companion to the method sub-protocol regression above: the property DIM rescue
+    // (the CanEmitProperty-skip arm) must likewise use the SAME default resolution the interface
+    // emitter uses for property DIM emission — direct OR inherited sub-protocol default — not a
+    // direct-only check. ProtocolHandler emits property DIMs via HasPropertyDefault (broad), so a
+    // parent conformance whose unemittable property witness is covered by a SUB-protocol default
+    // must be KEPT. A direct-only rescue (HasDirectPropertyDefault) would wrongly drop it.
+    [Fact]
+    public void CanFullyImplementProtocol_UnemittablePropertyWithSubProtocolDefault_KeptForParentConformance()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // Parent protocol with a property of unresolvable type → AnyType fallback (same shape as
+        // CanFullyImplementProtocol_ProtocolHasAnyTypeProperty_ReturnsFalse, which proves the
+        // requirement is NOT skipped from the interface and so reaches the per-member check).
+        var parentProtocol = new ProtocolDecl
+        {
+            Name = "DataSource",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.DataSource"),
+            MangledName = "$s10TestModule10DataSourceP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        parentProtocol.Properties.Add(CreatePropertyDecl(
+            "data", new NamedTypeSpec("UnknownModule.Data"), moduleDecl,
+            hasGetter: true, hasSetter: false, accessorParent: parentProtocol));
+        moduleDecl.Protocols.Add(parentProtocol);
+
+        // A sub-protocol that refines the parent; its extension provides the parent's `data` default.
+        var subProtocol = new ProtocolDecl
+        {
+            Name = "RefinedDataSource",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.RefinedDataSource"),
+            MangledName = "$s10TestModule17RefinedDataSourceP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec> { new NamedTypeSpec("TestModule.DataSource") },
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(subProtocol);
+
+        // Concrete type that HAS the `data` property but of the same unresolvable type → the
+        // emitter skips it (CanEmitProperty AnyType fallback) → member-present-but-unemittable
+        // rescue path, so the conformance hinges entirely on the DIM.
+        var concreteType = CreateStructDecl("MyDataSource", moduleDecl);
+        concreteType.Properties.Add(CreatePropertyDecl(
+            "data", new NamedTypeSpec("UnknownModule.Data"), moduleDecl,
+            hasGetter: true, hasSetter: false, accessorParent: concreteType));
+
+        // Register the `data` default under the SUB-protocol, not the parent.
+        var parentQualified = parentProtocol.SwiftTypeName!.ModuleQualifiedName;
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["TestModule.RefinedDataSource"] = new()
+            {
+                new ProtocolExtensionMethodDecl
+                {
+                    ProtocolQualifiedName = "TestModule.RefinedDataSource",
+                    MethodName = "data",
+                    PrintedName = "data",
+                    RawSignature = "var data: UnknownModule.Data { get }",
+                    ReturnsSelf = false,
+                    IsMainActorIsolated = false,
+                    IsStatic = false,
+                    IsProperty = true,
+                    HasSetter = false,
+                    IsDeprecated = false,
+                    IsMutating = false,
+                    WhereConstraints = new List<string>()
+                }
+            }
+        };
+        var extensionDefaultsIndex = new ProtocolExtensionDefaultsIndex(extensionMethods, moduleDecl.Protocols);
+
+        // The default is on the sub-protocol: a DIRECT check on the parent misses it, but the
+        // emitter's full resolution (HasPropertyDefault) finds it via the inheritance graph.
+        Assert.False(extensionDefaultsIndex.HasDirectPropertyDefault(parentQualified, "data"));
+        Assert.True(extensionDefaultsIndex.HasPropertyDefault(parentQualified, "data"));
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase, extensionDefaultsIndex);
+        var result = validator.CanFullyImplementProtocol(concreteType, parentProtocol);
+
+        // The unemittable property witness is covered by the sub-protocol DIM on the parent → KEPT.
+        Assert.True(result);
+    }
+
+    private static ProtocolDecl CreateAsyncIntProvider(ModuleDecl moduleDecl)
+    {
+        return new ProtocolDecl
+        {
+            Name = "ValueProvider",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ValueProvider"),
+            MangledName = "$s10TestModule13ValueProviderP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                CreateAsyncIntMethod(
+                    "provideValue", "$s10TestModule13ValueProviderP12provideValueSiyYaF", null, moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+    }
+
+    private static MethodDecl CreateAsyncIntMethod(string name, string mangledName, TypeDecl? parent, ModuleDecl moduleDecl)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = mangledName,
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            // CSSignature[0] is the return slot: `async -> Int`.
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parent,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = true,
+            IsSynthesizedAccessor = false
+        };
+    }
+
+    #endregion
+
     #region Mutating-aware async noun-getter naming parity (interface ↔ witness)
 
     [Fact]

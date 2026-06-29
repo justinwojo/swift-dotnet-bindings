@@ -185,9 +185,14 @@ public static class MemberEmissionValidator
             property.SwiftTypeSpec, typeDatabase, out var propOffending, allowProjectableScalar: propAllowScalar);
         if (propKind != ValidationRuleSet.UnsupportedReferenceKind.None)
         {
-            skipDetails = propKind == ValidationRuleSet.UnsupportedReferenceKind.NetUnavailable
-                ? $"Property type references .NET-unavailable type '{propOffending}'."
-                : "Property type references unsupported module (SwiftUI/Combine).";
+            skipDetails = propKind switch
+            {
+                ValidationRuleSet.UnsupportedReferenceKind.NetUnavailable =>
+                    $"Property type references .NET-unavailable type '{propOffending}'.",
+                ValidationRuleSet.UnsupportedReferenceKind.AbsentBridgedValueType =>
+                    $"Property type references framework type '{propOffending}' which has no .NET binding.",
+                _ => "Property type references unsupported module (SwiftUI/Combine).",
+            };
             return ValidationRuleSet.ToSkipReason(propKind);
         }
 
@@ -1009,9 +1014,14 @@ public static class MemberEmissionValidator
                 arg.SwiftTypeSpec, typeDatabase, out var offending, allowProjectableScalar: methodAllowScalar);
             if (kind != ValidationRuleSet.UnsupportedReferenceKind.None)
             {
-                skipDetails = kind == ValidationRuleSet.UnsupportedReferenceKind.NetUnavailable
-                    ? $"Method signature references .NET-unavailable type '{offending}' in '{arg.SwiftTypeSpec}'."
-                    : $"Method signature references unsupported module (SwiftUI/Combine) in '{arg.SwiftTypeSpec}'.";
+                skipDetails = kind switch
+                {
+                    ValidationRuleSet.UnsupportedReferenceKind.NetUnavailable =>
+                        $"Method signature references .NET-unavailable type '{offending}' in '{arg.SwiftTypeSpec}'.",
+                    ValidationRuleSet.UnsupportedReferenceKind.AbsentBridgedValueType =>
+                        $"Method signature references framework type '{offending}' which has no .NET binding, in '{arg.SwiftTypeSpec}'.",
+                    _ => $"Method signature references unsupported module (SwiftUI/Combine) in '{arg.SwiftTypeSpec}'.",
+                };
                 return ValidationRuleSet.ToSkipReason(kind);
             }
         }

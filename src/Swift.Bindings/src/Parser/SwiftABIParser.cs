@@ -3549,6 +3549,15 @@ namespace BindingsGeneration
                         return arraySpec;
                     }
                     var spec = ParseTypeSpecOrDegrade(node.PrintedName);
+                    // Carry each reference node's Swift USR onto the matching spec — the outer type
+                    // and, positionally, the generic-argument types from the node's child type nodes.
+                    // The USR's mangling suffix letter is the only signal that distinguishes a value
+                    // type (V struct / O enum) from a class (C) for a type the type database never
+                    // registered; downstream emission-time validation needs it to avoid synthesizing
+                    // a bogus bridged-class reference to an absent framework value type, and an absent
+                    // type leaks in generic-argument position (e.g. the Transaction in
+                    // Optional<Transaction>) as well as bare position, so it must reach the inner specs.
+                    ThreadNominalUsrs(spec, node);
                     // When a typealias appears inside Optional<T>, swift-api-digester encodes the
                     // underlying nominal in the TypeNameAlias child node — but TypeSpecParser
                     // only sees PrintedName ("simd.float4x4?"), so it keeps the alias name as the
@@ -3602,6 +3611,33 @@ namespace BindingsGeneration
                     return CreateTypeSpec(node.Children.First());
                 default:
                     throw new NotImplementedException($"Can't handle node type {node.Kind} yet.");
+            }
+        }
+
+        /// <summary>
+        /// Threads each reference node's Swift USR onto the matching <see cref="NamedTypeSpec"/> —
+        /// the outer spec from <paramref name="node"/> and, positionally, the generic-argument specs
+        /// from the node's child type nodes. <see cref="NamedTypeSpec.Usr"/>'s mangling suffix records
+        /// the nominal kind (V struct / O enum / C class), the only signal that distinguishes a value
+        /// type from a class for a type the type database never registered. It must reach the inner
+        /// specs (e.g. the Transaction in Optional&lt;Transaction&gt;) because an absent type leaks in
+        /// generic-argument position as well as bare position. Child-to-generic-parameter matching is
+        /// positional and applied only when the counts agree, so a structural mismatch simply leaves
+        /// the inner USRs unset rather than misattributing them.
+        /// </summary>
+        private static void ThreadNominalUsrs(TypeSpec spec, Node node)
+        {
+            if (spec is not NamedTypeSpec named)
+                return;
+            if (!string.IsNullOrEmpty(node.usr))
+                named.Usr = node.usr;
+            var childNodes = node.Children?.ToList();
+            if (childNodes != null && childNodes.Count == named.GenericParameters.Count)
+            {
+                for (int i = 0; i < childNodes.Count; i++)
+                {
+                    ThreadNominalUsrs(named.GenericParameters[i], childNodes[i]);
+                }
             }
         }
 

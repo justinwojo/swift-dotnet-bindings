@@ -257,4 +257,41 @@ public class TypeSpecTests : IClassFixture<TypeSpecTests.TestFixture>
         Assert.NotEqual(protos1, protos2);
     }
 
+    // The USR mangling-suffix letter records a nominal type's kind: V=struct, O=enum
+    // (both value types), C=class, P=protocol. IsUsrValueType is the precise, zero-false-
+    // positive discriminator the absent-framework-type guard keys off — the ObjC bridge
+    // synthesizes every absent reference as a class, so a V/O suffix means the bridged
+    // record is wrong and no real .NET binding exists.
+    [Theory]
+    [InlineData("s:8StoreKit11TransactionV", true)]   // struct
+    [InlineData("s:5MyMod4FlagO", true)]               // enum
+    [InlineData("s:8StoreKit7ProductC", false)]        // class — legitimately bridgeable
+    [InlineData("s:8StoreKit9PurchaseP", false)]       // protocol
+    [InlineData("s:Sq", false)]                        // Optional — ends 'q', not V/O
+    public static void IsUsrValueType_KeysOffManglingSuffix(string usr, bool expected)
+    {
+        var named = new NamedTypeSpec("StoreKit.Thing") { Usr = usr };
+        Assert.Equal(expected, named.IsUsrValueType);
+    }
+
+    [Fact]
+    public static void IsUsrValueType_AbsentOrClangUsr_IsFalse()
+    {
+        // No USR, an empty USR, and a clang (Objective-C) USR all fail the Swift "s:" guard,
+        // so the value-type discriminator never fires on a non-Swift-mangled reference.
+        Assert.False(new NamedTypeSpec("Foo.Bar").IsUsrValueType);
+        Assert.False(new NamedTypeSpec("Foo.Bar") { Usr = string.Empty }.IsUsrValueType);
+        Assert.False(new NamedTypeSpec("Foo.Bar") { Usr = "c:objc(cs)NSObject" }.IsUsrValueType);
+    }
+
+    [Fact]
+    public static void Usr_IsExcludedFromEquality()
+    {
+        // Usr is an out-of-band emission hint, not part of type identity: two specs that differ
+        // only by USR must stay equal so threading it onto a generic argument can't fork dedup.
+        var a = new NamedTypeSpec("StoreKit.Transaction") { Usr = "s:8StoreKit11TransactionV" };
+        var b = new NamedTypeSpec("StoreKit.Transaction");
+        Assert.Equal(a, b);
+    }
+
 }

@@ -136,6 +136,91 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine();
     }
 
+    /// <summary>
+    /// Emits one reverse-dispatch receiver via <paramref name="emitBody"/>, falling back to a degraded
+    /// fail-fast stub if the receiver's existential payload references a protocol proxy whose
+    /// EveryProtocol conformance was suppressed (<see cref="SuppressedProxyReferenceException"/>) — the
+    /// proxy class does not exist, so the value cannot be marshalled across the boundary. Uses the writer
+    /// checkpoint primitive so a partially-written body is erased byte-for-byte before the stub replaces
+    /// it (the canonical in-emission recovery — mirrors <c>WrapperEmitter</c>'s PRODUCE-path proxy gate).
+    /// The stub keeps the receiver's <paramref name="receiverName"/> symbol and exact signature so the
+    /// vtable static-init that address-takes <c>&amp;Receive_*</c> still resolves (a missing symbol is
+    /// CS0103); only the body is replaced. Without this, a suppressed-proxy existential on ANY receiver
+    /// channel propagated uncaught to <c>StringEmitter.EmitModule</c> and aborted the WHOLE module with
+    /// no <c>.cs</c> produced.
+    /// </summary>
+    private void EmitReceiverOrDegrade(
+        CSharpWriter writer, string returnType, string receiverName, string paramList,
+        string memberDescriptor, Action emitBody)
+    {
+        var checkpoint = writer.Checkpoint();
+        try
+        {
+            emitBody();
+        }
+        catch (SuppressedProxyReferenceException)
+        {
+            writer.RollbackTo(checkpoint);
+            EmitSuppressedProxyReceiverStub(writer, returnType, receiverName, paramList, memberDescriptor);
+        }
+    }
+
+    /// <summary>
+    /// Emits a degraded EveryProtocol reverse-dispatch receiver: the same
+    /// <c>[UnmanagedCallersOnly]</c> signature the live path would emit, but a fail-fast body in place of
+    /// the marshalling that could not be projected. Reached when a receiver's existential payload
+    /// references a suppressed protocol proxy. Fail-fast — not a managed throw — because the receiver is
+    /// the native <c>UnmanagedCallersOnly</c> entry (a managed exception cannot unwind across it) and
+    /// fabricating a zero value would silently corrupt the boundary. Records the degradation so
+    /// <c>EmissionReportEmitter.Emit</c> surfaces one SWIFTBIND061 warning per affected member.
+    /// <para>The body routes through the same <see cref="EmitUcoGuardOpen"/>/<see cref="EmitUcoGuardCloseFailFast"/>
+    /// envelope every live receiver uses, so this degraded stub carries the identical try/catch — the
+    /// corpus invariant that no <c>[UnmanagedCallersOnly]</c> body lets a managed exception unwind across
+    /// the Swift boundary (enforced by <c>CatchFreeUcoValidatorTests</c>). The member-named
+    /// <c>FailFastSuppressedProxyReceiver</c> call is the real terminal (it <c>FailFast</c>s first); its
+    /// <c>throw</c> only satisfies CS0161 for value-returning receivers and the guard's catch is likewise
+    /// unreachable.</para>
+    /// </summary>
+    private void EmitSuppressedProxyReceiverStub(
+        CSharpWriter writer, string returnType, string receiverName, string paramList, string memberDescriptor)
+    {
+        _emissionContext.TryRecordDegradedReverseDispatchReceiver(memberDescriptor);
+        writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        writer.WriteLine($"private static {returnType} {receiverName}({paramList})");
+        writer.WriteLine("{");
+        writer.Indent++;
+        EmitUcoGuardOpen(writer);
+        writer.WriteLine($"throw global::Swift.Runtime.SwiftClosureMarshaller.FailFastSuppressedProxyReceiver(\"{memberDescriptor}\");");
+        EmitUcoGuardCloseFailFast(writer);
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
+    }
+
+    /// <summary>
+    /// Renders a parenthesised Swift parameter signature (<c>label: Type</c> per parameter) for a
+    /// degraded-receiver descriptor over <paramref name="paramDecls"/>. Two overloaded methods — or two
+    /// subscripts with different index sets — that BOTH degrade otherwise collide on a bare
+    /// <c>"{Protocol}.{name}()"</c> / <c>"{Protocol} subscript getter"</c> descriptor, so the
+    /// dedup set in <c>ModuleEmissionContext</c> folds them into one recorded slot and SWIFTBIND061
+    /// under-counts the degraded receivers. Appending the labels AND types keeps each degraded slot a
+    /// distinct entry (and the runtime fail-fast message names the exact overload). Argument labels are
+    /// included — not just types — because Swift permits overloads that differ ONLY by label (e.g.
+    /// <c>handle(foo: any P)</c> vs <c>handle(bar: any P)</c>), which a type-only descriptor would still
+    /// fold together. Label rendering mirrors the canonical label-inclusive
+    /// <c>EveryProtocolEmitter.GetMethodKey</c> via <c>GetSwiftName()</c>, except an unlabeled subscript
+    /// index renders <c>_</c> off the authoritative <see cref="ArgumentDecl.IsUnlabeledSubscriptIndex"/>
+    /// flag rather than its synthetic <c>index{i}</c> name (a real label could literally be <c>index0</c>).
+    /// </summary>
+    private static string RenderReceiverParamSignature(IEnumerable<ArgumentDecl> paramDecls)
+    {
+        return "(" + string.Join(", ", paramDecls.Select(p =>
+        {
+            var label = p.IsUnlabeledSubscriptIndex ? "_" : (p.GetSwiftName() ?? p.Name ?? "_");
+            return label + ": " + (p.SwiftTypeSpec?.ToString() ?? "_");
+        })) + ")";
+    }
+
     private void EmitPropertyReceivers(CSharpWriter writer, PropertyDecl property, ProtocolDecl protocolDecl, string interfaceName, HashSet<string> emittedReceivers)
     {
         var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
@@ -176,73 +261,77 @@ public partial class ProtocolProxyEmitter
             var receiverName = $"Receive_{property.Name}_get";
             if (emittedReceivers.Add(receiverName))
             {
-                // The interface property uses idiomatic C# types (e.g., string, string?, IReadOnlyList<string>)
-                // but MarshalToSwiftBuffer expects Swift ABI types (SwiftString, SwiftOptional<SwiftString>, etc.).
-                // Projection-based conversion handles existentials, strings, arrays, dicts, and optionals.
-                var getterConversion = GetReceiverGetterConversion("result", property.SwiftTypeSpec);
-                // F1: If property is narrowed (int/uint), widen back to nint/nuint for Swift ABI MarshalToSwiftBuffer.
-                // Plain nint: result is int → (nint)result ensures 8-byte write.
-                // Plain nuint: result is uint → (nuint)result ensures 8-byte write.
-                // Optional<nint/nuint>: getterConversion builds SwiftOptional<nint>.NewSome(resultVal) where
-                //   resultVal is int/uint (unwrapped from int?/uint?) — implicit widening handles it.
-                if (getterConversion == null && NativeIntOverloadEmitter.TryGetAbiWideningType(property.SwiftTypeSpec, out var abiType))
-                    getterConversion = $"({abiType})result";
-
-                // String returns use Utf8Slice encoding to avoid ARC issues with MarshalToSwiftBuffer<SwiftString>.
-                // SwiftString contains ARC-managed references that Unsafe.Write can't retain properly,
-                // causing crashes when Swift reads the result. Utf8Slice passes raw bytes safely.
-                bool isStringReturn = IsStringTypeSpec(property.SwiftTypeSpec);
-
-                writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
-                writer.WriteLine($"private static IntPtr {receiverName}(IntPtr vtHandle, IntPtr selfContainer)");
-                writer.WriteLine("{");
-                writer.Indent++;
-                EmitUcoGuardOpen(writer);
-                // Read only the first existential word: this is the proxy handle (Payload0),
-                // the sole field TryGetProxy actually uses. Avoids the 5-word over-read of
-                // *(ExistentialContainer1*)selfContainer, which over-reads stack memory when
-                // Swift passes a class-bound (2-word) existential for EveryObjCProtocol.
-                writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
-                // Both branches resolve the C# impl from ProxyLifetimeTracker's strong root
-                // (Design B2): the no-sibling path via EmitResolveImplOrFailFast, the sibling
-                // fan-out path via per-interface lookups. When every proxy misses, the impl was
-                // collected while Swift still held the proxy — a lifetime-invariant violation —
-                // so the terminal FailFasts (EmitSiblingFanOutFailFast) rather than fabricating a
-                // zero/empty buffer (Defect G's silent data-corruption failure mode).
-                if (siblingFallbacks == null || siblingFallbacks.Count == 0)
+                EmitReceiverOrDegrade(writer, "IntPtr", receiverName, "IntPtr vtHandle, IntPtr selfContainer",
+                    $"{protocolDecl.Name}.{property.Name} getter", () =>
                 {
-                    EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, $"{pascalPropertyName} getter");
-                    writer.WriteLine($"var result = impl.{pascalPropertyName};");
-                    if (isStringReturn)
+                    // The interface property uses idiomatic C# types (e.g., string, string?, IReadOnlyList<string>)
+                    // but MarshalToSwiftBuffer expects Swift ABI types (SwiftString, SwiftOptional<SwiftString>, etc.).
+                    // Projection-based conversion handles existentials, strings, arrays, dicts, and optionals.
+                    var getterConversion = GetReceiverGetterConversion("result", property.SwiftTypeSpec);
+                    // F1: If property is narrowed (int/uint), widen back to nint/nuint for Swift ABI MarshalToSwiftBuffer.
+                    // Plain nint: result is int → (nint)result ensures 8-byte write.
+                    // Plain nuint: result is uint → (nuint)result ensures 8-byte write.
+                    // Optional<nint/nuint>: getterConversion builds SwiftOptional<nint>.NewSome(resultVal) where
+                    //   resultVal is int/uint (unwrapped from int?/uint?) — implicit widening handles it.
+                    if (getterConversion == null && NativeIntOverloadEmitter.TryGetAbiWideningType(property.SwiftTypeSpec, out var abiType))
+                        getterConversion = $"({abiType})result";
+
+                    // String returns use Utf8Slice encoding to avoid ARC issues with MarshalToSwiftBuffer<SwiftString>.
+                    // SwiftString contains ARC-managed references that Unsafe.Write can't retain properly,
+                    // causing crashes when Swift reads the result. Utf8Slice passes raw bytes safely.
+                    bool isStringReturn = IsStringTypeSpec(property.SwiftTypeSpec);
+
+                    writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+                    writer.WriteLine($"private static IntPtr {receiverName}(IntPtr vtHandle, IntPtr selfContainer)");
+                    writer.WriteLine("{");
+                    writer.Indent++;
+                    EmitUcoGuardOpen(writer);
+                    // Read only the first existential word: this is the proxy handle (Payload0),
+                    // the sole field TryGetProxy actually uses. Avoids the 5-word over-read of
+                    // *(ExistentialContainer1*)selfContainer, which over-reads stack memory when
+                    // Swift passes a class-bound (2-word) existential for EveryObjCProtocol.
+                    writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
+                    // Both branches resolve the C# impl from ProxyLifetimeTracker's strong root
+                    // (Design B2): the no-sibling path via EmitResolveImplOrFailFast, the sibling
+                    // fan-out path via per-interface lookups. When every proxy misses, the impl was
+                    // collected while Swift still held the proxy — a lifetime-invariant violation —
+                    // so the terminal FailFasts (EmitSiblingFanOutFailFast) rather than fabricating a
+                    // zero/empty buffer (Defect G's silent data-corruption failure mode).
+                    if (siblingFallbacks == null || siblingFallbacks.Count == 0)
                     {
-                        writer.WriteLine("return MarshalStringToUtf8Slice(result);");
-                    }
-                    else if (getterConversion != null)
-                    {
-                        writer.WriteLine($"var swiftResult = {getterConversion};");
-                        writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
+                        EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, $"{pascalPropertyName} getter");
+                        writer.WriteLine($"var result = impl.{pascalPropertyName};");
+                        if (isStringReturn)
+                        {
+                            writer.WriteLine("return MarshalStringToUtf8Slice(result);");
+                        }
+                        else if (getterConversion != null)
+                        {
+                            writer.WriteLine($"var swiftResult = {getterConversion};");
+                            writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
+                        }
+                        else
+                        {
+                            writer.WriteLine("return MarshalToSwiftBuffer(result);");
+                        }
                     }
                     else
                     {
-                        writer.WriteLine("return MarshalToSwiftBuffer(result);");
+                        EmitGetterLookupHit(writer, interfaceName, "primary", pascalPropertyName, getterConversion, isStringReturn);
+                        int siblingIdx = 0;
+                        foreach (var sibling in siblingFallbacks)
+                        {
+                            var siblingIface = GetQualifiedInterfaceName(sibling.Proto);
+                            EmitGetterLookupHit(writer, siblingIface, $"s{siblingIdx}", pascalPropertyName, getterConversion, isStringReturn);
+                            siblingIdx++;
+                        }
+                        EmitSiblingFanOutFailFast(writer, protocolDecl, $"{pascalPropertyName} getter");
                     }
-                }
-                else
-                {
-                    EmitGetterLookupHit(writer, interfaceName, "primary", pascalPropertyName, getterConversion, isStringReturn);
-                    int siblingIdx = 0;
-                    foreach (var sibling in siblingFallbacks)
-                    {
-                        var siblingIface = GetQualifiedInterfaceName(sibling.Proto);
-                        EmitGetterLookupHit(writer, siblingIface, $"s{siblingIdx}", pascalPropertyName, getterConversion, isStringReturn);
-                        siblingIdx++;
-                    }
-                    EmitSiblingFanOutFailFast(writer, protocolDecl, $"{pascalPropertyName} getter");
-                }
-                EmitUcoGuardCloseFailFast(writer);
-                writer.Indent--;
-                writer.WriteLine("}");
-                writer.WriteLine();
+                    EmitUcoGuardCloseFailFast(writer);
+                    writer.Indent--;
+                    writer.WriteLine("}");
+                    writer.WriteLine();
+                });
             }
         }
 
@@ -251,83 +340,87 @@ public partial class ProtocolProxyEmitter
             var receiverName = $"Receive_{property.Name}_set";
             if (emittedReceivers.Add(receiverName))
             {
-                // Issue #40: a Swift-class (or Optional<class>) value arrives as the address of a
-                // borrowed slot holding the heap pointer (&valueCopy). The runtime copy-out helper returns
-                // the wrapper (or null) directly, so the marshalled value IS the assignment value — no
-                // idiomatic cast (which would re-wrap and, for the optional, false-trip on Unsafe.Read).
-                var classCopyOut = GetReceiverClassCopyOutExpr("valuePtr", property.SwiftTypeSpec);
-
-                // Check if the property type needs conversion (e.g., SwiftOptional<SwiftString> → string?)
-                // The receiver marshals the Swift ABI type, but the interface uses the idiomatic C# type.
-                // Projection-based conversion handles existentials, strings, arrays, dicts, and optionals.
-                var returnConversion = classCopyOut != null ? null : GetReceiverSetterConversion("value", property.SwiftTypeSpec);
-                var assignmentExpr = returnConversion ?? "value";
-                // F1: Narrow nint/nuint ABI value to int/uint for property assignment.
-                // Plain nint: value is nint (MarshalFromSwift<nint>) → (int)value.
-                // Optional<nint>: returnConversion is "((nint?)value)" → (int?)((nint?)value).
-                if (classCopyOut == null && NativeIntOverloadEmitter.TryGetNarrowedType(property.SwiftTypeSpec, out var narrowedType))
-                    assignmentExpr = $"({narrowedType}){assignmentExpr}";
-
-                // String property: local MarshalFromSwift<SwiftString> uses Unsafe.Read which
-                // can't construct a managed SwiftString from raw Swift memory. Use runtime marshaller.
-                // Reference-backed collection wrappers (SwiftArray/SwiftDictionary/SwiftSet) hit the same
-                // Unsafe.Read-on-a-managed-ref hazard and route through GetReceiverRawMaterialization.
-                var marshalExpr = classCopyOut
-                    ?? (IsStringTypeSpec(property.SwiftTypeSpec)
-                        ? $"global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(valuePtr)"
-                        : GetReceiverRawMaterialization(abiTypeName, "valuePtr", property.SwiftTypeSpec));
-
-                var setterSiblings = siblingFallbacks?.Where(s => s.HasSetter).ToList();
-                if (setterSiblings == null || setterSiblings.Count == 0)
+                EmitReceiverOrDegrade(writer, "void", receiverName, "IntPtr vtHandle, IntPtr selfContainer, IntPtr valuePtr",
+                    $"{protocolDecl.Name}.{property.Name} setter", () =>
                 {
-                    writer.WriteLines($$"""
-                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-                        private static void {{receiverName}}(IntPtr vtHandle, IntPtr selfContainer, IntPtr valuePtr)
-                        {
-                            try
-                            {
-                                var handle = *(IntPtr*)selfContainer;
-                                // Design B2: resolve the impl from ProxyLifetimeTracker's strong root.
-                                // A null resolve means the impl was collected while Swift still held the
-                                // proxy — a lifetime-invariant violation — so trip the loud backstop
-                                // rather than silently dropping the write.
-                                var impl = Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<{{interfaceName}}>(handle);
-                                if (impl is null)
-                                    throw global::Swift.Runtime.SwiftClosureMarshaller.FailFastDeadProxyImpl("Swift reverse-dispatch on {{protocolDecl.Name}}.{{pascalPropertyName}} setter resolved no live C# implementation for EveryProtocol handle 0x" + handle.ToString("X") + ". The implementation was collected while Swift still held the proxy — a Design B2 lifetime-invariant violation (see ProxyLifetimeTracker).");
-                                var value = {{marshalExpr}};
-                                impl.{{pascalPropertyName}} = {{assignmentExpr}};
-                            }
-                            catch (global::System.Exception __uco_ex)
-                            {
-                                global::Swift.Runtime.SwiftClosureMarshaller.FailFastUnhandledClosureException(__uco_ex);
-                                throw;
-                            }
-                        }
+                    // Issue #40: a Swift-class (or Optional<class>) value arrives as the address of a
+                    // borrowed slot holding the heap pointer (&valueCopy). The runtime copy-out helper returns
+                    // the wrapper (or null) directly, so the marshalled value IS the assignment value — no
+                    // idiomatic cast (which would re-wrap and, for the optional, false-trip on Unsafe.Read).
+                    var classCopyOut = GetReceiverClassCopyOutExpr("valuePtr", property.SwiftTypeSpec);
 
-                        """);
-                }
-                else
-                {
-                    writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
-                    writer.WriteLine($"private static void {receiverName}(IntPtr vtHandle, IntPtr selfContainer, IntPtr valuePtr)");
-                    writer.WriteLine("{");
-                    writer.Indent++;
-                    EmitUcoGuardOpen(writer);
-                    writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
-                    writer.WriteLine($"var value = {marshalExpr};");
-                    EmitSetterLookupHit(writer, interfaceName, "primary", pascalPropertyName, assignmentExpr);
-                    int siblingIdx = 0;
-                    foreach (var sibling in setterSiblings)
+                    // Check if the property type needs conversion (e.g., SwiftOptional<SwiftString> → string?)
+                    // The receiver marshals the Swift ABI type, but the interface uses the idiomatic C# type.
+                    // Projection-based conversion handles existentials, strings, arrays, dicts, and optionals.
+                    var returnConversion = classCopyOut != null ? null : GetReceiverSetterConversion("value", property.SwiftTypeSpec);
+                    var assignmentExpr = returnConversion ?? "value";
+                    // F1: Narrow nint/nuint ABI value to int/uint for property assignment.
+                    // Plain nint: value is nint (MarshalFromSwift<nint>) → (int)value.
+                    // Optional<nint>: returnConversion is "((nint?)value)" → (int?)((nint?)value).
+                    if (classCopyOut == null && NativeIntOverloadEmitter.TryGetNarrowedType(property.SwiftTypeSpec, out var narrowedType))
+                        assignmentExpr = $"({narrowedType}){assignmentExpr}";
+
+                    // String property: local MarshalFromSwift<SwiftString> uses Unsafe.Read which
+                    // can't construct a managed SwiftString from raw Swift memory. Use runtime marshaller.
+                    // Reference-backed collection wrappers (SwiftArray/SwiftDictionary/SwiftSet) hit the same
+                    // Unsafe.Read-on-a-managed-ref hazard and route through GetReceiverRawMaterialization.
+                    var marshalExpr = classCopyOut
+                        ?? (IsStringTypeSpec(property.SwiftTypeSpec)
+                            ? $"global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(valuePtr)"
+                            : GetReceiverRawMaterialization(abiTypeName, "valuePtr", property.SwiftTypeSpec));
+
+                    var setterSiblings = siblingFallbacks?.Where(s => s.HasSetter).ToList();
+                    if (setterSiblings == null || setterSiblings.Count == 0)
                     {
-                        var siblingIface = GetQualifiedInterfaceName(sibling.Proto);
-                        EmitSetterLookupHit(writer, siblingIface, $"s{siblingIdx}", pascalPropertyName, assignmentExpr);
-                        siblingIdx++;
+                        writer.WriteLines($$"""
+                            [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
+                            private static void {{receiverName}}(IntPtr vtHandle, IntPtr selfContainer, IntPtr valuePtr)
+                            {
+                                try
+                                {
+                                    var handle = *(IntPtr*)selfContainer;
+                                    // Design B2: resolve the impl from ProxyLifetimeTracker's strong root.
+                                    // A null resolve means the impl was collected while Swift still held the
+                                    // proxy — a lifetime-invariant violation — so trip the loud backstop
+                                    // rather than silently dropping the write.
+                                    var impl = Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<{{interfaceName}}>(handle);
+                                    if (impl is null)
+                                        throw global::Swift.Runtime.SwiftClosureMarshaller.FailFastDeadProxyImpl("Swift reverse-dispatch on {{protocolDecl.Name}}.{{pascalPropertyName}} setter resolved no live C# implementation for EveryProtocol handle 0x" + handle.ToString("X") + ". The implementation was collected while Swift still held the proxy — a Design B2 lifetime-invariant violation (see ProxyLifetimeTracker).");
+                                    var value = {{marshalExpr}};
+                                    impl.{{pascalPropertyName}} = {{assignmentExpr}};
+                                }
+                                catch (global::System.Exception __uco_ex)
+                                {
+                                    global::Swift.Runtime.SwiftClosureMarshaller.FailFastUnhandledClosureException(__uco_ex);
+                                    throw;
+                                }
+                            }
+
+                            """);
                     }
-                    EmitUcoGuardCloseFailFast(writer);
-                    writer.Indent--;
-                    writer.WriteLine("}");
-                    writer.WriteLine();
-                }
+                    else
+                    {
+                        writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+                        writer.WriteLine($"private static void {receiverName}(IntPtr vtHandle, IntPtr selfContainer, IntPtr valuePtr)");
+                        writer.WriteLine("{");
+                        writer.Indent++;
+                        EmitUcoGuardOpen(writer);
+                        writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
+                        writer.WriteLine($"var value = {marshalExpr};");
+                        EmitSetterLookupHit(writer, interfaceName, "primary", pascalPropertyName, assignmentExpr);
+                        int siblingIdx = 0;
+                        foreach (var sibling in setterSiblings)
+                        {
+                            var siblingIface = GetQualifiedInterfaceName(sibling.Proto);
+                            EmitSetterLookupHit(writer, siblingIface, $"s{siblingIdx}", pascalPropertyName, assignmentExpr);
+                            siblingIdx++;
+                        }
+                        EmitUcoGuardCloseFailFast(writer);
+                        writer.Indent--;
+                        writer.WriteLine("}");
+                        writer.WriteLine();
+                    }
+                });
             }
         }
     }
@@ -642,78 +735,82 @@ public partial class ProtocolProxyEmitter
                 var paramTypes = "IntPtr vtHandle, IntPtr selfContainer" + string.Concat(
                     subscript.IndexParameters.Select((p, i) => $", IntPtr arg{i}"));
 
-                writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
-                writer.WriteLine($"private static IntPtr {receiverName}({paramTypes})");
-                writer.WriteLine("{");
-                writer.Indent++;
-                EmitUcoGuardOpen(writer);
-
-                writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
-                // subscriptIsString / subscriptGetterConv are shared by the no-sibling path and
-                // every sibling lookup-hit below. The all-siblings-missed terminal no longer
-                // fabricates a fallback buffer: like the no-sibling Design B2 path it FailFasts
-                // (EmitSiblingFanOutFailFast), since an unresolved impl across all proxies is a
-                // lifetime-invariant violation, not a value to fake.
-                var subscriptIsString = IsStringTypeSpec(subscript.ReturnTypeSpec);
-                var subscriptGetterConv = GetReceiverExistentialGetterConversion("result", subscript.ReturnTypeSpec)
-                    ?? GetReceiverGetterConversion("result", subscript.ReturnTypeSpec);
-
-                // Unmarshal index parameters once — same indexes used for every sibling lookup.
-                // P0: use ABI types for MarshalFromSwift.
-                for (int i = 0; i < subscript.IndexParameters.Count; i++)
+                EmitReceiverOrDegrade(writer, "IntPtr", receiverName, paramTypes,
+                    $"{protocolDecl.Name} subscript{RenderReceiverParamSignature(subscript.IndexParameters)} getter", () =>
                 {
-                    var param = subscript.IndexParameters[i];
-                    var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
-                    if (IsStringTypeSpec(param.SwiftTypeSpec))
-                        writer.WriteLine($"var index{i} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(arg{i}).ToString();");
-                    // Issue #40: a Swift-class index arrives as the address of a borrowed slot;
-                    // copy it out (deref + ObjC-aware retain) instead of Unsafe.Read-ing the heap pointer.
-                    else if (GetReceiverClassCopyOutExpr($"arg{i}", param.SwiftTypeSpec) is string indexClassCopyOut)
-                        writer.WriteLine($"var index{i} = {indexClassCopyOut};");
+                    writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+                    writer.WriteLine($"private static IntPtr {receiverName}({paramTypes})");
+                    writer.WriteLine("{");
+                    writer.Indent++;
+                    EmitUcoGuardOpen(writer);
+
+                    writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
+                    // subscriptIsString / subscriptGetterConv are shared by the no-sibling path and
+                    // every sibling lookup-hit below. The all-siblings-missed terminal no longer
+                    // fabricates a fallback buffer: like the no-sibling Design B2 path it FailFasts
+                    // (EmitSiblingFanOutFailFast), since an unresolved impl across all proxies is a
+                    // lifetime-invariant violation, not a value to fake.
+                    var subscriptIsString = IsStringTypeSpec(subscript.ReturnTypeSpec);
+                    var subscriptGetterConv = GetReceiverExistentialGetterConversion("result", subscript.ReturnTypeSpec)
+                        ?? GetReceiverGetterConversion("result", subscript.ReturnTypeSpec);
+
+                    // Unmarshal index parameters once — same indexes used for every sibling lookup.
+                    // P0: use ABI types for MarshalFromSwift.
+                    for (int i = 0; i < subscript.IndexParameters.Count; i++)
+                    {
+                        var param = subscript.IndexParameters[i];
+                        var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
+                        if (IsStringTypeSpec(param.SwiftTypeSpec))
+                            writer.WriteLine($"var index{i} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(arg{i}).ToString();");
+                        // Issue #40: a Swift-class index arrives as the address of a borrowed slot;
+                        // copy it out (deref + ObjC-aware retain) instead of Unsafe.Read-ing the heap pointer.
+                        else if (GetReceiverClassCopyOutExpr($"arg{i}", param.SwiftTypeSpec) is string indexClassCopyOut)
+                            writer.WriteLine($"var index{i} = {indexClassCopyOut};");
+                        else
+                            writer.WriteLine($"var index{i} = {GetReceiverRawMaterialization(paramTypeName, $"arg{i}", param.SwiftTypeSpec)};");
+                    }
+
+                    if (siblingFallbacks == null || siblingFallbacks.Count == 0)
+                    {
+                        EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, "subscript getter");
+                        writer.WriteLine($"var result = impl[{indexArgs}];");
+                        // String returns use Utf8Slice encoding to avoid ARC issues with
+                        // MarshalToSwiftBuffer<SwiftString> — same rationale as the property
+                        // getter path: SwiftString contains ARC-managed references that
+                        // Unsafe.Write can't retain properly, crashing the receiver when
+                        // Swift reads the result.
+                        if (subscriptIsString)
+                        {
+                            writer.WriteLine("return MarshalStringToUtf8Slice(result);");
+                        }
+                        else if (subscriptGetterConv != null)
+                        {
+                            writer.WriteLine($"var swiftResult = {subscriptGetterConv};");
+                            writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
+                        }
+                        else
+                        {
+                            writer.WriteLine("return MarshalToSwiftBuffer(result);");
+                        }
+                    }
                     else
-                        writer.WriteLine($"var index{i} = {GetReceiverRawMaterialization(paramTypeName, $"arg{i}", param.SwiftTypeSpec)};");
-                }
+                    {
+                        EmitSubscriptGetterLookupHit(writer, interfaceName, "primary", indexArgs, subscript.ReturnTypeSpec, subscriptGetterConv, subscriptIsString);
+                        int siblingIdx = 0;
+                        foreach (var sibling in siblingFallbacks)
+                        {
+                            var siblingIface = GetQualifiedInterfaceName(sibling.Proto);
+                            EmitSubscriptGetterLookupHit(writer, siblingIface, $"s{siblingIdx}", indexArgs, subscript.ReturnTypeSpec, subscriptGetterConv, subscriptIsString);
+                            siblingIdx++;
+                        }
+                        EmitSiblingFanOutFailFast(writer, protocolDecl, "subscript getter");
+                    }
 
-                if (siblingFallbacks == null || siblingFallbacks.Count == 0)
-                {
-                    EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, "subscript getter");
-                    writer.WriteLine($"var result = impl[{indexArgs}];");
-                    // String returns use Utf8Slice encoding to avoid ARC issues with
-                    // MarshalToSwiftBuffer<SwiftString> — same rationale as the property
-                    // getter path: SwiftString contains ARC-managed references that
-                    // Unsafe.Write can't retain properly, crashing the receiver when
-                    // Swift reads the result.
-                    if (subscriptIsString)
-                    {
-                        writer.WriteLine("return MarshalStringToUtf8Slice(result);");
-                    }
-                    else if (subscriptGetterConv != null)
-                    {
-                        writer.WriteLine($"var swiftResult = {subscriptGetterConv};");
-                        writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
-                    }
-                    else
-                    {
-                        writer.WriteLine("return MarshalToSwiftBuffer(result);");
-                    }
-                }
-                else
-                {
-                    EmitSubscriptGetterLookupHit(writer, interfaceName, "primary", indexArgs, subscript.ReturnTypeSpec, subscriptGetterConv, subscriptIsString);
-                    int siblingIdx = 0;
-                    foreach (var sibling in siblingFallbacks)
-                    {
-                        var siblingIface = GetQualifiedInterfaceName(sibling.Proto);
-                        EmitSubscriptGetterLookupHit(writer, siblingIface, $"s{siblingIdx}", indexArgs, subscript.ReturnTypeSpec, subscriptGetterConv, subscriptIsString);
-                        siblingIdx++;
-                    }
-                    EmitSiblingFanOutFailFast(writer, protocolDecl, "subscript getter");
-                }
-
-                EmitUcoGuardCloseFailFast(writer);
-                writer.Indent--;
-                writer.WriteLine("}");
-                writer.WriteLine();
+                    EmitUcoGuardCloseFailFast(writer);
+                    writer.Indent--;
+                    writer.WriteLine("}");
+                    writer.WriteLine();
+                });
             }
         }
 
@@ -726,76 +823,80 @@ public partial class ProtocolProxyEmitter
                 var paramTypes = "IntPtr vtHandle, IntPtr selfContainer, IntPtr valuePtr" + string.Concat(
                     subscript.IndexParameters.Select((p, i) => $", IntPtr arg{i}"));
 
-                writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
-                writer.WriteLine($"private static void {receiverName}({paramTypes})");
-                writer.WriteLine("{");
-                writer.Indent++;
-                EmitUcoGuardOpen(writer);
+                EmitReceiverOrDegrade(writer, "void", receiverName, paramTypes,
+                    $"{protocolDecl.Name} subscript{RenderReceiverParamSignature(subscript.IndexParameters)} setter", () =>
+                {
+                    writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+                    writer.WriteLine($"private static void {receiverName}({paramTypes})");
+                    writer.WriteLine("{");
+                    writer.Indent++;
+                    EmitUcoGuardOpen(writer);
 
-                writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
+                    writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
 
-                // Unmarshal value once — same value used for every sibling lookup.
-                if (IsStringTypeSpec(subscript.ReturnTypeSpec))
-                {
-                    writer.WriteLine($"var value = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(valuePtr).ToString();");
-                }
-                // Issue #40: a Swift-class (or Optional<class>) value arrives as the address of a
-                // borrowed slot; copy it out instead of Unsafe.Read-ing the heap pointer as a managed ref.
-                else if (GetReceiverClassCopyOutExpr("valuePtr", subscript.ReturnTypeSpec) is string valueClassCopyOut)
-                {
-                    writer.WriteLine($"var value = {valueClassCopyOut};");
-                }
-                else
-                {
-                    var subscriptSetterConv = GetReceiverExistentialSetterConversion("rawValue", subscript.ReturnTypeSpec);
-                    if (subscriptSetterConv != null)
+                    // Unmarshal value once — same value used for every sibling lookup.
+                    if (IsStringTypeSpec(subscript.ReturnTypeSpec))
                     {
-                        writer.WriteLine($"var rawValue = {GetReceiverRawMaterialization(returnTypeName, "valuePtr", subscript.ReturnTypeSpec)};");
-                        writer.WriteLine($"var value = {subscriptSetterConv};");
+                        writer.WriteLine($"var value = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(valuePtr).ToString();");
+                    }
+                    // Issue #40: a Swift-class (or Optional<class>) value arrives as the address of a
+                    // borrowed slot; copy it out instead of Unsafe.Read-ing the heap pointer as a managed ref.
+                    else if (GetReceiverClassCopyOutExpr("valuePtr", subscript.ReturnTypeSpec) is string valueClassCopyOut)
+                    {
+                        writer.WriteLine($"var value = {valueClassCopyOut};");
                     }
                     else
                     {
-                        writer.WriteLine($"var value = {GetReceiverRawMaterialization(returnTypeName, "valuePtr", subscript.ReturnTypeSpec)};");
+                        var subscriptSetterConv = GetReceiverExistentialSetterConversion("rawValue", subscript.ReturnTypeSpec);
+                        if (subscriptSetterConv != null)
+                        {
+                            writer.WriteLine($"var rawValue = {GetReceiverRawMaterialization(returnTypeName, "valuePtr", subscript.ReturnTypeSpec)};");
+                            writer.WriteLine($"var value = {subscriptSetterConv};");
+                        }
+                        else
+                        {
+                            writer.WriteLine($"var value = {GetReceiverRawMaterialization(returnTypeName, "valuePtr", subscript.ReturnTypeSpec)};");
+                        }
                     }
-                }
 
-                // Unmarshal index parameters — P0: use ABI types for MarshalFromSwift
-                for (int i = 0; i < subscript.IndexParameters.Count; i++)
-                {
-                    var param = subscript.IndexParameters[i];
-                    var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
-                    if (IsStringTypeSpec(param.SwiftTypeSpec))
-                        writer.WriteLine($"var index{i} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(arg{i}).ToString();");
-                    // Issue #40: a Swift-class index arrives as the address of a borrowed slot;
-                    // copy it out (deref + ObjC-aware retain) instead of Unsafe.Read-ing the heap pointer.
-                    else if (GetReceiverClassCopyOutExpr($"arg{i}", param.SwiftTypeSpec) is string setterIndexClassCopyOut)
-                        writer.WriteLine($"var index{i} = {setterIndexClassCopyOut};");
-                    else
-                        writer.WriteLine($"var index{i} = {GetReceiverRawMaterialization(paramTypeName, $"arg{i}", param.SwiftTypeSpec)};");
-                }
-
-                var setterSiblings = siblingFallbacks?.Where(s => s.HasSetter).ToList();
-                if (setterSiblings == null || setterSiblings.Count == 0)
-                {
-                    EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, "subscript setter");
-                    writer.WriteLine($"impl[{indexArgs}] = value;");
-                }
-                else
-                {
-                    EmitSubscriptSetterLookupHit(writer, interfaceName, "primary", indexArgs);
-                    int siblingIdx = 0;
-                    foreach (var sibling in setterSiblings)
+                    // Unmarshal index parameters — P0: use ABI types for MarshalFromSwift
+                    for (int i = 0; i < subscript.IndexParameters.Count; i++)
                     {
-                        var siblingIface = GetQualifiedInterfaceName(sibling.Proto);
-                        EmitSubscriptSetterLookupHit(writer, siblingIface, $"s{siblingIdx}", indexArgs);
-                        siblingIdx++;
+                        var param = subscript.IndexParameters[i];
+                        var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
+                        if (IsStringTypeSpec(param.SwiftTypeSpec))
+                            writer.WriteLine($"var index{i} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(arg{i}).ToString();");
+                        // Issue #40: a Swift-class index arrives as the address of a borrowed slot;
+                        // copy it out (deref + ObjC-aware retain) instead of Unsafe.Read-ing the heap pointer.
+                        else if (GetReceiverClassCopyOutExpr($"arg{i}", param.SwiftTypeSpec) is string setterIndexClassCopyOut)
+                            writer.WriteLine($"var index{i} = {setterIndexClassCopyOut};");
+                        else
+                            writer.WriteLine($"var index{i} = {GetReceiverRawMaterialization(paramTypeName, $"arg{i}", param.SwiftTypeSpec)};");
                     }
-                }
 
-                EmitUcoGuardCloseFailFast(writer);
-                writer.Indent--;
-                writer.WriteLine("}");
-                writer.WriteLine();
+                    var setterSiblings = siblingFallbacks?.Where(s => s.HasSetter).ToList();
+                    if (setterSiblings == null || setterSiblings.Count == 0)
+                    {
+                        EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, "subscript setter");
+                        writer.WriteLine($"impl[{indexArgs}] = value;");
+                    }
+                    else
+                    {
+                        EmitSubscriptSetterLookupHit(writer, interfaceName, "primary", indexArgs);
+                        int siblingIdx = 0;
+                        foreach (var sibling in setterSiblings)
+                        {
+                            var siblingIface = GetQualifiedInterfaceName(sibling.Proto);
+                            EmitSubscriptSetterLookupHit(writer, siblingIface, $"s{siblingIdx}", indexArgs);
+                            siblingIdx++;
+                        }
+                    }
+
+                    EmitUcoGuardCloseFailFast(writer);
+                    writer.Indent--;
+                    writer.WriteLine("}");
+                    writer.WriteLine();
+                });
             }
         }
     }
@@ -939,6 +1040,34 @@ public partial class ProtocolProxyEmitter
             siblingFallbacks = _emissionContext.GetSiblingMethodFallbacks(protoQNameForMethod, methodMapKey);
         }
 
+        // The method receiver's marshalling (per-param setter conversions, the return
+        // existential-getter conversion) can throw SuppressedProxyReferenceException when an
+        // existential touches a protocol proxy whose EveryProtocol conformance was suppressed at
+        // generation. Guard the whole body: on throw the partial body is rolled back and the receiver
+        // re-emitted as a fail-fast stub that keeps this exact signature (csharpReturnType /
+        // receiverName / paramTypes), so the vtable static-init that address-takes &Receive_* still
+        // resolves (a missing symbol is CS0103). The closure / async-closure / real-async receiver
+        // shapes returned early above and are not routed through here — they take dedicated emit paths.
+        EmitReceiverOrDegrade(writer, csharpReturnType, receiverName, paramTypes,
+            $"{protocolDecl.Name}.{method.Name}{RenderReceiverParamSignature(nonEmptyParams)}",
+            () => EmitMethodReceiverBody(writer, method, protocolDecl, interfaceName, index,
+                receiverName, paramTypes, csharpReturnType, returnType, hasReturn,
+                nonEmptyParams, closureHandlerForParams, siblingFallbacks));
+    }
+
+    /// <summary>
+    /// Emits the live body of a plain value-shaped method receiver — the non-closure / non-async path
+    /// of <see cref="EmitMethodReceiver"/>. Factored out so <see cref="EmitReceiverOrDegrade"/> can
+    /// wrap it in the suppressed-proxy checkpoint/rollback guard without reindenting the body. May throw
+    /// <see cref="SuppressedProxyReferenceException"/> from its param/return marshalling; the caller
+    /// catches it and degrades the receiver to a fail-fast stub.
+    /// </summary>
+    private void EmitMethodReceiverBody(CSharpWriter writer, MethodDecl method,
+        ProtocolDecl protocolDecl, string interfaceName, int index, string receiverName,
+        string paramTypes, string csharpReturnType, TypeSpec? returnType, bool hasReturn,
+        List<ArgumentDecl> nonEmptyParams, ClosureHandler closureHandlerForParams,
+        IReadOnlyList<ModuleEmissionContext.SiblingMethodFallback>? siblingFallbacks)
+    {
         writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         writer.WriteLine($"private static {csharpReturnType} {receiverName}({paramTypes})");
         writer.WriteLine("{");

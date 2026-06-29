@@ -221,6 +221,77 @@ public class EmissionReportEmitterTests
     }
 
     [Fact]
+    public void TryRecordDegradedReverseDispatchReceiver_DedupsPerMemberAndIgnoresEmpty()
+    {
+        // B3 graceful degradation: a reverse-dispatch receiver whose existential payload references a
+        // suppressed proxy is rolled back to a fail-fast stub and recorded once. First sighting returns
+        // true (newly recorded), repeats return false, blanks are ignored — so SWIFTBIND061 fires exactly
+        // once per affected member regardless of how many emission sites touched it.
+        var ctx = new ModuleEmissionContext();
+
+        Assert.True(ctx.TryRecordDegradedReverseDispatchReceiver("BoxableSink.boxable setter"));
+        Assert.False(ctx.TryRecordDegradedReverseDispatchReceiver("BoxableSink.boxable setter"));
+        Assert.True(ctx.TryRecordDegradedReverseDispatchReceiver("BoxableAccepting.consume()"));
+        Assert.False(ctx.TryRecordDegradedReverseDispatchReceiver(""));
+        Assert.False(ctx.TryRecordDegradedReverseDispatchReceiver(null!));
+
+        Assert.Equal(2, ctx.DegradedReverseDispatchReceivers.Count);
+    }
+
+    [Fact]
+    public void BuildReport_DegradedReverseDispatchReceivers_SortedAndDeduped()
+    {
+        var ctx = new ModuleEmissionContext();
+        ctx.TryRecordDegradedReverseDispatchReceiver("BoxableSink.boxable setter");
+        ctx.TryRecordDegradedReverseDispatchReceiver("BoxableAccepting.consume()");
+        ctx.TryRecordDegradedReverseDispatchReceiver("BoxableSink.boxable setter"); // duplicate — should dedup
+
+        var report = EmissionReportEmitter.BuildReport(ctx, "TestModule");
+
+        Assert.Equal(
+            new[] { "BoxableAccepting.consume()", "BoxableSink.boxable setter" },
+            report.DegradedReverseDispatchReceivers);
+    }
+
+    [Fact]
+    public void BuildReport_EmptyContext_DegradedReverseDispatchReceiversEmpty()
+    {
+        var ctx = new ModuleEmissionContext();
+        var report = EmissionReportEmitter.BuildReport(ctx, "TestModule");
+
+        Assert.Empty(report.DegradedReverseDispatchReceivers);
+    }
+
+    [Fact]
+    public void Emit_DegradedReverseDispatchReceivers_LogsSwiftbind061OncePerMember()
+    {
+        // The "ship the module instead of aborting" requirement: Emit must raise exactly one SWIFTBIND061
+        // warning per degraded reverse-dispatch receiver, naming the member, so the degradation is visible
+        // at generation time rather than only as a runtime fail-fast.
+        var ctx = new ModuleEmissionContext();
+        ctx.TryRecordDegradedReverseDispatchReceiver("BoxableSink.boxable setter");
+        ctx.TryRecordDegradedReverseDispatchReceiver("BoxableAccepting.consume()");
+        var logger = new CapturingLogger();
+        var tmpDir = Directory.CreateTempSubdirectory().FullName;
+
+        try
+        {
+            EmissionReportEmitter.Emit(ctx, "TestModule", tmpDir, logger);
+        }
+        finally
+        {
+            Directory.Delete(tmpDir, recursive: true);
+        }
+
+        var swiftbind061 = logger.Entries
+            .Where(e => e.Level == LogLevel.Warning && e.Message.Contains("SWIFTBIND061"))
+            .ToList();
+        Assert.Equal(2, swiftbind061.Count);
+        Assert.Contains(swiftbind061, e => e.Message.Contains("BoxableSink.boxable setter"));
+        Assert.Contains(swiftbind061, e => e.Message.Contains("BoxableAccepting.consume()"));
+    }
+
+    [Fact]
     public void EmitDegradationDiagnostics_LogsSwiftbind025OncePerCommentDrop()
     {
         // Finding 53: every // Unsupported: comment-drop the report carries surfaces as exactly one

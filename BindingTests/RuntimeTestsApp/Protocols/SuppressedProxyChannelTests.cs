@@ -681,4 +681,204 @@ public class SuppressedProxyChannelTests : TestBase
             "BoxableProxy is suppressed — the container element existential cannot be deserialized, so " +
             "the user delegate must never fire and the call must still complete without throwing.");
     }
+
+    // ============================================================
+    // REVERSE-DISPATCH RECEIVER channels (B3, 2026-06-29)
+    //
+    // BoxableSink / BoxableAccepting / BoxableSubscriptSink have NO init() requirement, so their
+    // OWN proxies (BoxableSinkProxy / BoxableAcceptingProxy / BoxableSubscriptSinkProxy) ARE emitted.
+    // The suppressed proxy is the inner `any Boxable` payload's BoxableProxy. The proxy's
+    // reverse-dispatch receiver trampolines — Receive_boxable_set (a settable existential property's
+    // setter receiver), Receive_consume_* (an existential method param's receiver), and
+    // Receive_subscript_*_set (a settable existential subscript's setter receiver) — would CONSUME a
+    // Swift `any Boxable` into a C# IBoxable via `new BoxableProxy(...)`, which throws
+    // SuppressedProxyReferenceException during string projection. BEFORE the B3 fix that
+    // exception propagated uncaught to StringEmitter.EmitModule and aborted the WHOLE module
+    // (no .cs produced) — the exact FBSDKShareKit SharingContentProxy failure. The fix degrades
+    // just those receivers to a fail-fast stub (keeping the &Receive_* static-init address-take
+    // valid) so the rest of the module ships.
+    //
+    // The reverse-dispatch FailFast itself is unreachable from these fixtures (no Swift entry
+    // point hands a C# IBoxableSink/IBoxableAccepting back to Swift to call its setter/method),
+    // and a degraded receiver aborts the process if ever invoked — so it is covered STRUCTURALLY
+    // (compile gate: the receiver symbol stays defined, 0 CS errors; emission report:
+    // degradedReverseDispatchReceivers lists both members; SWIFTBIND061 warns per member). What
+    // these runtime tests prove is the GRACEFUL-DEGRADATION outcome the fix exists for: the module
+    // emitted at all, and the FORWARD-dispatch surface on the proxy-emitted protocols still works.
+    // ============================================================
+
+    /// <summary>
+    /// B3 graceful degradation — settable existential property. <c>BoxableSink</c> is the exact
+    /// FBSDKShareKit <c>SharingContentProxy</c> shape (a settable <c>any Boxable</c> property on a
+    /// proxy-emitted protocol). Before the fix the suppressed-proxy reference on the
+    /// <c>Receive_boxable_set</c> receiver aborted the whole module. Now the module ships:
+    /// <c>BoxableSinkImpl</c> constructs, the forward setter (CONSUME) round-trips through
+    /// <c>GetCurrentValue()</c>, and the forward getter (PRODUCE) throws as a normal degraded member.
+    /// </summary>
+    public void TestBoxableSinkForwardRoundTripsModuleEmitted()
+    {
+        using var sink = new BoxableSinkImpl(3);
+        AssertEqual(3, sink.GetCurrentValue(),
+            "BoxableSinkImpl(3) must construct and read back boxedValue() == 3. If the module had " +
+            "aborted on the suppressed-proxy Receive_boxable_set receiver (the pre-B3 behaviour), none " +
+            "of these types would exist — this is the graceful-degradation headline assertion.");
+
+        using var cell = new BoxableIntCell(9);
+        sink.Boxable = cell;
+        AssertEqual(9, sink.GetCurrentValue(),
+            "BoxableSink.Boxable forward setter (CONSUME) must box and store the conformer; " +
+            "GetCurrentValue() reads boxedValue() back Swift-side, proving the forward setter round-trip " +
+            "survives even though the reverse-dispatch Receive_boxable_set receiver degraded.");
+
+        AssertThrows<NotSupportedException>(
+            () => { var _ = sink.Boxable; },
+            "BoxableSink.Boxable forward getter returns `any Boxable` (PRODUCE) and is a normal degraded " +
+            "throw stub; the settable property still emits a usable setter.");
+    }
+
+    /// <summary>
+    /// B3 graceful degradation — Swift-vended settable existential. <c>MakeBoxableSink(7)</c> returns a
+    /// non-null <c>IBoxableSink</c> (the <c>BoxableSinkProxy</c>/factory emitted, not aborted on the
+    /// suppressed <c>Receive_boxable_set</c> receiver) — that non-null return IS the graceful-degradation
+    /// headline. The returned value is a Swift-VENDED existential, so a forward <c>Boxable</c> getter on it
+    /// throws the PRE-EXISTING "Swift-backed existential container" limitation (forward member access is
+    /// only supported when the proxy wraps a C# implementation — see ProtocolProxyEmitter.InterfaceImpl.cs),
+    /// NOT a B3 abort.
+    /// </summary>
+    public void TestMakeBoxableSinkReturnsSwiftVendedExistential()
+    {
+        var sink = TestLibFunctions.MakeBoxableSink(7);
+        try
+        {
+            AssertNotNull(sink,
+                "MakeBoxableSink(7) must return a non-null IBoxableSink — proving the module emitted " +
+                "(factory + BoxableSinkProxy present) instead of aborting on the suppressed " +
+                "Receive_boxable_set receiver. This is the graceful-degradation headline assertion.");
+
+            AssertThrows<NotSupportedException>(
+                () => { var _ = sink.Boxable; },
+                "The `any Boxable` getter on a SWIFT-VENDED existential hits the pre-existing 'Swift-backed " +
+                "existential container' forward-dispatch limitation (only supported when the proxy wraps a " +
+                "C# impl) — unrelated to B3.");
+        }
+        finally
+        {
+            (sink as IDisposable)?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// B3 graceful degradation — existential method parameter. <c>BoxableAccepting.consume(any Boxable)</c>
+    /// is a proxy-emitted protocol whose <c>Receive_consume_*</c> receiver would CONSUME a Swift
+    /// existential via the suppressed proxy. The forward <c>Consume(IBoxable)</c> (CONSUME) round-trips:
+    /// boxing a <c>BoxableIntCell(13)</c> and dispatching <c>boxedValue()</c> Swift-side returns 13.
+    /// </summary>
+    public void TestBoxableAcceptingForwardConsumeRoundTrips()
+    {
+        using var accepting = new BoxableAcceptingImpl();
+        using var cell = new BoxableIntCell(13);
+        var result = accepting.Consume(cell);
+        TestLogger.Info($"BoxableAcceptingImpl().Consume(BoxableIntCell(13)) = {result}");
+        AssertEqual(13, result,
+            "BoxableAccepting.Consume forward method (CONSUME) must box the IBoxable arg and dispatch " +
+            "boxedValue() Swift-side, returning 13 — proving the forward param channel survives even " +
+            "though the reverse-dispatch Receive_consume_* receiver degraded to a fail-fast stub.");
+    }
+
+    /// <summary>
+    /// B3 graceful degradation — Swift-vended method-param existential. <c>MakeBoxableAccepting()</c>
+    /// returns a non-null <c>IBoxableAccepting</c> (the <c>BoxableAcceptingProxy</c>/factory emitted,
+    /// not aborted on the suppressed <c>Receive_consume_*</c> receiver) — that non-null return IS the
+    /// graceful-degradation headline. The returned value is a Swift-VENDED existential, so a forward
+    /// <c>Consume</c> call on it throws the PRE-EXISTING "Swift-backed existential container" limitation
+    /// (forward C#→Swift method dispatch is only supported when the proxy wraps a C# implementation —
+    /// see ProtocolProxyEmitter.InterfaceImpl.cs), NOT a B3 abort. Contrast the sibling
+    /// <see cref="TestBoxableAcceptingForwardConsumeRoundTrips"/>, which forward-calls <c>Consume</c> on a
+    /// CONCRETE <c>BoxableAcceptingImpl</c> (not an existential) and round-trips.
+    /// </summary>
+    public void TestMakeBoxableAcceptingReturnsSwiftVendedExistential()
+    {
+        var accepting = TestLibFunctions.MakeBoxableAccepting();
+        try
+        {
+            AssertNotNull(accepting,
+                "MakeBoxableAccepting() must return a non-null IBoxableAccepting — proving the module " +
+                "emitted (factory + BoxableAcceptingProxy present) instead of aborting on the suppressed " +
+                "Receive_consume_* receiver. This is the graceful-degradation headline assertion.");
+
+            using var cell = new BoxableIntCell(21);
+            AssertThrows<NotSupportedException>(
+                () => { var _ = accepting.Consume(cell); },
+                "Consume on a SWIFT-VENDED any BoxableAccepting hits the pre-existing 'Swift-backed " +
+                "existential container' forward-dispatch limitation (only supported when the proxy wraps a " +
+                "C# impl) — unrelated to B3. The concrete-class path round-trips in " +
+                "TestBoxableAcceptingForwardConsumeRoundTrips.");
+        }
+        finally
+        {
+            (accepting as IDisposable)?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// B3 graceful degradation — settable existential SUBSCRIPT. <c>BoxableSubscriptSink</c> is the
+    /// subscript analogue of <c>BoxableSink</c> (a settable <c>any Boxable</c> subscript on a
+    /// proxy-emitted protocol), exercising the <c>Receive_subscript_*_set</c> receiver channel that the
+    /// other reverse-dispatch fixtures don't reach. Before the fix the suppressed-proxy reference on that
+    /// receiver aborted the whole module. Now the module ships: <c>BoxableSubscriptSinkImpl</c>
+    /// constructs, the forward subscript setter (CONSUME) round-trips through <c>ValueAt(int)</c>, and the
+    /// forward subscript getter (PRODUCE) throws as a normal degraded member.
+    /// </summary>
+    public void TestBoxableSubscriptSinkForwardRoundTripsModuleEmitted()
+    {
+        using var sink = new BoxableSubscriptSinkImpl(5);
+        AssertEqual(5, sink.ValueAt(0),
+            "BoxableSubscriptSinkImpl(5) must construct and read back boxedValue() == 5 at index 0. If the " +
+            "module had aborted on the suppressed-proxy Receive_subscript_*_set receiver (the pre-B3 " +
+            "behaviour), none of these types would exist — the graceful-degradation headline assertion.");
+
+        using var cell = new BoxableIntCell(8);
+        sink[1] = cell;
+        AssertEqual(8, sink.ValueAt(1),
+            "BoxableSubscriptSink subscript forward setter (CONSUME) must box and store the conformer; " +
+            "ValueAt(1) reads boxedValue() back Swift-side, proving the forward subscript setter round-trip " +
+            "survives even though the reverse-dispatch Receive_subscript_*_set receiver degraded.");
+
+        AssertThrows<NotSupportedException>(
+            () => { var _ = sink[0]; },
+            "BoxableSubscriptSink subscript forward getter returns `any Boxable` (PRODUCE) and is a normal " +
+            "degraded throw stub; the settable subscript still emits a usable setter.");
+    }
+
+    /// <summary>
+    /// B3 graceful degradation — Swift-vended settable existential subscript.
+    /// <c>MakeBoxableSubscriptSink(7)</c> returns a non-null <c>IBoxableSubscriptSink</c> (the
+    /// <c>BoxableSubscriptSinkProxy</c>/factory emitted, not aborted on the suppressed
+    /// <c>Receive_subscript_*_set</c> receiver) — that non-null return IS the graceful-degradation
+    /// headline. The returned value is a Swift-VENDED existential, so a forward subscript getter on it
+    /// throws the PRE-EXISTING "Swift-backed existential container" limitation (forward member access is
+    /// only supported when the proxy wraps a C# implementation — see
+    /// ProtocolProxyEmitter.InterfaceImpl.cs), NOT a B3 abort.
+    /// </summary>
+    public void TestMakeBoxableSubscriptSinkReturnsSwiftVendedExistential()
+    {
+        var sink = TestLibFunctions.MakeBoxableSubscriptSink(7);
+        try
+        {
+            AssertNotNull(sink,
+                "MakeBoxableSubscriptSink(7) must return a non-null IBoxableSubscriptSink — proving the " +
+                "module emitted (factory + BoxableSubscriptSinkProxy present) instead of aborting on the " +
+                "suppressed Receive_subscript_*_set receiver. This is the graceful-degradation headline.");
+
+            AssertThrows<NotSupportedException>(
+                () => { var _ = sink[0]; },
+                "The `any Boxable` subscript getter on a SWIFT-VENDED existential hits the pre-existing " +
+                "'Swift-backed existential container' forward-dispatch limitation (only supported when the " +
+                "proxy wraps a C# impl) — unrelated to B3.");
+        }
+        finally
+        {
+            (sink as IDisposable)?.Dispose();
+        }
+    }
 }

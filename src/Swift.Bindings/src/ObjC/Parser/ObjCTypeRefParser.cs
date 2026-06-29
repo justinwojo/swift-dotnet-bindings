@@ -187,12 +187,25 @@ public static class ObjCTypeRefParser
         if (s.StartsWith("__kindof ", StringComparison.Ordinal))
             s = s[9..];
 
+        // Strip ARC ownership qualifiers. clang prints these as trailing tokens on a
+        // pointer qualType (e.g. block params arrive as "NSData * __strong"); left in
+        // place they keep the trailing "*" from being recognized, so the pointer is
+        // never mapped and the raw ObjC text leaks into the generated C#. They carry no
+        // C# binding meaning. Match on word boundaries so a tag/typedef whose name merely
+        // begins with one of these tokens (e.g. "__strongBox") is not mangled; the
+        // collapse-spaces + Trim below tidy any residue. Covers nested generic arguments too.
+        s = ArcOwnershipQualifierRegex.Replace(s, " ");
+
         // Collapse multiple spaces
         while (s.Contains("  "))
             s = s.Replace("  ", " ");
 
         return s.Trim();
     }
+
+    private static readonly System.Text.RegularExpressions.Regex ArcOwnershipQualifierRegex =
+        new(@"\b(?:__strong|__weak|__unsafe_unretained|__autoreleasing)\b",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private static readonly string[] MacroPrefixes = ["NS_", "API_", "__API_", "__TVOS_", "__IOS_", "__WATCHOS_", "UI_", "OS_", "CF_"];
 

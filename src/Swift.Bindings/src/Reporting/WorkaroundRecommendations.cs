@@ -70,6 +70,8 @@ public static class WorkaroundRecommendations
             "The frozen struct has a stored field that is a generic value-type instantiation (e.g. ClosedRange<Int>, Result<T,E>) whose inline size depends on its type arguments and cannot be derived cross-compile. Write a Swift wrapper that exposes the data through a supported, concretely-sized type.",
         SkipReason.NetUnavailableType =>
             "The Swift type is auto-bridged but not yet present in the .NET Foundation assembly. Write a Swift wrapper that exposes the data through a supported type (e.g. a plain String).",
+        SkipReason.AbsentFrameworkType =>
+            "The member references a framework type that has no .NET binding available. Add a binding for the framework that declares the type, or write a Swift wrapper that exposes the data through a supported type.",
         SkipReason.Unknown =>
             "Investigate the specific member in the generator output.",
         _ => null,
@@ -137,6 +139,8 @@ public static class WorkaroundRecommendations
             "frozen struct stored field has an indeterminate cross-compile Buffer layout (generic value-type instantiation)",
         SkipReason.NetUnavailableType =>
             "Foundation type not yet available in .NET",
+        SkipReason.AbsentFrameworkType =>
+            "framework type has no .NET binding available",
         SkipReason.Unknown =>
             "unclassified skip reason",
         _ => null,

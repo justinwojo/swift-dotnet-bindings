@@ -113,4 +113,103 @@ public class ValidationRuleSetClassificationTests
         Assert.True(ValidationRuleSet.ReferencesUnsupportedModule(new NamedTypeSpec(Lsr)));
         Assert.True(ValidationRuleSet.ReferencesUnsupportedModule(new NamedTypeSpec(Predicate)));
     }
+
+    // --- C1: absent-framework-type guard (value-type USR + ObjC-bridge-synthesized record) ---
+    //
+    // StoreKit is autoBridge=true and `Transaction` is not in its value-type exclusion list, so
+    // the loose ObjC-module test synthesizes a *class*-shaped ObjCBridged record for it even though
+    // no `StoreKit.Transaction` exists in the .NET StoreKit namespace. Emitting that reference is
+    // the CS0234 leak. The USR mangling suffix (`…TransactionV`, V = struct) is the precise signal
+    // that the synthesized class record is wrong; the member must be skipped, not emitted.
+    private const string StoreKitTransaction = "StoreKit.Transaction";
+    private const string StoreKitTransactionValueUsr = "s:8StoreKit11TransactionV";
+    private const string StoreKitTransactionClassUsr = "s:8StoreKit11TransactionC";
+
+    [Fact]
+    public void Classify_ValueTypeUsr_BridgeSynthesizedRecord_IsAbsentBridgedValueType()
+    {
+        var db = new TypeDatabase();
+        var spec = new NamedTypeSpec(StoreKitTransaction) { Usr = StoreKitTransactionValueUsr };
+
+        var kind = ValidationRuleSet.ClassifyUnsupportedReference(spec, db, out var offending);
+
+        Assert.Equal(ValidationRuleSet.UnsupportedReferenceKind.AbsentBridgedValueType, kind);
+        Assert.Equal(StoreKitTransaction, offending);
+    }
+
+    [Fact]
+    public void Classify_ClassUsr_SameBridgedRecord_IsNotAbsentBridgedValueType()
+    {
+        // A class USR (suffix C) is legitimately bridgeable — the guard must not fire, otherwise it
+        // would suppress every real ObjC class reference. Same type, same synthesized record; only
+        // the USR kind differs.
+        var db = new TypeDatabase();
+        var spec = new NamedTypeSpec(StoreKitTransaction) { Usr = StoreKitTransactionClassUsr };
+
+        var kind = ValidationRuleSet.ClassifyUnsupportedReference(spec, db, out _);
+
+        Assert.NotEqual(ValidationRuleSet.UnsupportedReferenceKind.AbsentBridgedValueType, kind);
+    }
+
+    [Fact]
+    public void Classify_ValueTypeUsr_NoUsr_IsNotAbsentBridgedValueType()
+    {
+        // Without a USR the discriminator has no signal, so the guard cannot fire — this preserves
+        // the pre-fix behavior for every reference the parser does not carry a USR for.
+        var db = new TypeDatabase();
+        var spec = new NamedTypeSpec(StoreKitTransaction);
+
+        var kind = ValidationRuleSet.ClassifyUnsupportedReference(spec, db, out _);
+
+        Assert.NotEqual(ValidationRuleSet.UnsupportedReferenceKind.AbsentBridgedValueType, kind);
+    }
+
+    [Fact]
+    public void Classify_ValueTypeUsr_NullDb_IsNotAbsentBridgedValueType()
+    {
+        // The guard requires a TypeDatabase to confirm the bridge actually synthesizes an
+        // ObjCBridged record; with no database it cannot positively identify the absent type.
+        var spec = new NamedTypeSpec(StoreKitTransaction) { Usr = StoreKitTransactionValueUsr };
+
+        var kind = ValidationRuleSet.ClassifyUnsupportedReference(spec, typeDatabase: null, out _);
+
+        Assert.NotEqual(ValidationRuleSet.UnsupportedReferenceKind.AbsentBridgedValueType, kind);
+    }
+
+    [Fact]
+    public void Classify_ValueTypeUsr_NonBridgingModule_IsNotAbsentBridgedValueType()
+    {
+        // A value-type USR in a module the ObjC bridge does not synthesize (no ObjCBridged record)
+        // is not an absent *framework* type — the flag gate, not just the USR, must hold.
+        var db = new TypeDatabase();
+        var spec = new NamedTypeSpec("UnknownModule.Widget") { Usr = "s:13UnknownModule6WidgetV" };
+
+        var kind = ValidationRuleSet.ClassifyUnsupportedReference(spec, db, out _);
+
+        Assert.NotEqual(ValidationRuleSet.UnsupportedReferenceKind.AbsentBridgedValueType, kind);
+    }
+
+    [Fact]
+    public void Classify_OptionalOfValueTypeUsr_IsAbsentBridgedValueType()
+    {
+        // The guard recurses through generic arguments: Optional<StoreKit.Transaction> with the
+        // inner USR threaded must classify on the inner absent type (mirrors the parser fix that
+        // threads the inner USR through Optional<>).
+        var db = new TypeDatabase();
+        var inner = new NamedTypeSpec(StoreKitTransaction) { Usr = StoreKitTransactionValueUsr };
+        var optional = new NamedTypeSpec("Swift.Optional", inner);
+
+        var kind = ValidationRuleSet.ClassifyUnsupportedReference(optional, db, out var offending);
+
+        Assert.Equal(ValidationRuleSet.UnsupportedReferenceKind.AbsentBridgedValueType, kind);
+        Assert.Equal(StoreKitTransaction, offending);
+    }
+
+    [Fact]
+    public void ToSkipReason_AbsentBridgedValueType_MapsToAbsentFrameworkType()
+    {
+        Assert.Equal(
+            SkipReason.AbsentFrameworkType,
+            ValidationRuleSet.ToSkipReason(ValidationRuleSet.UnsupportedReferenceKind.AbsentBridgedValueType));
+    }
 }

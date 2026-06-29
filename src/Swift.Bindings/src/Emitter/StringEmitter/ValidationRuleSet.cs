@@ -62,6 +62,14 @@ public static class ValidationRuleSet
         /// skip/never produce, or a module-internal type — the existing "unsupported module" buckets.
         /// </summary>
         OtherUnsupported,
+
+        /// <summary>
+        /// References a framework value type (struct/enum, by its Swift USR) that the type database
+        /// resolves only by synthesizing a bridged ObjC <em>class</em> record. No real binding for the
+        /// type exists, so the synthesized class reference would dangle as a CS0234. Drives a loud
+        /// generation-time warning and a distinct <see cref="SkipReason.AbsentFrameworkType"/>.
+        /// </summary>
+        AbsentBridgedValueType,
     }
 
     /// <summary>
@@ -77,14 +85,18 @@ public static class ValidationRuleSet
 
     /// <summary>
     /// Maps an <see cref="UnsupportedReferenceKind"/> to the report <see cref="SkipReason"/>:
-    /// a .NET-unavailable Foundation type gets <see cref="SkipReason.NetUnavailableType"/>; every
-    /// other unsupported reference keeps the historical <see cref="SkipReason.SwiftUIConstraint"/>
+    /// a .NET-unavailable Foundation type gets <see cref="SkipReason.NetUnavailableType"/>; a
+    /// USR-proven absent framework value type gets <see cref="SkipReason.AbsentFrameworkType"/>;
+    /// every other unsupported reference keeps the historical <see cref="SkipReason.SwiftUIConstraint"/>
     /// at the member-gate sites that previously hardcoded it.
     /// </summary>
     public static SkipReason ToSkipReason(UnsupportedReferenceKind kind)
-        => kind == UnsupportedReferenceKind.NetUnavailable
-            ? SkipReason.NetUnavailableType
-            : SkipReason.SwiftUIConstraint;
+        => kind switch
+        {
+            UnsupportedReferenceKind.NetUnavailable => SkipReason.NetUnavailableType,
+            UnsupportedReferenceKind.AbsentBridgedValueType => SkipReason.AbsentFrameworkType,
+            _ => SkipReason.SwiftUIConstraint,
+        };
 
     /// <summary>
     /// Classifies <em>why</em> a TypeSpec reference is unsupported (see <see cref="UnsupportedReferenceKind"/>),
@@ -170,6 +182,22 @@ public static class ValidationRuleSet
                         return UnsupportedReferenceKind.OtherUnsupported;
                     }
                     // Registered non-generic type — fall through to generic parameter check
+                }
+                // A framework value type (its Swift USR ends in V/O) that the type database can
+                // only resolve by synthesizing a bridged ObjC *class* record. The ObjC bridging
+                // strategy fabricates a Class record for any unregistered type in an auto-bridged
+                // module, but a value type is not an ObjC class — the synthesized reference points
+                // at a C# class the framework's binding never defines, so emitting it yields a
+                // CS0234 dangling reference. The cheap USR/module/registration checks gate the
+                // expensive full-cascade resolve, which is the only call that runs the synthesis.
+                if (namedType.IsUsrValueType && namedType.HasModule() && typeDatabase != null &&
+                    !typeDatabase.TryGetTypeRecord(
+                        SwiftTypeName.FromModuleQualifiedName(namedType.Name), out _) &&
+                    typeDatabase.TryGetTypeRecord(namedType, out var synthesizedRecord) &&
+                    synthesizedRecord.Flags.HasFlag(TypeRecordFlags.ObjCBridged))
+                {
+                    offendingType = namedType.Name;
+                    return UnsupportedReferenceKind.AbsentBridgedValueType;
                 }
                 foreach (var genericParam in namedType.GenericParameters)
                 {

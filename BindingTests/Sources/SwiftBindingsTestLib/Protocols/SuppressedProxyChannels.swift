@@ -434,3 +434,106 @@ public func makeManyBoxablesAsyncOptional(_ seed: Int32) async -> [any Boxable]?
 public func runBoxableListConsumer(_ cb: ([any Boxable]) -> Void) {
     cb([BoxableIntCell(value: 1), BoxableIntCell(value: 2)])
 }
+
+// MARK: ============================================================
+// MARK: REVERSE-DISPATCH RECEIVER channels (2026-06-29)
+//
+// Every Category-B fixture above exercises the proxy class's FORWARD-dispatch
+// (interface-impl) existential RETURN. None exercises the REVERSE-dispatch RECEIVER
+// channel: when a C# class implements the protocol and Swift calls back into it, the
+// proxy emits `[UnmanagedCallersOnly] Receive_*` trampolines that marshal Swift→C#. A
+// settable existential PROPERTY's setter receiver and an existential METHOD PARAM's
+// receiver both CONSUME a Swift existential into a C# `IBoxable`, which constructs
+// `new BoxableProxy(...)` — and with `BoxableProxy` suppressed, that string projection
+// throws `SuppressedProxyReferenceException`. The receiver gate must keep the trampoline
+// symbol DEFINED (the vtable static-init address-takes `&Receive_*` BEFORE the receiver
+// body is emitted, so a missing symbol is CS0103) with a fail-fast body, never abort the
+// whole module. None of these protocols declare `init()`, so their OWN proxies ARE emitted
+// (the suppression is only of the inner `any Boxable` payload's `BoxableProxy`). This is
+// the in-repo durable gate for the third-party FBSDKShareKit `SharingContentProxy` shape,
+// which hit the receiver SETTER channel (`GetReceiverExistentialSetterConversion`).
+// MARK: ============================================================
+
+// MARK: CONSUME (receiver set) + PRODUCE (receiver get) — settable existential property
+
+/// Settable existential property on a proxy-emitted protocol — the exact FBSDKShareKit
+/// `SharingContentProxy` shape. `BoxableSink` has no `init()` requirement, so its own
+/// `BoxableSinkProxy` IS emitted; the proxy's reverse-dispatch `Receive_boxable_set`
+/// trampoline CONSUMEs a Swift `any Boxable` into a C# `IBoxable` → constructs
+/// `new BoxableProxy(...)` → throws during string projection. The receiver gate degrades
+/// that trampoline to a fail-fast body (keeping the `&Receive_boxable_set` static-init
+/// address-take valid) instead of aborting the module.
+public protocol BoxableSink {
+    var boxable: any Boxable { get set }
+}
+
+/// Concrete conformer + a vendor that hands C# an `any BoxableSink`, forcing the
+/// `BoxableSinkProxy` class (and thus its receiver trampolines) to be emitted.
+public final class BoxableSinkImpl: BoxableSink {
+    private var stored: any Boxable
+    public init(seed: Int32) { stored = BoxableIntCell(value: seed) }
+    public var boxable: any Boxable {
+        get { stored }
+        set { stored = newValue }
+    }
+    /// Non-existential read-back so the forward-dispatch round-trip is observable without
+    /// touching the suppressed-proxy reverse-dispatch path.
+    public func currentValue() -> Int32 { stored.boxedValue() }
+}
+
+public func makeBoxableSink(_ seed: Int32) -> any BoxableSink {
+    return BoxableSinkImpl(seed: seed)
+}
+
+// MARK: CONSUME (receiver arg) — existential METHOD PARAM on a proxy-emitted protocol
+
+/// Existential method parameter on a proxy-emitted protocol → the method-receiver
+/// arg-deserialization channel. When Swift calls back into a C# impl's `consume(_:)`,
+/// the `Receive_consume_*` trampoline deserializes the Swift `any Boxable` arg into a C#
+/// `IBoxable`, constructing `new BoxableProxy(...)`. With the proxy suppressed the
+/// trampoline degrades to a fail-fast body. `BoxableAccepting` declares no `init()`, so
+/// `BoxableAcceptingProxy` IS emitted.
+public protocol BoxableAccepting {
+    func consume(_ value: any Boxable) -> Int32
+}
+
+public final class BoxableAcceptingImpl: BoxableAccepting {
+    public init() {}
+    public func consume(_ value: any Boxable) -> Int32 { value.boxedValue() }
+}
+
+public func makeBoxableAccepting() -> any BoxableAccepting {
+    return BoxableAcceptingImpl()
+}
+
+// MARK: CONSUME (receiver subscript set) + PRODUCE (receiver subscript get) — settable existential SUBSCRIPT
+
+/// Settable existential SUBSCRIPT on a proxy-emitted protocol — the subscript analogue of
+/// `BoxableSink`, exercising the `Receive_subscript_*_set` receiver channel (and the subscript
+/// branch of the degraded-receiver descriptor, including its unlabeled-index rendering).
+/// `BoxableSubscriptSink` declares no `init()`, so its own `BoxableSubscriptSinkProxy` IS emitted;
+/// the proxy's reverse-dispatch subscript SETTER trampoline CONSUMEs a Swift `any Boxable` into a
+/// C# `IBoxable` → constructs `new BoxableProxy(...)` → throws during string projection, so the
+/// receiver gate degrades just that trampoline to a fail-fast body (keeping its `&Receive_*` static-init
+/// address-take valid) instead of aborting the module. The subscript GETTER receiver PRODUCEs an
+/// existential and does NOT degrade — it routes through the no-fallback owned-existential path, exactly
+/// like the `BoxableSink` property getter — so only the SETTER channel exercises the degrade path here.
+public protocol BoxableSubscriptSink {
+    subscript(index: Int32) -> any Boxable { get set }
+}
+
+public final class BoxableSubscriptSinkImpl: BoxableSubscriptSink {
+    private var storage: [Int32: any Boxable] = [:]
+    public init(seed: Int32) { storage[0] = BoxableIntCell(value: seed) }
+    public subscript(index: Int32) -> any Boxable {
+        get { storage[index] ?? BoxableIntCell(value: -1) }
+        set { storage[index] = newValue }
+    }
+    /// Non-existential read-back so the forward-dispatch subscript-setter round-trip is observable
+    /// without touching the suppressed-proxy reverse-dispatch path.
+    public func valueAt(_ index: Int32) -> Int32 { (storage[index] ?? BoxableIntCell(value: -1)).boxedValue() }
+}
+
+public func makeBoxableSubscriptSink(_ seed: Int32) -> any BoxableSubscriptSink {
+    return BoxableSubscriptSinkImpl(seed: seed)
+}

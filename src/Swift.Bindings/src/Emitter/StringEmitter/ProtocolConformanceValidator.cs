@@ -234,6 +234,29 @@ public class ProtocolConformanceValidator
             conformingTypeName = concreteRecord.CSharpTypeName.FullyQualifiedName;
         }
 
+        // The per-member conformance-keep checks below use the static CanEmit* helpers, which carry
+        // FEWER skip gates than the actual member-emission pipeline (ValidateMethodEmission /
+        // ValidatePropertyEmission). When a witness passes CanEmit* but the emitter would Skip it —
+        // or route it to a sibling static extension class (RoutedElsewhere), which cannot satisfy a
+        // C# instance interface — keeping the conformance emits `: IFoo` with no satisfying member
+        // (CS0535 at consumer compile). Re-running the emitter's own pipeline keeps the two decisions
+        // in lockstep. The pipeline is a side-effect-free decision function (recording happens in the
+        // caller, not here), so it is safe to invoke during conformance-list selection. The context
+        // mirrors HandleBaseDecl's (per-type PInvokeHelperContext + emission context); when no
+        // emission context is available (legacy/test paths) we pass null and the pipeline's
+        // context-free gates still apply.
+        var emissionPipeline = new MemberValidationPipeline(_typeDatabase);
+        var emissionValidationCtx = _emissionContext == null
+            ? null
+            : new ValidationContext(
+                _typeDatabase,
+                PInvokeHelperContext.CreateIfGeneric(concreteType, _typeDatabase),
+                _emissionContext,
+                parentType: null,
+                moduleDecl: null,
+                siblingPropertyNames: null,
+                conductor: null);
+
         // Track interface requirements (mirrors ProtocolHandler dedup)
         var requiredProperties = new HashSet<string>();
         var requiredSubscripts = new HashSet<string>();
@@ -294,16 +317,36 @@ public class ProtocolConformanceValidator
             if (skipReason != null)
             {
                 // The concrete type has the property but can't emit it (e.g., AnyType fallback).
-                // If the protocol interface will emit this as a DIM (phantom default), the concrete
-                // type doesn't need to provide it — the DIM satisfies the C# interface contract.
+                // If the protocol interface will emit this as a DIM, the concrete type doesn't need
+                // to provide it — the DIM satisfies the C# interface contract. Use the SAME predicate
+                // the interface emitter uses for DIM emission — direct OR inherited sub-protocol
+                // default — so the validator and emitter agree.
                 if (_extensionDefaultsIndex != null)
                 {
                     var protoRequiresSetter = protoProperty.Accessors.OfType<SetAccessorDecl>().Any();
-                    if (_extensionDefaultsIndex.HasDirectPropertyDefault(qualifiedName, protoProperty.Name,
+                    if (_extensionDefaultsIndex.HasPropertyDefault(qualifiedName, protoProperty.Name,
                         requiresSetter: protoRequiresSetter))
                         continue; // Satisfied by DIM in interface
                 }
                 return false;  // CS0535: member will be skipped
+            }
+
+            // Agreement gate: ValidatePropertyEmission carries constrained-extension and dependent-
+            // member gates CanEmitProperty lacks. If the emitter would skip the accessor, a DIM
+            // default can still satisfy the interface; otherwise the conformance must drop (CS0535).
+            var propertyEmission = emissionPipeline.ValidatePropertyEmission(concreteProperty, emissionValidationCtx);
+            if (!propertyEmission.ShouldEmit && !propertyEmission.IsSynthesized)
+            {
+                if (_extensionDefaultsIndex != null)
+                {
+                    // Same predicate the interface emitter uses for DIM emission (direct OR inherited
+                    // sub-protocol default), so the validator and emitter agree.
+                    var protoRequiresSetter = protoProperty.Accessors.OfType<SetAccessorDecl>().Any();
+                    if (_extensionDefaultsIndex.HasPropertyDefault(qualifiedName, protoProperty.Name,
+                        requiresSetter: protoRequiresSetter))
+                        continue; // Satisfied by DIM in interface
+                }
+                return false;  // CS0535: accessor will be skipped at emission
             }
 
             // Check type compatibility (CS0738)
@@ -347,6 +390,12 @@ public class ProtocolConformanceValidator
                 concreteProperty, _typeDatabase, out _, out var concreteTypeProjected);
             if (skipReason != null)
                 return false; // CS0535: member present but can't be emitted
+
+            // Agreement gate (same rationale as the instance-property path). Static members have no
+            // DIM fallback here, mirroring the CanEmitProperty branch directly above.
+            var staticPropertyEmission = emissionPipeline.ValidatePropertyEmission(concreteProperty, emissionValidationCtx);
+            if (!staticPropertyEmission.ShouldEmit && !staticPropertyEmission.IsSynthesized)
+                return false; // CS0535: accessor will be skipped at emission
 
             // Check type compatibility (CS0738)
             var staticInterfaceType = GetInterfacePropertyType(protoProperty, protocolDecl, boundGenericsHandler);
@@ -427,7 +476,37 @@ public class ProtocolConformanceValidator
             var skipReason = MemberEmissionValidator.CanEmitMethod(
                 concreteMethod, _typeDatabase, out _, out var concreteReturnType);
             if (skipReason != null)
+            {
+                // The concrete type has the method but can't emit it. If the interface will carry a
+                // DIM for this requirement, the conformer leans on it instead of providing a witness
+                // (mirrors the instance-property CanEmit rescue below). Use the SAME predicate the
+                // interface emitter uses to decide DIM emission — direct OR inherited sub-protocol
+                // default — so the validator and emitter agree; otherwise drop the conformance (CS0535).
+                if (_extensionDefaultsIndex != null &&
+                    _extensionDefaultsIndex.HasMethodDefault(qualifiedName, ProtocolExtensionEmitter.BuildMethodKey(protoMethod)))
+                    continue; // Satisfied by DIM in interface
                 return false;
+            }
+
+            // Agreement gate: the witness passes the lightweight CanEmitMethod, but the real emitter
+            // applies additional gates (async on an unspecialized generic parent, parent-internal
+            // async/closure, variadic generic pack, tuple-element marshalling, constrained-extension
+            // and CSM routing). A genuine Skip means the member won't be emitted; RoutedElsewhere
+            // means it's emitted only as a sibling extension method (which doesn't implement the
+            // instance interface). Either way the conformance must drop. Synthesized members ARE
+            // emitted, so they still satisfy the requirement.
+            var methodEmission = emissionPipeline.ValidateMethodEmission(concreteMethod, emissionValidationCtx);
+            if (!methodEmission.ShouldEmit && !methodEmission.IsSynthesized)
+            {
+                // Agreement gate: the emitter would skip this witness. If the interface will carry a
+                // DIM for this requirement, the conformer leans on it (mirrors the instance-property
+                // agreement-gate rescue). Use the SAME predicate the interface emitter uses — direct
+                // OR inherited sub-protocol default — so validator and emitter agree; else drop (CS0535).
+                if (_extensionDefaultsIndex != null &&
+                    _extensionDefaultsIndex.HasMethodDefault(qualifiedName, ProtocolExtensionEmitter.BuildMethodKey(protoMethod)))
+                    continue; // Satisfied by DIM in interface
+                return false;
+            }
 
             // Check C# name parity: the concrete type's method is emitted via GetPublicMethodName
             // with the concrete type's property names. If a property collision causes a "Method"
@@ -502,6 +581,12 @@ public class ProtocolConformanceValidator
             var skipReason = MemberEmissionValidator.CanEmitMethod(
                 concreteMethod, _typeDatabase, out _, out var concreteReturnType);
             if (skipReason != null)
+                return false;
+
+            // Agreement gate (same rationale as the instance-method path): drop the conformance if
+            // the emitter would Skip or route the witness elsewhere.
+            var staticMethodEmission = emissionPipeline.ValidateMethodEmission(concreteMethod, emissionValidationCtx);
+            if (!staticMethodEmission.ShouldEmit && !staticMethodEmission.IsSynthesized)
                 return false;
 
             // Check C# name parity (same logic as instance methods)

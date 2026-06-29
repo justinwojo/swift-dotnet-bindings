@@ -72,6 +72,18 @@ public class EmissionReport
     /// </summary>
     [JsonProperty("degradedExistentials")]
     public List<string> DegradedExistentials { get; set; } = new();
+
+    /// <summary>
+    /// Member descriptors (e.g. <c>Foo.bar setter</c>, <c>Foo.consume(value: any P)</c>) of EveryProtocol
+    /// reverse-dispatch receivers whose existential payload referenced a protocol proxy suppressed at
+    /// generation. The receiver kept its <c>[UnmanagedCallersOnly]</c> signature but degraded its body
+    /// to a fail-fast stub (no C#-side proxy exists to marshal the value back across the boundary).
+    /// <see cref="EmissionReportEmitter.Emit"/> raises one SWIFTBIND061 warning per entry so the
+    /// reverse-dispatch degradation is visible at generation time rather than only as a runtime
+    /// fail-fast. Sorted for deterministic output.
+    /// </summary>
+    [JsonProperty("degradedReverseDispatchReceivers")]
+    public List<string> DegradedReverseDispatchReceivers { get; set; } = new();
 }
 
 /// <summary>
@@ -193,6 +205,28 @@ public static class EmissionReportEmitter
                 + "binding-emission-report.json.",
                 degraded);
         }
+
+        // Suppressed-proxy B3: turn the previously module-aborting receiver-channel failure into a loud
+        // per-member diagnostic. The member's forward-dispatch surface stays partially usable — a produce
+        // direction (getter / existential return) throws NotSupportedException because the suppressed proxy
+        // can't be constructed, while a consume direction (setter / existential param) still round-trips a
+        // Swift-vended value; its reverse-dispatch trampoline kept the vtable signature but fails fast if
+        // Swift ever calls back into it, since there is no C#-side proxy to marshal the existential value.
+        // One SWIFTBIND061 warning per affected member so the whole module still ships instead of aborting
+        // with no .cs produced.
+        foreach (var member in report.DegradedReverseDispatchReceivers)
+        {
+            logger.LogWarning(
+                "SWIFTBIND061: reverse-dispatch receiver for '{Member}' degraded to a fail-fast stub "
+                + "because its existential payload references a protocol proxy that was suppressed at "
+                + "generation (its EveryProtocol conformance was not emitted). The member still ships: a "
+                + "Swift callback into it fails fast, and on the forward surface a produce direction (a "
+                + "getter or existential return) throws NotSupportedException because the proxy cannot be "
+                + "constructed, while a consume direction (a setter or existential parameter) still "
+                + "round-trips a Swift-vended value. Recorded under degradedReverseDispatchReceivers in "
+                + "binding-emission-report.json.",
+                member);
+        }
     }
 
     /// <summary>
@@ -226,6 +260,22 @@ public static class EmissionReportEmitter
                 + "still usable but loses static type fidelity; this is recorded under "
                 + "objectDegradations in binding-report.json.",
                 degraded);
+        }
+
+        // C1: a member referenced a framework type that has no .NET binding (the type database could
+        // resolve it only by synthesizing a bridged ObjC class for a value type). Emitting it would
+        // dangle as a CS0234, so the member was skipped rather than abort the module. Surface one loud
+        // warning per distinct skip detail so the dropped surface is visible at generation time.
+        foreach (var skipDetail in report.SkippedItems
+                     .Where(item => item.Reason == SkipReason.AbsentFrameworkType && item.Details is not null)
+                     .Select(item => item.Details!)
+                     .Distinct(StringComparer.Ordinal)
+                     .OrderBy(detail => detail, StringComparer.Ordinal))
+        {
+            logger.LogWarning(
+                "SWIFTBIND049: {Detail} The member was skipped so the binding still compiles; it is "
+                + "recorded under skippedItems (AbsentFrameworkType) in binding-report.json.",
+                skipDetail);
         }
     }
 
@@ -293,6 +343,13 @@ public static class EmissionReportEmitter
         // Degraded existentials (Defect E): PAT existentials that fell back to `object`,
         // sorted for deterministic output and a deterministic SWIFTBIND023 warning order.
         report.DegradedExistentials = emissionContext.DegradedExistentials
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToList();
+
+        // Degraded reverse-dispatch receivers (suppressed-proxy B3): EveryProtocol receivers whose
+        // existential payload touched a suppressed proxy and degraded to a fail-fast stub. Sorted for
+        // deterministic output and a deterministic SWIFTBIND061 warning order.
+        report.DegradedReverseDispatchReceivers = emissionContext.DegradedReverseDispatchReceivers
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToList();
 
