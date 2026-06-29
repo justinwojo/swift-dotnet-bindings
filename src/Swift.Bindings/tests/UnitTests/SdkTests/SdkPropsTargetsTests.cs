@@ -1277,6 +1277,89 @@ namespace BindingsGeneration.Tests
             Assert.Contains("'$(IsBindingProject)' != 'true'", TargetsContent);
         }
 
+        // ── Third-party ObjC xcframework (SwiftFramework PATH 2) ──────────────────
+        // SWIFTBIND018/019/021 above guard the Apple-system-framework PATH (gated on
+        // _SwiftBindingTargetKind == 'AppleFramework'). A third-party ObjC xcframework
+        // declared via <SwiftFramework> is NOT AppleFramework, so it needs its own
+        // fail-closed guard for the missing-IsBindingProject case, plus the --objc and
+        // ObjcBindingApiDefinition wiring that the bind actually relies on.
+
+        [Fact]
+        public void Targets_HasSwiftBind004ErrorCode_ThirdPartyObjcRequiresIsBindingProject()
+        {
+            // PATH-2 sibling of SWIFTBIND021. Without IsBindingProject the bgen pipeline
+            // never engages and the binding silently compiles to a 0-type assembly, so the
+            // guard must fail closed on a third-party ObjC SwiftFramework that omits it.
+            var errIdx = TargetsContent.IndexOf("SWIFTBIND004", StringComparison.Ordinal);
+            Assert.True(errIdx > 0, "SWIFTBIND004 must exist.");
+            // Walk back to the enclosing <Error tag and inspect its Condition.
+            var errOpen = TargetsContent.LastIndexOf("<Error", errIdx, StringComparison.Ordinal);
+            var errEnd = TargetsContent.IndexOf('>', errIdx);
+            var errTag = TargetsContent.Substring(errOpen, errEnd - errOpen + 1);
+            // Fires on the SwiftFramework (non-AppleFramework) path only...
+            Assert.Contains("'$(_SwiftBindingTargetKind)' != 'AppleFramework'", errTag);
+            // ...when ObjC mode is engaged but IsBindingProject is missing.
+            Assert.Contains("'$(SwiftFrameworkType)' == 'ObjC'", errTag);
+            Assert.Contains("'$(IsBindingProject)' != 'true'", errTag);
+            // Actionable: tells the user exactly which property to add.
+            Assert.Contains("&lt;IsBindingProject&gt;true&lt;/IsBindingProject&gt;", errTag);
+        }
+
+        [Fact]
+        public void Targets_HasSwiftBind004ErrorCode_GatedOnFrameworkPresent()
+        {
+            // The guard must not pre-empt SWIFTBIND001 ("no xcframework found"): it only
+            // fires once a SwiftFramework is actually present, so a bare SwiftFrameworkType=ObjC
+            // with no framework still gets the clearer "no xcframework" diagnostic.
+            var errIdx = TargetsContent.IndexOf("SWIFTBIND004", StringComparison.Ordinal);
+            Assert.True(errIdx > 0);
+            var errOpen = TargetsContent.LastIndexOf("<Error", errIdx, StringComparison.Ordinal);
+            var errEnd = TargetsContent.IndexOf('>', errIdx);
+            var errTag = TargetsContent.Substring(errOpen, errEnd - errOpen + 1);
+            Assert.Contains("'@(SwiftFramework)' != ''", errTag);
+        }
+
+        [Fact]
+        public void Targets_GenerateBindings_ThirdPartyObjCBranchPassesObjcFlag()
+        {
+            // The SwiftFramework generate path routes through --objc whenever
+            // SwiftFrameworkType=ObjC — mode-agnostic (NOT gated on AppleFramework), so a
+            // third-party ObjC xcframework engages the generator's ObjC pipeline.
+            var block = ExtractTargetBlock("_GenerateSwiftBindings");
+            Assert.Contains(
+                "<_SwiftGenCmd Condition=\"'$(SwiftFrameworkType)' == 'ObjC'\">$(_SwiftGenCmd) --objc</_SwiftGenCmd>",
+                block);
+        }
+
+        [Fact]
+        public void Targets_IncludeGeneratedBindings_ObjCInjectsApiDefinitionItems()
+        {
+            // For an ObjC binding the generated ApiDefinition.cs / StructsAndEnums.cs /
+            // BgenDelegates.cs must be surfaced as ObjcBindingApiDefinition / ObjcBindingCoreSource
+            // items (not plain Compile) so the .NET iOS bgen pipeline consumes them. Gated on
+            // SwiftFrameworkType=ObjC (mode-agnostic — covers the third-party SwiftFramework path).
+            var block = ExtractTargetBlock("_IncludeGeneratedSwiftBindings");
+            Assert.Contains("<ItemGroup Condition=\"'$(SwiftFrameworkType)' == 'ObjC'\">", block);
+            Assert.Contains("<ObjcBindingApiDefinition Include=\"$(_SwiftBindingIntermediateDir)ApiDefinition.cs\"", block);
+            Assert.Contains("<ObjcBindingCoreSource Include=\"$(_SwiftBindingIntermediateDir)StructsAndEnums.cs\"", block);
+            // The Swift/Mixed branch must EXCLUDE ApiDefinition.cs from plain Compile so it
+            // isn't double-fed (Compile + bgen).
+            Assert.Contains("<ItemGroup Condition=\"'$(SwiftFrameworkType)' != 'ObjC'\">", block);
+        }
+
+        [Fact]
+        public void Targets_IncludeGeneratedBindings_RunsBeforeBgenResolution()
+        {
+            // The A1 ordering fix: the ObjcBindingApiDefinition item must be injected BEFORE
+            // the iOS bgen target runs, else bgen fails "No API definition file specified".
+            // _IncludeGeneratedSwiftBindings runs after metadata import and before
+            // ResolveProjectReferences (the anchor bgen sequences after), so the item exists
+            // by the time bgen looks for it.
+            var tag = ExtractOpeningTag("_IncludeGeneratedSwiftBindings");
+            Assert.Contains("AfterTargets=\"_ImportSwiftBindingMetadata\"", tag);
+            Assert.Contains("BeforeTargets=\"ResolveProjectReferences\"", tag);
+        }
+
         [Fact]
         public void Targets_AppleFrameworkType_SwiftBindError014_GatedOnSwiftType()
         {

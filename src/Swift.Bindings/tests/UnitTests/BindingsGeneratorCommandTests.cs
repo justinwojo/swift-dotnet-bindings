@@ -6,6 +6,7 @@
 using System;
 using System.Collections.Generic;
 using System.CommandLine;
+using System.IO;
 using System.Linq;
 using BindingsGeneration.ObjC;
 using Microsoft.Extensions.Logging;
@@ -864,6 +865,136 @@ public class EmitStrictInputsFailureIfDegradedTests
             public static readonly NullScope Instance = new();
             public void Dispose() { }
         }
+    }
+}
+
+#endregion
+
+#region ObjC dependency -F search-path threading (A2)
+
+/// <summary>
+/// A cross-framework <c>#import</c> in an ObjC umbrella header (e.g. FBSDKLoginKit importing
+/// FBSDKCoreKit) only resolves during the clang AST dump if each <c>--framework-dependency</c>'s
+/// resolved slice directory is threaded into the dump's <c>-F</c> search path. These tests pin the
+/// two source helpers (<c>SelectObjCDependencySearchPaths</c> for the rich resolved-dependency set
+/// used on the mixed path, <c>ResolveObjCDependencySliceDirs</c> for the raw paths used on the
+/// pure-ObjC paths) and the merge that feeds <c>ObjCPipeline.Run</c>.
+/// </summary>
+public class ObjCDependencySearchPathTests
+{
+    [Fact]
+    public void SelectObjCDependencySearchPaths_Simulator_PicksSimulatorSlice()
+    {
+        var deps = new List<FrameworkDependencyInfo>
+        {
+            new() { XCFrameworkPath = "/d/A.xcframework", ModuleName = "A",
+                    SimulatorFrameworkSearchPath = "/d/A.xcframework/ios-sim",
+                    DeviceFrameworkSearchPath = "/d/A.xcframework/ios-dev" },
+        };
+
+        var paths = BindingsGeneratorCommand.SelectObjCDependencySearchPaths(
+            deps, XCFrameworkPlatformTarget.Simulator);
+
+        Assert.Equal(new[] { "/d/A.xcframework/ios-sim" }, paths);
+    }
+
+    [Fact]
+    public void SelectObjCDependencySearchPaths_Device_PicksDeviceSlice()
+    {
+        var deps = new List<FrameworkDependencyInfo>
+        {
+            new() { XCFrameworkPath = "/d/A.xcframework", ModuleName = "A",
+                    SimulatorFrameworkSearchPath = "/d/A.xcframework/ios-sim",
+                    DeviceFrameworkSearchPath = "/d/A.xcframework/ios-dev" },
+        };
+
+        var paths = BindingsGeneratorCommand.SelectObjCDependencySearchPaths(
+            deps, XCFrameworkPlatformTarget.Device);
+
+        Assert.Equal(new[] { "/d/A.xcframework/ios-dev" }, paths);
+    }
+
+    [Fact]
+    public void SelectObjCDependencySearchPaths_OnlyOppositeSliceResolved_FallsBack()
+    {
+        // A device-only dependency still contributes its (device) slice when generating for the
+        // simulator — better an imperfect -F than a guaranteed "file not found".
+        var deps = new List<FrameworkDependencyInfo>
+        {
+            new() { XCFrameworkPath = "/d/A.xcframework", ModuleName = "A",
+                    SimulatorFrameworkSearchPath = null,
+                    DeviceFrameworkSearchPath = "/d/A.xcframework/ios-dev" },
+        };
+
+        var paths = BindingsGeneratorCommand.SelectObjCDependencySearchPaths(
+            deps, XCFrameworkPlatformTarget.Simulator);
+
+        Assert.Equal(new[] { "/d/A.xcframework/ios-dev" }, paths);
+    }
+
+    [Fact]
+    public void SelectObjCDependencySearchPaths_Null_ReturnsEmpty()
+    {
+        Assert.Empty(BindingsGeneratorCommand.SelectObjCDependencySearchPaths(
+            null, XCFrameworkPlatformTarget.Simulator));
+    }
+
+    [Fact]
+    public void ResolveObjCDependencySliceDirs_Null_ReturnsEmpty()
+    {
+        Assert.Empty(BindingsGeneratorCommand.ResolveObjCDependencySliceDirs(
+            null, XCFrameworkPlatformTarget.Simulator, NullLogger.Instance, null));
+    }
+
+    [Fact]
+    public void ResolveObjCDependencySliceDirs_UnparseablePath_SkippedNotThrown()
+    {
+        // TryResolveSliceSearchPath returns null for a non-xcframework path; the helper must skip
+        // it (best-effort), not throw — mirrors the sibling resolver.
+        var paths = BindingsGeneratorCommand.ResolveObjCDependencySliceDirs(
+            new[] { "/does/not/exist.xcframework" },
+            XCFrameworkPlatformTarget.Simulator, NullLogger.Instance, null);
+
+        Assert.Empty(paths);
+    }
+
+    [Fact]
+    public void MergeObjCFrameworkSearchPaths_DependenciesFirst_ThenSiblings()
+    {
+        // Explicit/resolved dependencies must lead: clang searches -F left-to-right and takes the
+        // first match, so a deliberately-declared --framework-dependency outranks an incidental
+        // co-located sibling that happens to export the same module name.
+        var siblings = new[] { "/p/Sib.xcframework/ios-sim" };
+        var deps = new[] { "/p/Dep.xcframework/ios-sim" };
+
+        var merged = BindingsGeneratorCommand.MergeObjCFrameworkSearchPaths(siblings, deps);
+
+        Assert.Equal(2, merged.Count);
+        Assert.Equal(Path.GetFullPath("/p/Dep.xcframework/ios-sim"), merged[0]);
+        Assert.Equal(Path.GetFullPath("/p/Sib.xcframework/ios-sim"), merged[1]);
+    }
+
+    [Fact]
+    public void MergeObjCFrameworkSearchPaths_DeDuplicatesCoLocatedDependency()
+    {
+        // A --framework-dependency that is also a co-located sibling must appear once, at its
+        // first (dependency) position.
+        var shared = "/p/Dep.xcframework/ios-sim";
+
+        var merged = BindingsGeneratorCommand.MergeObjCFrameworkSearchPaths(
+            new[] { shared }, new[] { shared });
+
+        Assert.Single(merged);
+        Assert.Equal(Path.GetFullPath(shared), merged[0]);
+    }
+
+    [Fact]
+    public void MergeObjCFrameworkSearchPaths_SkipsEmptyEntries()
+    {
+        var merged = BindingsGeneratorCommand.MergeObjCFrameworkSearchPaths(
+            Array.Empty<string>(), new[] { "" });
+
+        Assert.Empty(merged);
     }
 }
 

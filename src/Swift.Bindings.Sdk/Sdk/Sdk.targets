@@ -158,6 +158,22 @@
     <Error Condition="'$(_SwiftBindingTargetKind)' != 'AppleFramework' AND !Exists('%(SwiftFramework.Identity)')"
            Code="SWIFTBIND003"
            Text="xcframework not found: '%(SwiftFramework.Identity)'." />
+
+    <!-- Third-party ObjC binding (SwiftFramework path) requires IsBindingProject in the body.
+         The SwiftFramework path's PATH-2 sibling of the SWIFTBIND021 guard (which covers the
+         Apple-system-framework PATH-1 case in _ResolveAppleFrameworkPaths). When a user binds a
+         third-party ObjC xcframework, two body properties engage the two pipelines:
+           <SwiftFrameworkType>ObjC</SwiftFrameworkType>  routes our generator down the ObjC path
+           <IsBindingProject>true</IsBindingProject>      engages the .NET iOS bgen pipeline
+         IsBindingProject is read by Microsoft.iOS.Sdk at evaluation time (before this target, and
+         before our own Sdk.props), so it MUST come from the csproj body — we cannot set it from a
+         target. Without it, _IncludeGeneratedSwiftBindings still injects the generated
+         ApiDefinition.cs as an ObjcBindingApiDefinition item, but bgen never runs to consume it, so
+         the build silently produces an empty (0-type) binding assembly. Fail closed with the same
+         actionable guidance as SWIFTBIND021 rather than ship that empty assembly. -->
+    <Error Condition="'$(_SwiftBindingTargetKind)' != 'AppleFramework' AND '@(SwiftFramework)' != '' AND '$(SwiftFrameworkType)' == 'ObjC' AND '$(IsBindingProject)' != 'true'"
+           Code="SWIFTBIND004"
+           Text="xcframework '@(SwiftFramework)' is configured for ObjC binding (SwiftFrameworkType=ObjC), but &lt;IsBindingProject&gt;true&lt;/IsBindingProject&gt; is missing from the csproj body. The .NET iOS workload reads IsBindingProject at evaluation time to engage the bgen pipeline — without it, the generated ApiDefinition.cs will not be processed and the build will produce an empty binding assembly. Add &lt;IsBindingProject&gt;true&lt;/IsBindingProject&gt; to the same PropertyGroup that declares SwiftFrameworkType." />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->

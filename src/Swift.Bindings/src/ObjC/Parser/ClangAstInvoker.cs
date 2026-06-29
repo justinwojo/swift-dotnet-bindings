@@ -48,7 +48,10 @@ public sealed class ClangAstInvoker
                 $"Failed to locate SDK ({sdkName}). Ensure Xcode and the platform SDK are installed. stderr: {sdkErr}");
         }
 
-        var baseArgs = $"clang -x objective-c -Xclang -ast-dump=json " +
+        // -fobjc-arc: dump the AST under ARC so an umbrella header that cross-imports an ARC
+        // framework (the common case for third-party SDKs) matches its ownership model instead of
+        // failing the parse with an ownership mismatch.
+        var baseArgs = $"clang -x objective-c -fobjc-arc -Xclang -ast-dump=json " +
                    $"-isysroot \"{sdkPath}\" " +
                    $"-F \"{frameworkSearchPath}\" ";
 

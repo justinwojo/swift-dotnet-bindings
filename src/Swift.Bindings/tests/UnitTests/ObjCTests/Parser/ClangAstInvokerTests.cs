@@ -98,6 +98,45 @@ public class ClangAstInvokerTests
     }
 
     [Fact]
+    public void InvokeClangAstDump_PassesObjcArc()
+    {
+        // The AST dump must compile under ARC (-fobjc-arc): an umbrella header that does a
+        // cross-framework `#import` of an ARC framework otherwise mismatches the ownership model
+        // and clang refuses, so the whole ObjC surface fails to bind.
+        var runner = new MockCommandRunner();
+        runner.SetResponse("--show-sdk-path", 0, "/path/to/sdk");
+        runner.SetResponse("-ast-dump=json", 0, "{\"kind\":\"TranslationUnitDecl\",\"inner\":[]}");
+
+        var invoker = new ClangAstInvoker(runner, Logger);
+        invoker.InvokeClangAstDump("/tmp/test.h", "/tmp/fw", isSimulator: true);
+
+        var clangInvocation = Assert.Single(runner.Invocations, i => i.Arguments.Contains("-ast-dump=json"));
+        Assert.Contains("-fobjc-arc", clangInvocation.Arguments);
+    }
+
+    [Fact]
+    public void InvokeClangAstDump_AdditionalFrameworkSearchPaths_AddedAsDashF()
+    {
+        // Dependency xcframework slice dirs (e.g. FBSDKCoreKit for FBSDKLoginKit) must reach the
+        // clang -F search path so the umbrella's `#import <Dep/Dep.h>` resolves.
+        var runner = new MockCommandRunner();
+        runner.SetResponse("--show-sdk-path", 0, "/path/to/sdk");
+        runner.SetResponse("-ast-dump=json", 0, "{\"kind\":\"TranslationUnitDecl\",\"inner\":[]}");
+
+        var depA = "/deps/FBSDKCoreKit.xcframework/ios-arm64_x86_64-simulator";
+        var depB = "/deps/GoogleUtilities.xcframework/ios-arm64_x86_64-simulator";
+
+        var invoker = new ClangAstInvoker(runner, Logger);
+        invoker.InvokeClangAstDump(
+            "/tmp/test.h", "/tmp/fw", isSimulator: true,
+            additionalFrameworkSearchPaths: new[] { depA, depB });
+
+        var clangInvocation = Assert.Single(runner.Invocations, i => i.Arguments.Contains("-ast-dump=json"));
+        Assert.Contains($"-F \"{depA}\"", clangInvocation.Arguments);
+        Assert.Contains($"-F \"{depB}\"", clangInvocation.Arguments);
+    }
+
+    [Fact]
     public void InvokeClangAstDump_OmitsPlatformFrameworks_WhenLookupEmpty()
     {
         // Best-effort: if the platform-path lookup yields nothing, the generation must still

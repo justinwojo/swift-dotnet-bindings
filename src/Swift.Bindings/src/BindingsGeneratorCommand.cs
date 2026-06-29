@@ -498,11 +498,18 @@ public static class BindingsGeneratorCommand
                 }
                 var siblingSearchPaths = XCFrameworkResolver.ResolveSiblingFrameworkSearchPaths(
                     xcframeworkPath!, platformTarget, logger, platformInfo: platformInfo);
+                // A2: also thread each --framework-dependency's resolved slice dir into the ObjC
+                // clang -F search path so a cross-framework #import in the umbrella header resolves.
+                // The pure-ObjC paths return before the full dependency resolution below, so resolve
+                // the dependency slice dirs directly here.
+                var objcSearchPaths = MergeObjCFrameworkSearchPaths(
+                    siblingSearchPaths,
+                    ResolveObjCDependencySliceDirs(frameworkDependencies, platformTarget, logger, platformInfo));
                 var objcResult = ObjCPipeline.Run(
                     objcResolution, xcframeworkPath!, outputDirectory, platformTarget, logger,
                     namespacePattern: namespacePattern, packageId: packageId,
                     sdkMode: sdkMode, isMixed: false,
-                    additionalFrameworkSearchPaths: siblingSearchPaths,
+                    additionalFrameworkSearchPaths: objcSearchPaths,
                     platformInfo: platformInfo);
                 context.ExitCode = objcResult.ExitCode;
                 if (objcResult.ErrorMessage != null)
@@ -549,11 +556,18 @@ public static class BindingsGeneratorCommand
                 }
                 var siblingSearchPaths = XCFrameworkResolver.ResolveSiblingFrameworkSearchPaths(
                     xcframeworkPath!, platformTarget, logger, platformInfo: platformInfo);
+                // A2: also thread each --framework-dependency's resolved slice dir into the ObjC
+                // clang -F search path so a cross-framework #import in the umbrella header resolves.
+                // The pure-ObjC paths return before the full dependency resolution below, so resolve
+                // the dependency slice dirs directly here.
+                var objcSearchPaths = MergeObjCFrameworkSearchPaths(
+                    siblingSearchPaths,
+                    ResolveObjCDependencySliceDirs(frameworkDependencies, platformTarget, logger, platformInfo));
                 var objcResult = ObjCPipeline.Run(
                     objcResolution, xcframeworkPath!, outputDirectory, platformTarget, logger,
                     namespacePattern: namespacePattern, packageId: packageId,
                     sdkMode: sdkMode, isMixed: false,
-                    additionalFrameworkSearchPaths: siblingSearchPaths,
+                    additionalFrameworkSearchPaths: objcSearchPaths,
                     platformInfo: platformInfo);
                 context.ExitCode = objcResult.ExitCode;
                 if (objcResult.ErrorMessage != null)
@@ -1265,11 +1279,17 @@ public static class BindingsGeneratorCommand
             var swiftTypeNames = BindingsGenerator.CollectSwiftEmittedTypeNames(outputDirectory);
             var mixedSiblingPaths = XCFrameworkResolver.ResolveSiblingFrameworkSearchPaths(
                 xcframeworkPath!, platformTarget, logger, platformInfo: platformInfo);
+            // A2: thread the resolved dependency slice dirs (manual --framework-dependency +
+            // auto-detected) into the ObjC clang -F search path so a mixed framework whose umbrella
+            // header cross-imports a dependency (e.g. FBSDKLoginKit → FBSDKCoreKit) resolves.
+            var mixedObjcSearchPaths = MergeObjCFrameworkSearchPaths(
+                mixedSiblingPaths,
+                SelectObjCDependencySearchPaths(resolvedDependencies, platformTarget));
             mixedObjcResult = ObjCPipeline.Run(
                 mixedObjcResolution, xcframeworkPath!, outputDirectory, platformTarget, logger,
                 namespacePattern: namespacePattern, packageId: null,
                 sdkMode: sdkMode, isMixed: true, excludeTypeNames: swiftTypeNames,
-                additionalFrameworkSearchPaths: mixedSiblingPaths,
+                additionalFrameworkSearchPaths: mixedObjcSearchPaths,
                 platformInfo: platformInfo,
                 sourceNativeLinkage: sourceNativeLinkage,
                 hasWrapperXCFramework: wrapperWillExist);
@@ -1724,6 +1744,82 @@ public static class BindingsGeneratorCommand
     /// </summary>
     internal static bool ShouldAbortForFailedMixedObjC(ObjCPipelineResult? mixedObjcResult)
         => mixedObjcResult != null && mixedObjcResult.ExitCode != 0;
+
+    /// <summary>
+    /// Selects the platform-appropriate framework search path (<c>-F</c> slice dir) for each
+    /// resolved dependency, so a cross-framework <c>#import</c> in an ObjC umbrella header resolves
+    /// during the clang AST dump. Falls back to the opposite slice when only one platform variant
+    /// was resolved (a device-only / simulator-only dependency). Used on the mixed-framework path,
+    /// where the full <see cref="FrameworkDependencyInfo"/> set (manual + auto-detected) is known.
+    /// </summary>
+    internal static IReadOnlyList<string> SelectObjCDependencySearchPaths(
+        IReadOnlyList<FrameworkDependencyInfo>? resolvedDependencies,
+        XCFrameworkPlatformTarget platformTarget)
+    {
+        var paths = new List<string>();
+        if (resolvedDependencies == null) return paths;
+        foreach (var dep in resolvedDependencies)
+        {
+            var primary = platformTarget == XCFrameworkPlatformTarget.Device
+                ? dep.DeviceFrameworkSearchPath
+                : dep.SimulatorFrameworkSearchPath;
+            var fallback = platformTarget == XCFrameworkPlatformTarget.Device
+                ? dep.SimulatorFrameworkSearchPath
+                : dep.DeviceFrameworkSearchPath;
+            var chosen = primary ?? fallback;
+            if (!string.IsNullOrEmpty(chosen)) paths.Add(chosen!);
+        }
+        return paths;
+    }
+
+    /// <summary>
+    /// Resolves each <c>--framework-dependency</c> xcframework to its platform-appropriate slice
+    /// directory for use as an ObjC clang <c>-F</c> path. Used on the pure-ObjC generation paths,
+    /// which return before the full dependency resolution runs (those paths have no Swift
+    /// resolution to anchor it). Unparseable / slice-less dependencies are skipped (best-effort,
+    /// matching the sibling resolver).
+    /// </summary>
+    internal static IReadOnlyList<string> ResolveObjCDependencySliceDirs(
+        string[]? frameworkDependencies,
+        XCFrameworkPlatformTarget platformTarget,
+        ILogger logger,
+        PlatformInfo? platformInfo)
+    {
+        var paths = new List<string>();
+        if (frameworkDependencies == null) return paths;
+        foreach (var dep in frameworkDependencies)
+        {
+            var slice = XCFrameworkResolver.TryResolveSliceSearchPath(dep, platformTarget, logger, platformInfo);
+            if (slice != null) paths.Add(slice);
+        }
+        return paths;
+    }
+
+    /// <summary>
+    /// Merges explicit/resolved dependency <c>-F</c> slice dirs with auto-detected sibling framework
+    /// search paths into one ordered, normalized, de-duplicated list for the ObjC clang AST dump.
+    /// Dependency paths lead, siblings follow: clang searches <c>-F</c> directories left-to-right and
+    /// takes the first match, so a deliberately-declared <c>--framework-dependency</c> must outrank an
+    /// incidental co-located sibling that happens to export the same module name. De-duplication (via
+    /// <see cref="Path.GetFullPath(string)"/>) collapses a <c>--framework-dependency</c> that is also a
+    /// co-located sibling onto its first (dependency) position.
+    /// </summary>
+    internal static IReadOnlyList<string> MergeObjCFrameworkSearchPaths(
+        IReadOnlyList<string> siblingSearchPaths,
+        IEnumerable<string> dependencySearchPaths)
+    {
+        var ordered = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        void Add(string? p)
+        {
+            if (string.IsNullOrEmpty(p)) return;
+            var full = Path.GetFullPath(p);
+            if (seen.Add(full)) ordered.Add(full);
+        }
+        foreach (var p in dependencySearchPaths) Add(p);
+        foreach (var p in siblingSearchPaths) Add(p);
+        return ordered;
+    }
 
     /// <summary>
     /// Finding 50 fail-closed gate: under <c>--strict-inputs</c> (the CI compile gate's strict
