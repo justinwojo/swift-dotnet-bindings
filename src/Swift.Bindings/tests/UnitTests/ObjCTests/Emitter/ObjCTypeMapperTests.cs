@@ -1224,4 +1224,26 @@ public class ObjCTypeMapperTests
         var knownTypes = ObjCTypeMapper.BuildKnownMappedTypes();
         Assert.Equal(expected, ObjCTypeMapper.IsApiDefinitionTypeResolvable(mappedType, knownTypes, null));
     }
+
+    // --- Resolvability recurses into wrapper arguments ---
+    // A wrapper (Action<…>, Func<…>, NSDictionary<K,V>, T[]) is a known pattern, but an absent
+    // argument type nested inside it would still emit and fail CS0246, so the gate must recurse.
+
+    [Theory]
+    [InlineData("Action<NSError>", true)]                              // resolvable block arg — kept
+    [InlineData("Func<string, bool>", true)]                           // primitives inside — kept
+    [InlineData("byte[]", true)]                                       // primitive array element — kept
+    [InlineData("NSDictionary<string, NSError>", true)]               // resolvable value type — kept
+    [InlineData("Action<ZZThirdPartyType, NSError>", false)]          // absent block arg — dropped
+    [InlineData("ZZThirdPartyType[]", false)]                         // absent array element — dropped
+    [InlineData("NSDictionary<string, ZZThirdPartyType>", false)]    // absent value type — dropped
+    [InlineData("Action<NSDictionary<string, ZZThirdPartyType>>", false)] // absent nested deeper — dropped
+    public void IsApiDefinitionTypeResolvable_RecursesIntoWrapperArguments(string mappedType, bool expected)
+    {
+        var knownTypes = ObjCTypeMapper.BuildKnownMappedTypes();
+        // SDK-name mode (mirrors a textual clang parse): NSError is an available SDK type;
+        // ZZThirdPartyType is a genuinely-absent cross-module class with no using/declaration.
+        var appleSdkTypeNames = new HashSet<string>(StringComparer.Ordinal) { "NSError" };
+        Assert.Equal(expected, ObjCTypeMapper.IsApiDefinitionTypeResolvable(mappedType, knownTypes, appleSdkTypeNames));
+    }
 }

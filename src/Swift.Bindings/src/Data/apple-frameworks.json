@@ -902,6 +902,7 @@
         "UIActivityIndicatorView.Style",
         "UIAlertAction.Style",
         "UIAlertController.Style",
+        "UIBackgroundRefreshStatus",
         "UIBarButtonItem.Style",
         "UIBarButtonItem.SystemItem",
         "UIBarPosition",

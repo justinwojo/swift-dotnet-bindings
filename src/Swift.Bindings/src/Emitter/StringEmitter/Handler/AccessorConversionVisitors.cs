@@ -68,18 +68,12 @@ internal class AccessorGetterConversionVisitor : IProjectionVisitor<(string? con
         if (keyConv == null && valConv == null)
             return (null, false);
 
-        string asProjected;
-        if (keyConv != null)
-        {
-            var reverseKeyConv = dict.KeyProjection.GetParameterElementConversion("k") ?? "k";
-            var valSelector = valConv != null ? $"v => {valConv}" : "v => v";
-            asProjected = $"{resultExpr}.AsProjected(k => {keyConv}, k => {reverseKeyConv}, {valSelector})";
-        }
-        else
-        {
-            asProjected = $"{resultExpr}.AsProjected(v => {valConv})";
-        }
-        return (asProjected, false);
+        // Route through BuildAsProjected (the single owner of the AsProjected shape) instead of inlining
+        // it here, so the invariant value-slot cast in CastValueSelectorBody is applied. A nested-container
+        // value — e.g. the inner dictionary of [String: [String: Any]] — projects to a CONCRETE
+        // Dictionary<...>, which the INVARIANT outer IReadOnlyDictionary value slot rejects (CS0266) unless
+        // cast to its declared interface type. The receiver dict-setter path already delegates the same way.
+        return ($"{resultExpr}{dict.BuildAsProjected(keyConv, valConv)}", false);
     }
 
     internal static (string?, bool) SetGetterConversion(SetProjection set, string resultExpr)

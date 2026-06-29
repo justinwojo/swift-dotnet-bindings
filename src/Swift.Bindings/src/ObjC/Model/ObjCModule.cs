@@ -22,11 +22,18 @@ public sealed record ObjCModule
     public List<ObjCTypedefDecl>? ResolutionTypedefs { get; init; }
     public List<ObjCCategoryDecl> Categories { get; init; } = [];
     /// <summary>
-    /// ObjC class and protocol names declared in Apple SDK headers (not framework-local,
-    /// not third-party). Used by ApiDefinitionEmitter to determine which passthrough types
-    /// are available from Apple framework using directives at compile time.
+    /// ObjC class and protocol names declared in Apple SDK headers (not framework-local, not
+    /// third-party), mapped to the .NET namespace that owns each — derived from the authoritative
+    /// <c>&lt;Framework&gt;.framework</c> provenance in the resolved header path (see
+    /// <see cref="AppleFrameworkRegistry.TryResolveFrameworkNamespaceFromHeaderPath"/>). The keys
+    /// drive ApiDefinitionEmitter's type-resolvability gate (which passthrough types are available
+    /// from Apple framework <c>using</c> directives); the values drive the <c>using</c> set itself,
+    /// so a referenced Apple framework's namespace is emitted whether or not it is in the curated
+    /// baseline. An entry maps to the empty string when its type has no derivable framework namespace
+    /// (e.g. a runtime header under <c>/usr/include</c>) — still resolvable, but contributes no
+    /// <c>using</c>. Null in <c>-fmodules</c> mode, where SDK types are never expanded into the AST.
     /// </summary>
-    public HashSet<string>? AppleSdkTypeNames { get; init; }
+    public IReadOnlyDictionary<string, string>? AppleSdkTypeNamespaces { get; init; }
 
     public int TotalDeclarations =>
         Classes.Count + Protocols.Count + Enums.Count + Structs.Count +

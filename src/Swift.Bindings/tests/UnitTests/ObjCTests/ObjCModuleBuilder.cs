@@ -22,7 +22,7 @@ public class ObjCModuleBuilder
     private readonly List<ObjCConstantDecl> _constants = [];
     private readonly List<ObjCTypedefDecl> _typedefs = [];
     private readonly List<ObjCCategoryDecl> _categories = [];
-    private HashSet<string>? _appleSdkTypeNames;
+    private Dictionary<string, string>? _appleSdkTypeNamespaces;
 
     public static ObjCModuleBuilder Create(string moduleName = "TestLib") =>
         new() { _moduleName = moduleName };
@@ -148,8 +148,10 @@ public class ObjCModuleBuilder
     /// </summary>
     public ObjCModuleBuilder WithAppleSdkTypeNames(params string[] names)
     {
-        _appleSdkTypeNames ??= new HashSet<string>(StringComparer.Ordinal);
-        foreach (var n in names) _appleSdkTypeNames.Add(n);
+        _appleSdkTypeNamespaces ??= new Dictionary<string, string>(StringComparer.Ordinal);
+        // Resolvability keys on the name; these fixtures don't assert on the derived using set, so
+        // the owning namespace is left empty (no .framework provenance — like a runtime header).
+        foreach (var n in names) _appleSdkTypeNamespaces[n] = "";
         return this;
     }
 
@@ -164,7 +166,7 @@ public class ObjCModuleBuilder
         Constants = _constants,
         Typedefs = _typedefs,
         Categories = _categories,
-        AppleSdkTypeNames = _appleSdkTypeNames,
+        AppleSdkTypeNamespaces = _appleSdkTypeNamespaces,
     };
 
     // --- Sub-builders ---

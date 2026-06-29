@@ -388,6 +388,61 @@ public func joinItemDescriptions(_ xs: [any BugReproExistentialItem]) -> String 
     xs.map { $0.describe() }.joined(separator: ",")
 }
 
+// MARK: - Class-bound `[any Marker]` settable PROPERTY accessor on a CONCRETE type
+//
+// The PARAM (`sumMarkerIds`) and WRITE (`MarkerProvider` getter requirement) fixtures cross the carrier
+// through a Swift `func` parameter and a protocol getter REQUIREMENT (reverse-dispatch receiver). The
+// remaining surface is a concrete (non-protocol) type's SETTABLE stored property whose value is a
+// class-bound `[any Marker]` array: the binding emits a `Markers_Get()` / `Markers_Set(value)` accessor
+// pair on the concrete C# class. The getter return path already routed its `SwiftArray` element carrier
+// through the 16-byte `ClassExistentialContainer1`, but the SETTER param path was left on the 40-byte
+// `ExistentialContainer1` — so the two accessors disagreed on the carrier type and the emitted
+// `Markers_Set(SwiftArray<ExistentialContainer1>)` could not even compile against the setter body's
+// `SwiftArray<ClassExistentialContainer1>` (and, had it compiled, Swift would stride at 16 over 40-byte
+// data → garbage classRef/witness past element[0]). The protocol-requirement `{ get set }` holders below
+// do NOT cover this: a protocol setter requirement emits through the EveryProtocol receiver, a different
+// accessor-emission path than a concrete type's property accessor.
+//
+// `sumIds()` re-reads the property Swift-side after the C# setter assignment, so a setter that wrote
+// invalid 16-byte cells surfaces as a crash / wrong sum (it indexes every element, not just [0]).
+
+/// Concrete (non-protocol) holder with a SETTABLE class-bound `[any Marker]` stored property — the
+/// ShareKit `var media: [any ShareMedia]` shape. Drives the concrete-type property accessor SETTER carrier.
+///
+/// `optionalMarkers` is the OPTIONAL sibling (`[any Marker]?`): the property projection is an
+/// `OptionalProjection` WRAPPING the `ArrayProjection`, so it does NOT match the bare
+/// `projection is ArrayProjection` accessor special-case that fixed the non-optional setter — the
+/// 16-byte `ClassExistentialContainer1` carrier must reach the SwiftArray through the Optional
+/// composition (decomposed-setter IntPtr payload + the projection's own carrier) instead. A 40-byte
+/// carrier here would mis-stride the wrapped array exactly as the non-optional case did.
+public final class MarkerBox {
+    public var markers: [any Marker]
+    public var optionalMarkers: [any Marker]?
+    public init(_ markers: [any Marker]) { self.markers = markers }
+    /// Swift-side read of the property (after a C# `Markers` set), summing every id.
+    public func sumIds() -> Int { markers.reduce(0) { $0 + $1.markerId() } }
+    /// Swift-side read of the OPTIONAL property (after a C# `OptionalMarkers` set): `nil` → -1
+    /// sentinel, otherwise the sum across every element (indexes element[1..], not just [0]).
+    public func sumOptionalIds() -> Int { optionalMarkers?.reduce(0) { $0 + $1.markerId() } ?? -1 }
+}
+
+/// Concrete holder with a SETTABLE class-bound `[any Marker]` SUBSCRIPT. A subscript get/set is an
+/// accessor pair like a property but emitted with an extra index parameter, so it exercises the
+/// accessor carrier routing on a different signature shape than a plain property. The opaque
+/// `[any Boxable]` subscript elsewhere can't catch a class-bound stride mismatch — its getter and
+/// setter both ride the 40-byte `ExistentialContainer1`, so they agree by construction; only a
+/// class-bound (16-byte) element makes the getter/setter carrier disagreement observable.
+public final class MarkerGroups {
+    private var groups: [[any Marker]]
+    public init(_ groups: [[any Marker]]) { self.groups = groups }
+    public subscript(group: Int) -> [any Marker] {
+        get { groups[group] }
+        set { groups[group] = newValue }
+    }
+    /// Swift-side read after a C# subscript set, summing the group's ids (indexes every element).
+    public func sumGroup(_ group: Int) -> Int { groups[group].reduce(0) { $0 + $1.markerId() } }
+}
+
 // MARK: - Class-bound `[String: any Marker]` dictionary VALUE carrier (Dictionary sibling)
 //
 // The same stride bug as `[any Marker]`, but with the existential as a Dictionary VALUE.

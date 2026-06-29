@@ -658,6 +658,274 @@ namespace BindingsGeneration.Tests
             Assert.Contains("MissingCore.Swift.iOS", output);
         }
 
+        // ── Cross-module ObjC companion surfacing behavioral tests ──
+        // A mixed (ObjC+Swift) binding builds a separate ObjC companion assembly that does not
+        // flow transitively across a ProjectReference. GetSwiftObjCCompanionAssembly exposes it
+        // and _ReferenceCrossModuleObjCCompanions injects it into a dependent's compile.
+
+        [Fact]
+        public void GetSwiftObjCCompanionAssembly_MixedBinding_ReturnsCompanionAssemblyPath()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // A mixed binding's GetSwiftObjCCompanionAssembly must run the real
+            // _BuildMixedObjCCompanion and return the built companion assembly path. Plant a
+            // buildable companion csproj + a Mixed binding-metadata.props in the intermediate
+            // dir, then query the target.
+            var intermediateDir = Path.Combine(_tempDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+
+            File.WriteAllText(Path.Combine(intermediateDir, "Companion.ObjC.iOS.csproj"), """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <AssemblyName>Companion.ObjC.iOS</AssemblyName>
+                    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+                  </PropertyGroup>
+                </Project>
+                """);
+            File.WriteAllText(Path.Combine(intermediateDir, "Companion.cs"),
+                "namespace Companion { public class Marker { } }");
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), """
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingFrameworkType>Mixed</_SwiftBindingFrameworkType>
+                    <_SwiftBindingObjCProjectName>Companion.ObjC.iOS.csproj</_SwiftBindingObjCProjectName>
+                  </PropertyGroup>
+                </Project>
+                """);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+            // _SwiftBindingIntermediateDir is set AFTER the Sdk.targets import because Sdk.targets
+            // redefines it from $(IntermediateOutputPath), which would overwrite our value.
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                  </PropertyGroup>
+                  <Target Name="_ImportSwiftBindingMetadata" />
+                  <Target Name="DumpCompanion" DependsOnTargets="GetSwiftObjCCompanionAssembly">
+                    <Message Importance="high" Text="COMPANIONLIST:[@(_SwiftBindingCompanionBuildOutput)]" />
+                  </Target>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:DumpCompanion -nologo -v:n");
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.True(result.ExitCode == 0,
+                $"GetSwiftObjCCompanionAssembly (mixed) failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+            Assert.Contains("Companion.ObjC.iOS.dll", output);
+        }
+
+        [Fact]
+        public void GetSwiftObjCCompanionAssembly_NonMixedBinding_ReturnsNoCompanion()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // A pure-Swift binding declares no companion: _BuildMixedObjCCompanion sets
+            // HasCompanion=false and skips its MSBuild calls, so GetSwiftObjCCompanionAssembly
+            // returns an empty item set (no spurious cross-module Reference downstream).
+            var intermediateDir = Path.Combine(_tempDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), """
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingFrameworkType>Swift</_SwiftBindingFrameworkType>
+                  </PropertyGroup>
+                </Project>
+                """);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                  </PropertyGroup>
+                  <Target Name="_ImportSwiftBindingMetadata" />
+                  <Target Name="DumpCompanion" DependsOnTargets="GetSwiftObjCCompanionAssembly">
+                    <Message Importance="high" Text="COMPANIONLIST:[@(_SwiftBindingCompanionBuildOutput)]" />
+                  </Target>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:DumpCompanion -nologo -v:n");
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.True(result.ExitCode == 0,
+                $"GetSwiftObjCCompanionAssembly (non-mixed) failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+            Assert.Contains("COMPANIONLIST:[]", output);
+        }
+
+        [Fact]
+        public void ReferenceCrossModuleObjCCompanions_MixedSiblingProjectReference_InjectsPrivateReference()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // A consumer with a ProjectReference to a mixed sibling must surface that sibling's
+            // ObjC companion as a private (copy-local) managed Reference. The sibling exposes
+            // GetSwiftObjCCompanionAssembly (a lightweight stand-in returning a known path);
+            // _ReferenceCrossModuleObjCCompanions queries it and injects <Reference Private=true>.
+            // A '.ObjC.'-named ProjectReference (a companion csproj itself) must be excluded and
+            // never queried. ResolveProjectReferences and the Swift codegen hooks are stubbed so
+            // the test exercises only the injection logic without a full sibling build.
+            var companionDll = Path.Combine(_tempDir, "XModCompanion.ObjC.iOS.dll");
+            File.WriteAllText(companionDll, "");
+
+            var producerDir = Path.Combine(_tempDir, "Producer");
+            Directory.CreateDirectory(producerDir);
+            var producerCsproj = Path.Combine(producerDir, "Producer.csproj");
+            // No-op Build/GetTargetPath so the SDK's sibling-prep MSBuild calls
+            // (_BuildSiblingSwiftBindingDeps) succeed against this mock project.
+            File.WriteAllText(producerCsproj, $"""
+                <Project>
+                  <Target Name="Build" />
+                  <Target Name="GetTargetPath" />
+                  <Target Name="GetSwiftObjCCompanionAssembly" Returns="@(_Out)">
+                    <ItemGroup><_Out Include="{companionDll}" /></ItemGroup>
+                  </Target>
+                </Project>
+                """);
+
+            var excludedDir = Path.Combine(_tempDir, "Excluded");
+            Directory.CreateDirectory(excludedDir);
+            var excludedCsproj = Path.Combine(excludedDir, "Producer.ObjC.iOS.csproj");
+            File.WriteAllText(excludedCsproj, """
+                <Project>
+                  <Target Name="Build" />
+                  <Target Name="GetTargetPath" />
+                  <Target Name="GetSwiftObjCCompanionAssembly" Returns="@(_Out)">
+                    <ItemGroup><_Out Include="SHOULD_NOT_APPEAR.dll" /></ItemGroup>
+                  </Target>
+                </Project>
+                """);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <ProjectReference Include="{producerCsproj}" />
+                    <ProjectReference Include="{excludedCsproj}" />
+                  </ItemGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <Target Name="ResolveProjectReferences" />
+                  <Target Name="_GenerateSwiftBindings" />
+                  <Target Name="_ResolveSwiftAutoDetectedDependencies" />
+                  <Target Name="_ImportSwiftBindingMetadata" />
+                  <Target Name="_BuildMixedObjCCompanion" />
+                  <Target Name="_ReferenceMixedObjCCompanion" />
+                  <Target Name="_CompileSwiftWrapper" />
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ComputeSwiftFingerprint" />
+                  <Target Name="_ValidateSwiftPackageItems" />
+                  <Target Name="TestDump" DependsOnTargets="_ReferenceCrossModuleObjCCompanions">
+                    <Message Importance="high" Text="REF:%(Reference.Identity)|PRIV:%(Reference.Private)" />
+                  </Target>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.True(result.ExitCode == 0,
+                $"_ReferenceCrossModuleObjCCompanions failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+            Assert.Contains("XModCompanion.ObjC.iOS.dll|PRIV:true", output);
+            Assert.DoesNotContain("SHOULD_NOT_APPEAR", output);
+        }
+
+        [Fact]
+        public void ReferenceCrossModuleObjCCompanions_TwoSiblingsReturnSameCompanion_DedupesToOneReference()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // Two ProjectReferences resolving to the SAME companion assembly must inject exactly
+            // ONE Reference (path-deduped via ->Distinct()), not a duplicate compile item.
+            var companionDll = Path.Combine(_tempDir, "XModDup.ObjC.iOS.dll");
+            File.WriteAllText(companionDll, "");
+
+            var p1 = Path.Combine(_tempDir, "P1"); Directory.CreateDirectory(p1);
+            var p2 = Path.Combine(_tempDir, "P2"); Directory.CreateDirectory(p2);
+            var p1Csproj = Path.Combine(p1, "P1.csproj");
+            var p2Csproj = Path.Combine(p2, "P2.csproj");
+            var producerBody = $"""
+                <Project>
+                  <Target Name="Build" />
+                  <Target Name="GetTargetPath" />
+                  <Target Name="GetSwiftObjCCompanionAssembly" Returns="@(_Out)">
+                    <ItemGroup><_Out Include="{companionDll}" /></ItemGroup>
+                  </Target>
+                </Project>
+                """;
+            File.WriteAllText(p1Csproj, producerBody);
+            File.WriteAllText(p2Csproj, producerBody);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <ProjectReference Include="{p1Csproj}" />
+                    <ProjectReference Include="{p2Csproj}" />
+                  </ItemGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <Target Name="ResolveProjectReferences" />
+                  <Target Name="_GenerateSwiftBindings" />
+                  <Target Name="_ResolveSwiftAutoDetectedDependencies" />
+                  <Target Name="_ImportSwiftBindingMetadata" />
+                  <Target Name="_BuildMixedObjCCompanion" />
+                  <Target Name="_ReferenceMixedObjCCompanion" />
+                  <Target Name="_CompileSwiftWrapper" />
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ComputeSwiftFingerprint" />
+                  <Target Name="_ValidateSwiftPackageItems" />
+                  <Target Name="TestDump" DependsOnTargets="_ReferenceCrossModuleObjCCompanions">
+                    <ItemGroup>
+                      <_DupRef Include="@(Reference)"
+                               Condition="$([System.String]::Copy('%(Identity)').Contains('XModDup.ObjC.iOS.dll'))" />
+                    </ItemGroup>
+                    <Message Importance="high" Text="DUP:%(_DupRef.Identity)" />
+                  </Target>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.True(result.ExitCode == 0,
+                $"_ReferenceCrossModuleObjCCompanions (dedup) failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+            var dupLines = output.Split('\n').Count(l => l.Contains("DUP:") && l.Contains("XModDup.ObjC.iOS.dll"));
+            Assert.Equal(1, dupLines);
+        }
+
         // ── Finding 62: wiring-tripwire behavioral tests ──
 
         [Fact]
@@ -1275,6 +1543,145 @@ namespace BindingsGeneration.Tests
             // Both deps must be on the bridge -F path simultaneously.
             Assert.Contains("ResolvedSibling.xcframework", output);
             Assert.Contains("PaymentSdk3DS2.xcframework", output);
+        }
+
+        // ── GetSwiftFrameworkSearchPaths must expose a project's OWN declared
+        //    SwiftFrameworkDependency roots, and recurse through its own swift-binding
+        //    ProjectReferences, so a consumer's wrapper compile sees the TRANSITIVE Swift
+        //    framework closure. A dependency's textual .swiftinterface can `import` a module
+        //    the dependency declares but the consumer does not (e.g. CoreKit imports FBAEMKit);
+        //    under compiler skew swiftc rebuilds the dependency from its interface and needs
+        //    that module on -F, or it fails "no such module 'FBAEMKit'". ──
+
+        [Fact]
+        public void GetSwiftFrameworkSearchPaths_ReturnsOwnFrameworkDependencyRootsAsAbsolutePaths()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var bindingDir = Path.Combine(_tempDir, "Consumer.Swift.iOS");
+            Directory.CreateDirectory(bindingDir);
+            var sourceXcfw = Path.Combine(bindingDir, "Consumer.xcframework");
+            Directory.CreateDirectory(sourceXcfw);
+            // Declared RELATIVE in the csproj, as a sibling of the project directory.
+            var depXcfw = Path.Combine(_tempDir, "DeclaredDep.xcframework");
+            Directory.CreateDirectory(depXcfw);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <ItemGroup>
+                    <SwiftFramework Include="{sourceXcfw}" />
+                    <SwiftFrameworkDependency Include="../DeclaredDep.xcframework" />
+                  </ItemGroup>
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ImportSwiftBindingMetadata" />
+                  <Target Name="_ValidateSwiftPackageItems" />
+                  <Target Name="TestDump" DependsOnTargets="GetSwiftFrameworkSearchPaths">
+                    <Message Importance="High" Text="SEARCHPATH:%(_SwiftBindingFrameworkSearchPath.Identity)" />
+                  </Target>
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(bindingDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(bindingDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
+            Assert.True(result.ExitCode == 0,
+                $"TestDump failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+
+            var output = result.StdOut + "\n" + result.StdErr;
+            // The declared dependency is surfaced…
+            Assert.Contains("DeclaredDep.xcframework", output);
+            // …as an ABSOLUTE path: the relative '../' form was resolved against the declaring
+            // project's directory, so a consumer in a different directory still gets a valid -F entry.
+            Assert.DoesNotContain("../DeclaredDep.xcframework", output);
+        }
+
+        [Fact]
+        public void GetSwiftFrameworkSearchPaths_RecursesProjectReferenceDependencies()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            // Dependency project A (the "CoreKit" of the graph). A declares a transitive
+            // framework dependency (the "FBAEMKit") that the consumer never names directly.
+            var depProjDir = Path.Combine(_tempDir, "CoreDep.Swift.iOS");
+            Directory.CreateDirectory(depProjDir);
+            var depSourceXcfw = Path.Combine(depProjDir, "CoreDep.xcframework");
+            Directory.CreateDirectory(depSourceXcfw);
+            var transitiveXcfw = Path.Combine(_tempDir, "TransitiveDep.xcframework");
+            Directory.CreateDirectory(transitiveXcfw);
+
+            var depProject = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <ItemGroup>
+                    <SwiftFramework Include="{depSourceXcfw}" />
+                    <SwiftFrameworkDependency Include="../TransitiveDep.xcframework" />
+                  </ItemGroup>
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ImportSwiftBindingMetadata" />
+                  <Target Name="_ValidateSwiftPackageItems" />
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(depProjDir, "CoreDep.Swift.iOS.csproj"), depProject);
+            File.WriteAllText(Path.Combine(depProjDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(depProjDir, "Directory.Build.targets"), "<Project />");
+
+            // Consumer project B (the "ShareKit"). It ProjectReferences A only; it never
+            // declares the transitive dependency.
+            var bindingDir = Path.Combine(_tempDir, "ConsumerB.Swift.iOS");
+            Directory.CreateDirectory(bindingDir);
+            var sourceXcfw = Path.Combine(bindingDir, "ConsumerB.xcframework");
+            Directory.CreateDirectory(sourceXcfw);
+
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <ItemGroup>
+                    <SwiftFramework Include="{sourceXcfw}" />
+                    <ProjectReference Include="../CoreDep.Swift.iOS/CoreDep.Swift.iOS.csproj" />
+                  </ItemGroup>
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ImportSwiftBindingMetadata" />
+                  <Target Name="_ValidateSwiftPackageItems" />
+                  <Target Name="TestDump" DependsOnTargets="GetSwiftFrameworkSearchPaths">
+                    <Message Importance="High" Text="SEARCHPATH:%(_SwiftBindingFrameworkSearchPath.Identity)" />
+                  </Target>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(bindingDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(bindingDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
+            Assert.True(result.ExitCode == 0,
+                $"TestDump failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+
+            var output = result.StdOut + "\n" + result.StdErr;
+            // The dependency's own source xcframework flows up (already worked before)…
+            Assert.Contains("CoreDep.xcframework", output);
+            // …and so does the TRANSITIVE dependency the consumer never named — reached by
+            // recursing the dependency's own declared SwiftFrameworkDependency closure.
+            Assert.Contains("TransitiveDep.xcframework", output);
         }
 
         // ── Author-declared SwiftLinkFramework/SwiftLinkLibrary must reach the WRAPPER compile

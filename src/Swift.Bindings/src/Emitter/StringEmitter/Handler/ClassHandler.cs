@@ -387,6 +387,12 @@ namespace BindingsGeneration
                 // Nested type names collide with method names in C# (CS0102)
                 foreach (var nestedType in classDecl.Types)
                     propertyNames.Add(NameProvider.ToPascalCase(nestedType.Name));
+                // An ObjC-rooted class inherits Microsoft.iOS NSObject instance properties (Handle,
+                // Description, …). A Swift method projected to one of those names shadows the
+                // inherited property (CS0108) and breaks later property reads (CS0428). Seed the
+                // sibling-property rename axis with them so any such method is renamed uniformly.
+                if (isObjCRooted)
+                    propertyNames.UnionWith(NameProvider.ObjCRootedInheritedPropertyNames);
 
                 SubscriptHandler.EmitSubscripts(csWriter, swiftWriter, classDecl, env.TypeDatabase, conductor, childContext, _logger);
 

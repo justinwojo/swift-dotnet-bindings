@@ -128,6 +128,30 @@ public class MemberValidationPipeline
                     "Closure-bearing member (closure parameter or return) on a @usableFromInline internal parent type: its closure wrapper must name the internal parent and has no direct CallConvSwift fallback.");
         }
 
+        // 3d. The member ITSELF is module-internal (absent from the public swiftinterface)
+        // on a PUBLIC parent type — the mirror of the internal-parent gate above. A sync
+        // member of this shape survives via a direct CallConvSwift P/Invoke bound to the
+        // exported symbol (no wrapper, so internal-ness does not block linkage). But an
+        // async or closure-bearing member can only be reached through a Swift bridge
+        // wrapper whose body NAMES the member, and that wrapper is compiled as a separate
+        // client module (a plain `import`) that cannot reference a member which is not
+        // public/SPI-visible. Without this gate the closure-bridge emitters (MCB and the
+        // other bridge adapters), which run inside the handler with no visibility check of
+        // their own, emit a wrapper that fails to compile. SPI members are already dropped
+        // by the @_spi gate above; this gate covers the @usableFromInline / absent-from-
+        // interface internal case. Drop before any bridge/handler routing, symmetric to 3c.
+        if (methodDecl.IsModuleInternal && methodDecl.ParentDecl is TypeDecl { IsModuleInternal: false })
+        {
+            if (methodDecl.IsAsync)
+                return ValidationResult.Skip(SkipReason.ModuleInternal,
+                    "Async member that is itself module-internal: its bridge wrapper, compiled as a separate client module, must name a member it cannot resolve, and there is no direct CallConvSwift fallback for async.");
+
+            var internalMemberClosureHandler = new ClosureHandler(_typeDatabase);
+            if (methodDecl.CSSignature.Any(internalMemberClosureHandler.IsClosure))
+                return ValidationResult.Skip(SkipReason.ModuleInternal,
+                    "Closure-bearing member (closure parameter or return) that is itself module-internal: its closure bridge wrapper, compiled as a separate client module, must name a member it cannot resolve.");
+        }
+
         // 4. Variadic methods — Swift variadic params (T...) appear as Array<T> in ABI JSON.
         // At the ABI level, variadic T... IS Array<T>, so CallConvSwift can dispatch correctly
         // by passing SwiftArray<T> as a single pointer. @_cdecl wrappers cannot call variadic

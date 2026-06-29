@@ -411,6 +411,136 @@ public class ApiDefinitionEmitterTests
         Assert.Contains("Action<bool> completion", result);
     }
 
+    [Fact]
+    public void Emit_ProtocolMethod_AbsentTypeInsideBlockParam_IsDropped()
+    {
+        // Mirrors the real FBSDKCoreKit shape: an [Abstract] protocol method whose block parameter
+        // carries a cross-module third-party class (FBSDKAppLink) that this binding neither declares
+        // nor resolves via a using. The outer Action<…> is a known pattern, so without recursing into
+        // its arguments the absent inner name leaks into the api-definition contract compile (CS0246).
+        // The whole method must be dropped; a sibling whose block argument resolves still emits.
+        var absentInsideBlock = new ObjCMethodDecl
+        {
+            Selector = "resolveAppLinkFromURL:handler:",
+            ReturnType = new ObjCTypeRef { Name = "void" },
+            IsInstanceMethod = true,
+            Parameters =
+            [
+                new ObjCParameterDecl { Name = "url", Type = new ObjCTypeRef { Name = "NSURL", IsPointer = true } },
+                new ObjCParameterDecl
+                {
+                    Name = "handler",
+                    Type = new ObjCTypeRef
+                    {
+                        Name = "block",
+                        IsBlock = true,
+                        BlockReturnType = new ObjCTypeRef { Name = "void" },
+                        BlockParams =
+                        [
+                            new ObjCTypeRef { Name = "ZZThirdPartyType", IsPointer = true },
+                            new ObjCTypeRef { Name = "NSError", IsPointer = true },
+                        ],
+                    },
+                },
+            ],
+        };
+        var resolvableSibling = new ObjCMethodDecl
+        {
+            Selector = "observeWithHandler:",
+            ReturnType = new ObjCTypeRef { Name = "void" },
+            IsInstanceMethod = true,
+            Parameters =
+            [
+                new ObjCParameterDecl
+                {
+                    Name = "handler",
+                    Type = new ObjCTypeRef
+                    {
+                        Name = "block",
+                        IsBlock = true,
+                        BlockReturnType = new ObjCTypeRef { Name = "void" },
+                        BlockParams = [new ObjCTypeRef { Name = "NSError", IsPointer = true }],
+                    },
+                },
+            ],
+        };
+
+        var module = ObjCModuleBuilder.Create("Test")
+            .WithProtocol("AppLinkResolving", p => { p.Method(absentInsideBlock); p.Method(resolvableSibling); })
+            .WithAppleSdkTypeNames("NSError")
+            .Build();
+
+        var result = EmitApiDefinition(module, "TestNamespace");
+
+        Assert.DoesNotContain("ZZThirdPartyType", result);
+        Assert.DoesNotContain("resolveAppLinkFromURL", result);
+        Assert.Contains("Action<NSError>", result);
+    }
+
+    [Fact]
+    public void Emit_ProtocolMethod_AbsentTypeInsideNamedBlockTypedefParam_IsDropped()
+    {
+        // Mirrors FBSDKCoreKit's exact shape (FBSDKAppLinkBlock): the block parameter is a *named*
+        // block typedef resolved through the block-typedef map — not an inline block — whose expansion
+        // carries a cross-module class the binding neither declares nor resolves (in a mixed binding
+        // the class is filtered out as Swift-owned, leaving the typedef pointing at an absent name).
+        // The named-typedef path is distinct from an inline block in MapType, so it must funnel through
+        // the same recursive resolvability gate or the absent inner name leaks into Action<…> (CS0246).
+        var absentViaTypedef = new ObjCMethodDecl
+        {
+            Selector = "resolveAppLinkFromURL:handler:",
+            ReturnType = new ObjCTypeRef { Name = "void" },
+            IsInstanceMethod = true,
+            Parameters =
+            [
+                new ObjCParameterDecl { Name = "url", Type = new ObjCTypeRef { Name = "NSURL", IsPointer = true } },
+                new ObjCParameterDecl { Name = "handler", Type = new ObjCTypeRef { Name = "ZZAppLinkBlock" } },
+            ],
+        };
+        var resolvableViaTypedef = new ObjCMethodDecl
+        {
+            Selector = "observeWithHandler:",
+            ReturnType = new ObjCTypeRef { Name = "void" },
+            IsInstanceMethod = true,
+            Parameters =
+            [
+                new ObjCParameterDecl { Name = "handler", Type = new ObjCTypeRef { Name = "ZZErrorBlock" } },
+            ],
+        };
+
+        var absentBlock = new ObjCTypeRef
+        {
+            Name = "block",
+            IsBlock = true,
+            BlockReturnType = new ObjCTypeRef { Name = "void" },
+            BlockParams =
+            [
+                new ObjCTypeRef { Name = "ZZThirdPartyType", IsPointer = true },
+                new ObjCTypeRef { Name = "NSError", IsPointer = true },
+            ],
+        };
+        var errorBlock = new ObjCTypeRef
+        {
+            Name = "block",
+            IsBlock = true,
+            BlockReturnType = new ObjCTypeRef { Name = "void" },
+            BlockParams = [new ObjCTypeRef { Name = "NSError", IsPointer = true }],
+        };
+
+        var module = ObjCModuleBuilder.Create("Test")
+            .WithTypedef(new ObjCTypedefDecl { Name = "ZZAppLinkBlock", UnderlyingType = absentBlock })
+            .WithTypedef(new ObjCTypedefDecl { Name = "ZZErrorBlock", UnderlyingType = errorBlock })
+            .WithProtocol("AppLinkResolving", p => { p.Method(absentViaTypedef); p.Method(resolvableViaTypedef); })
+            .WithAppleSdkTypeNames("NSError")
+            .Build();
+
+        var result = EmitApiDefinition(module, "TestNamespace");
+
+        Assert.DoesNotContain("ZZThirdPartyType", result);
+        Assert.DoesNotContain("resolveAppLinkFromURL", result);
+        Assert.Contains("Action<NSError>", result);
+    }
+
     // --- Protocol ---
 
     [Fact]
@@ -559,6 +689,164 @@ public class ApiDefinitionEmitterTests
         // The double-I bug shapes must never appear.
         Assert.DoesNotContain("IIMLNFeature", result);
         Assert.DoesNotContain("IIMLNAnnotation", result);
+    }
+
+    // --- Class/protocol name clash (Class 1: duplicate-emission de-dup) ---
+
+    [Fact]
+    public void Emit_ClassAndProtocolSameName_ProtocolRenamed_ClassKeepsBareName()
+    {
+        // When a name exists as BOTH a class and a protocol, bgen previously emitted two
+        // `partial interface Foo` blocks — one for the class (with its real [BaseType]) and one for
+        // the protocol — colliding on [BaseType] (CS0579), members (CS0102/CS0111), and the class's
+        // own conformance listing `Foo` in `Foo`'s inheritance list (CS0529 self-cycle). The class
+        // keeps the bare name; the protocol's managed interface is renamed `FooProtocol` with
+        // `[Protocol(Name = "Foo")]` (the dotnet/macios convention), so both entities survive.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols =
+            [
+                new ObjCProtocolDecl
+                {
+                    Name = "Bridge",
+                    Methods = [new ObjCMethodDecl
+                    {
+                        Selector = "openURL:",
+                        ReturnType = new ObjCTypeRef { Name = "void" },
+                        IsInstanceMethod = true,
+                        IsOptional = false,
+                        Parameters = [new ObjCParameterDecl
+                        {
+                            Name = "url",
+                            Type = new ObjCTypeRef { Name = "NSString", IsPointer = true }
+                        }]
+                    }]
+                }
+            ],
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "Bridge",
+                    SuperclassName = "NSObject",
+                    // class conforms to the same-named protocol AND to an SDK protocol
+                    ProtocolNames = ["Bridge", "NSCopying"],
+                    Properties =
+                    [
+                        new ObjCPropertyDecl
+                        {
+                            Name = "scheme",
+                            Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                            IsReadonly = true,
+                            GetterSelector = "scheme"
+                        },
+                        // a member typed id<Bridge> — must resolve to the renamed protocol interface
+                        new ObjCPropertyDecl
+                        {
+                            Name = "peer",
+                            Type = new ObjCTypeRef { Name = "id", ProtocolQualifications = ["Bridge"] },
+                            IsReadonly = true,
+                            GetterSelector = "peer"
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+
+        // Protocol renamed to FooProtocol with the Name= form that preserves native registration.
+        Assert.Contains("[Protocol(Name = \"Bridge\")]", result);
+        Assert.Contains("partial interface BridgeProtocol", result);
+        // Renamed forward declaration.
+        Assert.Contains("interface IBridgeProtocol { }", result);
+        // Exactly ONE bare class declaration `partial interface Bridge ` (trailing space excludes
+        // the `BridgeProtocol` decl). The double-emission bug produced a second one.
+        var classDeclCount = result.Split("partial interface Bridge ").Length - 1;
+        Assert.Equal(1, classDeclCount);
+        // Class keeps the bare name and conforms to the RENAMED protocol (own bare, SDK I-prefixed).
+        Assert.Contains("partial interface Bridge : BridgeProtocol, INSCopying", result);
+        // No self-cycle: the class never lists its own bare name as a conformance token (boundary-
+        // aware so the legitimate `BridgeProtocol` prefix doesn't false-match).
+        Assert.DoesNotContain(": Bridge,", result);
+        Assert.DoesNotContain(": Bridge\n", result);
+        Assert.DoesNotContain(", Bridge\n", result);
+        Assert.DoesNotContain(", Bridge,", result);
+        // Member typed id<Bridge> resolves to the renamed protocol interface.
+        Assert.Contains("IBridgeProtocol Peer { get; }", result);
+        // The double-I bug shape must never appear.
+        Assert.DoesNotContain("IIBridge", result);
+    }
+
+    [Fact]
+    public void Emit_ClassAndModelProtocolSameName_ProtocolRenamedCarriesModel()
+    {
+        // Same clash, but the protocol is a delegate/data-source protocol → it carries [Model].
+        // The rename must compose with [Model]: `[Protocol(Name = "Foo"), Model]` on the renamed
+        // `partial interface FooProtocol`, so the generated Model class becomes FooProtocol, not Foo.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols =
+            [
+                new ObjCProtocolDecl
+                {
+                    Name = "Loader",
+                    IsDelegateProtocol = true,
+                    Methods = [new ObjCMethodDecl
+                    {
+                        Selector = "didLoad",
+                        ReturnType = new ObjCTypeRef { Name = "void" },
+                        IsInstanceMethod = true,
+                        IsOptional = true
+                    }]
+                }
+            ],
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "Loader",
+                    SuperclassName = "NSObject",
+                    ProtocolNames = ["Loader"]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+
+        // [Model] composes with the Name= rename.
+        Assert.Contains("[Protocol(Name = \"Loader\"), Model]", result);
+        Assert.Contains("partial interface LoaderProtocol", result);
+        // Class keeps the bare name and conforms to the renamed protocol.
+        Assert.Contains("partial interface Loader : LoaderProtocol", result);
+        // Exactly one bare class declaration.
+        var classDeclCount = result.Split("partial interface Loader ").Length - 1;
+        Assert.Equal(1, classDeclCount);
+    }
+
+    [Fact]
+    public void Emit_ProtocolWithoutClassClash_KeepsBareNameNoRename()
+    {
+        // Gating proof: a protocol whose name does NOT also exist as a class is unaffected — it keeps
+        // the bare `[Protocol]` form and the bare `partial interface Foo` declaration (no Protocol
+        // suffix, no Name= argument).
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl { Name = "Standalone" }],
+            Classes = [new ObjCClassDecl { Name = "Other", ProtocolNames = ["Standalone"] }]
+        };
+
+        var result = EmitAndRead(module);
+
+        Assert.Contains("[Protocol]", result);
+        Assert.DoesNotContain("[Protocol(Name", result);
+        Assert.Contains("partial interface Standalone", result);
+        Assert.DoesNotContain("StandaloneProtocol", result);
+        // Class conformance uses the bare own-protocol name.
+        Assert.Contains("partial interface Other : Standalone", result);
     }
 
     [Fact]
@@ -1311,7 +1599,7 @@ public class ApiDefinitionEmitterTests
             // KeyType is used both as a generic param (in GenericCollection) AND a
             // real concrete type (in KeyTypeConsumer). Declare it as an SDK type so
             // the resolvability filter doesn't drop the KeyTypeConsumer method.
-            AppleSdkTypeNames = new HashSet<string> { "KeyType" },
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["KeyType"] = "" },
             Classes =
             [
                 new ObjCClassDecl
@@ -2005,12 +2293,12 @@ public class ApiDefinitionEmitterTests
     [Fact]
     public void Emit_ApiDefinitionFiltering_SkipsMethodWithUnresolvableParamType()
     {
-        // When AppleSdkTypeNames is populated, methods with types NOT in the known set
+        // When AppleSdkTypeNamespaces is populated, methods with types NOT in the known set
         // or Apple SDK should be skipped.
         var module = new ObjCModule
         {
             ModuleName = "Test",
-            AppleSdkTypeNames = new HashSet<string> { "UIColor" },
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["UIColor"] = "" },
             Classes =
             [
                 new ObjCClassDecl
@@ -2048,7 +2336,7 @@ public class ApiDefinitionEmitterTests
         var module = new ObjCModule
         {
             ModuleName = "Test",
-            AppleSdkTypeNames = new HashSet<string> { "NSData" },
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["NSData"] = "" },
             Classes =
             [
                 new ObjCClassDecl
@@ -2077,7 +2365,7 @@ public class ApiDefinitionEmitterTests
         var module = new ObjCModule
         {
             ModuleName = "Test",
-            AppleSdkTypeNames = new HashSet<string> { "UIView" },
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["UIView"] = "" },
             Classes =
             [
                 new ObjCClassDecl
@@ -2105,7 +2393,7 @@ public class ApiDefinitionEmitterTests
         var module = new ObjCModule
         {
             ModuleName = "Test",
-            AppleSdkTypeNames = new HashSet<string> { "SomeDelegate" },
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["SomeDelegate"] = "" },
             Protocols =
             [
                 new ObjCProtocolDecl
@@ -2131,7 +2419,7 @@ public class ApiDefinitionEmitterTests
     [Fact]
     public void Emit_ApiDefinitionFiltering_FallbackHeuristicWhenAppleSdkTypesNull()
     {
-        // When AppleSdkTypeNames is null (no Clang context, e.g. -fmodules AST),
+        // When AppleSdkTypeNamespaces is null (no Clang context, e.g. -fmodules AST),
         // the fallback only accepts names whose head matches a registered Apple
         // ObjC class prefix. The bare "any uppercase" rule was a false-positive
         // source: it let cross-framework third-party types (e.g. CloudPlatformOptions in a
@@ -2139,7 +2427,7 @@ public class ApiDefinitionEmitterTests
         var module = new ObjCModule
         {
             ModuleName = "Test",
-            AppleSdkTypeNames = null,
+            AppleSdkTypeNamespaces = null,
             Classes =
             [
                 new ObjCClassDecl
@@ -2190,7 +2478,7 @@ public class ApiDefinitionEmitterTests
         var module = new ObjCModule
         {
             ModuleName = "Test",
-            AppleSdkTypeNames = new HashSet<string>(), // Empty — no Apple types
+            AppleSdkTypeNamespaces = new Dictionary<string, string>(), // Empty — no Apple types
             Classes =
             [
                 new ObjCClassDecl
@@ -2223,7 +2511,7 @@ public class ApiDefinitionEmitterTests
         var module = new ObjCModule
         {
             ModuleName = "Test",
-            AppleSdkTypeNames = new HashSet<string> { "NSURLSessionDelegate", "NSHTTPURLResponse" },
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["NSURLSessionDelegate"] = "", ["NSHTTPURLResponse"] = "" },
             Protocols =
             [
                 new ObjCProtocolDecl
@@ -2264,7 +2552,7 @@ public class ApiDefinitionEmitterTests
         var module = new ObjCModule
         {
             ModuleName = "Test",
-            AppleSdkTypeNames = new HashSet<string> { "UIColor" },
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["UIColor"] = "" },
             Classes =
             [
                 new ObjCClassDecl
@@ -2686,21 +2974,28 @@ public class ApiDefinitionEmitterTests
         var module = new ObjCModule
         {
             ModuleName = "Test",
-            Classes = [new ObjCClassDecl
-            {
-                Name = "Logger",
-                Properties = [new ObjCPropertyDecl
+            Classes =
+            [
+                // The element type must be a resolvable concrete type — declare it in the module so
+                // it lands in knownTypes (an undeclared element would correctly drop, since emitting
+                // a typed array of an unresolvable element is CS0246 in the contract compile).
+                new ObjCClassDecl { Name = "LabelPrinterLog" },
+                new ObjCClassDecl
                 {
-                    Name = "allLogs",
-                    Type = new ObjCTypeRef
+                    Name = "Logger",
+                    Properties = [new ObjCPropertyDecl
                     {
-                        Name = "NSArray",
-                        IsPointer = true,
-                        GenericArgs = [new ObjCTypeRef { Name = "LabelPrinterLog", IsPointer = true }]
-                    },
-                    IsReadonly = true,
-                }]
-            }]
+                        Name = "allLogs",
+                        Type = new ObjCTypeRef
+                        {
+                            Name = "NSArray",
+                            IsPointer = true,
+                            GenericArgs = [new ObjCTypeRef { Name = "LabelPrinterLog", IsPointer = true }]
+                        },
+                        IsReadonly = true,
+                    }]
+                }
+            ]
         };
 
         var result = EmitAndRead(module);
@@ -3898,14 +4193,14 @@ public class ApiDefinitionEmitterTests
     {
         // A Swift test framework like Quick declares `QuickSpec : XCTestCase`. XCTestCase is NOT a
         // bindable Apple SDK type (it lives under the platform Developer-tools frameworks, so it is
-        // absent from AppleSdkTypeNames), so emitting [BaseType(typeof(XCTestCase))] would fail with
+        // absent from AppleSdkTypeNamespaces), so emitting [BaseType(typeof(XCTestCase))] would fail with
         // CS0246. Degrade gracefully: drop QuickSpec but keep QuickConfiguration : NSObject.
         var module = new ObjCModule
         {
             ModuleName = "Quick",
             // Non-empty → engages the precise oracle. NSString is a real SDK type; XCTestCase is
             // deliberately absent (mirroring the IsAppleSdkPath fix that excludes it).
-            AppleSdkTypeNames = new HashSet<string> { "NSString", "NSObject" },
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["NSString"] = "", ["NSObject"] = "" },
             Classes =
             [
                 new ObjCClassDecl
@@ -3955,7 +4250,7 @@ public class ApiDefinitionEmitterTests
         var module = new ObjCModule
         {
             ModuleName = "Quick",
-            AppleSdkTypeNames = new HashSet<string> { "NSString", "NSObject" },
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["NSString"] = "", ["NSObject"] = "" },
             Classes =
             [
                 new ObjCClassDecl
@@ -4010,7 +4305,7 @@ public class ApiDefinitionEmitterTests
         var module = new ObjCModule
         {
             ModuleName = "Quick",
-            AppleSdkTypeNames = new HashSet<string> { "NSString", "NSObject" },
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["NSString"] = "", ["NSObject"] = "" },
             Classes =
             [
                 new ObjCClassDecl { Name = "QuickSpec", SuperclassName = "XCTestCase" },
@@ -4059,7 +4354,7 @@ public class ApiDefinitionEmitterTests
         var module = new ObjCModule
         {
             ModuleName = "Test",
-            AppleSdkTypeNames = new HashSet<string> { "NSObject", "NSCoding" },
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["NSObject"] = "", ["NSCoding"] = "" },
             Classes =
             [
                 new ObjCClassDecl
@@ -4084,7 +4379,7 @@ public class ApiDefinitionEmitterTests
         var module = new ObjCModule
         {
             ModuleName = "Test",
-            AppleSdkTypeNames = new HashSet<string> { "NSObject", "NSCoding" },
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["NSObject"] = "", ["NSCoding"] = "" },
             Protocols =
             [
                 new ObjCProtocolDecl

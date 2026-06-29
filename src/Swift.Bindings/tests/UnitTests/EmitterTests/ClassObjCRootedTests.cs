@@ -345,6 +345,104 @@ public class ClassObjCRootedTests
         Assert.Null(result);
     }
 
+    [Fact]
+    public void GetObjCBaseTypeName_ThirdPartyRenamedObjCSuperclass_UsesObjCNameFromUsr()
+    {
+        // A third-party ObjC class `FBSDKButton` is imported into Swift as `FBButton` (a Clang
+        // swift_name / NS_SWIFT_NAME rename), so the superclass carried in the ABI is the Swift
+        // name `FBSDKCoreKit.FBButton`. The C# binding for that class is produced by the ObjC
+        // ApiDefinition pipeline under its ObjC name (`FBSDKButton`), so the base reference must
+        // use the ObjC name (recovered from the Clang superclass USR), not the Swift name.
+        var cls = CreateClassDecl("FBLoginButton", "FBSDKLoginKit",
+            superclassUsr: "c:objc(cs)FBSDKButton",
+            superclassNames: new[] { "FBSDKCoreKit.FBButton" });
+
+        var result = MarshallingHelpers.GetObjCBaseTypeName(cls);
+
+        Assert.Equal("FBSDKCoreKit.FBSDKButton", result);
+    }
+
+    [Fact]
+    public void GetObjCBaseTypeName_ThirdPartyUnrenamedObjCSuperclass_Unchanged()
+    {
+        // When a third-party ObjC class is NOT renamed for Swift, the Swift superclass name and
+        // the ObjC name match, so the result is the same name whether derived from the USR or the
+        // Swift superclass name — no spurious change.
+        var cls = CreateClassDecl("MyWidget", "WidgetKitExtras",
+            superclassUsr: "c:objc(cs)BaseWidget",
+            superclassNames: new[] { "WidgetCore.BaseWidget" });
+
+        var result = MarshallingHelpers.GetObjCBaseTypeName(cls);
+
+        Assert.Equal("WidgetCore.BaseWidget", result);
+    }
+
+    [Fact]
+    public void GetObjCBaseTypeName_ThirdPartyObjCSuperclass_NonClassUsr_FallsBackToSwiftName()
+    {
+        // Defensive: an ObjC superclass whose USR is not a Clang class USR (`c:objc(cs)<name>`)
+        // yields no ObjC name to substitute, so the existing Swift-name mapping path is used.
+        var cls = CreateClassDecl("Derived", "ThirdPartyKit",
+            superclassUsr: "c:@CategoryDecl",
+            superclassNames: new[] { "ThirdPartyCore.SomeBase" });
+
+        var result = MarshallingHelpers.GetObjCBaseTypeName(cls);
+
+        Assert.Equal("ThirdPartyCore.SomeBase", result);
+    }
+
+    [Fact]
+    public void GetObjCBaseTypeName_ThirdPartyObjCExportedSwiftSuperclass_UsesSwiftName()
+    {
+        // An @objc-exported *Swift* class (e.g. `@objc(FBSDKIcon) open class FBIcon`) has a Clang
+        // superclass USR, but carries a Swift-module origin marker (`c:@M@<module>@objc(cs)<Name>`).
+        // The dependency binds it via the *Swift* pipeline under its Swift name (`FBIcon`), NOT the
+        // ObjC ApiDefinition pipeline — so the base reference must use the Swift superclass name,
+        // not the ObjC name recovered from the USR. (Contrast with the pure-ObjC `FBSDKButton`
+        // case above, which IS bound under its ObjC name.)
+        var cls = CreateClassDecl("MessengerIcon", "FBSDKShareKit",
+            superclassUsr: "c:@M@FBSDKCoreKit@objc(cs)FBSDKIcon",
+            superclassNames: new[] { "FBSDKCoreKit.FBIcon", "ObjectiveC.NSObject" });
+
+        var result = MarshallingHelpers.GetObjCBaseTypeName(cls);
+
+        Assert.Equal("FBSDKCoreKit.FBIcon", result);
+    }
+
+    [Fact]
+    public void GetObjCBaseTypeName_AppleRenamedModule_StaysOnRemapPath()
+    {
+        // Regression guard for the gate: Apple modules are curated/known, so even though the Swift
+        // superclass name (`Dispatch.DispatchQueue`) differs from the ObjC USR name
+        // (`OS_dispatch_queue`), the curated remap path must win — substituting the raw USR name
+        // would emit a nonexistent `OS_dispatch_queue`.
+        var cls = CreateClassDecl("MyQueue", "TestModule",
+            superclassUsr: "c:objc(cs)OS_dispatch_queue",
+            superclassNames: new[] { "Dispatch.DispatchQueue" });
+
+        var result = MarshallingHelpers.GetObjCBaseTypeName(cls);
+
+        Assert.Equal("CoreFoundation.DispatchQueue", result);
+    }
+
+    [Fact]
+    public void ObjCBoundary_ThirdPartyRenamedSuperclass_EmitsObjCNameInDeclaration()
+    {
+        // End-to-end through ClassHandler's isObjCBoundary branch: the emitted base reference must
+        // be the dependency's ObjC-bound name (`FBSDKCoreKit.FBSDKButton`), not the Swift-renamed
+        // name (`FBSDKCoreKit.FBButton`) which does not resolve (the reported CS0234).
+        var cls = CreateClassDecl("FBLoginButton", "TestModule",
+            superclassUsr: "c:objc(cs)FBSDKButton",
+            superclassNames: new[] { "FBSDKCoreKit.FBButton" });
+        cls.IsObjCRooted = true;
+
+        var output = EmitSingleObjCRootedClass(cls);
+
+        var declLine = GetClassDeclarationLine(output, "FBLoginButton");
+        Assert.Contains("FBSDKCoreKit.FBSDKButton", declLine);
+        Assert.DoesNotContain("FBSDKCoreKit.FBButton,", declLine);
+    }
+
     #endregion
 
     #region Emission — Cross-Module Transitive ObjC-Rooted
@@ -788,7 +886,100 @@ public class ClassObjCRootedTests
 
     #endregion
 
+    #region Inherited-NSObject-property collision (Class 2 Bug A: Handle shadow)
+
+    [Fact]
+    public void ObjCRooted_MethodNamedHandle_RenamedToAvoidNSObjectPropertyShadow()
+    {
+        // An ObjC-rooted class inherits NSObject.Handle (a NativeHandle property). A Swift method
+        // projected to `Handle` shadows it (CS0108) and breaks later `.Handle` reads (CS0428 — the
+        // reported FBAEMKit crash). The sibling-property rename axis, seeded with the curated
+        // NSObject property names, renames the method to `HandleMethod`.
+        var cls = CreateClassDecl("AEMReporter", "TestModule",
+            superclassUsr: "c:objc(cs)NSObject",
+            superclassNames: new[] { "ObjectiveC.NSObject" });
+        cls.IsObjCRooted = true;
+        cls.Methods.Add(TestDecls.Method("handle"));
+
+        var output = EmitSingleObjCRootedClass(cls);
+
+        // The method is renamed (no bare `Handle(` method that would shadow the inherited property).
+        Assert.Contains("HandleMethod(", output);
+        Assert.DoesNotContain("public void Handle(", output);
+    }
+
+    [Fact]
+    public void NonObjCRooted_MethodNamedHandle_KeepsBareHandle()
+    {
+        // Gating proof: a pure-Swift (non-ObjC-rooted) class does NOT inherit NSObject.Handle, so the
+        // curated set must NOT be seeded — the method keeps its natural `Handle` name.
+        var cls = CreateClassDecl("PureReporter", "TestModule");
+        cls.IsObjCRooted = false;
+        cls.Methods.Add(TestDecls.Method("handle"));
+
+        var output = EmitNonObjCRootedClass(cls);
+
+        Assert.Contains("Handle(", output);
+        Assert.DoesNotContain("HandleMethod", output);
+    }
+
+    #endregion
+
     #region Test Helpers
+
+    /// <summary>
+    /// Emits a pure-Swift (non-ObjC-rooted) class through ClassHandler. Mirrors
+    /// <see cref="EmitSingleObjCRootedClass"/> but registers the type WITHOUT the ObjCRooted flag and
+    /// leaves <c>IsObjCRooted</c> false, so the curated NSObject-property seeding does not apply.
+    /// </summary>
+    private static string EmitNonObjCRootedClass(ClassDecl classDecl)
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+
+        classDecl.ModuleDecl = moduleDecl;
+        foreach (var method in classDecl.Methods)
+        {
+            method.ParentDecl = classDecl;
+            method.ModuleDecl = moduleDecl;
+        }
+        foreach (var prop in classDecl.Properties)
+        {
+            prop.ParentDecl = classDecl;
+            prop.ModuleDecl = moduleDecl;
+            foreach (var accessor in prop.Accessors)
+            {
+                accessor.Method.ParentDecl = classDecl;
+                accessor.Method.ModuleDecl = moduleDecl;
+            }
+        }
+        testModule.RegisterType(
+            classDecl.SwiftTypeName,
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", classDecl.Name),
+                SwiftTypeName = classDecl.SwiftTypeName,
+                MetadataAccessor = $"{classDecl.MangledName}Ma",
+                Kind = TypeRecordKind.Class,
+                Flags = TypeRecordFlags.RequiresMemoryManagement
+            });
+
+        var db = new TypeDatabase();
+        db.AddModuleDatabase(new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib"));
+        db.AddModuleDatabase(testModule);
+
+        var csStringWriter = new StringWriter();
+        var csWriter = new CSharpWriter(csStringWriter);
+        var swiftWriter = new SwiftWriter(new StringWriter());
+
+        var handler = new ClassHandler(NullLogger<ClassHandler>.Instance);
+        var conductor = new Conductor(NullLoggerFactory.Instance);
+
+        var env = handler.Marshal(classDecl, db);
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+
+        return csStringWriter.ToString();
+    }
 
     private static ClassDecl CreateClassDecl(
         string name,

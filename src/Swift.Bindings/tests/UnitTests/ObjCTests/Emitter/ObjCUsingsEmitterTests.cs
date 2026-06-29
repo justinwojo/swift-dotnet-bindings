@@ -78,7 +78,67 @@ public class ObjCUsingsEmitterTests
         ],
     };
 
+    /// <summary>
+    /// A class with a property typed by an Apple SDK type whose owning framework
+    /// (<paramref name="referencedTypeNamespace"/>) is provided via header provenance. When
+    /// <paramref name="reference"/> is false the type is declared in the provenance map but no member
+    /// references it (the minimal-set case).
+    /// </summary>
+    static ObjCModule ModuleWithAppleSdkProvenance(string referencedTypeName, string referencedTypeNamespace, bool reference) => new()
+    {
+        ModuleName = "TestLib",
+        Classes =
+        [
+            new ObjCClassDecl
+            {
+                Name = "TLObj",
+                Properties = reference
+                    ? [new ObjCPropertyDecl { Name = "txn", Type = new ObjCTypeRef { Name = referencedTypeName, IsPointer = true }, IsReadonly = true }]
+                    : [],
+            },
+        ],
+        AppleSdkTypeNamespaces = new Dictionary<string, string> { [referencedTypeName] = referencedTypeNamespace },
+    };
+
     // --- ApiDefinition.cs ---
+
+    [Fact]
+    public void ApiDefinition_ReferencedAppleSdkType_EmitsProvenanceUsing()
+    {
+        // StoreKit is NOT in the curated baseline; a member referencing SKPaymentTransaction must
+        // still get `using StoreKit;` from the type's .framework provenance (the Facebook CS0246 root
+        // cause). Self-healing: the list is never hand-edited for a newly-referenced framework.
+        var output = EmitApiDefinition(ModuleWithAppleSdkProvenance("SKPaymentTransaction", "StoreKit", reference: true));
+        Assert.Contains("using StoreKit;", output);
+    }
+
+    [Fact]
+    public void ApiDefinition_UnreferencedAppleSdkFramework_NotEmitted()
+    {
+        // Minimal-set proof: StoreKit is in the provenance map but no member references it, so its
+        // `using` must NOT be emitted — the derived set tracks references, not the whole SDK surface.
+        var output = EmitApiDefinition(ModuleWithAppleSdkProvenance("SKPaymentTransaction", "StoreKit", reference: false));
+        Assert.DoesNotContain("using StoreKit;", output);
+    }
+
+    [Fact]
+    public void ApiDefinition_NoProvenance_EmitsBaselineOnly()
+    {
+        // -fmodules mode (AppleSdkTypeNamespaces null): no derived usings, baseline intact.
+        var output = EmitApiDefinition(TrivialClassModule());
+        Assert.DoesNotContain("using StoreKit;", output);
+        Assert.Contains("using Foundation;", output);
+    }
+
+    [Fact]
+    public void ApiDefinition_ReferencedBaselineFramework_NotDuplicated()
+    {
+        // A provenance type whose namespace is already in the baseline (UIKit) must not produce a
+        // second `using UIKit;` — the additive set excludes baseline namespaces.
+        var output = EmitApiDefinition(ModuleWithAppleSdkProvenance("UIViewController", "UIKit", reference: true), platformInfo: iOS);
+        var count = output.Split("using UIKit;").Length - 1;
+        Assert.Equal(1, count);
+    }
 
     [Fact]
     public void ApiDefinition_macOS_OmitsUIKit()

@@ -1494,6 +1494,145 @@ public class MemberValidationPipelineTests
 
     #endregion
 
+    #region Gate 3d — member itself module-internal on a public parent
+
+    // Gate 3d is the mirror of 3c: the parent type is PUBLIC but the MEMBER itself is
+    // module-internal (absent from the public swiftinterface — e.g. a current-module
+    // extension member on a foreign receiver, or an absent-from-interface member of a
+    // public type). A sync member of this shape survives via a direct CallConvSwift
+    // P/Invoke to the exported symbol. An async or closure-bearing member can only be
+    // reached through a Swift bridge wrapper (MCB or another bridge adapter) whose body
+    // names the member, and that wrapper compiles as a separate client module that
+    // cannot resolve a non-public/SPI member — so it must be DROPPED here at emission,
+    // before any bridge/handler routing.
+
+    [Fact]
+    public void ValidateMethodEmission_AsyncMemberItselfModuleInternal_PublicParent_ReturnsSkip()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDeclForE2E("PublicHolder", moduleDecl, isGeneric: false);
+        // Parent stays PUBLIC (IsModuleInternal == false); the member alone is internal.
+
+        var method = CreateMethod("describeAsync", new NamedTypeSpec("Swift.String"));
+        method.IsAsync = true;
+        method.IsModuleInternal = true;
+        method.ParentDecl = parentDecl;
+        method.ModuleDecl = moduleDecl;
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.ModuleInternal, result.Reason);
+        Assert.Contains("Async", result.Details!);
+        Assert.Contains("module-internal", result.Details!);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_ClosureBearingMemberItselfModuleInternal_PublicParent_ReturnsSkip()
+    {
+        // This is the FBSDKCoreKit setSessionCompletionHandler(calling:) shape: a closure
+        // method on a public type that is itself absent from the public interface. The
+        // closure bridge (MCB) would otherwise emit a wrapper naming an unresolvable member.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDeclForE2E("PublicHolder", moduleDecl, isGeneric: false);
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            new NamedTypeSpec("Swift.Int"));
+        var method = CreateMethodWithArgs("transform", new NamedTypeSpec("Swift.Int"), closureType);
+        method.IsModuleInternal = true;
+        method.ParentDecl = parentDecl;
+        method.ModuleDecl = moduleDecl;
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.ModuleInternal, result.Reason);
+        Assert.Contains("Closure", result.Details!);
+        Assert.Contains("module-internal", result.Details!);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_ClosureReturningMemberItselfModuleInternal_PublicParent_ReturnsSkip()
+    {
+        // The closure-RETURN axis of gate 3d: a member that is itself internal whose
+        // RETURN is a closure (no closure parameters). The whole-signature scan must catch
+        // index 0, mirroring gate 3c.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDeclForE2E("PublicHolder", moduleDecl, isGeneric: false);
+
+        var closureReturn = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            new NamedTypeSpec("Swift.Int"));
+        var method = CreateMethod("makeAdder", closureReturn);
+        method.IsModuleInternal = true;
+        method.ParentDecl = parentDecl;
+        method.ModuleDecl = moduleDecl;
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.ModuleInternal, result.Reason);
+        Assert.Contains("Closure", result.Details!);
+        Assert.Contains("module-internal", result.Details!);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_SyncPlainMemberItselfModuleInternal_PublicParent_NotGatedBy3d()
+    {
+        // Over-broad guard: a SYNC, non-closure member that is itself internal must NOT be
+        // dropped by gate 3d — the exported symbol is callable via a direct CallConvSwift
+        // P/Invoke even though the member is absent from the public interface. This is the
+        // deliberate "permit direct ABI-symbol binding where possible" behavior.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDeclForE2E("PublicHolder", moduleDecl, isGeneric: false);
+
+        var method = CreateMethod("plainValue", new NamedTypeSpec("Swift.Int"));
+        method.IsModuleInternal = true;
+        method.ParentDecl = parentDecl;
+        method.ModuleDecl = moduleDecl;
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.True(result.ShouldEmit);
+        Assert.NotEqual(SkipReason.ModuleInternal, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_ClosureBearingPublicMember_PublicParent_NotGatedBy3d()
+    {
+        // Member-specificity guard: the identical closure-bearing member that is itself
+        // PUBLIC (not internal) on a public parent must continue to emit — gate 3d keys on
+        // the member's own internal flag, not on the closure shape.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDeclForE2E("PublicHolder", moduleDecl, isGeneric: false);
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            new NamedTypeSpec("Swift.Int"));
+        var method = CreateMethodWithArgs("transform", new NamedTypeSpec("Swift.Int"), closureType);
+        method.IsModuleInternal = false;
+        method.ParentDecl = parentDecl;
+        method.ModuleDecl = moduleDecl;
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.True(result.ShouldEmit);
+        Assert.NotEqual(SkipReason.ModuleInternal, result.Reason);
+    }
+
+    #endregion
+
     #region End-to-End Integration Tests (HandleBaseDecl flow)
 
     /// <summary>

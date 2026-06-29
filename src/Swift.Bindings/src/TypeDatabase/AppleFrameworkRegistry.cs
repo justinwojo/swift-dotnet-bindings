@@ -510,6 +510,36 @@ internal static class AppleFrameworkRegistry
     }
 
     /// <summary>
+    /// Resolves the .NET namespace that owns an Apple SDK type from the resolved header path clang
+    /// reported for its declaration. Apple SDK class/protocol headers live at
+    /// <c>…/&lt;Framework&gt;.framework/Headers/…</c>; the <c>&lt;Framework&gt;</c> segment is the
+    /// authoritative owning framework (ground truth — not unsound name-prefix inference, where e.g.
+    /// <c>CM</c> is ambiguous between CoreMedia and CoreMotion), which is then run through the
+    /// module→.NET-namespace remap (<see cref="MapModuleToNetNamespace"/>, e.g.
+    /// <c>QuartzCore</c>→<c>CoreAnimation</c>). Returns false for paths with no <c>.framework</c>
+    /// segment (e.g. <c>/usr/include/…</c> runtime headers), whose types carry no derivable namespace.
+    /// </summary>
+    public static bool TryResolveFrameworkNamespaceFromHeaderPath(string? headerPath, out string netNamespace)
+    {
+        netNamespace = "";
+        if (string.IsNullOrEmpty(headerPath)) return false;
+
+        const string marker = ".framework/";
+        var normalized = headerPath.Replace('\\', '/');
+        // Use the LAST .framework segment: for an embedded framework
+        // (A.framework/Frameworks/B.framework/Headers/X.h) the immediately-owning framework is B.
+        var markerIdx = normalized.LastIndexOf(marker, StringComparison.Ordinal);
+        if (markerIdx < 0) return false;
+
+        var segStart = normalized.LastIndexOf('/', markerIdx - 1) + 1; // 0 when no preceding slash
+        var framework = normalized.Substring(segStart, markerIdx - segStart);
+        if (framework.Length == 0) return false;
+
+        netNamespace = MapModuleToNetNamespace(framework);
+        return !string.IsNullOrEmpty(netNamespace);
+    }
+
+    /// <summary>
     /// Returns the umbrella module to write on the wrapper Swift's <c>import</c> line
     /// for a Swift module that Apple has marked <c>@_implementationOnly</c> (e.g.,
     /// <c>RealityFoundation</c> → <c>RealityKit</c>). Returns the input unchanged when

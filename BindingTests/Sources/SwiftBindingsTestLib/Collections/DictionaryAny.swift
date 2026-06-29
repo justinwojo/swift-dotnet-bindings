@@ -54,3 +54,43 @@ public class ConfigStore {
 public func countAnyDictEntries(_ dict: [String: Any]) -> Int32 {
     return Int32(dict.count)
 }
+
+// MARK: - Nested [String: [String: Any]] property — invariant value-slot getter
+
+/// Test type exposing a NESTED dictionary as a stored PROPERTY: `[String: [String: Any]]`.
+/// The outer dictionary's value slot is an inner `[String: Any]` bag, which the C# projection surfaces
+/// as a concrete `Dictionary<…>`; the outer `IReadOnlyDictionary` value slot is invariant, so the getter
+/// accessor must cast the inner value to its declared `IReadOnlyDictionary` interface or the generated C#
+/// getter fails to compile. Real-world pattern: sectioned config / grouped analytics payloads.
+public class NestedConfigStore {
+    /// Sections keyed by name, each a `[String: Any]` bag — read back through the property getter.
+    public var sections: [String: [String: Any]]
+
+    public init() {
+        self.sections = [:]
+    }
+
+    /// Replaces all sections.
+    public func setSections(_ newSections: [String: [String: Any]]) {
+        self.sections = newSections
+    }
+
+    /// Number of top-level sections.
+    public func sectionCount() -> Int32 { Int32(sections.count) }
+
+    /// Number of entries within a named section, or -1 if the section is absent.
+    public func entryCount(_ section: String) -> Int32 {
+        guard let inner = sections[section] else { return -1 }
+        return Int32(inner.count)
+    }
+
+    /// Reads a String entry from a section, or empty string if absent / wrong type.
+    public func getString(_ section: String, _ key: String) -> String {
+        return (sections[section]?[key] as? String) ?? ""
+    }
+
+    /// Reads an Int entry from a section, or -1 if absent / wrong type.
+    public func getInt(_ section: String, _ key: String) -> Int {
+        return (sections[section]?[key] as? Int) ?? -1
+    }
+}

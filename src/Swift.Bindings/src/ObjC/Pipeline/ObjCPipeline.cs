@@ -467,7 +467,7 @@ public static class ObjCPipeline
     /// </summary>
     internal static ObjCModule FilterPlatformTypeStubs(ObjCModule module, ILogger logger)
     {
-        var appleSdkTypes = module.AppleSdkTypeNames;
+        var appleSdkTypes = module.AppleSdkTypeNamespaces;
         if (appleSdkTypes == null || appleSdkTypes.Count == 0)
             return module;
 
@@ -475,7 +475,7 @@ public static class ObjCPipeline
         var removedClassCount = 0;
         foreach (var cls in module.Classes)
         {
-            if (appleSdkTypes.Contains(cls.Name))
+            if (appleSdkTypes.ContainsKey(cls.Name))
             {
                 removedClassCount++;
                 logger.LogDebug("Filtering platform type stub class: {Name}", cls.Name);
@@ -490,7 +490,7 @@ public static class ObjCPipeline
         var removedProtoCount = 0;
         foreach (var proto in module.Protocols)
         {
-            if (appleSdkTypes.Contains(proto.Name))
+            if (appleSdkTypes.ContainsKey(proto.Name))
             {
                 removedProtoCount++;
                 logger.LogDebug("Filtering platform type stub protocol: {Name}", proto.Name);

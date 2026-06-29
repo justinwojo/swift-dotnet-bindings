@@ -947,6 +947,24 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void Targets_GetSwiftFrameworkSearchPaths_SurfacesTransitiveClosure()
+        {
+            // The query must return the project's OWN declared SwiftFrameworkDependency roots
+            // and recurse through its own swift-binding ProjectReferences, so a consumer's
+            // wrapper compile sees the transitive Swift framework search-path closure (not just
+            // direct outputs). Structural guard: behavior is exercised end-to-end in
+            // SdkTargetsBehaviorTests.GetSwiftFrameworkSearchPaths_*.
+            var start = TargetsContent.IndexOf("Name=\"GetSwiftFrameworkSearchPaths\"", StringComparison.Ordinal);
+            var body = TargetsContent.Substring(
+                start, TargetsContent.IndexOf("</Target>", start, StringComparison.Ordinal) - start);
+            // Own declared dependency roots, made absolute.
+            Assert.Contains("@(SwiftFrameworkDependency->'%(FullPath)')", body);
+            // Recursion: the target invokes itself on its own ProjectReferences.
+            Assert.Contains("Targets=\"GetSwiftFrameworkSearchPaths\"", body);
+            Assert.Contains("_SwiftTransitiveFrameworkSearchPath", body);
+        }
+
+        [Fact]
         public void Targets_UpdateSwiftWrapperMetadataRunsAfterCompile()
         {
             var target = TargetsContent.Substring(
@@ -1065,10 +1083,12 @@ namespace BindingsGeneration.Tests
             var targetEnd = TargetsContent.IndexOf("</Target>", targetStart, StringComparison.Ordinal);
             var targetBody = TargetsContent.Substring(targetStart, targetEnd - targetStart);
 
-            // Both should be present
-            var resolvedIdx = targetBody.IndexOf("@(_ResolvedDepXCFramework->' --framework-dependency", StringComparison.Ordinal);
+            // Both should be present. An item transform (e.g. ->Distinct() to compact the
+            // transitive search-path closure) may sit between the item name and the batch-format
+            // string, so match the item→--framework-dependency wiring tolerantly rather than by
+            // exact text — the discriminating fact is that the item feeds --framework-dependency flags.
+            Assert.Matches(@"@\(_ResolvedDepXCFramework->[^']*' --framework-dependency", targetBody);
             var explicitIdx = targetBody.IndexOf("@(SwiftFrameworkDependency->' --framework-dependency", StringComparison.Ordinal);
-            Assert.True(resolvedIdx >= 0, "Should have _ResolvedDepXCFramework framework-dependency line");
             Assert.True(explicitIdx >= 0, "Should have SwiftFrameworkDependency framework-dependency line");
 
             // SwiftFrameworkDependency should NOT be gated on _ResolvedDepXCFramework being empty

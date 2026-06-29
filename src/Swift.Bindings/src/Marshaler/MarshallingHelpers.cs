@@ -662,9 +662,64 @@ namespace BindingsGeneration
                 var module = classDecl.DirectSuperclassName.Substring(0, dotIdx);
                 if (AppleFrameworkRegistry.IsUnsupportedModule(module))
                     return "Foundation.NSObject";
+
+                // A *pure* Objective-C superclass — one declared in ObjC headers and imported
+                // into Swift under a stripped name (a Clang `swift_name`/NS_SWIFT_NAME attribute
+                // or automatic prefix stripping): e.g. the ObjC class `FBSDKButton` surfaces in
+                // Swift as `FBButton`, so the superclass name carried in the ABI is
+                // `<module>.FBButton`. The dependency's C# binding for such a class is produced by
+                // the ObjC ApiDefinition pipeline under its ObjC name (`FBSDKButton`), not the
+                // Swift name, so a base reference built from the Swift superclass name resolves to
+                // a type that does not exist. The authoritative ObjC class name is encoded in the
+                // Clang superclass USR; use it for modules outside the curated Apple set.
+                //
+                // This must NOT fire for an @objc-exported *Swift* class (e.g. `@objc(FBSDKIcon)
+                // open class FBIcon`): although it too has a Clang USR, the dependency binds it via
+                // the *Swift* pipeline under its Swift name (`FBIcon`), so the Swift superclass
+                // name on the mapping path below is the correct reference. The USR form is the
+                // discriminator — a pure ObjC class is the bare `c:objc(cs)<Name>`, whereas an
+                // @objc Swift class carries a Swift-module origin marker `c:@M@<module>@objc(cs)<Name>`.
+                // Apple superclasses keep their ObjC name in Swift (or are handled by the remap
+                // table), so they stay on the mapping path below and are unaffected.
+                if (!AppleFrameworkRegistry.IsKnownModule(module)
+                    && IsPureObjCClassUsr(classDecl.SuperclassUsr))
+                {
+                    var objcName = ExtractObjCClassName(classDecl.SuperclassUsr);
+                    if (!string.IsNullOrEmpty(objcName))
+                        return $"{MapSwiftModuleToNetNamespace(module)}.{objcName}";
+                }
             }
 
             return MapQualifiedTypeToNet(classDecl.DirectSuperclassName);
+        }
+
+        /// <summary>
+        /// Determines whether a Clang class USR denotes a <em>pure</em> Objective-C class — one
+        /// declared in Objective-C headers — as opposed to an <c>@objc</c>-exported Swift class.
+        /// A pure ObjC class has the bare Clang form <c>c:objc(cs)&lt;Name&gt;</c>; an <c>@objc</c>
+        /// Swift class carries a Swift-module origin marker (<c>c:@M@&lt;module&gt;@objc(cs)&lt;Name&gt;</c>),
+        /// so the absence of that marker (i.e. the USR starting with <c>c:objc(cs)</c>) is the
+        /// discriminator. Only the pure ObjC case is bound by a dependency's ObjC ApiDefinition
+        /// pipeline under its ObjC name.
+        /// </summary>
+        private static bool IsPureObjCClassUsr(string? usr)
+            => usr != null && usr.StartsWith("c:objc(cs)", System.StringComparison.Ordinal);
+
+        /// <summary>
+        /// Extracts the Objective-C class name from a Clang class USR of the form
+        /// <c>c:objc(cs)&lt;ClassName&gt;</c> (e.g. <c>c:objc(cs)FBSDKButton</c> → <c>FBSDKButton</c>).
+        /// Returns <c>null</c> when the USR is null or is not a Clang ObjC class USR.
+        /// </summary>
+        private static string? ExtractObjCClassName(string? usr)
+        {
+            const string marker = "objc(cs)";
+            if (usr == null)
+                return null;
+            var idx = usr.IndexOf(marker, System.StringComparison.Ordinal);
+            if (idx < 0)
+                return null;
+            var name = usr.Substring(idx + marker.Length);
+            return name.Length > 0 ? name : null;
         }
 
         /// <summary>

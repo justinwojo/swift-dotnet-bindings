@@ -2461,14 +2461,137 @@ done; true"
   <!-- Target 4d: Protocol target for dependency xcframework search paths     -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Exposes this project's xcframework paths so that dependent projects
-       can discover them via MSBuild task during _CompileSwiftWrapper. -->
+       can discover them via MSBuild task during _CompileSwiftWrapper.
+
+       Returns the TRANSITIVE Swift framework search-path closure, not just this
+       project's own outputs. A consumer's wrapper compile (swiftc on the emitted
+       @_cdecl wrapper) does `import DirectDep`; when the prebuilt .swiftmodule was
+       produced by a different compiler version, swiftc rebuilds DirectDep from its
+       textual .swiftinterface, and any module that interface imports (e.g. CoreKit's
+       interface imports FBAEMKit) must be on the -F search path or swiftc fails
+       "no such module 'FBAEMKit'". So this query must surface, in addition to the
+       project's own source + wrapper xcframeworks:
+         1. the project's own declared SwiftFrameworkDependency roots (as ABSOLUTE
+            paths — FullPath resolves them relative to THIS project's directory so a
+            consumer in a different directory still gets a valid path), and
+         2. recursively, the same closure from this project's own swift-binding
+            ProjectReferences (the project graph is a DAG; MSBuild caches per-project
+            target results so diamonds resolve once).
+       Path duplicates are deduped at the consumption site; same-named modules from
+       different physical xcframeworks remain a diagnosable error in the generator's
+       module-name dedup, not silently masked here. -->
   <Target Name="GetSwiftFrameworkSearchPaths"
           DependsOnTargets="_DiscoverSwiftFrameworks;_ImportSwiftBindingMetadata"
           Returns="@(_SwiftBindingFrameworkSearchPath)">
+    <!-- Recurse this project's own swift-binding ProjectReferences. Companion
+         csprojs (named '.ObjC.') use Microsoft.NET.Sdk and have no such target;
+         ContinueOnError tolerates any non-binding ProjectReference. Split by
+         SetTargetFramework/SetConfiguration exactly as _CompileSwiftWrapper does,
+         so a cross-TFM- or cross-config-pinned sibling is queried under the slice
+         it was built with. -->
+    <ItemGroup>
+      <_SwiftTransitiveDepProjectReference Include="@(ProjectReference)"
+          Condition="'@(ProjectReference)' != '' AND !$([System.String]::Copy('%(Identity)').Contains('.ObjC.'))" />
+    </ItemGroup>
+    <MSBuild Projects="@(_SwiftTransitiveDepProjectReference)"
+             Targets="GetSwiftFrameworkSearchPaths"
+             Properties="%(_SwiftTransitiveDepProjectReference.SetTargetFramework);%(_SwiftTransitiveDepProjectReference.SetConfiguration)"
+             BuildInParallel="false"
+             ContinueOnError="true"
+             Condition="'@(_SwiftTransitiveDepProjectReference)' != '' AND '%(_SwiftTransitiveDepProjectReference.SetTargetFramework)' != ''">
+      <Output TaskParameter="TargetOutputs" ItemName="_SwiftTransitiveFrameworkSearchPath" />
+    </MSBuild>
+    <MSBuild Projects="@(_SwiftTransitiveDepProjectReference)"
+             Targets="GetSwiftFrameworkSearchPaths"
+             Properties="%(_SwiftTransitiveDepProjectReference.SetConfiguration)"
+             BuildInParallel="false"
+             ContinueOnError="true"
+             Condition="'@(_SwiftTransitiveDepProjectReference)' != '' AND '%(_SwiftTransitiveDepProjectReference.SetTargetFramework)' == ''">
+      <Output TaskParameter="TargetOutputs" ItemName="_SwiftTransitiveFrameworkSearchPath" />
+    </MSBuild>
     <ItemGroup>
       <_SwiftBindingFrameworkSearchPath Include="%(SwiftFramework.Identity)" />
       <_SwiftBindingFrameworkSearchPath Include="$(MSBuildProjectDirectory)/$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework"
                                         Condition="'$(_SwiftBindingHasWrapperXCFramework)' == 'True'" />
+      <_SwiftBindingFrameworkSearchPath Include="@(SwiftFrameworkDependency->'%(FullPath)')"
+                                        Condition="'@(SwiftFrameworkDependency)' != ''" />
+      <_SwiftBindingFrameworkSearchPath Include="@(_SwiftTransitiveFrameworkSearchPath)"
+                                        Condition="'@(_SwiftTransitiveFrameworkSearchPath)' != ''" />
+    </ItemGroup>
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 4d-2: Protocol target for the ObjC companion assembly           -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- A mixed (ObjC+Swift) binding builds TWO managed assemblies: the Swift
+       binding and an ObjC companion (Name.ObjC.iOS.dll) compiled from the
+       generated ApiDefinition.cs. This exposes the companion assembly path so
+       a dependent project can discover it during _ReferenceCrossModuleObjCCompanions.
+       _BuildMixedObjCCompanion populates _SwiftBindingCompanionBuildOutput via
+       GetTargetPath for a Mixed framework and leaves it empty otherwise, so a
+       pure-Swift binding returns nothing. The fail-closed for a Mixed binding
+       whose companion failed to build is enforced upstream in the binding's own
+       build (SWIFTBIND041 in _ReferenceMixedObjCCompanion), which runs before
+       this query can ever be reached. -->
+  <Target Name="GetSwiftObjCCompanionAssembly"
+          DependsOnTargets="_ImportSwiftBindingMetadata;_BuildMixedObjCCompanion"
+          Returns="@(_SwiftBindingCompanionBuildOutput)" />
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 4d-3: Surface cross-module ObjC companion assemblies            -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- A ProjectReference to a Swift binding surfaces only that binding's Swift
+       assembly; its ObjC companion is referenced privately by its own project
+       and does not flow transitively. When a consumer's public Swift surface
+       inherits from an ObjC type defined in a DIFFERENT binding's companion
+       (e.g. a cross-module renamed-ObjC superclass), the consumer's compile
+       needs that companion on its reference set or it fails with CS0234/CS0246.
+
+       Runs after ResolveProjectReferences (so each sibling — including any
+       injected at execution time by _ResolveSwiftAutoDetectedDependencies — is
+       built and its companion exists on disk) and before ResolveAssemblyReferences
+       (so the injected Reference is resolved into the compile). Each
+       swift-binding ProjectReference is queried for its companion via
+       GetSwiftObjCCompanionAssembly; results are path-deduped and added as
+       private (copy-local) managed References. Companion csprojs (named
+       '.ObjC.') are excluded because they use Microsoft.NET.Sdk and have no
+       such target; non-mixed siblings return nothing. A plain managed Reference
+       adds no native carrier and no package dependency — the companion still
+       packs exactly once under its own binding's lib/. -->
+  <Target Name="_ReferenceCrossModuleObjCCompanions"
+          BeforeTargets="ResolveAssemblyReferences"
+          DependsOnTargets="ResolveProjectReferences"
+          Condition="'@(ProjectReference)' != ''">
+
+    <ItemGroup>
+      <_SwiftCompanionQueryRef Include="@(ProjectReference)"
+          Condition="!$([System.String]::Copy('%(Identity)').Contains('.ObjC.'))" />
+    </ItemGroup>
+
+    <!-- Split by SetTargetFramework/SetConfiguration exactly as _CompileSwiftWrapper
+         does, so a cross-TFM- or cross-config-pinned sibling is queried under the
+         slice it was built with (its companion lives under obj/<cfg>/<tfm>/…). -->
+    <MSBuild Projects="@(_SwiftCompanionQueryRef)"
+             Targets="GetSwiftObjCCompanionAssembly"
+             Properties="%(_SwiftCompanionQueryRef.SetTargetFramework);%(_SwiftCompanionQueryRef.SetConfiguration)"
+             BuildInParallel="false"
+             ContinueOnError="true"
+             Condition="'@(_SwiftCompanionQueryRef)' != '' AND '%(_SwiftCompanionQueryRef.SetTargetFramework)' != ''">
+      <Output TaskParameter="TargetOutputs" ItemName="_SwiftCrossModuleCompanion" />
+    </MSBuild>
+    <MSBuild Projects="@(_SwiftCompanionQueryRef)"
+             Targets="GetSwiftObjCCompanionAssembly"
+             Properties="%(_SwiftCompanionQueryRef.SetConfiguration)"
+             BuildInParallel="false"
+             ContinueOnError="true"
+             Condition="'@(_SwiftCompanionQueryRef)' != '' AND '%(_SwiftCompanionQueryRef.SetTargetFramework)' == ''">
+      <Output TaskParameter="TargetOutputs" ItemName="_SwiftCrossModuleCompanion" />
+    </MSBuild>
+
+    <ItemGroup Condition="'@(_SwiftCrossModuleCompanion)' != ''">
+      <Reference Include="@(_SwiftCrossModuleCompanion->Distinct())">
+        <Private>true</Private>
+      </Reference>
     </ItemGroup>
   </Target>
 
@@ -2563,8 +2686,11 @@ done; true"
            x86_64, so one runtimes/<rid>/native/ tree serves Apple Silicon and Intel/Rosetta. -->
       <_SwiftWrapperCmd Condition="'$(SwiftTargetArchitectures)' != ''">$(_SwiftWrapperCmd) --target-architectures $(SwiftTargetArchitectures)</_SwiftWrapperCmd>
       <_SwiftWrapperCmd>$(_SwiftWrapperCmd) -v $(SwiftGeneratorVerbosity)</_SwiftWrapperCmd>
-      <!-- Resolved ProjectReference dependency xcframework paths (preferred, absolute) -->
-      <_SwiftWrapperCmd Condition="'@(_ResolvedDepXCFramework)' != ''">$(_SwiftWrapperCmd) @(_ResolvedDepXCFramework->' --framework-dependency "%(Identity)"', '')</_SwiftWrapperCmd>
+      <!-- Resolved ProjectReference dependency xcframework paths (preferred, absolute).
+           GetSwiftFrameworkSearchPaths returns the transitive closure, so a deep or
+           diamond dependency graph yields repeated paths — Distinct() keeps the -F set
+           compact and order-stable (swiftc takes the first match per module). -->
+      <_SwiftWrapperCmd Condition="'@(_ResolvedDepXCFramework)' != ''">$(_SwiftWrapperCmd) @(_ResolvedDepXCFramework->Distinct()->' --framework-dependency "%(Identity)"', '')</_SwiftWrapperCmd>
       <!-- Explicit SwiftFrameworkDependency search paths — always included alongside ProjectReference deps.
            Frameworks like an internal dependency may not have a binding project but are still required on the -F search path
            for wrapper compilation. Duplicates with _ResolvedDepXCFramework are harmless (just extra -F flags). -->
@@ -2692,7 +2818,7 @@ done; true"
            being empty dropped that framework's -F path whenever both were present, failing
            bridge compilation (SWIFTBIND052) so bridge views threw DllNotFound at runtime.
            Duplicates between the two lists are harmless extra -F flags. -->
-      <_SwiftBridgeCmd Condition="'@(_ResolvedDepXCFramework)' != ''">$(_SwiftBridgeCmd) @(_ResolvedDepXCFramework->' --framework-dependency "%(Identity)"', '')</_SwiftBridgeCmd>
+      <_SwiftBridgeCmd Condition="'@(_ResolvedDepXCFramework)' != ''">$(_SwiftBridgeCmd) @(_ResolvedDepXCFramework->Distinct()->' --framework-dependency "%(Identity)"', '')</_SwiftBridgeCmd>
       <_SwiftBridgeCmd Condition="'@(SwiftFrameworkDependency)' != ''">$(_SwiftBridgeCmd) @(SwiftFrameworkDependency->' --framework-dependency "%(Identity)"', '')</_SwiftBridgeCmd>
     </PropertyGroup>
 

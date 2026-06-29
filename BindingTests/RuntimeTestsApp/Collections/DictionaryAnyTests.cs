@@ -138,4 +138,58 @@ public class DictionaryAnyTests : TestBase
     }
 
     #endregion
+
+    #region Tier 4 — Nested [String: [String: Any]] (invariant value-slot projection)
+
+    // NestedConfigStore.Sections is [String: [String: Any]]. The getter projects the inner
+    // [String: Any] to IReadOnlyDictionary<string, object>, which is the invariant value slot
+    // of the outer IReadOnlyDictionary — the projection must cast the inner concrete
+    // Dictionary up to the interface element type or it won't compile, and must still
+    // round-trip values at runtime. This test is the end-to-end gate for that nested cast.
+
+    static Dictionary<string, IDictionary<string, object>> SampleSections() => new()
+    {
+        ["server"] = new Dictionary<string, object> { { "host", "localhost" }, { "port", 8080L } },
+        ["client"] = new Dictionary<string, object> { { "name", "app" } },
+    };
+
+    public void TestNestedConfigStoreConstruction()
+    {
+        var store = new NestedConfigStore();
+        AssertNotNull(store, "NestedConfigStore created");
+        AssertEqual(0, store.GetSectionCount(), "Empty NestedConfigStore has 0 sections");
+        TestLogger.Info("NestedConfigStore construction verified");
+    }
+
+    public void TestNestedConfigStoreSectionsPropertyRoundTrip()
+    {
+        var store = new NestedConfigStore();
+        store.SetSections(SampleSections());
+
+        // Read back through the [String: [String: Any]] property getter (the Bug B path).
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, object>> sections = store.Sections;
+        AssertEqual(2, sections.Count, "Two top-level sections survive round-trip");
+
+        IReadOnlyDictionary<string, object> server = sections["server"];
+        AssertEqual("localhost", (string)server["host"], "Nested string value round-trips through property getter");
+        AssertEqual("app", (string)store.Sections["client"]["name"], "Second section's nested value round-trips");
+
+        TestLogger.Info($"Nested sections property: {sections.Count} sections, server.host = {server["host"]}");
+    }
+
+    public void TestNestedConfigStoreTypedAccessors()
+    {
+        var store = new NestedConfigStore();
+        store.SetSections(SampleSections());
+
+        AssertEqual(2, store.GetSectionCount(), "GetSectionCount reports 2");
+        AssertEqual(2, store.EntryCount("server"), "server section has 2 entries");
+        AssertEqual(-1, store.EntryCount("missing"), "absent section reports -1");
+        AssertEqual("localhost", store.GetString("server", "host"), "GetString reads nested string");
+        AssertEqual((nint)8080, store.GetInt("server", "port"), "GetInt reads nested int");
+
+        TestLogger.Info("NestedConfigStore typed accessors verified");
+    }
+
+    #endregion
 }

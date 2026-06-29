@@ -897,6 +897,60 @@ public static class NameProvider
         "GetHashCode",    // Object.GetHashCode()
     };
 
+    /// <summary>
+    /// C#-surfaced NSObject instance <b>property</b> names inherited by every binding rooted in
+    /// Microsoft.iOS's NSObject. A Swift method projected to one of these names (e.g. a Swift
+    /// <c>handle(_:)</c> → C# <c>Handle(...)</c>) shadows the inherited property (CS0108) and makes
+    /// later reads of that property resolve the method group instead (CS0428 — the reported FBAEMKit
+    /// crash). These are fed into the existing sibling-property rename axis — but only for ObjC-rooted
+    /// classes, since a non-rooted Swift class does not inherit them.
+    ///
+    /// <para>This is the full set of public instance properties on <c>Foundation.NSObject</c> in the
+    /// Microsoft.iOS ref assembly, plus the <c>protected internal</c> <c>IsDirectBinding</c> (a public
+    /// Swift method projecting to it would still hide it). The reflection-driven drift test
+    /// (<c>ObjCRootedInheritedPropertyDriftTests</c>) reads the installed ref assembly and fails if the
+    /// SDK adds a property not covered here, so this hand-maintained set stays in sync without any
+    /// installed-workload dependency leaking into generation. <c>Hash</c> is intentionally absent:
+    /// .NET surfaces it as the method <c>GetNativeHash</c>, not a property, so seeding it would
+    /// spuriously rename a legitimate Swift <c>hash()</c>.</para>
+    /// </summary>
+    private static readonly HashSet<string> _objCRootedInheritedPropertyNames = new()
+    {
+        // Public instance properties of Foundation.NSObject (Microsoft.iOS).
+        "Handle",                                  // NativeHandle — the reported FBAEMKit collision
+        "SuperHandle",                             // NativeHandle
+        "ClassHandle",                             // NativeHandle
+        "Class",                                   // Class
+        "Description",                             // string
+        "DebugDescription",                        // string
+        "Zone",                                    // NSZone
+        "Self",                                    // NSObject
+        "Superclass",                              // Class
+        "RetainCount",                             // nuint
+        "IsProxy",                                 // bool
+        "AccessibilityAttributedUserInputLabels",  // NSAttributedString[]
+        "AccessibilityRespondsToUserInteraction",  // bool
+        "AccessibilityTextualContext",             // string
+        "AccessibilityUserInputLabels",            // string[]
+        // protected internal (not public, but a public projected method still hides it).
+        "IsDirectBinding",
+    };
+
+    /// <summary>
+    /// Curated entries that are <b>not</b> public instance properties of NSObject (so the drift test's
+    /// "no stale entries" check must allow them). Currently just the <c>protected internal</c>
+    /// <c>IsDirectBinding</c>.
+    /// </summary>
+    public static IReadOnlyCollection<string> ObjCRootedInheritedNonPublicPropertyNames { get; } =
+        new[] { "IsDirectBinding" };
+
+    /// <summary>
+    /// The curated NSObject instance-property names whose C# accessors collide with a same-named
+    /// projected method on an ObjC-rooted binding. Exposed for the seed site in ClassHandler and for
+    /// the reflection drift test; <see cref="_objCRootedInheritedPropertyNames"/> stays private.
+    /// </summary>
+    public static IReadOnlyCollection<string> ObjCRootedInheritedPropertyNames => _objCRootedInheritedPropertyNames;
+
     public static string GetMetadataName(string typeName) => $"{typeName}Metadata";
     public static string GetPayloadName(string argumentName) => $"{argumentName}Payload";
     public static string GetProtocolWitnessTableName(string typeName, string protocolName) => $"{typeName}{protocolName}PWT";

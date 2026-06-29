@@ -289,6 +289,38 @@ public class AppleFrameworkRegistryTests
         Assert.Equal(expected, AppleFrameworkRegistry.MapModuleToNetNamespace(input));
     }
 
+    // --- TryResolveFrameworkNamespaceFromHeaderPath ---
+
+    [Theory]
+    // A framework whose .framework dir name IS the .NET namespace.
+    [InlineData(
+        "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk/System/Library/Frameworks/StoreKit.framework/Headers/SKPaymentTransaction.h",
+        "StoreKit")]
+    // The remap proof: QuartzCore.framework provenance → CoreAnimation .NET namespace.
+    [InlineData(
+        "/SDKs/iPhoneOS.sdk/System/Library/Frameworks/QuartzCore.framework/Headers/CALayer.h",
+        "CoreAnimation")]
+    // Embedded framework: the immediately-owning (last) .framework wins.
+    [InlineData(
+        "/SDKs/iPhoneOS.sdk/.../Outer.framework/Frameworks/StoreKit.framework/Headers/SKProduct.h",
+        "StoreKit")]
+    public void TryResolveFrameworkNamespaceFromHeaderPath_DerivesNamespace(string headerPath, string expected)
+    {
+        Assert.True(AppleFrameworkRegistry.TryResolveFrameworkNamespaceFromHeaderPath(headerPath, out var ns));
+        Assert.Equal(expected, ns);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    // Runtime headers under /usr/include have no .framework segment → no derivable namespace.
+    [InlineData("/Applications/Xcode.app/.../usr/include/objc/NSObject.h")]
+    public void TryResolveFrameworkNamespaceFromHeaderPath_NoFramework_ReturnsFalse(string headerPath)
+    {
+        Assert.False(AppleFrameworkRegistry.TryResolveFrameworkNamespaceFromHeaderPath(headerPath, out var ns));
+        Assert.Equal("", ns);
+    }
+
     // --- MapModuleToCompileImport ---
 
     [Theory]

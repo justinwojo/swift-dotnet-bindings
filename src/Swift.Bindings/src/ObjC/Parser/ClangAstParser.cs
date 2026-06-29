@@ -80,7 +80,8 @@ public static class ClangAstParser
         var typedefs = new List<ObjCTypedefDecl>();
         var systemTypedefs = new List<ObjCTypedefDecl>();
         var categories = new List<ObjCCategoryDecl>();
-        var appleSdkTypeNames = new HashSet<string>();
+        // Apple SDK class/protocol name → owning .NET namespace (empty when none derivable).
+        var appleSdkTypeNamespaces = new Dictionary<string, string>(StringComparer.Ordinal);
 
         // Normalize headers path for comparison
         frameworkHeadersPath = frameworkHeadersPath.TrimEnd('/');
@@ -156,7 +157,16 @@ public static class ClangAstParser
                 {
                     var name = GetName(node);
                     if (name != null)
-                        appleSdkTypeNames.Add(name);
+                    {
+                        // Provenance: the resolved header path names the owning <Framework>.framework,
+                        // the authoritative source of the .NET namespace. A real namespace overwrites a
+                        // prior empty seed; an empty (no .framework segment, e.g. /usr/include) only
+                        // seeds when absent so it never clobbers a real one.
+                        if (AppleFrameworkRegistry.TryResolveFrameworkNamespaceFromHeaderPath(nodeResolvedFile, out var ns))
+                            appleSdkTypeNamespaces[name] = ns;
+                        else
+                            appleSdkTypeNamespaces.TryAdd(name, "");
+                    }
                     continue;
                 }
                 else
@@ -362,7 +372,7 @@ public static class ClangAstParser
             // when a system header defines the same alias name.
             ResolutionTypedefs = [.. systemTypedefs, .. typedefs],
             Categories = dedupedCategories,
-            AppleSdkTypeNames = appleSdkTypeNames.Count > 0 ? appleSdkTypeNames : null
+            AppleSdkTypeNamespaces = appleSdkTypeNamespaces.Count > 0 ? appleSdkTypeNamespaces : null
         };
 
         } // try

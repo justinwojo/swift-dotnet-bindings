@@ -831,15 +831,25 @@ namespace BindingsGeneration
         /// set is internal. For type members, the key is "TypeName.printedName".
         /// For module-level functions, the key is the bare printedName.
         /// </summary>
-        private bool IsInternalFromPublicMemberNames(BaseDecl parentDecl, string printedName)
+        private bool IsInternalFromPublicMemberNames(BaseDecl parentDecl, string printedName, bool isCurrentModuleMember = false)
         {
             if (_facts.PublicMemberNames.Count == 0)
                 return false;
 
             if (parentDecl is TypeDecl typeDecl)
             {
-                // Skip types that are themselves internal — their members are already suppressed
-                if (typeDecl.IsModuleInternal)
+                // Skip types that are themselves internal — their members are already
+                // suppressed along with the type, so classifying them is moot. The one
+                // exception is a member DEFINED IN THIS MODULE on an internal-flagged
+                // receiver: a foreign receiver type (e.g. Foundation.Date) is flagged
+                // internal here only because it is absent from this module's public type
+                // set, yet its current-module extension members ARE emitted via the
+                // cross-module trampoline. Those must still be negative-space classified
+                // against the public member set, or an internal extension member leaks
+                // into a client-compiled wrapper that cannot resolve it. A genuinely
+                // public extension member is keyed in PublicMemberNames ("Date.foo()"), so
+                // running the check here does not over-suppress it.
+                if (typeDecl.IsModuleInternal && !isCurrentModuleMember)
                     return false;
 
                 var key = $"{typeDecl.Name}.{printedName}";
@@ -882,6 +892,19 @@ namespace BindingsGeneration
             string jsonContent = File.ReadAllText(_filePath);
             _moduleRoot = JsonConvert.DeserializeObject<ABIRootNode>(jsonContent) ?? throw new InvalidOperationException("Invalid ABI structure.");
         }
+
+        /// <summary>
+        /// Cache for <see cref="CurrentModuleName"/>. The module name is fixed for the
+        /// lifetime of the parser instance (one abi.json = one module), so resolve it once.
+        /// </summary>
+        private string? _cachedModuleName;
+
+        /// <summary>
+        /// The name of the module this parser is parsing. Used to distinguish members
+        /// defined in THIS module (including extension members on a foreign receiver) from
+        /// members owned by a foreign re-exported type.
+        /// </summary>
+        private string CurrentModuleName => _cachedModuleName ??= GetModuleName();
 
         /// <summary>
         /// Gets the module name.
@@ -2505,7 +2528,9 @@ namespace BindingsGeneration
             if (!methodDecl.IsModuleInternal &&
                 (node.@implicit != true || methodDecl.IsConstructor))
             {
-                if (IsInternalFromPublicMemberNames(parentDecl, node.PrintedName))
+                bool isCurrentModuleMember = !string.IsNullOrEmpty(node.ModuleName) &&
+                    node.ModuleName == CurrentModuleName;
+                if (IsInternalFromPublicMemberNames(parentDecl, node.PrintedName, isCurrentModuleMember))
                     methodDecl.IsModuleInternal = true;
             }
 
@@ -3074,7 +3099,9 @@ namespace BindingsGeneration
             // Negative-space detection: property not in public swiftinterface is internal.
             if (!decl.IsModuleInternal)
             {
-                decl.IsModuleInternal = IsInternalFromPublicMemberNames(parentDecl, sanitizedName);
+                bool isCurrentModuleMember = !string.IsNullOrEmpty(node.ModuleName) &&
+                    node.ModuleName == CurrentModuleName;
+                decl.IsModuleInternal = IsInternalFromPublicMemberNames(parentDecl, sanitizedName, isCurrentModuleMember);
             }
             if (parentDecl is TypeDecl propParentType)
             {

@@ -691,4 +691,42 @@ public class CompositeProjectionTests
     }
 
     #endregion
+
+    #region Nested IReadOnlyDictionary invariance — getter value-slot cast
+
+    [Fact]
+    public void NestedDictGetter_AppliesInvariantValueSlotCast()
+    {
+        // [String: [String: any P]] — the inner-dictionary VALUE projects to a concrete Dictionary<...>,
+        // but the OUTER IReadOnlyDictionary value slot is invariant. The getter accessor conversion must
+        // cast the value selector body to the inner dict's declared interface (its PublicType) or the
+        // emitted code is CS0266. The getter formerly inlined its own AsProjected and skipped the cast
+        // that BuildAsProjected owns; this asserts it now routes through the cast owner.
+        var innerValue = new ExistentialProjection(
+            "Swift.Runtime.ExistentialContainer1", "IBridge", "BridgeProxy");
+        var innerDict = new DictionaryProjection(new StringProjection(), innerValue, isParameter: false);
+        var outerDict = new DictionaryProjection(new StringProjection(), innerDict, isParameter: false);
+
+        var (conv, _) = outerDict.Accept(new AccessorGetterConversionVisitor("result"));
+
+        Assert.NotNull(conv);
+        Assert.Contains("result.AsProjected(", conv);        // routed through the shared AsProjected shape
+        Assert.Contains($"({innerDict.PublicType})", conv);  // invariant value-slot cast applied
+    }
+
+    [Fact]
+    public void FlatDictGetter_ScalarValue_HasNoContainerCast()
+    {
+        // Gating proof: [String: String] — a scalar value needs no invariant-slot cast (the cast owner
+        // only wraps container values), so the targeted fix doesn't blanket-cast every dictionary getter.
+        var flatDict = new DictionaryProjection(new StringProjection(), new StringProjection(), isParameter: false);
+
+        var (conv, _) = flatDict.Accept(new AccessorGetterConversionVisitor("result"));
+
+        Assert.NotNull(conv);
+        Assert.Contains("result.AsProjected(", conv);
+        Assert.DoesNotContain("(IReadOnly", conv);
+    }
+
+    #endregion
 }

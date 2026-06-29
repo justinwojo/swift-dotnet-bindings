@@ -526,20 +526,17 @@ namespace BindingsGeneration
                 var projection = _factory.Project(argument.SwiftTypeSpec,
                     _env.NewProjectionContext(isParameter: false, genericContext: _genericContext,
                         parentTypeDecl: _env.ParentDecl as TypeDecl));
-                // Class-bound existential array accessor: keep the raw SwiftArray<T> carrier
-                // (ShouldSkipProjectionForAccessor is true for arrays) but source the element type from
-                // the projection's ContainerTypeName, not the legacy bound-generic translation below.
-                // For a class-bound (superclass-/AnyObject-constrained) existential element the two differ:
-                // ContainerTypeName yields the 16-byte ClassExistentialContainer1 stride the Swift array is
-                // laid out with, while the legacy translation yields the 40-byte opaque ExistentialContainer1
-                // — a wrong stride that over-reads and crashes on the first index. Restricted to this one case
-                // so every other array accessor stays on the legacy path (identical output). Opaque
-                // existential and ObjC-bridged arrays are unaffected.
-                if (projection is ArrayProjection accessorArrayProj
-                    && _env.MethodDecl.IsAccessor
-                    && accessorArrayProj.ElementProjection is ExistentialProjection { IsClassBoundArity1: true })
+                // Class-bound existential array accessor (bare [any P] or Optional [any P]?): keep the raw
+                // SwiftArray<T> (or SwiftOptional<SwiftArray<T>>) carrier — ShouldSkipProjectionForAccessor
+                // is true for arrays — but source it from the projection's ContainerTypeName (the 16-byte
+                // ClassExistentialContainer1 stride the Swift array is laid out with) rather than the legacy
+                // bound-generic translation below, which yields the 40-byte opaque ExistentialContainer1. The
+                // getter body returns on the 16-byte carrier, so an accessor return type on the opaque carrier
+                // mismatches it (CS0029 on the getter helper). See ClassBoundExistentialArrayAccessorCarrier.
+                var accessorReturnCarrier = ClassBoundExistentialArrayAccessorCarrier(projection);
+                if (accessorReturnCarrier != null)
                 {
-                    SetReturnType(accessorArrayProj.ContainerTypeName);
+                    SetReturnType(accessorReturnCarrier);
                     return;
                 }
                 if (projection != null && !ShouldSkipProjectionForAccessor(argument.SwiftTypeSpec))
@@ -721,6 +718,20 @@ namespace BindingsGeneration
                     var projection = _factory.Project(argument.SwiftTypeSpec,
                         _env.NewProjectionContext(isParameter: true, genericContext: _genericContext,
                             parentTypeDecl: _env.ParentDecl as TypeDecl));
+                    // Class-bound existential array accessor setter (bare [any P] or Optional [any P]?):
+                    // mirror the getter return path (HandleReturnType). Keep the raw carrier — SwiftArray<T>
+                    // or SwiftOptional<SwiftArray<T>> — sourced from the projection's ContainerTypeName (the
+                    // 16-byte ClassExistentialContainer1 stride) rather than the legacy bound-generic
+                    // translation below, which yields the 40-byte opaque ExistentialContainer1. The public
+                    // property setter builds the value on the 16-byte carrier to match the getter, so a
+                    // setter-method parameter on the opaque carrier mismatches it (CS1503 on the *_Set call).
+                    // See ClassBoundExistentialArrayAccessorCarrier.
+                    var accessorParamCarrier = ClassBoundExistentialArrayAccessorCarrier(projection);
+                    if (accessorParamCarrier != null)
+                    {
+                        AddParameter(accessorParamCarrier, csParamName);
+                        continue;
+                    }
                     if (projection != null && !ShouldSkipProjectionForAccessor(argument.SwiftTypeSpec))
                     {
                         // Emit `ref` for ALL inout params, not just generic ones. Every concrete inout
@@ -875,6 +886,32 @@ namespace BindingsGeneration
         /// Closures and existentials are excluded — they use the projected delegate/interface
         /// type in both accessor and non-accessor contexts (no raw/idiomatic distinction).
         /// </summary>
+        /// <summary>
+        /// For an ACCESSOR signature whose Swift type is a class-bound (arity-1) existential array — the
+        /// bare <c>[any P]</c> or the Optional-wrapped <c>[any P]?</c> — returns the raw carrier type the
+        /// accessor method must use, sourced from the projection's own <c>ContainerTypeName</c>; null for
+        /// every other shape (those stay on the legacy path with identical output). For a class-bound
+        /// (superclass-/AnyObject-constrained / <c>@objc</c>) existential element that carrier is the
+        /// 16-byte ClassExistentialContainer1 stride the Swift array is laid out with, whereas the legacy
+        /// bound-generic translation yields the 40-byte opaque ExistentialContainer1. The getter body's
+        /// MarshalFromSwift and the public property setter both build on the 16-byte carrier (and for the
+        /// Optional shape OptionalProjection composes it as SwiftOptional&lt;SwiftArray&lt;…&gt;&gt; via
+        /// the inner array's MarshalFromSwiftType), so the accessor method signature must match it or the
+        /// binding fails to compile — CS0029 on the getter return, CS1503 on the setter call. Opaque
+        /// existential and ObjC-bridged arrays are unaffected: their element carrier already equals the
+        /// legacy carrier.
+        /// </summary>
+        private string? ClassBoundExistentialArrayAccessorCarrier(ITypeProjection? projection)
+        {
+            if (!_env.MethodDecl.IsAccessor || projection is null)
+                return null;
+            if (projection is ArrayProjection { ElementProjection: ExistentialProjection { IsClassBoundArity1: true } } arrayProj)
+                return arrayProj.ContainerTypeName;
+            if (projection is OptionalProjection { InnerProjection: ArrayProjection { ElementProjection: ExistentialProjection { IsClassBoundArity1: true } } } optionalProj)
+                return optionalProj.ContainerTypeName;
+            return null;
+        }
+
         private bool ShouldSkipProjectionForAccessor(TypeSpec typeSpec)
         {
             if (!_env.MethodDecl.IsAccessor)

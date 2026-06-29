@@ -1,10 +1,19 @@
 # Facebook binding — remaining ObjC/Swift emitter defects (2026-06-29)
 
-> **Status: triaged, not started.** Discovered while validating the issue-#40 graceful-degradation
-> fix (ObjC Session 3 / B3) against the real Facebook iOS SDK. B3 itself is **done and proven** — see
-> "What already landed" below. Everything in this doc is a **separate, pre-existing defect class**
-> orthogonal to B3; it blocks `nuke BuildLibrary --library Facebook --all-products` from compiling
-> clean. Filed as its own initiative rather than bundled into B3 (owner decision, 2026-06-29).
+> **Status: IMPLEMENTED + verified.** Discovered while validating the issue-#40
+> graceful-degradation fix (ObjC Session 3 / B3) against the real Facebook iOS SDK. B3 itself is
+> **done and proven** — see "What already landed" below. Everything in this doc was a **separate,
+> pre-existing defect class** orthogonal to B3; it blocked `nuke BuildLibrary --library Facebook
+> --all-products` from compiling clean. The three designed classes (1–3) plus four more exposed once
+> those cleared (Class 4 absent-type-inside-block leak, Class 5 Apple value-type-enum misclassified as
+> ObjC class, Class 6 cross-product Swift-renamed ObjC superclass, Class 7 class-bound existential
+> array accessor carrier — including its `[any P]?` optional and settable-subscript siblings) all
+> shipped. `--all-products` now compiles clean; `nuke test`, `nuke binding-tests --compile-only`, and a
+> full sim runtime run are green (zero regression); Codex + Grok paired review surfaced no surviving
+> defects. Kept fail-closed by design (not fixed this pass): a doubly-nested block typedef inside a
+> block signature still resolves to a dropped or NSObject-mapped member rather than a compile break,
+> because `MapBlockType` does not thread the block-typedef map and the resolvability gate drops any
+> unresolved inner name — a latent fidelity gap, not a defect, with no current consumer.
 
 ## How to reproduce
 
@@ -93,11 +102,171 @@ doesn't resolve (no using/assembly reference, or a dependency product not surfac
 compile). Likely overlaps the absent-framework-type handling (C1 / SWIFTBIND049) but on the ObjC
 ApiDefinition path and across product boundaries; needs its own triage to decide drop-vs-resolve.
 
-## Suggested sequencing
+## Implementation plan
 
-Class 1 is the dominant compile-error source and a single de-dup root — fix first; it should unblock
-Core/CoreKit_Basics. Class 2's two bugs are small and self-contained (Swift-binding emitter, closest to
-the current generator work). Class 3 (cross-framework resolution) is the murkiest and should be scoped
-last. Each wants a faithful BindingTests reproduction (mixed-binding duplicate-emission shape;
-NSObject-`Handle`-shadow shape; dictionary-of-dictionaries projection) so the fixes are permanently
-covered, per the project's BindingTests-as-durable-gate policy.
+Settled design for a single implementation session. Each fork's design was stress-tested with the
+Codex + Grok second/third-brain consults; where they diverged, the divergence and its resolution are
+recorded inline so the session doesn't re-litigate. Every fix ships with tests at the layer that
+actually exercises it (per the BindingTests-as-durable-gate policy).
+
+### Class 1 — duplicate class/protocol emission → disambiguate the protocol, keep the class
+
+**Design (settled).** When an ObjC name exists as BOTH a class and a (possibly `[Model]`) protocol,
+they are two distinct runtime entities that happen to share a spelling — do **not** merge and do
+**not** drop either. The **class keeps the bare name** `Foo` (it carries the real superclass, which
+is load-bearing for bgen); the **protocol's managed name is renamed to `FooProtocol`** and emitted
+with `[Protocol(Name = "Foo")]` so its native selector mapping is preserved. This is the canonical
+dotnet/macios convention for exactly this clash (e.g. `NSAccessibilityElement` the class +
+`NSAccessibilityElementProtocol` with `[Protocol(Name="NSAccessibilityElement")]`; `NSTextAttachmentCell`
+likewise). Consumers get the class `Foo` AND the protocol interface `IFooProtocol`; the class's
+conformance is rewritten to the renamed reference (so it lists `FooProtocol`, never a bare self-name).
+
+> **Reviewer divergence (resolved).** Codex = rename the protocol to `FooProtocol` (lossless, cites
+> macios source precedent). Grok = suppress the duplicate protocol decl entirely, class wins.
+> **Chosen: Codex.** Suppression is lossy — it discards the protocol's members and breaks any other
+> type that conforms to / takes a parameter typed as that protocol — and Grok did not surface the
+> `FooProtocol` macios precedent that makes "one decl per *C# name*" achievable without losing an
+> entity. Renaming satisfies the same "one decl per name" principle Grok argued for, losslessly.
+
+**Fix site.** `src/Swift.Bindings/src/ObjC/Emitter/ApiDefinitionEmitter.cs`. The three loops in
+`Emit()` have no cross-loop name tracking. Introduce a single **managed-protocol-name resolver** keyed
+on the set of names that are *both* a class and a protocol in the module (compute once from
+`module.Classes` ∩ `module.Protocols` at the top of `Emit()`):
+- `EmitProtocol` (name/attrs at ~159-169): when the protocol's name is in the clash set, emit the
+  managed interface as `{Name}Protocol` and add `[Protocol(Name = "{Name}")]` (carry `[Model]` if the
+  protocol already requires it; the model class then becomes `FooProtocol`, not `Foo`).
+- The resolver must be consulted at **every** site that references a local protocol by managed name —
+  not just the decl: `ProtocolInterfaceReference` (~770, the bare-local-name → `IFoo` path),
+  forward-declaration emission, inherited-protocol lists, member protocol-typed references, and
+  delegate detection. The current bare-native-name keying cannot remain.
+- `EmitClass` conformance list (~280-287): rewrite a conformance whose name is in the clash set to the
+  renamed `{Name}Protocol` reference (→ `IFooProtocol`); this also removes the CS0529 self-cycle since
+  the class name `Foo` no longer appears in its own inheritance list.
+
+This single resolver clears CS0579 / CS0102 / CS0111 / CS0529 together (they are all the one
+double-emission root). Categories are already distinctly named (`Foo_Bar`) — leave them untouched.
+
+**Tests.** Unit/emitter layer — `ApiDefinitionEmitterTests.cs`, building the fixture via
+`ObjCModuleBuilder` with a name present as both a class and a protocol (and a second case where the
+protocol is `[Model]`). Assert: exactly one `partial interface Foo` with the class's real `[BaseType]`;
+a `[Protocol(Name="Foo")] partial interface FooProtocol`; the class conformance lists `FooProtocol`
+(not bare `Foo`); no self-reference in any inheritance list; a referencing member resolves to
+`IFooProtocol`. (No BindingTests leg — there is no lightweight ObjC-xcframework fixture harness; the
+emitter test is the durable gate for this path.)
+
+### Class 2, Bug A — Swift method shadows inherited `NSObject.Handle` → seed the NSObject property set
+
+**Design (settled — both reviewers agree).** `Handle` is an inherited NSObject **property**, so it is
+covered by neither the sibling-property axis nor the `_inheritedMethodCollisions` (method) axis. Seed
+the `propertyNames` set — the input to the existing sibling-property rename axis — with the curated set
+of C#-surfaced NSObject **instance property** names, but **only when `classDecl.IsObjCRooted`**. The
+existing axis then renames any projected method that would shadow one (`Handle` → `HandleMethod` /
+`WithHandle`), uniformly, with no new rename logic.
+
+Curated set (static source, parallel to `_inheritedMethodCollisions` in `NameProvider.cs` ~884):
+`Handle, SuperHandle, IsDirectBinding, Class, Description, DebugDescription, Zone, Self, Superclass,
+RetainCount, IsProxy`. **Exclude `Hash`** — .NET surfaces it as the method `GetNativeHash`, not a
+property, so seeding it would spuriously rename. Do **not** mass-add NSObject *methods* to the method
+axis (C# permits hiding; over-seeding renames legitimate Swift APIs); extend that set only on a
+demonstrated compile/semantic hazard.
+
+**Fix sites.**
+- `src/Swift.Bindings/src/Marshaler/NameProvider.cs` — add the static curated `_objCRootedInheritedPropertyNames`
+  set near `_inheritedMethodCollisions`.
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ClassHandler.cs` (~383-389) — where
+  `propertyNames` is built from own properties + nested types, union in the curated set when
+  `isObjCRooted` (the fact is already computed at ~159), before it flows to `HandleBaseDecl` (~399).
+
+**Tests.**
+- Unit — `ClassObjCRootedTests.cs`: an ObjC-rooted class with a Swift method whose projected name is
+  `Handle` renames; a **non**-ObjC-rooted class with the same method keeps `Handle` (gating proof).
+- **Drift test** (Codex's addition): a reflection-based test over the repo's supported Microsoft.iOS
+  NSObject surface asserting every public NSObject **instance property** capable of colliding is in the
+  curated set, with documented exclusions (`Hash`). Reflection lives in the *test* only — never in
+  generation (reproducible generation must not depend on an installed workload) — and makes SDK drift
+  visible loudly.
+
+### Class 2, Bug B — nested `IReadOnlyDictionary` invariance → route through the cast owner
+
+**Design (settled).** `IReadOnlyDictionary<K,V>` is invariant in `V`, so a `Dictionary<string,object>`
+inner value cannot implicitly convert to the `IReadOnlyDictionary<string,object>` element type the
+outer projection expects. The correct cast already exists in `DictionaryProjection.BuildAsProjected`
+→ `CastValueSelectorBody` (it applies the invariant-slot cast when the value is itself an
+Array/Dictionary/Set projection). The defect is that the **dictionary getter accessor inlines its own
+`AsProjected`** and bypasses that cast.
+
+**Fix site.** `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/AccessorConversionVisitors.cs` —
+`DictGetterConversion` (~57-83) inlines `AsProjected` at ~67/75/80 without the cast. Route it through
+`dict.BuildAsProjected(keyConv, valConv)` so it reuses `CastValueSelectorBody`, matching how
+`GetReceiverDictSetterConversion` (`ProtocolProxyEmitter.Receivers.cs` ~1890) already delegates.
+
+**Tests.**
+- Unit — `DictionaryProjection`/accessor test: a `[String: [String: Any]]`-shaped property asserts the
+  emitted getter contains the value-slot cast (semantic check, not exact-string).
+- **BindingTests** (this one CAN go end-to-end): add a Swift property of type `[String: [String: Any]]`
+  to `SwiftBindingsTestLib`, round-trip it in the matching C# domain test. Dictionary-of-dictionaries
+  marshalling is exactly the kind of ABI/projection behavior BindingTests exists to catch.
+
+### Class 3 — missing Apple-framework `using` → derive usings from authoritative provenance
+
+**Design (settled — supersedes both r1 recommendations).** The member-resolvability guard correctly
+classifies Apple SDK types (e.g. StoreKit's `SKPaymentTransaction`) as resolvable and emits members
+referencing them, but the curated `ObjCUsingsEmitter.ApiDefinitionUsings` list omits `using StoreKit;`
+→ CS0246. The **root cause** is that the `using` set is a hand-maintained kitchen-sink list, decoupled
+from what the binding actually references; adding `StoreKit` fixes Facebook but repeats the defect for
+the next unlisted framework.
+
+The prep phase found a fact neither reviewer had: **the owning-framework provenance is already in hand
+at the collection site.** `ClangAstParser.cs:155-159` adds each Apple SDK type name while holding
+`nodeResolvedFile` — the resolved header path — which for SDK types is `…/<Framework>.framework/Headers/…`.
+The `.framework` segment is the **authoritative** owning framework (ground truth, not prefix inference),
+and the registry already carries the framework→.NET-namespace remap machinery
+(`AppleFrameworkRegistry.MapModuleToNetNamespace` / `NamespaceRemap`, e.g. `QuartzCore`→`CoreAnimation`).
+
+> **Reviewer divergence (resolved by new evidence).** Codex = curated list + add StoreKit; adopt
+> dynamic *only when authoritative type-to-framework provenance exists* (argued prefix inference is
+> unsound — and it is: the registry's name set carries no module, and prefix `CM` is ambiguous between
+> CoreMedia/CoreMotion). Grok = derive dynamically via registry **prefixes** (general, but that's the
+> unsound inference Codex flagged). **Chosen: provenance-based dynamic derivation** — which satisfies
+> *both* (it's Codex's "provenance exists" gate met via the header path, and Grok's generality), and
+> is the root-cause fix no-shortcuts demands. Codex's own decision criterion ("switch when authoritative
+> provenance exists") is now met.
+
+**Fix sites.**
+- `src/Swift.Bindings/src/ObjC/Model/ObjCModule.cs` (~29) — change `AppleSdkTypeNames` from
+  `HashSet<string>` to a name→owning-namespace map (`IReadOnlyDictionary<string,string>` of type name
+  → resolved .NET namespace), or a richer record set.
+- `src/Swift.Bindings/src/ObjC/Parser/ClangAstParser.cs` (~155-159) — parse the `<Framework>.framework`
+  dir out of `nodeResolvedFile`, map it through `AppleFrameworkRegistry.MapModuleToNetNamespace`, store
+  alongside the name.
+- `src/Swift.Bindings/src/ObjC/Emitter/ObjCUsingsEmitter.cs` — emit the **union of namespaces of the
+  Apple SDK types actually referenced by emitted members** + `AlwaysAvailable`, deterministically
+  sorted (churn-free). Keep the startup registry assertion as the safety net.
+- Update the two `AppleSdkTypeNames` consumers (`ObjCPipeline.cs:470`, `ApiDefinitionEmitter.cs:32`).
+
+**Decision gate / fallback.** A residual risk: a small number of Apple types live outside a
+`.framework` (e.g. `/usr/include/…` runtime headers) and won't yield a dir, and a few dir→namespace
+pairs may need a remap entry. During implementation, after wiring provenance, regen Facebook and check
+that every referenced Apple framework resolves to a known namespace. If a meaningful fraction don't and
+can't be cheaply remapped, **fall back for this session** to Codex's curated approach: add `StoreKit`
+(and any other Apple frameworks in Facebook's CS0246 set) to `ApiDefinitionUsings`, and leave the
+provenance derivation as the next tracked item (now de-risked and specified). Cross-product *third-party*
+sibling types (`FBSDKAppLink`) stay **dropped** — no generator-side `using` resolves them; that part is
+already correct and out of scope.
+
+**Tests.** Unit — `ObjCUsingsEmitterTests.cs`: a module whose emitted members reference an Apple SDK
+type from a framework not in today's list (StoreKit/`SKPaymentTransaction`) emits exactly
+`using StoreKit;`; a `QuartzCore`-provenance type emits `using CoreAnimation;` (remap proof); an
+unreferenced framework is not emitted (minimal-set proof). If the fallback path is taken, assert the
+curated list now contains the needed namespace and the startup assertion still passes.
+
+### In-session sequence
+
+1. **Class 1 first** — dominant compile-error source and a single de-dup root; unblocks Core/CoreKit_Basics.
+2. **Class 2 Bug A**, then **Bug B** — small, self-contained Swift-emitter fixes closest to current work.
+3. **Class 3 last** — the parser-model change (provenance) is the most invasive; do it once the
+   compile surface above is green so its regen signal is clean. Honor the decision gate.
+4. After each class: `dotnet build src/Swift.Bindings/src -c Debug` (stale binary masks regen), then the
+   layer's unit tests. After all three: `nuke binding-tests --compile-only` then `--skip-regen` (Bug B's
+   end-to-end leg), and a full Facebook regen via the repro recipe above to confirm `--all-products`
+   compiles clean. `nuke validate` only if the Class 1 resolver proves broader than the clash set.

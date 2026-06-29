@@ -430,11 +430,11 @@ public class ObjCPipelinePostProcessTests
         var module = new ObjCModule
         {
             ModuleName = "Test",
-            AppleSdkTypeNames = new HashSet<string>
+            AppleSdkTypeNamespaces = new Dictionary<string, string>
             {
-                "UNNotificationContent",
-                "UNMutableNotificationContent",
-                "UIView"
+                ["UNNotificationContent"] = "",
+                ["UNMutableNotificationContent"] = "",
+                ["UIView"] = ""
             },
             Classes =
             [
@@ -456,9 +456,9 @@ public class ObjCPipelinePostProcessTests
         var module = new ObjCModule
         {
             ModuleName = "Test",
-            AppleSdkTypeNames = new HashSet<string>
+            AppleSdkTypeNamespaces = new Dictionary<string, string>
             {
-                "UNUserNotificationCenterDelegate"
+                ["UNUserNotificationCenterDelegate"] = ""
             },
             Protocols =
             [
@@ -479,7 +479,7 @@ public class ObjCPipelinePostProcessTests
         var module = new ObjCModule
         {
             ModuleName = "Test",
-            AppleSdkTypeNames = null,
+            AppleSdkTypeNamespaces = null,
             Classes = [new ObjCClassDecl { Name = "MyClass" }],
             Protocols = [new ObjCProtocolDecl { Name = "MyProto" }]
         };
@@ -496,7 +496,7 @@ public class ObjCPipelinePostProcessTests
         var module = new ObjCModule
         {
             ModuleName = "Test",
-            AppleSdkTypeNames = new HashSet<string>(),
+            AppleSdkTypeNamespaces = new Dictionary<string, string>(),
             Classes = [new ObjCClassDecl { Name = "MyClass" }]
         };
 
@@ -511,7 +511,7 @@ public class ObjCPipelinePostProcessTests
         var module = new ObjCModule
         {
             ModuleName = "Test",
-            AppleSdkTypeNames = new HashSet<string> { "UIView", "NSObject" },
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["UIView"] = "", ["NSObject"] = "" },
             Classes =
             [
                 new ObjCClassDecl { Name = "MyWidget" },
@@ -535,7 +535,7 @@ public class ObjCPipelinePostProcessTests
         var module = new ObjCModule
         {
             ModuleName = "Test",
-            AppleSdkTypeNames = new HashSet<string> { "UIView", "UIViewController", "NSCoding" },
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["UIView"] = "", ["UIViewController"] = "", ["NSCoding"] = "" },
             Classes =
             [
                 new ObjCClassDecl { Name = "UIView" },        // SDK stub — filter
@@ -656,7 +656,7 @@ public class ObjCPipelinePostProcessTests
         var module = new ObjCModule
         {
             ModuleName = "WebImageCache",
-            AppleSdkTypeNames = new HashSet<string> { "UIButton", "UIImage" },
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["UIButton"] = "", ["UIImage"] = "" },
             Classes =
             [
                 new ObjCClassDecl { Name = "UIButton" },  // SDK stub — will be removed

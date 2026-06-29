@@ -182,6 +182,9 @@
         <entity managedNameSpace="UIKit" managedTypeName="UIInterfaceOrientation">
             <typedeclaration kind="enum" name="UIInterfaceOrientation" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
+        <entity managedNameSpace="UIKit" managedTypeName="UIBackgroundRefreshStatus">
+            <typedeclaration kind="enum" name="UIBackgroundRefreshStatus" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
         <!-- NS_ENUM types (UInt raw value) -->
         <entity managedNameSpace="UIKit" managedTypeName="UIBarButtonSystemItem">
             <typedeclaration kind="enum" name="UIBarButtonItem.SystemItem" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="UInt" />

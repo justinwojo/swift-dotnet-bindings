@@ -23,6 +23,12 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
+    <!-- Reflection-only metadata reader for the ObjC-rooted NSObject-property drift test
+         (ObjCRootedInheritedPropertyDriftTests): it loads the installed Microsoft.iOS ref
+         assembly without executing it, so the curated collision set in NameProvider can be
+         checked against the real Foundation.NSObject surface and SDK drift surfaces loudly.
+         Metadata-only (no code execution), used only in tests. -->
+    <PackageReference Include="System.Reflection.MetadataLoadContext" Version="9.0.0" />
   </ItemGroup>
 
   <!-- Link-compile the parity-gate logic from the Nuke build assembly so its pure

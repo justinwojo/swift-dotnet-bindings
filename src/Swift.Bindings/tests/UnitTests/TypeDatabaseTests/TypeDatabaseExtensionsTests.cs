@@ -791,6 +791,7 @@ public class TypeDatabaseExtensionsTests
     [InlineData("UIKit.UIRectEdge")]
     [InlineData("UIKit.UIRectCorner")]
     [InlineData("UIKit.UIInterfaceOrientation")]
+    [InlineData("UIKit.UIBackgroundRefreshStatus")]
     [InlineData("UIKit.UIInterfaceOrientationMask")]
     [InlineData("UIKit.UIUserInterfaceIdiom")]
     [InlineData("UIKit.UISemanticContentAttribute")]
@@ -973,6 +974,19 @@ public class TypeDatabaseExtensionsTests
     {
         // UIKeyboardType is in AppleFrameworkValueTypes → not treated as ObjC class
         var result = TypeDatabaseExtensions.IsObjCModuleType(new NamedTypeSpec("UIKit.UIKeyboardType"));
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void IsObjCModuleType_UIBackgroundRefreshStatus_ReturnsFalse()
+    {
+        // UIBackgroundRefreshStatus is an NS_ENUM(NSInteger) value-type enum. It was absent
+        // from the curated UIKit value-type list, so the broad autoBridge fallback misclassified
+        // it as an ObjC class — a real binding that took it as a method parameter then marshalled
+        // it via `param?.Handle ?? IntPtr.Zero`, which does not compile against a value type
+        // (CS0023). Listing it as a value type flips the classification so it marshals by value.
+        var result = TypeDatabaseExtensions.IsObjCModuleType(new NamedTypeSpec("UIKit.UIBackgroundRefreshStatus"));
 
         Assert.False(result);
     }

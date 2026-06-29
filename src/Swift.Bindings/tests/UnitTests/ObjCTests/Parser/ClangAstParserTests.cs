@@ -2471,10 +2471,11 @@ public class ClangAstParserTests
     }
 
     [Fact]
-    public void Parse_AppleSdkTypeNames_CollectsFromSdkHeaders()
+    public void Parse_AppleSdkTypeNamespaces_CollectsFromSdkHeaders()
     {
-        // ObjC classes and protocols from Apple SDK headers should be collected
-        // into AppleSdkTypeNames for ApiDefinition type resolvability.
+        // ObjC classes and protocols from Apple SDK headers should be collected into
+        // AppleSdkTypeNamespaces for ApiDefinition type resolvability, each mapped to the .NET
+        // namespace derived from its <Framework>.framework header provenance (UIKit here).
         var sdkClass = """
         {
             "kind": "ObjCInterfaceDecl",
@@ -2532,16 +2533,18 @@ public class ClangAstParserTests
         Assert.Equal("MyWidget", module.Classes[0].Name);
         Assert.Empty(module.Protocols);
 
-        // But they ARE in AppleSdkTypeNames
-        Assert.NotNull(module.AppleSdkTypeNames);
-        Assert.Contains("UIViewController", module.AppleSdkTypeNames);
-        Assert.Contains("UITableViewDelegate", module.AppleSdkTypeNames);
-        // Framework-local types are NOT in AppleSdkTypeNames
-        Assert.DoesNotContain("MyWidget", module.AppleSdkTypeNames);
+        // But they ARE in AppleSdkTypeNamespaces, mapped to their UIKit.framework provenance.
+        Assert.NotNull(module.AppleSdkTypeNamespaces);
+        Assert.True(module.AppleSdkTypeNamespaces!.TryGetValue("UIViewController", out var vcNs));
+        Assert.Equal("UIKit", vcNs);
+        Assert.True(module.AppleSdkTypeNamespaces.TryGetValue("UITableViewDelegate", out var delNs));
+        Assert.Equal("UIKit", delNs);
+        // Framework-local types are NOT in AppleSdkTypeNamespaces
+        Assert.False(module.AppleSdkTypeNamespaces.ContainsKey("MyWidget"));
     }
 
     [Fact]
-    public void Parse_AppleSdkTypeNames_NotCollectedFromNonSdkPaths()
+    public void Parse_AppleSdkTypeNamespaces_NotCollectedFromNonSdkPaths()
     {
         // ObjC types from non-SDK, non-framework paths should NOT be collected.
         var thirdPartyDecl = """
@@ -2565,7 +2568,7 @@ public class ClangAstParserTests
 
         Assert.Empty(module.Classes);
         // ThirdPartyWidget is NOT from an SDK path → not collected
-        Assert.Null(module.AppleSdkTypeNames);
+        Assert.Null(module.AppleSdkTypeNamespaces);
     }
 
     // --- NS_SWIFT_NAME capture ---

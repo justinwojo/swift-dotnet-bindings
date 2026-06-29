@@ -220,6 +220,125 @@ public class ClassBoundExistentialArrayWriteParamTests : TestBase
 
     #endregion
 
+    #region SETTER direction (concrete-type settable [any Marker] property accessor)
+
+    /// <summary>
+    /// The concrete-type settable class-bound <c>[any Marker]</c> property — the ShareKit
+    /// <c>var media: [any ShareMedia]</c> shape. Assigning <c>MarkerBox.Markers</c> from C# crosses the
+    /// array C# → Swift through the CONCRETE-TYPE property SETTER accessor (<c>Markers_Set</c>), whose
+    /// param carrier must be the 16-byte <c>ClassExistentialContainer1</c> — matching the getter. The
+    /// <c>{ get set }</c> protocol-requirement holders above emit through the EveryProtocol receiver, a
+    /// different accessor path; this is the only fixture that drives a concrete-type property accessor
+    /// setter for a class-bound existential array. Pre-fix the setter param stayed on the 40-byte
+    /// <c>ExistentialContainer1</c>, disagreeing with the getter's carrier (a generated-binding compile
+    /// error). <c>SumIds()</c> re-reads the assigned property Swift-side and the C# getter reads it back,
+    /// both indexing every element so a wrong stride/carrier surfaces as a crash or wrong sum rather than
+    /// a lucky element[0] hit.
+    /// </summary>
+    public void TestMarkerBoxSettablePropertyRoundTrip()
+    {
+        using var vendor = new MarkerVendor();
+        using var box = new MarkerBox(new List<IMarker> { vendor.Make(1) });
+
+        // C# → Swift through the concrete-type property SETTER (mixed proxy/boxable element layouts).
+        box.Markers = new List<IMarker> { vendor.Make(10), new MarkerImpl((nint)20), vendor.Make(30) };
+
+        // Swift reads the property it just received: proves the setter wrote valid 16-byte cells.
+        var swiftSum = (int)box.SumIds();
+        AssertEqual(60, swiftSum, "MarkerBox.SumIds (Swift-side read after C# setter, 10+20+30)");
+
+        // C# getter round-trips the same array back: proves getter/setter carrier symmetry end to end.
+        int csSum = 0;
+        foreach (var m in box.Markers) csSum += (int)m.GetMarkerId();
+        AssertEqual(60, csSum, "MarkerBox.Markers C# getter round-trip after setter (10+20+30)");
+        TestLogger.Info($"SETTER concrete property: swiftSum={swiftSum}, csSum={csSum}");
+    }
+
+    #endregion
+
+    #region OPTIONAL SETTER direction (concrete-type settable [any Marker]? property accessor)
+
+    /// <summary>
+    /// The OPTIONAL sibling of <see cref="TestMarkerBoxSettablePropertyRoundTrip"/>: a settable
+    /// concrete-type <c>[any Marker]?</c> property. The accessor signature wraps the array carrier in
+    /// <c>SwiftOptional</c> (an <c>OptionalProjection</c> composing the inner <c>ArrayProjection</c>), so
+    /// the getter/setter helpers must agree on
+    /// <c>SwiftOptional&lt;SwiftArray&lt;ClassExistentialContainer1&gt;&gt;</c> — the 16-byte element
+    /// carrier — not the legacy 40-byte <c>ExistentialContainer1</c>. Pre-fix the accessor signature fell
+    /// to the 40-byte carrier while the getter/public-setter bodies built the 16-byte one, a
+    /// generated-binding compile error (CS0029 on the getter helper return, CS1503 on the setter call).
+    /// This drives nil and non-nil through the setter and reads both back Swift-side
+    /// (<c>SumOptionalIds</c>, -1 sentinel for nil) and via the C# getter, indexing every element so a
+    /// wrong stride surfaces as a crash or wrong sum rather than a lucky element[0] hit.
+    /// </summary>
+    public void TestMarkerBoxOptionalSettablePropertyRoundTrip()
+    {
+        using var vendor = new MarkerVendor();
+        using var box = new MarkerBox(new List<IMarker> { vendor.Make(1) });
+
+        // Fresh box: optionalMarkers defaults to nil. Swift sentinel and C# getter both report absence.
+        AssertEqual(-1, (int)box.SumOptionalIds(), "MarkerBox.SumOptionalIds on default-nil optional (-1 sentinel)");
+        AssertNull(box.OptionalMarkers, "MarkerBox.OptionalMarkers default getter is null");
+
+        // C# → Swift through the OPTIONAL property SETTER (mixed proxy/boxable element layouts).
+        box.OptionalMarkers = new List<IMarker> { vendor.Make(10), new MarkerImpl((nint)20), vendor.Make(30) };
+
+        // Swift reads the optional it just received: proves the setter wrote valid 16-byte cells in Some.
+        AssertEqual(60, (int)box.SumOptionalIds(), "MarkerBox.SumOptionalIds (Swift-side read after C# setter, 10+20+30)");
+
+        // C# getter round-trips the same array back out of the Some: getter/setter carrier symmetry.
+        var got = box.OptionalMarkers;
+        AssertNotNull(got, "MarkerBox.OptionalMarkers getter is non-null after setter");
+        int csSum = 0;
+        foreach (var m in got!) csSum += (int)m.GetMarkerId();
+        AssertEqual(60, csSum, "MarkerBox.OptionalMarkers C# getter round-trip after setter (10+20+30)");
+
+        // Assign nil back through the setter: Swift sees None again, C# getter is null again.
+        box.OptionalMarkers = null;
+        AssertEqual(-1, (int)box.SumOptionalIds(), "MarkerBox.SumOptionalIds after setting optional back to nil (-1 sentinel)");
+        AssertNull(box.OptionalMarkers, "MarkerBox.OptionalMarkers getter is null after setting nil");
+        TestLogger.Info("OPTIONAL SETTER concrete property: nil/non-nil round-trip via 16-byte SwiftOptional<SwiftArray<...>> carrier");
+    }
+
+    #endregion
+
+    #region SUBSCRIPT direction (concrete-type settable [any Marker] subscript accessor)
+
+    /// <summary>
+    /// A settable class-bound <c>[any Marker]</c> SUBSCRIPT on a concrete type. A subscript get/set is an
+    /// accessor like a property but a distinct (indexed) emission shape, so it independently exercises
+    /// the 16-byte <c>ClassExistentialContainer1</c> carrier on both the getter return and the setter
+    /// param. Assigning <c>groups[i]</c> from C# crosses the array C# → Swift through the subscript
+    /// SETTER; <c>SumGroup(i)</c> re-reads it Swift-side and the C# subscript getter reads it back, both
+    /// indexing every element so a wrong stride surfaces as a crash or wrong sum.
+    /// </summary>
+    public void TestMarkerGroupsSubscriptRoundTrip()
+    {
+        using var vendor = new MarkerVendor();
+        using var groups = new MarkerGroups(new List<List<IMarker>>
+        {
+            new List<IMarker> { vendor.Make(1), vendor.Make(2) },
+            new List<IMarker> { new MarkerImpl((nint)3) },
+        });
+
+        // Swift-side read of the initial group 0 (proxy-layout elements, 1+2).
+        AssertEqual(3, (int)groups.SumGroup(0), "MarkerGroups.SumGroup(0) initial (1+2)");
+
+        // C# → Swift through the subscript SETTER (mixed proxy/boxable element layouts).
+        groups[1] = new List<IMarker> { vendor.Make(10), new MarkerImpl((nint)20), vendor.Make(30) };
+
+        // Swift re-reads the group it just received: proves the setter wrote valid 16-byte cells.
+        AssertEqual(60, (int)groups.SumGroup(1), "MarkerGroups.SumGroup(1) after C# subscript set (10+20+30)");
+
+        // C# subscript getter round-trips the same array back: getter/setter carrier symmetry end to end.
+        int csSum = 0;
+        foreach (var m in groups[1]) csSum += (int)m.GetMarkerId();
+        AssertEqual(60, csSum, "MarkerGroups[1] C# subscript getter round-trip after set (10+20+30)");
+        TestLogger.Info($"SUBSCRIPT concrete: SumGroup(1)={(int)groups.SumGroup(1)}, csSum={csSum}");
+    }
+
+    #endregion
+
     #region Opaque (non-class-bound) control — must stay on the 40-byte carrier
 
     /// <summary>
