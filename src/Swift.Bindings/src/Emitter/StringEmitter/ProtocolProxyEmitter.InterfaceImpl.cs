@@ -183,6 +183,25 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine();
     }
 
+    /// <summary>
+    /// Emits the compile-time diagnostics that precede an always-throwing proxy stub: a non-error
+    /// <c>[Obsolete]</c> so a call site gets a deprecation warning instead of only a runtime throw,
+    /// and <c>[EditorBrowsable(Never)]</c> so the unusable member is hidden from IntelliSense. Only
+    /// for stubs whose body unconditionally throws (no managed-impl fallback) — the conditionally
+    /// dispatching closure stubs keep their visible [Obsolete]-only signal.
+    /// </summary>
+    private const string StaticAbstractStubMessage =
+        "Static protocol members cannot be dispatched through a protocol proxy; call this member on a concrete conforming type instead.";
+
+    private const string InheritedStubMessage =
+        "This inherited protocol member must be dispatched through the parent protocol proxy; it always throws on this type.";
+
+    private static void EmitAlwaysThrowingStubDiagnostics(CSharpWriter writer, string message)
+    {
+        writer.WriteLine($"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\")]");
+        writer.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
+    }
+
     private void EmitStaticAbstractStubs(CSharpWriter writer, ProtocolDecl protocolDecl)
     {
         if (_staticAbstractPropertyNames.Count == 0 && _staticAbstractMethodKeys.Count == 0)
@@ -207,6 +226,7 @@ public partial class ProtocolProxyEmitter
 
             if (hasGetter && hasSetter)
             {
+                EmitAlwaysThrowingStubDiagnostics(writer, StaticAbstractStubMessage);
                 writer.WriteLine($"public static {csharpTypeName} {propertyName}");
                 writer.WriteLine("{");
                 writer.Indent++;
@@ -217,6 +237,7 @@ public partial class ProtocolProxyEmitter
             }
             else if (hasSetter)
             {
+                EmitAlwaysThrowingStubDiagnostics(writer, StaticAbstractStubMessage);
                 writer.WriteLine($"public static {csharpTypeName} {propertyName}");
                 writer.WriteLine("{");
                 writer.Indent++;
@@ -226,6 +247,7 @@ public partial class ProtocolProxyEmitter
             }
             else
             {
+                EmitAlwaysThrowingStubDiagnostics(writer, StaticAbstractStubMessage);
                 writer.WriteLine($"public static {csharpTypeName} {propertyName} => throw new NotSupportedException(\"Static protocol members cannot be dispatched through protocol proxy types.\");");
             }
         }
@@ -310,8 +332,10 @@ public partial class ProtocolProxyEmitter
             var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn,
                 propertyNames: staticPropertyNames,
                 isSelfReturning: isSelfReturning,
-                parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+                parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple),
+                isMutating: method.IsMutating);
 
+            EmitAlwaysThrowingStubDiagnostics(writer, StaticAbstractStubMessage);
             writer.WriteLine($"public static {returnTypeName} {methodName}({string.Join(", ", parameters)}) => throw new NotSupportedException(\"Static protocol members cannot be dispatched through protocol proxy types.\");");
         }
     }
@@ -507,6 +531,7 @@ public partial class ProtocolProxyEmitter
         var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
 
+        EmitAlwaysThrowingStubDiagnostics(writer, InheritedStubMessage);
         writer.WriteLine($"public {csharpTypeName} {propertyName}");
         writer.WriteLine("{");
         writer.Indent++;
@@ -552,8 +577,10 @@ public partial class ProtocolProxyEmitter
         var methodName = NameProvider.GetPublicMethodName(ProtocolMethodDisambiguator.EffectiveNameInput(method, declaringProto, _typeDatabase), method.IsAsync, hasReturn,
             propertyNames: propertyNames,
             isSelfReturning: isSelfReturning,
-            parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+            parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple),
+            isMutating: method.IsMutating);
 
+        EmitAlwaysThrowingStubDiagnostics(writer, InheritedStubMessage);
         writer.WriteLine($"public {returnTypeName} {methodName}({string.Join(", ", parameters)}) => throw new NotSupportedException(\"Inherited protocol member — dispatch via parent protocol proxy.\");");
     }
 
@@ -674,7 +701,8 @@ public partial class ProtocolProxyEmitter
             propertyNames: inheritedInterfacePropertyNames,
             isSelfReturning: MethodEnvironment.IsSelfReturningMethod(inheritedMethod),
             parameterCount: inheritedMethod.CSSignature.Skip(1)
-                .Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+                .Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple),
+            isMutating: inheritedMethod.IsMutating);
 
         var paramsString = string.Join(", ", parameters);
 
@@ -704,7 +732,8 @@ public partial class ProtocolProxyEmitter
                 ProtocolMethodDisambiguator.EffectiveNameInput(refinedMethod, refinedMethod.ParentDecl as ProtocolDecl, _typeDatabase), refinedMethod.IsAsync, refinedHasReturn,
                 propertyNames: propertyNames,
                 isSelfReturning: refinedIsSelfReturning,
-                parameterCount: refinedParameterCount);
+                parameterCount: refinedParameterCount,
+                isMutating: refinedMethod.IsMutating);
             var argsString = string.Join(", ", argNames);
             writer.WriteLine(
                 $"{inheritedReturnCs} {inheritedInterfaceName}.{inheritedMethodName}({paramsString}) => " +
@@ -1339,7 +1368,8 @@ public partial class ProtocolProxyEmitter
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
         var methodName = NameProvider.GetPublicMethodName(ProtocolMethodDisambiguator.EffectiveNameInput(method, protocolDecl, _typeDatabase), method.IsAsync, hasReturn,
             propertyNames: propertyNames, isSelfReturning: isSelfReturning,
-            parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+            parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple),
+            isMutating: method.IsMutating);
         var dispatchClassification = dispatchEmitter.ClassifyMethodDispatchWithReason(method);
         var dispatchKind = dispatchClassification.Kind;
         var dispatchReason = dispatchClassification.Reason;
@@ -2722,7 +2752,8 @@ public partial class ProtocolProxyEmitter
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
         var methodName = NameProvider.GetPublicMethodName(ProtocolMethodDisambiguator.EffectiveNameInput(method, protocolDecl, _typeDatabase), method.IsAsync, hasReturn,
             propertyNames: propertyNames, isSelfReturning: isSelfReturning,
-            parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+            parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple),
+            isMutating: method.IsMutating);
 
         writer.WriteLine($"[Obsolete(\"This member cannot be called on protocol-typed values: {reason}. Use a concrete type instead (SB0003).\",");
         writer.WriteLine("    DiagnosticId = \"SB0003\",");

@@ -80,7 +80,7 @@ public class ActorIsolatedTests : TestBase
     public async Task TestAsyncProcessor_SyncIsolatedResultCount()
     {
         var processor = Functions.CreateAsyncProcessor();
-        var initial = await WithTimeout(processor.ResultCountAsync(), DefaultAsyncTimeout);
+        var initial = await WithTimeout(processor.GetResultCountAsync(), DefaultAsyncTimeout);
         AssertEqual(0, initial, "New AsyncProcessor should have zero results");
         processor.Dispose();
     }
@@ -91,7 +91,7 @@ public class ActorIsolatedTests : TestBase
         var result = await WithTimeout(processor.ProcessAsync("input-1"), DefaultAsyncTimeout);
         AssertEqual("Processed: input-1", result, "process(input:) should return wrapped input");
 
-        var count = await WithTimeout(processor.ResultCountAsync(), DefaultAsyncTimeout);
+        var count = await WithTimeout(processor.GetResultCountAsync(), DefaultAsyncTimeout);
         AssertEqual(1, count, "resultCount() must observe the process() mutation");
         processor.Dispose();
     }

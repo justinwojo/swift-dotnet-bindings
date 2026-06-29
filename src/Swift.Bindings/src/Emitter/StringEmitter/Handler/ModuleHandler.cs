@@ -2272,7 +2272,8 @@ namespace BindingsGeneration
                     var parameters = ResolveMethodParameters(method, typeDatabase);
                     bool hasReturnValue = method.CSSignature.Count > 0 && !method.CSSignature.First().SwiftTypeSpec.IsEmptyTuple;
                     var methodName = NameProvider.GetPublicMethodName(ProtocolMethodDisambiguator.EffectiveNameInput(method, protocolDecl, typeDatabase), method.IsAsync, hasReturnValue,
-                        parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+                        parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple),
+                        isMutating: method.IsMutating);
 
                     if (method.IsAsync)
                     {

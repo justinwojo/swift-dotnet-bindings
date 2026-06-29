@@ -453,7 +453,8 @@ public class ProtocolConformanceValidator
                 propertyNames: concretePropertyNames,
                 isSelfReturning: concreteIsSelfReturning,
                 parentTypeName: concreteParentTypeName,
-                parameterCount: concreteMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+                parameterCount: concreteMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple),
+                isMutating: concreteMethod.IsMutating);
 
             // Compare with the interface method name (computed without property collision context)
             var protoReturnTypeSpec = protoMethod.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
@@ -463,7 +464,8 @@ public class ProtocolConformanceValidator
                 ProtocolMethodDisambiguator.EffectiveNameInput(protoMethod, protocolDecl, _typeDatabase), protoMethod.IsAsync,
                 hasReturnValue: protoHasReturn,
                 isSelfReturning: protoIsSelfReturning,
-                parameterCount: protoMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+                parameterCount: protoMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple),
+                isMutating: protoMethod.IsMutating);
 
             if (concreteEmittedName != interfaceMethodName)
                 return false;  // CS0535: method names diverge due to collision resolution
@@ -522,7 +524,8 @@ public class ProtocolConformanceValidator
                 propertyNames: concretePropertyNames,
                 isSelfReturning: concreteIsSelfReturning,
                 parentTypeName: concreteParentTypeName,
-                parameterCount: concreteMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+                parameterCount: concreteMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple),
+                isMutating: concreteMethod.IsMutating);
 
             var protoReturnTypeSpec = protoMethod.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
             bool protoHasReturn = protoReturnTypeSpec != null && !protoReturnTypeSpec.IsEmptyTuple;
@@ -531,7 +534,8 @@ public class ProtocolConformanceValidator
                 protoMethod.Name, protoMethod.IsAsync,
                 hasReturnValue: protoHasReturn,
                 isSelfReturning: protoIsSelfReturning,
-                parameterCount: protoMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+                parameterCount: protoMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple),
+                isMutating: protoMethod.IsMutating);
 
             if (concreteEmittedName != interfaceMethodName)
                 return false;  // CS0535: method names diverge due to collision resolution
@@ -686,7 +690,8 @@ public class ProtocolConformanceValidator
         bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(protoMethod);
         var methodName = NameProvider.GetPublicMethodName(ProtocolMethodDisambiguator.EffectiveNameInput(protoMethod, protocolContext, _typeDatabase), protoMethod.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning,
-            parameterCount: protoMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+            parameterCount: protoMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple),
+            isMutating: protoMethod.IsMutating);
 
         var visibleGenericNames = BaseHandler.CollectVisibleGenericParamNames(protoMethod);
         var parameterTypes = new List<string>();

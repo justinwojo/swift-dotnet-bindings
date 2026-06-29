@@ -47,8 +47,10 @@ public class NestedTypeRenameTests
         //
         // Consumer module "ConsumerLib" references Container.AlertType. After
         // applying the rename pass on the dep ModuleDecl, the dep TypeRecord for
-        // DepLib.Container.AlertType must show C# name "Container.AlertTypeType"
+        // DepLib.Container.AlertType must show C# name "Container.AlertType2"
         // so the consumer's emitter resolves the cross-module reference correctly.
+        // (The property name "AlertType" already ends in "Type", so the type is
+        // disambiguated with a numeric suffix rather than a stuttering "TypeType".)
         var typeDatabase = new TypeDatabase();
 
         // --- Dep module setup ---
@@ -142,9 +144,9 @@ public class NestedTypeRenameTests
 
         // Assert: the dep TypeRecord now carries the renamed C# leaf name.
         // A cross-module lookup from the consumer's emitter will read this record
-        // and produce DepLib.Container.AlertTypeType in the generated C#.
+        // and produce DepLib.Container.AlertType2 in the generated C#.
         Assert.True(typeDatabase.TryGetTypeRecord(depAlertTypeSwiftName, out var renamedRecord));
-        Assert.Equal("Container.AlertTypeType", renamedRecord!.CSharpTypeName.Name);
+        Assert.Equal("Container.AlertType2", renamedRecord!.CSharpTypeName.Name);
         Assert.Equal("DepLib", renamedRecord.CSharpTypeName.Namespace);
     }
 
@@ -232,7 +234,7 @@ public class NestedTypeRenameTests
     }
 
     [Fact]
-    public void PrecomputeNestedTypeRenames_TargetHasOwnChildWithSameName_AppendsExtraTypeSuffix()
+    public void PrecomputeNestedTypeRenames_TargetHasOwnChildWithSameName_AppendsNumericSuffix()
     {
         // Reproduces a struct where a stored property name collides with a sibling nested type:
         //   struct Card {
@@ -242,8 +244,9 @@ public class NestedTypeRenameTests
         //     }
         //   }
         // The rename must skip "WalletType" (claimed by Wallet's own child) and pick
-        // "WalletTypeType" instead. Without this guard, the C# emission trips CS0542
-        // ("member names cannot be the same as their enclosing type").
+        // "WalletType2" instead. Without this guard, the C# emission trips CS0542
+        // ("member names cannot be the same as their enclosing type"). The numeric
+        // suffix avoids the older stuttering "WalletTypeType" form.
         var typeDatabase = new TypeDatabase();
         var depModule = new ModuleTypeDatabase("DepLib", "/tmp/DepLib.dylib");
 
@@ -350,10 +353,10 @@ public class NestedTypeRenameTests
 
         // Wallet must NOT be renamed to "WalletType" (Wallet has a child enum with that name).
         Assert.True(typeDatabase.TryGetTypeRecord(walletSwiftName, out var walletRecord));
-        Assert.Equal("Card.WalletTypeType", walletRecord!.CSharpTypeName.Name);
+        Assert.Equal("Card.WalletType2", walletRecord!.CSharpTypeName.Name);
         // The child enum's path must cascade with the renamed parent.
         Assert.True(typeDatabase.TryGetTypeRecord(walletTypeSwiftName, out var innerRecord));
-        Assert.Equal("Card.WalletTypeType.WalletType", innerRecord!.CSharpTypeName.Name);
+        Assert.Equal("Card.WalletType2.WalletType", innerRecord!.CSharpTypeName.Name);
     }
 
     [Fact]

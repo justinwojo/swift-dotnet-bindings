@@ -103,7 +103,7 @@ public class AsyncSequenceTests : TestBase
     /// </summary>
     public async Task Test06_AsyncTopLevelReturnNoneInt()
     {
-        var x = await SwiftBindingsTestLib.Functions.SbwAsyncReturnNoneIntAsync();
+        var x = await SwiftBindingsTestLib.Functions.GetSbwAsyncReturnNoneIntAsync();
         TestLogger.Info($"  sbwAsyncReturnNoneInt -> {(x.HasValue ? x.Value.ToString() : "null")}");
         AssertTrue(!x.HasValue, $"Async None must surface as null, was {(x.HasValue ? x.Value.ToString() : "null")}");
     }
@@ -114,7 +114,7 @@ public class AsyncSequenceTests : TestBase
     /// </summary>
     public async Task Test07_AsyncTopLevelReturnSomeSeven()
     {
-        var x = await SwiftBindingsTestLib.Functions.SbwAsyncReturnSomeSevenAsync();
+        var x = await SwiftBindingsTestLib.Functions.GetSbwAsyncReturnSomeSevenAsync();
         TestLogger.Info($"  sbwAsyncReturnSomeSeven -> {(x.HasValue ? x.Value.ToString() : "null")}");
         AssertEqual(7, x, "Some(7) must round-trip");
     }

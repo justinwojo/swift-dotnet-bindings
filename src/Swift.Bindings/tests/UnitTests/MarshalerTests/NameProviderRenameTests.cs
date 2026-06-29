@@ -385,10 +385,12 @@ public class NameProviderRenameTests
         //     struct Offer { ... }
         //     struct OfferType { ... }
         //   }
-        // Naive rename: Offer→OfferType (collides with sibling OfferType→OfferTypeType).
-        // The "OfferType" rename target itself collides with the *other* nested type that
-        // was just renamed away, producing CS0102 ("type already contains a definition for OfferType").
-        // The fix loops on "+ Type" until the new leaf name is unique among all members + nested types.
+        // Naive rename: Offer→OfferType (collides with sibling OfferType).
+        // The "OfferType" rename target itself collides with the *other* nested type, which
+        // would produce CS0102 ("type already contains a definition for OfferType"). The fix
+        // appends a single "Type" suffix and then disambiguates with a numeric suffix until the
+        // new leaf name is unique among all members + nested types — Offer→OfferType2,
+        // OfferType→OfferType3 — rather than stacking "Type"s into OfferTypeType/OfferTypeTypeType.
         var typeDatabase = new TypeDatabase();
         var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
 
@@ -505,12 +507,13 @@ public class NameProviderRenameTests
         Assert.NotEqual("OfferType", offerTypeLeaf);
         Assert.NotEqual("Offer", offerTypeLeaf);
 
-        // Both rename targets must still start with the matching property's PascalCase name +
-        // at least one "Type" suffix, since the loop only appends "Type".
+        // Both rename targets still start with the matching property's PascalCase name + a single
+        // "Type" suffix, and are disambiguated with a numeric tail rather than a stuttering chain
+        // of "Type"s. Neither may contain the "TypeType" machine-vomit the fix removes.
         Assert.StartsWith("Offer", offerLeaf);
-        Assert.EndsWith("Type", offerLeaf);
         Assert.StartsWith("OfferType", offerTypeLeaf);
-        Assert.EndsWith("Type", offerTypeLeaf);
+        Assert.DoesNotContain("TypeType", offerLeaf);
+        Assert.DoesNotContain("TypeType", offerTypeLeaf);
     }
 
     private static string LeafName(string fullName)

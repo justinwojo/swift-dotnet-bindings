@@ -13,7 +13,7 @@ namespace RuntimeTestsApp.CrossModule;
 /// The dep module's <c>DependencyContainer</c> has a nested enum
 /// <c>AlertType</c> and a property <c>alertType: AlertType</c>. PascalCased
 /// the property is <c>AlertType</c>, colliding with the nested type. The
-/// producer's rename pass renames the nested type to <c>AlertTypeType</c>;
+/// producer's rename pass renames the nested type to <c>AlertType2</c>;
 /// the property keeps the name <c>AlertType</c>.
 ///
 /// The cross-module path: SwiftBindingsTestLib consumes
@@ -34,14 +34,14 @@ public class NestedTypeRenameTests : TestBase
     {
         // Consumer-side factory returns a DependencyContainer with alertType = .warning.
         using var container = TestLibFunctions.MakeDependencyContainer(
-            "Container1", DependencyContainer.AlertTypeType.Warning);
+            "Container1", DependencyContainer.AlertType2.Warning);
 
         // Consumer-side function returns DependencyContainer.AlertType — locks
-        // that the cross-module return reference resolves to AlertTypeType,
+        // that the cross-module return reference resolves to AlertType2,
         // not the AlertType property.
         using var alert = TestLibFunctions.GetDependencyContainerAlertType(container);
 
-        AssertTrue(alert.Equals(DependencyContainer.AlertTypeType.Warning),
+        AssertTrue(alert.Equals(DependencyContainer.AlertType2.Warning),
             "Round-tripped alert matches .warning");
     }
 
@@ -50,11 +50,11 @@ public class NestedTypeRenameTests : TestBase
         // Locks the cross-module parameter position: consumer function
         // takes DependencyContainer.AlertType as an argument.
         using var container = TestLibFunctions.MakeDependencyContainer(
-            "Container2", DependencyContainer.AlertTypeType.Critical);
+            "Container2", DependencyContainer.AlertType2.Critical);
 
         // Read the dep's property back through the dep-side accessor.
         using var alert = container.AlertType;
-        AssertTrue(alert.Equals(DependencyContainer.AlertTypeType.Critical),
+        AssertTrue(alert.Equals(DependencyContainer.AlertType2.Critical),
             "Container preserved .critical alert across constructor");
     }
 
@@ -64,12 +64,12 @@ public class NestedTypeRenameTests : TestBase
         // consumer module has a stored property whose type is the renamed
         // cross-module nested enum.
         using var holder = TestLibFunctions.MakeDependencyContainerHolder(
-            "HolderA", DependencyContainer.AlertTypeType.Info);
+            "HolderA", DependencyContainer.AlertType2.Info);
 
         AssertEqual("HolderA", holder.Label.ToString(), "Label preserved");
 
         using var alert = holder.Alert;
-        AssertTrue(alert.Equals(DependencyContainer.AlertTypeType.Info),
+        AssertTrue(alert.Equals(DependencyContainer.AlertType2.Info),
             "Holder.Alert property reads back .info");
     }
 
@@ -81,10 +81,10 @@ public class NestedTypeRenameTests : TestBase
         // compile rather than fail at runtime — but locking the access
         // pattern here documents the contract.
         using var container = TestLibFunctions.MakeDependencyContainer(
-            "Container3", DependencyContainer.AlertTypeType.Info);
+            "Container3", DependencyContainer.AlertType2.Info);
 
         using var alert = container.AlertType;
-        AssertTrue(alert.Equals(DependencyContainer.AlertTypeType.Info),
+        AssertTrue(alert.Equals(DependencyContainer.AlertType2.Info),
             "DependencyContainer.AlertType property reads .info");
     }
 }

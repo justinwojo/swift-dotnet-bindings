@@ -144,6 +144,12 @@ public static partial class CrossModuleExtensionEmitter
             var wrapperLibPath = typeDatabase.AsyncLibraryName ?? "libSwiftBindings";
             var moduleLibPath = typeDatabase.GetLibraryPath(currentModule);
 
+            // Checkpoint before opening the class shell. Each member below is gated by its
+            // own TryEmit* call; if every one fails (e.g. all members are unsupported
+            // closure/async shapes), we roll the buffer back to here so no empty
+            // `public static partial class FooExtensions { }` is left in the output.
+            var classCheckpoint = csWriter.Checkpoint();
+
             csWriter.WriteLine();
             csWriter.WriteLine($"/// <summary>");
             csWriter.WriteLine($"/// Extension methods for {classDecl.Name} defined in {currentModule}.");
@@ -251,6 +257,15 @@ public static partial class CrossModuleExtensionEmitter
             {
                 logger.LogInformation("Emitted {Count} cross-module extension members for {Type} from {Module}",
                     emittedCount, classDecl.Name, currentModule);
+            }
+            else
+            {
+                // No member survived its TryEmit* gate — discard the empty class shell
+                // and its doc-comment rather than emitting a dead `public static partial
+                // class FooExtensions { }`.
+                csWriter.RollbackTo(classCheckpoint);
+                logger.LogDebug("Cross-module extension {Type} from {Module}: all members unemittable, suppressing empty class shell.",
+                    classDecl.Name, currentModule);
             }
         }
 

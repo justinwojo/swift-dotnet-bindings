@@ -59,7 +59,7 @@ public class AsyncStringTests : TestBase
 
     public async Task TestAsyncStaticString()
     {
-        var result = await WithTimeout(AsyncStringWorker.StaticStringAsync(), DefaultAsyncTimeout);
+        var result = await WithTimeout(AsyncStringWorker.GetStaticStringAsync(), DefaultAsyncTimeout);
         AssertEqual("Static async string", result, "AsyncStaticString");
         TestLogger.Info($"AsyncStringWorker.GetStaticStringAsync() = {result}");
     }
@@ -122,7 +122,7 @@ public class AsyncStringTests : TestBase
 
     public async Task TestAsyncStaticArray()
     {
-        var result = await WithTimeout(AsyncArrayWorker.StaticArrayAsync(), DefaultAsyncTimeout);
+        var result = await WithTimeout(AsyncArrayWorker.GetStaticArrayAsync(), DefaultAsyncTimeout);
         AssertEqual(3, result.Count, "Static array count");
         AssertEqual("static", result[0].ToString(), "StaticArray[0]");
         AssertEqual("array", result[1].ToString(), "StaticArray[1]");

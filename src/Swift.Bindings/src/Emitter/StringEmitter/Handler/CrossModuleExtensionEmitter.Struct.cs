@@ -132,6 +132,12 @@ public static partial class CrossModuleExtensionEmitter
             var className = $"{structDecl.Name}{currentModule}Extensions";
             var wrapperLibPath = typeDatabase.AsyncLibraryName ?? $"{currentModule}SwiftBindings";
 
+            // Checkpoint before opening the class shell. Each member below is gated by its
+            // own TryEmit* call; if every one fails (e.g. all members are mutating, generic,
+            // or have unresolvable return/param shapes), we roll the buffer back to here so no
+            // empty `public static partial class FooExtensions { }` is left in the output.
+            var structExtensionCheckpoint = csWriter.Checkpoint();
+
             csWriter.WriteLine();
             csWriter.WriteLine($"/// <summary>");
             csWriter.WriteLine($"/// Extension methods for {structDecl.Name} defined in {currentModule}.");
@@ -199,6 +205,15 @@ public static partial class CrossModuleExtensionEmitter
                 logger.LogInformation(
                     "Emitted {Count} cross-module struct extension members for {Type} from {Module}",
                     emittedCount, structDecl.Name, currentModule);
+            }
+            else
+            {
+                // No member survived its TryEmit* gate — discard the empty class shell
+                // and its doc-comment rather than emitting a dead `public static partial
+                // class FooExtensions { }`.
+                csWriter.RollbackTo(structExtensionCheckpoint);
+                logger.LogDebug("Cross-module struct extension {Type} from {Module}: all members unemittable, suppressing empty struct extension shell.",
+                    structDecl.Name, currentModule);
             }
         }
 

@@ -675,9 +675,9 @@ public class BasicThrowingTests : TestBase
         try
         {
             await WithTimeout(
-                TestLibFunctions.PlainThrowsAsyncFallthroughToUntypedAsync(),
+                TestLibFunctions.GetPlainThrowsAsyncFallthroughToUntypedAsync(),
                 DefaultAsyncTimeout);
-            throw new AssertionException("PlainThrowsAsyncFallthroughToUntypedAsync should have thrown");
+            throw new AssertionException("GetPlainThrowsAsyncFallthroughToUntypedAsync should have thrown");
         }
         catch (SwiftException ex) when (ex.GetType() == typeof(SwiftException))
         {
@@ -689,7 +689,7 @@ public class BasicThrowingTests : TestBase
                     || ex.Message.Contains("UnregisteredDomain")
                     || ex.Message.Contains("7777"),
                 $"Untyped fallback should preserve NSError description on .Message, got: {ex.Message}");
-            TestLogger.Info($"PlainThrowsAsyncFallthroughToUntypedAsync correctly fell through to bare SwiftException; Message={ex.Message}");
+            TestLogger.Info($"GetPlainThrowsAsyncFallthroughToUntypedAsync correctly fell through to bare SwiftException; Message={ex.Message}");
         }
     }
 

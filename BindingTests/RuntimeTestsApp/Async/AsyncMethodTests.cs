@@ -37,7 +37,7 @@ public class AsyncMethodTests : TestBase
     public async Task TestAsyncReturnMethod()
     {
         var worker = new AsyncWorker("test-worker");
-        var result = await WithTimeout(worker.ReturnMethodAsync(), DefaultAsyncTimeout);
+        var result = await WithTimeout(worker.GetReturnMethodAsync(), DefaultAsyncTimeout);
         AssertEqual(42, result, "AsyncReturnMethod should return 42");
         TestLogger.Info($"AsyncWorker.AsyncReturnMethod() = {result}");
     }
@@ -45,7 +45,7 @@ public class AsyncMethodTests : TestBase
     public async Task TestAsyncStringMethod()
     {
         var worker = new AsyncWorker("Bob");
-        var result = await WithTimeout(worker.StringMethodAsync(), DefaultAsyncTimeout);
+        var result = await WithTimeout(worker.GetStringMethodAsync(), DefaultAsyncTimeout);
         AssertEqual("Hello from Bob", result, "AsyncStringMethod should return 'Hello from Bob'");
         TestLogger.Info($"AsyncWorker.AsyncStringMethod() = {result}");
     }
@@ -58,7 +58,7 @@ public class AsyncMethodTests : TestBase
 
     public async Task TestAsyncStaticReturn()
     {
-        var result = await WithTimeout(AsyncWorker.StaticReturnAsync(), DefaultAsyncTimeout);
+        var result = await WithTimeout(AsyncWorker.GetStaticReturnAsync(), DefaultAsyncTimeout);
         AssertEqual(99, result, "AsyncStaticReturn should return 99");
         TestLogger.Info($"AsyncWorker.GetStaticReturnAsync() = {result}");
     }

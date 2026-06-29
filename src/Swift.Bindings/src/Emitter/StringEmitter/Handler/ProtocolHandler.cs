@@ -1049,7 +1049,8 @@ namespace BindingsGeneration
             // for every other method (returns methodDecl.Name).
             var methodName = NameProvider.GetPublicMethodName(ProtocolMethodDisambiguator.EffectiveNameInput(methodDecl, protocolContext, typeDatabase), methodDecl.IsAsync, hasReturnValue: hasReturnValue,
                 propertyNames: propertyNames, isSelfReturning: isSelfReturning,
-                parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+                parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple),
+                isMutating: methodDecl.IsMutating);
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, methodDecl, protocolContext, emitObsolete: true);
             if (isStaticAbstract)
@@ -1377,7 +1378,8 @@ namespace BindingsGeneration
             // name the interface declares, so two label-only siblings produce DISTINCT emitted signatures.
             var methodName = NameProvider.GetPublicMethodName(ProtocolMethodDisambiguator.EffectiveNameInput(methodDecl, protocolContext, typeDatabase), methodDecl.IsAsync, hasReturnValue: hasReturnValue,
                 propertyNames: propertyNames, isSelfReturning: isSelfReturning,
-                parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+                parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple),
+                isMutating: methodDecl.IsMutating);
 
             var visibleGenericNames = BaseHandler.CollectVisibleGenericParamNames(methodDecl);
             var paramTypes = new List<string>();
@@ -1490,7 +1492,8 @@ namespace BindingsGeneration
             // as its full-width sibling, or the two label-only overloads' DIMs would collide.
             var methodName = NameProvider.GetPublicMethodName(ProtocolMethodDisambiguator.EffectiveNameInput(methodDecl, protocolContext, typeDatabase), methodDecl.IsAsync, hasReturnValue: hasReturn,
                 propertyNames: propertyNames, isSelfReturning: isSelfReturning,
-                parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+                parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple),
+                isMutating: methodDecl.IsMutating);
 
             var dimKey = $"{methodName}({string.Join(",", dimParamTypes)})";
             if (!emittedCSharpKeys.Add(dimKey))

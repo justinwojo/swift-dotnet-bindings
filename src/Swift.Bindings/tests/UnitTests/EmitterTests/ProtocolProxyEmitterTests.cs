@@ -5595,6 +5595,78 @@ public class ProtocolProxyEmitterTests
 
     #endregion
 
+    #region Always-throwing stub diagnostics (Session 11 Target 4)
+
+    [Fact]
+    public void EmitProxyClass_StaticAbstractPropertyStub_CarriesObsoleteAndEditorBrowsable()
+    {
+        var protocol = CreateSimpleProtocol("StaticReqProtocol");
+        protocol.Properties.Add(new PropertyDecl
+        {
+            Name = "shared",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsStatic = true,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("shared_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var output = EmitProxyClassWithStaticAbstract(protocol,
+            staticAbstractPropertyNames: new HashSet<string> { "shared" });
+
+        // The always-throwing static stub gives consumers a compile-time signal instead of only a
+        // runtime throw: a non-error [Obsolete] (deprecation warning at the call site) and an
+        // [EditorBrowsable(Never)] (hidden from IntelliSense), both ahead of the member.
+        var obsIdx = output.IndexOf("[Obsolete(\"Static protocol members cannot be dispatched through a protocol proxy", StringComparison.Ordinal);
+        Assert.True(obsIdx >= 0, "static-abstract property stub should carry an [Obsolete] deprecation signal");
+        var ebIdx = output.IndexOf("EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)", obsIdx, StringComparison.Ordinal);
+        var stubIdx = output.IndexOf("public static", obsIdx, StringComparison.Ordinal);
+        Assert.True(ebIdx >= 0 && ebIdx < stubIdx,
+            "[EditorBrowsable(Never)] should sit between the [Obsolete] and the static stub member");
+        // The body still throws at runtime as a backstop.
+        Assert.Contains("Static protocol members cannot be dispatched through protocol proxy types.", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_StaticAbstractMethodStub_CarriesObsoleteAndEditorBrowsable()
+    {
+        var protocol = CreateSimpleProtocol("StaticMethodProtocol");
+        var method = CreateMethodDecl("makeDefault");
+        method.MethodType = MethodType.Static;
+        protocol.Methods.Add(method);
+        var key = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocol);
+
+        var output = EmitProxyClassWithStaticAbstract(protocol,
+            staticAbstractMethodKeys: new HashSet<string> { key });
+
+        var obsIdx = output.IndexOf("[Obsolete(\"Static protocol members cannot be dispatched through a protocol proxy", StringComparison.Ordinal);
+        Assert.True(obsIdx >= 0, "static-abstract method stub should carry an [Obsolete] deprecation signal");
+        var ebIdx = output.IndexOf("EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)", obsIdx, StringComparison.Ordinal);
+        var stubIdx = output.IndexOf("public static", obsIdx, StringComparison.Ordinal);
+        Assert.True(ebIdx >= 0 && ebIdx < stubIdx,
+            "[EditorBrowsable(Never)] should precede the static method stub");
+    }
+
+    private string EmitProxyClassWithStaticAbstract(
+        ProtocolDecl protocolDecl,
+        HashSet<string> staticAbstractPropertyNames = null,
+        HashSet<string> staticAbstractMethodKeys = null)
+    {
+        var stringWriter = new StringWriter();
+        var writer = new CSharpWriter(stringWriter);
+        _emitter.EmitProxyClass(
+            writer, protocolDecl,
+            staticAbstractPropertyNames: staticAbstractPropertyNames,
+            staticAbstractMethodKeys: staticAbstractMethodKeys);
+        return stringWriter.ToString();
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private string EmitProxyClass(ProtocolDecl protocolDecl)

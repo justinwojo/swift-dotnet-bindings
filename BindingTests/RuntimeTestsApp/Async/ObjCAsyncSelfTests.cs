@@ -60,8 +60,8 @@ public class ObjCAsyncSelfTests : TestBase
     public async Task TestObjCAsyncSelf_PingAsync_NoParams()
     {
         var self = new ObjCAsyncSelf(13);
-        var result = await WithTimeout(self.PingAsync(), DefaultAsyncTimeout);
-        AssertEqual(13, result, "PingAsync() on @objc self returns base");
+        var result = await WithTimeout(self.GetPingAsync(), DefaultAsyncTimeout);
+        AssertEqual(13, result, "GetPingAsync() on @objc self returns base");
         self.Dispose(); // deterministic teardown — see ComputeAsync_WithParams for rationale
     }
 
@@ -116,8 +116,8 @@ public class ObjCAsyncSelfTests : TestBase
             var self = new ObjCAsyncSelf(i);
             var computed = await WithTimeout(self.ComputeAsync(2), DefaultAsyncTimeout);
             AssertEqual(i * 2, computed, $"iter {i}: ComputeAsync(2) == base*2");
-            var pinged = await WithTimeout(self.PingAsync(), DefaultAsyncTimeout);
-            AssertEqual(i, pinged, $"iter {i}: PingAsync() == base");
+            var pinged = await WithTimeout(self.GetPingAsync(), DefaultAsyncTimeout);
+            AssertEqual(i, pinged, $"iter {i}: GetPingAsync() == base");
             self.Dispose();
         }
     }

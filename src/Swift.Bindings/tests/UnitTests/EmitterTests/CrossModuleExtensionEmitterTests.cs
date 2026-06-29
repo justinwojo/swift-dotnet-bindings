@@ -73,6 +73,10 @@ public class CrossModuleExtensionEmitterTests
 
         var result = csOutput.ToString();
         Assert.DoesNotContain("DoWork", result);
+        // The lone member was gated out, so the now-empty class shell must be rolled back —
+        // no dead `public static partial class TestModuleExtensions { }` left behind.
+        Assert.DoesNotContain("public static partial class", result);
+        Assert.DoesNotContain("TestModuleExtensions", result);
     }
 
     [Fact]
@@ -122,6 +126,30 @@ public class CrossModuleExtensionEmitterTests
         CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger);
 
         var result = csOutput.ToString();
+        Assert.DoesNotContain("DoWork", result);
+        // Lone member gated out → empty class shell suppressed (rolled back).
+        Assert.DoesNotContain("public static partial class", result);
+        Assert.DoesNotContain("TestModuleExtensions", result);
+    }
+
+    [Fact]
+    public void Emit_OneSurvivorAmongSkipped_KeepsClassShell()
+    {
+        var (csWriter, swiftWriter, csOutput, moduleDecl, classDecl, conductor, env) = CreateSetup();
+
+        // One member is gated out (mutating), one survives — the shell must be KEPT,
+        // proving dead-shell suppression rolls back only when EVERY member is unemittable.
+        var skipped = CreateMethodDecl("doWork", "TestModule", classDecl);
+        skipped.IsMutating = true;
+        classDecl.Methods.Add(skipped);
+        classDecl.Methods.Add(CreateMethodDecl("customAction", "TestModule", classDecl));
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger);
+
+        var result = csOutput.ToString();
+        Assert.Contains("public static partial class", result);
+        Assert.Contains("TestModuleExtensions", result);
+        Assert.Contains("CustomAction", result);
         Assert.DoesNotContain("DoWork", result);
     }
 
@@ -355,9 +383,33 @@ public class CrossModuleExtensionEmitterTests
 
         CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, Logger);
 
-        // The wrapper class header is emitted (the gate is per-member) but no
-        // method body should reference the mutating Rotate name.
-        Assert.DoesNotContain("Rotate(", csOutput.ToString());
+        var csResult = csOutput.ToString();
+        // The lone member is gated out, so the now-empty struct-extension shell must be
+        // rolled back — no dead `public static partial class OrigPointTestModuleExtensions { }`.
+        Assert.DoesNotContain("Rotate(", csResult);
+        Assert.DoesNotContain("OrigPointTestModuleExtensions", csResult);
+        Assert.DoesNotContain("public static partial class", csResult);
+    }
+
+    [Fact]
+    public void EmitStruct_OneSurvivorAmongSkipped_KeepsClassShell()
+    {
+        var (csWriter, swiftWriter, csOutput, swiftOutput, moduleDecl, structDecl, conductor, env)
+            = CreateStructSetup(frozen: true, requiresMemoryManagement: false);
+
+        // One member is gated out (mutating), one survives — the struct-extension shell
+        // must be KEPT, proving suppression rolls back only when EVERY member is unemittable.
+        var skipped = CreateMethodDecl("rotate", "TestModule", structDecl);
+        skipped.IsMutating = true;
+        structDecl.Methods.Add(skipped);
+        structDecl.Methods.Add(CreateMethodDecl("doMath", "TestModule", structDecl));
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, Logger);
+
+        var csResult = csOutput.ToString();
+        Assert.Contains("OrigPointTestModuleExtensions", csResult);
+        Assert.Contains("DoMath(", csResult);
+        Assert.DoesNotContain("Rotate(", csResult);
     }
 
     [Fact]

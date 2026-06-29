@@ -105,11 +105,11 @@ public class CustomGlobalActorTests : TestBase
         AssertEqual("hello", instance.Label.ToString(), "label was not preserved across the actor boundary");
         AssertEqual(7, instance.Count, "count was not preserved across the actor boundary");
 
-        // The describe() method is itself actor-isolated → exposed as DescribeAsync.
+        // The describe() method is itself actor-isolated → exposed as GetDescribeAsync.
         // Calling it confirms the returned instance is a fully wired ISwiftObject and
         // its method dispatch lands on the actor's executor without crashing.
-        var description = await WithTimeout(instance.DescribeAsync(), DefaultAsyncTimeout);
-        AssertEqual("hello:7", description, "DescribeAsync should observe the constructor's stored state");
+        var description = await WithTimeout(instance.GetDescribeAsync(), DefaultAsyncTimeout);
+        AssertEqual("hello:7", description, "GetDescribeAsync should observe the constructor's stored state");
 
         instance.Dispose();
     }
@@ -304,13 +304,13 @@ public class CustomGlobalActorTests : TestBase
 
         // describe() — instance method on a custom-global-actor-isolated class. The
         // actor isolation forces async wrapping, so the method emits as
-        // DescribeAsync(CancellationToken). What this guards: the method must exist
+        // GetDescribeAsync(CancellationToken). What this guards: the method must exist
         // regardless of how the actor isolation is surfaced. If the marker conformance
         // metadata regressed, MemberEmissionValidator would drop the method along with
         // the constructor and only the type shell would remain.
-        var describeAsync = type.GetMethod("DescribeAsync", BindingFlags.Public | BindingFlags.Instance);
+        var describeAsync = type.GetMethod("GetDescribeAsync", BindingFlags.Public | BindingFlags.Instance);
         AssertNotNull(describeAsync,
-            "GlobalActorIsolatedClass.DescribeAsync must survive emission — its disappearance " +
+            "GlobalActorIsolatedClass.GetDescribeAsync must survive emission — its disappearance " +
             "indicates the marker-protocol conformance metadata is no longer resolving and the " +
             "method is being tombstoned by a CanEmitMethod failure.");
 

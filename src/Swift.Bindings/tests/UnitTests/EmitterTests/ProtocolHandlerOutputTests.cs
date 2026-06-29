@@ -185,6 +185,79 @@ public class ProtocolHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_ProtocolWithMutatingAsyncNounGetter_KeepsBareAsyncName_NonMutatingGetsGetPrefix()
+    {
+        // A mutating async noun-only zero-arg getter (the AsyncIteratorProtocol.next() shape)
+        // must NOT receive the `Get` prefix: the interface declares it bare (e.g. TokenAsync) so
+        // its name agrees with the concrete conformer's (which derives the name through the same
+        // mutating-aware rule). A NON-mutating sibling of identical shape still gets the prefix
+        // (GetWeatherAsync) — proving the rule is mutating-aware, not an async blanket. Without
+        // threading IsMutating into the protocol-emission name path, the interface would emit
+        // GetTokenAsync while the conformer emits TokenAsync, diverging into a CS0535.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var mutatingGetter = new MethodDecl
+        {
+            Name = "token",
+            MangledName = "$s10TestModule6TickerP5tokenSiyYaF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl> { CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl) },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = true,
+            IsMutating = true,
+            IsSynthesizedAccessor = false
+        };
+
+        var nonMutatingGetter = new MethodDecl
+        {
+            Name = "weather",
+            MangledName = "$s10TestModule6TickerP7weatherSiyYaF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl> { CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl) },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = true,
+            IsMutating = false,
+            IsSynthesizedAccessor = false
+        };
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Ticker",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Ticker"),
+            MangledName = "$s10TestModule6TickerP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec> { new("Swift.AnyObject") },
+            IsClassBound = true,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl> { mutatingGetter, nonMutatingGetter },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Mutating async noun-getter stays bare — interface name agrees with the conformer.
+        Assert.Contains("TokenAsync(", csOutput);
+        Assert.DoesNotContain("GetTokenAsync", csOutput);
+        // Non-mutating async noun-getter still gets the Get prefix (the consistency rule).
+        Assert.Contains("GetWeatherAsync(", csOutput);
+    }
+
+    [Fact]
     public void Emit_ProtocolWithDuplicateMethodSignatures_EmitsSingleMethodDeclaration()
     {
         var typeDatabase = CreateTypeDatabase();

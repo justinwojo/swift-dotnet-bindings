@@ -24,6 +24,9 @@ public record struct GenericParameterCSName(string TypeParameter);
 /// <param name="IsSelfReturning">Whether the method returns Self (builder/fluent pattern).</param>
 /// <param name="ParentTypeName">The enclosing type name (drives the CS0542 parent-name collision rename).</param>
 /// <param name="ParameterCount">The public-signature parameter count (drives the "Get" prefix gate).</param>
+/// <param name="IsMutating">Whether the method is <c>mutating</c> — a mutating method advances/changes
+/// state and is therefore not a getter, so it is excluded from the noun→"Get" prefix (e.g. an
+/// <c>AsyncIteratorProtocol.next()</c> stays <c>NextAsync</c>, not <c>GetNextAsync</c>).</param>
 public readonly record struct PublicMethodNameContext(
     string MethodName,
     bool IsAsync,
@@ -31,7 +34,8 @@ public readonly record struct PublicMethodNameContext(
     IReadOnlySet<string>? PropertyNames,
     bool IsSelfReturning,
     string? ParentTypeName,
-    int ParameterCount)
+    int ParameterCount,
+    bool IsMutating = false)
 {
     /// <summary>
     /// Builds the context from a <see cref="MethodDecl"/> the same way the authoritative emitted name
@@ -47,7 +51,8 @@ public readonly record struct PublicMethodNameContext(
         PropertyNames: siblingPropertyNames,
         IsSelfReturning: MethodEnvironment.IsSelfReturningMethod(decl),
         ParentTypeName: (decl.ParentDecl as TypeDecl)?.Name,
-        ParameterCount: decl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+        ParameterCount: decl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple),
+        IsMutating: decl.IsMutating);
 }
 
 /// <summary>
@@ -1184,9 +1189,24 @@ public static class NameProvider
                     // same as their enclosing type"), e.g. Swift `Card.Wallet` renamed to
                     // `WalletType` while it already contains a nested enum `WalletType`.
                     var ownChildNames = new HashSet<string>(nestedType.Types.Select(t => t.Name));
-                    var newLeafName = csPropertyName + "Type";
-                    while (takenNames.Contains(newLeafName) || ownChildNames.Contains(newLeafName))
-                        newLeafName += "Type";
+                    // Disambiguate the nested type from the colliding property with a single
+                    // "Type" suffix (Wallet → WalletType). When that is itself taken — or when the
+                    // property name already ends in "Type", so the suffix would immediately stutter
+                    // (AlertType → AlertTypeType) — fall back to a numeric suffix instead of stacking
+                    // more "Type"s, which produced machine-vomit names like "WalletTypeType" /
+                    // "OfferTypeTypeType". The numeric form matches the generator's other dedup paths.
+                    var baseLeafName = csPropertyName.EndsWith("Type", StringComparison.Ordinal)
+                        ? csPropertyName
+                        : csPropertyName + "Type";
+                    var newLeafName = baseLeafName;
+                    for (int dedupSuffix = 2;
+                         newLeafName == csPropertyName
+                             || takenNames.Contains(newLeafName)
+                             || ownChildNames.Contains(newLeafName);
+                         dedupSuffix++)
+                    {
+                        newLeafName = $"{baseLeafName}{dedupSuffix}";
+                    }
 
                     var oldCSharpName = nestedRecord.CSharpTypeName.Name;
                     var @namespace = nestedRecord.CSharpTypeName.Namespace;
@@ -1482,8 +1502,8 @@ public static class NameProvider
     /// <param name="hasReturnValue">Whether the method has a non-void return value.</param>
     /// <param name="propertyNames">Set of property names in the same type (already in PascalCase).</param>
     /// <returns>The public-facing method name.</returns>
-    public static string GetPublicMethodName(string methodName, bool isAsync, bool hasReturnValue = false, IReadOnlySet<string>? propertyNames = null, bool isSelfReturning = false, string? parentTypeName = null, int parameterCount = 0)
-        => GetPublicMethodName(new PublicMethodNameContext(methodName, isAsync, hasReturnValue, propertyNames, isSelfReturning, parentTypeName, parameterCount));
+    public static string GetPublicMethodName(string methodName, bool isAsync, bool hasReturnValue = false, IReadOnlySet<string>? propertyNames = null, bool isSelfReturning = false, string? parentTypeName = null, int parameterCount = 0, bool isMutating = false)
+        => GetPublicMethodName(new PublicMethodNameContext(methodName, isAsync, hasReturnValue, propertyNames, isSelfReturning, parentTypeName, parameterCount, isMutating));
 
     /// <summary>
     /// Context-object overload of <see cref="GetPublicMethodName(string, bool, bool, IReadOnlySet{string}, bool, string, int)"/>.
@@ -1501,10 +1521,17 @@ public static class NameProvider
         // 2. PascalCase
         var name = ToPascalCase(strippedName);
 
-        // 3. Add "Get" prefix for noun-only names with a return value
-        //    Do this BEFORE property collision check so "Data" → "GetData" no longer collides
+        // 3. Add "Get" prefix for noun-only names with a return value — for sync AND async, so a
+        //    zero-arg async getter reads `GetWeatherAsync` rather than `WeatherAsync`, matching the
+        //    sync `count() -> Int` → GetCount rule. Doing this BEFORE the property-collision check
+        //    also resolves the async-getter-vs-property case cleanly (`status() async` colliding
+        //    with a `status` property becomes GetStatusAsync, not StatusMethodAsync).
         //    Skip for self-returning methods (fluent/builder pattern: EqualTo(), Accessibility(), etc.)
-        if (ctx.HasReturnValue && !StartsWithVerb(name) && !ctx.IsAsync && !ctx.IsSelfReturning && ctx.ParameterCount == 0)
+        //    and for any method that takes arguments (the Get prefix reads as a getter, not a call).
+        //    Skip mutating methods too: they advance/change state and are not getters, so a mutating
+        //    `next() async -> Element?` (AsyncIteratorProtocol) stays NextAsync, not GetNextAsync —
+        //    the async-sequence bridge dispatches the iterator's advance through that fixed name.
+        if (ctx.HasReturnValue && !StartsWithVerb(name) && !ctx.IsSelfReturning && ctx.ParameterCount == 0 && !ctx.IsMutating)
             name = $"Get{name}";
 
         // 4. Property collision resolution (only if still colliding after verb prefix)

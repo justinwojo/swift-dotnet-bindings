@@ -582,7 +582,8 @@ public partial class ProtocolProxyEmitter
             ProtocolMethodDisambiguator.EffectiveNameInput(method, protocolDecl, _typeDatabase), method.IsAsync, hasReturnValue: false,
             propertyNames: receiverPropertyNames,
             isSelfReturning: false,
-            parameterCount: 1);
+            parameterCount: 1,
+            isMutating: method.IsMutating);
 
         writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         writer.WriteLine($"private static void {receiverName}(IntPtr vtHandle, IntPtr selfContainer, IntPtr rawArg0_fn, IntPtr rawArg0_ctx)");
@@ -1478,7 +1479,8 @@ public partial class ProtocolProxyEmitter
         return NameProvider.GetPublicMethodName(ProtocolMethodDisambiguator.EffectiveNameInput(method, proto, _typeDatabase), method.IsAsync, hasReturn,
             propertyNames: receiverPropertyNames,
             isSelfReturning: isSelfReturning,
-            parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+            parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple),
+            isMutating: method.IsMutating);
     }
 
     /// <summary>

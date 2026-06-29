@@ -50,10 +50,10 @@ public class CascadeRegistryFilteringTests : TestBase
         try
         {
             await WithTimeout(
-                TestLibFunctions.PlainThrowsAsyncSpiCascadeFallthroughAsync(),
+                TestLibFunctions.GetPlainThrowsAsyncSpiCascadeFallthroughAsync(),
                 DefaultAsyncTimeout);
             throw new AssertionException(
-                "PlainThrowsAsyncSpiCascadeFallthroughAsync should have thrown");
+                "GetPlainThrowsAsyncSpiCascadeFallthroughAsync should have thrown");
         }
         catch (SwiftException ex) when (ex.GetType() == typeof(SwiftException))
         {
@@ -80,10 +80,10 @@ public class CascadeRegistryFilteringTests : TestBase
         try
         {
             await WithTimeout(
-                TestLibFunctions.PlainThrowsAsyncInlinableInternalCascadeFallthroughAsync(),
+                TestLibFunctions.GetPlainThrowsAsyncInlinableInternalCascadeFallthroughAsync(),
                 DefaultAsyncTimeout);
             throw new AssertionException(
-                "PlainThrowsAsyncInlinableInternalCascadeFallthroughAsync should have thrown");
+                "GetPlainThrowsAsyncInlinableInternalCascadeFallthroughAsync should have thrown");
         }
         catch (SwiftException ex) when (ex.GetType() == typeof(SwiftException))
         {

@@ -638,7 +638,8 @@ namespace BindingsGeneration
                 props,
                 isSelfReturning: isSelfReturning,
                 parentTypeName: classDecl.Name,
-                parameterCount: parameterCount);
+                parameterCount: parameterCount,
+                isMutating: method.IsMutating);
         }
 
         /// <summary>

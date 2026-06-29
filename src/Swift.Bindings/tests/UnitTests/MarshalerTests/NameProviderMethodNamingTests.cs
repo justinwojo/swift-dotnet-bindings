@@ -11,27 +11,29 @@ namespace BindingsGeneration.Tests;
 /// </summary>
 public class NameProviderMethodNamingTests
 {
-    #region Noun-only + sync → Get prefix (async skips Get prefix)
+    #region Noun-only → Get prefix (sync and async, consistent shape)
 
     [Fact]
-    public void NounOnly_Async_WithReturn_SkipsGetPrefix()
+    public void NounOnly_Async_WithReturn_GetsGetPrefix()
     {
+        // Async noun-only zero-arg getters get the same Get prefix as sync (GetDataAsync),
+        // for a consistent Get*Async shape rather than a bare WeatherAsync/DataAsync.
         var result = NameProvider.GetPublicMethodName("data", isAsync: true, hasReturnValue: true);
-        Assert.Equal("DataAsync", result);
+        Assert.Equal("GetDataAsync", result);
     }
 
     [Fact]
-    public void NounOnly_Image_Async_WithReturn_SkipsGetPrefix()
+    public void NounOnly_Image_Async_WithReturn_GetsGetPrefix()
     {
         var result = NameProvider.GetPublicMethodName("image", isAsync: true, hasReturnValue: true);
-        Assert.Equal("ImageAsync", result);
+        Assert.Equal("GetImageAsync", result);
     }
 
     [Fact]
-    public void NounOnly_Response_Async_WithReturn_SkipsGetPrefix()
+    public void NounOnly_Response_Async_WithReturn_GetsGetPrefix()
     {
         var result = NameProvider.GetPublicMethodName("response", isAsync: true, hasReturnValue: true);
-        Assert.Equal("ResponseAsync", result);
+        Assert.Equal("GetResponseAsync", result);
     }
 
     [Fact]
@@ -53,17 +55,17 @@ public class NameProviderMethodNamingTests
     }
 
     [Fact]
-    public void AsyncPrefix_PascalCase_Stripped_NoGetPrefix()
+    public void AsyncPrefix_PascalCase_Stripped_GetsGetPrefix()
     {
         var result = NameProvider.GetPublicMethodName("AsyncStaticString", isAsync: true, hasReturnValue: true);
-        Assert.Equal("StaticStringAsync", result);
+        Assert.Equal("GetStaticStringAsync", result);
     }
 
     [Fact]
-    public void AsyncPrefix_WithReturnValue_NounSkipsGetPrefix()
+    public void AsyncPrefix_WithReturnValue_NounGetsGetPrefix()
     {
         var result = NameProvider.GetPublicMethodName("asyncData", isAsync: true, hasReturnValue: true);
-        Assert.Equal("DataAsync", result);
+        Assert.Equal("GetDataAsync", result);
     }
 
     [Fact]
@@ -76,12 +78,12 @@ public class NameProviderMethodNamingTests
     }
 
     [Fact]
-    public void AsyncPrefix_StillStripped_WhenAsync_NoGetPrefix()
+    public void AsyncPrefix_StillStripped_WhenAsync_GetsGetPrefix()
     {
         // Async methods should still have the prefix stripped per .NET convention.
-        // Async methods skip the "Get" prefix — noun-only names are fine with Async suffix.
+        // After stripping, a noun-only zero-arg getter gets the Get prefix just like sync.
         var result = NameProvider.GetPublicMethodName("asyncInstance", isAsync: true, hasReturnValue: true);
-        Assert.Equal("InstanceAsync", result);
+        Assert.Equal("GetInstanceAsync", result);
     }
 
     #endregion
@@ -191,6 +193,45 @@ public class NameProviderMethodNamingTests
         Assert.Equal("GetDataMethod", result);
     }
 
+    [Fact]
+    public void PropertyCollision_Async_GetsGetPrefix_NotMethodSuffix()
+    {
+        // A zero-arg async getter ("status() async") colliding with a "status" property
+        // resolves via the Get prefix (GetStatusAsync), NOT the StatusMethodAsync infix —
+        // the Get prefix is applied before the property-collision check.
+        var props = new HashSet<string> { "Status" };
+        var result = NameProvider.GetPublicMethodName("status", isAsync: true, hasReturnValue: true, props);
+        Assert.Equal("GetStatusAsync", result);
+    }
+
+    #endregion
+
+    #region Async getter Get*Async shape (consistency with sync getters)
+
+    [Fact]
+    public void Weather_ZeroArg_Async_GetsGetPrefix()
+    {
+        // The headline case: a zero-arg async getter reads GetWeatherAsync, not WeatherAsync.
+        var result = NameProvider.GetPublicMethodName("weather", isAsync: true, hasReturnValue: true, parameterCount: 0);
+        Assert.Equal("GetWeatherAsync", result);
+    }
+
+    [Fact]
+    public void Weather_WithParam_Async_SkipsGetPrefix()
+    {
+        // A parameterized async call is not a getter — no Get prefix.
+        var result = NameProvider.GetPublicMethodName("weather", isAsync: true, hasReturnValue: true, parameterCount: 1);
+        Assert.Equal("WeatherAsync", result);
+    }
+
+    [Fact]
+    public void Async_VerbName_Unchanged_NoDoubleGet()
+    {
+        // An async verb name keeps its verb and is not double-prefixed.
+        var result = NameProvider.GetPublicMethodName("loadImage", isAsync: true, hasReturnValue: true, parameterCount: 0);
+        Assert.Equal("LoadImageAsync", result);
+    }
+
     #endregion
 
     #region hasReturnValue = false by default (backward compatibility)
@@ -270,6 +311,35 @@ public class NameProviderMethodNamingTests
         // "offset(dx, dy)" with 2 params → "Offset", not "GetOffset"
         var result = NameProvider.GetPublicMethodName("offset", isAsync: false, hasReturnValue: true, parameterCount: 2);
         Assert.Equal("Offset", result);
+    }
+
+    #endregion
+
+    #region Mutating methods are not getters (skip the Get prefix)
+
+    [Fact]
+    public void Mutating_Async_NounGetter_StaysBareAsync_NoGetPrefix()
+    {
+        // A mutating method advances/changes state — it is not a getter. AsyncIteratorProtocol.next()
+        // must stay NextAsync (the async-sequence bridge dispatches the iterator advance via that fixed
+        // name), not GetNextAsync.
+        var result = NameProvider.GetPublicMethodName("next", isAsync: true, hasReturnValue: true, parameterCount: 0, isMutating: true);
+        Assert.Equal("NextAsync", result);
+    }
+
+    [Fact]
+    public void Mutating_Sync_NounGetter_SkipsGetPrefix()
+    {
+        var result = NameProvider.GetPublicMethodName("next", isAsync: false, hasReturnValue: true, parameterCount: 0, isMutating: true);
+        Assert.Equal("Next", result);
+    }
+
+    [Fact]
+    public void NonMutating_Async_NounGetter_StillGetsGetPrefix()
+    {
+        // Control: a non-mutating async getter still gets the Get prefix.
+        var result = NameProvider.GetPublicMethodName("weather", isAsync: true, hasReturnValue: true, parameterCount: 0, isMutating: false);
+        Assert.Equal("GetWeatherAsync", result);
     }
 
     #endregion

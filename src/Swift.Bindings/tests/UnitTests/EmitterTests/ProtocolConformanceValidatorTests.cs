@@ -414,6 +414,105 @@ public class ProtocolConformanceValidatorTests
 
     #endregion
 
+    #region Mutating-aware async noun-getter naming parity (interface ↔ witness)
+
+    [Fact]
+    public void CanFullyImplementProtocol_MutatingAsyncNounGetter_MutatingWitness_ReturnsTrue()
+    {
+        // A mutating async noun-only zero-arg getter (the AsyncIteratorProtocol.next() shape)
+        // is emitted WITHOUT the `Get` prefix on the interface. When the concrete witness is ALSO
+        // mutating, it derives the SAME bare name through the same mutating-aware rule, so the
+        // emitted names agree and the conformance is kept. This is the common case the validator's
+        // IsMutating threading exists to keep green: predict the witness name with the witness's
+        // real IsMutating, not a stale default.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = CreateProtocolWithMutatingAsyncGetter("Ticker", "token", moduleDecl);
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var concreteType = CreateStructDecl("LiveTicker", moduleDecl);
+        concreteType.Methods.Add(CreateMutatingAsyncGetter("token", concreteType, moduleDecl, isMutating: true));
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+
+        // interface `TokenAsync` == witness `TokenAsync` → parity holds → conformance kept.
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void CanFullyImplementProtocol_MutatingAsyncNounGetter_NonMutatingWitness_GracefullyDropsConformance()
+    {
+        // Swift legally lets a NON-mutating witness satisfy a `mutating` requirement (always true
+        // for a class witness; legal-but-unusual for a struct). The requirement projects to the bare
+        // `TokenAsync` (mutating-excluded from the Get prefix) while the non-mutating witness projects
+        // to `GetTokenAsync` — the names diverge. The validator predicts this divergence (using each
+        // side's real IsMutating) and drops the conformance, so the generated C# still COMPILES rather
+        // than emitting a CS0535 the consumer can't build. Keeping the conformance here would require
+        // conformance-aware naming (the witness adopting the requirement's name), a naming-SSOT change
+        // tracked separately. This test pins the graceful-degradation fail-safe.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = CreateProtocolWithMutatingAsyncGetter("Ticker", "token", moduleDecl);
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var concreteType = CreateStructDecl("SnapshotTicker", moduleDecl);
+        concreteType.Methods.Add(CreateMutatingAsyncGetter("token", concreteType, moduleDecl, isMutating: false));
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+
+        // interface `TokenAsync` != witness `GetTokenAsync` → parity fails → conformance dropped (no CS0535).
+        Assert.False(result);
+    }
+
+    private static ProtocolDecl CreateProtocolWithMutatingAsyncGetter(string protocolName, string methodName, ModuleDecl moduleDecl)
+    {
+        return new ProtocolDecl
+        {
+            Name = protocolName,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{protocolName}"),
+            MangledName = $"$s10TestModule{protocolName.Length}{protocolName}P",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl> { CreateMutatingAsyncGetter(methodName, null, moduleDecl, isMutating: true) },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+    }
+
+    private static MethodDecl CreateMutatingAsyncGetter(string name, TypeDecl? parent, ModuleDecl moduleDecl, bool isMutating)
+    {
+        // Noun-only, zero-arg, value-returning (Swift.Int), async. The single CSSignature element is
+        // the return type; the mutating-aware Get-prefix gate keys off IsMutating.
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule{name.Length}{name}SiyYaF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl> { CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl) },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parent,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = true,
+            IsMutating = isMutating,
+            IsSynthesizedAccessor = false
+        };
+    }
+
+    #endregion
+
     #region Bug #1 Regression — Subscript with Bound Generic Return
 
     [Fact]
