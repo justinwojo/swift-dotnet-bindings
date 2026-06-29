@@ -141,6 +141,15 @@ public static class ObjCPipeline
             return new ObjCPipelineResult(1, null, ex.Message);
         }
 
+        // 4g. Free-symbol existence guard: drop free C functions and extern globals the headers
+        // declare but whose underscore-prefixed C symbol is defined in NO probed binary. These are
+        // `static inline`/macro helpers and never-exported globals that look bindable in the header
+        // but produce an undefined symbol at link (the force-referencing registrar then fails the
+        // whole app). The parser already skips structurally-inline functions; this catches symbols
+        // that look external in the AST but aren't actually exported (e.g. a FOUNDATION_EXPORT global
+        // the binary never defines). Fail open unless the probe positively gathered defined symbols.
+        module = FilterToNativeSymbolBackedFreeSymbols(module, symbolScan, logger, diagnostics);
+
         // 5. Emit bindings
         var namespaceResolver = new NamespacePatternResolver(namespacePattern, resolution.ModuleName);
         var resolvedNamespace = namespaceResolver.ResolveNamespace(resolution.ModuleName);
@@ -371,6 +380,84 @@ public static class ObjCPipeline
             string.Join(", ", droppedClassNames.OrderBy(n => n, StringComparer.Ordinal)));
 
         return module with { Classes = keptClasses, Categories = keptCategories };
+    }
+
+    /// <summary>
+    /// Drops free C functions and <c>extern</c> globals whose underscore-prefixed C symbol is
+    /// defined in none of the probed binaries — header declarations with no exported symbol
+    /// (<c>static inline</c>/<c>NS_INLINE</c> helpers, never-exported <c>FOUNDATION_EXPORT</c>
+    /// globals). A generated P/Invoke or <c>[Field]</c> for these is an undefined symbol at link.
+    /// Mach-O C symbols carry a leading underscore, so the test is <c>_&lt;name&gt;</c> ∈ defined set.
+    /// Fail-open discipline matches the class guard: act only when the probe positively
+    /// <see cref="NativeSymbolProbeOutcome.Gathered"/> symbols (an empty/failed/absent scan keeps
+    /// everything — absence of evidence is not evidence of absence). Only <c>extern</c> constants
+    /// are considered: non-extern constants are emitted as compile-time literals, not symbol-backed
+    /// <c>[Field]</c>s, so they need no native symbol.
+    /// </summary>
+    internal static ObjCModule FilterToNativeSymbolBackedFreeSymbols(
+        ObjCModule module,
+        NativeSymbolProbe.ObjCClassSymbolScan scan,
+        ILogger logger,
+        ObjCBindingDiagnostics diagnostics)
+    {
+        // The class guard already converted an AllFailed outcome into a hard pipeline error, so by
+        // the time this runs the outcome is Gathered, NothingToProbe, or AllFailed-but-class-set-empty.
+        // Guard explicitly anyway: only a positive Gathered scan with at least one defined symbol is
+        // proof enough to drop anything.
+        if (scan.Outcome != NativeSymbolProbeOutcome.Gathered || scan.DefinedSymbols.Count == 0)
+        {
+            logger.LogDebug(
+                "Free-symbol guard: no positively-gathered defined symbols — keeping all functions " +
+                "and globals (fail-open).");
+            return module;
+        }
+
+        bool IsExported(string name) => scan.DefinedSymbols.Contains("_" + name);
+
+        var keptFunctions = new List<ObjCFunctionDecl>(module.Functions.Count);
+        var droppedNames = new List<string>();
+        foreach (var fn in module.Functions)
+        {
+            if (IsExported(fn.Name))
+            {
+                keptFunctions.Add(fn);
+            }
+            else
+            {
+                droppedNames.Add(fn.Name);
+                diagnostics.RecordSkip("function", fn.Name, ObjCSkipReason.MissingNativeSymbol,
+                    $"no _{fn.Name} symbol defined in any framework slice or linked dependency " +
+                    "(static inline / unexported helper)");
+            }
+        }
+
+        var keptConstants = new List<ObjCConstantDecl>(module.Constants.Count);
+        foreach (var constant in module.Constants)
+        {
+            if (!constant.IsExtern || IsExported(constant.Name))
+            {
+                keptConstants.Add(constant);
+            }
+            else
+            {
+                droppedNames.Add(constant.Name);
+                diagnostics.RecordSkip("constant", constant.Name, ObjCSkipReason.MissingNativeSymbol,
+                    $"no _{constant.Name} symbol defined in any framework slice or linked dependency " +
+                    "(unexported global)");
+            }
+        }
+
+        if (droppedNames.Count == 0)
+            return module;
+
+        logger.LogWarning(
+            "SWIFTBIND055: dropped {Count} free symbol(s) with no native C symbol: {Names}. These are " +
+            "declared in the framework headers but exported by no shipped slice or linked dependency " +
+            "(static inline helpers or never-exported globals); binding them would fail to link.",
+            droppedNames.Count,
+            string.Join(", ", droppedNames.OrderBy(n => n, StringComparer.Ordinal)));
+
+        return module with { Functions = keptFunctions, Constants = keptConstants };
     }
 
     /// <summary>

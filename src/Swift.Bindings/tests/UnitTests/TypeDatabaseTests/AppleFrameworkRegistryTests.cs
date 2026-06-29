@@ -3,6 +3,7 @@
 
 using System.Collections.Generic;
 using System.Linq;
+using BindingsGeneration.ObjC;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -575,10 +576,16 @@ public class AppleFrameworkRegistryTests
     [Fact]
     public void PlatformUnavailableModules_AreKnownFrameworks()
     {
-        // Every module the JSON marks platformUnavailable must be a bridgeable Apple framework
-        // (in the AutoBridge or OptionalFallback set), not a typo / stale module / framework we
-        // don't actually bridge. Derived from the JSON so a new annotation is covered
-        // automatically rather than silently escaping this invariant against a hand-kept list.
+        // Every module the JSON marks platformUnavailable must be a framework the generator
+        // actually handles, not a typo / stale module. A framework is "handled" either by being
+        // type-bridged (AutoBridge or OptionalFallback) OR by being referenced in the
+        // ObjCUsingsEmitter using-headers, where its `using` resolves platform types the binding
+        // emits by name (e.g. OpenGLES, whose EAGLContext is emitted by name and resolved against
+        // the .NET SDK's OpenGLES binding rather than type-bridged by us). The availability
+        // annotation is load-bearing for the second case too — it gates the `using` off platforms
+        // where the framework is absent (OpenGLES on macOS). Derived from the JSON so a new
+        // annotation is covered automatically rather than silently escaping this invariant against
+        // a hand-kept list; a genuine typo is in NEITHER set and still fails.
         var annotations = ReadPlatformUnavailableAnnotations();
         Assert.NotEmpty(annotations);
 
@@ -586,10 +593,12 @@ public class AppleFrameworkRegistryTests
         {
             Assert.True(
                 AppleFrameworkRegistry.IsAutoBridgeModule(module) ||
-                AppleFrameworkRegistry.IsOptionalFallbackModule(module),
+                AppleFrameworkRegistry.IsOptionalFallbackModule(module) ||
+                ObjCUsingsEmitter.ReferencedAppleFrameworkModules.Contains(module),
                 $"platformUnavailable module '{module}' should be in the AutoBridge or " +
-                $"OptionalFallback set — annotating availability for a framework we don't bridge " +
-                $"(or a typo'd module name) is almost certainly a mistake.");
+                $"OptionalFallback set, or referenced by ObjCUsingsEmitter — annotating " +
+                $"availability for a framework we don't handle (or a typo'd module name) is " +
+                $"almost certainly a mistake.");
         }
     }
 

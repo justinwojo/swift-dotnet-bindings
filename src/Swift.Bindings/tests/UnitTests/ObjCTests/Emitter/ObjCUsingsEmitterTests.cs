@@ -151,6 +151,36 @@ public class ObjCUsingsEmitterTests
         Assert.Contains("using WebKit;", output);
     }
 
+    [Fact]
+    public void ApiDefinition_macOS_OmitsOpenGLES()
+    {
+        // OpenGLES.framework does not ship on macOS (macOS uses the deprecated desktop OpenGL),
+        // so the kitchen-sink `using OpenGLES;` must be dropped there or it CS0246s on every
+        // generated macOS ObjC binding — the same shape as the UIKit/WebKit cross-TFM bug.
+        var output = EmitApiDefinition(TrivialClassModule(), platformInfo: macOS);
+        Assert.DoesNotContain("using OpenGLES;", output);
+    }
+
+    [Theory]
+    [InlineData("iOS")]
+    [InlineData("tvOS")]
+    [InlineData("MacCatalyst")]
+    public void ApiDefinition_OpenGLESPlatforms_IncludeOpenGLES(string platformName)
+    {
+        // OpenGLES IS available on iOS, tvOS, and Mac Catalyst — needed so EAGLContext and the
+        // other GLKit/OpenGLES types referenced by bindings like MapLibre resolve (CS0246 absent
+        // this using).
+        var pi = platformName switch
+        {
+            "iOS" => iOS,
+            "tvOS" => tvOS,
+            "MacCatalyst" => MacCatalyst,
+            _ => throw new System.ArgumentException(platformName),
+        };
+        var output = EmitApiDefinition(TrivialClassModule(), platformInfo: pi);
+        Assert.Contains("using OpenGLES;", output);
+    }
+
     // --- StructsAndEnums.cs ---
 
     [Fact]

@@ -65,7 +65,7 @@ public class ObjCModuleBuilderTests
             .Build();
 
         var result = EmitApiDefinition(module);
-        Assert.Contains("partial interface IMyDelegate", result);
+        Assert.Contains("partial interface MyDelegate", result);
         Assert.Contains("[Export(\"didFinish\")]", result);
     }
 

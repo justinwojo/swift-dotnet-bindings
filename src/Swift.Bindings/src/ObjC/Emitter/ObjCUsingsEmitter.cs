@@ -49,6 +49,7 @@ internal static class ObjCUsingsEmitter
         "MapKit",
         "Metal",
         "ObjCRuntime",
+        "OpenGLES",
         "CoreGraphics",
         "UIKit",
         "UserNotifications",
@@ -80,6 +81,22 @@ internal static class ObjCUsingsEmitter
         "CoreMedia",
     ];
 
+    /// <summary>
+    /// The distinct Apple-framework module names referenced by the <c>using</c> headers this
+    /// emitter writes (excluding the non-Apple <see cref="AlwaysAvailable"/> namespaces). A
+    /// framework is "handled" by the generator either by being type-bridged (AutoBridge /
+    /// OptionalFallback in apple-frameworks.json) OR by being referenced here so its <c>using</c>
+    /// resolves platform types the binding emits by name (e.g. <c>EAGLContext</c> from OpenGLES).
+    /// Both are legitimate reasons to carry a platform-availability annotation in the registry,
+    /// so this set is the second half of that "is this a framework we actually touch?" oracle.
+    /// </summary>
+    internal static IReadOnlySet<string> ReferencedAppleFrameworkModules { get; } =
+        ApiDefinitionUsings
+            .Concat(StructsAndEnumsUsings)
+            .Concat(BgenDelegatesUsings)
+            .Where(name => !AlwaysAvailable.Contains(name))
+            .ToHashSet(StringComparer.Ordinal);
+
     static ObjCUsingsEmitter()
     {
         // Defense in depth: assert at process startup that every Apple-framework name
@@ -87,11 +104,7 @@ internal static class ObjCUsingsEmitter
         // or a new iOS-only namespace added to the lists below would slip past the
         // IsModuleAvailableOnPlatform gate (which conservatively returns true for
         // unknown modules) and silently re-introduce the original cross-TFM CS0246.
-        var unknown = ApiDefinitionUsings
-            .Concat(StructsAndEnumsUsings)
-            .Concat(BgenDelegatesUsings)
-            .Where(name => !AlwaysAvailable.Contains(name))
-            .Distinct(StringComparer.Ordinal)
+        var unknown = ReferencedAppleFrameworkModules
             .Where(name => !AppleFrameworkRegistry.IsKnownModule(name))
             .ToArray();
         if (unknown.Length > 0)

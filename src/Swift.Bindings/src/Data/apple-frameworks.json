@@ -656,6 +656,10 @@
       "unsupported": true
     },
     {
+      "module": "OpenGLES",
+      "platformUnavailable": ["macOS"]
+    },
+    {
       "module": "PDFKit",
       "autoBridge": true,
       "optionalFallback": true,

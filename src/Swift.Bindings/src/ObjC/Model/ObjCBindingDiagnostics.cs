@@ -15,6 +15,7 @@ public enum ObjCSkipReason
     VariadicFunction,
     EmptyCategory,
     MissingNativeSymbol,
+    DuplicateSelector,
 }
 
 public sealed record ObjCSkippedSymbol(

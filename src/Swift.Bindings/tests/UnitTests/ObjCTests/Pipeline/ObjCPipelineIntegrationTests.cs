@@ -266,6 +266,129 @@ public class ObjCPipelineIntegrationTests
     }
 
     /// <summary>
+    /// B2 end-to-end: a framework whose own protocols cross-reference each other (a protocol
+    /// inheriting another own protocol, a class conforming to an own protocol, and a member
+    /// typed <c>id&lt;OwnProtocol&gt;</c>) must spell those references by position in
+    /// ApiDefinition.cs. DECLARATIONS and inheritance/conformance lists use the BARE name — bgen
+    /// synthesizes <c>IFoo</c> from the bare <c>[Protocol] interface Foo</c> and converts the bare
+    /// conformance to <c>: IFoo</c> in its output; a pre-prefixed declaration produced
+    /// <c>IIFoo</c>. MEMBER types use the INTERFACE <c>IFoo</c>, so bgen binds them to the protocol
+    /// interface — a bare member reference makes bgen pick the generated Model class and a
+    /// conforming subclass throws InvalidCastException at runtime. An empty <c>interface IFoo {}</c>
+    /// forward declaration is emitted per own protocol so the <c>IFoo</c> member references resolve
+    /// in the plain-csc api-definition contract compile (which has no bgen-generated <c>IFoo</c> in
+    /// scope). SDK protocols (NSCopying/NSCoding) keep their <c>I</c> prefix everywhere. This is the
+    /// cross-referenced-protocol shape that real frameworks (e.g. MapLibre's
+    /// <c>MLNFeature : MLNAnnotation</c>) exercise but synthetic single-protocol fixtures missed.
+    /// </summary>
+    [Fact]
+    public void Pipeline_XCFrameworkFixture_CrossReferencedOwnProtocols_PositionalProtocolSpelling()
+    {
+        if (!HasXcode())
+            return;
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"objc_b2_test_{Guid.NewGuid():N}");
+        try
+        {
+            var xcfwPath = Path.Combine(tempDir, "TestObjCLib.xcframework");
+            var sliceId = "ios-arm64_x86_64-simulator";
+            var fwName = "TestObjCLib";
+            var sliceDir = Path.Combine(xcfwPath, sliceId);
+            var fwDir = Path.Combine(sliceDir, $"{fwName}.framework");
+            var headersDir = Path.Combine(fwDir, "Headers");
+            var modulesDir = Path.Combine(fwDir, "Modules");
+
+            Directory.CreateDirectory(headersDir);
+            Directory.CreateDirectory(modulesDir);
+
+            File.WriteAllText(Path.Combine(xcfwPath, "Info.plist"), $"""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+                <plist version="1.0">
+                <dict>
+                    <key>AvailableLibraries</key>
+                    <array>
+                        <dict>
+                            <key>BinaryPath</key><string>{fwName}.framework/{fwName}</string>
+                            <key>LibraryIdentifier</key><string>{sliceId}</string>
+                            <key>LibraryPath</key><string>{fwName}.framework</string>
+                            <key>SupportedArchitectures</key><array><string>arm64</string><string>x86_64</string></array>
+                            <key>SupportedPlatform</key><string>ios</string>
+                            <key>SupportedPlatformVariant</key><string>simulator</string>
+                        </dict>
+                    </array>
+                    <key>CFBundlePackageType</key><string>XFWK</string>
+                    <key>XCFrameworkFormatVersion</key><string>1.0</string>
+                </dict>
+                </plist>
+                """);
+
+            File.WriteAllText(Path.Combine(modulesDir, "module.modulemap"),
+                $"framework module {fwName} {{\n  umbrella header \"{fwName}.h\"\n  export *\n  module * {{ export * }}\n}}\n");
+
+            // An own protocol inheriting another own protocol AND an SDK protocol; a class
+            // conforming to an own protocol AND an SDK protocol; and a member typed id<OwnProtocol>.
+            File.WriteAllText(Path.Combine(headersDir, $"{fwName}.h"), """
+                #import <Foundation/Foundation.h>
+
+                NS_ASSUME_NONNULL_BEGIN
+
+                @protocol MLNAnnotation <NSObject>
+                @property (nonatomic, readonly, copy) NSString *title;
+                @end
+
+                @protocol MLNFeature <MLNAnnotation, NSCopying>
+                @property (nonatomic, readonly) NSUInteger featureIdentifier;
+                @end
+
+                @interface MLNShape : NSObject <MLNFeature, NSCoding>
+                @property (nonatomic, readonly, nullable) id<MLNAnnotation> primaryFeature;
+                @end
+
+                NS_ASSUME_NONNULL_END
+                """);
+
+            File.WriteAllText(Path.Combine(sliceDir, $"{fwName}.framework/{fwName}"), "");
+
+            var outputDir = Path.Combine(tempDir, "output");
+            Directory.CreateDirectory(outputDir);
+
+            var resolution = XCFrameworkResolver.ResolveObjCFramework(
+                xcfwPath, XCFrameworkPlatformTarget.Simulator, Logger);
+            Assert.NotNull(resolution);
+
+            var result = ObjCPipeline.Run(
+                resolution!, xcfwPath, outputDir, XCFrameworkPlatformTarget.Simulator, Logger);
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.NotNull(result.ApiDefinitionPath);
+            var apiDef = File.ReadAllText(result.ApiDefinitionPath!);
+
+            // Empty forward declarations for each own protocol's interface.
+            Assert.Contains("interface IMLNAnnotation { }", apiDef);
+            Assert.Contains("interface IMLNFeature { }", apiDef);
+            // Own protocol inheriting another own protocol → bare (robust to whether the SDK
+            // NSCopying survives the resolvability filter, which would append ", INSCopying").
+            Assert.Contains("partial interface MLNFeature : MLNAnnotation", apiDef);
+            // Class conforming to an own protocol → bare (SDK NSCoding, if kept, appends ", INSCoding").
+            Assert.Contains("partial interface MLNShape : MLNFeature", apiDef);
+            // Member typed id<MLNAnnotation> → the own-protocol INTERFACE.
+            Assert.Contains("IMLNAnnotation PrimaryFeature", apiDef);
+            // Declarations stay bare — never pre-prefixed to the double-I shape.
+            Assert.DoesNotContain("partial interface IMLN", apiDef);
+            Assert.DoesNotContain("IIMLNFeature", apiDef);
+            Assert.DoesNotContain("IIMLNAnnotation", apiDef);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+        }
+    }
+
+    /// <summary>
     /// Parser-level test using CoreBluetooth SDK headers.
     /// Validates that the parser handles real Apple framework output correctly.
     /// </summary>

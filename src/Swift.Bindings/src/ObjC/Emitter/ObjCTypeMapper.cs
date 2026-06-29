@@ -20,7 +20,7 @@ public static class ObjCTypeMapper
                 + $"AppleFrameworkRegistry.ExpectedObjCTypeMappingsSchemaVersion ({AppleFrameworkRegistry.ExpectedObjCTypeMappingsSchemaVersion}).");
     }
 
-    public static string MapType(ObjCTypeRef typeRef, string? declaringClassName = null, HashSet<string>? genericTypeParams = null, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? delegateProtocolNames = null)
+    public static string MapType(ObjCTypeRef typeRef, string? declaringClassName = null, HashSet<string>? genericTypeParams = null, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? localProtocolNames = null)
     {
         // 0a. C function pointers and anonymous records → IntPtr
         if (typeRef.IsFunctionPointer || typeRef.IsAnonymousRecord)
@@ -30,13 +30,13 @@ public static class ObjCTypeMapper
         // Must be checked before primitive mapping, which would discard the array size.
         if (typeRef.FixedArraySize is > 0)
         {
-            var elementType = MapType(new ObjCTypeRef { Name = typeRef.Name, IsPointer = typeRef.IsPointer }, declaringClassName, genericTypeParams, typedefMap, delegateProtocolNames: delegateProtocolNames);
+            var elementType = MapType(new ObjCTypeRef { Name = typeRef.Name, IsPointer = typeRef.IsPointer }, declaringClassName, genericTypeParams, typedefMap, localProtocolNames: localProtocolNames);
             return $"{elementType}[{typeRef.FixedArraySize}]";
         }
 
         // 1. Block types
         if (typeRef.IsBlock)
-            return MapBlockType(typeRef, genericTypeParams, typedefMap, delegateProtocolNames);
+            return MapBlockType(typeRef, genericTypeParams, typedefMap, localProtocolNames);
 
         // 2. instancetype
         if (typeRef.Name == "instancetype")
@@ -52,20 +52,23 @@ public static class ObjCTypeMapper
                 .ToList();
             if (protocols.Count == 0)
                 return "NSObject";
-            // [Protocol, Model] delegate protocols are referenced by their bare interface name
-            // (Xamarin convention: bgen emits both IFoo and Foo, and [Model] consumers use Foo).
-            // Non-delegate protocols use the I-prefixed interface. Deciding bare-vs-I here at the
-            // source replaces the former whole-file IFoo→Foo regex post-process in
-            // ApiDefinitionEmitter, which blindly rewrote every \bIFoo\b in the generated text.
-            if (delegateProtocolNames != null && delegateProtocolNames.Contains(protocols[0]))
-                return MapProtocolName(protocols[0]);
+            // A protocol-typed member (parameter / return / property) binds to the protocol's
+            // INTERFACE, `IFoo` — for an own protocol AND an SDK one. bgen generates the consumer
+            // interface `IFoo` from the `[Protocol] interface Foo` declaration; binding a member to
+            // the bare name instead makes bgen pick the generated Model CLASS (`Foo : NSObject`), so
+            // a conforming subclass marshals through `GetNSObject<Foo>` and throws an
+            // InvalidCastException at runtime. The api-definition contract compile (a plain csc pass
+            // over ApiDefinition.cs, before bgen runs) has no bgen-generated `IFoo` in scope, so the
+            // emitter writes an empty `interface IFoo {}` forward declaration per own protocol to
+            // satisfy this reference (an SDK protocol's interface already ships in the platform
+            // assembly). localProtocolNames is consulted only by the direct-protocol-name arm below.
             return $"I{MapProtocolName(protocols[0])}";
         }
 
         // 3b. Typed generic collections: NSArray<T> → T[], NSDictionary<K,V> → NSDictionary<K,V>
         if (typeRef.GenericArgs.Count > 0)
         {
-            var mappedGeneric = MapGenericCollectionType(typeRef, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap, delegateProtocolNames);
+            var mappedGeneric = MapGenericCollectionType(typeRef, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap, localProtocolNames);
             if (mappedGeneric != null)
                 return mappedGeneric;
         }
@@ -117,14 +120,23 @@ public static class ObjCTypeMapper
                     IsBlock = resolved.IsBlock,
                 };
                 withPointer.BlockParams.AddRange(resolved.BlockParams);
-                return MapType(withPointer, declaringClassName, genericTypeParams, typedefMap: null, blockTypedefMap: blockTypedefMap, delegateProtocolNames: delegateProtocolNames);
+                return MapType(withPointer, declaringClassName, genericTypeParams, typedefMap: null, blockTypedefMap: blockTypedefMap, localProtocolNames: localProtocolNames);
             }
-            return MapType(resolved, declaringClassName, genericTypeParams, typedefMap: null, blockTypedefMap: blockTypedefMap, delegateProtocolNames: delegateProtocolNames);
+            return MapType(resolved, declaringClassName, genericTypeParams, typedefMap: null, blockTypedefMap: blockTypedefMap, localProtocolNames: localProtocolNames);
         }
 
         // 10. Block typedef name resolution (e.g., TypeNotificationBlock → Action<string, Type>)
         if (blockTypedefMap != null && blockTypedefMap.TryGetValue(typeRef.Name, out var blockResolved))
-            return MapBlockType(blockResolved, genericTypeParams, typedefMap, delegateProtocolNames);
+            return MapBlockType(blockResolved, genericTypeParams, typedefMap, localProtocolNames);
+
+        // 10b. A member typed directly by an own-protocol name (e.g. `MLNAnnotation *`, parsed
+        // without an `id<…>` qualification) binds to the protocol INTERFACE, exactly like the id<>
+        // form in step 3. Without this it falls through to the bare fallback below and bgen picks
+        // the generated Model CLASS → the same conforming-subclass InvalidCastException. Resolved at
+        // contract-compile time against the empty `interface IFoo {}` forward declaration the
+        // emitter writes for each own protocol.
+        if (localProtocolNames != null && localProtocolNames.Contains(typeRef.Name))
+            return $"I{MapProtocolName(typeRef.Name)}";
 
         // 11. ObjC-to-.NET naming convention fallback (NS-prefix only)
         return ApplyDotNetAcronymConvention(typeRef.Name);
@@ -463,13 +475,13 @@ public static class ObjCTypeMapper
         return MapType(pointee, typedefMap: typedefMap);
     }
 
-    static string MapBlockType(ObjCTypeRef typeRef, HashSet<string>? genericTypeParams = null, Dictionary<string, ObjCTypeRef>? typedefMap = null, HashSet<string>? delegateProtocolNames = null)
+    static string MapBlockType(ObjCTypeRef typeRef, HashSet<string>? genericTypeParams = null, Dictionary<string, ObjCTypeRef>? typedefMap = null, HashSet<string>? localProtocolNames = null)
     {
         var returnType = typeRef.BlockReturnType != null
-            ? MapType(typeRef.BlockReturnType, genericTypeParams: genericTypeParams, typedefMap: typedefMap, delegateProtocolNames: delegateProtocolNames)
+            ? MapType(typeRef.BlockReturnType, genericTypeParams: genericTypeParams, typedefMap: typedefMap, localProtocolNames: localProtocolNames)
             : "void";
 
-        var paramTypes = typeRef.BlockParams.Select(p => MapType(p, genericTypeParams: genericTypeParams, typedefMap: typedefMap, delegateProtocolNames: delegateProtocolNames)).ToList();
+        var paramTypes = typeRef.BlockParams.Select(p => MapType(p, genericTypeParams: genericTypeParams, typedefMap: typedefMap, localProtocolNames: localProtocolNames)).ToList();
 
         if (paramTypes.Count > 16)
             return "NSObject";
@@ -492,7 +504,7 @@ public static class ObjCTypeMapper
     /// - NSSet&lt;T&gt; / NSMutableSet&lt;T&gt; / NSOrderedSet&lt;T&gt; → NSSet&lt;T&gt; (preserves generic args)
     /// Returns null if the type doesn't qualify for generic mapping (e.g., generic param element type).
     /// </summary>
-    private static string? MapGenericCollectionType(ObjCTypeRef typeRef, string? declaringClassName, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap, HashSet<string>? delegateProtocolNames = null)
+    private static string? MapGenericCollectionType(ObjCTypeRef typeRef, string? declaringClassName, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap, HashSet<string>? localProtocolNames = null)
     {
         // NSArray<T> / NSMutableArray<T> with a single concrete element type → T[]
         if (typeRef.Name is "NSArray" or "NSMutableArray" && typeRef.GenericArgs.Count == 1)
@@ -502,7 +514,7 @@ public static class ObjCTypeMapper
             // which isn't useful — return null to let normal mapping handle it as plain NSArray.
             if (genericTypeParams != null && genericTypeParams.Contains(elemArg.Name))
                 return null;
-            var mappedElem = MapType(elemArg, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap, delegateProtocolNames);
+            var mappedElem = MapType(elemArg, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap, localProtocolNames);
             // Closures (Action/Func<>) and nested arrays (T[][]) don't implement INativeObject,
             // which is required by bgen's NSArray.FromNSObjects<T>() / CFArray.ArrayFromHandle<T>().
             // Fall back to untyped NSArray for these element types.

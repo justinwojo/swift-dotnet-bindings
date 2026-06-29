@@ -3603,4 +3603,217 @@ public class ClangAstParserTests
     {
         Assert.Equal(expected, ClangAstParser.IsAppleSdkPath(filePath));
     }
+
+    // ─────────────────────────────────────────────
+    // Free-function linkage: only externally-linked functions are bindable.
+    // A `static inline` (NS_INLINE) / non-extern `inline` definition emits no
+    // standalone symbol, so a P/Invoke to it cannot link. The parser skips them.
+    // ─────────────────────────────────────────────
+
+    [Fact]
+    public void Parse_StaticInlineFunction_IsSkipped()
+    {
+        // NS_INLINE expands to `static inline`: clang emits storageClass "static" + inline true.
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "FunctionDecl",
+            {{MakeLoc()}},
+            "name": "MLNDegreesFromRadians",
+            "storageClass": "static",
+            "inline": true,
+            "type": { "qualType": "double (double)" },
+            "inner": [
+                { "kind": "ParmVarDecl", "name": "radians", "type": { "qualType": "double" } }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Empty(module.Functions);
+    }
+
+    [Fact]
+    public void Parse_PlainInlineFunction_IsSkipped()
+    {
+        // A non-`extern` `inline` definition (storageClass absent) likewise emits no standalone
+        // symbol in this translation unit — there is nothing to bind.
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "FunctionDecl",
+            {{MakeLoc()}},
+            "name": "TLPlainInline",
+            "inline": true,
+            "type": { "qualType": "int (int)" },
+            "inner": [
+                { "kind": "ParmVarDecl", "name": "x", "type": { "qualType": "int" } }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Empty(module.Functions);
+    }
+
+    [Fact]
+    public void Parse_StaticNonInlineFunction_IsSkipped()
+    {
+        // A `static` (internal-linkage) function is file-local with no external symbol.
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "FunctionDecl",
+            {{MakeLoc()}},
+            "name": "TLStaticHelper",
+            "storageClass": "static",
+            "type": { "qualType": "int (void)" },
+            "inner": []
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Empty(module.Functions);
+    }
+
+    [Fact]
+    public void Parse_ExternFunction_IsKept()
+    {
+        // A normal extern (externally-linked) function has a real symbol and must still be bound.
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "FunctionDecl",
+            {{MakeLoc()}},
+            "name": "MLNRealExport",
+            "type": { "qualType": "double (double)" },
+            "inner": [
+                { "kind": "ParmVarDecl", "name": "x", "type": { "qualType": "double" } }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var func = Assert.Single(module.Functions);
+        Assert.Equal("MLNRealExport", func.Name);
+    }
+
+    [Fact]
+    public void Parse_ExternInlineFunction_IsKept()
+    {
+        // `extern inline` provides an external definition — it does emit a symbol, so it is kept.
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "FunctionDecl",
+            {{MakeLoc()}},
+            "name": "TLExternInline",
+            "storageClass": "extern",
+            "inline": true,
+            "type": { "qualType": "int (int)" },
+            "inner": [
+                { "kind": "ParmVarDecl", "name": "x", "type": { "qualType": "int" } }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var func = Assert.Single(module.Functions);
+        Assert.Equal("TLExternInline", func.Name);
+    }
+
+    // ─────────────────────────────────────────────
+    // @objc / Swift enum raw values: a Swift `@objc enum Foo: Int { case bar = 17009 }`
+    // surfaces in the generated `-Swift.h` as a SWIFT_ENUM whose enumerator value tree is
+    // `EnumConstantDecl → ImplicitCastExpr → ConstantExpr(17009) → IntegerLiteral(17009)`.
+    // The explicit value must be preserved verbatim, never sequentially renumbered.
+    // ─────────────────────────────────────────────
+
+    [Fact]
+    public void Parse_SwiftObjcEnum_PreservesExplicitRawValues()
+    {
+        // Faithful to a real clang AST dump of a SWIFT_ENUM(NSInteger, AuthErrorCode, closed):
+        // each enumerator wraps its literal in an ImplicitCastExpr → ConstantExpr → IntegerLiteral.
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "EnumDecl",
+            {{MakeLoc()}},
+            "name": "AuthErrorCode",
+            "fixedUnderlyingType": { "qualType": "NSInteger" },
+            "inner": [
+                { "kind": "EnumExtensibilityAttr" },
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "AuthErrorCodeInvalidEmail",
+                    "inner": [
+                        { "kind": "ImplicitCastExpr", "inner": [
+                            { "kind": "ConstantExpr", "value": "17008", "inner": [
+                                { "kind": "IntegerLiteral", "value": "17008" } ] } ] }
+                    ]
+                },
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "AuthErrorCodeWrongPassword",
+                    "inner": [
+                        { "kind": "ImplicitCastExpr", "inner": [
+                            { "kind": "ConstantExpr", "value": "17009", "inner": [
+                                { "kind": "IntegerLiteral", "value": "17009" } ] } ] }
+                    ]
+                },
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "AuthErrorCodeUserNotFound",
+                    "inner": [
+                        { "kind": "ImplicitCastExpr", "inner": [
+                            { "kind": "ConstantExpr", "value": "17011", "inner": [
+                                { "kind": "IntegerLiteral", "value": "17011" } ] } ] }
+                    ]
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var enumDecl = Assert.Single(module.Enums);
+        Assert.Equal(3, enumDecl.Cases.Count);
+        Assert.Equal(17008, enumDecl.Cases[0].Value);
+        Assert.Equal(17009, enumDecl.Cases[1].Value);
+        Assert.Equal(17011, enumDecl.Cases[2].Value);
+    }
+
+    [Fact]
+    public void Parse_SwiftObjcEnum_ForwardDeclFirst_KeepsValueBearingDefinition()
+    {
+        // `SWIFT_ENUM(NSInteger, AuthErrorCode, closed)` macro-expands to a forward declaration
+        // (`enum AuthErrorCode : NSInteger AuthErrorCode;` — zero enumerators) immediately followed
+        // by the real value-bearing definition. The empty forward decl appears FIRST in the AST;
+        // dedup must keep the richer (value-bearing) decl, not collapse onto the empty one and lose
+        // every raw value.
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "EnumDecl",
+            {{MakeLoc()}},
+            "name": "AuthErrorCode",
+            "fixedUnderlyingType": { "qualType": "NSInteger" }
+        },
+        {
+            "kind": "EnumDecl",
+            {{MakeLoc()}},
+            "name": "AuthErrorCode",
+            "fixedUnderlyingType": { "qualType": "NSInteger" },
+            "inner": [
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "AuthErrorCodeWrongPassword",
+                    "inner": [
+                        { "kind": "ImplicitCastExpr", "inner": [
+                            { "kind": "ConstantExpr", "value": "17009", "inner": [
+                                { "kind": "IntegerLiteral", "value": "17009" } ] } ] }
+                    ]
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var enumDecl = Assert.Single(module.Enums);
+        var wrongPassword = Assert.Single(enumDecl.Cases);
+        Assert.Equal("AuthErrorCodeWrongPassword", wrongPassword.Name);
+        Assert.Equal(17009, wrongPassword.Value);
+    }
 }

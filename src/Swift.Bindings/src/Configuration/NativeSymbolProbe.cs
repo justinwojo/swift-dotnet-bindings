@@ -75,6 +75,7 @@ namespace BindingsGeneration
         /// </summary>
         public readonly record struct ObjCClassSymbolScan(
             IReadOnlySet<string> DefinedClassNames,
+            IReadOnlySet<string> DefinedSymbols,
             NativeSymbolProbeOutcome Outcome);
 
         /// <summary>
@@ -92,6 +93,7 @@ namespace BindingsGeneration
             IEnumerable<string> binaryPaths, ICommandRunner commandRunner, ILogger logger)
         {
             var classNames = new HashSet<string>(StringComparer.Ordinal);
+            var definedSymbols = new HashSet<string>(StringComparer.Ordinal);
             var existed = 0;
             var read = 0;
             foreach (var path in binaryPaths)
@@ -109,13 +111,17 @@ namespace BindingsGeneration
                 read++;
                 foreach (var sym in symbols)
                 {
+                    // Retain every defined symbol verbatim (with its leading `_`) so the free-symbol
+                    // guard can test whether a header-declared C function or extern global is actually
+                    // exported, while still extracting the `_OBJC_CLASS_$_<Name>` class names.
+                    definedSymbols.Add(sym);
                     if (sym.StartsWith(ObjCClassSymbolPrefix, StringComparison.Ordinal))
                     {
                         classNames.Add(sym.Substring(ObjCClassSymbolPrefix.Length));
                     }
                 }
             }
-            return new ObjCClassSymbolScan(classNames, ClassifyOutcome(existed, read));
+            return new ObjCClassSymbolScan(classNames, definedSymbols, ClassifyOutcome(existed, read));
         }
 
         /// <summary>

@@ -709,6 +709,20 @@ public static class ClangAstParser
         var name = GetName(element);
         if (name == null) return null;
 
+        // Only functions with external linkage produce a callable symbol in the binary. A
+        // `static` (internal-linkage) function is file-local, and a `static inline`/`NS_INLINE`
+        // — or any non-`extern` `inline` — definition is inlined at every call site and emits no
+        // standalone symbol. Generating a P/Invoke for either yields an undefined symbol at link
+        // (the static registrar's force-reference then makes the whole app fail to link), so there
+        // is nothing to bind. Skip them at parse time; a binary-backed filter later in the pipeline
+        // is the authoritative backstop for symbols that look external but are never actually exported.
+        var storageClass = element.TryGetProperty("storageClass", out var storageClassProp)
+            ? storageClassProp.GetString()
+            : null;
+        var isInline = element.TryGetProperty("inline", out var inlineProp) && inlineProp.GetBoolean();
+        if (storageClass == "static" || (isInline && storageClass != "extern"))
+            return null;
+
         var returnType = GetQualType(element);
         if (returnType == null) return null;
 

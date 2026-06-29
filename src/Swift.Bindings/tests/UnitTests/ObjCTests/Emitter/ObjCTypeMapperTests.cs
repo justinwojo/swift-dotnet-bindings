@@ -168,6 +168,40 @@ public class ObjCTypeMapperTests
         Assert.Equal("NSObject", ObjCTypeMapper.MapType(typeRef));
     }
 
+    // A protocol-typed MEMBER reference (parameter/return/property) binds to the protocol
+    // INTERFACE `IFoo` — whether the protocol is declared in THIS binding or comes from the SDK.
+    // Binding a member to the bare name makes bgen pick the generated Model class, so a conforming
+    // subclass throws InvalidCastException at runtime. (The own-vs-SDK distinction lives only in the
+    // declaration — always bare — and conformance lists; not in member types.)
+    [Fact]
+    public void MapType_ProtocolQualifiedId_LocalProtocol_ReturnsInterface()
+    {
+        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualifications = ["MLNFeature"] };
+        var local = new HashSet<string>(StringComparer.Ordinal) { "MLNFeature" };
+        Assert.Equal("IMLNFeature", ObjCTypeMapper.MapType(typeRef, localProtocolNames: local));
+    }
+
+    [Fact]
+    public void MapType_ProtocolQualifiedId_SdkProtocol_StaysIPrefixed()
+    {
+        // NSCopying is not declared in this binding, so it keeps its `I` prefix even when a
+        // set of local protocols is supplied.
+        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualifications = ["NSCopying"] };
+        var local = new HashSet<string>(StringComparer.Ordinal) { "MLNFeature" };
+        Assert.Equal("INSCopying", ObjCTypeMapper.MapType(typeRef, localProtocolNames: local));
+    }
+
+    [Fact]
+    public void MapType_DirectLocalProtocolPointer_ReturnsInterface()
+    {
+        // A direct protocol-pointer member (`MLNAnnotation *`, parsed without an id<…>
+        // qualification) also binds to the protocol interface `IMLNAnnotation`, not the bare
+        // Model class — otherwise it falls through to the acronym fallback and bgen mis-binds it.
+        var typeRef = new ObjCTypeRef { Name = "MLNAnnotation", IsPointer = true };
+        var local = new HashSet<string>(StringComparer.Ordinal) { "MLNAnnotation" };
+        Assert.Equal("IMLNAnnotation", ObjCTypeMapper.MapType(typeRef, localProtocolNames: local));
+    }
+
     // Block types
 
     [Fact]

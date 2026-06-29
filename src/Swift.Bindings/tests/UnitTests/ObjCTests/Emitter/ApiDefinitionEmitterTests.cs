@@ -425,7 +425,7 @@ public class ApiDefinitionEmitterTests
         var result = EmitAndRead(module);
         Assert.Contains("[Protocol]", result);
         Assert.Contains("[BaseType(typeof(NSObject))]", result);
-        Assert.Contains("partial interface IMyDelegate", result);
+        Assert.Contains("partial interface MyDelegate", result);
     }
 
     [Fact]
@@ -490,7 +490,75 @@ public class ApiDefinitionEmitterTests
         };
 
         var result = EmitAndRead(module);
-        Assert.Contains("partial interface IMyDelegate : INSCoding, INSCopying", result);
+        Assert.Contains("partial interface MyDelegate : INSCoding, INSCopying", result);
+    }
+
+    [Fact]
+    public void Emit_OwnProtocolReference_DeclarationAndConformanceBare_MemberTypeUsesInterface()
+    {
+        // B2: positional protocol spelling.
+        //  * DECLARATION (`partial interface Foo`) and inheritance/conformance lists use the BARE
+        //    name for an own protocol — bgen synthesizes `IFoo` from the bare `[Protocol] interface
+        //    Foo` and converts the bare conformance to `: IFoo` in its output.
+        //  * MEMBER types (parameter/return/property) use the INTERFACE `IFoo`, so bgen binds them
+        //    to the protocol interface; a bare member reference makes bgen pick the generated Model
+        //    class and a conforming subclass throws InvalidCastException at runtime.
+        //  * An empty `interface IFoo {}` forward declaration is emitted per own protocol so those
+        //    `IFoo` member references resolve in the plain-csc api-definition contract compile.
+        // A protocol from the platform SDK keeps its `I` prefix everywhere — its interface already
+        // ships in the platform assembly. The pre-prefixed declaration bug produced `IIFoo`.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols =
+            [
+                new ObjCProtocolDecl { Name = "MLNAnnotation" },
+                new ObjCProtocolDecl
+                {
+                    Name = "MLNFeature",
+                    // own (MLNAnnotation) + SDK (NSCopying) mixed in one inheritance list
+                    InheritedProtocolNames = ["MLNAnnotation", "NSCopying"]
+                }
+            ],
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "MLNShape",
+                    // own (MLNFeature) + SDK (NSCoding) mixed in one conformance list
+                    ProtocolNames = ["MLNFeature", "NSCoding"],
+                    Properties =
+                    [
+                        new ObjCPropertyDecl
+                        {
+                            Name = "primaryFeature",
+                            // member typed id<MLNAnnotation> — own protocol, must map to interface
+                            Type = new ObjCTypeRef { Name = "id", ProtocolQualifications = ["MLNAnnotation"] },
+                            IsReadonly = true,
+                            GetterSelector = "primaryFeature"
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+
+        // Empty forward declarations for each own protocol's interface.
+        Assert.Contains("interface IMLNAnnotation { }", result);
+        Assert.Contains("interface IMLNFeature { }", result);
+        // Protocol declaration is bare (NOT pre-prefixed to `interface IMLNAnnotation` as [Protocol]).
+        Assert.Contains("partial interface MLNAnnotation", result);
+        Assert.DoesNotContain("partial interface IMLN", result);
+        // Protocol inheritance list: own bare, SDK I-prefixed.
+        Assert.Contains("partial interface MLNFeature : MLNAnnotation, INSCopying", result);
+        // Class conformance list: own bare, SDK I-prefixed.
+        Assert.Contains("partial interface MLNShape : MLNFeature, INSCoding", result);
+        // Member type id<MLNAnnotation> → the own-protocol INTERFACE.
+        Assert.Contains("IMLNAnnotation PrimaryFeature { get; }", result);
+        // The double-I bug shapes must never appear.
+        Assert.DoesNotContain("IIMLNFeature", result);
+        Assert.DoesNotContain("IIMLNAnnotation", result);
     }
 
     [Fact]
@@ -507,7 +575,7 @@ public class ApiDefinitionEmitterTests
         };
 
         var result = EmitAndRead(module);
-        Assert.Contains("partial interface IMyDelegate : INSCoding", result);
+        Assert.Contains("partial interface MyDelegate : INSCoding", result);
         Assert.DoesNotContain("INSObject", result);
     }
 
@@ -525,7 +593,7 @@ public class ApiDefinitionEmitterTests
         };
 
         var result = EmitAndRead(module);
-        Assert.Contains("partial interface IMyDelegate\n", result);
+        Assert.Contains("partial interface MyDelegate\n", result);
         Assert.DoesNotContain("INSObject", result);
     }
 
@@ -590,7 +658,7 @@ public class ApiDefinitionEmitterTests
 
         // The decls themselves still emit...
         Assert.Contains("partial interface MyClass", result);
-        Assert.Contains("partial interface IMyDelegate", result);
+        Assert.Contains("partial interface MyDelegate", result);
         // ...with no availability attributes of any kind.
         Assert.DoesNotContain("[Introduced(", result);
         Assert.DoesNotContain("[Deprecated(", result);
@@ -658,7 +726,7 @@ public class ApiDefinitionEmitterTests
 
         var result = EmitAndRead(module);
 
-        Assert.Contains("partial interface IMyDelegate", result);
+        Assert.Contains("partial interface MyDelegate", result);
         Assert.Contains("[global::System.Runtime.Versioning.UnsupportedOSPlatform(\"tvos\")]", result);
     }
 
@@ -1208,7 +1276,7 @@ public class ApiDefinitionEmitterTests
         };
 
         var result = EmitAndRead(module);
-        Assert.Contains("partial interface IMyCollection : INSCoding", result);
+        Assert.Contains("partial interface MyCollection : INSCoding", result);
         Assert.DoesNotContain("NSFastEnumeration", result);
     }
 
@@ -1691,8 +1759,14 @@ public class ApiDefinitionEmitterTests
     }
 
     [Fact]
-    public void Emit_MethodPropertyNameCollision_PropertySkipped()
+    public void Emit_ClassMethodNameCollidesWithInstanceProperty_MethodRenamed_PropertyKept()
     {
+        // A class method `isEnabled` and an instance property `isEnabled` share the C# name
+        // `IsEnabled` but dispatch through distinct ObjC selectors (class vs instance method
+        // lists). A property accessor's C# name is fixed by bgen, but a method can be renamed,
+        // so the property wins the name and the method takes a numeric suffix — its [Export]
+        // selector is preserved. Previously the property was silently dropped purely because
+        // methods emit before properties.
         var module = new ObjCModule
         {
             ModuleName = "Test",
@@ -1705,20 +1779,21 @@ public class ApiDefinitionEmitterTests
         };
 
         var result = EmitAndRead(module);
-        // Method emitted
-        Assert.Contains("[Export(\"isEnabled\")]", result);
-        // Property with same PascalCase name should be skipped
         var lines = result.Split('\n').Where(l => l.Contains("IsEnabled")).ToList();
-        // Should have method line but NOT property line
-        Assert.Contains(lines, l => l.Contains("bool IsEnabled()"));
-        Assert.DoesNotContain(lines, l => l.Contains("{ get; }"));
+        // Method renamed to clear the property's name; its selector is preserved.
+        Assert.Contains("[Export(\"isEnabled\")]", result);
+        Assert.Contains(lines, l => l.Contains("bool IsEnabled2()"));
+        // Property kept (previously dropped).
+        Assert.Contains(lines, l => l.Contains("bool IsEnabled { get; }"));
     }
 
     [Fact]
-    public void Emit_RenamedMethodPropertyCollision_PropertySkipped()
+    public void Emit_RenamedMethodCollidesWithProperty_MethodSuffixed_PropertyKept()
     {
-        // P2 fix: when method dedup renames "Manager" → "ManagerDidDisconnect",
-        // a property named "managerDidDisconnect" should be skipped
+        // When method dedup renames `manager:didDisconnect:` → `ManagerDidDisconnect`, and a
+        // property is also named `managerDidDisconnect`, the property wins the C# name (its
+        // accessor name is fixed) and the method takes a numeric suffix (`ManagerDidDisconnect2`).
+        // Previously the property was dropped.
         var module = new ObjCModule
         {
             ModuleName = "Test",
@@ -1737,18 +1812,21 @@ public class ApiDefinitionEmitterTests
         };
 
         var result = EmitAndRead(module);
-        // First method: Manager(NSObject, NSObject)
+        // First method keeps its short name.
         Assert.Contains("void Manager(NSObject m, NSObject p);", result);
-        // Second method renamed to full selector: ManagerDidDisconnect(NSObject, NSObject)
-        Assert.Contains("void ManagerDidDisconnect(NSObject m, NSObject p);", result);
-        // Property with same PascalCase name as renamed method should be skipped
-        Assert.DoesNotContain("{ get; }", result.Split('\n').Where(l => l.Contains("ManagerDidDisconnect")).LastOrDefault() ?? "");
+        // Second method renamed to the full selector, then suffixed to clear the property's name.
+        Assert.Contains("void ManagerDidDisconnect2(NSObject m, NSObject p);", result);
+        // Property with the colliding PascalCase name is kept (previously dropped).
+        Assert.Contains("ManagerDidDisconnect { get; }", result);
     }
 
     [Fact]
-    public void Emit_ProtocolMethodPropertyCollision_PropertySkipped()
+    public void Emit_ProtocolMethodSharesPropertyGetterSelector_MethodDropped_PropertyKept()
     {
-        // P2 fix: protocol paths also need method→property collision tracking
+        // A protocol method `isReady` and a readonly property `isReady` resolve to the SAME ObjC
+        // selector (`isReady`): they are the same method, so exporting both would SIGABRT the
+        // registrar with a duplicate selector. The property wins (its getter covers the selector)
+        // and the redundant standalone method is dropped.
         var module = new ObjCModule
         {
             ModuleName = "Test",
@@ -1761,11 +1839,10 @@ public class ApiDefinitionEmitterTests
         };
 
         var result = EmitAndRead(module);
-        // Method emitted
-        Assert.Contains("bool IsReady();", result);
-        // Property with same name should be skipped
-        var propertyLines = result.Split('\n').Where(l => l.Contains("{ get; }")).ToList();
-        Assert.Empty(propertyLines);
+        // Property kept ...
+        Assert.Contains("bool IsReady { get; }", result);
+        // ... and the duplicate-selector method dropped (no standalone method form).
+        Assert.DoesNotContain("bool IsReady();", result);
     }
 
     [Fact]
@@ -2920,9 +2997,13 @@ public class ApiDefinitionEmitterTests
         var result = EmitAndRead(module);
         Assert.Contains("[Protocol, Model]", result);
         Assert.Contains("[BaseType(typeof(NSObject))]", result);
-        // [Model] protocols use bare name (no I prefix) per Xamarin convention
+        // [Model] protocols declare the bare name (no I prefix) per Xamarin convention — bgen
+        // synthesizes IMyViewDelegate from it. The empty `interface IMyViewDelegate {}` forward
+        // declaration (for member references) is emitted, but the [Protocol] declaration itself
+        // must never be pre-prefixed to the double-I shape.
         Assert.Contains("partial interface MyViewDelegate", result);
-        Assert.DoesNotContain("IMyViewDelegate", result);
+        Assert.Contains("interface IMyViewDelegate { }", result);
+        Assert.DoesNotContain("partial interface IMyViewDelegate", result);
     }
 
     [Fact]
@@ -2966,7 +3047,7 @@ public class ApiDefinitionEmitterTests
         var result = EmitAndRead(module);
         Assert.Contains("[Protocol]", result);
         Assert.DoesNotContain("[Model]", result);
-        Assert.Contains("partial interface IConfigurable", result);
+        Assert.Contains("partial interface Configurable", result);
     }
 
     // ──────────────────────────────────────────────
@@ -3754,13 +3835,13 @@ public class ApiDefinitionEmitterTests
     }
 
     [Fact]
-    public void Emit_WeakDelegatePattern_DroppedWhenWeakNameCollidesWithPriorMethod()
+    public void Emit_WeakDelegatePattern_PreservedWhenMethodNameCollides_MethodRenamed()
     {
-        // The WeakDelegate/Wrap pattern emits two members (PropName + WeakPropName).
-        // If a previously emitted method has already claimed either name, both members must
-        // be dropped — otherwise the generated binding would have a duplicate-name CS0102.
-        // Here a method named `weakDelegate` PascalCases to `WeakDelegate`, which is the
-        // exact synthetic name the WeakDelegate pattern would emit.
+        // The WeakDelegate/Wrap pattern emits two members (Delegate + WeakDelegate). When a
+        // method PascalCases to `WeakDelegate` — the synthetic weak-accessor name — the property
+        // members win their C# names and the METHOD takes a numeric suffix (`WeakDelegate2`),
+        // preserving both the strong delegate property and its weak accessor. Previously both
+        // delegate members were dropped to clear the method's CS0102 collision.
         var module = new ObjCModule
         {
             ModuleName = "Test",
@@ -3799,11 +3880,12 @@ public class ApiDefinitionEmitterTests
 
         var result = EmitAndRead(module);
 
-        // The method must still be emitted.
-        Assert.Contains("WeakDelegate", result);
-        // The WeakDelegate/Wrap pattern must NOT be emitted (would duplicate WeakDelegate).
-        Assert.DoesNotContain("[Wrap(\"WeakDelegate\")]", result);
-        Assert.DoesNotContain("MyViewDelegate Delegate { get; set; }", result);
+        // Method renamed to clear the synthetic weak-accessor name.
+        Assert.Contains("WeakDelegate2()", result);
+        // The WeakDelegate/Wrap pattern is preserved (no longer dropped).
+        Assert.Contains("[Wrap(\"WeakDelegate\")]", result);
+        // Strong delegate property preserved.
+        Assert.Contains("Delegate { get; set; }", result);
     }
 
     // ──────────────────────────────────────────────
@@ -4014,16 +4096,26 @@ public class ApiDefinitionEmitterTests
         };
 
         var result = EmitAndRead(module);
-        Assert.Contains("partial interface IMyDelegate : INSCoding", result);
+        Assert.Contains("partial interface MyDelegate : INSCoding", result);
         Assert.DoesNotContain("IThirdPartyBase", result);
     }
 
     // ──────────────────────────────────────────────
-    // Finding 24: delegate-protocol identity is decided at the emission source
-    // (threaded delegateProtocolNames → MapType step 3 + the conformance/
-    // inheritance lists), NOT by a blunt whole-file IFoo→Foo regex post-process.
-    // [Protocol, Model] delegate protocols are referenced by their bare name
-    // (bgen emits the class form Foo); all other protocols use IFoo.
+    // Protocol naming is decided at the emission source (threaded localProtocolNames
+    // → MapType + the conformance/inheritance lists), NOT by a blunt whole-file IFoo→Foo
+    // regex post-process. Spelling is POSITIONAL for an own protocol:
+    //   * DECLARATION and inheritance/conformance lists use the BARE name — bgen
+    //     synthesizes its `IFoo` interface from the bare `[Protocol] interface Foo` (and,
+    //     for [Model] protocols, the `Foo` Model class), and converts a bare conformance
+    //     to `: IFoo` in its output.
+    //   * MEMBER types (parameter/return/property) use the INTERFACE `IFoo`, resolved
+    //     against the empty `interface IFoo {}` forward declaration the emitter writes per
+    //     own protocol — binding a member to the bare name makes bgen pick the Model class
+    //     and a conforming subclass throws InvalidCastException at runtime.
+    // A protocol from the platform SDK keeps its `I` prefix everywhere (its interface
+    // already ships there). Delegate protocols are a subset of own protocols; the only
+    // delegate-specific spelling is the strongly-typed `[Wrap]` delegate PROPERTY, which
+    // targets the Model class so consumers can subclass it.
     // ──────────────────────────────────────────────
 
     [Fact]
@@ -4048,7 +4140,7 @@ public class ApiDefinitionEmitterTests
     }
 
     [Fact]
-    public void Emit_ClassConformingToLocalNonDelegateProtocol_UsesIPrefixInConformanceList()
+    public void Emit_ClassConformingToLocalNonDelegateProtocol_UsesBareNameInConformanceList()
     {
         var module = new ObjCModule
         {
@@ -4062,8 +4154,12 @@ public class ApiDefinitionEmitterTests
         };
 
         var result = EmitAndRead(module);
-        // A non-delegate protocol stays I-prefixed in the conformance list.
-        Assert.Contains("partial interface Widget : IConfigurable", result);
+        // B2: a non-delegate protocol declared in THIS binding is still referenced bare in
+        // the conformance list — bgen synthesizes its `IConfigurable`, and the contract
+        // compile only sees the bare `[Protocol] interface Configurable`. An `IConfigurable`
+        // reference would be undefined (CS0246).
+        Assert.Contains("partial interface Widget : Configurable", result);
+        Assert.DoesNotContain(": IConfigurable", result);
     }
 
     [Fact]
@@ -4092,7 +4188,7 @@ public class ApiDefinitionEmitterTests
     }
 
     [Fact]
-    public void Emit_MethodParameterTypedAsLocalDelegateProtocol_UsesBareName()
+    public void Emit_MethodParameterTypedAsLocalDelegateProtocol_UsesInterface()
     {
         var module = new ObjCModule
         {
@@ -4122,10 +4218,12 @@ public class ApiDefinitionEmitterTests
         };
 
         var result = EmitAndRead(module);
-        // A parameter qualified by the delegate protocol maps (MapType step 3) to the
-        // bare name, not IMyViewDelegate.
-        Assert.Contains("RegisterHandler(MyViewDelegate handler)", result);
-        Assert.DoesNotContain("IMyViewDelegate handler", result);
+        // A protocol-typed parameter (MapType step 3) binds to the INTERFACE `IMyViewDelegate`,
+        // even for a [Model] delegate protocol — so any conforming object can be passed. Binding
+        // it to the bare Model class would InvalidCast a conforming non-subclass at runtime. (The
+        // Model-class spelling is reserved for the strongly-typed [Wrap] delegate property.)
+        Assert.Contains("RegisterHandler(IMyViewDelegate handler)", result);
+        Assert.DoesNotContain("(MyViewDelegate handler)", result);
     }
 
     [Fact]
@@ -4150,5 +4248,137 @@ public class ApiDefinitionEmitterTests
         // The doc-comment text is preserved — the old regex would have corrupted it to
         // "MyViewDelegate interface".
         Assert.Contains("IMyViewDelegate interface for testing", result);
+    }
+
+    // ──────────────────────────────────────────────
+    // Protocol bare-name declaration (no double-I prefix)
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void Emit_NonDelegateProtocol_DeclaredBareName_NotDoubleIPrefixed()
+    {
+        // bgen derives the consumer-facing `IFoo` interface (and, for [Model] protocols, the `Foo`
+        // Model class) from a protocol declared as `partial interface Foo`. Declaring it as `IFoo`
+        // here makes bgen emit `IIFoo` plus an orphan `Foo`, which surfaced as an
+        // InvalidCastException at runtime. The emitter must declare the BARE name and let bgen apply
+        // its single "I" prefix.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl { Name = "MLNFeature" }],
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("partial interface MLNFeature", result);
+        Assert.DoesNotContain("partial interface IMLNFeature", result);
+    }
+
+    // ──────────────────────────────────────────────
+    // Method/property selector + name de-duplication
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void Emit_MethodSelectorMatchingPropertySetter_DropsMethod_KeepsProperty()
+    {
+        // A read-write `URL` property emits its setter as [Export("setURL:")]. An explicit
+        // `- (void)setURL:` method would emit the SAME [Export("setURL:")], registering one ObjC
+        // selector twice and aborting the runtime registrar at launch. The property is kept; the
+        // duplicate-selector method is dropped.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MLNImageSource",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "URL",
+                    Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                }],
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "setURL:",
+                    ReturnType = new ObjCTypeRef { Name = "void" },
+                    IsInstanceMethod = true,
+                    Parameters = [new ObjCParameterDecl { Name = "url", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true } }],
+                }],
+            }],
+        };
+
+        var result = EmitAndRead(module);
+        var setterExports = System.Text.RegularExpressions.Regex.Matches(result, @"\[Export\(""setURL:""\)\]").Count;
+        Assert.Equal(1, setterExports);                       // only the property's setter
+        Assert.DoesNotContain("void SetURL", result);         // the explicit method is gone
+        Assert.Contains("[Export(\"URL\")]", result);         // the property survives
+    }
+
+    [Fact]
+    public void Emit_StaticMethodSelectorMatchingInstancePropertyAccessor_NotDropped()
+    {
+        // The de-dup is keyed on instance/class kind: a CLASS method `URL` and an INSTANCE property
+        // `URL` dispatch through separate ObjC method lists, so they do NOT collide and the method
+        // must be kept (over-dropping would silently lose a real API).
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MLNThing",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "url",
+                    Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                    IsReadonly = true,
+                }],
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "url",
+                    ReturnType = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                    IsInstanceMethod = false,   // class (static) method
+                }],
+            }],
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[Static]", result);                  // the class method is still emitted
+    }
+
+    [Fact]
+    public void Emit_MethodNameCollidingWithProperty_RenamesMethod_KeepsProperty()
+    {
+        // A `camera` property (C# `Camera`) and a method `camera:fittingCoordinateBounds:` whose
+        // synthesized short name is also `Camera` (different selector, same C# name). Methods emit
+        // before properties, so before the pre-seed the method claimed `Camera` and the property
+        // was silently dropped (the bgen-flattened output would CS0102). The method must rename to
+        // its full selector and the property must survive.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MLNMapView",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "camera",
+                    Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                }],
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "camera:fittingCoordinateBounds:",
+                    ReturnType = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                    IsInstanceMethod = true,
+                    Parameters =
+                    [
+                        new ObjCParameterDecl { Name = "camera", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true } },
+                        new ObjCParameterDecl { Name = "bounds", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true } },
+                    ],
+                }],
+            }],
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("CameraFittingCoordinateBounds", result);                 // method renamed
+        Assert.Contains("[Export(\"camera:fittingCoordinateBounds:\")]", result); // export preserved
+        Assert.Contains("Camera {", result);                                      // property survives
     }
 }

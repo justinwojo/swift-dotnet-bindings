@@ -3,6 +3,7 @@
 
 #nullable enable
 
+using System.Linq;
 using BindingsGeneration;
 using BindingsGeneration.ObjC;
 using Xunit;
@@ -32,7 +33,16 @@ public class NativeSymbolGuardTests
 
     private static NativeSymbolProbe.ObjCClassSymbolScan Scan(
         NativeSymbolProbeOutcome outcome, params string[] classNames) =>
-        new(new HashSet<string>(classNames), outcome);
+        new(
+            new HashSet<string>(classNames),
+            new HashSet<string>(classNames.Select(n => "_OBJC_CLASS_$_" + n)),
+            outcome);
+
+    /// <summary>Builds a scan carrying explicit defined C symbols (verbatim, with leading
+    /// underscore) for the free-symbol guard, with no class symbols.</summary>
+    private static NativeSymbolProbe.ObjCClassSymbolScan ScanSymbols(
+        NativeSymbolProbeOutcome outcome, params string[] definedSymbols) =>
+        new(new HashSet<string>(), new HashSet<string>(definedSymbols), outcome);
 
     // ---- FilterToNativeSymbolBackedClasses ----
 
@@ -176,6 +186,101 @@ public class NativeSymbolGuardTests
         Assert.Equal("SomeProto", filtered.Protocols[0].Name);
     }
 
+    // ---- FilterToNativeSymbolBackedFreeSymbols ----
+
+    private static ObjCFunctionDecl Func(string name) =>
+        new() { Name = name, ReturnType = new ObjCTypeRef { Name = "double" }, Parameters = [] };
+
+    private static ObjCConstantDecl Const(string name, bool isExtern) =>
+        new() { Name = name, Type = new ObjCTypeRef { Name = "double" }, IsExtern = isExtern };
+
+    private static ObjCModule ModuleWith(
+        List<ObjCFunctionDecl>? functions = null, List<ObjCConstantDecl>? constants = null) =>
+        new() { ModuleName = "TestModule", Functions = functions ?? [], Constants = constants ?? [] };
+
+    [Fact]
+    public void FreeSymbolGuard_DropsFunction_WithNoNativeSymbol()
+    {
+        // MLNDegreesFromRadians is a static-inline helper: no _MLNDegreesFromRadians symbol exists,
+        // so a P/Invoke to it would be an undefined symbol at link. MLNRealExport is exported.
+        var module = ModuleWith(functions: [Func("MLNRealExport"), Func("MLNDegreesFromRadians")]);
+        var diag = new ObjCBindingDiagnostics();
+
+        var filtered = ObjCPipeline.FilterToNativeSymbolBackedFreeSymbols(
+            module, ScanSymbols(NativeSymbolProbeOutcome.Gathered, "_MLNRealExport"), Logger, diag);
+
+        Assert.Single(filtered.Functions);
+        Assert.Equal("MLNRealExport", filtered.Functions[0].Name);
+        Assert.Contains(diag.SkippedSymbols,
+            s => s.SymbolName == "MLNDegreesFromRadians" && s.Reason == ObjCSkipReason.MissingNativeSymbol);
+    }
+
+    [Fact]
+    public void FreeSymbolGuard_DropsExternConstant_WithNoNativeSymbol()
+    {
+        // MapboxVersionNumber is declared FOUNDATION_EXPORT but the framework never defines it;
+        // MLNErrorDomain is a real exported global. Only the phantom one is dropped.
+        var module = ModuleWith(constants:
+            [Const("MLNErrorDomain", isExtern: true), Const("MapboxVersionNumber", isExtern: true)]);
+        var diag = new ObjCBindingDiagnostics();
+
+        var filtered = ObjCPipeline.FilterToNativeSymbolBackedFreeSymbols(
+            module, ScanSymbols(NativeSymbolProbeOutcome.Gathered, "_MLNErrorDomain"), Logger, diag);
+
+        Assert.Single(filtered.Constants);
+        Assert.Equal("MLNErrorDomain", filtered.Constants[0].Name);
+        Assert.Contains(diag.SkippedSymbols,
+            s => s.SymbolName == "MapboxVersionNumber" && s.Reason == ObjCSkipReason.MissingNativeSymbol);
+    }
+
+    [Fact]
+    public void FreeSymbolGuard_KeepsNonExternConstant_WithoutSymbol()
+    {
+        // A non-extern constant is emitted as a compile-time literal, not a symbol-backed [Field],
+        // so it needs no native symbol and must never be dropped — even when the probe gathered none.
+        var module = ModuleWith(constants: [Const("TLLiteral", isExtern: false)]);
+        var diag = new ObjCBindingDiagnostics();
+
+        var filtered = ObjCPipeline.FilterToNativeSymbolBackedFreeSymbols(
+            module, ScanSymbols(NativeSymbolProbeOutcome.Gathered, "_SomethingElse"), Logger, diag);
+
+        Assert.Single(filtered.Constants);
+        Assert.Equal("TLLiteral", filtered.Constants[0].Name);
+        Assert.Empty(diag.SkippedSymbols);
+    }
+
+    [Fact]
+    public void FreeSymbolGuard_FailsOpen_WhenNothingToProbe()
+    {
+        // No binary to probe → absence of evidence is not evidence of absence. Keep everything.
+        var module = ModuleWith(
+            functions: [Func("MaybeReal")],
+            constants: [Const("MaybeRealGlobal", isExtern: true)]);
+        var diag = new ObjCBindingDiagnostics();
+
+        var filtered = ObjCPipeline.FilterToNativeSymbolBackedFreeSymbols(
+            module, ScanSymbols(NativeSymbolProbeOutcome.NothingToProbe), Logger, diag);
+
+        Assert.Single(filtered.Functions);
+        Assert.Single(filtered.Constants);
+        Assert.Empty(diag.SkippedSymbols);
+    }
+
+    [Fact]
+    public void FreeSymbolGuard_FailsOpen_WhenGatheredButNoDefinedSymbols()
+    {
+        // A Gathered scan with an empty symbol set is not proof of absence (e.g. an nm that read a
+        // stripped binary): keep everything rather than drop every function/global.
+        var module = ModuleWith(functions: [Func("MaybeReal")]);
+        var diag = new ObjCBindingDiagnostics();
+
+        var filtered = ObjCPipeline.FilterToNativeSymbolBackedFreeSymbols(
+            module, ScanSymbols(NativeSymbolProbeOutcome.Gathered), Logger, diag);
+
+        Assert.Single(filtered.Functions);
+        Assert.Empty(diag.SkippedSymbols);
+    }
+
     // ---- NativeSymbolProbe.ScanObjCClassSymbols ----
 
     [Fact]
@@ -196,6 +301,10 @@ public class NativeSymbolGuardTests
         Assert.Contains("FBLPromise", scan.DefinedClassNames);
         Assert.Contains("DeviceOnly", scan.DefinedClassNames);
         Assert.DoesNotContain("someFunc", scan.DefinedClassNames); // non-class symbol ignored
+        // The full defined-symbol set retains every symbol verbatim (with leading underscore),
+        // including the non-class `_someFunc`, so the free-symbol guard can consult it.
+        Assert.Contains("_someFunc", scan.DefinedSymbols);
+        Assert.Contains("_OBJC_CLASS_$_FBLPromise", scan.DefinedSymbols);
     }
 
     [Fact]
