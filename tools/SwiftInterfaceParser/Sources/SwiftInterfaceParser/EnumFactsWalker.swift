@@ -8,7 +8,8 @@ import SwiftParser
 /// Walks the syntax tree of a .swiftinterface and surfaces two enum-related fact
 /// dictionaries:
 ///   * `enumCaseLabels`:    `"TypePath.caseName" -> [associatedValueLabel?]`
-///   * `enumCaseRawValues`: `"TypePath.caseName" -> rawValueString` (string literal only)
+///   * `enumCaseRawValues`: `"TypePath.caseName" -> rawValueString` (string-literal
+///     content, OR an integer raw value normalized to a base-10 string)
 ///
 /// EXTRACTION CONTRACT:
 ///
@@ -36,11 +37,14 @@ import SwiftParser
 ///    (SwiftSyntax can see all elements; only the first is emitted because the
 ///    downstream consumer expects first-only emission per case-line).
 ///
-/// 5. **Raw values (`enumCaseRawValues`)**: only string-literal raw values
-///    contribute (the `= "..."` form). Integer or other raw value kinds are absent.
-///    Escape sequences are preserved verbatim as written in source — SwiftSyntax's
-///    segment text for a basic string literal yields the same. The stored value is
-///    the unquoted content.
+/// 5. **Raw values (`enumCaseRawValues`)**: string-literal AND integer-literal raw
+///    values contribute. For the string form (`= "..."`), escape sequences are
+///    preserved verbatim as written in source — SwiftSyntax's segment text for a basic
+///    string literal yields the same; the stored value is the unquoted content. For the
+///    integer form (`= 17009`, `= 0xFF`, `= 0o17`, `= 0b101`, `= 1_000`, `= -1`), the
+///    value is normalized to a base-10 string (radix prefixes decoded, `_` separators
+///    stripped, a leading unary minus preserved as `-`). Other raw value kinds
+///    (floating-point, interpolated/multi-line strings, computed expressions) are absent.
 ///
 /// 6. **`indirect case`**: handled — SwiftSyntax exposes `indirect` as a modifier
 ///    on the case decl and the case name is extracted the same way as a direct case.
@@ -243,16 +247,65 @@ final class EnumFactsWalker: SyntaxVisitor {
             enumCaseLabels[key] = labels
         }
 
-        // EnumCaseRawValues — only string-literal raw values on the FIRST case contribute.
+        // EnumCaseRawValues — string-literal AND integer-literal raw values on the FIRST
+        // case contribute. String literals store the unquoted content; integer literals
+        // are normalized to a base-10 string (hex/octal/binary/underscored/negative forms
+        // all collapse to decimal) so the .NET consumer's long.TryParse succeeds.
         if let rawValue = element.rawValue?.value {
             if let stringLiteral = rawValue.as(StringLiteralExprSyntax.self) {
                 if let extracted = extractRawSegments(stringLiteral) {
                     enumCaseRawValues[key] = extracted
                 }
+            } else if let extracted = extractIntegerLiteral(rawValue) {
+                enumCaseRawValues[key] = extracted
             }
         }
 
         return .skipChildren
+    }
+
+    /// Extract an integer raw value as a base-10 string. Handles a bare integer literal
+    /// (`= 17009`, `= 0xFF`, `= 0o17`, `= 0b101`, `= 1_000`) and a unary-sign prefix
+    /// (`= -1`, `= +1`). Hex/octal/binary and underscore-grouped forms are normalized to
+    /// decimal. Returns nil for any non-integer expression (floating-point or computed raw
+    /// values — which integer-backed enums cannot have — are left absent).
+    private func extractIntegerLiteral(_ expr: ExprSyntax) -> String? {
+        var negative = false
+        var literalExpr = expr
+        if let prefix = expr.as(PrefixOperatorExprSyntax.self) {
+            // Only a leading unary minus flips the sign; a leading `+` is a no-op.
+            switch prefix.operator.text {
+            case "-": negative = true
+            case "+": negative = false
+            default: return nil
+            }
+            literalExpr = prefix.expression
+        }
+        guard let intLiteral = literalExpr.as(IntegerLiteralExprSyntax.self),
+              let magnitude = Self.parseIntegerMagnitude(intLiteral.literal.text) else {
+            return nil
+        }
+        // "-0" and "0" are the same value; don't emit a misleading leading minus.
+        return (negative && magnitude != "0") ? "-\(magnitude)" : magnitude
+    }
+
+    /// Parse a Swift integer-literal token (already sign-stripped) into its base-10
+    /// magnitude string. Strips `_` digit separators and decodes `0x`/`0o`/`0b` radix
+    /// prefixes. Uses UInt64 so the full unsigned range round-trips; returns nil on
+    /// overflow or malformed input.
+    private static func parseIntegerMagnitude(_ raw: String) -> String? {
+        let cleaned = raw.replacingOccurrences(of: "_", with: "")
+        if cleaned.isEmpty { return nil }
+        let lower = cleaned.lowercased()
+        let radix: Int
+        let digits: Substring
+        if lower.hasPrefix("0x") { radix = 16; digits = cleaned.dropFirst(2) }
+        else if lower.hasPrefix("0o") { radix = 8; digits = cleaned.dropFirst(2) }
+        else if lower.hasPrefix("0b") { radix = 2; digits = cleaned.dropFirst(2) }
+        else { radix = 10; digits = Substring(cleaned) }
+        if digits.isEmpty { return nil }
+        guard let value = UInt64(digits, radix: radix) else { return nil }
+        return String(value)
     }
 
     /// Extract the verbatim source text of a basic (non-multiline, non-interpolated)

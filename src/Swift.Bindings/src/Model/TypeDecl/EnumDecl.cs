@@ -33,9 +33,14 @@ namespace BindingsGeneration
         public bool IsSpiProtected { get; set; } = false;
 
         /// <summary>
-        /// The string raw value for this enum case, extracted from .swiftinterface.
-        /// Null if the enum is not a string raw value enum or the value was not found.
-        /// When null, the case name is used as the raw value (Swift default behavior).
+        /// The explicit raw value for this enum case, extracted from .swiftinterface and
+        /// stored verbatim as a string: the unquoted content for a String-raw-value enum
+        /// (<c>case x = "foo"</c>), or the base-10 spelling for an integer-raw-value enum
+        /// (<c>case x = 17009</c>; hex/octal/binary/underscored/negative source forms are
+        /// already normalized to decimal by the .swiftinterface parser). Null when no
+        /// explicit raw value was declared for this case — a String enum then falls back to
+        /// the case name, and an integer enum to Swift's auto-increment rule (see
+        /// <see cref="EnumDecl.GetCaseMarshalScalar"/>).
         /// </summary>
         public string? RawValue { get; set; }
 
@@ -145,6 +150,14 @@ namespace BindingsGeneration
         public bool IsStringRawValue => RawValueTypeName == "String";
 
         /// <summary>
+        /// Whether this enum is RawRepresentable with an integral (Int-family) raw value
+        /// type. These are the enums whose explicit Swift source raw values (e.g.
+        /// <c>case x = 17009</c>) should surface as the emitted C# enum member value AND
+        /// as the @_cdecl marshalling scalar — see <see cref="GetCaseMarshalScalar"/>.
+        /// </summary>
+        public bool IsIntegralRawRepresentable => IsRawRepresentable && IsIntegralRawValue();
+
+        /// <summary>
         /// Whether this enum qualifies for emission as a C# enum with String raw value conversions.
         /// Requires: no associated values, frozen, non-generic, String raw value.
         /// IsFrozen stays — non-frozen String enums use indirect return patterns requiring SafeHandle.
@@ -196,6 +209,99 @@ namespace BindingsGeneration
                 return payloadList.Count + noPayloadIndex;
 
             return -1;
+        }
+
+        /// <summary>
+        /// Gets the scalar value that both (a) the emitted C# enum member is assigned and
+        /// (b) the @_cdecl wrapper uses to marshal this case across the boundary. The two
+        /// MUST agree, so a single source computes both.
+        ///
+        /// For an integral RawRepresentable enum whose explicit Swift raw values are known
+        /// (parsed from the .swiftinterface into <see cref="EnumCaseDecl.RawValue"/>), this
+        /// is the Swift source raw value — so <c>(long)MyEnum.Case</c> equals the Swift
+        /// <c>.rawValue</c> and matches the bridged ObjC NS_ENUM constant. Cases without an
+        /// explicit raw value follow Swift's auto-increment rule (previous case's value + 1,
+        /// the first implicit case being 0), exactly as the compiler assigns them. For every
+        /// other enum (no raw value, or a non-integral raw value such as String), this is the
+        /// declaration-order tag from <see cref="GetCaseTag"/> — the in-memory discriminant
+        /// the marshalling switch keys on.
+        ///
+        /// The raw-value scalar is a signed 64-bit value. If any case's value — an explicit
+        /// raw value, OR the implicit auto-increment between cases — falls outside that range
+        /// (a UInt64/UInt case above <see cref="long.MaxValue"/>, or an implicit case that would
+        /// auto-increment past it), the value cannot be carried faithfully as a <c>long</c>, so
+        /// the WHOLE enum degrades to declaration-order tags rather than emit a wrapped (negative)
+        /// scalar — keeping the emitted C# member and the @_cdecl switch consistent by construction
+        /// and never producing a negative literal a ulong-backed C# enum cannot hold. (Full
+        /// unsigned-64-bit raw values are not yet supported end-to-end.)
+        /// </summary>
+        public long GetCaseMarshalScalar(EnumCaseDecl target)
+        {
+            if (!IsIntegralRawRepresentable || !IntegralRawValuesRepresentableAsInt64())
+                return GetCaseTag(target);
+
+            // Walk cases in declaration order, mirroring Swift's raw-value assignment: an
+            // explicit `= N` resets the running value; an implicit case takes prev + 1 (the
+            // first implicit case is 0). @_spi cases still consume a slot, so they are not
+            // skipped here even though they are omitted from emission.
+            long running = 0;
+            bool first = true;
+            foreach (var c in Cases)
+            {
+                if (c.RawValue is string s &&
+                    long.TryParse(s, System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture, out var explicitVal))
+                {
+                    running = explicitVal;
+                }
+                else if (!first)
+                {
+                    running += 1;
+                }
+
+                if (ReferenceEquals(c, target))
+                    return running;
+                first = false;
+            }
+
+            // Target not among this enum's cases (shouldn't happen) — fall back to the tag.
+            return GetCaseTag(target);
+        }
+
+        /// <summary>
+        /// Whether this integral enum's per-case scalars all fit the signed 64-bit range
+        /// <see cref="GetCaseMarshalScalar"/> marshals through. Simulates the same declaration-order
+        /// walk (explicit <c>= N</c> resets the running value; an implicit case is previous + 1,
+        /// the first implicit being 0) and returns false if either an explicit raw value cannot be
+        /// parsed as an <see cref="long"/> (a UInt64/UInt value above <see cref="long.MaxValue"/>)
+        /// OR an implicit case would auto-increment past <see cref="long.MaxValue"/>. Either makes
+        /// the whole enum degrade to tags, so no case ever emits a wrapped (negative) scalar.
+        /// </summary>
+        private bool IntegralRawValuesRepresentableAsInt64()
+        {
+            long running = 0;
+            bool first = true;
+            foreach (var c in Cases)
+            {
+                if (c.RawValue is string s)
+                {
+                    if (!long.TryParse(s, System.Globalization.NumberStyles.Integer,
+                            System.Globalization.CultureInfo.InvariantCulture, out var explicitVal))
+                    {
+                        return false;
+                    }
+                    running = explicitVal;
+                }
+                else if (!first)
+                {
+                    if (running == long.MaxValue)
+                        return false;
+                    running += 1;
+                }
+
+                first = false;
+            }
+            return true;
         }
     }
 }

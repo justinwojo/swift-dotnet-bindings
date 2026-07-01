@@ -3160,9 +3160,12 @@ public class EnumHandlerOutputTests
     [Fact]
     public void Emit_RawRepresentableEnumPropertyGetter_UsesTagSwitchNotRawValue()
     {
-        // Regression: RawRepresentable enum property getters used rawValue: force-unwrap
-        // which crashes when C# sequential tags don't match Swift raw values (e.g.,
-        // an enum with OSStatus raw values like -25293, but C# uses 0,1,2...).
+        // Regression: RawRepresentable enum property getters used a rawValue: force-unwrap
+        // (init(rawValue:)!), which crashes on any scalar the enum can't reconstruct. The
+        // reconstruction must instead go through a switch. This fixture sets no explicit raw
+        // values, so the per-case scalar is Swift's auto-increment (0,1,2...); explicit
+        // integer-raw-value coverage (where the scalar IS the Swift raw value) lives in the
+        // Emit_IntRawValueEnum_* tests below.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("Status", moduleDecl, isFrozen: true);
@@ -3188,10 +3191,11 @@ public class EnumHandlerOutputTests
     [Fact]
     public void Emit_RawRepresentableEnumMethodReturn_UsesTagSwitchNotRawValue()
     {
-        // Regression: methods returning a RawRepresentable enum used result.rawValue
-        // which returns non-sequential Swift raw values (e.g., OSStatus -25293) instead
-        // of the sequential C# tag values (0, 1, 2...). The return path must use the
-        // same switch-based enum-to-tag conversion as the input path.
+        // Regression: methods returning a RawRepresentable enum must go through the same
+        // switch-based enum-to-scalar conversion as the input path, not a bare
+        // result.rawValue access. This fixture sets no explicit raw values, so the per-case
+        // scalar is Swift's auto-increment (0,1,2...); explicit integer-raw-value coverage
+        // (where the scalar IS the Swift raw value) lives in the Emit_IntRawValueEnum_* tests below.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("Status", moduleDecl, isFrozen: true);
@@ -3568,9 +3572,10 @@ public class EnumHandlerOutputTests
     [Fact]
     public void Emit_StaticMethodWithEnumParam_RawRepresentable_UsesTagSwitch()
     {
-        // RawRepresentable enum params must also use tag switch (not rawValue initializer)
-        // because C# enum values are sequential tags — ABI JSON lacks raw values, so
-        // rawValue: would fail for enums with non-sequential raw values (e.g., OSStatus codes).
+        // RawRepresentable enum params must also go through a switch (not an init(rawValue:)
+        // call), so reconstruction works for any per-case scalar. This fixture sets no
+        // explicit raw values, so the scalar is Swift's auto-increment; explicit-raw-value
+        // param coverage lives in the Emit_IntRawValueEnum_* tests below.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("Status", moduleDecl, isFrozen: true);
@@ -4177,5 +4182,170 @@ public class EnumHandlerOutputTests
         // Must fall back to case names
         Assert.Contains("\"active\"", csOutput);
         Assert.Contains("\"inactive\"", csOutput);
+    }
+
+    [Fact]
+    public void Emit_IntRawValueEnum_ExplicitRawValues_EmittedAsScalarsNotOrdinals()
+    {
+        // An integral RawRepresentable enum with explicit Swift raw values (e.g. an
+        // error-code enum declaring `case wrongPassword = 17009`) must surface the REAL raw
+        // value in the emitted C# member AND in every @_cdecl marshalling switch — not the
+        // declaration-order ordinal (0,1,2...). The four sites must agree by construction.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("AuthErrorCode", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "Int";
+        var wrongPassword = CreateCase("wrongPassword");
+        wrongPassword.RawValue = "17009";
+        var userNotFound = CreateCase("userNotFound");
+        userNotFound.RawValue = "17011";
+        enumDecl.Cases.Add(wrongPassword);
+        enumDecl.Cases.Add(userNotFound);
+        enumDecl.Methods.Add(CreateRawValueInitializer(enumDecl, moduleDecl));
+        // A method returning the enum (enum->scalar) and one taking it (scalar->enum),
+        // plus a property of the enum type (scalar->enum reconstruction).
+        enumDecl.Methods.Add(CreateStaticMethod("current", enumDecl, moduleDecl));
+        enumDecl.Methods.Add(CreateStaticMethodWithEnumParam("isFatal", enumDecl, moduleDecl));
+        enumDecl.Properties.Add(CreateInstanceIntProperty("code", enumDecl, moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        // C# enum member carries the real raw value, NOT the ordinal.
+        Assert.Contains("WrongPassword = 17009,", csOutput);
+        Assert.Contains("UserNotFound = 17011,", csOutput);
+        Assert.DoesNotContain("WrongPassword = 0,", csOutput);
+        Assert.DoesNotContain("UserNotFound = 1,", csOutput);
+        // enum -> scalar (return path) uses the raw value.
+        Assert.Contains("case .wrongPassword: return 17009", swiftOutput);
+        Assert.Contains("case .userNotFound: return 17011", swiftOutput);
+        // scalar -> enum (reconstruction / param) uses the raw value.
+        Assert.Contains("case 17009: value = .wrongPassword", swiftOutput);
+        Assert.Contains("case 17011: value = .userNotFound", swiftOutput);
+        Assert.Contains("case 17009: return .wrongPassword", swiftOutput);
+        Assert.Contains("case 17011: return .userNotFound", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_IntRawValueEnum_AutoIncrementResumesAfterExplicit()
+    {
+        // Swift's raw-value assignment: an implicit case is previous + 1 (first implicit is
+        // 0); an explicit `= N` resets the running counter. So a (implicit) = 0, b = 5
+        // (explicit), c (implicit) = 6. Both C# members and the switches must mirror that.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Code", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "Int";
+        enumDecl.Cases.Add(CreateCase("a"));            // implicit -> 0
+        var b = CreateCase("b");
+        b.RawValue = "5";                                // explicit -> 5
+        enumDecl.Cases.Add(b);
+        enumDecl.Cases.Add(CreateCase("c"));            // implicit -> 6
+        enumDecl.Methods.Add(CreateRawValueInitializer(enumDecl, moduleDecl));
+        enumDecl.Methods.Add(CreateStaticMethod("current", enumDecl, moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("A = 0,", csOutput);
+        Assert.Contains("B = 5,", csOutput);
+        Assert.Contains("C = 6,", csOutput);
+        Assert.Contains("case .a: return 0", swiftOutput);
+        Assert.Contains("case .b: return 5", swiftOutput);
+        Assert.Contains("case .c: return 6", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_IntRawValueEnum_NegativeRawValuesPreserved()
+    {
+        // Negative integer raw values (e.g. OSStatus-style error codes) must round-trip
+        // verbatim into the C# member and the marshalling switches.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("StorageError", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "Int32";
+        var notFound = CreateCase("notFound");
+        notFound.RawValue = "-1";
+        var accessDenied = CreateCase("accessDenied");
+        accessDenied.RawValue = "-2";
+        enumDecl.Cases.Add(notFound);
+        enumDecl.Cases.Add(accessDenied);
+        enumDecl.Methods.Add(CreateRawValueInitializer(enumDecl, moduleDecl));
+        enumDecl.Methods.Add(CreateStaticMethod("current", enumDecl, moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("NotFound = -1,", csOutput);
+        Assert.Contains("AccessDenied = -2,", csOutput);
+        Assert.Contains("case .notFound: return -1", swiftOutput);
+        Assert.Contains("case .accessDenied: return -2", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_IntRawValueEnum_UnsignedRawValueAboveInt64Max_DegradesToOrdinals()
+    {
+        // An explicit raw value above Int64.MaxValue (a UInt64/UInt case) cannot be carried
+        // as the signed 64-bit marshal scalar. Rather than silently mis-attributing that case
+        // as auto-incremented, the WHOLE enum degrades to declaration-order ordinals so the
+        // emitted C# member and the @_cdecl switch stay consistent by construction. (Full
+        // unsigned-64-bit raw values are not yet supported end-to-end.)
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Flags", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "UInt64";
+        var none = CreateCase("none");
+        none.RawValue = "0";
+        var all = CreateCase("all");
+        all.RawValue = "18446744073709551615"; // UInt64.Max — exceeds Int64.MaxValue
+        enumDecl.Cases.Add(none);
+        enumDecl.Cases.Add(all);
+        enumDecl.Methods.Add(CreateRawValueInitializer(enumDecl, moduleDecl));
+        enumDecl.Methods.Add(CreateStaticMethod("current", enumDecl, moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        // The unsigned raw type still selects the ulong backing (unchanged).
+        Assert.Contains("public enum Flags : ulong", csOutput);
+        // Degrades to declaration-order ordinals, NOT a mis-incremented mix, and the
+        // out-of-range value never leaks into the emitted output.
+        Assert.Contains("None = 0,", csOutput);
+        Assert.Contains("All = 1,", csOutput);
+        Assert.DoesNotContain("18446744073709551615", csOutput);
+        Assert.DoesNotContain("18446744073709551615", swiftOutput);
+        // The @_cdecl enum->scalar switch uses the same ordinals.
+        Assert.Contains("case .none: return 0", swiftOutput);
+        Assert.Contains("case .all: return 1", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_IntRawValueEnum_ImplicitAutoIncrementOverflow_DegradesToOrdinals()
+    {
+        // A UInt64 enum can cross Int64.MaxValue via an IMPLICIT case: an explicit
+        // Int64.MaxValue followed by an implicit case would auto-increment past the signed
+        // 64-bit range. Every EXPLICIT value here fits `long`, so the degrade decision must
+        // also account for the implicit auto-increment overflow — otherwise the running value
+        // wraps to a negative literal, which a ulong-backed C# enum cannot hold (it would not
+        // compile). The whole enum must instead degrade to declaration-order ordinals.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Boundary", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "UInt64";
+        var signedMax = CreateCase("signedMax");
+        signedMax.RawValue = "9223372036854775807"; // Int64.MaxValue — fits long
+        var next = CreateCase("next");               // implicit -> would overflow past Int64.MaxValue
+        enumDecl.Cases.Add(signedMax);
+        enumDecl.Cases.Add(next);
+        enumDecl.Methods.Add(CreateRawValueInitializer(enumDecl, moduleDecl));
+        enumDecl.Methods.Add(CreateStaticMethod("current", enumDecl, moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("public enum Boundary : ulong", csOutput);
+        Assert.Contains("SignedMax = 0,", csOutput);
+        Assert.Contains("Next = 1,", csOutput);
+        // No wrapped-overflow negative literal, and neither the explicit nor overflowed value leaks.
+        Assert.DoesNotContain("-9223372036854775808", csOutput);
+        Assert.DoesNotContain("9223372036854775807", csOutput);
+        Assert.DoesNotContain("-9223372036854775808", swiftOutput);
+        Assert.Contains("case .signedMax: return 0", swiftOutput);
+        Assert.Contains("case .next: return 1", swiftOutput);
     }
 }

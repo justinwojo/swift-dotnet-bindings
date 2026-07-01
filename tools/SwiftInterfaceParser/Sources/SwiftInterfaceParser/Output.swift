@@ -20,8 +20,14 @@ import Foundation
 /// the version forces a clear "rebuild the host binary" error rather than mis-emitted
 /// `[Obsolete]` attributes on every overload.
 ///
+/// v3: `enumCaseRawValues` redefined from "string-literal raw values only" to "string
+/// OR integer raw values (integers normalized to a base-10 string)". A v2 host omits
+/// integer raw values, so a v3 consumer pairing with it would silently fall back to
+/// declaration-order ordinals for integer-backed enums (the pre-fix bug) instead of the
+/// real Swift raw value; pinning the version forces a "rebuild the host binary" error.
+///
 /// On the .NET side, see `InterfaceFactsJson.SchemaVersion` — values must match.
-let kSchemaVersion = 2
+let kSchemaVersion = 3
 
 /// Top-level JSON document. Mirrors the .NET-side `InterfaceFactsJson` contract.
 ///

@@ -297,6 +297,53 @@ public class SwiftSyntaxInterfaceFactsProducerTests
 
     #endregion
 
+    #region Enum raw values — integer-literal extraction
+
+    /// <summary>
+    /// An integer-backed RawRepresentable enum with explicit raw values (e.g. an error-code
+    /// enum declaring <c>case wrongPassword = 17009</c>) must surface those Swift raw values
+    /// so the lowered C# enum members and the @_cdecl marshalling switches carry the real
+    /// value rather than declaration-order ordinals. The walker normalizes hex/octal/binary/
+    /// underscored/negative source forms to a base-10 string; a case with no explicit raw
+    /// value contributes nothing (the host fills it via Swift's auto-increment rule
+    /// downstream). A regression here silently restores the ordinal-instead-of-raw-value bug.
+    /// </summary>
+    [SkippableFact]
+    public void EnumIntegerRawValues_ExtractedAndNormalizedToDecimal()
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(EnumIntegerRawValues_ExtractedAndNormalizedToDecimal));
+        var path = WriteTempFile(
+            "public enum AuthErrorCode : Swift.Int {\n" +
+            "  case wrongPassword = 17009\n" +
+            "  case userNotFound = 17011\n" +
+            "  case maskHex = 0xFF\n" +
+            "  case maskOctal = 0o17\n" +
+            "  case maskBinary = 0b101\n" +
+            "  case grouped = 1_000\n" +
+            "  case negative = -1\n" +
+            "  case autoAssigned\n" +
+            "}\n");
+        try
+        {
+            var result = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance);
+            var raw = result.Facts.EnumCaseRawValues;
+            Assert.NotNull(raw);
+            Assert.Equal("17009", raw!["AuthErrorCode.wrongPassword"]);
+            Assert.Equal("17011", raw["AuthErrorCode.userNotFound"]);
+            // hex / octal / binary / underscore-grouped / negative source forms all normalize to base-10.
+            Assert.Equal("255", raw["AuthErrorCode.maskHex"]);
+            Assert.Equal("15", raw["AuthErrorCode.maskOctal"]);
+            Assert.Equal("5", raw["AuthErrorCode.maskBinary"]);
+            Assert.Equal("1000", raw["AuthErrorCode.grouped"]);
+            Assert.Equal("-1", raw["AuthErrorCode.negative"]);
+            // A case with no explicit raw value emits no fact.
+            Assert.False(raw.ContainsKey("AuthErrorCode.autoAssigned"));
+        }
+        finally { File.Delete(path); }
+    }
+
+    #endregion
+
     #region Availability — protocol requirements without an access modifier (F-2)
 
     /// <summary>

@@ -124,27 +124,17 @@ namespace BindingsGeneration
                 if (caseDecl.IsSpiProtected)
                     continue;
                 var casePascalName = NameProvider.GetCaseName(caseDecl.Name, caseNameMap);
-                int tagValue;
 
-                if (enumDecl.IsStringRawValue)
-                {
-                    // String raw value enums use tag values (not raw values)
-                    tagValue = enumDecl.GetCaseTag(caseDecl);
-                }
-                else if (enumDecl.IsRawRepresentable)
-                {
-                    // Use raw values for integral RawRepresentable enums
-                    tagValue = GetRawValueAsInt(enumDecl, caseDecl);
-                }
-                else
-                {
-                    // Use tag values from GetCaseTag for non-RawRepresentable enums
-                    tagValue = enumDecl.GetCaseTag(caseDecl);
-                }
+                // The emitted C# member value is the SAME scalar the @_cdecl wrapper marshals
+                // this case as (GetCaseMarshalScalar): the real Swift source raw value for
+                // integral RawRepresentable enums, the declaration-order tag otherwise. The
+                // two must agree, so both read this one helper. String-raw-value enums keep
+                // their tag here and expose the string via ToRawValue/FromRawValue extensions.
+                long memberValue = enumDecl.GetCaseMarshalScalar(caseDecl);
 
                 XmlDocCommentEmitter.EmitDocComment(csWriter, caseDecl);
                 AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, caseDecl, parentDecl: enumDecl, emitObsolete: true);
-                csWriter.WriteLine($"{casePascalName} = {tagValue},");
+                csWriter.WriteLine($"{casePascalName} = {memberValue},");
             }
 
             csWriter.Indent--;
@@ -622,9 +612,11 @@ namespace BindingsGeneration
             swiftWriter.WriteLine($"public func _sbw_{GetSwiftWrapperIdentifierPath(enumDecl)}_{methodDecl.Name}({string.Join(", ", swiftParams)}) -> {returnTypeStr} {{");
             swiftWriter.Indent++;
 
-            // Convert tag to enum value using switch. Always use switch-based reconstruction
-            // because C# enum values are sequential tags (ABI JSON lacks raw values), so
-            // rawValue: would fail for enums with non-sequential raw values (e.g., OSStatus codes).
+            // Convert the incoming scalar to the enum case via a switch keyed on
+            // GetCaseMarshalScalar — the SAME value the C# enum member carries, so the cast
+            // C# performs (`(underlying)self`) and this switch agree by construction. For
+            // integral RawRepresentable enums that scalar is the real Swift raw value (e.g.
+            // 17009); otherwise it is the declaration-order tag.
             EmitTagToEnumSwitch(swiftWriter, enumDecl, enumQualifiedName, swiftScalarType);
 
             // Build method call with arguments, converting enum-typed scalar params back to enum
@@ -652,9 +644,9 @@ namespace BindingsGeneration
             }
             else if (returnsEnum)
             {
-                // Convert return value back to sequential tag (not rawValue — C# enum values are
-                // sequential tags because ABI JSON lacks raw values, so rawValue would return
-                // non-sequential values like OSStatus codes that don't match C# expectations)
+                // Convert the returned enum back to the scalar the C# side will cast to the
+                // enum — GetCaseMarshalScalar, matching the emitted C# member value (real raw
+                // value for integral RawRepresentable enums, declaration-order tag otherwise).
                 swiftWriter.WriteLine($"let result = {callStr}");
                 EmitEnumToTagSwitch(swiftWriter, enumDecl, enumQualifiedName, "result", swiftScalarType);
             }
@@ -678,7 +670,7 @@ namespace BindingsGeneration
             swiftWriter.WriteLine("switch tag {");
             foreach (var caseDecl in enumDecl.Cases)
             {
-                var tag = enumDecl.GetCaseTag(caseDecl);
+                var tag = enumDecl.GetCaseMarshalScalar(caseDecl);
                 // Skip @_spi-protected cases — inaccessible without @_spi import
                 if (caseDecl.IsSpiProtected)
                 {
@@ -722,7 +714,7 @@ namespace BindingsGeneration
                 // Skip @_spi-protected cases — inaccessible without @_spi import
                 if (caseDecl.IsSpiProtected)
                     continue;
-                var tag = enumDecl.GetCaseTag(caseDecl);
+                var tag = enumDecl.GetCaseMarshalScalar(caseDecl);
                 swiftWriter.WriteLine($"case .{NameProvider.EscapeSwiftKeyword(caseDecl.Name)}: return {tag}");
             }
             // Cases introduced in newer OS versions add a @unknown default implicitly
@@ -1579,24 +1571,6 @@ namespace BindingsGeneration
 
         // === Helper Methods for Simple Enum Emission ===
 
-        /// <summary>
-        /// Gets the raw value as int for a case in a RawRepresentable enum.
-        /// Uses explicit raw value from .swiftinterface if available, otherwise falls back
-        /// to sequential tag values. Note: non-sequential integer raw values (e.g., execute=4)
-        /// are NOT available in .swiftinterface or ABI JSON — only string raw values are preserved.
-        /// </summary>
-        private static int GetRawValueAsInt(EnumDecl enumDecl, EnumCaseDecl caseDecl)
-        {
-            // Check if an explicit integer raw value was parsed from .swiftinterface
-            if (caseDecl.RawValue is string rawStr && int.TryParse(rawStr, out var explicitValue))
-                return explicitValue;
-
-            // Fallback: sequential tag values (correct for sequential enums, but wrong for
-            // enums with gaps like Permission: none=0, read=1, write=2, execute=4).
-            // Blocked: .swiftinterface strips integer raw values, ABI JSON lacks them.
-            return enumDecl.GetCaseTag(caseDecl);
-        }
-
         private static bool IsSimpleEnumReturn(TypeSpec? typeSpec, EnumDecl enumDecl, ITypeDatabase typeDatabase)
         {
             if (typeSpec is NamedTypeSpec namedType)
@@ -1729,14 +1703,14 @@ namespace BindingsGeneration
         private static string EmitEnumParamConversion(EnumDecl enumDecl, string enumQualifiedName,
             string swiftScalarType, string paramExpr)
         {
-            // Always use switch-based reconstruction because C# enum values are sequential
-            // tags (ABI JSON lacks raw values), so rawValue: would fail for enums with
-            // non-sequential raw values (e.g., OSStatus codes).
-            // Generate inline closure with switch.
+            // Reconstruct the enum from the incoming scalar via a switch keyed on
+            // GetCaseMarshalScalar — the SAME value the C# side passed (the cast enum member),
+            // i.e. the real Swift raw value for integral RawRepresentable enums and the
+            // declaration-order tag otherwise. Generate an inline closure with the switch.
             return $"{{ () -> {enumQualifiedName} in\n" +
                    $"    switch {paramExpr} {{\n" +
                    string.Join("\n", enumDecl.Cases.Select(c =>
-                       $"    case {enumDecl.GetCaseTag(c)}: return .{NameProvider.EscapeSwiftKeyword(c.Name)}")) +
+                       $"    case {enumDecl.GetCaseMarshalScalar(c)}: return .{NameProvider.EscapeSwiftKeyword(c.Name)}")) +
                    $"\n    default: fatalError(\"[SwiftBindings] Invalid enum tag\")\n" +
                    $"    }}\n" +
                    $"}}()";

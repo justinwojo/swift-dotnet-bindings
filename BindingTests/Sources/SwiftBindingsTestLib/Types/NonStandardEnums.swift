@@ -55,3 +55,35 @@ public enum Permission: UInt32 {
     case write = 2
     case execute = 4
 }
+
+// MARK: - @objc Int-Backed Enum With Large, Non-Sequential Raw Values
+
+/// @objc Int-backed enum whose explicit raw values are large and non-sequential — a common
+/// real-world shape for SDK error-code enums (e.g. `case wrongPassword = 17009`). The C#
+/// member must carry the actual Swift raw value, NOT the declaration-order ordinal (0,1,2),
+/// and the scalar must round-trip across the @_cdecl boundary in both directions.
+///
+/// `@objc` is load-bearing here: the Swift compiler only preserves explicit enum raw values
+/// in the textual `.swiftinterface` (the generator's source of truth) for `@objc` enums. A
+/// plain `enum: Int` has its `= 17009` stripped to a bare `case wrongPassword`, leaving no
+/// recoverable raw value, so the generator can only fall back to declaration-order ordinals
+/// for it. The bridged (NS_ENUM) form, whose in-memory representation IS the raw value, is
+/// the case that both carries the value and benefits from preserving it.
+@objc public enum AuthErrorCodeLike: Int {
+    case wrongPassword = 17009
+    case userNotFound = 17011
+    case networkError = 17020
+}
+
+/// Round-trips an `AuthErrorCodeLike` through @_cdecl: the C# scalar is converted to the
+/// Swift case (the param-conversion switch) and the result back to a scalar (the return
+/// switch). A correct fix returns the same case the caller passed.
+public func echoAuthErrorCode(_ code: AuthErrorCodeLike) -> AuthErrorCodeLike {
+    return code
+}
+
+/// Returns a fixed case so the enum→scalar return switch is exercised independently of any
+/// input value. The caller asserts the scalar equals the Swift raw value (17009).
+public func wrongPasswordCode() -> AuthErrorCodeLike {
+    return .wrongPassword
+}

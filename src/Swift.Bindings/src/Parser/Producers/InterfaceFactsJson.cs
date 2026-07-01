@@ -60,13 +60,19 @@ internal partial class InterfaceFactsJsonContext : JsonSerializerContext
 ///   disamb lookup; pinning the version makes a stale host binary fail fast with the
 ///   "rebuild the host binary" error rather than emit incorrect <c>[Obsolete]</c>
 ///   attributes on every overload.</item>
+/// <item><b>v3</b> — <c>enumCaseRawValues</c> redefined from "string-literal raw values
+///   only" to "string OR integer raw values" (integers normalized to a base-10 string).
+///   A v2 host omits integer raw values, so a v3 consumer would silently fall back to
+///   declaration-order ordinals for integer-backed enums (e.g. emitting
+///   <c>WrongPassword = 7</c> instead of the real <c>= 17009</c>) rather than mis-map;
+///   pinning the version makes a stale host binary fail fast instead.</item>
 /// </list>
 /// </summary>
 internal sealed class InterfaceFactsJson
 {
     /// <summary>Bump in lockstep with <c>kSchemaVersion</c> in
     /// <c>tools/SwiftInterfaceParser/Sources/SwiftInterfaceParser/Output.swift</c>.</summary>
-    public const int ExpectedSchemaVersion = 2;
+    public const int ExpectedSchemaVersion = 3;
 
     [JsonPropertyName("schemaVersion")]
     public int SchemaVersion { get; set; }

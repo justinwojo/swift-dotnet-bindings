@@ -48,14 +48,13 @@ public class NonStandardEnumTests : TestBase
         TestLogger.Info($"FeatureFlag underlying type: {underlyingType.Name}");
     }
 
-    [Skip("Blocked: .swiftinterface strips integer raw values and ABI JSON lacks them — no source of truth for non-sequential values (execute=4 emitted as 3)")]
+    [Skip("Non-@objc enums export no raw values: the Swift compiler strips explicit raw values (execute=4) from the .swiftinterface for plain `enum: UInt32`, and the ABI JSON lacks them too, so there is no source of truth — execute necessarily falls back to the declaration-order ordinal 3. @objc enums DO preserve raw values; that path is gated by the AuthErrorCodeLike tests below.")]
     public void TestPermissionCaseValues()
     {
-        // NOTE: Swift declares none=0, read=1, write=2, execute=4 but the generator
-        // currently emits sequential ordinals (0,1,2,3) for non-Int32 enums.
-        // These assertions test the INTENDED Swift values — if the generator is fixed
-        // to preserve gap values, these will pass; if still ordinal, the execute check
-        // will catch the bug.
+        // Swift declares none=0, read=1, write=2, execute=4. For a non-@objc enum those raw
+        // values are absent from every generator input, so execute emits as the ordinal 3.
+        // These assertions encode the INTENDED Swift values; if a future toolchain preserves
+        // non-@objc raw values, un-skipping this will start passing.
         AssertEqual(Permission.None, (Permission)(uint)0, "None is 0");
         AssertEqual(Permission.Read, (Permission)(uint)1, "Read is 1");
         AssertEqual(Permission.Write, (Permission)(uint)2, "Write is 2");
@@ -114,6 +113,47 @@ public class NonStandardEnumTests : TestBase
         AssertEqual(Permission.Execute, (Permission)(uint)Permission.Execute, "Permission uint round-trip");
 
         TestLogger.Info("Cast round-trips passed");
+    }
+
+    public void TestAuthErrorCodeLikeCaseValues()
+    {
+        // An Int-backed enum with large, non-sequential raw values (a common SDK error-code
+        // shape). The C# member must carry the actual Swift raw value, NOT the
+        // declaration-order ordinal (which would make WrongPassword == 0).
+        AssertEqual((long)17009, (long)AuthErrorCodeLike.WrongPassword, "WrongPassword raw value is 17009");
+        AssertEqual((long)17011, (long)AuthErrorCodeLike.UserNotFound, "UserNotFound raw value is 17011");
+        AssertEqual((long)17020, (long)AuthErrorCodeLike.NetworkError, "NetworkError raw value is 17020");
+        TestLogger.Info("AuthErrorCodeLike case values passed");
+    }
+
+    public void TestAuthErrorCodeLikeBackingType()
+    {
+        // Swift `Int` → C# `long` underlying type (64-bit ABI).
+        var underlyingType = Enum.GetUnderlyingType(typeof(AuthErrorCodeLike));
+        AssertEqual(typeof(long), underlyingType, "AuthErrorCodeLike backing type is long");
+    }
+
+    public void TestAuthErrorCodeRoundTripsThroughCdecl()
+    {
+        // Exercises the @_cdecl param-conversion switch (C# scalar 17009 -> Swift
+        // .wrongPassword) AND the return switch (Swift .wrongPassword -> C# scalar 17009) at
+        // runtime. A correct fix returns the same case the caller passed.
+        AssertEqual(AuthErrorCodeLike.WrongPassword,
+            SwiftBindingsTestLib.Functions.EchoAuthErrorCode(AuthErrorCodeLike.WrongPassword),
+            "echoAuthErrorCode round-trips wrongPassword");
+        AssertEqual(AuthErrorCodeLike.UserNotFound,
+            SwiftBindingsTestLib.Functions.EchoAuthErrorCode(AuthErrorCodeLike.UserNotFound),
+            "echoAuthErrorCode round-trips userNotFound");
+        // Return-only path: the scalar Swift hands back must equal the Swift raw value.
+        // (The parameterless `wrongPasswordCode()` projects to `GetWrongPasswordCode` under
+        // the noun→Get name-shaping rule.)
+        AssertEqual(AuthErrorCodeLike.WrongPassword,
+            SwiftBindingsTestLib.Functions.GetWrongPasswordCode(),
+            "wrongPasswordCode() returns wrongPassword");
+        AssertEqual((long)17009,
+            (long)SwiftBindingsTestLib.Functions.GetWrongPasswordCode(),
+            "wrongPasswordCode() scalar equals 17009");
+        TestLogger.Info("AuthErrorCodeLike @_cdecl round-trips passed");
     }
 
     #endregion
