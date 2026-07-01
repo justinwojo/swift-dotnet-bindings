@@ -116,7 +116,7 @@ public static class ApiDefinitionEmitter
         var droppedClassReasons = ComputeUnresolvableBaseClasses(module, knownTypes, appleSdkTypes);
         var droppedClassNames = new HashSet<string>(droppedClassReasons.Keys, StringComparer.Ordinal);
         foreach (var cls in module.Classes)
-            EmitClass(sb, cls, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, localProtocolNames, classProtocolClashNames, delegateProtocolNames, enumNames, droppedClassReasons, logger, diagnostics);
+            EmitClass(sb, cls, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, localProtocolNames, classProtocolClashNames, delegateProtocolNames, enumNames, droppedClassReasons, protocolsByName, logger, diagnostics);
 
         foreach (var cat in module.Categories)
             EmitCategory(sb, cat, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, enumNames, droppedClassNames, localProtocolNames, classProtocolClashNames, logger, diagnostics);
@@ -191,6 +191,21 @@ public static class ApiDefinitionEmitter
         var isClash = classProtocolClashNames != null && classProtocolClashNames.Contains(proto.Name);
         var protocolAttrArgs = isClash ? $"(Name = \"{proto.Name}\")" : "";
 
+        // A protocol that declares a parameterless init requirement otherwise gets BOTH a
+        // synthesized default constructor (exporting `init`) on bgen's concrete adapter class AND the
+        // requirement re-emitted as an abstract `Init()` method that also exports `init` — two members
+        // carrying the same ObjC selector on one registered type, which aborts the .NET registrar at
+        // launch. The abstract `Init()` additionally compiles to `public virtual NSObject Init()` on a
+        // class deriving from NSObject, which hides NSObject.Init() (CS0108). Both are resolved by
+        // fully mirroring EmitClass's parameterless-init handling: emit [DisableDefaultCtor] (suppress
+        // the synthesized ctor) AND suppress the parameterless `init` method in the loop below (the
+        // "Fix #6" filter) so neither member carries the selector and no NSObject.Init() shadow is
+        // emitted. Parameterless `initWith…` requirements export a distinct selector and do not
+        // collide, but they still warrant [DisableDefaultCtor] for the same reason EmitClass does.
+        var protocolDeclaresParameterlessInit =
+            proto.Methods.Any(m => m.Selector == "init" && m.Parameters.Count == 0)
+            || proto.Methods.Any(m => m.Selector.StartsWith("initWith", StringComparison.Ordinal) && m.Parameters.Count == 0);
+
         // Delegate/data-source protocols get [Model] attribute.
         // With [Model], the Xamarin convention uses the bare protocol name (not I-prefixed).
         if (proto.IsDelegateProtocol)
@@ -201,6 +216,8 @@ public static class ApiDefinitionEmitter
         {
             sb.AppendLine($"    [Protocol{protocolAttrArgs}]");
         }
+        if (protocolDeclaresParameterlessInit)
+            sb.AppendLine("    [DisableDefaultCtor]");
         sb.AppendLine("    [BaseType(typeof(NSObject))]");
 
         // Filter out implicit protocols from inheritance — NSObject is implicit in .NET MAUI bindings,
@@ -261,6 +278,16 @@ public static class ApiDefinitionEmitter
 
         foreach (var method in proto.Methods)
         {
+            // Suppress the parameterless `init` requirement when [DisableDefaultCtor] is emitted —
+            // mirrors EmitClass's "Fix #6". Keeping it would re-register selector `init` (colliding
+            // with bgen's synthesized adapter ctor) and emit a `public virtual NSObject Init()` that
+            // hides NSObject.Init() (CS0108).
+            if (protocolDeclaresParameterlessInit && method.Selector == "init" && method.Parameters.Count == 0)
+            {
+                logger.LogDebug("Skipping parameterless init on protocol {Protocol}: [DisableDefaultCtor] covers the selector", proto.Name);
+                diagnostics?.RecordSkip("Method", method.Selector, ObjCSkipReason.DuplicateSelector, $"parameterless init on protocol '{proto.Name}' is covered by [DisableDefaultCtor] (avoids duplicate selector + NSObject.Init() shadow)");
+                continue;
+            }
             if (CollidesWithPropertyAccessor(method, protocolAccessorSelectors))
             {
                 logger.LogDebug("Skipping method {Selector} on protocol {Protocol}: selector also exported by a property accessor", method.Selector, proto.Name);
@@ -278,7 +305,7 @@ public static class ApiDefinitionEmitter
         sb.AppendLine();
     }
 
-    static void EmitClass(StringBuilder sb, ObjCClassDecl cls, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, HashSet<string>? delegateProtocolNames, HashSet<string>? enumNames, IReadOnlyDictionary<string, string>? droppedClassReasons, ILogger logger, ObjCBindingDiagnostics? diagnostics)
+    static void EmitClass(StringBuilder sb, ObjCClassDecl cls, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, HashSet<string>? delegateProtocolNames, HashSet<string>? enumNames, IReadOnlyDictionary<string, string>? droppedClassReasons, Dictionary<string, ObjCProtocolDecl>? protocolsByName, ILogger logger, ObjCBindingDiagnostics? diagnostics)
     {
         // Resolvability gate (must run before any emission): drop the class if it's in the
         // precomputed unresolvable-base-class set — the fixpoint closure of classes whose base type
@@ -367,6 +394,17 @@ public static class ApiDefinitionEmitter
                 emittedPropertyNames.Add($"Weak{ToPascalCase(prop.Name)}");
         }
         var propertyAccessorSelectors = BuildPropertyAccessorSelectors(emittableProperties);
+
+        // Also drop a class method whose selector matches a property accessor flattened in from a
+        // conformed [Protocol]. The .NET registrar registers a conforming class's REQUIRED protocol
+        // members on the class itself, so such a method would export that selector twice (the method
+        // + the flattened property accessor) and abort the registrar at launch. The within-class set
+        // above only covers this class's OWN properties; this seeds the transitively-inherited
+        // conformed-protocol accessor selectors so CollidesWithPropertyAccessor catches them too.
+        var inheritedAccessorSelectors = BuildInheritedProtocolAccessorSelectors(
+            cls.ProtocolNames, protocolsByName, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes);
+        propertyAccessorSelectors.Instance.UnionWith(inheritedAccessorSelectors.Instance);
+        propertyAccessorSelectors.Class.UnionWith(inheritedAccessorSelectors.Class);
 
         foreach (var method in cls.Methods.Where(m =>
             !(conformsToNSCoding && m.Selector == "initWithCoder:")
@@ -972,6 +1010,64 @@ public static class ApiDefinitionEmitter
     }
 
     /// <summary>
+    /// Collects the ObjC property-accessor selectors that bgen/the registrar flatten onto a class
+    /// from the protocols it conforms to, transitively. The .NET registrar treats a conforming
+    /// class's REQUIRED protocol members as registered on the class itself, so a class method whose
+    /// <c>[Export]</c> selector equals one of these accessor selectors registers that selector twice
+    /// and aborts the registrar at launch. Only required (non-optional) properties are flattened — an
+    /// optional protocol member is reached through the generated interface's extension methods, never
+    /// registered on the class — and only resolvable-typed ones, matching what
+    /// <see cref="EmitProperty"/> actually emits. Protocols not declared in this module (SDK/external)
+    /// have no visible members and are skipped. Split by instance vs class membership so the result
+    /// composes with <see cref="BuildPropertyAccessorSelectors"/>.
+    /// </summary>
+    static (HashSet<string> Instance, HashSet<string> Class) BuildInheritedProtocolAccessorSelectors(
+        IEnumerable<string> conformedProtocolNames,
+        Dictionary<string, ObjCProtocolDecl>? protocolsByName,
+        Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap,
+        HashSet<string>? knownTypes, HashSet<string>? appleSdkTypes)
+    {
+        var instance = new HashSet<string>(StringComparer.Ordinal);
+        var klass = new HashSet<string>(StringComparer.Ordinal);
+        if (protocolsByName == null)
+            return (instance, klass);
+
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        void Walk(string protoName)
+        {
+            if (!visited.Add(protoName))
+                return;
+            // External/SDK protocol — its members aren't visible here, so its accessor selectors
+            // can't be enumerated. The registrar may still flatten them, but that's outside the
+            // confirmed local-protocol defect surface and would need SDK header introspection.
+            if (!protocolsByName.TryGetValue(protoName, out var proto))
+                return;
+            foreach (var prop in proto.Properties)
+            {
+                // Optional members aren't auto-implemented on a conforming class, so they're never
+                // registered on it — only required members are flattened.
+                if (prop.IsOptional)
+                    continue;
+                if (knownTypes != null)
+                {
+                    var checkType = ObjCTypeMapper.MapType(prop.Type, declaringClassName: null, genericTypeParams: null, typedefMap, blockTypedefMap);
+                    if (!ObjCTypeMapper.IsApiDefinitionTypeResolvable(checkType, knownTypes, appleSdkTypes))
+                        continue;
+                }
+                var target = prop.IsClass ? klass : instance;
+                target.Add(prop.GetterSelector ?? prop.Name);
+                if (!prop.IsReadonly)
+                    target.Add(prop.SetterSelector ?? $"set{ToPascalCase(prop.Name)}:");
+            }
+            foreach (var inherited in proto.InheritedProtocolNames)
+                Walk(inherited);
+        }
+        foreach (var name in conformedProtocolNames)
+            Walk(name);
+        return (instance, klass);
+    }
+
+    /// <summary>
     /// True when a method shares an ObjC selector with a property accessor of the same instance/
     /// class kind (the B1 duplicate-export hazard). Instance methods only collide with instance
     /// property accessors and class methods only with class property accessors, because ObjC
@@ -1047,12 +1143,23 @@ public static class ApiDefinitionEmitter
             propertyNames.Add(ToPascalCase(prop.Name));
         var ownAccessorSelectors = BuildPropertyAccessorSelectors(ownEmittableProps);
 
+        // Mirror EmitProtocol's parameterless-init suppression so the cached emission set matches what
+        // bgen actually sees. A protocol declaring a parameterless `init` requirement emits
+        // [DisableDefaultCtor] and drops the `init` method (it would otherwise re-register the selector
+        // and shadow NSObject.Init()), so the replay must NOT cache a phantom `Init` member — a stale
+        // entry would wrongly dedup a descendant protocol's same-named member out of existence.
+        var replayDeclaresParameterlessInit =
+            proto.Methods.Any(m => m.Selector == "init" && m.Parameters.Count == 0)
+            || proto.Methods.Any(m => m.Selector.StartsWith("initWith", StringComparison.Ordinal) && m.Parameters.Count == 0);
+
         // Replay this protocol's own methods against the seeded sets so any rename induced by an
         // ancestor (intra- or grandparent-level) OR an own property shows up in the cached result.
         // Method dedup only blocks on PROPERTY names — sibling method short names are valid overloads.
         foreach (var method in proto.Methods)
         {
             if (!WouldEmitMethod(method, knownTypes, appleSdkTypes, typedefMap, blockTypedefMap))
+                continue;
+            if (replayDeclaresParameterlessInit && method.Selector == "init" && method.Parameters.Count == 0)
                 continue;
             if (CollidesWithPropertyAccessor(method, ownAccessorSelectors))
                 continue;

@@ -43,6 +43,27 @@ public static class ObjCTestHelpers
     }
 
     /// <summary>
+    /// Emit an ObjCModule through ApiDefinitionEmitter, returning both the file content and the
+    /// diagnostics collector so tests can assert recorded skips (e.g. <c>DuplicateSelector</c>).
+    /// </summary>
+    public static (string Content, ObjCBindingDiagnostics Diagnostics) EmitApiDefinitionWithDiagnostics(
+        ObjCModule module, string ns = "TestNamespace", PlatformInfo? platformInfo = null)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"apidefinition_test_{Guid.NewGuid():N}");
+        var diagnostics = new ObjCBindingDiagnostics();
+        try
+        {
+            var path = ApiDefinitionEmitter.Emit(module, dir, ns, Logger, diagnostics: diagnostics, platformInfo: platformInfo);
+            return (File.ReadAllText(path), diagnostics);
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+                Directory.Delete(dir, true);
+        }
+    }
+
+    /// <summary>
     /// Emit an ObjCModule through StructsAndEnumsEmitter and return the main file content.
     /// Handles temp directory creation and cleanup.
     /// </summary>

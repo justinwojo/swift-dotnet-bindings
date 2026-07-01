@@ -414,8 +414,8 @@ public class ApiDefinitionEmitterTests
     [Fact]
     public void Emit_ProtocolMethod_AbsentTypeInsideBlockParam_IsDropped()
     {
-        // Mirrors the real FBSDKCoreKit shape: an [Abstract] protocol method whose block parameter
-        // carries a cross-module third-party class (FBSDKAppLink) that this binding neither declares
+        // Mirrors a real-world shape: an [Abstract] protocol method whose block parameter
+        // carries a cross-module third-party class that this binding neither declares
         // nor resolves via a using. The outer Action<…> is a known pattern, so without recursing into
         // its arguments the absent inner name leaks into the api-definition contract compile (CS0246).
         // The whole method must be dropped; a sibling whose block argument resolves still emits.
@@ -480,7 +480,7 @@ public class ApiDefinitionEmitterTests
     [Fact]
     public void Emit_ProtocolMethod_AbsentTypeInsideNamedBlockTypedefParam_IsDropped()
     {
-        // Mirrors FBSDKCoreKit's exact shape (FBSDKAppLinkBlock): the block parameter is a *named*
+        // Mirrors a real-world shape: the block parameter is a *named*
         // block typedef resolved through the block-typedef map — not an inline block — whose expansion
         // carries a cross-module class the binding neither declares nor resolves (in a mixed binding
         // the class is filtered out as Swift-owned, leaving the typedef pointing at an absent name).
@@ -4675,5 +4675,433 @@ public class ApiDefinitionEmitterTests
         Assert.Contains("CameraFittingCoordinateBounds", result);                 // method renamed
         Assert.Contains("[Export(\"camera:fittingCoordinateBounds:\")]", result); // export preserved
         Assert.Contains("Camera {", result);                                      // property survives
+    }
+
+    // ──────────────────────────────────────────────
+    // Shape A — protocol init requirement vs synthesized Model default ctor
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void Emit_ProtocolWithParameterlessInitRequirement_HasDisableDefaultCtor()
+    {
+        // A [Protocol] that declares a parameterless `init` requirement otherwise registers `init`
+        // twice on bgen's concrete adapter type — once for the synthesized default ctor, once for the
+        // abstract requirement re-emitted as a method — aborting the .NET registrar at launch, and the
+        // re-emitted method compiles to `public virtual NSObject Init()` that hides NSObject.Init()
+        // (CS0108). Fully mirroring EmitClass's parameterless-init handling resolves both: emit
+        // [DisableDefaultCtor] (suppress the ctor) AND drop the parameterless `init` method.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "Configuring",
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "init",
+                    ReturnType = new ObjCTypeRef { Name = "instancetype" },
+                    IsInstanceMethod = true,
+                    IsOptional = false,
+                }],
+            }],
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[DisableDefaultCtor]", result);
+        // Neither member carries `init`: the ctor is suppressed by [DisableDefaultCtor] and the
+        // parameterless `init` method is dropped, so no duplicate selector and no NSObject.Init() shadow.
+        var initExports = System.Text.RegularExpressions.Regex.Matches(result, @"\[Export\(""init""\)\]").Count;
+        Assert.Equal(0, initExports);
+    }
+
+    [Fact]
+    public void Emit_ProtocolWithParameterizedInitRequirement_NoDisableDefaultCtor()
+    {
+        // A parameterized `initWithConfig:` requirement does NOT collide with the synthesized
+        // parameterless `init` ctor (different selector), so [DisableDefaultCtor] must NOT be emitted
+        // — over-emitting it would needlessly strip the Model's default ctor.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "Configuring",
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "initWithConfig:",
+                    ReturnType = new ObjCTypeRef { Name = "instancetype" },
+                    IsInstanceMethod = true,
+                    IsOptional = false,
+                    Parameters = [new ObjCParameterDecl { Name = "config", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true } }],
+                }],
+            }],
+        };
+
+        var result = EmitAndRead(module);
+        Assert.DoesNotContain("[DisableDefaultCtor]", result);
+    }
+
+    [Fact]
+    public void Emit_DelegateProtocolWithParameterlessInitRequirement_ModelAndDisableDefaultCtor()
+    {
+        // The actually-colliding Shape A at runtime: a delegate protocol gets [Model], so bgen emits a
+        // concrete Model class whose synthesized default ctor exports `init` — colliding with the
+        // abstract `init` requirement. [DisableDefaultCtor] must compose with [Model] to suppress that
+        // ctor, and the parameterless `init` method must be dropped (full EmitClass mirror).
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "ConfigDelegate",
+                IsDelegateProtocol = true,
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "init",
+                    ReturnType = new ObjCTypeRef { Name = "instancetype" },
+                    IsInstanceMethod = true,
+                    IsOptional = false,
+                }],
+            }],
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[Protocol, Model]", result);
+        Assert.Contains("[DisableDefaultCtor]", result);
+        var initExports = System.Text.RegularExpressions.Regex.Matches(result, @"\[Export\(""init""\)\]").Count;
+        Assert.Equal(0, initExports);
+    }
+
+    [Fact]
+    public void Emit_ProtocolWithOnlyParameterlessInitRequirement_EmitsEmptyInterfaceWithDisableDefaultCtor()
+    {
+        // Degenerate Shape A: the protocol's ONLY member is the parameterless `init`. Dropping it
+        // leaves a valid empty marker interface (bgen supports empty protocols); [DisableDefaultCtor]
+        // is still emitted, and no `init` selector and no NSObject.Init() shadow survive.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "Marker",
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "init",
+                    ReturnType = new ObjCTypeRef { Name = "instancetype" },
+                    IsInstanceMethod = true,
+                    IsOptional = false,
+                }],
+            }],
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("partial interface Marker", result);
+        Assert.Contains("[DisableDefaultCtor]", result);
+        var initExports = System.Text.RegularExpressions.Regex.Matches(result, @"\[Export\(""init""\)\]").Count;
+        Assert.Equal(0, initExports);
+    }
+
+    [Fact]
+    public void Emit_ProtocolWithParameterlessInitWithNoColon_HasDisableDefaultCtor_KeepsMethod()
+    {
+        // A 0-parameter `initWith…` (no colon, e.g. `initWithDefaults`) exports a selector DISTINCT
+        // from `init`, so it never collides with the synthesized default ctor and must STAY emitted —
+        // but it still triggers [DisableDefaultCtor] (mirrors EmitClass, which keys Disable off any
+        // parameterless init-family selector). Only the bare `init` selector is ever dropped.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "Configuring",
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "initWithDefaults",
+                    ReturnType = new ObjCTypeRef { Name = "instancetype" },
+                    IsInstanceMethod = true,
+                    IsOptional = false,
+                }],
+            }],
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[DisableDefaultCtor]", result);
+        Assert.Contains("[Export(\"initWithDefaults\")]", result);  // distinct selector → method kept
+    }
+
+    [Fact]
+    public void Emit_ProtocolWithParameterlessInitRequirement_RecordsDuplicateSelectorSkip()
+    {
+        // The Shape A drop must be observable as a DuplicateSelector diagnostic on the `init` method,
+        // so a regression that loses the method through a different path is still distinguishable.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "Configuring",
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "init",
+                    ReturnType = new ObjCTypeRef { Name = "instancetype" },
+                    IsInstanceMethod = true,
+                    IsOptional = false,
+                }],
+            }],
+        };
+
+        var (_, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+        Assert.Contains(diagnostics.SkippedSymbols,
+            s => s.Reason == ObjCSkipReason.DuplicateSelector && s.SymbolKind == "Method" && s.SymbolName == "init");
+    }
+
+    // ──────────────────────────────────────────────
+    // Shape B — class method vs flattened conformed-protocol property accessor
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void Emit_ClassMethodMatchingConformedProtocolPropertySetter_DropsMethod_KeepsProperty()
+    {
+        // A class conforms to a [Protocol] that declares a settable required property whose setter
+        // selector equals a method the class also declares. The registrar flattens the conforming
+        // class's required protocol members onto the class, so the class would register the setter
+        // selector twice (the flattened property setter + the method) and abort at launch. The method
+        // must be dropped in favour of the flattened property accessor.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "Requesting",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "errorRecoveryDisabled",
+                    Type = new ObjCTypeRef { Name = "BOOL" },
+                    IsReadonly = false,
+                    IsOptional = false,
+                }],
+            }],
+            Classes = [new ObjCClassDecl
+            {
+                Name = "Request",
+                ProtocolNames = ["Requesting"],
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "setErrorRecoveryDisabled:",
+                    ReturnType = new ObjCTypeRef { Name = "void" },
+                    IsInstanceMethod = true,
+                    Parameters = [new ObjCParameterDecl { Name = "disable", Type = new ObjCTypeRef { Name = "BOOL" } }],
+                }],
+            }],
+        };
+
+        var result = EmitAndRead(module);
+        // The flattened property setter export survives exactly once (on the protocol); the class
+        // method that re-exported the same selector is gone.
+        var setterExports = System.Text.RegularExpressions.Regex.Matches(result, @"\[Export\(""setErrorRecoveryDisabled:""\)\]").Count;
+        Assert.Equal(1, setterExports);
+        Assert.DoesNotContain("void SetErrorRecoveryDisabled", result);
+    }
+
+    [Fact]
+    public void Emit_ClassMethodMatchingTransitiveProtocolPropertySetter_DropsMethod()
+    {
+        // Transitive flattening: the class conforms to protocol B, which inherits protocol A; A's
+        // required settable property is flattened onto the class too, so a class method whose
+        // selector equals A's setter must also be dropped.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols =
+            [
+                new ObjCProtocolDecl
+                {
+                    Name = "BaseRequesting",
+                    Properties = [new ObjCPropertyDecl
+                    {
+                        Name = "errorRecoveryDisabled",
+                        Type = new ObjCTypeRef { Name = "BOOL" },
+                        IsReadonly = false,
+                        IsOptional = false,
+                    }],
+                },
+                new ObjCProtocolDecl
+                {
+                    Name = "Requesting",
+                    InheritedProtocolNames = ["BaseRequesting"],
+                },
+            ],
+            Classes = [new ObjCClassDecl
+            {
+                Name = "Request",
+                ProtocolNames = ["Requesting"],
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "setErrorRecoveryDisabled:",
+                    ReturnType = new ObjCTypeRef { Name = "void" },
+                    IsInstanceMethod = true,
+                    Parameters = [new ObjCParameterDecl { Name = "disable", Type = new ObjCTypeRef { Name = "BOOL" } }],
+                }],
+            }],
+        };
+
+        var result = EmitAndRead(module);
+        var setterExports = System.Text.RegularExpressions.Regex.Matches(result, @"\[Export\(""setErrorRecoveryDisabled:""\)\]").Count;
+        Assert.Equal(1, setterExports);
+        Assert.DoesNotContain("void SetErrorRecoveryDisabled", result);
+    }
+
+    [Fact]
+    public void Emit_ClassMethodMatchingOptionalProtocolPropertySetter_NotDropped()
+    {
+        // An OPTIONAL protocol property is reached through the generated interface's extension
+        // methods, never registered on a conforming class, so its setter selector does NOT collide
+        // with a class method. Over-dropping here would silently lose a real class API.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "Requesting",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "errorRecoveryDisabled",
+                    Type = new ObjCTypeRef { Name = "BOOL" },
+                    IsReadonly = false,
+                    IsOptional = true,   // optional → not flattened onto the conforming class
+                }],
+            }],
+            Classes = [new ObjCClassDecl
+            {
+                Name = "Request",
+                ProtocolNames = ["Requesting"],
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "setErrorRecoveryDisabled:",
+                    ReturnType = new ObjCTypeRef { Name = "void" },
+                    IsInstanceMethod = true,
+                    Parameters = [new ObjCParameterDecl { Name = "disable", Type = new ObjCTypeRef { Name = "BOOL" } }],
+                }],
+            }],
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("void SetErrorRecoveryDisabled", result);  // class method survives
+    }
+
+    [Fact]
+    public void Emit_ClassStaticMethodMatchingInheritedInstancePropertyAccessor_NotDropped()
+    {
+        // Instance/class kind separation extends to inherited accessors: a CLASS (static) method
+        // whose selector equals an INSTANCE property accessor flattened from a conformed protocol
+        // dispatches through a separate ObjC method list and must NOT be dropped.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "Requesting",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "token",
+                    Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                    IsReadonly = true,
+                    IsOptional = false,
+                }],
+            }],
+            Classes = [new ObjCClassDecl
+            {
+                Name = "Request",
+                ProtocolNames = ["Requesting"],
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "token",
+                    ReturnType = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                    IsInstanceMethod = false,   // class (static) method
+                }],
+            }],
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("[Static]", result);   // the class method is still emitted
+    }
+
+    [Fact]
+    public void Emit_ClassStaticMethodMatchingConformedProtocolClassPropertySetter_DropsMethod()
+    {
+        // The class-namespace counterpart of the instance drop: a CLASS (static) method whose selector
+        // equals a settable CLASS property accessor flattened from a conformed protocol collides within
+        // the metaclass method list and must be dropped in favour of the flattened class-property setter.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "Configuring",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "config",
+                    Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                    IsClass = true,
+                    IsReadonly = false,
+                    IsOptional = false,
+                }],
+            }],
+            Classes = [new ObjCClassDecl
+            {
+                Name = "Manager",
+                ProtocolNames = ["Configuring"],
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "setConfig:",
+                    ReturnType = new ObjCTypeRef { Name = "void" },
+                    IsInstanceMethod = false,   // class (static) method — same kind as the class property
+                    Parameters = [new ObjCParameterDecl { Name = "config", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true } }],
+                }],
+            }],
+        };
+
+        var result = EmitAndRead(module);
+        // Exactly one `setConfig:` export (the flattened class-property setter); the class method is gone.
+        var setterExports = System.Text.RegularExpressions.Regex.Matches(result, @"\[Export\(""setConfig:""\)\]").Count;
+        Assert.Equal(1, setterExports);
+        Assert.DoesNotContain("void SetConfig", result);
+    }
+
+    [Fact]
+    public void Emit_ClassMethodMatchingConformedProtocolPropertySetter_RecordsDuplicateSelectorSkip()
+    {
+        // The Shape B drop must be observable as a DuplicateSelector diagnostic on the colliding method.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "Requesting",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "errorRecoveryDisabled",
+                    Type = new ObjCTypeRef { Name = "BOOL" },
+                    IsReadonly = false,
+                    IsOptional = false,
+                }],
+            }],
+            Classes = [new ObjCClassDecl
+            {
+                Name = "Request",
+                ProtocolNames = ["Requesting"],
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "setErrorRecoveryDisabled:",
+                    ReturnType = new ObjCTypeRef { Name = "void" },
+                    IsInstanceMethod = true,
+                    Parameters = [new ObjCParameterDecl { Name = "disable", Type = new ObjCTypeRef { Name = "BOOL" } }],
+                }],
+            }],
+        };
+
+        var (_, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+        Assert.Contains(diagnostics.SkippedSymbols,
+            s => s.Reason == ObjCSkipReason.DuplicateSelector && s.SymbolKind == "Method" && s.SymbolName == "setErrorRecoveryDisabled:");
     }
 }

@@ -517,6 +517,53 @@ partial class Build
         return xcframeworkPath;
     }
 
+    // ObjC declarations that reproduce the two duplicate-[Export]-selector API-definition
+    // emitter shapes, so the generated binding registers them at app launch. The runtime
+    // gate is that a consumer linking this binding launches past RegisterAssembly without
+    // the .NET registrar aborting on a duplicate selector — a failure unit tests cannot see.
+    // Emitted into BOTH the framework's parsed umbrella header (so the generator binds the
+    // shapes) and probe.m (so Shape B's class is defined in the binary). Type names derive
+    // from {module} so every fixture leg gets its own non-colliding ObjC classes.
+    //
+    // Shape A — a protocol declaring a parameterless -init requirement. bgen materializes a
+    // concrete adapter class ({module}Configuring : NSObject) for the protocol; without the fix
+    // that class registers "init" twice (its synthesized default ctor + the abstract Init()
+    // requirement re-emitted as a method) and the .NET registrar aborts at launch, AND the
+    // re-emitted method compiles to `public virtual NSObject Init()` that hides NSObject.Init()
+    // (CS0108). The emitter fix mirrors the class path fully: mark the protocol
+    // [DisableDefaultCtor] AND drop the parameterless init method, so neither member carries the
+    // selector and no NSObject.Init() shadow is emitted. A plain (non-delegate) [Protocol] is
+    // used to match the real-world shape (the discovering corpus's init defect was a plain
+    // protocol, not a [Model] delegate); both forms produce the concrete NSObject subclass.
+    //
+    // Shape B — a class conforming to a protocol with a settable REQUIRED property whose
+    // setter selector equals a method the class itself declares. The registrar flattens the
+    // required property accessors onto the conforming class, so "setErrorRecoveryDisabled:"
+    // would register twice (the flattened setter + the method) unless the emitter drops the
+    // colliding method in favour of the inherited accessor.
+    static string MixedFixtureSelectorDedupInterface(string module) =>
+        $"@protocol {module}Configuring <NSObject>\n" +
+        "- (instancetype)init;\n" +
+        "- (void)didApplyConfiguration;\n" +
+        "@end\n" +
+        $"@protocol {module}Requesting <NSObject>\n" +
+        "@property (nonatomic, assign) BOOL errorRecoveryDisabled;\n" +
+        "@end\n" +
+        $"@interface {module}Request : NSObject <{module}Requesting>\n" +
+        "- (void)setErrorRecoveryDisabled:(BOOL)disable;\n" +
+        "@end\n";
+
+    // Shape B's class implementation (manual getter+setter, so no @synthesize re-declares the
+    // setter). Compiled into probe.o → the framework binary, so the registrar finds the native
+    // class. Shape A's protocol/[Model] class needs no native implementation (it is pure managed).
+    static string MixedFixtureSelectorDedupImplementation(string module) =>
+        $"@implementation {module}Request {{\n" +
+        "    BOOL _errorRecoveryDisabled;\n" +
+        "}\n" +
+        "- (BOOL)errorRecoveryDisabled { return _errorRecoveryDisabled; }\n" +
+        "- (void)setErrorRecoveryDisabled:(BOOL)disable { _errorRecoveryDisabled = disable; }\n" +
+        "@end\n";
+
     // Writes the shared MIXED-framework sources once into buildRoot: an ObjC class
     // (the unreferenced probe, with a unique name so no SDK/Foundation symbol can
     // satisfy the force_load assertion by accident) and a small independent Swift
@@ -529,7 +576,9 @@ partial class Build
         File.WriteAllText(probeM,
             "#import <Foundation/Foundation.h>\n" +
             $"@interface {probeClass} : NSObject\n- (NSString *)greeting;\n@end\n" +
-            $"@implementation {probeClass}\n- (NSString *)greeting {{ return @\"{PackGateMixedObjCGreeting}\"; }}\n@end\n");
+            $"@implementation {probeClass}\n- (NSString *)greeting {{ return @\"{PackGateMixedObjCGreeting}\"; }}\n@end\n" +
+            MixedFixtureSelectorDedupInterface(module) +
+            MixedFixtureSelectorDedupImplementation(module));
 
         // The open-generic struct ({module}Box<T>) is the descriptor trigger: the
         // generator records every open-generic ISwiftObject type and emits an
@@ -576,7 +625,8 @@ partial class Build
 
         File.WriteAllText(hdrDir / $"{module}.h",
             "#import <Foundation/Foundation.h>\n" +
-            $"@interface {probeClass} : NSObject\n- (NSString *)greeting;\n@end\n");
+            $"@interface {probeClass} : NSObject\n- (NSString *)greeting;\n@end\n" +
+            MixedFixtureSelectorDedupInterface(module));
 
         File.WriteAllText(frameworkDir / "Modules" / "module.modulemap",
             $"framework module {module} {{\n" +
