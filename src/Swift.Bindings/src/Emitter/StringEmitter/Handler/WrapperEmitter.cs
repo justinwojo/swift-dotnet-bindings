@@ -107,6 +107,15 @@ namespace BindingsGeneration
         // Populated by TryEmitParameterConversionViaProjection, consumed by EmitInConventionOptionalCleanup.
         private readonly List<string> _inConventionOptionalNames = new();
 
+        // Tracks parameter names for Optional @objc-existential arguments whose plain managed conformer
+        // was auto-wrapped into a freshly-built EveryProtocol proxy (see the Optional @objc auto-wrap
+        // branch in TryEmitParameterConversionViaProjection). The proxy backs the bare object pointer on
+        // the wire but is rooted only weakly, so its liveness must be pinned across Swift's borrow with a
+        // post-call GC.KeepAlive — a GC between the wrap and the native call could otherwise finalize it
+        // and release R0 mid-call (UAF). Each entry names a `{name}KeepAlive` local declared in the setup.
+        // Populated by TryEmitParameterConversionViaProjection, consumed by EmitObjCExistentialConformerKeepAlive.
+        private readonly List<string> _objcConformerKeepAliveNames = new();
+
         // Counts currently-open raw-buffer `fixed (...)` blocks. Every call to
         // EmitRawBufferFixedStart increments by the number of UnsafeRawBufferPointer
         // parameters; the paired EmitRawBufferFixedEnd decrements by the same count.
@@ -517,6 +526,7 @@ namespace BindingsGeneration
             EmitPInvokeCall(csWriter);
             EmitConsumedNonCopyableParamCleanup(csWriter);
             EmitInConventionOptionalCleanup(csWriter);
+            EmitObjCExistentialConformerKeepAlive(csWriter);
             EmitGenericInoutWriteback(csWriter);
             EmitSwiftError(csWriter);
             EmitReturnConstructor(csWriter);
@@ -609,6 +619,7 @@ namespace BindingsGeneration
                 EmitPInvokeCall(csWriter);
                 EmitConsumedNonCopyableParamCleanup(csWriter);
                 EmitInConventionOptionalCleanup(csWriter);
+                EmitObjCExistentialConformerKeepAlive(csWriter);
                 EmitSwiftError(csWriter);
                 csWriter.WriteLine("if (*buf == IntPtr.Zero)");
                 csWriter.Indent++;
@@ -624,6 +635,7 @@ namespace BindingsGeneration
                 EmitPInvokeCall(csWriter);
                 EmitConsumedNonCopyableParamCleanup(csWriter);
                 EmitInConventionOptionalCleanup(csWriter);
+                EmitObjCExistentialConformerKeepAlive(csWriter);
                 EmitSwiftError(csWriter);
                 csWriter.WriteLine($"if ({ReturnLocalName} == IntPtr.Zero)");
                 csWriter.Indent++;
@@ -752,6 +764,7 @@ namespace BindingsGeneration
             EmitConsumedNonCopyableParamCleanup(csWriter);
             EmitConsumedNonCopyableSelfCleanup(csWriter);
             EmitInConventionOptionalCleanup(csWriter);
+            EmitObjCExistentialConformerKeepAlive(csWriter);
             EmitGenericInoutWriteback(csWriter);
             EmitSwiftError(csWriter);
             EmitReturnMethod(csWriter);
@@ -1068,6 +1081,22 @@ namespace BindingsGeneration
             foreach (var name in _inConventionOptionalNames)
             {
                 csWriter.WriteLine($"{name}Swift.DisposeAfterConsumption();");
+            }
+        }
+
+        /// <summary>
+        /// After the P/Invoke returns, pins each auto-wrapped Optional @objc-existential conformer proxy
+        /// with <c>GC.KeepAlive</c> so it cannot be collected while Swift borrows the bare object pointer
+        /// it backs. A freshly built proxy is registered only weakly (via <see cref="ProxyLifetimeTracker"/>),
+        /// so without this a GC between the wrap and the native call could finalize it and release R0
+        /// mid-call. Pairs with <see cref="_objcConformerKeepAliveNames"/> populated in
+        /// TryEmitParameterConversionViaProjection; a no-op when the method has no such parameter.
+        /// </summary>
+        private void EmitObjCExistentialConformerKeepAlive(CSharpWriter csWriter)
+        {
+            foreach (var name in _objcConformerKeepAliveNames)
+            {
+                csWriter.WriteLine($"global::System.GC.KeepAlive({name}KeepAlive);");
             }
         }
 

@@ -85,3 +85,26 @@ public class ObjCShapeBox {
 public func echoObjCShape(_ shape: (any ObjCClassBoundShape)?) -> (any ObjCClassBoundShape)? {
     return shape
 }
+
+// MARK: - Reverse dispatch of a *plain* C# conformer through the @objc existential
+//
+// The two functions below take the class-bound @objc existential as a PARAMETER and
+// dispatch `.tag` on it — reading the conformer's witness back out. When the caller
+// hands in a plain managed conformer (a C# class implementing the generated interface,
+// with no Swift-vended backing object), the generator auto-wraps it into an EveryProtocol
+// proxy and passes the proxy's single bare ObjC object pointer on the wire. Swift then
+// reconstructs `any ObjCClassBoundShape` from that pointer and dispatches `.tag` straight
+// back into the C# implementation through the vtable. `readObjCShapeTag` exercises the
+// NON-optional projection path; `readOptionalObjCShapeTag` exercises the Optional path
+// (nil → -1). These are the reverse-dispatch gate for a plain conformer flowing *into*
+// an @objc existential parameter.
+
+/// Dispatches `.tag` on a non-optional class-bound @objc existential parameter.
+public func readObjCShapeTag(_ shape: any ObjCClassBoundShape) -> Int32 {
+    return shape.tag
+}
+
+/// Dispatches `.tag` on an Optional class-bound @objc existential parameter (-1 when nil).
+public func readOptionalObjCShapeTag(_ shape: (any ObjCClassBoundShape)?) -> Int32 {
+    return shape?.tag ?? -1
+}

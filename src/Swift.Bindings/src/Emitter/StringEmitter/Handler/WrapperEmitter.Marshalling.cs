@@ -658,6 +658,44 @@ namespace BindingsGeneration
                 return true;
             }
 
+            // Optional @objc protocol existential — auto-wrap a plain managed conformer.
+            //
+            // `(any P)?` for an @objc protocol is a single nullable ObjC object pointer (nil =
+            // IntPtr.Zero). A Swift-vended conformer borrows its live ISwiftObject handle; a plain
+            // managed conformer is auto-wrapped into the EveryProtocol proxy and passed as the proxy's
+            // sole object pointer (ExistentialContainer1.Payload0), which Swift reconstructs into
+            // `any P` and dispatches back into the C# implementation. The freshly-built proxy is pinned
+            // across Swift's borrow by a post-call GC.KeepAlive (EmitObjCExistentialConformerKeepAlive),
+            // recorded here by parameter name. Gated to SYNCHRONOUS methods: a foreground GC.KeepAlive
+            // cannot span an async suspension, and an @objc existential parameter is @guaranteed across
+            // the whole async call — so an async @objc-conformer parameter keeps the fail-closed
+            // reverse-direction guard below (Swift-vended values still round-trip). The buffer name
+            // ({csName}Buffer) matches the P/Invoke argument the PInvokeEmitter emits for an optional
+            // existential, so the call site resolves it directly.
+            if (!_requiresSwiftAsync &&
+                projection is OptionalProjection { InnerProjection: ExistentialProjection { IsObjCExistential: true } objcAutoWrapInner } &&
+                objcAutoWrapInner.CanAutoWrapObjCConformer)
+            {
+                var bufferName = NameProvider.GetBoundGenericBufferName(csName);
+                csWriter.WriteLine($"object? {csName}KeepAlive = null;");
+                csWriter.WriteLine($"IntPtr {bufferName};");
+                csWriter.WriteLine($"if ({csName} is {{ }} {csName}Val)");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                MarshalPlanRenderer.RenderStatements(csWriter,
+                    objcAutoWrapInner.GetObjCAutoWrapBufferStatements($"{csName}Val", bufferName, $"{csName}KeepAlive"));
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine("else");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine($"{bufferName} = IntPtr.Zero;");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                _objcConformerKeepAliveNames.Add(csName);
+                return true;
+            }
+
             // Check if Optional param needs DangerousGetHandle override.
             // @_cdecl wrappers receive all Optional value-type params as UnsafeRawPointer
             // and call .load(as: Optional<T>.self) — they need a POINTER to the buffer,

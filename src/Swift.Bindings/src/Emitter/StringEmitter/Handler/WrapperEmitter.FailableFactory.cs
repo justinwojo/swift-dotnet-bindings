@@ -142,6 +142,7 @@ namespace BindingsGeneration
             // returns the retained class pointer (or null) into ReturnLocalName.
             EmitPInvokeCall(csWriter);
             EmitInConventionOptionalCleanup(csWriter);
+            EmitObjCExistentialConformerKeepAlive(csWriter);
 
             // Write back inout generic params before error check (so mutations survive exceptions)
             EmitGenericInoutWriteback(csWriter);

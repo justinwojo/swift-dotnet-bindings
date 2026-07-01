@@ -93,6 +93,60 @@ public class ExistentialProjection : ITypeProjection
         $")).SwiftHandle";
 
     /// <summary>
+    /// True when a <em>plain managed</em> conformer flowing INTO an <c>@objc</c> existential parameter
+    /// can be auto-wrapped into the generated EveryProtocol proxy — i.e. a proxy class is emitted for
+    /// the protocol. When false (no proxy, or the proxy's EveryProtocol conformance was suppressed) only
+    /// a Swift-vended conformer round-trips and the reverse direction stays fail-closed via
+    /// <see cref="GetObjCParameterExpression"/>. Consumed by <see cref="OptionalProjection"/> / the
+    /// wrapper emitter to decide whether to auto-wrap or keep the fail-closed guard.
+    /// </summary>
+    internal bool CanAutoWrapObjCConformer => _isObjCExistential && _proxyClassName != null && !_proxyIsSuppressed;
+
+    /// <summary>
+    /// C#→Swift statements assigning <paramref name="bufferVar"/> (an already-declared <c>IntPtr</c>) the
+    /// bare <c>@objc</c> object pointer for the non-null value <paramref name="valueExpr"/>, and binding the
+    /// object whose liveness must span Swift's borrow into <paramref name="keepAliveVar"/> (declared
+    /// <c>object?</c> by the caller) so the marshalling site can <c>GC.KeepAlive</c> it past the native
+    /// call. A Swift-vended conformer (already an <see cref="Swift.Runtime.ISwiftObject"/>) contributes the
+    /// bare pointer read out of its live handle at +0 and is itself pinned into <paramref name="keepAliveVar"/>:
+    /// once the raw pointer is extracted the wrapper is otherwise unreferenced, so without the pin the JIT
+    /// could drop it and a concurrent GC could finalize it (releasing the object) mid-borrow. A plain managed
+    /// conformer is auto-wrapped into the EveryProtocol proxy; the proxy's sole object pointer
+    /// (<c>ExistentialContainer1.Payload0</c>, which the C#-impl proxy ctor sets to the EveryProtocol
+    /// construction +1) is the wire value, and the freshly-built proxy is bound into
+    /// <paramref name="keepAliveVar"/> — it is registered only weakly, so a GC between the wrap and the
+    /// borrow could otherwise finalize it and release R0 mid-call (UAF). Either way the single post-call
+    /// <c>GC.KeepAlive</c> covers the arm that ran. Only valid when <see cref="CanAutoWrapObjCConformer"/> is true.
+    /// </summary>
+    internal IReadOnlyList<MarshalStatement> GetObjCAutoWrapBufferStatements(string valueExpr, string bufferVar, string keepAliveVar)
+    {
+        string swiftObjTmp = $"{bufferVar}SwiftObj";
+        string containerTmp = $"{bufferVar}Container";
+        return new List<MarshalStatement>
+        {
+            new MarshalStatement.Block(
+                $"if ({valueExpr} is Swift.Runtime.ISwiftObject {swiftObjTmp})",
+                new List<MarshalStatement>
+                {
+                    new MarshalStatement.Line($"{bufferVar} = {swiftObjTmp}.SwiftHandle;"),
+                    // Pin the Swift-vended wrapper too: the wire value is the bare object pointer read
+                    // out of it, and after this the wrapper is otherwise unreferenced, so the JIT could
+                    // drop it and let a concurrent GC finalize it (releasing the object) while Swift
+                    // borrows the pointer. The post-call GC.KeepAlive({keepAlive}) then covers BOTH arms.
+                    new MarshalStatement.Line($"{keepAliveVar} = {swiftObjTmp};"),
+                }),
+            new MarshalStatement.Block(
+                "else",
+                new List<MarshalStatement>
+                {
+                    new MarshalStatement.Line(
+                        $"var {containerTmp} = Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{_publicType}>({valueExpr}, static __v => new {_proxyClassName}(__v), out _, out {keepAliveVar});"),
+                    new MarshalStatement.Line($"{bufferVar} = {containerTmp}.Payload0;"),
+                }),
+        };
+    }
+
+    /// <summary>
     /// Swift→C# return construction for an <c>@objc</c> existential: adopt the +1-owned object pointer
     /// returned by value into the proxy via <c>Payload0</c> (<c>ownsContainer: true</c> → released via
     /// unknown-object ARC on Dispose/finalize). The proxy's class-bound layout reads/releases Payload0

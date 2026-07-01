@@ -96,4 +96,49 @@ public class ObjCClassBoundExistentialTests : TestBase
         AssertNull(box.MutableStored, "settable @objc existential round-trips back to null");
         AssertEqual(-1, box.GetMutableStoredTag(), "cleared content reports the empty sentinel");
     }
+
+    /// <summary>
+    /// A plain managed conformer — a C# class implementing the generated interface with no
+    /// Swift-vended backing object — flowing INTO a class-bound @objc existential parameter.
+    /// The generator auto-wraps it into an EveryProtocol proxy and passes the proxy's single
+    /// bare ObjC object pointer; Swift reconstructs `any ObjCClassBoundShape` and dispatches
+    /// `.tag` straight back into this implementation. Reverse dispatch through the NON-optional
+    /// projection path.
+    /// </summary>
+    public void TestPlainConformerReverseDispatchNonOptional()
+    {
+        var shape = new ManagedShape(31);
+        AssertEqual(31, TestLibFunctions.ReadObjCShapeTag(shape),
+            "Swift dispatched .tag back into the plain C# conformer through the non-optional @objc existential");
+
+        // Second call exercises the per-(impl, protocol) proxy cache reuse.
+        AssertEqual(31, TestLibFunctions.ReadObjCShapeTag(shape),
+            "repeat dispatch reuses the cached proxy and still reads the conformer's witness");
+
+        // A distinct impl instance must get its own proxy → its own tag.
+        AssertEqual(58, TestLibFunctions.ReadObjCShapeTag(new ManagedShape(58)),
+            "a second plain conformer dispatches its own tag");
+    }
+
+    /// <summary>
+    /// The same plain managed conformer flowing INTO the Optional class-bound @objc existential
+    /// parameter (nil → -1). Reverse dispatch through the Optional projection path — the shape
+    /// the fail-closed guard used to reject.
+    /// </summary>
+    public void TestPlainConformerReverseDispatchOptional()
+    {
+        AssertEqual(-1, TestLibFunctions.ReadOptionalObjCShapeTag(null),
+            "nil Optional @objc existential reports the empty sentinel");
+
+        var shape = new ManagedShape(64);
+        AssertEqual(64, TestLibFunctions.ReadOptionalObjCShapeTag(shape),
+            "Swift dispatched .tag back into the plain C# conformer through the Optional @objc existential");
+    }
+
+    /// <summary>Plain managed conformer — no Swift-vended backing object.</summary>
+    private sealed class ManagedShape : IObjCClassBoundShape
+    {
+        public ManagedShape(int tag) => Tag = tag;
+        public int Tag { get; }
+    }
 }
