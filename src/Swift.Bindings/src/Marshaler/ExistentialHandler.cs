@@ -369,6 +369,13 @@ public class ExistentialHandler
             if (_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord) &&
                 typeRecord.Kind == TypeRecordKind.Protocol)
             {
+                // An @objc protocol's existential is a single 8-byte ObjC object pointer with
+                // no Swift witness-table word and no `…Mp` descriptor (even when also ClassBound
+                // via AnyObject/NSObjectProtocol). The 16-byte ClassExistentialContainer1 carrier
+                // would over-size it AND its metadata registration needs the missing descriptor,
+                // so route @objc existentials through the descriptor-free opaque container path.
+                if ((typeRecord.Flags & TypeRecordFlags.ObjCProtocol) != 0)
+                    return false;
                 return (typeRecord.Flags & TypeRecordFlags.ClassBound) != 0;
             }
         }
@@ -378,6 +385,144 @@ public class ExistentialHandler
             // the regular opaque container path.
         }
 
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true when the existential is a single <c>@objc</c> protocol's existential
+    /// (<c>any P</c> where <c>P</c> is declared <c>@objc</c>). Such an existential's ABI is a
+    /// single 8-byte Objective-C object pointer — no Swift witness-table word and no <c>…Mp</c>
+    /// protocol descriptor, even when class-bound via <c>AnyObject</c>/<c>NSObjectProtocol</c>.
+    /// It must marshal as a bare object pointer (<c>IntPtr</c>, nil = <c>IntPtr.Zero</c>,
+    /// unknown-object ARC), NOT through any <c>ExistentialContainerN</c> or the 16-byte
+    /// <c>ClassExistentialContainer1</c> carrier. Keyed entirely on
+    /// <see cref="TypeRecordFlags.ObjCProtocol"/> so the pure-Swift existential corpus is byte-identical.
+    /// </summary>
+    /// <param name="protocolList">The protocol list type specification.</param>
+    /// <returns><c>true</c> for a single <c>@objc</c> protocol existential.</returns>
+    public bool IsObjCProtocolExistential(ProtocolListTypeSpec protocolList)
+    {
+        var nonMarker = GetNonMarkerProtocols(protocolList);
+        return nonMarker.Count == 1 && IsObjCProtocolNamed(nonMarker[0], _typeDatabase);
+    }
+
+    /// <summary>
+    /// Spec-level form of <see cref="IsObjCProtocolExistential(ProtocolListTypeSpec)"/> for emitter
+    /// sites that operate on raw <see cref="TypeSpec"/>s (cdecl param/return mappers, indirect-result
+    /// classification, large-optional routing, P/Invoke type selection). Unwraps a single
+    /// <c>Optional&lt;…&gt;</c> layer and reports whether the inner shape was optional via
+    /// <paramref name="isOptional"/>. Recognises both the <see cref="ProtocolListTypeSpec"/> form
+    /// (<c>any P</c> / <c>any P &amp; Sendable</c>) and the single <c>any</c> <see cref="NamedTypeSpec"/> form.
+    /// </summary>
+    public static bool IsObjCProtocolExistentialSpec(TypeSpec typeSpec, ITypeDatabase typeDatabase, out bool isOptional)
+    {
+        isOptional = false;
+        var spec = typeSpec;
+        if (spec is NamedTypeSpec optSpec && optSpec.Name == "Swift.Optional" && optSpec.GenericParameters.Count == 1)
+        {
+            isOptional = true;
+            spec = optSpec.GenericParameters[0];
+        }
+
+        if (spec is ProtocolListTypeSpec protocolList)
+        {
+            var nonMarker = GetNonMarkerProtocols(protocolList);
+            return nonMarker.Count == 1 && IsObjCProtocolNamed(nonMarker[0], typeDatabase);
+        }
+        if (spec is NamedTypeSpec named && named.IsAny && !WrapperValidation.IsMetatypeType(named))
+            return IsObjCProtocolNamed(named, typeDatabase);
+        return false;
+    }
+
+    /// <summary>
+    /// Spec-level form that ignores any <c>Optional&lt;…&gt;</c> wrapping.
+    /// </summary>
+    public static bool IsObjCProtocolExistentialSpec(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+        => IsObjCProtocolExistentialSpec(typeSpec, typeDatabase, out _);
+
+    /// <summary>
+    /// Recursively reports whether an <c>@objc</c>-protocol existential
+    /// (<see cref="IsObjCProtocolExistentialSpec(TypeSpec, ITypeDatabase)"/>) appears ANYWHERE in
+    /// <paramref name="typeSpec"/> — at the top level, or nested inside an Optional, a container
+    /// (Array/Dictionary/Set or any other bound generic), a tuple, or a closure parameter/return.
+    /// </summary>
+    public static bool ContainsObjCProtocolExistential(TypeSpec? typeSpec, ITypeDatabase typeDatabase)
+    {
+        if (typeSpec == null)
+            return false;
+
+        // A bare `any P` / single `Optional<any P>` here is an @objc existential occurrence.
+        if (IsObjCProtocolExistentialSpec(typeSpec, typeDatabase))
+            return true;
+
+        switch (typeSpec)
+        {
+            case NamedTypeSpec named:
+                foreach (var genericArg in named.GenericParameters)
+                    if (ContainsObjCProtocolExistential(genericArg, typeDatabase))
+                        return true;
+                return false;
+            case ProtocolListTypeSpec protoList:
+                // A multi-protocol composition (`any P & Q`) is not a single @objc existential —
+                // the top-level check already returned false. Inspect each protocol key defensively.
+                foreach (var proto in protoList.Protocols.Keys)
+                    if (ContainsObjCProtocolExistential(proto, typeDatabase))
+                        return true;
+                return false;
+            case TupleTypeSpec tuple:
+                foreach (var element in tuple.Elements)
+                    if (ContainsObjCProtocolExistential(element, typeDatabase))
+                        return true;
+                return false;
+            case ClosureTypeSpec closure:
+                if (ContainsObjCProtocolExistential(closure.ReturnType, typeDatabase))
+                    return true;
+                if (closure.Arguments is TupleTypeSpec argTuple)
+                {
+                    foreach (var element in argTuple.Elements)
+                        if (ContainsObjCProtocolExistential(element, typeDatabase))
+                            return true;
+                }
+                else if (ContainsObjCProtocolExistential(closure.Arguments, typeDatabase))
+                {
+                    return true;
+                }
+                return false;
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Returns true when an <c>@objc</c>-protocol existential appears in a position the
+    /// single-object-pointer path does NOT support: nested inside an Optional-of-container, a
+    /// container element, a tuple, a closure, or any bound generic. The ONLY supported positions are
+    /// a bare <c>any P</c> or a single <c>Optional&lt;any P&gt;</c> at the top of a (sync, non-closure)
+    /// parameter/return/property. Everywhere else the carrier path would route the existential through
+    /// the 16-byte <c>ClassExistentialContainer1</c>, whose descriptor registration silently fails (an
+    /// <c>@objc</c> protocol exports no <c>…Mp</c> descriptor) — so the member must be dropped
+    /// (fail-closed).
+    /// </summary>
+    public static bool HasUnsupportedObjCProtocolExistentialPosition(TypeSpec? typeSpec, ITypeDatabase typeDatabase)
+        => typeSpec != null
+           && !IsObjCProtocolExistentialSpec(typeSpec, typeDatabase)
+           && ContainsObjCProtocolExistential(typeSpec, typeDatabase);
+
+    private static bool IsObjCProtocolNamed(NamedTypeSpec protoSpec, ITypeDatabase typeDatabase)
+    {
+        try
+        {
+            var swiftTypeName = SwiftTypeName.FromTypeSpec(protoSpec);
+            if (typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord) &&
+                typeRecord.Kind == TypeRecordKind.Protocol)
+            {
+                return (typeRecord.Flags & TypeRecordFlags.ObjCProtocol) != 0;
+            }
+        }
+        catch
+        {
+            // Unresolvable type name — not an @objc existential.
+        }
         return false;
     }
 

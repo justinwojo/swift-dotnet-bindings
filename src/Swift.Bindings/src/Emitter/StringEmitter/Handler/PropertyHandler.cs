@@ -1172,7 +1172,14 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // @_cdecl optional existential setter: marshal value to existential container
         // pointer + hasValue flag. The accessor method accepts (IntPtr, bool) matching
         // the Swift @_cdecl wrapper's decomposed optional parameters.
-        if (isOptionalExistential && setter.Method.UsesCdeclPropertyWrapper)
+        //
+        // An @objc-protocol existential is excluded: its existential is a single by-value
+        // ObjC object pointer (nil → null), NOT the 16-byte ClassExistentialContainer1
+        // decomposed (container + hasValue) carrier. Its setter accessor takes the projected
+        // single value (the {name}Buffer IntPtr declared by WrapperEmitter.EmitTypeConversions),
+        // so it falls through to the plain `set => {method}(value)` delegation below.
+        if (isOptionalExistential && setter.Method.UsesCdeclPropertyWrapper &&
+            !ExistentialHandler.IsObjCProtocolExistentialSpec(propertyDecl.SwiftTypeSpec, propertyEnv.TypeDatabase))
         {
             var innerProtocolList = propertyEnv.ExistentialHandler.UnwrapOptionalExistential(propertyDecl.SwiftTypeSpec);
             if (innerProtocolList != null)

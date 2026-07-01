@@ -174,6 +174,18 @@ namespace BindingsGeneration
                 // Generic-element tuples (sync): fall through to indirect result handling
             }
 
+            // @objc protocol existential return (scalar `any P` or optional `(any P)?`): a single
+            // ObjC object pointer (no witness table, no descriptor), returned BY VALUE — nil =
+            // IntPtr.Zero. Identical wire to a class reference, NOT the 40-byte opaque container via
+            // sret. Decided before the generic existential / optional-existential arms below (which
+            // would route to the indirect-result resultPtr/hasValuePtr path) and before the property
+            // getter's forceIndirectForOptionalExistential block (which would do the same).
+            if (ExistentialHandler.IsObjCProtocolExistentialSpec(returnType.SwiftTypeSpec, _env.TypeDatabase))
+            {
+                SetReturnType("IntPtr");
+                return;
+            }
+
             // Handle existential return types (any Protocol)
             if (_env.ExistentialHandler.IsExistential(returnType.SwiftTypeSpec))
             {
@@ -250,6 +262,20 @@ namespace BindingsGeneration
             // P/Invoke receives IntPtr — no indirect result needed.
             // Thunks also return class pointers in x0 (single register, no indirect result).
             if (returnType.SwiftTypeSpec.IsDynamicSelf && (_env.MethodDecl.UsesCdeclWrapper || _env.MethodDecl.UsesNativeThunk))
+            {
+                SetReturnType("IntPtr");
+                return;
+            }
+
+            // Failable class constructor via @_cdecl wrapper: the Swift wrapper returns a nullable
+            // retained class pointer (UnsafeMutableRawPointer?) directly, so the P/Invoke receives
+            // IntPtr (Zero == nil) — no indirect resultPtr (which would shift every argument by one
+            // slot). The bare return spec here is Optional<Self>, so the general return-type-record
+            // resolution below would misclassify it; short-circuit explicitly. This mirrors the
+            // non-failable class constructor (returnTypeRecord.Kind == Class → IntPtr) and the
+            // !isClass decision the Swift CdeclSignatureContract already makes.
+            if (_env.MethodDecl.IsConstructor && _env.MethodDecl.IsFailable &&
+                _env.MethodDecl.UsesCdeclConstructorWrapper && _env.ParentDecl is ClassDecl)
             {
                 SetReturnType("IntPtr");
                 return;

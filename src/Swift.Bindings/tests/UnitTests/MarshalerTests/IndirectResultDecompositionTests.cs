@@ -159,9 +159,13 @@ public class IndirectResultDecompositionTests
     #region IsConstructorIndirectResultRequired Tests
 
     [Fact]
-    public void IsConstructorIndirectResult_FailableInit_ReturnsTrue()
+    public void IsConstructorIndirectResult_FailableFrozenStructInit_ReturnsTrue()
     {
-        // IsConstructor=true, IsFailable=true
+        // A failable VALUE-type (struct) init returns Optional<value>, which is address-only — the
+        // tag + payload live in a result buffer — so it genuinely needs an indirect result. This is
+        // NOT a universal "failable => indirect" rule: a failable CLASS init returns Optional<Self>
+        // as a single nullable pointer in-register, so it does NOT need an indirect result when
+        // wrapped (see IsConstructorIndirectResult_FailableClassWithCdeclWrapper_ReturnsFalse).
         var env = CreateMethodEnv(
             returnType: new NamedTypeSpec("Swift.Int"),
             isConstructor: true,
@@ -170,6 +174,24 @@ public class IndirectResultDecompositionTests
         var result = MarshallingHelpers.IsConstructorIndirectResultRequired(env);
         Assert.NotNull(result);
         Assert.True(result!.Value);
+    }
+
+    [Fact]
+    public void IsConstructorIndirectResult_FailableClassWithCdeclWrapper_ReturnsFalse()
+    {
+        // A failable CLASS init routed through a @_cdecl wrapper returns the nullable retained class
+        // pointer DIRECTLY (UnsafeMutableRawPointer?, nil == failure) — exactly like a non-failable
+        // class init — so it must NOT request an indirect result. Adding a leading resultPtr would
+        // shift every real argument one slot to the right and corrupt the call.
+        var env = CreateMethodEnv(
+            returnType: new NamedTypeSpec("TestModule.MyClass"),
+            isConstructor: true,
+            isFailable: true,
+            parentDecl: CreateClassParent());
+        env.MethodDecl.UsesCdeclConstructorWrapper = true;
+        var result = MarshallingHelpers.IsConstructorIndirectResultRequired(env);
+        Assert.NotNull(result);
+        Assert.False(result!.Value);
     }
 
     [Fact]

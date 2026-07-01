@@ -2409,6 +2409,11 @@ namespace BindingsGeneration
                 InheritedProtocols = inheritedProtocols,
                 GenericSignature = node.GenericSig,
                 IsClassBound = isClassBound,
+                // An @objc protocol's existential is a single ObjC object pointer (no Swift
+                // witness-table word, no `…Mp` descriptor) even when it is also class-bound,
+                // so it must not marshal through the 16-byte ClassExistentialContainer1 carrier.
+                IsObjC = node.DeclAttributes is not null &&
+                    Array.IndexOf(node.DeclAttributes, "ObjC") != -1,
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 IsModuleInternal = IsNodeModuleInternal(node),

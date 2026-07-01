@@ -406,6 +406,7 @@ namespace BindingsGeneration
                 string inheritedRequirementsOnly = typeDeclarationNode?.Attributes?["inheritedRequirementsOnly"]?.Value ?? "false";
                 string classBound = typeDeclarationNode?.Attributes?["classBound"]?.Value ?? "false";
                 string objcRooted = typeDeclarationNode?.Attributes?["objcRooted"]?.Value ?? "false";
+                string objcProtocol = typeDeclarationNode?.Attributes?["objcProtocol"]?.Value ?? "false";
                 string hasMethodSelfTypeParams = typeDeclarationNode?.Attributes?["hasMethodSelfTypeParams"]?.Value ?? "false";
                 string nonCopyable = typeDeclarationNode?.Attributes?["nonCopyable"]?.Value ?? "false";
                 string hasFloatFields = typeDeclarationNode?.Attributes?["hasFloatFields"]?.Value ?? "false";
@@ -552,6 +553,7 @@ namespace BindingsGeneration
                             (inheritedRequirementsOnly.ToLower() == "true" ? TypeRecordFlags.InheritedRequirementsOnly : TypeRecordFlags.None) |
                             (classBound.ToLower() == "true" ? TypeRecordFlags.ClassBound : TypeRecordFlags.None) |
                             (objcRooted.ToLower() == "true" ? TypeRecordFlags.ObjCRooted : TypeRecordFlags.None) |
+                            (objcProtocol.ToLower() == "true" ? TypeRecordFlags.ObjCProtocol : TypeRecordFlags.None) |
                             (hasMethodSelfTypeParams.ToLower() == "true" ? TypeRecordFlags.HasMethodSelfTypeParams : TypeRecordFlags.None) |
                             (nonCopyable.ToLower() == "true" ? TypeRecordFlags.NonCopyable : TypeRecordFlags.None) |
                             (hasFloatFields.ToLower() == "true" ? TypeRecordFlags.HasFloatFields : TypeRecordFlags.None) |

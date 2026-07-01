@@ -1392,6 +1392,15 @@ namespace BindingsGeneration
             if (ProtocolIsClassBoundTransitive(protocolDecl))
                 flags |= TypeRecordFlags.ClassBound;
 
+            // @objc protocols carry the ObjC existential representation (single 8-byte object
+            // pointer, no Swift witness table, no `…Mp` descriptor) even when also ClassBound.
+            // Tracked so existential marshalling diverts them off the ClassExistentialContainer1
+            // carrier — non-transitive: only a directly-declared @objc protocol has the ObjC
+            // representation (a pure-Swift protocol refining an @objc one is a normal Swift
+            // class existential with its own descriptor).
+            if (protocolDecl.IsObjC)
+                flags |= TypeRecordFlags.ObjCProtocol;
+
             // Check if this protocol inherits from Codable (Decodable/Encodable), either
             // directly or transitively through inherited protocols already in the type database.
             // Dependencies are processed before the main module, so cross-module inherited

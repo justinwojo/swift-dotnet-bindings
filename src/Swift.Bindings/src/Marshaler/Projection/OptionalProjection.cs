@@ -142,6 +142,26 @@ public class OptionalProjection : ITypeProjection
 
     public MarshalPlan GetParameterPlan(string paramName)
     {
+        // @objc protocol existential inner: a single nullable ObjC object pointer (nil = IntPtr.Zero),
+        // identical wire to a class reference. The @_cdecl wrapper signature is
+        // `(_ p: UnsafeMutableRawPointer?, ...)`, so the object handle (or IntPtr.Zero) is passed
+        // directly — no 40-byte opaque container, no SwiftOptional wrapper. The non-nil handle
+        // extraction (and the fail-closed guard for an unsupported managed-conformer value) is
+        // delegated to the inner ExistentialProjection so the two @objc-existential parameter paths
+        // cannot drift.
+        if (_innerProjection is ExistentialProjection { IsObjCExistential: true } objcInner)
+        {
+            return new MarshalPlan
+            {
+                SetupStatements = new List<MarshalStatement>
+                {
+                    new MarshalStatement.Line(
+                        $"IntPtr {paramName}Buffer = {paramName} is {{ }} {paramName}Val ? {objcInner.GetObjCParameterExpression($"{paramName}Val")} : IntPtr.Zero;")
+                },
+                PInvokeExpression = $"{paramName}Buffer"
+            };
+        }
+
         // ObjC bridged, ObjC-bridgeable, and ObjC-rooted types use nullable pointer ABI — no SwiftOptional wrapper needed.
         if (_innerProjection is ObjCBridgedProjection or ObjCBridgeableProjection or ObjCRootedClassProjection)
         {
@@ -400,6 +420,30 @@ public class OptionalProjection : ITypeProjection
 
         if (_isExistentialInner)
         {
+            // @objc protocol existential inner: the optional is a single nullable ObjC object pointer
+            // (nil = IntPtr.Zero), returned BY VALUE — not the 40-byte opaque container via sret.
+            // The @_cdecl wrapper returns `UnsafeMutableRawPointer?` (the +1-owned object or nil), so
+            // the IntPtr result IS the payload: nil → null, otherwise construct the proxy over Payload0
+            // and adopt the +1 (ownsContainer: true), mirroring the non-optional @objc scalar return.
+            if (_innerProjection is ExistentialProjection { IsObjCExistential: true } objcInner)
+            {
+                return strategy switch
+                {
+                    ReturnStrategy.Direct => new MarshalPlan
+                    {
+                        PInvokeExpression =
+                            $"({resultName} == IntPtr.Zero ? null : {objcInner.GetObjCReturnExpression(resultName)})"
+                    },
+                    ReturnStrategy.IndirectResult or ReturnStrategy.OutBuffer => new MarshalPlan
+                    {
+                        PInvokeExpression =
+                            $"(*(IntPtr*){resultName} == IntPtr.Zero ? null : {objcInner.GetObjCReturnExpression($"*(IntPtr*){resultName}")})",
+                        RequiresUnsafe = true
+                    },
+                    _ => MarshalPlan.PassThrough(resultName)
+                };
+            }
+
             // Existential inner — discriminant check + proxy construction.
             // Owned return: Swift transfers the inner existential at +1 via the sret/out buffer
             // (raw-freed after the read), so the adopting proxy must release it on Dispose/finalize

@@ -154,6 +154,9 @@ namespace BindingsGeneration
             if ((record.Flags & TypeRecordFlags.ObjCRooted) != 0)
                 writer.WriteAttributeString("objcRooted", "true");
 
+            if ((record.Flags & TypeRecordFlags.ObjCProtocol) != 0)
+                writer.WriteAttributeString("objcProtocol", "true");
+
             if ((record.Flags & TypeRecordFlags.HasMethodSelfTypeParams) != 0)
                 writer.WriteAttributeString("hasMethodSelfTypeParams", "true");
 

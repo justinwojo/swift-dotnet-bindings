@@ -592,6 +592,30 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Accessor-only: Optional<@objc protocol existential> — a single ObjC object pointer.
+            // The extern returns IntPtr by value (nil = IntPtr.Zero); wrap a non-null pointer in the
+            // proxy's single-payload container. No decomposed buffer, no SwiftOptional marshal — an
+            // @objc protocol existential has AnyObject ABI, not the resilient container ABI below.
+            if (_env.MethodDecl.IsAccessor &&
+                _env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec) &&
+                ExistentialHandler.IsObjCProtocolExistentialSpec(returnArg.SwiftTypeSpec, _env.TypeDatabase))
+            {
+                var objcInnerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnArg.SwiftTypeSpec)!;
+                var objcPublicType = _env.ExistentialHandler.GetPublicExistentialType(objcInnerProtocolList);
+                // Unresolved protocol (publicType == "object") → no proxy class exists, fall through.
+                if (objcPublicType != "object")
+                {
+                    var objcProxyName = _env.ExistentialHandler.GetRequiredProxyClassName(objcInnerProtocolList, _emissionContext);
+                    var objcRln = ReturnLocalName;
+                    csWriter.WriteLines($$"""
+                        return {{objcRln}} == IntPtr.Zero
+                            ? null
+                            : new {{objcProxyName}}(new Swift.Runtime.ExistentialContainer1 { Payload0 = {{objcRln}} }, ownsContainer: true);
+                        """);
+                    return;
+                }
+            }
+
             // Accessor-only: Optional-existential returns — P/Invoke returns IntPtr for Optional<existential>,
             // marshal to SwiftOptional<Container> first.
             if (_env.MethodDecl.IsAccessor && _env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec))

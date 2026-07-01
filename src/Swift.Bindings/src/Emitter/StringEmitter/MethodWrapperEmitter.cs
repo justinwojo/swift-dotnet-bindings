@@ -1524,15 +1524,22 @@ public static class MethodWrapperEmitter
         // Optional<class-bound existential> RETURNS are wrappable even though the shared
         // generic-container gate rejects Optional<existential>: the @_cdecl wrapper captures the
         // register-returned 2-word cell and writes it to the result buffer, sidestepping the raw
-        // dispatch thunk's broken x8/sret assumption. Parameters stay rejected (the loop below
-        // is unchanged) — only the return position gets this carve-out.
+        // dispatch thunk's broken x8/sret assumption. Non-@objc parameters stay rejected (the loop
+        // below) — only the return position gets that 2-word carve-out.
+        //
+        // @objc protocol existentials (Optional<any @objcP>) are wrappable in BOTH positions: an
+        // @objc protocol's existential is a single 8-byte object pointer (AnyObject ABI, no witness
+        // table), so the wrapper marshals it as a nullable pointer in/out — no proxy conversion, no
+        // indirect container. Carve it out symmetrically, ahead of the per-position rejections.
         if (IsUnsupportedGenericContainer(returnSpec, env.TypeDatabase)
-            && !WrapperValidation.IsOptionalClassBoundExistentialReturn(returnSpec, env.TypeDatabase))
+            && !WrapperValidation.IsOptionalClassBoundExistentialReturn(returnSpec, env.TypeDatabase)
+            && !ExistentialHandler.IsObjCProtocolExistentialSpec(returnSpec, env.TypeDatabase))
             return true;
 
         foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
         {
-            if (IsUnsupportedGenericContainer(arg.SwiftTypeSpec, env.TypeDatabase))
+            if (IsUnsupportedGenericContainer(arg.SwiftTypeSpec, env.TypeDatabase)
+                && !ExistentialHandler.IsObjCProtocolExistentialSpec(arg.SwiftTypeSpec, env.TypeDatabase))
                 return true;
         }
         return false;

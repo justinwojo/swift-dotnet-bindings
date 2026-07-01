@@ -1826,6 +1826,12 @@ public class BoundGenericsHandler
             return false;
         var innerElement = namedType.GenericParameters.FirstOrDefault();
 
+        // @objc protocol existentials are a single 8-byte object pointer — never "large". They
+        // marshal through the regular @_cdecl path as a nullable class pointer (OptionalClassPointer),
+        // NOT the @_silgen_name _optbuf by-value buffer this method would otherwise force.
+        if (ExistentialHandler.IsObjCProtocolExistentialSpec(typeSpec, _typeDatabase))
+            return false;
+
         // Check TypeDatabase for protocol kind (NamedTypeSpec inner types only).
         if (innerElement is NamedTypeSpec innerNamed &&
             _typeDatabase.TryGetTypeRecord(innerNamed, out var innerRecord) &&

@@ -179,6 +179,65 @@ public class InitializerTests : TestBase
 
     #endregion
 
+    #region AccessConfiguration (Failable CLASS — direct nullable-pointer return)
+
+    public void TestAccessConfigurationSuccess()
+    {
+        // Failable initializer on a pure-Swift reference type with a collection + enum param.
+        // The allocating init returns Optional<Self> as a single nullable class pointer (NOT an
+        // indirect result buffer), so TryCreate must read a plain IntPtr with no resultPtr shift.
+        var ok = AccessConfiguration.TryCreate(
+            new[] { "public_profile", "email" },
+            TrackingPreference.Limited,
+            out var config);
+        AssertTrue(ok, "AccessConfiguration.TryCreate succeeds for a non-empty permission list");
+        AssertNotNull(config, "successful TryCreate yields a non-null instance");
+        AssertEqual(2, config!.PermissionCount, "PermissionCount reflects the constructor collection");
+        AssertEqual("public_profile", config.Permission(0), "First permission round-trips");
+        AssertEqual("email", config.Permission(1), "Second permission round-trips");
+        AssertEqual(TrackingPreference.Limited, config.Tracking, "Enum argument round-trips");
+        config.Dispose();
+        TestLogger.Info("AccessConfiguration failable-class success passed");
+    }
+
+    public void TestAccessConfigurationFailure()
+    {
+        var ok = AccessConfiguration.TryCreate(
+            System.Array.Empty<string>(),
+            TrackingPreference.Disabled,
+            out var config);
+        AssertFalse(ok, "AccessConfiguration.TryCreate fails for an empty permission list (init? returns nil)");
+        AssertNull(config, "failed TryCreate yields a null result");
+        TestLogger.Info("AccessConfiguration failable-class failure passed");
+    }
+
+    #endregion
+
+    #region NamedToken (Failable NSObject-rooted CLASS — ObjC ARC release)
+
+    public void TestNamedTokenSuccess()
+    {
+        // Same direct nullable-pointer return convention as AccessConfiguration, but the instance
+        // is NSObject-rooted, so its lifetime is governed by ObjC ARC (DangerousRelease) — confirms
+        // the wrapped failable-class path round-trips for the ObjC-rooted release flavor too.
+        var ok = NamedToken.TryCreate("session", out var token);
+        AssertTrue(ok, "NamedToken.TryCreate succeeds for a non-empty label");
+        AssertNotNull(token, "successful TryCreate yields a non-null NSObject-rooted instance");
+        AssertEqual("session", token!.Label.ToString(), "Label round-trips after construction");
+        token.Dispose();
+        TestLogger.Info("NamedToken failable-class (NSObject) success passed");
+    }
+
+    public void TestNamedTokenFailure()
+    {
+        var ok = NamedToken.TryCreate("", out var token);
+        AssertFalse(ok, "NamedToken.TryCreate fails for an empty label (init? returns nil)");
+        AssertNull(token, "failed TryCreate yields a null result");
+        TestLogger.Info("NamedToken failable-class (NSObject) failure passed");
+    }
+
+    #endregion
+
     #region ConstLiteralBox (_const-parameter init filter)
 
     // The wrapper-emit filter must drop @_cdecl wrappers for `_const` inits

@@ -21,6 +21,7 @@ public class ExistentialProjection : ITypeProjection
     private readonly bool _isBareAny;
     private readonly bool _isClassBoundArity1;
     private readonly bool _proxyIsSuppressed;
+    private readonly bool _isObjCExistential;
 
     /// <summary>
     /// Creates an existential projection.
@@ -44,7 +45,15 @@ public class ExistentialProjection : ITypeProjection
     /// This is the emit-time replacement for the retired CoGater proxy-reference post-pass on the
     /// projection path. Always false unless <paramref name="proxyClassName"/> is non-null.
     /// </param>
-    public ExistentialProjection(string containerType, string publicType, string? proxyClassName, bool isBareAny = false, bool isClassBoundArity1 = false, bool proxyIsSuppressed = false)
+    /// <param name="isObjCExistential">
+    /// True when the single protocol is declared <c>@objc</c>. Such an existential's ABI is a single
+    /// 8-byte ObjC object pointer (no witness table, no <c>…Mp</c> descriptor), so the wire
+    /// representation is a bare <c>IntPtr</c> (nil = <c>IntPtr.Zero</c>, unknown-object ARC) and the
+    /// public surface stays the proxy interface — never an <c>ExistentialContainerN</c> carrier.
+    /// Mutually exclusive in practice with <paramref name="isClassBoundArity1"/> (the @objc predicate
+    /// is keyed on the <c>ObjCProtocol</c> flag, which routes off the class-bound-container path).
+    /// </param>
+    public ExistentialProjection(string containerType, string publicType, string? proxyClassName, bool isBareAny = false, bool isClassBoundArity1 = false, bool proxyIsSuppressed = false, bool isObjCExistential = false)
     {
         _containerType = containerType;
         _publicType = publicType;
@@ -52,11 +61,45 @@ public class ExistentialProjection : ITypeProjection
         _isBareAny = isBareAny;
         _isClassBoundArity1 = isClassBoundArity1;
         _proxyIsSuppressed = proxyIsSuppressed;
+        _isObjCExistential = isObjCExistential;
     }
 
     public string PublicType => _publicType;
-    public string PInvokeType => _containerType;
+    public string PInvokeType => _isObjCExistential ? "IntPtr" : _containerType;
     public string? PInvokeAttribute => null;
+
+    /// <summary>
+    /// True when the single protocol is declared <c>@objc</c> — its existential marshals as a bare
+    /// 8-byte object pointer (<c>IntPtr</c>), not an <c>ExistentialContainerN</c> carrier. Consumed by
+    /// <see cref="OptionalProjection"/> to route <c>(any P)?</c> through the nullable-pointer ABI.
+    /// </summary>
+    public bool IsObjCExistential => _isObjCExistential;
+
+    /// <summary>
+    /// C#→Swift parameter extraction for an <c>@objc</c> existential: read the underlying ObjC object
+    /// pointer (the proxy's <c>SwiftHandle</c> = <c>_swiftContainer.Payload0</c>). The argument is rooted
+    /// on the caller's stack across the synchronous call, so the +0 borrow needs no extra keepalive
+    /// (same as <see cref="ClassProjection"/>). C# conformers that are not Swift-vended proxies are the
+    /// unsupported reverse direction and fail closed here: an <c>@objc</c> protocol existential is a bare
+    /// ObjC object pointer, and a plain managed type is not an ObjC object that responds to the protocol's
+    /// selectors, so we cannot synthesize one. The <c>as … ?? throw</c> guard raises a self-describing
+    /// <see cref="System.NotSupportedException"/> instead of a bare <c>InvalidCastException</c>. The
+    /// <c>as</c> form (rather than a pattern variable) keeps the expression collision-free when a method
+    /// has more than one <c>@objc</c> existential parameter.
+    /// </summary>
+    internal string GetObjCParameterExpression(string paramName) =>
+        $"(({paramName} as Swift.Runtime.ISwiftObject) ?? throw new global::System.NotSupportedException(" +
+        $"\"Cannot marshal a C# implementation of {_publicType} to Swift: an @objc protocol existential is a bare ObjC object pointer, so only a value vended by the Swift library round-trips. The reverse direction (a managed type conforming to an @objc protocol) is not supported.\"" +
+        $")).SwiftHandle";
+
+    /// <summary>
+    /// Swift→C# return construction for an <c>@objc</c> existential: adopt the +1-owned object pointer
+    /// returned by value into the proxy via <c>Payload0</c> (<c>ownsContainer: true</c> → released via
+    /// unknown-object ARC on Dispose/finalize). The proxy's class-bound layout reads/releases Payload0
+    /// only and never runs a value-witness destroy, so the otherwise-zero container is safe.
+    /// </summary>
+    internal string GetObjCReturnExpression(string ptrExpr) =>
+        $"new {_proxyClassName}(new Swift.Runtime.ExistentialContainer1 {{ Payload0 = {ptrExpr} }}, ownsContainer: true)";
 
     // Class-bound existentials are read out of Swift arrays at a 16-byte [classRef][witnessTable]
     // stride. The opaque ExistentialContainer1 carrier (40 bytes) over-reads and crashes on the first
@@ -89,6 +132,11 @@ public class ExistentialProjection : ITypeProjection
 
     public MarshalPlan GetParameterPlan(string paramName)
     {
+        if (_isObjCExistential)
+        {
+            return new MarshalPlan { PInvokeExpression = GetObjCParameterExpression(paramName) };
+        }
+
         string expr;
         if (_isBareAny)
         {
@@ -121,6 +169,12 @@ public class ExistentialProjection : ITypeProjection
 
     public MarshalPlan GetReturnPlan(string resultName, ReturnStrategy strategy)
     {
+        if (_isObjCExistential)
+        {
+            // Swift returns the @objc existential as a +1-owned object pointer by value.
+            return new MarshalPlan { PInvokeExpression = GetObjCReturnExpression(resultName) };
+        }
+
         string expression;
         if (_isBareAny)
         {

@@ -488,14 +488,19 @@ namespace BindingsGeneration
         {
             // Skip type conversions for property accessors — property wrapper handles conversion
             // EXCEPT Optional-existential parameters which need container extraction here
-            // (but NOT for @_cdecl setters — PropertyHandler.EmitSetter handles marshalling)
+            // (but NOT for @_cdecl setters — PropertyHandler.EmitSetter handles marshalling).
+            // An @objc-protocol existential is the exception-to-the-exception: its setter accessor
+            // takes the projected single value (not the decomposed container + hasValue pair), so the
+            // projection must run HERE to declare the {name}Buffer IntPtr the P/Invoke call consumes —
+            // PropertyHandler.EmitSetterBody just delegates `set => {method}(value)` for it.
             if (_env.MethodDecl.IsAccessor)
             {
                 foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1))
                 {
                     if (_env.ExistentialHandler.IsOptionalExistential(argumentDecl.SwiftTypeSpec) &&
                         !_env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec) &&
-                        !_env.MethodDecl.UsesCdeclPropertyWrapper)
+                        (!_env.MethodDecl.UsesCdeclPropertyWrapper ||
+                         ExistentialHandler.IsObjCProtocolExistentialSpec(argumentDecl.SwiftTypeSpec, _env.TypeDatabase)))
                         TryEmitParameterConversionViaProjection(csWriter, argumentDecl);
                 }
                 return;

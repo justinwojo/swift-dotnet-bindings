@@ -2105,6 +2105,12 @@ public partial class ProtocolProxyEmitter
             || string.IsNullOrEmpty(record.ProtocolDescriptorSymbol))
             return;
 
+        // @objc protocols export no Swift `…Mp` descriptor and never marshal through the
+        // ClassExistentialContainer1 carrier (IsClassBoundArity1Existential returns false for
+        // them), so registering its metadata would load a nonexistent symbol and is unused.
+        if ((record.Flags & TypeRecordFlags.ObjCProtocol) != 0)
+            return;
+
         var moduleName = protocolDecl.ModuleDecl?.Name ?? protocolDecl.SwiftTypeName.Module;
         if (string.IsNullOrEmpty(moduleName))
             return;

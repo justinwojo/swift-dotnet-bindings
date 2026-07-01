@@ -288,6 +288,14 @@ namespace BindingsGeneration
                 (nts.Name == "Swift.String" || IsLocalizedStringResource(nts)))
                 return true;
 
+            // @objc protocol existential returns (any P / (any P)?): a single 8-byte object pointer,
+            // returned BY VALUE via the ClassPointer / OptionalClassPointer convention — NOT through an
+            // indirect result buffer. Decided before the generic existential arms below, which would
+            // otherwise force the 40-byte opaque-container indirect path. (Checked here, ahead of the
+            // generic existential branches that follow.)
+            if (ExistentialHandler.IsObjCProtocolExistentialSpec(returnTypeForCdecl.SwiftTypeSpec, env.TypeDatabase))
+                return false;
+
             // Existential returns: @_cdecl can't return existential containers directly.
             if (env.ExistentialHandler.IsExistential(returnTypeForCdecl.SwiftTypeSpec))
                 return true;
@@ -355,9 +363,18 @@ namespace BindingsGeneration
         {
             if (!env.MethodDecl.IsConstructor) return null;
 
-            // Failable constructors (init?) always need indirect result because they return
+            // Failable constructors (init?) normally need indirect result because they return
             // Optional<Self> which must be checked for None before extracting the value.
-            if (env.MethodDecl.IsFailable) return true;
+            //
+            // Exception: a CLASS routed through a @_cdecl wrapper. The Swift wrapper returns a
+            // nullable retained class pointer (UnsafeMutableRawPointer?) DIRECTLY — nil maps to a
+            // null pointer — exactly like a non-failable class constructor. The Swift side proves
+            // this independently: CdeclSignatureContract emits no ResultPtr phase for a class
+            // constructor (needsResultPtr = !isClass). So the C# P/Invoke must also return the
+            // pointer directly; adding a leading resultPtr here would shift every real argument one
+            // slot to the right (the first scalar/pointer arg lands in the wrong Swift parameter).
+            if (env.MethodDecl.IsFailable)
+                return !(env.MethodDecl.UsesCdeclConstructorWrapper && env.ParentDecl is ClassDecl);
 
             // Non-frozen struct constructors use indirect result (struct too large for registers).
             // Class constructors return a pointer directly — NOT via indirect result.
@@ -665,20 +682,20 @@ namespace BindingsGeneration
 
                 // A *pure* Objective-C superclass — one declared in ObjC headers and imported
                 // into Swift under a stripped name (a Clang `swift_name`/NS_SWIFT_NAME attribute
-                // or automatic prefix stripping): e.g. the ObjC class `FBSDKButton` surfaces in
-                // Swift as `FBButton`, so the superclass name carried in the ABI is
-                // `<module>.FBButton`. The dependency's C# binding for such a class is produced by
-                // the ObjC ApiDefinition pipeline under its ObjC name (`FBSDKButton`), not the
-                // Swift name, so a base reference built from the Swift superclass name resolves to
-                // a type that does not exist. The authoritative ObjC class name is encoded in the
-                // Clang superclass USR; use it for modules outside the curated Apple set.
+                // or automatic prefix stripping): the ObjC class name carries a class prefix that
+                // its Swift-exported name drops, so the superclass name carried in the ABI is the
+                // shortened `<module>.<SwiftName>`. The dependency's C# binding for such a class is
+                // produced by the ObjC ApiDefinition pipeline under its full ObjC name, not the
+                // stripped Swift name, so a base reference built from the Swift superclass name
+                // resolves to a type that does not exist. The authoritative ObjC class name is
+                // encoded in the Clang superclass USR; use it for modules outside the curated Apple set.
                 //
-                // This must NOT fire for an @objc-exported *Swift* class (e.g. `@objc(FBSDKIcon)
-                // open class FBIcon`): although it too has a Clang USR, the dependency binds it via
-                // the *Swift* pipeline under its Swift name (`FBIcon`), so the Swift superclass
-                // name on the mapping path below is the correct reference. The USR form is the
-                // discriminator — a pure ObjC class is the bare `c:objc(cs)<Name>`, whereas an
-                // @objc Swift class carries a Swift-module origin marker `c:@M@<module>@objc(cs)<Name>`.
+                // This must NOT fire for an @objc-exported *Swift* class (`@objc(<ObjCName>) open
+                // class <SwiftName>`): although it too has a Clang USR, the dependency binds it via
+                // the *Swift* pipeline under its Swift name, so the Swift superclass name on the
+                // mapping path below is the correct reference. The USR form is the discriminator —
+                // a pure ObjC class is the bare `c:objc(cs)<Name>`, whereas an @objc Swift class
+                // carries a Swift-module origin marker `c:@M@<module>@objc(cs)<Name>`.
                 // Apple superclasses keep their ObjC name in Swift (or are handled by the remap
                 // table), so they stay on the mapping path below and are unaffected.
                 if (!AppleFrameworkRegistry.IsKnownModule(module)
@@ -707,7 +724,7 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Extracts the Objective-C class name from a Clang class USR of the form
-        /// <c>c:objc(cs)&lt;ClassName&gt;</c> (e.g. <c>c:objc(cs)FBSDKButton</c> → <c>FBSDKButton</c>).
+        /// <c>c:objc(cs)&lt;ClassName&gt;</c> (e.g. <c>c:objc(cs)MyClass</c> → <c>MyClass</c>).
         /// Returns <c>null</c> when the USR is null or is not a Clang ObjC class USR.
         /// </summary>
         private static string? ExtractObjCClassName(string? usr)

@@ -90,6 +90,14 @@ public static class OptionalMarshalClassifier
         if (WrapperValidation.IsOptionalWithReferenceInner(typeSpec, typeDatabase))
             return OptionalMarshalStrategy.NullablePointer;
 
+        // 1a. Optional<@objc protocol existential>: single 8-byte ObjC object pointer.
+        //     An @objc protocol's existential has the same ABI as AnyObject — no witness table,
+        //     no descriptor — so it travels as a nullable pointer (nil = IntPtr.Zero), NOT the
+        //     decomposed container path below (whose ExistentialContainer1 descriptor doesn't
+        //     register for an @objc protocol). Must precede the protocol-existential arm.
+        if (ExistentialHandler.IsObjCProtocolExistentialSpec(typeSpec, typeDatabase))
+            return OptionalMarshalStrategy.NullablePointer;
+
         // 1b. Optional<protocol existential>: decomposed (resultPtr + hasValuePtr).
         //     ExistentialContainer is too large for register return and doesn't have a TypeRecord,
         //     so VWT-based GetEnumTag/DestructiveInjectEnumTag won't work. Decompose instead.

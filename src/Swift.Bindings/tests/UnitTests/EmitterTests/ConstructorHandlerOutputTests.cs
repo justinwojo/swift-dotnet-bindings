@@ -184,10 +184,43 @@ public class ConstructorHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_FailableClassConstructor_EmitsTryCreate()
+    public void Emit_FailableClassConstructor_WithoutWrapper_IsSkippedFailClosed()
     {
-        // Failable initializers on classes emit TryCreate() factory pattern.
+        // A failable CLASS init with no @_cdecl wrapper available (Direct generation mode — no
+        // companion wrapper library) has no ABI-correct surface. The Swift-native allocating
+        // initializer returns Optional<Self> as a single nullable pointer in the result register and
+        // reads Self.Type metadata from the Swift self/context register; a plain CallConvSwift P/Invoke
+        // shaped as an indirect result (SwiftIndirectResult) supplies neither, so the emitted factory
+        // would allocate an object with a garbage metadata pointer and fault at the first swift_release.
+        // The generator must therefore SKIP the member with an Unsupported comment and emit no factory
+        // and no indirect-result P/Invoke. (A WRAPPED failable class init returns the nullable retained
+        // pointer directly and is correct — see the XCFramework-mode test below.)
+        var typeDatabase = CreateTypeDatabase(); // Direct mode: no AsyncLibraryName => no wrapper available
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Animal", moduleDecl, typeDatabase);
+        var constructor = CreateConstructorDeclForClass("init", parentDecl, moduleDecl, isFailable: true);
+
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+
+        // Skipped with a loud Unsupported comment naming the failable-class-without-wrapper reason...
+        Assert.Contains("// Unsupported:", csOutput);
+        Assert.Contains("failable class initializer without a @_cdecl wrapper", csOutput);
+        // ...and emits NO factory and NONE of the broken direct/indirect P/Invoke shape.
+        Assert.DoesNotContain("public static bool TryCreate(", csOutput);
+        Assert.DoesNotContain("SwiftIndirectResult", csOutput);
+    }
+
+    [Fact]
+    public void Emit_FailableClassConstructor_WithWrapper_EmitsTryCreateReturningIntPtr()
+    {
+        // In XCFramework mode a failable CLASS init routes through a @_cdecl free-function wrapper that
+        // returns the nullable retained class pointer DIRECTLY (UnsafeMutableRawPointer?, nil == failure)
+        // — exactly like a non-failable class init. So the C# P/Invoke must return IntPtr (Zero ==
+        // failure) with NO leading resultPtr buffer and NO SwiftIndirectResult, and TryCreate gates on
+        // IntPtr.Zero. A leading resultPtr or an indirect-result shape would shift every real argument
+        // one slot and corrupt the call.
         var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings"; // XCFramework mode => wrapper available
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Animal", moduleDecl, typeDatabase);
         var constructor = CreateConstructorDeclForClass("init", parentDecl, moduleDecl, isFailable: true);
@@ -196,6 +229,92 @@ public class ConstructorHandlerOutputTests
 
         Assert.Contains("public static bool TryCreate(", csOutput);
         Assert.Contains("out Animal result)", csOutput);
+        Assert.DoesNotContain("SwiftIndirectResult", csOutput);
+
+        // The P/Invoke returns IntPtr directly (no leading resultPtr buffer param).
+        var lines = csOutput.Split('\n');
+        var externLine = Array.Find(lines, l => l.Contains("partial", StringComparison.Ordinal) && l.Contains("PInvoke_", StringComparison.Ordinal));
+        Assert.NotNull(externLine);
+        Assert.Contains("IntPtr", externLine);
+        Assert.DoesNotContain("resultPtr", externLine);
+        Assert.DoesNotContain("SwiftIndirectResult", externLine);
+
+        // Failure is signalled by a null pointer, not an Optional enum tag.
+        Assert.Contains("IntPtr.Zero", csOutput);
+
+        // Behavioral invariant (the whole-binding compile break this fixes): the local that receives
+        // the @_cdecl P/Invoke's IntPtr return must be a DIFFERENT identifier than the `out ... result`
+        // parameter. If they share the name, the IntPtr local shadows the out param (CS0136), the out
+        // param is never assigned (CS0177), and `result = new Animal((SwiftHandle)result)` mixes the two
+        // types (CS0029). Extract the declared P/Invoke-return local and assert it is not "result".
+        var pinvokeReturnLine = Array.Find(
+            lines,
+            l => l.TrimStart().StartsWith("var ", StringComparison.Ordinal) && l.Contains("= PInvoke_", StringComparison.Ordinal));
+        Assert.NotNull(pinvokeReturnLine);
+        var declaredLocal = pinvokeReturnLine!.TrimStart().Substring("var ".Length).Split(' ')[0];
+        Assert.NotEqual("result", declaredLocal);
+        // The out param itself is still assigned from the constructed instance and the nil sentinel.
+        Assert.Contains("result = new Animal(", csOutput);
+        Assert.Contains("result = default!;", csOutput);
+    }
+
+    [Fact]
+    public void Emit_FailableClassConstructor_WithWrapper_ParamProjectedAsResult_AllIdentifiersDistinct()
+    {
+        // The wrapped failable-class TryCreate body coordinates THREE identifiers: the projected
+        // constructor parameter(s), the `out T` result parameter, and the local that receives the
+        // @_cdecl P/Invoke's IntPtr return. The out-param name and the P/Invoke return local are chosen
+        // in two SEPARATE places that must agree — WrapperEmitter.FailableFactory (out param) and
+        // MethodMarshalPlanBuilder.ResolveReturnLocalName (P/Invoke local). The general WithWrapper test
+        // above only covers the common case where no parameter is named "result". This pins the
+        // adversarial case where a Swift init? parameter ITSELF projects to the C# name "result",
+        // forcing BOTH the out param and the P/Invoke local to step away from it. If either site failed
+        // to avoid the collision the generated binding would not compile (CS0100 duplicate parameter,
+        // CS0136 shadowing, or CS0177 unassigned out).
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings"; // XCFramework mode => wrapper available
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Animal", moduleDecl, typeDatabase);
+        var constructor = CreateConstructorDeclForClass(
+            "init",
+            parentDecl,
+            moduleDecl,
+            isFailable: true,
+            parameters: new List<ArgumentDecl>
+            {
+                // PrivateName "result" projects straight to the C# parameter name "result".
+                CreateArgument("result", new NamedTypeSpec("Swift.Int"), moduleDecl)
+            });
+
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+
+        var lines = csOutput.Split('\n');
+
+        // The factory is still emitted.
+        var sigLine = Array.Find(lines, l => l.Contains("static bool TryCreate(", StringComparison.Ordinal));
+        Assert.NotNull(sigLine);
+
+        // The input parameter keeps its projected name "result"...
+        Assert.Matches(@"TryCreate\([^,)]*\bresult\b", sigLine!);
+        // ...and the out parameter stepped to a DISTINCT identifier (not the colliding "result").
+        var outMatch = System.Text.RegularExpressions.Regex.Match(sigLine!, @"out Animal (\w+)\)");
+        Assert.True(outMatch.Success, $"could not find `out Animal <name>)` in: {sigLine}");
+        var outName = outMatch.Groups[1].Value;
+        Assert.NotEqual("result", outName);
+
+        // The P/Invoke return local is distinct from BOTH the input param and the out param.
+        var pinvokeReturnLine = Array.Find(
+            lines,
+            l => l.TrimStart().StartsWith("var ", StringComparison.Ordinal) && l.Contains("= PInvoke_", StringComparison.Ordinal));
+        Assert.NotNull(pinvokeReturnLine);
+        var pinvokeLocal = pinvokeReturnLine!.TrimStart().Substring("var ".Length).Split(' ')[0];
+        Assert.NotEqual("result", pinvokeLocal);
+        Assert.NotEqual(outName, pinvokeLocal);
+
+        // The out param is assigned on both the success and nil paths, keyed off the P/Invoke local.
+        Assert.Contains($"{outName} = new Animal(", csOutput);
+        Assert.Contains($"{outName} = default!;", csOutput);
+        Assert.Contains($"if ({pinvokeLocal} == IntPtr.Zero)", csOutput);
     }
 
     [Fact]

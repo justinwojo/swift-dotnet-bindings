@@ -537,6 +537,10 @@ public class TypeProjectionFactory
         // apply to the `object` public surface a marker-only existential degrades to.
         bool isBareAny = ExistentialHandler.IsZeroWitnessExistential(protocolList);
         bool isClassBoundArity1 = handler.IsClassBoundArity1Existential(protocolList);
+        // @objc protocol existentials are a single 8-byte ObjC object pointer (no witness table, no
+        // descriptor). The projection routes them through the bare class-pointer wire representation
+        // (IntPtr, nil = Zero, unknown-object ARC) rather than any ExistentialContainerN carrier.
+        bool isObjCExistential = handler.IsObjCProtocolExistential(protocolList);
 
         // Determine proxy class name:
         // - well-known protocols (e.g. Swift.Error → AnyError): no proxy
@@ -558,7 +562,7 @@ public class TypeProjectionFactory
         bool proxyIsSuppressed = proxyClassName != null &&
             handler.IsProxyReferenceSuppressed(protocolList, context.EmissionContext);
 
-        return new ExistentialProjection(containerType, publicType, proxyClassName, isBareAny, isClassBoundArity1, proxyIsSuppressed);
+        return new ExistentialProjection(containerType, publicType, proxyClassName, isBareAny, isClassBoundArity1, proxyIsSuppressed, isObjCExistential);
     }
 
     /// <summary>

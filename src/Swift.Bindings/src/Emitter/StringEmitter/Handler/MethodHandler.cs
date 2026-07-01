@@ -609,6 +609,42 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Fail-closed: a failable CLASS init that reached here WITHOUT a @_cdecl wrapper (and
+            // without a native thunk) has no ABI-correct surface. Its only remaining path is a direct
+            // CallConvSwift P/Invoke to the Swift-native allocating initializer shaped as an indirect
+            // result (SwiftIndirectResult). That is wrong on three counts for an allocating class init?:
+            //   1. the allocating initializer returns Optional<Self> DIRECTLY in the result register —
+            //      a single class-reference pointer, null == failure — so there is no indirect buffer;
+            //   2. it reads Self.Type metadata from the Swift self/context register (arm64 x20), which
+            //      a plain P/Invoke never populates, so the allocated object carries a garbage metadata
+            //      pointer and the first swift_release SIGSEGVs inside swift_release_dealloc; and
+            //   3. the void/indirect signature shifts every real argument one slot to the right.
+            // The emitted factory compiles but crashes the instant it is called. A WRAPPED class init
+            // (UsesCdeclConstructorWrapper) is correct: the @_cdecl free function returns the nullable
+            // retained pointer directly and the in-module wrapper call site supplies the metatype. A
+            // failable STRUCT init is also fine on the non-wrapper path — its Optional<value> is
+            // genuinely address-only, so the CallConvSwift + value-witness shape in TryCreate is
+            // ABI-correct. Hence this guard is class-only and fires only when neither a wrapper nor a
+            // thunk was assigned. Skip the member rather than emit a binding that faults when called.
+            if (methodEnv.MethodDecl.IsFailable &&
+                methodEnv.ParentDecl is ClassDecl &&
+                !methodEnv.MethodDecl.UsesCdeclConstructorWrapper &&
+                !methodEnv.MethodDecl.UsesNativeThunk)
+            {
+                _logger.LogWarning($"Skipping failable constructor {methodEnv.MethodDecl.Name}: a failable class init without a @_cdecl wrapper would emit a direct CallConvSwift call to the allocating initializer that cannot deliver the Self.Type metatype or decode the Optional<Self> pointer return (runtime SIGSEGV).");
+                ReportCollector.RecordMemberSkipped(
+                    BindingItemKind.Method,
+                    methodEnv.MethodDecl.Name,
+                    methodEnv.MethodDecl.ParentDecl,
+                    SkipReason.NonBlittableCallConvSwift,
+                    "Failable class initializer has no @_cdecl wrapper: a direct CallConvSwift call to the Swift-native allocating init cannot deliver the Self.Type metatype or decode the direct Optional<Self> pointer return, so the emitted factory would fault when called.");
+                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name,
+                    BindingItemKind.Method, SkipReason.NonBlittableCallConvSwift,
+                    "failable class initializer without a @_cdecl wrapper cannot be ABI-correctly bound (allocating-init metatype / Optional<Self> pointer return)",
+                    containingDecl: methodEnv.MethodDecl.ParentDecl);
+                return;
+            }
+
             // Track wrapper strategy for emission report AFTER thunk emission/fallback
             // so the report reflects the final strategy (thunk success → NativeThunk,
             // thunk failure → CdeclConstructor or None).
@@ -666,10 +702,17 @@ namespace BindingsGeneration
                 {
                     wrapperEmitter.EmitFailableFactory(csWriter);
 
+                    // A failable CLASS init via a @_cdecl wrapper returns the nullable class pointer
+                    // directly (no Optional<Self> buffer), so it needs neither the SwiftOptional
+                    // metadata accessor nor the tag helper P/Invoke.
+                    bool isClassCdeclFailable = methodEnv.MethodDecl.UsesCdeclConstructorWrapper &&
+                        methodEnv.ParentDecl is ClassDecl;
+
                     // Emit the SwiftOptional metadata accessor P/Invoke once per type.
                     // PInvokeHelperContext deduplicates by method name; for inline, use shared factory set.
                     var typeKey = methodEnv.ParentDecl is TypeDecl td ? td.SwiftTypeName?.ToString() ?? methodEnv.ParentDecl.Name : methodEnv.ParentDecl.Name;
-                    if (methodEnv.PInvokeHelperContext != null || _emittedOptionalAccessorForTypes.Add(typeKey))
+                    if (!isClassCdeclFailable &&
+                        (methodEnv.PInvokeHelperContext != null || _emittedOptionalAccessorForTypes.Add(typeKey)))
                     {
                         wrapperEmitter.EmitOptionalMetadataAccessorPInvoke(csWriter);
                     }

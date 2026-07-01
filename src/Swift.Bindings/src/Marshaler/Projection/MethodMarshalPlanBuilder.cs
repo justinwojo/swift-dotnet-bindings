@@ -81,6 +81,21 @@ internal class MethodMarshalPlanBuilder
     {
         var paramNames = new HashSet<string>(
             _env.MethodDecl.CSSignature.Skip(1).Select(NameProvider.GetCSharpParameterName));
+
+        // A failable CLASS init routed through a @_cdecl wrapper is emitted as a static
+        // `TryCreate(..., out T result)` factory whose P/Invoke returns the instance pointer
+        // directly into THIS local. The factory reserves "result" for its out parameter, so
+        // the P/Invoke return local must avoid it — otherwise the IntPtr local shadows the out
+        // param (CS0136) and the real out param is never assigned (CS0177). The struct/indirect
+        // failable paths write into a result buffer instead, so this local is unused there.
+        if (_env.MethodDecl.IsConstructor &&
+            _env.MethodDecl.IsFailable &&
+            _env.MethodDecl.UsesCdeclConstructorWrapper &&
+            _env.ParentDecl is ClassDecl)
+        {
+            paramNames.Add("result");
+        }
+
         if (!paramNames.Contains("result")) return "result";
         if (!paramNames.Contains("__result")) return "__result";
         for (var i = 1; ; i++)

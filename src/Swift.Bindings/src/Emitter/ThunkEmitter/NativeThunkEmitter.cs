@@ -23,7 +23,8 @@ namespace BindingsGeneration;
 ///   1. Typed throws (needs Swift-side error boxing)
 ///   2. Generic type constructors (needs Swift compiler for specialization)
 ///   3. Struct constructors (Mono AOT can't JIT LibraryImport struct returns)
-///   4. Failable constructors (return Optional<Self>, needs indirect result)
+///   4. Failable constructors (Optional<Self> return: address-only for structs, a single
+///      nullable pointer for classes — the thunk implements neither Optional shape)
 ///  10. Closure parameters (needs Swift adapter code)
 /// </summary>
 public static class NativeThunkEmitter
@@ -40,7 +41,8 @@ public static class NativeThunkEmitter
     /// - No variadic parameters (@_cdecl can't call variadic methods either)
     /// - No indirect result required (SwiftIndirectResult maps to x8 only under CallConvSwift)
     /// - Not a struct constructor (Mono AOT can't JIT LibraryImport struct returns)
-    /// - Not a failable constructor (returns Optional&lt;Self&gt;, needs indirect result)
+    /// - Not a failable constructor (Optional&lt;Self&gt; return — address-only for value types, a
+    ///   single nullable pointer for classes; the thunk implements neither, so these route to @_cdecl)
     /// - Not a generic type constructor (needs specialized metatype dispatch)
     /// - In xcframework mode (thunk binary needs the wrapper library)
     /// - ABI field layout available for return type (if thunk needs return bridging)
@@ -110,8 +112,10 @@ public static class NativeThunkEmitter
         if (methodDecl.IsConstructor && env.ParentDecl is StructDecl)
             return false;
 
-        // Failable constructors (init?) return Optional<Self> which requires indirect result
-        // handling. The thunk can't bridge Optional return types.
+        // Failable constructors (init?) return Optional<Self>. For a value type that is address-only
+        // (tag + payload buffer); for a class it is a single nullable pointer returned directly. The
+        // thunk bridges neither Optional shape, so failable inits route to the @_cdecl wrapper (the
+        // class shape is then a direct nullable-pointer return; see ConstructorWrapperEmitter).
         if (methodDecl.IsConstructor && methodDecl.IsFailable)
             return false;
 

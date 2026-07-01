@@ -52,6 +52,16 @@ internal record CdeclReturnMapping(string CdeclReturnType, CdeclReturnKind Kind)
         if (CdeclParamMapper.IsAnyObjectType(typeSpec))
             return (new CdeclReturnMapping("UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
 
+        // @objc protocol existentials: a single 8-byte ObjC object pointer (no witness table, no
+        // descriptor) — identical wire to a class reference. Return BY VALUE via the ClassPointer
+        // convention (Unmanaged.passRetained(... as AnyObject).toOpaque()); the optional form is a
+        // nullable pointer (nil = null). Decided before the generic protocol-existential arm below,
+        // which would route to the 40-byte opaque-container indirect result.
+        if (ExistentialHandler.IsObjCProtocolExistentialSpec(typeSpec, typeDatabase, out var objcReturnIsOptional))
+            return objcReturnIsOptional
+                ? (new CdeclReturnMapping("UnsafeMutableRawPointer?", CdeclReturnKind.OptionalClassPointer), false)
+                : (new CdeclReturnMapping("UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
+
         // Closure returns: write to resultPtr buffer
         if (typeSpec is ClosureTypeSpec)
             return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);

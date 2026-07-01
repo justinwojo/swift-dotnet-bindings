@@ -184,6 +184,33 @@ public static class CdeclParamMapper
                     $"{argLabel}{label}Val");
         }
 
+        // @objc protocol existentials passed as OPTIONAL ((any P)?): a single 8-byte ObjC object
+        // pointer with no witness table and no descriptor — identical wire to AnyObject. The C#
+        // side marshals the optional case as a bare, nullable pointer (through the
+        // optional-existential projection), so reconstruct via Unmanaged<AnyObject> + `as!` cast
+        // rather than the opaque-container load(as:) path below (which would read a buffer Swift
+        // never wrote). Must precede the generic ProtocolExistential / OptionalReference arms.
+        //
+        // The NON-optional case (any P) is deliberately NOT reconstructed as a bare pointer here.
+        // The C# side marshals a non-optional @objc existential parameter through the
+        // ExistentialContainer1 carrier (allocated on the heap, passed by address) — the same path
+        // that auto-wraps a plain C# conformer into a Swift proxy so Swift can dispatch back into
+        // it. Reconstructing a bare pointer here would make the wrapper treat the carrier's address
+        // as the object itself and crash. Instead it falls through to the generic
+        // ProtocolExistential arm below, whose load(as:) reads the carrier's payload word — the
+        // representation the C# side actually passes.
+        if (ExistentialHandler.IsObjCProtocolExistentialSpec(swiftTypeSpec, env.TypeDatabase, out var objcParamIsOptional)
+            && objcParamIsOptional)
+        {
+            var innerSpec = ((NamedTypeSpec)swiftTypeSpec).GenericParameters[0];
+            var protoType = RenderModuleQualifiedSwiftTypeWithExistentialAny(innerSpec, env.TypeDatabase);
+            var castType = protoType.StartsWith("any ") ? $"({protoType})" : protoType;
+            return Simple(CdeclParamCategory.OptionalReference,
+                    $"_ {label}: UnsafeMutableRawPointer?",
+                    $"let {label}Val: {castType}? = {label}.map {{ Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! {castType} }}",
+                    $"{argLabel}{label}Val");
+        }
+
         // Protocol existentials are not C-representable in @_cdecl functions.
         // Marshal as UnsafeRawPointer and reconstruct inside the wrapper body.
         if (IsProtocolExistentialType(swiftTypeSpec, env.TypeDatabase))

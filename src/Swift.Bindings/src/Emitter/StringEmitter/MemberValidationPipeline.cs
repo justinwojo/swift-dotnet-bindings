@@ -614,6 +614,17 @@ public class MemberValidationPipeline
             }
         }
 
+        // @objc protocol existential nested in a container/tuple/closure — unsupported ABI.
+        // Bare `any P` / `Optional<any P>` property types marshal correctly (single ObjC object
+        // pointer) and are NOT caught here; only nested positions route through the
+        // ExistentialContainer1 carrier that fails for @objc. Concrete-path mirror of the
+        // CanEmitProperty gate. Fail closed.
+        if (ExistentialHandler.HasUnsupportedObjCProtocolExistentialPosition(propertyDecl.SwiftTypeSpec, _typeDatabase))
+        {
+            return ValidationResult.Skip(SkipReason.UnsupportedExistential,
+                "Property has an @objc protocol existential in an unsupported nested position (container/tuple/closure); only bare `any P` / `Optional<any P>` are supported.");
+        }
+
         return ValidationResult.Emit;
     }
 

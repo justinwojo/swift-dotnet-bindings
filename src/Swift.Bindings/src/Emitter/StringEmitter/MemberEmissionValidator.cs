@@ -259,6 +259,16 @@ public static class MemberEmissionValidator
             projectedTypeName = existentialHandler.GetPublicOptionalExistentialType(innerProtocolList);
         }
 
+        // @objc protocol existential nested in a container/tuple/closure — unsupported ABI
+        // (see ShouldSkipMethodEmission). Bare `any P` / `Optional<any P>` property types are
+        // handled above and marshal correctly as a single object pointer; only nested positions
+        // route through the ExistentialContainer1 carrier that fails for @objc. Fail closed.
+        if (ExistentialHandler.HasUnsupportedObjCProtocolExistentialPosition(property.SwiftTypeSpec, typeDatabase))
+        {
+            skipDetails = "Property has an @objc protocol existential in an unsupported nested position (container/tuple/closure).";
+            return SkipReason.UnsupportedExistential;
+        }
+
         // Check closure properties
         bool isClosure = closureHandler.IsClosure(property);
         if (isClosure)
@@ -641,6 +651,22 @@ public static class MemberEmissionValidator
                     skipDetails = "Method has an Optional existential parameter or return type that is unsupported (class-bounded composition or unsupported protocol count).";
                     return SkipReason.UnsupportedExistential;
                 }
+            }
+
+            // @objc protocol existential in an unsupported position — mirror of the concrete-path
+            // gate in ShouldSkipMethodEmission. Only bare `any P` / `Optional<any P>` in synchronous
+            // param/return position are supported (single ObjC object-pointer ABI); a nested
+            // container/tuple/closure position, or any position in an async method, routes through
+            // the ExistentialContainer1 carrier that fails for @objc. Fail closed.
+            if (ExistentialHandler.HasUnsupportedObjCProtocolExistentialPosition(argument.SwiftTypeSpec, typeDatabase))
+            {
+                skipDetails = "Method has an @objc protocol existential in an unsupported nested position (container/tuple/closure); only bare `any P` / `Optional<any P>` are supported.";
+                return SkipReason.UnsupportedExistential;
+            }
+            if (method.IsAsync && ExistentialHandler.ContainsObjCProtocolExistential(argument.SwiftTypeSpec, typeDatabase))
+            {
+                skipDetails = "Async method references an @objc protocol existential; @objc existentials are only supported in synchronous param/return position.";
+                return SkipReason.UnsupportedExistential;
             }
         }
 
@@ -1099,6 +1125,25 @@ public static class MemberEmissionValidator
                     skipDetails = $"Method has an unsupported Optional existential on '{arg.Name}' (class-bounded composition or unsupported protocol count).";
                     return SkipReason.UnsupportedExistential;
                 }
+            }
+
+            // @objc protocol existentials have a single ObjC object-pointer ABI (AnyObject-shaped,
+            // no witness table). Only the bare `any P` / `Optional<any P>` forms in a synchronous
+            // param/return position marshal correctly (nullable object pointer). Any other position
+            // — nested inside a container/tuple/closure, or ANY position in an async method — would
+            // route the @objc existential through the 40-byte ExistentialContainer1 carrier whose
+            // descriptor registration silently fails for @objc, yielding a wrong-ABI mis-emission
+            // or a buffer over-read crash. Fail closed: drop the member rather than emit unsound
+            // marshalling.
+            if (ExistentialHandler.HasUnsupportedObjCProtocolExistentialPosition(arg.SwiftTypeSpec, typeDatabase))
+            {
+                skipDetails = $"Method has an @objc protocol existential in an unsupported nested position on '{arg.Name}' (container/tuple/closure); only bare `any P` / `Optional<any P>` are supported.";
+                return SkipReason.UnsupportedExistential;
+            }
+            if (method.IsAsync && ExistentialHandler.ContainsObjCProtocolExistential(arg.SwiftTypeSpec, typeDatabase))
+            {
+                skipDetails = $"Async method references an @objc protocol existential on '{arg.Name}'; @objc existentials are only supported in synchronous param/return position.";
+                return SkipReason.UnsupportedExistential;
             }
         }
 

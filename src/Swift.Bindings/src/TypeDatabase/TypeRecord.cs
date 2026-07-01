@@ -83,6 +83,14 @@ public enum TypeRecordFlags
     // treat references to such types as unsupported so that they don't emit dangling
     // symbol references to a type that will never be generated.
     Unemittable = 1 << 15,
+    // This flag indicates a protocol is declared @objc. Its existential (and Optional
+    // thereof) is a single 8-byte Objective-C object pointer with no Swift witness-table
+    // word (dispatch is via the ObjC selector table), identical to AnyObject — even when
+    // the protocol is also ClassBound (AnyObject/NSObjectProtocol-rooted). @objc protocols
+    // export no Swift `…Mp` descriptor, so they must NOT use the 16-byte
+    // ClassExistentialContainer1 carrier (whose metadata registration needs that descriptor);
+    // they marshal through the descriptor-free opaque existential container instead.
+    ObjCProtocol = 1 << 16,
 }
 
 /// <summary>

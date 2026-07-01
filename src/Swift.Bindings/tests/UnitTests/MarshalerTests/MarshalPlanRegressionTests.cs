@@ -735,6 +735,62 @@ public class MarshalPlanRegressionTests
         Assert.Equal("result", plan.PInvokeExpression);
     }
 
+    [Fact]
+    public void ObjCExistential_ParameterPlan_GuardsNonSwiftVendedImpl()
+    {
+        // An @objc protocol existential is a bare 8-byte ObjC object pointer (IntPtr), never an
+        // ExistentialContainerN carrier and — unlike a native protocol — with no GetOrCreate
+        // auto-wrap. A Swift-vended proxy IS an ISwiftObject and takes the .SwiftHandle path
+        // unchanged; a plain managed conformer (the unsupported reverse direction) fails closed
+        // with a self-describing NotSupportedException rather than a bare InvalidCastException.
+        var proj = new ExistentialProjection(
+            "Swift.Runtime.ExistentialContainer1", "IObjCShape", "ObjCShapeProxy", isObjCExistential: true);
+        var plan = proj.GetParameterPlan("shape");
+
+        Assert.Equal("IntPtr", proj.PInvokeType);
+        Assert.Contains("shape as Swift.Runtime.ISwiftObject", plan.PInvokeExpression);
+        Assert.Contains("?? throw new global::System.NotSupportedException", plan.PInvokeExpression);
+        Assert.Contains(".SwiftHandle", plan.PInvokeExpression);
+        // No native-protocol auto-wrap for @objc.
+        Assert.DoesNotContain("GetOrCreate", plan.PInvokeExpression);
+        // Working path is a guarded cast, not a bare unconditional cast that throws InvalidCastException.
+        Assert.DoesNotContain("((Swift.Runtime.ISwiftObject)shape).SwiftHandle", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void ObjCExistential_ReturnPlan_AdoptsPayload0()
+    {
+        // Forward path (D2 core): a Swift-returned @objc existential is a +1-owned object pointer
+        // adopted into the proxy via Payload0 (ownsContainer: true). Independent of the
+        // reverse-direction parameter guard.
+        var proj = new ExistentialProjection(
+            "Swift.Runtime.ExistentialContainer1", "IObjCShape", "ObjCShapeProxy", isObjCExistential: true);
+        var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
+
+        Assert.Equal(
+            "new ObjCShapeProxy(new Swift.Runtime.ExistentialContainer1 { Payload0 = result }, ownsContainer: true)",
+            plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void OptionalObjCExistential_ParameterPlan_DelegatesGuardToInner()
+    {
+        // (any P)? for an @objc P is a nullable ObjC pointer. The non-nil handle extraction
+        // delegates to the inner ExistentialProjection's guarded expression, so the two
+        // @objc-existential parameter paths cannot drift apart.
+        var inner = new ExistentialProjection(
+            "Swift.Runtime.ExistentialContainer1", "IObjCShape", "ObjCShapeProxy", isObjCExistential: true);
+        var proj = new OptionalProjection(inner);
+        var plan = proj.GetParameterPlan("shape");
+
+        var setupLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
+        Assert.Contains("shape is { } shapeVal", setupLine.Code);
+        Assert.Contains("shapeVal as Swift.Runtime.ISwiftObject", setupLine.Code);
+        Assert.Contains("?? throw new global::System.NotSupportedException", setupLine.Code);
+        Assert.Contains(": IntPtr.Zero", setupLine.Code);
+        Assert.Equal("shapeBuffer", plan.PInvokeExpression);
+    }
+
     #endregion
 
     #region Closure

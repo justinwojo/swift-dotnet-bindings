@@ -74,6 +74,20 @@ public sealed record ProtocolDecl : TypeDecl
     public bool IsClassBound { get; set; }
 
     /// <summary>
+    /// Indicates whether this protocol is declared <c>@objc</c>. The existential of an
+    /// <c>@objc</c> protocol (and its Optional) is a single 8-byte Objective-C object pointer
+    /// with NO Swift witness-table word — identical to <c>AnyObject</c> — because dispatch
+    /// goes through the Objective-C selector table, not a Swift witness table. This is true
+    /// even when the protocol also carries an <c>AnyObject</c>/<c>NSObjectProtocol</c>
+    /// requirement (which makes <see cref="IsClassBound"/> true). Such protocols therefore
+    /// export NO Swift <c>…Mp</c> descriptor, so they must NOT marshal through the 16-byte
+    /// <c>ClassExistentialContainer1</c> carrier (whose metadata registration needs that
+    /// descriptor); they use the descriptor-free opaque container instead. Detected from the
+    /// ABI JSON <c>DeclAttributes</c> "ObjC" entry.
+    /// </summary>
+    public bool IsObjC { get; set; }
+
+    /// <summary>
     /// Indicates whether the protocol can be used as an existential type.
     /// Protocols with Self requirements or associated types cannot be used as existentials
     /// without explicit "any" syntax in Swift 5.6+.

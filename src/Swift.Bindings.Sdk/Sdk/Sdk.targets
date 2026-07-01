@@ -1645,6 +1645,55 @@ done; true"
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 2c: Collect transitive native-framework deps for the clang -F path -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- A direct dependency's public umbrella header can #import a GRAND-dependency's
+       headers (a direct dependency's public header pulls in a sibling framework's generated
+       -Swift.h), so the generator's ObjC clang AST pass needs every transitively
+       reachable framework on its -F path — not just this project's directly declared
+       roots. Direct roots already reach the generator via SwiftFrameworkDependency and
+       _AutoFrameworkDependency (appended in _GenerateSwiftBindings). This target adds
+       the TRANSITIVE layer by querying each swift-binding ProjectReference's
+       GetSwiftTransitiveFrameworkDependencies closure (the dependency-roots analogue of
+       the GetSwiftFrameworkSearchPaths recursion the wrapper compile already relies on).
+       Roots already passed directly are excluded by full path; the generator is the
+       backstop for any path-form mismatch, skipping duplicate dependency module names. -->
+  <Target Name="_CollectTransitiveFrameworkDependencies"
+          BeforeTargets="_GenerateSwiftBindings"
+          DependsOnTargets="_DiscoverSwiftFrameworks;_DiscoverProjectReferenceDependencies"
+          Condition="'@(ProjectReference)' != ''">
+    <ItemGroup>
+      <_SwiftTransitiveDepFwkProjectReference Include="@(ProjectReference)"
+          Condition="!$([System.String]::Copy('%(Identity)').Contains('.ObjC.'))" />
+    </ItemGroup>
+    <MSBuild Projects="@(_SwiftTransitiveDepFwkProjectReference)"
+             Targets="GetSwiftTransitiveFrameworkDependencies"
+             Properties="%(_SwiftTransitiveDepFwkProjectReference.SetTargetFramework);%(_SwiftTransitiveDepFwkProjectReference.SetConfiguration)"
+             BuildInParallel="false"
+             ContinueOnError="true"
+             Condition="'@(_SwiftTransitiveDepFwkProjectReference)' != '' AND '%(_SwiftTransitiveDepFwkProjectReference.SetTargetFramework)' != ''">
+      <Output TaskParameter="TargetOutputs" ItemName="_SwiftTransitiveFrameworkDependency" />
+    </MSBuild>
+    <MSBuild Projects="@(_SwiftTransitiveDepFwkProjectReference)"
+             Targets="GetSwiftTransitiveFrameworkDependencies"
+             Properties="%(_SwiftTransitiveDepFwkProjectReference.SetConfiguration)"
+             BuildInParallel="false"
+             ContinueOnError="true"
+             Condition="'@(_SwiftTransitiveDepFwkProjectReference)' != '' AND '%(_SwiftTransitiveDepFwkProjectReference.SetTargetFramework)' == ''">
+      <Output TaskParameter="TargetOutputs" ItemName="_SwiftTransitiveFrameworkDependency" />
+    </MSBuild>
+    <RemoveDuplicates Inputs="@(_SwiftTransitiveFrameworkDependency)"
+                      Condition="'@(_SwiftTransitiveFrameworkDependency)' != ''">
+      <Output TaskParameter="Filtered" ItemName="_SwiftTransitiveFrameworkDependencyDeduped" />
+    </RemoveDuplicates>
+    <!-- Drop roots already supplied directly (compared by absolute path). -->
+    <ItemGroup Condition="'@(_SwiftTransitiveFrameworkDependencyDeduped)' != ''">
+      <_SwiftTransitiveFrameworkDependencyNew Include="@(_SwiftTransitiveFrameworkDependencyDeduped)"
+          Exclude="@(SwiftFrameworkDependency->'%(FullPath)');@(_AutoFrameworkDependency)" />
+    </ItemGroup>
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 3: Invoke generator (gated on fingerprint)                      -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_GenerateSwiftBindings"
@@ -1704,6 +1753,11 @@ done; true"
       <_SwiftGenCmd Condition="'@(SwiftFrameworkDependency)' != ''">$(_SwiftGenCmd) @(SwiftFrameworkDependency->' --framework-dependency "%(Identity)"', '')</_SwiftGenCmd>
       <!-- Auto-discovered dependency frameworks from ProjectReference directories -->
       <_SwiftGenCmd Condition="'@(_AutoFrameworkDependency)' != ''">$(_SwiftGenCmd) @(_AutoFrameworkDependency->' --framework-dependency "%(Identity)"', '')</_SwiftGenCmd>
+      <!-- Transitive dependency roots: a direct dependency's public headers can
+           #import a grand-dependency's headers, which the generator's ObjC clang AST
+           pass must resolve on -F. Collected by _CollectTransitiveFrameworkDependencies
+           and deduped against the direct roots above. -->
+      <_SwiftGenCmd Condition="'@(_SwiftTransitiveFrameworkDependencyNew)' != ''">$(_SwiftGenCmd) @(_SwiftTransitiveFrameworkDependencyNew->' --framework-dependency "%(Identity)"', '')</_SwiftGenCmd>
       <!-- Author-declared system frameworks / libraries the wrapper link needs (e.g. a
            force-loaded static-archive source that depends on CoreVideo/Metal/libc++). Harmless
            in the generate pass (which skips wrapper compilation); the wrapper pass
@@ -2467,9 +2521,10 @@ done; true"
        project's own outputs. A consumer's wrapper compile (swiftc on the emitted
        @_cdecl wrapper) does `import DirectDep`; when the prebuilt .swiftmodule was
        produced by a different compiler version, swiftc rebuilds DirectDep from its
-       textual .swiftinterface, and any module that interface imports (e.g. CoreKit's
-       interface imports FBAEMKit) must be on the -F search path or swiftc fails
-       "no such module 'FBAEMKit'". So this query must surface, in addition to the
+       textual .swiftinterface, and any module that interface imports (a grand-dependency
+       framework pulled in by the direct dependency's own interface) must be on the -F
+       search path or swiftc fails "no such module '<GrandDep>'". So this query must
+       surface, in addition to the
        project's own source + wrapper xcframeworks:
          1. the project's own declared SwiftFrameworkDependency roots (as ABSOLUTE
             paths — FullPath resolves them relative to THIS project's directory so a
@@ -2517,6 +2572,74 @@ done; true"
                                         Condition="'@(SwiftFrameworkDependency)' != ''" />
       <_SwiftBindingFrameworkSearchPath Include="@(_SwiftTransitiveFrameworkSearchPath)"
                                         Condition="'@(_SwiftTransitiveFrameworkSearchPath)' != ''" />
+    </ItemGroup>
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 4d-1b: Transitive native-framework dependency-root closure       -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Returns the TRANSITIVE closure of native-framework dependency ROOTS (the
+       original third-party xcframeworks), not just this project's directly
+       declared ones. The generator's ObjC clang AST pass parses the bound
+       framework's umbrella header, which #imports its direct dependencies' public
+       headers; those headers can in turn #import a GRAND-dependency's headers
+       (e.g. a direct dependency's public header pulls in a sibling framework's
+       generated -Swift.h). clang therefore needs every transitively reachable
+       framework on its -F search path, not only the roots this project declares.
+
+       This is the dependency-ROOTS analogue of GetSwiftFrameworkSearchPaths
+       (which returns the broader -F closure the wrapper *compile* needs, including
+       wrapper and own xcframeworks). Here we deliberately return ONLY the original
+       dependency xcframeworks, because each is fed back to the generator as a
+       framework-dependency argument, which it resolves as a real dependency module
+       (clang -F search path plus cross-module type resolution) — a wrapper or own
+       xcframework must never appear in that role.
+
+       Returns, as ABSOLUTE paths (FullPath resolves a child's relative dependency
+       against the CHILD's directory, so a consumer in a different directory still
+       gets a valid path):
+         1. this project's own declared SwiftFrameworkDependency roots, plus its
+            auto-discovered ProjectReference xcframeworks (_AutoFrameworkDependency), and
+         2. recursively, the same closure from this project's own swift-binding
+            ProjectReferences (the project graph is a DAG; MSBuild caches per-project
+            target results so diamonds resolve once).
+       Path duplicates are deduped at the consumption site; the generator additionally
+       skips duplicate dependency module names, so a root reachable both directly and
+       transitively collapses safely. -->
+  <Target Name="GetSwiftTransitiveFrameworkDependencies"
+          DependsOnTargets="_DiscoverSwiftFrameworks;_DiscoverProjectReferenceDependencies"
+          Returns="@(_SwiftBindingTransitiveFrameworkDependency)">
+    <!-- Recurse this project's own swift-binding ProjectReferences. Companion
+         csprojs (named '.ObjC.') use Microsoft.NET.Sdk and have no such target;
+         ContinueOnError tolerates any non-binding ProjectReference. Split by
+         SetTargetFramework/SetConfiguration exactly as GetSwiftFrameworkSearchPaths
+         does, so a cross-TFM- or cross-config-pinned sibling is queried under the
+         slice it was built with. -->
+    <ItemGroup>
+      <_SwiftTransitiveDepFwkProjectReference Include="@(ProjectReference)"
+          Condition="'@(ProjectReference)' != '' AND !$([System.String]::Copy('%(Identity)').Contains('.ObjC.'))" />
+    </ItemGroup>
+    <MSBuild Projects="@(_SwiftTransitiveDepFwkProjectReference)"
+             Targets="GetSwiftTransitiveFrameworkDependencies"
+             Properties="%(_SwiftTransitiveDepFwkProjectReference.SetTargetFramework);%(_SwiftTransitiveDepFwkProjectReference.SetConfiguration)"
+             BuildInParallel="false"
+             ContinueOnError="true"
+             Condition="'@(_SwiftTransitiveDepFwkProjectReference)' != '' AND '%(_SwiftTransitiveDepFwkProjectReference.SetTargetFramework)' != ''">
+      <Output TaskParameter="TargetOutputs" ItemName="_SwiftBindingTransitiveFrameworkDependency" />
+    </MSBuild>
+    <MSBuild Projects="@(_SwiftTransitiveDepFwkProjectReference)"
+             Targets="GetSwiftTransitiveFrameworkDependencies"
+             Properties="%(_SwiftTransitiveDepFwkProjectReference.SetConfiguration)"
+             BuildInParallel="false"
+             ContinueOnError="true"
+             Condition="'@(_SwiftTransitiveDepFwkProjectReference)' != '' AND '%(_SwiftTransitiveDepFwkProjectReference.SetTargetFramework)' == ''">
+      <Output TaskParameter="TargetOutputs" ItemName="_SwiftBindingTransitiveFrameworkDependency" />
+    </MSBuild>
+    <ItemGroup>
+      <_SwiftBindingTransitiveFrameworkDependency Include="@(SwiftFrameworkDependency->'%(FullPath)')"
+                                                  Condition="'@(SwiftFrameworkDependency)' != ''" />
+      <_SwiftBindingTransitiveFrameworkDependency Include="@(_AutoFrameworkDependency)"
+                                                  Condition="'@(_AutoFrameworkDependency)' != ''" />
     </ItemGroup>
   </Target>
 
