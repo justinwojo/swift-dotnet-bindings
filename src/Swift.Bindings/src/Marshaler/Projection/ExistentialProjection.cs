@@ -330,14 +330,26 @@ public class ExistentialProjection : ITypeProjection
     public string? GetOwnedParameterElementConversion(string elementVar) =>
         _isBareAny
             ? $"ExistentialContainer0.Box({elementVar})"
-            : _proxyClassName != null && _containerType == "Swift.Runtime.ExistentialContainer1"
+            // An @objc existential produced to Swift is a single +1-owned bare object pointer, NOT a
+            // 40-byte EC1 — so gate this BEFORE the EC1 arm (an @objc projection still carries
+            // _containerType == ExistentialContainer1). Mint the owned class carrier and hand Swift its
+            // bare word0 (ClassRef): CreateOwnedClassCarrier's Arc.UnknownObjectRetain balances the
+            // __owned return whether word0 is an ObjC or native Swift class, and the receiver wraps this
+            // in the SwiftOptional<IntPtr>/IntPtr carrier that takes the bare pointer. This is the
+            // Swift-return (owned) inverse of GetObjCReturnExpression's Payload0 read.
+            : _isObjCExistential && _proxyClassName != null
                 ? _proxyIsSuppressed
                     // CONSUME: suppressed proxy → no wrap fallback (see GetParameterPlan).
-                    ? $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<{_publicType}>({elementVar})"
-                    : $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<{_publicType}>({elementVar}, static __v => new {_proxyClassName}(__v))"
-                : _proxyClassName != null && ExistentialHandler.IsOwnedExistentialContainerType(_containerType)
-                    ? $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedCompositionExistential<{_publicType}, {_containerType}>({elementVar})"
-                    : $"((ISwiftExistentialConvertible<{_containerType}>){elementVar}).GetExistentialContainer()";
+                    ? $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedClassCarrier<{_publicType}>({elementVar}).ClassRef"
+                    : $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedClassCarrier<{_publicType}>({elementVar}, static __v => new {_proxyClassName}(__v)).ClassRef"
+                : _proxyClassName != null && _containerType == "Swift.Runtime.ExistentialContainer1"
+                    ? _proxyIsSuppressed
+                        // CONSUME: suppressed proxy → no wrap fallback (see GetParameterPlan).
+                        ? $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<{_publicType}>({elementVar})"
+                        : $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<{_publicType}>({elementVar}, static __v => new {_proxyClassName}(__v))"
+                    : _proxyClassName != null && ExistentialHandler.IsOwnedExistentialContainerType(_containerType)
+                        ? $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedCompositionExistential<{_publicType}, {_containerType}>({elementVar})"
+                        : $"((ISwiftExistentialConvertible<{_containerType}>){elementVar}).GetExistentialContainer()";
 
     /// <summary>
     /// Per-element conversion for the PARAMETER/WRITE direction of a <c>[any P]</c> array (and the
@@ -406,6 +418,16 @@ public class ExistentialProjection : ITypeProjection
     {
         if (_isBareAny)
             return $"ExistentialContainer0.Unbox({elementVar})";
+        // An @objc existential received from Swift is a single bare object pointer (+0 borrowed on the
+        // scalar receiver path — Swift keeps ownership), NOT a 40-byte EC1. When the proxy is emitted,
+        // wrap the pointer into its class-bound container ctor with ownsContainer:false so the borrow is
+        // not adopted (adopting would run an unknown-object release on storage Swift still owns → UAF).
+        // The ownsContainer:true owned counterpart is GetObjCReturnExpression's wrapper-return form.
+        // A SUPPRESSED @objc proxy has no emitted class to construct, so it must NOT be gated ahead of
+        // the suppressed-proxy throw below — it falls through to that fail-closed skip exactly like the
+        // non-@objc suppressed path (constructing new {Proxy}(…) would dangle on a type that was elided).
+        if (_isObjCExistential && _proxyClassName != null && !_proxyIsSuppressed)
+            return $"({_publicType})new {_proxyClassName}(new Swift.Runtime.ExistentialContainer1 {{ Payload0 = {elementVar} }}, ownsContainer: false)";
         // PRODUCE: a suppressed proxy cannot back a `new {Proxy}(…)` element construction (see GetReturnPlan).
         if (_proxyClassName != null && _proxyIsSuppressed)
             throw new SuppressedProxyReferenceException(_proxyClassName);

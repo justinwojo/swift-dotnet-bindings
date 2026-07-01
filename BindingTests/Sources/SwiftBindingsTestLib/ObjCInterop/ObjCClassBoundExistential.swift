@@ -108,3 +108,67 @@ public func readObjCShapeTag(_ shape: any ObjCClassBoundShape) -> Int32 {
 public func readOptionalObjCShapeTag(_ shape: (any ObjCClassBoundShape)?) -> Int32 {
     return shape?.tag ?? -1
 }
+
+// MARK: - The @objc existential as a member of a *reverse-dispatch receiver*
+//
+// The two fixtures above flow an @objc existential through free functions. The receiver
+// protocol below carries the @objc existential as its OWN member, and is implemented by a
+// C# class — so Swift dispatches back INTO that C# implementation, exercising the two
+// @objc-existential element conversions on the receiver (proxy) path that the free-function
+// path never reaches:
+//   • didReceive(shape:) — Swift passes `any ObjCClassBoundShape` INTO the C# method. The
+//     receiver thunk wraps the +0 BORROWED bare ObjC pointer into the C# proxy WITHOUT
+//     adopting it (Swift retains ownership of the argument; adopting would over-release).
+//   • currentShape — Swift READS `any ObjCClassBoundShape` back OUT of the C# getter. The
+//     receiver thunk hands Swift a +1 OWNED bare ObjC pointer (minted here, adopted by Swift
+//     on load).
+// This is the exact reverse-dispatch shape a real-world mixed (ObjC+Swift) binding hit.
+
+public protocol ObjCShapeReceiver: AnyObject {
+    /// Swift → C#: a +0 borrowed @objc existential parameter delivered into the C# impl.
+    func didReceive(shape: any ObjCClassBoundShape)
+    /// C# → Swift: a +1 owned @objc existential read back out of the C# impl.
+    var currentShape: any ObjCClassBoundShape { get }
+}
+
+/// Drives the C# receiver's `didReceive(shape:)` with a freshly built Swift @objc conformer.
+public func fireObjCShapeReceiver(_ receiver: any ObjCShapeReceiver, tag: Int32) {
+    receiver.didReceive(shape: ObjCShapeThing(tag: tag))
+}
+
+/// Reads the C# receiver's `currentShape` getter and dispatches `.tag` on the result.
+public func readObjCShapeReceiverCurrentTag(_ receiver: any ObjCShapeReceiver) -> Int32 {
+    return receiver.currentShape.tag
+}
+
+// MARK: - Owned getter-return leak probe (unbalanced-retain detection)
+//
+// The `currentShape` getter hands Swift a +1 OWNED bare ObjC pointer, minted on the C#
+// side through the owned class carrier (Arc.UnknownObjectRetain) and adopted by Swift on
+// load. The round-trip test above proves the value is correct and the +0 borrow isn't
+// over-released, but a per-read *over-retain* on this owned path (mint +1 that Swift never
+// consumes/releases) would still pass it. This conformer participates in the shared
+// LifetimeTracker allocation counters, so a leak test can read the getter in a loop, drop
+// the C# owner, drain the GC, and assert the live count returns to zero — a leaked +1 per
+// read pins this object and leaves it non-zero even after the owner's wrapper releases.
+
+/// Lifetime-tracked @objc conformer. Identical wire shape to `ObjCShapeThing` (single bare
+/// ObjC pointer, no witness table) but its init/deinit feed the shared allocation counters,
+/// so a leak on the owned getter-return path is observable as a pinned live count.
+@objc public class TrackedObjCShapeThing: NSObject, ObjCClassBoundShape {
+    public let tag: Int32
+    @objc public init(tag: Int32) {
+        self.tag = tag
+        super.init()
+        recordTrackedAllocation()
+    }
+    deinit {
+        recordTrackedDeallocation()
+    }
+}
+
+/// Vends a lifetime-tracked @objc conformer as the class-bound existential (for the
+/// owned getter-return leak probe).
+public func makeTrackedObjCShape(_ tag: Int32) -> any ObjCClassBoundShape {
+    return TrackedObjCShapeThing(tag: tag)
+}

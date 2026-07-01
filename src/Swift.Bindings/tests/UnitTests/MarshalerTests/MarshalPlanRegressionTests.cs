@@ -791,6 +791,67 @@ public class MarshalPlanRegressionTests
         Assert.Equal("shapeBuffer", plan.PInvokeExpression);
     }
 
+    [Fact]
+    public void ObjCExistential_ReceiverParamElement_BorrowsNonOwning()
+    {
+        // Reverse-dispatch RECEIVE (Swift → C#): a scalar @objc receiver parameter/setter value is a
+        // bare object pointer at +0 (Swift keeps ownership). It wraps into the proxy's class-bound
+        // container ctor with ownsContainer:false so the borrow is NOT adopted — adopting would run an
+        // unknown-object release on storage Swift still owns (over-release / UAF). This is the +0
+        // inverse of the +1-owned forward return (ObjCExistential_ReturnPlan_AdoptsPayload0).
+        var proj = new ExistentialProjection(
+            "Swift.Runtime.ExistentialContainer1", "IObjCShape", "ObjCShapeProxy", isObjCExistential: true);
+
+        Assert.Equal(
+            "(IObjCShape)new ObjCShapeProxy(new Swift.Runtime.ExistentialContainer1 { Payload0 = shape }, ownsContainer: false)",
+            proj.GetReturnElementConversion("shape"));
+    }
+
+    [Fact]
+    public void ObjCExistential_ReceiverParamElement_SuppressedProxy_FailsClosed()
+    {
+        // A SUPPRESSED @objc proxy has no emitted class, so the RECEIVE direction cannot construct a
+        // new {Proxy}(…) — it must fall through to the suppressed-proxy throw (fail-closed member skip),
+        // exactly like the non-@objc suppressed path. Regression guard: emitting the proxy ref
+        // unconditionally dangles on an elided type (observed as CS0246 for a real suppressed @objc
+        // content protocol).
+        var proj = new ExistentialProjection(
+            "Swift.Runtime.ExistentialContainer1", "IObjCContent", "ObjCContentProxy",
+            proxyIsSuppressed: true, isObjCExistential: true);
+
+        Assert.Throws<SuppressedProxyReferenceException>(() => proj.GetReturnElementConversion("content"));
+    }
+
+    [Fact]
+    public void ObjCExistential_OwnedGetterReturnElement_MintsOwnedClassCarrier()
+    {
+        // Reverse-dispatch PRODUCE (C# → Swift): a receiver getter returns `any P` at +1-owned. The
+        // owned class carrier mints the +1 (Arc.UnknownObjectRetain) and hands Swift the bare word0
+        // (ClassRef) — an @objc existential's wire form is a single isa pointer, no witness word. The
+        // wrap fallback builds a proxy from a plain C# conformer when the value isn't Swift-vended.
+        var proj = new ExistentialProjection(
+            "Swift.Runtime.ExistentialContainer1", "IObjCShape", "ObjCShapeProxy", isObjCExistential: true);
+
+        Assert.Equal(
+            "Swift.Runtime.ExistentialContainerFactory.CreateOwnedClassCarrier<IObjCShape>(shape, static __v => new ObjCShapeProxy(__v)).ClassRef",
+            proj.GetOwnedParameterElementConversion("shape"));
+    }
+
+    [Fact]
+    public void ObjCExistential_OwnedGetterReturnElement_SuppressedProxy_NoWrapFallback()
+    {
+        // A suppressed @objc proxy cannot back a `new {Proxy}(…)` wrap fallback, so the PRODUCE
+        // direction mints the owned class carrier with no fallback (the value must already be a
+        // Swift-vended proxy). Bare word0 (ClassRef) is still the correct +1-owned hand-off.
+        var proj = new ExistentialProjection(
+            "Swift.Runtime.ExistentialContainer1", "IObjCContent", "ObjCContentProxy",
+            proxyIsSuppressed: true, isObjCExistential: true);
+
+        Assert.Equal(
+            "Swift.Runtime.ExistentialContainerFactory.CreateOwnedClassCarrier<IObjCContent>(content).ClassRef",
+            proj.GetOwnedParameterElementConversion("content"));
+    }
+
     #endregion
 
     #region Closure
