@@ -302,7 +302,12 @@ partial class Build
         var legRoot = mixedRoot / "static";
         if (Directory.Exists(legRoot)) legRoot.DeleteDirectory();
         legRoot.CreateDirectory();
-        var xcfw = BuildPackGateMixedXcframework(legRoot / "build", module, probeClass, isStatic: true);
+        // The static leg doubles as the type-resolution-bridge gate: its mixed framework's
+        // Swift ABI references the framework's own ObjC types (see WriteMixedFrameworkSources),
+        // so generation must resolve them through the ObjC-bridge records rather than degrade
+        // to object. The other mixed legs leave withObjCTypeBridge off and stay byte-identical.
+        var xcfw = BuildPackGateMixedXcframework(
+            legRoot / "build", module, probeClass, isStatic: true, withObjCTypeBridge: true);
 
         var fixtureDir = legRoot / "fixture";
         var fixtureOut = legRoot / "fixture-output";
@@ -323,6 +328,11 @@ partial class Build
             .SetConfiguration("Release")
             .EnableNoLogo()
             .SetVerbosity(DotNetVerbosity.quiet));
+
+        // Type-resolution-bridge generation gate: assert the emitted Swift binding resolved
+        // the ObjC-typed members to the companion types (not object / Swift.AnyType) BEFORE
+        // the slower pack + consumer run, so a resolution regression is localized to generation.
+        AssertTypeBridgeGeneratedResolution(fixtureDir, module, probeClass);
 
         Log.Information("=== PackGate (mixed/static): packing fixture (--no-build) ===");
         DotNetPack(s => s
@@ -415,7 +425,8 @@ partial class Build
         // (only the wrapper defines it) — assert the dyld duplicate-class warning
         // is absent. This is the only place the load-time Gap 2 symptom is
         // observable in CI.
-        RunPackGateMixedConsumer(legRoot, nupkgDir, fixtureOut, module, probeClass, assertSingleRegistration: true);
+        RunPackGateMixedConsumer(legRoot, nupkgDir, fixtureOut, module, probeClass,
+            assertSingleRegistration: true, exerciseTypeBridge: true);
     }
 
     // ── Dynamic leg: source RETAINED, then consume + link + run ────────────────
@@ -495,17 +506,19 @@ partial class Build
     // leg (Build.BindingTests.MixedPack.cs) reuses the same recipe to assemble a
     // multi-slice (device + simulator) iOS xcframework.
     AbsolutePath BuildPackGateMixedXcframework(
-        AbsolutePath buildRoot, string module, string probeClass, bool isStatic)
+        AbsolutePath buildRoot, string module, string probeClass, bool isStatic,
+        bool withObjCTypeBridge = false)
     {
         if (Directory.Exists(buildRoot)) buildRoot.DeleteDirectory();
         buildRoot.CreateDirectory();
-        var (probeM, libSwift) = WriteMixedFrameworkSources(buildRoot, module, probeClass);
+        var (probeM, libSwift) = WriteMixedFrameworkSources(buildRoot, module, probeClass, withObjCTypeBridge);
 
         var sliceDir = buildRoot / $"macos-{PackGateMixedArch}";
         BuildMixedFrameworkSlice(
             sliceDir, probeM, libSwift, module, probeClass, isStatic,
             triple: PackGateMixedTriple, moduleSuffix: PackGateMixedModuleSuffix,
-            sdkName: "macosx", minOs: "11.0", plistPlatform: "MacOSX");
+            sdkName: "macosx", minOs: "11.0", plistPlatform: "MacOSX",
+            withObjCTypeBridge: withObjCTypeBridge);
 
         var xcframeworkPath = buildRoot / $"{module}.xcframework";
         if (Directory.Exists(xcframeworkPath)) xcframeworkPath.DeleteDirectory();
@@ -569,8 +582,22 @@ partial class Build
     // satisfy the force_load assertion by accident) and a small independent Swift
     // API (so the framework is classified Mixed — both an ObjC and a Swift surface).
     // The same two source files compile against every slice's triple/SDK.
+    //
+    // When withObjCTypeBridge is set (the static leg only), Lib.swift additionally
+    // declares members that RETURN/ACCEPT the framework's own ObjC-defined types — the
+    // NS_SWIFT_NAME-renamed probe class (imported into Swift as `Greeter`) and an
+    // NS_ENUM ({module}Level). This is the ONLY fixture shape whose Swift ABI references
+    // an ObjC-bound type, so it is the durable end-to-end gate for the mixed-binding
+    // type-resolution bridge: the generator must synthesize a TypeRecord from the parsed
+    // ObjC half and re-key it (raw ObjC name → Swift-import name) so the Swift member
+    // resolves to the companion type instead of degrading to object. The class rename
+    // exercises the raw-name→import-name path; the enum (raw name == import name)
+    // exercises the NS_ENUM → SimpleEnum path. probe.m is unchanged either way — the
+    // NS_SWIFT_NAME attribute lives on the umbrella-header interface swiftc imports, not
+    // on probe.m's local implementation interface. Off by default so the other mixed
+    // legs stay byte-identical.
     static (AbsolutePath ProbeM, AbsolutePath LibSwift) WriteMixedFrameworkSources(
-        AbsolutePath buildRoot, string module, string probeClass)
+        AbsolutePath buildRoot, string module, string probeClass, bool withObjCTypeBridge = false)
     {
         var probeM = buildRoot / "probe.m";
         File.WriteAllText(probeM,
@@ -588,6 +615,16 @@ partial class Build
         // shape mirrors BindingTests' proven BlittableElementBuffer<T> (an
         // unconstrained generic struct with a stored T + a T-returning method), so it
         // generates + compiles through the minimal mixed pipeline the same way.
+        // The bridge members reference the umbrella-header ObjC types by their Swift-import
+        // names: the probe class as `Greeter` (NS_SWIFT_NAME) and the NS_ENUM as
+        // `{module}Level` (no rename). Compiled with -import-underlying-module so Lib.swift
+        // sees the framework's own ObjC half. makeGreeter() returns the class (drives the
+        // ObjCBridged/GetNSObject path); echoLevel() round-trips the enum (SimpleEnum path).
+        var bridgeMembers = withObjCTypeBridge
+            ? $"public func makeGreeter() -> Greeter {{ return Greeter() }}\n" +
+              $"public func echoLevel(_ l: {module}Level) -> {module}Level {{ return l }}\n"
+            : "";
+
         var libSwift = buildRoot / "Lib.swift";
         File.WriteAllText(libSwift,
             $"public func {module}Marker() -> Int32 {{ return 1 }}\n" +
@@ -597,7 +634,8 @@ partial class Build
             $"    public let count: Int32\n" +
             $"    public init(value: T, count: Int32) {{ self.value = value; self.count = count }}\n" +
             $"    public func first() -> T {{ return value }}\n" +
-            $"}}\n");
+            $"}}\n" +
+            bridgeMembers);
 
         return (probeM, libSwift);
     }
@@ -612,7 +650,8 @@ partial class Build
     void BuildMixedFrameworkSlice(
         AbsolutePath sliceDir, AbsolutePath probeM, AbsolutePath libSwift,
         string module, string probeClass, bool isStatic,
-        string triple, string moduleSuffix, string sdkName, string minOs, string plistPlatform)
+        string triple, string moduleSuffix, string sdkName, string minOs, string plistPlatform,
+        bool withObjCTypeBridge = false)
     {
         sliceDir.CreateDirectory();
         var frameworkDir = sliceDir / $"{module}.framework";
@@ -623,9 +662,19 @@ partial class Build
 
         var sdkPath = XcRun.GetSdkPath(sdkName);
 
+        // When bridging, the umbrella header (the surface swiftc imports as the module's ObjC
+        // half AND the generator parses to bind the ObjC companion) declares an NS_ENUM and
+        // renames the probe class to Swift `Greeter` via NS_SWIFT_NAME. The companion still
+        // emits the RAW ObjC name (partial interface {probeClass}); NS_SWIFT_NAME only steers
+        // the Swift-import name, which is exactly what the bridge re-keyer reconciles.
+        var probeInterface = withObjCTypeBridge
+            ? $"typedef NS_ENUM(NSInteger, {module}Level) {{ {module}LevelLow = 0, {module}LevelHigh = 1 }};\n" +
+              $"NS_SWIFT_NAME(Greeter)\n@interface {probeClass} : NSObject\n- (NSString *)greeting;\n@end\n"
+            : $"@interface {probeClass} : NSObject\n- (NSString *)greeting;\n@end\n";
+
         File.WriteAllText(hdrDir / $"{module}.h",
             "#import <Foundation/Foundation.h>\n" +
-            $"@interface {probeClass} : NSObject\n- (NSString *)greeting;\n@end\n" +
+            probeInterface +
             MixedFixtureSelectorDedupInterface(module));
 
         File.WriteAllText(frameworkDir / "Modules" / "module.modulemap",
@@ -652,7 +701,7 @@ partial class Build
             // Static: compile the Swift to an object + module/interface, then `ar`
             // the Swift and ObjC objects into the framework binary (an archive).
             var libO = sliceDir / "lib.o";
-            SwiftCompiler.Execute(new SwiftCompilerSettings()
+            var libSettings = new SwiftCompilerSettings()
                 .SetTarget(triple)
                 .SetSdk(sdkPath)
                 .SetModuleName(module)
@@ -664,7 +713,13 @@ partial class Build
                 .SetModuleInterfacePath(swiftInterfacePath)
                 .AddExtraArgument("-parse-as-library")
                 .AddExtraArgument("-emit-object")
-                .AddSourceFile(libSwift));
+                .AddSourceFile(libSwift);
+            // -import-underlying-module + -F {sliceDir} lets Lib.swift resolve the framework's
+            // own umbrella-header ObjC types (Greeter, {module}Level). The modulemap + umbrella
+            // header written above are already on disk, so swiftc finds them via -F.
+            if (withObjCTypeBridge)
+                libSettings.AddExtraArgument("-import-underlying-module").AddFrameworkSearchPath(sliceDir);
+            SwiftCompiler.Execute(libSettings);
 
             RunPackGateTool("ar", new[] { "rcs", binaryPath.ToString(), libO.ToString(), probeO.ToString() });
         }
@@ -676,7 +731,7 @@ partial class Build
             // auto-link it, and the ObjC object's @"…" string literal needs
             // ___CFConstantStringClassReference (CoreFoundation, reexported by
             // Foundation) resolved at link time.
-            SwiftCompiler.Execute(new SwiftCompilerSettings()
+            var dylibSettings = new SwiftCompilerSettings()
                 .SetTarget(triple)
                 .SetSdk(sdkPath)
                 .SetModuleName(module)
@@ -690,19 +745,29 @@ partial class Build
                 .SetInstallName($"@rpath/{module}.framework/{module}")
                 .AddExtraArgument("-framework").AddExtraArgument("Foundation")
                 .AddSourceFile(libSwift)
-                .AddSourceFile(probeO));
+                .AddSourceFile(probeO);
+            if (withObjCTypeBridge)
+                dylibSettings.AddExtraArgument("-import-underlying-module").AddFrameworkSearchPath(sliceDir);
+            SwiftCompiler.Execute(dylibSettings);
         }
 
         // Some resolvers prefer a private interface alongside the public one.
         File.Copy(swiftInterfacePath, modDir / $"{moduleSuffix}.private.swiftinterface", overwrite: true);
 
-        // ABI JSON from the .swiftinterface.
-        SwiftFrontend.Execute(new SwiftFrontendSettings()
+        // ABI JSON from the .swiftinterface. When bridging, the interface references the
+        // underlying ObjC types, so -F {sliceDir} must reach THIS step too — otherwise
+        // -compile-module-from-interface cannot resolve them and the imported-type nodes
+        // (the raw-ObjC-name usrs the re-keyer harvests) never land in the ABI JSON. The
+        // frontend needs only the framework search path here, not -import-underlying-module.
+        var abiSettings = new SwiftFrontendSettings()
             .SetSwiftInterfacePath(swiftInterfacePath)
             .SetTarget(triple)
             .SetModuleName(module)
             .SetSdk(sdkPath)
-            .SetAbiDescriptorPath(modDir / $"{moduleSuffix}.abi.json"));
+            .SetAbiDescriptorPath(modDir / $"{moduleSuffix}.abi.json");
+        if (withObjCTypeBridge)
+            abiSettings.AddFrameworkSearchPath(sliceDir);
+        SwiftFrontend.Execute(abiSettings);
 
         PlistGenerator.WriteFrameworkPlist(
             frameworkDir / "Info.plist",
@@ -749,11 +814,24 @@ partial class Build
     // load-time Gap 2 symptom.
     void RunPackGateMixedConsumer(
         AbsolutePath legRoot, AbsolutePath nupkgDir, AbsolutePath fixtureOut,
-        string module, string probeClass, bool assertSingleRegistration)
+        string module, string probeClass, bool assertSingleRegistration,
+        bool exerciseTypeBridge = false)
     {
         var appDir = legRoot / "consumer";
         if (Directory.Exists(appDir)) appDir.DeleteDirectory();
         appDir.CreateDirectory();
+
+        // The fixture package is a throwaway version (PackGateVersion) rebuilt from source every
+        // run, but its content changes across runs (e.g. new bridge members) while the version does
+        // not. NuGet keys the global-packages folder by (id, version), so a stale entry from a prior
+        // run would shadow the freshly packed local-feed nupkg and the consumer would compile
+        // against last run's assembly — masking any regression in the fixture's generated surface.
+        // Evict it before restore, mirroring the Runtime/Sdk/Apple eviction in the top-level pack step.
+        var nugetCacheDir = (AbsolutePath)(Environment.GetEnvironmentVariable("NUGET_PACKAGES")
+            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".nuget", "packages"));
+        var fixturePkgDir = nugetCacheDir / $"packgatemixedfixture.{module.ToLowerInvariant()}" / PackGateVersion;
+        if (Directory.Exists(fixturePkgDir)) fixturePkgDir.DeleteDirectory();
 
         var csproj = $"""
             <Project Sdk="Microsoft.NET.Sdk">
@@ -777,11 +855,31 @@ partial class Build
         // Use the ObjC type through the single Swift-binding PackageReference. The
         // allocation forces the wrapper image to load and the runtime to register
         // the class; the method call exercises objc_msgSend end-to-end.
+        //
+        // When exerciseTypeBridge is set, additionally call the Swift members that
+        // RETURN/ACCEPT the ObjC-defined types and assign the results to the EXACT
+        // companion types (never var/object). The explicit types make this a compile-time
+        // gate on top of the runtime one: if generation had degraded the members to object
+        // / Swift.AnyType, `{probeClass} x = ...MakeGreeter()` fails CS0029 and a dropped
+        // member fails CS0117 — so a resolution regression cannot slip through as a green
+        // build. The runtime prints then prove the value actually round-trips: makeGreeter()
+        // materializes the peer via GetNSObject (its greeting matches), and echoLevel()
+        // preserves the enum case.
+        var bridgeProgram = exerciseTypeBridge
+            ? $$"""
+                global::{{module}}.{{probeClass}} bridged = global::{{module}}.Functions.MakeGreeter();
+                Console.WriteLine("BRIDGE_GREETING:" + bridged.Greeting());
+                global::{{module}}.{{module}}Level echoed = global::{{module}}.Functions.EchoLevel(global::{{module}}.{{module}}Level.High);
+                Console.WriteLine("BRIDGE_ENUM:" + (int)echoed);
+
+                """
+            : "";
         var program = $$"""
             // Copyright (c) 2026 Justin Wojciechowski.
             // Licensed under the MIT License.
             var probe = new global::{{module}}.{{probeClass}}();
             Console.WriteLine("OBJC_GREETING:" + probe.Greeting());
+            {{bridgeProgram}}
             """;
         File.WriteAllText(appDir / "Program.cs", program);
         File.WriteAllText(appDir / "NuGet.config", PackGateMixedNuGetConfig(nupkgDir, fixtureOut));
@@ -824,6 +922,24 @@ partial class Build
                 $"PackGate (mixed/{module}): expected '{expected}' in stdout — the ObjC type was not usable through " +
                 $"the single Swift-binding PackageReference.\nstdout:\n{stdout}\nstderr:\n{stderr}");
 
+        if (exerciseTypeBridge)
+        {
+            // The Swift member returned the ObjC class: GetNSObject materialized the peer and
+            // its greeting round-trips (proves the ObjCBridged marshalling of the resolved type).
+            var expectedBridgeGreeting = $"BRIDGE_GREETING:{PackGateMixedObjCGreeting}";
+            if (!stdout.Contains(expectedBridgeGreeting, StringComparison.Ordinal))
+                Assert.Fail(
+                    $"PackGate (mixed/{module}): expected '{expectedBridgeGreeting}' in stdout — a Swift member returning " +
+                    $"the NS_SWIFT_NAME'd ObjC class did not round-trip through the type-resolution bridge.\n" +
+                    $"stdout:\n{stdout}\nstderr:\n{stderr}");
+            // The NS_ENUM round-tripped its case value (High == 1) through the SimpleEnum path.
+            if (!stdout.Contains("BRIDGE_ENUM:1", StringComparison.Ordinal))
+                Assert.Fail(
+                    $"PackGate (mixed/{module}): expected 'BRIDGE_ENUM:1' in stdout — the NS_ENUM did not round-trip " +
+                    $"through the type-resolution bridge.\nstdout:\n{stdout}\nstderr:\n{stderr}");
+            Log.Information("PackGate (mixed/static) type-bridge run OK — ObjC class + NS_ENUM resolved from Swift ABI and round-tripped");
+        }
+
         if (assertSingleRegistration)
         {
             // dyld/objc prints "Class X is implemented in both ... One of the two
@@ -840,6 +956,48 @@ partial class Build
         {
             Log.Information("PackGate (mixed/{Module}) consumer-run OK — ObjC type usable through single PackageReference", module);
         }
+    }
+
+    // Structural generation gate for the type-resolution bridge: inspects the emitted Swift
+    // binding source and asserts the ObjC-typed members resolved to the companion types rather
+    // than degrading to object / Swift.AnyType. Localizes a resolution regression to generation,
+    // earlier than (and independent of) the pack + consumer-run legs. SEMANTIC check — the member
+    // binds to the companion type — not an exact-signature string match.
+    void AssertTypeBridgeGeneratedResolution(AbsolutePath fixtureDir, string module, string probeClass)
+    {
+        // The SDK emits generated sources under $(IntermediateOutputPath)swift-binding/.
+        var objDir = fixtureDir / "obj";
+        var generatedFiles = Directory.Exists(objDir)
+            ? Directory.EnumerateFiles(objDir, "*.cs", SearchOption.AllDirectories)
+                .Where(p => p.Replace('\\', '/').Contains("/swift-binding/", StringComparison.Ordinal))
+                .ToList()
+            : new List<string>();
+        if (generatedFiles.Count == 0)
+            Assert.Fail(
+                $"PackGate (mixed/static): could not locate any generated Swift binding source under " +
+                $"{objDir}/**/swift-binding/ to assert type-bridge resolution — the SDK's generated-output layout " +
+                $"may have changed, or generation did not run.");
+
+        var text = string.Join("\n", generatedFiles.Select(File.ReadAllText));
+
+        // The class member (makeGreeter) must resolve to the companion class via the ObjCBridged
+        // projection — materialized with GetNSObject<...{probeClass}>. A degraded member would
+        // return object and never name the companion type.
+        if (!System.Text.RegularExpressions.Regex.IsMatch(
+                text, $@"GetNSObject<[^>]*\b{System.Text.RegularExpressions.Regex.Escape(probeClass)}>"))
+            Assert.Fail(
+                $"PackGate (mixed/static): the generated Swift binding does not resolve the member returning the " +
+                $"NS_SWIFT_NAME'd ObjC class to the companion type (no GetNSObject<...{probeClass}>) — the " +
+                $"type-resolution bridge degraded it to object / Swift.AnyType.");
+
+        // The enum member (echoLevel) must resolve to the companion enum type {module}Level.
+        if (!text.Contains($"{module}Level", StringComparison.Ordinal))
+            Assert.Fail(
+                $"PackGate (mixed/static): the generated Swift binding does not reference the companion enum " +
+                $"'{module}Level' — the NS_ENUM member did not resolve through the type-resolution bridge.");
+
+        Log.Information("PackGate (mixed/static) type-bridge generation OK — class→GetNSObject<{Probe}>, enum→{Module}Level",
+            probeClass, module);
     }
 
     // ── shared helpers ─────────────────────────────────────────────────────────

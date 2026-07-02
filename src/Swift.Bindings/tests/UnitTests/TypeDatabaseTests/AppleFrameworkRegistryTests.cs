@@ -588,9 +588,21 @@ public class AppleFrameworkRegistryTests
     // MacCatalyst: both UIKit and AppKit available
     [InlineData("UIKit", ApplePlatform.MacCatalyst, true)]
     [InlineData("AppKit", ApplePlatform.MacCatalyst, true)]
+    // MacCatalyst: frameworks the Mac itself lacks are absent there too — the OpenGLES/EAGLContext
+    // namespace and ARKit/CarPlay are all missing from Microsoft.MacCatalyst (verified against the
+    // ref assembly), unlike the UIKit family Catalyst brings across. OpenGLES is the multi-TFM
+    // PackGate Catalyst-slice CS0246; ARKit/CarPlay share the shape via the provenance-additive using.
+    [InlineData("OpenGLES", ApplePlatform.MacCatalyst, false)]
+    [InlineData("ARKit", ApplePlatform.MacCatalyst, false)]
+    [InlineData("CarPlay", ApplePlatform.MacCatalyst, false)]
+    // OpenGLES cross-platform matrix: present on iOS/tvOS, absent on the two Mac-derived platforms.
+    [InlineData("OpenGLES", ApplePlatform.iOS, true)]
+    [InlineData("OpenGLES", ApplePlatform.tvOS, true)]
+    [InlineData("OpenGLES", ApplePlatform.macOS, false)]
     // Unknown modules default to available (conservative)
     [InlineData("MyCustomLib", ApplePlatform.tvOS, true)]
     [InlineData("MyCustomLib", ApplePlatform.macOS, true)]
+    [InlineData("MyCustomLib", ApplePlatform.MacCatalyst, true)]
     public void IsModuleAvailableOnPlatform_ReturnsExpected(string module, ApplePlatform platform, bool expected)
     {
         Assert.Equal(expected, AppleFrameworkRegistry.IsModuleAvailableOnPlatform(module, platform));
@@ -1196,17 +1208,19 @@ public class AppleFrameworkRegistryTests
         foreach (var (module, platformString) in annotations)
         {
             // Fail closed on any platform string the loader does not map. AppleFrameworkRegistry's
-            // platformUnavailable loader only recognizes "tvOS"/"macOS"; a new platform annotation
-            // would otherwise be silently dropped (the module would read as AVAILABLE everywhere).
-            // Forcing the mapping here means loader support must land before the annotation does.
+            // platformUnavailable loader recognizes "tvOS"/"macOS"/"MacCatalyst"; a new platform
+            // annotation would otherwise be silently dropped (the module would read as AVAILABLE
+            // everywhere). Forcing the mapping here means loader support must land before the
+            // annotation does.
             var platform = platformString switch
             {
                 "tvOS" => ApplePlatform.tvOS,
                 "macOS" => ApplePlatform.macOS,
+                "MacCatalyst" => ApplePlatform.MacCatalyst,
                 _ => throw new Xunit.Sdk.XunitException(
                     $"platformUnavailable annotation '{module}' → '{platformString}' uses a platform " +
-                    $"string the AppleFrameworkRegistry loader does not map (only tvOS/macOS are " +
-                    $"recognized). Add loader support before annotating this platform."),
+                    $"string the AppleFrameworkRegistry loader does not map (only tvOS/macOS/MacCatalyst " +
+                    $"are recognized). Add loader support before annotating this platform."),
             };
 
             Assert.False(

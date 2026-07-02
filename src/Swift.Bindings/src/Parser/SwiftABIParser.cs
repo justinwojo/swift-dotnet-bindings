@@ -268,6 +268,27 @@ namespace BindingsGeneration
         private readonly Swift5Demangler demangler = new();
 
         /// <summary>
+        /// Maps a raw Objective-C declaration name (the identifier in a Clang USR, e.g.
+        /// <c>MGreeter</c> from <c>c:objc(cs)MGreeter</c>) to the Swift-import name the ABI uses
+        /// for it (the last component of the reference node's <c>printedName</c>, e.g. <c>Greeter</c>
+        /// from <c>M.Greeter</c>). Populated as <see cref="CreateTypeSpec"/> visits every type
+        /// reference — the ABI carries both halves on each ObjC-imported nominal: the Swift-facing
+        /// name in <c>printedName</c> and the raw ObjC identity in <c>usr</c>. This is the only
+        /// reliable source of an ObjC type's Swift-import name: Clang's <c>-ast-dump=json</c> omits
+        /// the string argument of <c>SwiftNameAttr</c>, and the mapping must account for automatic
+        /// prefix stripping as well as explicit <c>NS_SWIFT_NAME</c>, which only the Swift compiler
+        /// resolves. Consumed by the mixed ObjC+Swift bridge to re-key ObjC type-resolution records
+        /// (synthesized under the raw ObjC name) to the name a Swift member actually references.
+        /// </summary>
+        private readonly Dictionary<string, string> _objcImportedTypeNames = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Raw Objective-C name → Swift-import name for every ObjC-imported type the Swift ABI
+        /// references. See <see cref="_objcImportedTypeNames"/>.
+        /// </summary>
+        public IReadOnlyDictionary<string, string> ObjCImportedTypeNames => _objcImportedTypeNames;
+
+        /// <summary>
         /// Determines if a declaration node represents a module-internal declaration
         /// that is ABI-visible but not accessible from external Swift code.
         /// Detection layers:
@@ -3590,6 +3611,10 @@ namespace BindingsGeneration
                     // type leaks in generic-argument position (e.g. the Transaction in
                     // Optional<Transaction>) as well as bare position, so it must reach the inner specs.
                     ThreadNominalUsrs(spec, node);
+                    // Record the raw-ObjC-name → Swift-import-name mapping for every ObjC-imported
+                    // nominal in this reference (outer type + nested generic args), for the mixed
+                    // ObjC+Swift bridge. See _objcImportedTypeNames.
+                    CaptureObjCImportedTypeNames(node);
                     // When a typealias appears inside Optional<T>, swift-api-digester encodes the
                     // underlying nominal in the TypeNameAlias child node — but TypeSpecParser
                     // only sees PrintedName ("simd.float4x4?"), so it keeps the alias name as the
@@ -3671,6 +3696,73 @@ namespace BindingsGeneration
                     ThreadNominalUsrs(named.GenericParameters[i], childNodes[i]);
                 }
             }
+        }
+
+        /// <summary>
+        /// Records the raw-ObjC-name → Swift-import-name mapping for every ObjC-imported nominal in
+        /// <paramref name="node"/> and its children, into <see cref="_objcImportedTypeNames"/>. The
+        /// raw ObjC name is decoded from the Clang <c>usr</c> (<see cref="ObjCImportedRawName"/>); the
+        /// Swift-import name is the reference's <c>printedName</c> with its leading module component
+        /// stripped (already module-qualified, e.g. <c>M.Greeter</c> → <c>Greeter</c>). Only names
+        /// belonging to THIS module are harvested — an ObjC type imported by a dependency
+        /// (<c>Dep.OtherThing</c>) would otherwise seed a rename under a raw name that can collide
+        /// with this module's own and mis-key the record; cross-module bridging is out of scope.
+        /// Recurses so an ObjC type in generic-argument position (e.g. inside
+        /// <c>Optional&lt;M.Greeter&gt;</c>) is captured too.
+        /// </summary>
+        private void CaptureObjCImportedTypeNames(Node node)
+        {
+            var rawName = ObjCImportedRawName(node.usr);
+            if (rawName != null && !string.IsNullOrEmpty(node.PrintedName))
+            {
+                // printedName is module-qualified. Split off the leading module component and harvest
+                // the rename ONLY when it names THIS module: the bridge registers records into this
+                // module's own database, and a dependency's import carries a different module prefix.
+                // A bare (unqualified) name has no module component and is skipped.
+                var printed = node.PrintedName;
+                var firstDot = printed.IndexOf('.');
+                if (firstDot == CurrentModuleName.Length
+                    && string.CompareOrdinal(printed, 0, CurrentModuleName, 0, firstDot) == 0)
+                {
+                    var swiftName = printed.Substring(firstDot + 1);
+                    // Only a pure identifier is handled: a remaining dot means a nested import
+                    // (NS_SWIFT_NAME(Parent.Child)) whose companion type isn't emitted nested, and any
+                    // other punctuation means a decorated/malformed name — skip so a truncated or bogus
+                    // key can't be seeded (it could collide with a real flat type of the same name).
+                    if (swiftName.Length > 0 && swiftName.All(c => char.IsLetterOrDigit(c) || c == '_'))
+                        _objcImportedTypeNames[rawName] = swiftName;
+                }
+            }
+            if (node.Children != null)
+            {
+                foreach (var child in node.Children)
+                    CaptureObjCImportedTypeNames(child);
+            }
+        }
+
+        /// <summary>
+        /// Decodes the raw Objective-C declaration name from a Clang USR for the ObjC-imported kinds
+        /// the mixed bridge handles: a pure ObjC class (<c>c:objc(cs)&lt;Name&gt;</c>) or a C/ObjC
+        /// enum, including <c>NS_ENUM</c> (<c>c:@E@&lt;Name&gt;</c> / <c>c:@EA@&lt;Name&gt;</c>).
+        /// Returns <c>null</c> for any other USR — notably an <c>@objc</c>-exported <em>Swift</em>
+        /// class, whose USR carries a Swift-module origin marker (<c>c:@M@&lt;module&gt;@objc(cs)…</c>)
+        /// and which is bound by the Swift pipeline under its Swift name, so it must not be treated
+        /// as a pure-ObjC import.
+        /// </summary>
+        private static string? ObjCImportedRawName(string? usr)
+        {
+            if (string.IsNullOrEmpty(usr))
+                return null;
+            const string classMarker = "c:objc(cs)";
+            if (usr.StartsWith(classMarker, StringComparison.Ordinal))
+                return usr.Substring(classMarker.Length);
+            const string enumArrayMarker = "c:@EA@";
+            if (usr.StartsWith(enumArrayMarker, StringComparison.Ordinal))
+                return usr.Substring(enumArrayMarker.Length);
+            const string enumMarker = "c:@E@";
+            if (usr.StartsWith(enumMarker, StringComparison.Ordinal))
+                return usr.Substring(enumMarker.Length);
+            return null;
         }
 
         /// <summary>

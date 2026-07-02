@@ -218,6 +218,7 @@ internal static class AppleFrameworkRegistry
         // Platform unavailable: build per-platform sets
         var tvOSUnavailable = new HashSet<string>(StringComparer.Ordinal);
         var macOSUnavailable = new HashSet<string>(StringComparer.Ordinal);
+        var macCatalystUnavailable = new HashSet<string>(StringComparer.Ordinal);
 
         // Process definitions sorted by module name for deterministic loading
         foreach (var def in definitions.OrderBy(d => d.Module, StringComparer.Ordinal))
@@ -276,6 +277,8 @@ internal static class AppleFrameworkRegistry
                         tvOSUnavailable.Add(def.Module);
                     else if (platform == "macOS")
                         macOSUnavailable.Add(def.Module);
+                    else if (platform == "MacCatalyst")
+                        macCatalystUnavailable.Add(def.Module);
                 }
             }
 
@@ -310,6 +313,13 @@ internal static class AppleFrameworkRegistry
             _platformUnavailableModules[ApplePlatform.tvOS] = tvOSUnavailable;
         if (macOSUnavailable.Count > 0)
             _platformUnavailableModules[ApplePlatform.macOS] = macOSUnavailable;
+        // Mac Catalyst runs on the Mac, so frameworks the Mac lacks (OpenGL ES) are absent there
+        // too — but Catalyst deliberately brings most of the iOS/UIKit family across, so a
+        // macOS-unavailable framework is NOT automatically Catalyst-unavailable (UIKit is the
+        // canonical counter-example). The annotation is therefore per-framework in the JSON, not
+        // derived from the macOS set.
+        if (macCatalystUnavailable.Count > 0)
+            _platformUnavailableModules[ApplePlatform.MacCatalyst] = macCatalystUnavailable;
     }
 
     private static List<FrameworkDefinition> LoadFrameworkDefinitions()

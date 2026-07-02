@@ -211,34 +211,66 @@ public class ObjCUsingsEmitterTests
         Assert.Contains("using WebKit;", output);
     }
 
-    [Fact]
-    public void ApiDefinition_macOS_OmitsOpenGLES()
+    [Theory]
+    [InlineData("macOS")]
+    [InlineData("MacCatalyst")]
+    public void ApiDefinition_MacDerivedPlatforms_OmitOpenGLES(string platformName)
     {
-        // OpenGLES.framework does not ship on macOS (macOS uses the deprecated desktop OpenGL),
-        // so the kitchen-sink `using OpenGLES;` must be dropped there or it CS0246s on every
-        // generated macOS ObjC binding — the same shape as the UIKit/WebKit cross-TFM bug.
-        var output = EmitApiDefinition(TrivialClassModule(), platformInfo: macOS);
+        // OpenGLES.framework ships on neither macOS nor Mac Catalyst: macOS uses the deprecated
+        // desktop OpenGL, and Catalyst runs on the Mac, so the OpenGLES namespace is absent from
+        // both Microsoft.macOS and Microsoft.MacCatalyst (verified: EAGLContext resolves on
+        // Microsoft.iOS but not Microsoft.MacCatalyst). The kitchen-sink `using OpenGLES;` must be
+        // dropped on both or it CS0246s on every generated ObjC binding there — the same shape as
+        // the UIKit/WebKit cross-TFM bug, and the exact failure the four-platform multi-TFM PackGate
+        // leg surfaced on its Catalyst slice.
+        var pi = platformName switch
+        {
+            "macOS" => macOS,
+            "MacCatalyst" => MacCatalyst,
+            _ => throw new System.ArgumentException(platformName),
+        };
+        var output = EmitApiDefinition(TrivialClassModule(), platformInfo: pi);
         Assert.DoesNotContain("using OpenGLES;", output);
     }
 
     [Theory]
     [InlineData("iOS")]
     [InlineData("tvOS")]
-    [InlineData("MacCatalyst")]
     public void ApiDefinition_OpenGLESPlatforms_IncludeOpenGLES(string platformName)
     {
-        // OpenGLES IS available on iOS, tvOS, and Mac Catalyst — needed so EAGLContext and the
-        // other GLKit/OpenGLES types referenced by bindings like MapLibre resolve (CS0246 absent
-        // this using).
+        // OpenGLES IS available on iOS and tvOS (but NOT the Mac-derived platforms above) — needed
+        // so EAGLContext and the other GLKit/OpenGLES types referenced by bindings like MapLibre
+        // resolve (CS0246 absent this using).
         var pi = platformName switch
         {
             "iOS" => iOS,
             "tvOS" => tvOS,
-            "MacCatalyst" => MacCatalyst,
             _ => throw new System.ArgumentException(platformName),
         };
         var output = EmitApiDefinition(TrivialClassModule(), platformInfo: pi);
         Assert.Contains("using OpenGLES;", output);
+    }
+
+    [Theory]
+    [InlineData("ARSession", "ARKit")]
+    [InlineData("CPTemplate", "CarPlay")]
+    public void ApiDefinition_AdditiveProvenance_CatalystUnavailableFramework_DroppedOnCatalystKeptOniOS(
+        string referencedTypeName, string frameworkNamespace)
+    {
+        // ARKit and CarPlay are NOT in the curated baseline — unlike OpenGLES they reach output ONLY
+        // through the additive header-provenance branch (a referenced Apple SDK class contributes its
+        // owning `using`). Both ship on iOS but NOT on Mac Catalyst (Catalyst runs on the Mac, which
+        // lacks ARKit/CarPlay), so the additive branch must gate them exactly as EmitFiltered gates the
+        // baseline: emitted on iOS, dropped on Catalyst even though a member references the type. This
+        // pins the additive path (not just the baseline OpenGLES omission and the raw availability
+        // predicate) against the same cross-TFM CS0246 the Catalyst annotations exist to prevent.
+        var iosOutput = EmitApiDefinition(
+            ModuleWithAppleSdkProvenance(referencedTypeName, frameworkNamespace, reference: true), platformInfo: iOS);
+        Assert.Contains($"using {frameworkNamespace};", iosOutput);
+
+        var catalystOutput = EmitApiDefinition(
+            ModuleWithAppleSdkProvenance(referencedTypeName, frameworkNamespace, reference: true), platformInfo: MacCatalyst);
+        Assert.DoesNotContain($"using {frameworkNamespace};", catalystOutput);
     }
 
     // --- StructsAndEnums.cs ---

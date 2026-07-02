@@ -7,7 +7,7 @@
       "optionalFallback": true,
       "wrapperImportable": true,
       "objcPrefixes": ["AR"],
-      "platformUnavailable": ["tvOS", "macOS"],
+      "platformUnavailable": ["tvOS", "macOS", "MacCatalyst"],
       "valueTypes": [
         "ARHitTestResult.ResultType",
         "ARRaycastQuery",
@@ -102,7 +102,7 @@
       "optionalFallback": true,
       "wrapperImportable": true,
       "objcPrefixes": ["CP"],
-      "platformUnavailable": ["tvOS", "macOS"]
+      "platformUnavailable": ["tvOS", "macOS", "MacCatalyst"]
     },
     {
       "module": "Charts",
@@ -657,7 +657,7 @@
     },
     {
       "module": "OpenGLES",
-      "platformUnavailable": ["macOS"]
+      "platformUnavailable": ["macOS", "MacCatalyst"]
     },
     {
       "module": "PDFKit",

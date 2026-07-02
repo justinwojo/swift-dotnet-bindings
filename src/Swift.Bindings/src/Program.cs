@@ -49,7 +49,7 @@ namespace BindingsGeneration
             GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibraryName, swiftInterfacePath, symbolGraphPath, bridgeHintsPath, namespacePattern, logger, loggerFactory, out _, out _, out _, out _, dependencyModuleNames: null, moduleDatabasePaths: null);
         }
 
-        internal static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, out HashSet<string>? nestedTypesInCollidingClass, out DepModuleCollisionDetector.SlicedCollisionResult depModuleCollisions, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null, bool keepBuiltinDatabaseForTargetModule = false, Producers.InterfaceFactsAggregator? factsAggregator = null, string? descriptorAssemblyNameOverride = null, string? swiftRuntimeVersion = null)
+        internal static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, out HashSet<string>? nestedTypesInCollidingClass, out DepModuleCollisionDetector.SlicedCollisionResult depModuleCollisions, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null, bool keepBuiltinDatabaseForTargetModule = false, Producers.InterfaceFactsAggregator? factsAggregator = null, string? descriptorAssemblyNameOverride = null, string? swiftRuntimeVersion = null, IReadOnlyList<TypeRecord>? objcBridgeRecords = null)
         {
             internalTypeNames = null;
             moduleNameForCollision = null;
@@ -411,6 +411,28 @@ namespace BindingsGeneration
                 // dylibPath is used for metadata extraction, runtimeLibraryName is used in generated DllImport
                 var moduleProcessor = new ModuleProcessor(moduleName, dylibPath, runtimeLibraryName, moduleTypes, typeDatabase, loggerFactory.CreateLogger<ModuleProcessor>(), namespaceResolver);
                 var moduleDatabase = moduleProcessor.FinalizeTypeProcessingAndCreateModuleDatabase().ModuleDatabase;
+
+                // Mixed ObjC+Swift type-resolution bridge: register records synthesized from the ObjC
+                // half of a mixed binding into this module's OWN database, before it is added to the
+                // registry and frozen. A Swift member that references an ObjC-defined type resolves
+                // against these instead of degrading to object/AnyType. ConflictPolicy.KeepExisting is
+                // Swift-wins: the Swift parse already ran (FinalizeTypeProcessing registered its types
+                // via Overwrite), so a Swift-owned type of the same name is kept and the ObjC record
+                // only fills the gap Swift resolution can't. The module is not yet frozen here, so the
+                // Register calls precede the SWIFTBIND045 boundary.
+                //
+                // The factory keys each record by the raw ObjC name, but a Swift member references the
+                // type by its Swift-import name (NS_SWIFT_NAME / prefix-stripped) — a mapping Clang's
+                // JSON AST doesn't expose. ObjCBridgeRecordRekeyer applies the authoritative
+                // rawObjCName -> swiftImportName map the Swift ABI parse harvested, anchoring every
+                // record on moduleName so it stays coherent with the database it lives in.
+                if (objcBridgeRecords != null)
+                {
+                    var rekeyed = ObjCBridgeRecordRekeyer.Rekey(objcBridgeRecords, moduleName, swiftParser.ObjCImportedTypeNames);
+                    foreach (var record in rekeyed)
+                        moduleDatabase.Register(record.SwiftTypeName, record, ConflictPolicy.KeepExisting);
+                }
+
                 typeDatabase.AddModuleDatabase(moduleDatabase);
 
                 // Finding 47: freeze the registry. Every structural write (dependency loading,

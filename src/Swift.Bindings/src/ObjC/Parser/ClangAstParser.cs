@@ -1452,7 +1452,16 @@ public static class ClangAstParser
 
     /// <summary>
     /// Extracts the NS_SWIFT_NAME value from a declaration's inner nodes.
-    /// Clang represents this as a SwiftNameAttr node with a "name" property.
+    /// <para>
+    /// LIMITATION: on real input this returns null even for a decl that carries NS_SWIFT_NAME. Clang's
+    /// <c>-ast-dump=json</c> emits a <c>SwiftNameAttr</c> child node but OMITS its string argument (it
+    /// carries only <c>id</c>/<c>kind</c>/<c>range</c>) — the same JSON-vs-text gap already documented
+    /// for <c>ObjCRuntimeNameAttr</c> above. The text <c>-ast-dump</c> does print the name, but this
+    /// generator consumes the JSON dump, so <c>child["name"]</c> is absent and this is effectively a
+    /// presence check. JSON parsing also cannot model automatic ObjC-prefix stripping. The authoritative
+    /// rawObjCName → Swift-import-name mapping is recovered instead from the Swift ABI (see
+    /// <c>SwiftABIParser.ObjCImportedTypeNames</c> / <c>ObjCBridgeRecordRekeyer</c>).
+    /// </para>
     /// </summary>
     private static string? ExtractSwiftName(JsonElement element)
     {

@@ -787,7 +787,61 @@ public static class BindingsGeneratorCommand
             return;
         }
 
-        var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, out var depModuleCollisions, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase, descriptorAssemblyNameOverride: assemblyNameOverride, swiftRuntimeVersion: swiftRuntimeVersion);
+        // Mixed ObjC+Swift type-resolution bridge (Phase 1): parse the ObjC half BEFORE Swift
+        // generation so records synthesized from the ObjC surface (classes → ObjCBridged, NS_ENUM →
+        // SimpleEnum) can be registered into the target module's database before Swift resolution
+        // runs. A Swift member that names an ObjC type (e.g. FBSDKCoreKit.AccessToken, bound on the
+        // ObjC side as `partial interface FBSDKAccessToken`) then resolves to the companion's C# type
+        // instead of degrading to object/AnyType or being dropped. The ObjC pipeline is split so this
+        // single parse feeds both the bridge here and the companion emission below (FilterAndEmit) —
+        // clang runs once. Emission is deferred until after the Swift pass writes swift-types.json
+        // (it needs that exclude set to dedup Swift-owned types). A hard Parse failure aborts right
+        // here, BEFORE Swift generation: the framework has a known ObjC surface, so a systemic parse
+        // failure always fails closed (ShouldAbortForFailedMixedObjC), and running the full Swift
+        // pass first would only burn work and leave partial .cs artifacts on disk behind a non-zero
+        // exit. On success, mixedBridgeRecords carries the synthesized records into GenerateBindings.
+        ObjCParseResult? mixedParse = null;
+        IReadOnlyList<TypeRecord>? mixedBridgeRecords = null;
+        if (hasXcframework && resolution != null && mixedObjcResolution != null)
+        {
+            var mixedSiblingPaths = XCFrameworkResolver.ResolveSiblingFrameworkSearchPaths(
+                xcframeworkPath!, platformTarget, logger, platformInfo: platformInfo);
+            // A2: thread the resolved dependency slice dirs (manual --framework-dependency +
+            // auto-detected) into the ObjC clang -F search path so a mixed framework whose umbrella
+            // header cross-imports a dependency (e.g. FBSDKLoginKit → FBSDKCoreKit) resolves.
+            var mixedObjcSearchPaths = MergeObjCFrameworkSearchPaths(
+                mixedSiblingPaths,
+                SelectObjCDependencySearchPaths(resolvedDependencies, platformTarget));
+            mixedParse = ObjCPipeline.Parse(
+                mixedObjcResolution, xcframeworkPath!, logger,
+                namespacePattern: namespacePattern,
+                additionalFrameworkSearchPaths: mixedObjcSearchPaths,
+                platformInfo: platformInfo);
+            if (mixedParse.ExitCode == 0 && mixedParse.Module != null)
+            {
+                mixedBridgeRecords = ObjCBridgeRecordFactory.CreateRecords(
+                    mixedParse.Module, mixedObjcResolution.ModuleName, mixedParse.ResolvedNamespace, logger);
+            }
+        }
+
+        // Fail closed before Swift generation. A systemic ObjC parse failure (clang/AST dump,
+        // umbrella-header resolution, or the native-symbol eligibility filters) on a framework that
+        // HAS an ObjC surface must not degrade to a Swift-only package — that would silently drop the
+        // ObjC types AND bypass SWIFTBIND039 (which only fires when metadata still says "Mixed").
+        // ShouldAbortForFailedMixedObjC has no permissive escape, so this always aborts; doing it
+        // here avoids emitting partial Swift artifacts we would only throw away. Mirrors the pure-ObjC
+        // path's context.ExitCode = objcResult.ExitCode propagation.
+        if (mixedParse != null && (mixedParse.ExitCode != 0 || mixedParse.Module == null))
+        {
+            logger.LogError(
+                "ObjC pipeline for mixed framework failed (exit {Code}); refusing to emit a " +
+                "Swift-only binding that would silently drop the ObjC surface. {Msg}",
+                mixedParse.ExitCode, mixedParse.ErrorMessage ?? "(no detail)");
+            context.ExitCode = mixedParse.ExitCode != 0 ? mixedParse.ExitCode : 1;
+            return;
+        }
+
+        var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, out var depModuleCollisions, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase, descriptorAssemblyNameOverride: assemblyNameOverride, swiftRuntimeVersion: swiftRuntimeVersion, objcBridgeRecords: mixedBridgeRecords);
         if (!success)
         {
             context.ExitCode = 1;
@@ -1274,23 +1328,20 @@ public static class BindingsGeneratorCommand
         // The companion is a managed-only assembly embedded into the Swift binding's single package
         // (one xcframework, one package), so it carries no independent PackageVersion to lockstep.
         ObjCPipelineResult? mixedObjcResult = null;
-        if (hasXcframework && resolution != null && mixedObjcResolution != null)
+        if (hasXcframework && resolution != null && mixedObjcResolution != null
+            && mixedParse != null && mixedParse.Module != null)
         {
+            // Parse succeeded — a systemic failure would have aborted before Swift generation
+            // (above), so the module is non-null here. Reuse that parse (clang ran once). The Swift
+            // pass has now written swift-types.json, so the exclude set is available to dedup
+            // Swift-owned types out of the companion. FilterAndEmit runs the mixed-only filters
+            // (Swift-owned class removal, foreign-category projection) and emits the companion.
             var swiftTypeNames = BindingsGenerator.CollectSwiftEmittedTypeNames(outputDirectory);
-            var mixedSiblingPaths = XCFrameworkResolver.ResolveSiblingFrameworkSearchPaths(
-                xcframeworkPath!, platformTarget, logger, platformInfo: platformInfo);
-            // A2: thread the resolved dependency slice dirs (manual --framework-dependency +
-            // auto-detected) into the ObjC clang -F search path so a mixed framework whose umbrella
-            // header cross-imports a dependency (e.g. FBSDKLoginKit → FBSDKCoreKit) resolves.
-            var mixedObjcSearchPaths = MergeObjCFrameworkSearchPaths(
-                mixedSiblingPaths,
-                SelectObjCDependencySearchPaths(resolvedDependencies, platformTarget));
-            mixedObjcResult = ObjCPipeline.Run(
-                mixedObjcResolution, xcframeworkPath!, outputDirectory, platformTarget, logger,
-                namespacePattern: namespacePattern, packageId: null,
-                sdkMode: sdkMode, isMixed: true, excludeTypeNames: swiftTypeNames,
-                additionalFrameworkSearchPaths: mixedObjcSearchPaths,
-                platformInfo: platformInfo,
+            mixedObjcResult = ObjCPipeline.FilterAndEmit(
+                mixedParse.Module, mixedParse.ResolvedNamespace, mixedParse.PlatformInfo,
+                mixedParse.Diagnostics, mixedObjcResolution, xcframeworkPath!, outputDirectory,
+                logger, packageId: null, sdkMode: sdkMode, isMixed: true,
+                excludeTypeNames: swiftTypeNames,
                 sourceNativeLinkage: sourceNativeLinkage,
                 hasWrapperXCFramework: wrapperWillExist);
             // Fail closed: the framework HAS an ObjC surface (mixedObjcResolution != null), so a

@@ -15,6 +15,24 @@ public sealed record ObjCPipelineResult(
     string? ProjectPath = null);
 
 /// <summary>
+/// Output of <see cref="ObjCPipeline.Parse"/>: the parsed-and-eligibility-filtered ObjC module,
+/// its resolved companion namespace, the platform info, and accumulated diagnostics. The module
+/// has already had the platform-stub and native-symbol class/free-symbol guards applied so that
+/// any type-resolution records synthesized from it match exactly the surface the companion will
+/// emit — but NOT the mixed-dedup (4b), delegate detection (4e), or foreign-category (4d) filters,
+/// which run later in <see cref="ObjCPipeline.FilterAndEmit"/> (4b and 4d need
+/// <c>swift-types.json</c>; 4e runs there because it depends on 4b's output). On a non-zero
+/// <see cref="ExitCode"/>, <see cref="Module"/> is null and <see cref="ErrorMessage"/> explains why.
+/// </summary>
+public sealed record ObjCParseResult(
+    int ExitCode,
+    ObjCModule? Module,
+    string? ErrorMessage,
+    string ResolvedNamespace,
+    PlatformInfo PlatformInfo,
+    ObjCBindingDiagnostics Diagnostics);
+
+/// <summary>
 /// Orchestrates the ObjC binding pipeline: resolve framework -> invoke clang -> parse AST -> summary.
 /// </summary>
 public static class ObjCPipeline
@@ -36,14 +54,51 @@ public static class ObjCPipeline
         NativeLinkage sourceNativeLinkage = NativeLinkage.Dynamic,
         bool hasWrapperXCFramework = false)
     {
+        var parse = Parse(
+            resolution, xcframeworkPath, logger, commandRunner,
+            namespacePattern, additionalFrameworkSearchPaths, platformInfo);
+        if (parse.ExitCode != 0 || parse.Module == null)
+            return new ObjCPipelineResult(parse.ExitCode, parse.Module, parse.ErrorMessage);
+
+        return FilterAndEmit(
+            parse.Module, parse.ResolvedNamespace, parse.PlatformInfo, parse.Diagnostics,
+            resolution, xcframeworkPath, outputDirectory, logger,
+            packageId, sdkMode, isMixed, excludeTypeNames,
+            sourceNativeLinkage, hasWrapperXCFramework);
+    }
+
+    /// <summary>
+    /// Resolve the framework, invoke clang, parse the AST, and apply the eligibility guards that
+    /// need neither the Swift pass's <c>swift-types.json</c> ownership manifest nor the earlier
+    /// mixed-dedup pass: platform-type stubs (4c) and the native-symbol class (4f) / free-symbol
+    /// (4g) guards. The returned module is exactly the surface the companion will emit for those
+    /// filters, so a caller may synthesize type-resolution records from it (the mixed ObjC↔Swift
+    /// bridge) knowing every record maps to a companion type that survives to emission. The
+    /// swift-types.json-dependent mixed dedup (4b) and pure-mode foreign-category filter (4d), plus
+    /// delegate-protocol detection (4e) — which runs after 4b so it never marks a protocol off a
+    /// class 4b removed — run later in <see cref="FilterAndEmit"/>; the resolved namespace is
+    /// computed here (once) and threaded through so a synthesized record's <c>CSharpTypeName</c>
+    /// namespace matches the emitted companion's exactly.
+    /// </summary>
+    public static ObjCParseResult Parse(
+        XCFrameworkResolver.ObjCFrameworkResolution resolution,
+        string xcframeworkPath,
+        ILogger logger,
+        ICommandRunner? commandRunner = null,
+        string? namespacePattern = null,
+        IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
+        PlatformInfo? platformInfo = null)
+    {
         commandRunner ??= new SystemCommandRunner();
+        var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
+        var diagnostics = new ObjCBindingDiagnostics();
 
         // 1. Derive framework path using the actual directory name (may differ from ObjC module name)
         var frameworkPath = Path.Combine(resolution.FrameworkSearchPath, $"{resolution.FrameworkDirectoryName}.framework");
         if (!Directory.Exists(frameworkPath))
         {
-            return new ObjCPipelineResult(1, null,
-                $"Framework directory not found: {frameworkPath}");
+            return new ObjCParseResult(1, null,
+                $"Framework directory not found: {frameworkPath}", "", pi, diagnostics);
         }
 
         // 2. Find umbrella header
@@ -51,12 +106,12 @@ public static class ObjCPipeline
         var headerResult = invoker.FindUmbrellaHeader(frameworkPath, resolution.ModuleName);
         if (headerResult == null)
         {
-            return new ObjCPipelineResult(1, null,
-                $"Could not locate umbrella header for module '{resolution.ModuleName}' in {frameworkPath}");
+            return new ObjCParseResult(1, null,
+                $"Could not locate umbrella header for module '{resolution.ModuleName}' in {frameworkPath}",
+                "", pi, diagnostics);
         }
 
         // 3. Invoke clang AST dump
-        var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
         string json;
         try
         {
@@ -68,7 +123,7 @@ public static class ObjCPipeline
         }
         catch (Exception ex)
         {
-            return new ObjCPipelineResult(1, null, $"Clang AST dump failed: {ex.Message}");
+            return new ObjCParseResult(1, null, $"Clang AST dump failed: {ex.Message}", "", pi, diagnostics);
         }
 
         // 4. Parse AST JSON
@@ -80,41 +135,11 @@ public static class ObjCPipeline
         }
         catch (Exception ex)
         {
-            return new ObjCPipelineResult(1, null, $"AST parsing failed: {ex.Message}");
-        }
-
-        // 4b. Apply mixed-framework filtering (member-level dedup with category extraction)
-        if (excludeTypeNames != null && excludeTypeNames.Count > 0)
-        {
-            module = FilterForMixedFramework(module, excludeTypeNames, logger);
-        }
-
-        // Post-hoc mixed validation: require at least one ObjC class, protocol, or category.
-        if (isMixed && module.Classes.Count == 0 && module.Protocols.Count == 0 && module.Categories.Count == 0)
-        {
-            logger.LogInformation(
-                "Mixed framework '{Module}': no ObjC classes or protocols found — skipping ObjC emission.",
-                resolution.ModuleName);
-            return new ObjCPipelineResult(0, module, null);
+            return new ObjCParseResult(1, null, $"AST parsing failed: {ex.Message}", "", pi, diagnostics);
         }
 
         // 4c. Filter out platform type stubs (types already in the Apple SDK)
         module = FilterPlatformTypeStubs(module, logger);
-
-        // 4d. For pure ObjC frameworks, filter categories to keep only foreign-type categories.
-        // Own-type categories were already merged into their parent classes by the parser.
-        // This MUST run after FilterPlatformTypeStubs (4c) so that SDK stub classes
-        // (e.g., UIButton, MKAnnotationView) have been removed from module.Classes —
-        // otherwise categories on those types would be misclassified as own-type and dropped.
-        if (excludeTypeNames == null || excludeTypeNames.Count == 0)
-        {
-            module = FilterToForeignCategories(module, logger);
-        }
-
-        // 4e. Detect delegate/data-source protocols and mark them with IsDelegateProtocol
-        module = DetectDelegateProtocols(module, logger);
-
-        var diagnostics = new ObjCBindingDiagnostics();
 
         // 4f. Native-symbol existence guard (Gap 3): drop classes the headers declare but
         // whose `_OBJC_CLASS_$_<Name>` symbol is defined in NO binary the consumer links —
@@ -126,6 +151,10 @@ public static class ObjCPipeline
         // readable or no class symbols are found at all (never remove without positive
         // proof of absence). Classes only — protocols use `_OBJC_PROTOCOL_$_`/section
         // metadata, not class symbols, and bgen tolerates protocol-only declarations.
+        // This runs in Parse (before the swift-types.json-dependent mixed dedup) so that
+        // records synthesized from the parsed module never name a header-only class the
+        // companion drops — which would resolve a Swift member to a C# type absent from the
+        // companion assembly (CS0246).
         var symbolBinaries = new List<string>();
         symbolBinaries.AddRange(XCFrameworkResolver.EnumerateObjCSliceNativeBinaries(xcframeworkPath, logger));
         symbolBinaries.AddRange(XCFrameworkResolver.EnumerateFrameworkBinariesUnder(additionalFrameworkSearchPaths, logger));
@@ -137,8 +166,8 @@ public static class ObjCPipeline
         catch (InvalidOperationException ex)
         {
             // Systemic native-symbol probe failure (SWIFTBIND028): fail loud instead of silently
-            // keeping every header-declared class. Surfaced as a non-zero pipeline result.
-            return new ObjCPipelineResult(1, null, ex.Message);
+            // keeping every header-declared class. Surfaced as a non-zero parse result.
+            return new ObjCParseResult(1, null, ex.Message, "", pi, diagnostics);
         }
 
         // 4g. Free-symbol existence guard: drop free C functions and extern globals the headers
@@ -150,13 +179,18 @@ public static class ObjCPipeline
         // the binary never defines). Fail open unless the probe positively gathered defined symbols.
         module = FilterToNativeSymbolBackedFreeSymbols(module, symbolScan, logger, diagnostics);
 
-        // 5. Emit bindings
+        // 5. Namespace resolution.
         var namespaceResolver = new NamespacePatternResolver(namespacePattern, resolution.ModuleName);
         var resolvedNamespace = namespaceResolver.ResolveNamespace(resolution.ModuleName);
 
         // Detect namespace/class name collision: if any class has the same name as the
         // namespace, the MAUI registrar generates code with ambiguous type references (CS0426).
-        // Fix by appending "Binding" suffix to the namespace.
+        // Fix by appending "Binding" suffix to the namespace. This is computed here (before the
+        // mixed dedup) so the namespace is stable across Parse and FilterAndEmit — a synthesized
+        // record and the companion must share one namespace. In pure-ObjC mode this class set is
+        // identical to the pre-split module (4b never runs), so behavior is unchanged; in mixed
+        // mode the only difference is that a Swift-owned class named exactly the namespace (dropped
+        // by 4b) can still force the suffix here — a rare, cosmetic namespace rename, never a break.
         if (module.Classes.Any(c => c.Name == resolvedNamespace))
         {
             logger.LogInformation(
@@ -165,6 +199,72 @@ public static class ObjCPipeline
             resolvedNamespace = $"{resolvedNamespace}Binding";
         }
 
+        return new ObjCParseResult(0, module, null, resolvedNamespace, pi, diagnostics);
+    }
+
+    /// <summary>
+    /// Apply the swift-types.json-dependent filters — mixed-framework member-level dedup (4b) and,
+    /// for pure-ObjC frameworks, the foreign-category filter (4d) — then emit the ApiDefinition,
+    /// structs/enums, .csproj, and metadata props for the module produced by <see cref="Parse"/>.
+    /// The <paramref name="resolvedNamespace"/>, <paramref name="pi"/>, and
+    /// <paramref name="diagnostics"/> are threaded from <see cref="Parse"/> so emission uses the
+    /// same namespace and accumulates diagnostics across both halves.
+    /// </summary>
+    public static ObjCPipelineResult FilterAndEmit(
+        ObjCModule module,
+        string resolvedNamespace,
+        PlatformInfo pi,
+        ObjCBindingDiagnostics diagnostics,
+        XCFrameworkResolver.ObjCFrameworkResolution resolution,
+        string xcframeworkPath,
+        string outputDirectory,
+        ILogger logger,
+        string? packageId = null,
+        bool sdkMode = false,
+        bool isMixed = false,
+        HashSet<string>? excludeTypeNames = null,
+        NativeLinkage sourceNativeLinkage = NativeLinkage.Dynamic,
+        bool hasWrapperXCFramework = false)
+    {
+        // 4b. Apply mixed-framework filtering (member-level dedup with category extraction)
+        if (excludeTypeNames != null && excludeTypeNames.Count > 0)
+        {
+            module = FilterForMixedFramework(module, excludeTypeNames, logger);
+        }
+
+        // Post-hoc mixed validation: require at least one ObjC class, protocol, category, or
+        // bridgeable NS_ENUM. A surface that is only a bridgeable enum — or whose classes were all
+        // consumed by mixed dedup — must STILL emit the companion: a synthesized bridge record
+        // resolves a Swift member to that C# enum, so skipping emission here would leave the record
+        // pointing at a type absent from the companion assembly (CS0246 at consumer compile).
+        if (isMixed && module.Classes.Count == 0 && module.Protocols.Count == 0
+            && module.Categories.Count == 0 && !module.Enums.Any(e => !e.IsOptions))
+        {
+            logger.LogInformation(
+                "Mixed framework '{Module}': no ObjC classes, protocols, or enums found — skipping ObjC emission.",
+                resolution.ModuleName);
+            return new ObjCPipelineResult(0, module, null);
+        }
+
+        // 4e. Detect delegate/data-source protocols and mark them with IsDelegateProtocol.
+        // (Marks protocols; removes nothing.) This runs AFTER 4b so a protocol is never marked a
+        // delegate on the strength of a Swift-owned class that mixed dedup removed from the ObjC
+        // surface — the usage-based scan reads class delegate properties, so it must see only the
+        // classes the companion actually emits. In pure-ObjC mode 4b is a no-op, so the input set is
+        // the same one this filter received pre-split.
+        module = DetectDelegateProtocols(module, logger);
+
+        // 4d. For pure ObjC frameworks, filter categories to keep only foreign-type categories.
+        // Own-type categories were already merged into their parent classes by the parser.
+        // This runs after the native-symbol class guard (4f, in Parse) so that classes with no
+        // native symbol have been removed from module.Classes — otherwise categories on those
+        // types would be misclassified. It never runs in mixed mode (4b handles categories there).
+        if (excludeTypeNames == null || excludeTypeNames.Count == 0)
+        {
+            module = FilterToForeignCategories(module, logger);
+        }
+
+        // 5. Emit bindings
         var apiDefPath = ApiDefinitionEmitter.Emit(module, outputDirectory, resolvedNamespace, logger, diagnostics, pi);
         var structsResult = StructsAndEnumsEmitter.Emit(module, outputDirectory, resolvedNamespace, logger, diagnostics, pi, excludeTypeNames);
         var structsPath = structsResult?.FilePath;
