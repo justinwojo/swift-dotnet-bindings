@@ -33,9 +33,17 @@ public partial class ProtocolProxyEmitter
         public string? Visit(NativeRemappedProjection nrp) => nrp.FromFactoryMethod != null
             ? $"{nrp.SwiftWrapperType}.{nrp.FromFactoryMethod}({_varName})"
             : $"new {nrp.SwiftWrapperType}({_varName})";
-        public string? Visit(ObjCBridgedProjection p) => $"{_varName}.Handle";
-        public string? Visit(ObjCBridgeableProjection p) => $"{_varName}.Handle";
-        public string? Visit(ObjCRootedClassProjection p) => $"{_varName}.Handle";
+        // Reverse-dispatch scalar ObjC return: a C#-implemented conformer returns a single ObjC object
+        // (URL/NSURLSession/an NSObject subclass), which crosses back to the Swift EveryProtocol thunk
+        // as an ObjC pointer. The C# wrapper here is frequently freshly allocated by the conformer and
+        // has no guaranteed lifetime once the receiver frame returns, so transfer a +1 ARC retain
+        // (Arc.UnknownObjectRetain → the isa-dispatching swift_unknownObjectRetain) to keep the object
+        // alive across the boundary; the Swift thunk balances it (takeRetainedValue for the
+        // ObjCBridgeable value arm, move() for the ObjCBridged/ObjCRooted raw-buffer arm). Symmetric
+        // with the whole-container bridge (see SetProjection.GetReverseReceiverObjCBridgeConversion).
+        public string? Visit(ObjCBridgedProjection p) => $"global::Swift.Runtime.Arc.UnknownObjectRetain({_varName}.Handle)";
+        public string? Visit(ObjCBridgeableProjection p) => $"global::Swift.Runtime.Arc.UnknownObjectRetain({_varName}.Handle)";
+        public string? Visit(ObjCRootedClassProjection p) => $"global::Swift.Runtime.Arc.UnknownObjectRetain({_varName}.Handle)";
         public string? Visit(ArrayProjection arr) => _owner.GetReceiverArrayGetterConversion(arr, _varName);
         public string? Visit(DictionaryProjection dict) => _owner.GetReceiverDictGetterConversion(dict, _varName);
         public string? Visit(SetProjection set) => _owner.GetReceiverSetGetterConversion(set, _varName);

@@ -1749,8 +1749,23 @@ public partial class ProtocolProxyEmitter
             DataProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome(Swift.Foundation.Data.FromByteArray({varName}Val)) : SwiftOptional<{optType}>.NewNone())",
             DateProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome(({varName}Val - {DateProjection.SwiftEpoch}).TotalSeconds) : SwiftOptional<{optType}>.NewNone())",
             NativeRemappedProjection nrp => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({(nrp.FromFactoryMethod != null ? $"{nrp.SwiftWrapperType}.{nrp.FromFactoryMethod}({varName}Val)" : $"new {nrp.SwiftWrapperType}({varName}Val)")}) : SwiftOptional<{optType}>.NewNone())",
-            ObjCBridgedProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({varName}Val.Handle) : SwiftOptional<{optType}>.NewNone())",
-            ObjCBridgeableProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({varName}Val.Handle) : SwiftOptional<{optType}>.NewNone())",
+            // Scalar ObjC-CLASS Optional return (NSURLSession & friends): Optional<class-reference> is a
+            // nil-pointer-optimized single-word slot, so it coincides with SwiftOptional<IntPtr>'s marshaled
+            // layout. The Swift thunk consumes it via the raw-buffer move() arm, which expects a +1-owned
+            // slot; NewSome(Handle) alone deposits a borrowed +0 handle, so transfer a +1 ARC retain
+            // (Arc.UnknownObjectRetain → the pointer, isa-dispatched swift_unknownObjectRetain) to balance
+            // the move — symmetric with the non-optional scalar arm above and the container path.
+            ObjCBridgedProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome(global::Swift.Runtime.Arc.UnknownObjectRetain({varName}Val.Handle)) : SwiftOptional<{optType}>.NewNone())",
+            // Scalar ObjC-BRIDGEABLE VALUE Optional return (Foundation.URL, NS_TYPED_ENUM newtypes):
+            // Optional<URL> is a MULTI-WORD resilient value type, NOT a nil-pointer-optimized single-word
+            // slot. Depositing a SwiftOptional<IntPtr> (one word) and reading it Swift-side as Optional<URL>
+            // via move() reads past the buffer and reinterprets unrelated bytes as a URL value → corrupt URL
+            // → SIGSEGV when the caller touches it. Instead deposit a bare optional ObjC POINTER: a +1
+            // retained handle for .some, IntPtr.Zero for .none. MarshalToSwiftBuffer<IntPtr> writes exactly
+            // one raw word and the Swift thunk reads it as an UnsafeRawPointer? (0 = nil), then bridges the
+            // live NSURL into a URL at +1 — symmetric with the non-optional bridgeable arm. The paired Swift
+            // pointer-optional read is emitted for the same optional-bridgeable-VALUE shape.
+            ObjCBridgeableProjection => $"({varName} is {{}} {varName}Val ? global::Swift.Runtime.Arc.UnknownObjectRetain({varName}Val.Handle) : global::System.IntPtr.Zero)",
             ArrayProjection arr => BuildOptionalContainerGetterConversion(arr, varName, optType,
                 GetReceiverArrayGetterConversion(arr, $"{varName}Val")),
             DictionaryProjection dict => BuildOptionalContainerGetterConversion(dict, varName, optType,
@@ -1760,8 +1775,10 @@ public partial class ProtocolProxyEmitter
             // Closures have their own ABI (SwiftClosureData/function pointers) — can't wrap in SwiftOptional.
             // Passthrough; accessor methods handle closure marshalling.
             ClosureProjection => null,
-            // ObjC-rooted classes use .Handle (ObjC pointer), not .Payload
-            ObjCRootedClassProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({varName}Val.Handle) : SwiftOptional<{optType}>.NewNone())",
+            // ObjC-rooted classes use .Handle (ObjC pointer), not .Payload. Same +1 transfer retain as
+            // the ObjCBridged/ObjCBridgeable Optional arms above: the Swift move() arm expects a +1-owned
+            // slot, so retain the borrowed handle before depositing it.
+            ObjCRootedClassProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome(global::Swift.Runtime.Arc.UnknownObjectRetain({varName}Val.Handle)) : SwiftOptional<{optType}>.NewNone())",
             // Class: OptionalProjection.SwiftContainerGenericType returns "IntPtr" (nil-pointer-optimized),
             // so optType=IntPtr and we pass a raw IntPtr handle.
             ClassProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({varName}Val.Payload.DangerousGetHandle()) : SwiftOptional<{optType}>.NewNone())",

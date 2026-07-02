@@ -277,45 +277,94 @@ ThrowsWalker key-divergence lead sit in this gap).
 
 ---
 
-## Scalar ObjC-bridgeable reverse-dispatch returns are +0 (owner decision)
+## Scalar ObjC-bridgeable reverse-dispatch returns are +0 — RESOLVED (2026-07)
 
 **Surfaced 2026-07 during the NS_TYPED_ENUM / ObjC-bridge container work; confirmed by paired
-review (independent-reviewer ratings: Medium and High). Latent — GC-timing-dependent, hard to
-force red (same shape as the finalizer/VWT-destroy hazard). PRE-EXISTING and OUT OF SCOPE of the
-container work; recorded here as a design decision, not a known-active regression in that change.**
+review (independent-reviewer ratings: Medium and High). Owner-approved and fixed +1, symmetric with
+the container path. Kept here because the FIX surfaced a second, distinct defect (an Optional
+value-layout mismatch that SIGSEGVs) whose root cause and shape are worth preserving.**
 
-When Swift calls a C#-implemented protocol conformer (reverse dispatch) and the requirement returns
-a **scalar** (non-container) ObjC-bridgeable value — `Foundation.URL`, `Data`, or a synthesized
-`NS_TYPED_ENUM` newtype — the handoff is **+0**: the C# receiver returns the wrapper's raw pointer
-(`Visit(ObjCBridgeableProjection p) => "{_varName}.Handle"` and the `ObjCBridgedProjection` sibling
-in `ReceiverConversionVisitors.cs`; the Optional arms in `ProtocolProxyEmitter.Receivers.cs` do the
-same via `{...}Val.Handle`), and the Swift `@_cdecl` thunk reads it with `takeUnretainedValue()`
-(the scalar arms in `EveryProtocolEmitter.cs`). No retain crosses the boundary.
+The original hazard: when Swift calls a C#-implemented protocol conformer (reverse dispatch) and the
+requirement returns a **scalar** (non-container) ObjC-bridgeable value — `Foundation.URL`, `Data`, or
+a synthesized `NS_TYPED_ENUM` newtype — the handoff was **+0**: the C# receiver returned the
+wrapper's raw pointer at +0 and the Swift `@_cdecl` thunk read it with `takeUnretainedValue()`. If the
+C# getter returned a **freshly allocated** wrapper (no longer-lived owner), a GC in the handoff window
+could release the underlying ObjC object before the thunk consumed it → use-after-free.
 
-Hazard: if the C# getter returns a **freshly allocated** wrapper (e.g. `new NSString("rerequest")`),
-that wrapper becomes GC-eligible the instant the receiver frame returns. If a GC runs before the
-Swift thunk consumes the pointer, the underlying ObjC object can be released → use-after-free. It is
-safe today only for the common case where the returned object is kept alive by a longer-lived owner
-(a stored field, an interned constant); the generator cannot tell the two apart, so +0 is unsafe in
-general.
+**Fix (both sides, in lock-step), symmetric with the whole-container path:** the C# receiver retains
++1 (`Arc.UnknownObjectRetain(wrapper.Handle)`, in `ReceiverConversionVisitors.cs` for the non-optional
+arm) and the Swift thunk consumes that +1 (`takeRetainedValue() as! T`, the scalar arms in
+`EveryProtocolEmitter.cs`), across the property getter, subscript getter, method return, and the
+method fan-out body. Covered end-to-end by `URLScalarProvider` /  `summarizeURLScalarProvider` in
+`BindingTests/Sources/SwiftBindingsTestLib/Foundation/URLContainerWitness.swift` and
+`URLContainerWitnessTests.cs` (reverse round-trip + a GC-pressure loop that allocates a fresh wrapper
+per call — an over-release crashes the round-trip, so the +1 is verifiable even though the +0 bug
+itself resists a deterministic red). The fixture drives the property-getter and method-return sites in
+both the non-optional and Optional forms, and the Optional arm exercises **both** `.some` (a
++1-retained pointer) and `.none` (`IntPtr.Zero` → Swift maps to nil). The subscript-getter and
+method-fan-out return sites are not driven by a dedicated fixture: they route through the identical
+shared `EmitOptionalObjCBridgeableValueReturn` helper (byte-identical emission tail) and wire it via the
+same `GetOptionalObjCBridgeableValueInnerName(returnType)` gate as the covered property/method sites, so
+the `.some`/`.none` behavior proven at the property and method sites carries to them by construction.
 
-This is the scalar sibling of the container defect already fixed in the ObjC-bridge work: whole-
-container reverse returns (`Set<URL>` / `[URL]` / `[String:URL]`) now transfer **+1**
-(`Arc.UnknownObjectRetain(...)` on the C# side ↔ `takeRetainedValue()` in the thunk). The container
-path had to change because it previously did not even compile; the scalar path compiles and has
-shipped since the Foundation.URL ObjC bridge landed, so it was left untouched.
+### The Optional value-layout SIGSEGV the +1 fix uncovered
 
-- **Why it is an owner decision, not an inline fix:** flipping the convention touches the *entire*
-  scalar ObjC-bridged/bridgeable reverse-dispatch family (URL, Data, NSURLSession, every
-  NS_TYPED_ENUM), not just the newly-added type — a broad behavioral ARC change on pre-existing,
-  working-in-practice code, outside the container change's scope.
-- **Fix design (if approved):** make the scalar reverse arms +1, symmetric with the container fix —
-  C# `Arc.UnknownObjectRetain(wrapper.Handle)`, Swift thunk `takeRetainedValue()` — across the
-  property getter, method return, and Optional arms, changed in lock-step on both sides. Land a
-  scalar-return BindingTests fixture: a protocol requirement returning a scalar `URL` (and an
-  NS_TYPED_ENUM newtype) implemented by a C# conformer that returns a fresh wrapper each call;
-  assert round-trip value preserved and no crash (an over-release would crash the round-trip, so the
-  fix is verifiable even though the +0 bug itself resists a deterministic red).
+Making the **Optional** scalar arm +1 exposed a pre-existing latent defect that only manifests for an
+Optional bridgeable **VALUE** type (`URL?`, NS_TYPED_ENUM-newtype optionals): the C# receiver
+deposited a `SwiftOptional<IntPtr>` (marshalled via the value-witness path into a metadata-sized
+buffer), while the Swift thunk consumed the buffer as `Optional<URL>` via
+`assumingMemoryBound(to: (URL)?.self).move()`. `Optional<URL>` is a **multi-word resilient value
+type**, not a one-word nil-pointer-optimized slot, so `move()` read past the buffer and reinterpreted
+unrelated bytes as a `URL` → corrupt value → SIGSEGV in `URL.absoluteString` after the requirement had
+already returned. The **non-optional** scalar arm was sound (a single pointer, `takeRetainedValue()
+as! URL`). Class optionals (`ObjCBridged` / `ObjCRooted`) work by coincidence: `Optional<class
+reference>` IS a one-word nil-pointer slot that matches `SwiftOptional<IntPtr>`.
+
+**Fix for the Optional VALUE case (value-type only; class arms untouched):**
+- C# side (`ProtocolProxyEmitter.Receivers.cs`, `GetReceiverOptionalGetterConversion`): the
+  `ObjCBridgeableProjection` Optional arm now deposits a **bare optional ObjC pointer** — a
+  +1-retained `Arc.UnknownObjectRetain(Handle)` for `.some`, `IntPtr.Zero` for `.none` — so
+  `MarshalToSwiftBuffer<IntPtr>` writes exactly one word (`Unsafe.SizeOf<IntPtr>()`), NOT a
+  SwiftOptional buffer. The `ObjCBridgedProjection` and `ObjCRootedClassProjection` Optional arms keep
+  their `SwiftOptional<IntPtr>` shape (sound by the one-word layout coincidence above).
+- Swift side (`EveryProtocolEmitter.cs`): `GetOptionalObjCBridgeableValueInnerName` detects
+  `Optional<T>` where `T` carries the ObjCBridgeable (value) flag; `EmitOptionalObjCBridgeableValueReturn`
+  reads the buffer as `UnsafeRawPointer?` (one-word, `0` = `.none`) and, on `.some`, does
+  `takeRetainedValue() as! <InnerType>`. Wired into all four reverse-return sites. This aligns the
+  reverse-return path with the convention the **forward-param** path already uses
+  (`CdeclMarshallingHelper` treats `Optional<ObjC-bridgeable>` as a nullable-pointer ABI, no override).
+
+### OPEN — sibling read-direction category: `Optional<ObjC-bridgeable VALUE>` passed INTO a C# conformer
+
+The return fix above closed the **write-out** direction (C# receiver → Swift reads the result buffer).
+Paired review then surfaced the **mirror**: the **read-in** direction, where Swift passes an
+`Optional<ObjC-bridgeable VALUE>` (`URL?`, NS_TYPED_ENUM-newtype optionals) INTO a C#-implemented
+conformer. An empirical audit (2026-07) confirms this is a **distinct emission mechanism** (param-in
+marshalling, not return-out) with the **same root layout fact** and it spans **multiple sites** — so it
+is deliberately its own pass, not a partial patch grafted onto the returns work (`no-session-cascade`):
+
+- **Property setter** — `EveryProtocolEmitter.EmitSetterCallSite` (the non-optional-bridgeable arm at
+  `~:2870` bridges to a pointer via `Unmanaged.passUnretained(newValue as AnyObject).toOpaque()`, but
+  an `Optional<URL>` fails `IsObjCBridgeableParam` and falls to the generic `else` at `~:2893`:
+  `var newValueCopy = newValue` — the address of a **multi-word `Optional<URL>`**). The C# receiver
+  `GetReceiverOptionalSetterConversion` (`ProtocolProxyEmitter.Receivers.cs:~1934`) then reads that
+  buffer as `SwiftOptional<T>.Case` / `.Some` — the exact inverse of the return-path mismatch.
+- **Method parameter** — `EveryProtocolEmitter` reverse method-arg build (`~:3808-3838`): a non-optional
+  bridgeable param bridges to a pointer (`{p}NS = {p} as AnyObject; passUnretained(...).toOpaque()`),
+  but an `Optional<URL>` param again falls to the generic `var {p}Copy = {escapedParam}` arm.
+- **Subscript index / setter parameter** — same param-in path, same gap.
+
+**Why unfixed here:** the fix requires, per site and on **both** sides, bridging `Optional<URL>` to an
+optional ObjC pointer on the Swift side (nil ↔ `passUnretained(x as AnyObject).toOpaque()`) and reading a
+one-word optional pointer on the C# side (reconstructing the wrapper), with **+0 borrow** ownership
+(param-in) rather than the returns' **+1 transfer** — a different ARC contract with its own crash
+surface. It needs its own fixtures (a settable `URL?` requirement + a `func take(_ u: URL?)` requirement
+driven by Swift, in reverse) and its own sim+device gate. Do it as one coherent read-direction pass
+covering all three sites; the value-vs-class discrimination must be mirrored exactly (class optionals
+are the coincidental one-word case and stay on the `SwiftOptional<IntPtr>` path). Independent-reviewer
+ratings on the setter alone split Low (latent — no current BindingTests or shipped binding is known to
+exercise a C#-conformed settable `Optional<bridgeable-value>` requirement) vs High (a real generator
+defect for any such shape); treat as a real open defect regardless.
 
 ---
 

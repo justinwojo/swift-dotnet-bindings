@@ -67,25 +67,31 @@ public class ReceiverConversionVisitorTests
         Assert.Equal("new Swift.Foundation.Data(v)", result);
     }
 
+    // A reverse-dispatch receiver returning a SCALAR ObjC object hands its .Handle back carrying a
+    // transferred +1 ARC retain (Arc.UnknownObjectRetain), so a freshly allocated wrapper survives
+    // the C# → Swift handoff window; the Swift EveryProtocol thunk balances it (takeRetainedValue
+    // for the ObjCBridgeable value arm, move() for the ObjCBridged/ObjCRooted raw-buffer arm).
+    // Symmetric with the whole-container path (ReverseObjCContainer_* below).
+
     [Fact]
-    public void Getter_ObjCBridged_PassesHandle()
+    public void Getter_ObjCBridged_TransfersRetainedHandle()
     {
         var result = new ObjCBridgedProjection("Foundation.NSUrl").Accept(Getter("v"));
-        Assert.Equal("v.Handle", result);
+        Assert.Equal("global::Swift.Runtime.Arc.UnknownObjectRetain(v.Handle)", result);
     }
 
     [Fact]
-    public void Getter_ObjCBridgeable_PassesHandle()
+    public void Getter_ObjCBridgeable_TransfersRetainedHandle()
     {
         var result = new ObjCBridgeableProjection("Foundation.NSUrl").Accept(Getter("v"));
-        Assert.Equal("v.Handle", result);
+        Assert.Equal("global::Swift.Runtime.Arc.UnknownObjectRetain(v.Handle)", result);
     }
 
     [Fact]
-    public void Getter_ObjCRootedClass_PassesHandle()
+    public void Getter_ObjCRootedClass_TransfersRetainedHandle()
     {
         var result = new ObjCRootedClassProjection("MyNSObject").Accept(Getter("v"));
-        Assert.Equal("v.Handle", result);
+        Assert.Equal("global::Swift.Runtime.Arc.UnknownObjectRetain(v.Handle)", result);
     }
 
     #endregion

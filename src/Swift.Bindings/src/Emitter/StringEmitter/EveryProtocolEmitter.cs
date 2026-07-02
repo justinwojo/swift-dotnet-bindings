@@ -2767,21 +2767,24 @@ public class EveryProtocolEmitter
         }
         else if (isObjCBridgeableGetter || isObjCBridgeableContainerGetter)
         {
-            // The C# receiver placed one ObjC object pointer in the return buffer. A SCALAR
-            // ObjC-bridgeable value crosses at +0 (the receiver returns the wrapper's .Handle
-            // without a transfer retain), so consume it with takeUnretainedValue. A whole-CONTAINER
-            // bridge (Set/Array/Dictionary of an ObjC-bridgeable leaf) crosses at +1: the receiver
-            // builds a fresh NSSet/NSArray/NSDictionary and transfers a retain (Arc.UnknownObjectRetain),
-            // because that managed wrapper has no guaranteed lifetime once the receiver frame returns —
-            // so consume the transferred retain with takeRetainedValue and let ARC free the temporary
-            // ObjC collection after `as!` bridges it into a native Swift container. Mirrors, in reverse,
-            // the forward accessor's Unmanaged.passRetained(+1) / C# owns:true adoption.
-            var take = isObjCBridgeableContainerGetter ? "takeRetainedValue" : "takeUnretainedValue";
+            // The C# receiver placed one ObjC object pointer in the return buffer at +1, whether the
+            // return is a SCALAR ObjC-bridgeable value or a whole-CONTAINER bridge. The scalar receiver
+            // returns Arc.UnknownObjectRetain(wrapper.Handle); the container receiver builds a fresh
+            // NSSet/NSArray/NSDictionary and transfers the same retain — because in either case the
+            // managed wrapper is often freshly allocated and has no guaranteed lifetime once the receiver
+            // frame returns. Consume the transferred +1 with takeRetainedValue and let ARC free the
+            // temporary ObjC object after `as!` bridges it into the native Swift value/container. Mirrors,
+            // in reverse, the forward accessor's Unmanaged.passRetained(+1) / C# owns:true adoption.
+            const string take = "takeRetainedValue";
             writer.WriteLines($$"""
                 let resultObjPtr = resultPtr.load(as: UnsafeRawPointer.self)
                 resultPtr.deallocate()
                 return Unmanaged<AnyObject>.fromOpaque(resultObjPtr).{{take}}() as! {{swiftTypeNameForMetatype}}
                 """);
+        }
+        else if (GetOptionalObjCBridgeableValueInnerName(property.SwiftTypeSpec) is string optBridgeableInner)
+        {
+            EmitOptionalObjCBridgeableValueReturn(writer, optBridgeableInner);
         }
         else
         {
@@ -3036,14 +3039,18 @@ public class EveryProtocolEmitter
         }
         else if (isObjCBridgeableGetter || isObjCBridgeableContainerGetter)
         {
-            // +0 scalar (takeUnretainedValue) vs +1 whole-container bridge (takeRetainedValue);
+            // Scalar and whole-container ObjC returns both cross at +1 (takeRetainedValue);
             // see EmitPropertyGetterBody for the ownership rationale.
-            var take = isObjCBridgeableContainerGetter ? "takeRetainedValue" : "takeUnretainedValue";
+            const string take = "takeRetainedValue";
             writer.WriteLines($$"""
                 let resultObjPtr = resultPtr.load(as: UnsafeRawPointer.self)
                 resultPtr.deallocate()
                 return Unmanaged<AnyObject>.fromOpaque(resultObjPtr).{{take}}() as! {{returnTypeNameForMetatype}}
                 """);
+        }
+        else if (GetOptionalObjCBridgeableValueInnerName(subscript.ReturnTypeSpec) is string optBridgeableInner)
+        {
+            EmitOptionalObjCBridgeableValueReturn(writer, optBridgeableInner);
         }
         else
         {
@@ -3885,9 +3892,9 @@ public class EveryProtocolEmitter
                 }
                 else if (isObjCBridgeableReturn || isObjCBridgeableContainerReturn)
                 {
-                    // +0 scalar (takeUnretainedValue) vs +1 whole-container bridge (takeRetainedValue);
+                    // Scalar and whole-container ObjC returns both cross at +1 (takeRetainedValue);
                     // see EmitPropertyGetterBody for the ownership rationale.
-                    var take = isObjCBridgeableContainerReturn ? "takeRetainedValue" : "takeUnretainedValue";
+                    const string take = "takeRetainedValue";
                     writer.WriteLines($$"""
                             var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
                             {{argPassCode}}let resultPtr = {{vtableInstanceName}}.{{fieldName}}!(
@@ -3895,6 +3902,20 @@ public class EveryProtocolEmitter
                             let resultObjPtr = resultPtr.load(as: UnsafeRawPointer.self)
                             resultPtr.deallocate()
                             return Unmanaged<AnyObject>.fromOpaque(resultObjPtr).{{take}}() as! {{returnTypeNameForMetatype}}
+                        """);
+                }
+                else if (GetOptionalObjCBridgeableValueInnerName(returnType) is string optBridgeableInner)
+                {
+                    // Optional scalar ObjC-bridgeable VALUE return (URL? etc.): the receiver deposited a
+                    // one-word optional ObjC pointer, not a multi-word Optional<T> buffer — read it as an
+                    // UnsafeRawPointer? and consume the +1 on .some. See EmitOptionalObjCBridgeableValueReturn.
+                    writer.WriteLines($$"""
+                            var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
+                            {{argPassCode}}let resultPtr = {{vtableInstanceName}}.{{fieldName}}!(
+                                {{vtableInstanceName}}.csVTHandle, &selfProto{{argRefs}}){{writebackCode}}
+                            let resultObjPtr = resultPtr.load(as: UnsafeRawPointer?.self)
+                            resultPtr.deallocate()
+                            return resultObjPtr.map { Unmanaged<AnyObject>.fromOpaque($0).takeRetainedValue() as! {{optBridgeableInner}} }
                         """);
                 }
                 else
@@ -3923,7 +3944,9 @@ public class EveryProtocolEmitter
             EmitMethodFanOutBody(writer, method, protocolDecl.SwiftTypeName.ModuleQualifiedName,
                 branches, argPassList, writebackLines, argRefs,
                 hasReturn, isStringMethodReturn, isObjCBridgeableReturn, isObjCBridgeableContainerReturn,
-                returnTypeNameForMetatype, extensionAvailability);
+                returnTypeNameForMetatype,
+                hasReturn ? GetOptionalObjCBridgeableValueInnerName(returnType) : null,
+                extensionAvailability);
         }
 
         writer.Indent--;
@@ -3943,7 +3966,8 @@ public class EveryProtocolEmitter
         IReadOnlyList<(ProtocolDecl Proto, int Index)> branches,
         IReadOnlyList<string> argPassList, IReadOnlyList<string> writebackLines, string argRefs,
         bool hasReturn, bool isStringMethodReturn, bool isObjCBridgeableReturn, bool isObjCBridgeableContainerReturn,
-        string returnTypeNameForMetatype, IReadOnlyList<AvailabilityAnnotation>? extensionAvailability)
+        string returnTypeNameForMetatype, string? optBridgeableValueInner,
+        IReadOnlyList<AvailabilityAnnotation>? extensionAvailability)
     {
         // Param copies + ObjC bridge locals reference only the function arguments, so emit them
         // once before the branch chain (every branch passes the same &copy references).
@@ -4014,14 +4038,18 @@ public class EveryProtocolEmitter
         }
         else if (isObjCBridgeableReturn || isObjCBridgeableContainerReturn)
         {
-            // +0 scalar (takeUnretainedValue) vs +1 whole-container bridge (takeRetainedValue);
+            // Scalar and whole-container ObjC returns both cross at +1 (takeRetainedValue);
             // see EmitPropertyGetterBody for the ownership rationale.
-            var take = isObjCBridgeableContainerReturn ? "takeRetainedValue" : "takeUnretainedValue";
+            const string take = "takeRetainedValue";
             writer.WriteLines($$"""
                 let resultObjPtr = resultPtr.load(as: UnsafeRawPointer.self)
                 resultPtr.deallocate()
                 return Unmanaged<AnyObject>.fromOpaque(resultObjPtr).{{take}}() as! {{returnTypeNameForMetatype}}
                 """);
+        }
+        else if (optBridgeableValueInner != null)
+        {
+            EmitOptionalObjCBridgeableValueReturn(writer, optBridgeableValueInner);
         }
         else
         {
@@ -5645,6 +5673,49 @@ public class EveryProtocolEmitter
         if (!_typeDatabase.TryGetTypeRecord(named, out var record))
             return false;
         return MarshallingHelpers.IsObjCBridgeable(record);
+    }
+
+    /// <summary>
+    /// If <paramref name="typeSpec"/> is <c>Optional&lt;T&gt;</c> where T is an ObjC-bridgeable VALUE
+    /// type (Foundation.URL and NS_TYPED_ENUM newtypes — carrying the ObjCBridgeable flag, NOT a
+    /// bridged/rooted ObjC CLASS), returns the inner type's Swift metatype name (e.g. "Foundation.URL");
+    /// otherwise null. Class optionals (ObjCBridged / ObjCRooted) are deliberately EXCLUDED: an
+    /// <c>Optional&lt;class-reference&gt;</c> is a nil-pointer-optimized single word whose layout already
+    /// matches the one-word slot the C# receiver deposits, so its generic <c>move()</c> read is sound.
+    /// Only a MULTI-word bridgeable VALUE optional (a resilient value type such as URL) mismatches that
+    /// buffer and reads past it — this arm redirects exactly that case to a one-word pointer-optional read.
+    /// </summary>
+    private string? GetOptionalObjCBridgeableValueInnerName(TypeSpec? typeSpec)
+    {
+        if (!MarshallingHelpers.IsSwiftOptional(typeSpec))
+            return null;
+        var named = (NamedTypeSpec)typeSpec!;
+        if (named.GenericParameters.Count != 1)
+            return null;
+        var inner = named.GenericParameters[0];
+        if (!IsObjCBridgeableParam(inner))
+            return null;
+        return GetSwiftTypeNameForMetatype(inner);
+    }
+
+    /// <summary>
+    /// Emits the reverse-return tail for an Optional scalar ObjC-bridgeable VALUE requirement (e.g.
+    /// <c>URL?</c>), consuming a <c>resultPtr</c> the caller has already populated from the C# receiver.
+    /// The receiver deposited a single optional ObjC POINTER — <c>IntPtr.Zero</c> for .none, a
+    /// +1-retained handle for .some — occupying one nil-pointer-optimized word, NOT a SwiftOptional
+    /// buffer. Read it back as an <c>UnsafeRawPointer?</c> (same one-word layout) and, on .some, consume
+    /// the transferred +1 (<c>takeRetainedValue</c>) while <c>as!</c>-bridging the live ObjC object into
+    /// the native value type. Consuming it through the generic <c>move()</c> arm would treat the one word
+    /// as a multi-word <c>Optional&lt;T&gt;</c> and read past the buffer → corrupt value → SIGSEGV.
+    /// Symmetric with the non-optional bridgeable arm's takeRetainedValue consume.
+    /// </summary>
+    private static void EmitOptionalObjCBridgeableValueReturn(SwiftWriter writer, string innerTypeName)
+    {
+        writer.WriteLines($$"""
+            let resultObjPtr = resultPtr.load(as: UnsafeRawPointer?.self)
+            resultPtr.deallocate()
+            return resultObjPtr.map { Unmanaged<AnyObject>.fromOpaque($0).takeRetainedValue() as! {{innerTypeName}} }
+            """);
     }
 
     private string GetSwiftTypeName(TypeSpec? typeSpec) =>

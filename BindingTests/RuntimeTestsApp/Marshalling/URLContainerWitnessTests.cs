@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System;
 using System.Collections.Generic;
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
@@ -95,5 +96,85 @@ public class URLContainerWitnessTests : TestBase
             ["home"] = new Foundation.NSUrl("https://cs-dict-home.example.com"),
             ["api"] = new Foundation.NSUrl("https://cs-dict-api.example.com"),
         };
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // SCALAR sibling of the container tests above: a protocol whose requirements return a single
+    // ObjC-bridgeable value (URL), not a container of them. Exercises the SCALAR reverse-dispatch
+    // ownership contract — the C# receiver hands the ObjC pointer back at +1
+    // (Arc.UnknownObjectRetain(url.Handle)) and Swift consumes the transferred retain
+    // (takeRetainedValue for the non-optional arm, move() for the Optional arm). Before the fix the
+    // scalar handoff was +0, so a freshly allocated wrapper the C# getter returns could be freed in the
+    // handoff window → use-after-free.
+
+    // No FORWARD scalar test: unlike a whole-container return (which crosses as a dispatchable NS*
+    // collection pointer), a scalar ObjC-bridgeable return is gated "not dispatchable" on the forward
+    // existential path — the generated URLScalarProviderProxy getters/methods for the Swift-backed arm
+    // are [Obsolete(SB0003)] and throw NotSupportedException by design. There is nothing to round-trip
+    // forward, so the scalar coverage is reverse-only (the direction this fix touches).
+
+    /// <summary>
+    /// REVERSE direction: a C#-implemented conformer that returns a FRESH ObjC wrapper on every call is
+    /// passed to a Swift free function that invokes each scalar requirement (twice each) and reads its
+    /// <c>absoluteString</c> immediately. Each return crosses C# → Swift through the EveryProtocol
+    /// vtable at +1 (Arc.UnknownObjectRetain), so the fresh wrapper survives the handoff even though the
+    /// C# side holds no other reference to it. A correct summary proves the reverse ABI + scalar +1 ARC
+    /// contract for the property getter and method return in both their non-optional and Optional forms,
+    /// and for the Optional arm covers BOTH the `.some` case (a +1-retained pointer) and the `.none` case
+    /// (IntPtr.Zero → Swift maps the optional pointer to nil), on both the property-getter and
+    /// method-return emission sites.
+    /// </summary>
+    public void TestReverseScalarDispatchCSharpConformerRoundTrips()
+    {
+        var summary = TestLibFunctions.SummarizeURLScalarProvider(new CSharpURLScalarProvider());
+        AssertEqual(ExpectedScalarSummary, summary,
+            "Swift reads all C#-built scalar ObjC-bridgeable URLs (some + none) through the reverse EveryProtocol vtable");
+    }
+
+    /// <summary>
+    /// The +0 handoff's failure mode is a use-after-free: the C# getter returns a freshly allocated
+    /// wrapper with no other root, and a GC in the C# → Swift handoff window could free it before Swift
+    /// reads it. Driving the reverse scalar dispatch repeatedly with interleaved GC pressure (each call
+    /// allocates four fresh wrappers, each iteration drains finalizers) makes that window recur many
+    /// times; a stable, correct summary on every iteration proves the +1 transfer holds each fresh
+    /// object alive across the boundary.
+    /// </summary>
+    public void TestReverseScalarDispatchSurvivesGCPressure()
+    {
+        const int iterations = 250;
+        for (int i = 0; i < iterations; i++)
+        {
+            var summary = TestLibFunctions.SummarizeURLScalarProvider(new CSharpURLScalarProvider());
+            if (summary != ExpectedScalarSummary)
+                throw new System.Exception(
+                    $"reverse scalar dispatch corrupted at iteration {i}: expected '{ExpectedScalarSummary}', got '{summary}'");
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
+        AssertTrue(true,
+            $"reverse scalar ObjC dispatch round-tripped correctly across {iterations} GC-pressured iterations (no use-after-free)");
+    }
+
+    private const string ExpectedScalarSummary =
+        "prop=https://cs-scalar-prop.example.com|" +
+        "method=https://cs-scalar-method.example.com|" +
+        "maybeProp=https://cs-scalar-maybe-prop.example.com|" +
+        "maybeMethod=https://cs-scalar-maybe-method.example.com|" +
+        "maybeNilProp=nil|" +
+        "maybeNilMethod=nil";
+
+    /// C# implementation of the scalar protocol. The non-nil requirements return a NEWLY allocated
+    /// <c>Foundation.NSUrl</c> — no field caches it — so the reverse receiver's +1 transfer retain is
+    /// the only thing keeping the object alive once the receiver frame returns to Swift. The
+    /// <c>MaybeNil*</c> requirements return <c>null</c> so the reverse receiver deposits
+    /// <c>IntPtr.Zero</c> and Swift's optional-pointer read maps it to nil — the `.none` arm.
+    private sealed class CSharpURLScalarProvider : IURLScalarProvider
+    {
+        public Foundation.NSUrl ProvidedURL => new Foundation.NSUrl("https://cs-scalar-prop.example.com");
+        public Foundation.NSUrl ProvideURL() => new Foundation.NSUrl("https://cs-scalar-method.example.com");
+        public Foundation.NSUrl? MaybeURL => new Foundation.NSUrl("https://cs-scalar-maybe-prop.example.com");
+        public Foundation.NSUrl? ProvideMaybeURL() => new Foundation.NSUrl("https://cs-scalar-maybe-method.example.com");
+        public Foundation.NSUrl? MaybeNilURL => null;
+        public Foundation.NSUrl? ProvideMaybeNilURL() => null;
     }
 }
