@@ -334,37 +334,71 @@ reference>` IS a one-word nil-pointer slot that matches `SwiftOptional<IntPtr>`.
   reverse-return path with the convention the **forward-param** path already uses
   (`CdeclMarshallingHelper` treats `Optional<ObjC-bridgeable>` as a nullable-pointer ABI, no override).
 
-### OPEN — sibling read-direction category: `Optional<ObjC-bridgeable VALUE>` passed INTO a C# conformer
+### Sibling read-direction category: `Optional<ObjC-bridgeable VALUE>` passed INTO a C# conformer — RESOLVED (2026-07)
 
 The return fix above closed the **write-out** direction (C# receiver → Swift reads the result buffer).
-Paired review then surfaced the **mirror**: the **read-in** direction, where Swift passes an
+Paired review surfaced the **mirror**: the **read-in** direction, where Swift passes an
 `Optional<ObjC-bridgeable VALUE>` (`URL?`, NS_TYPED_ENUM-newtype optionals) INTO a C#-implemented
-conformer. An empirical audit (2026-07) confirms this is a **distinct emission mechanism** (param-in
-marshalling, not return-out) with the **same root layout fact** and it spans **multiple sites** — so it
-is deliberately its own pass, not a partial patch grafted onto the returns work (`no-session-cascade`):
+conformer. This is a **distinct emission mechanism** (param-in marshalling, not return-out) with the
+**same root layout fact** — so it was done as its own coherent pass, not a partial patch grafted onto
+the returns work (`no-session-cascade`). The Swift side had been writing the argument as a multi-word
+resilient `Optional<URL>` (via `var newValueCopy = newValue; fn(…, &newValueCopy)`) while the C# receiver
+read it as a one-word `SwiftOptional<IntPtr>` — the exact inverse of the return-path mismatch — so a
+`.some` read reinterpreted unrelated bytes as a wrapper pointer → corruption / SIGSEGV. **VALUE types
+only.** Class optionals (`ObjCBridged` / `ObjCRooted`) work by the same one-word coincidence as the
+return path (`Optional<class reference>` IS a one-word nil-pointer slot matching `SwiftOptional<IntPtr>`),
+so the class arms are **untouched**. The ownership contract is **+0 borrow** (param-in), NOT the returns'
+**+1 transfer**, so the committed return path (`dcd3ac97`) is undisturbed.
 
-- **Property setter** — `EveryProtocolEmitter.EmitSetterCallSite` (the non-optional-bridgeable arm at
-  `~:2870` bridges to a pointer via `Unmanaged.passUnretained(newValue as AnyObject).toOpaque()`, but
-  an `Optional<URL>` fails `IsObjCBridgeableParam` and falls to the generic `else` at `~:2893`:
-  `var newValueCopy = newValue` — the address of a **multi-word `Optional<URL>`**). The C# receiver
-  `GetReceiverOptionalSetterConversion` (`ProtocolProxyEmitter.Receivers.cs:~1934`) then reads that
-  buffer as `SwiftOptional<T>.Case` / `.Some` — the exact inverse of the return-path mismatch.
-- **Method parameter** — `EveryProtocolEmitter` reverse method-arg build (`~:3808-3838`): a non-optional
-  bridgeable param bridges to a pointer (`{p}NS = {p} as AnyObject; passUnretained(...).toOpaque()`),
-  but an `Optional<URL>` param again falls to the generic `var {p}Copy = {escapedParam}` arm.
-- **Subscript index / setter parameter** — same param-in path, same gap.
+**Fix (both sides, in lock-step), covering all three Mechanism-A param-in write sites:**
+- **Property setter** — `EveryProtocolEmitter.EmitSetterCallSite`.
+- **Reverse method parameter** — `EveryProtocolEmitter` reverse method-arg build.
+- **Dispatchable-closure fan-out parameter** — `EveryProtocolEmitter` closure fan-out arg build (no
+  writeback entry; that path rejects `inout`).
 
-**Why unfixed here:** the fix requires, per site and on **both** sides, bridging `Optional<URL>` to an
-optional ObjC pointer on the Swift side (nil ↔ `passUnretained(x as AnyObject).toOpaque()`) and reading a
-one-word optional pointer on the C# side (reconstructing the wrapper), with **+0 borrow** ownership
-(param-in) rather than the returns' **+1 transfer** — a different ARC contract with its own crash
-surface. It needs its own fixtures (a settable `URL?` requirement + a `func take(_ u: URL?)` requirement
-driven by Swift, in reverse) and its own sim+device gate. Do it as one coherent read-direction pass
-covering all three sites; the value-vs-class discrimination must be mirrored exactly (class optionals
-are the coincidental one-word case and stay on the `SwiftOptional<IntPtr>` path). Independent-reviewer
-ratings on the setter alone split Low (latent — no current BindingTests or shipped binding is known to
-exercise a C#-conformed settable `Optional<bridgeable-value>` requirement) vs High (a real generator
-defect for any such shape); treat as a real open defect regardless.
+Each write site now emits the one-word optional-pointer bridge: `let {p}NS = {p}.map { $0 as AnyObject }`
+/ `var {p}Ref = {p}NS.map { Unmanaged.passUnretained($0).toOpaque() }` and passes `&{p}Ref` (an
+`UnsafeMutableRawPointer?`, one word, `nil` = `.none`) — gated by the existing
+`GetOptionalObjCBridgeableValueInnerName` detector, so it fires for exactly the value-flagged optionals.
+On the C# side (`ProtocolProxyEmitter.Receivers.cs`), a new coupled helper
+`TryGetReceiverOptionalObjCBridgeableValueRead` (projected with `IsParameter:true`) reads the slot as a
+**bare `IntPtr`** — `MarshalFromSwift<IntPtr>(slot)` — and reconstructs the wrapper with
+`ptr == IntPtr.Zero ? null : GetNSObject<T>(ptr)` (a `+0` `GetNSObject`, no retain consumed), wired into
+the property-setter and reverse-method-param receivers. The old
+`GetReceiverOptionalSetterConversion` `ObjCBridgeableProjection` arm is now **fail-closed** (throws) so a
+value-optional can never silently fall back to the one-word `SwiftOptional<IntPtr>` read; the sibling
+`ObjCBridgedProjection` / `ObjCRootedClassProjection` (class) arms keep their `SwiftOptional<IntPtr>`
+shape. Parity is safe by construction: `TypeProjectionFactory` always projects an Optional's inner with
+`IsParameter=false`, and the `ObjCBridgeable` classification is flag-based / `IsParameter`-independent, so
+the coupled `IsParameter:true` helper catches exactly the cases the old `IsParameter:false` arm did.
+
+This fix is the **+0 borrow** param-in case (the value is read, not mutated back). The **`inout`**
+variant of the same shape (`func take(_ u: inout URL?)`) cannot bridge the mutated value back across the
+ObjC bridge — the param-in arm's writeback source is the bridged `UnsafeMutableRawPointer?`, not the
+`URL?` the `inout` signature declares — so it routes to the pre-existing `fatalError` trap stub
+(`EmitInOutObjCBridgeableMethodStub`), exactly like the non-optional `inout URL`/`inout Decimal` case.
+The gate `MethodHasInOutObjCBridgeableParam` had to be extended for this, because
+`IsObjCBridgeableParam` does not unwrap `Optional`, so an `inout URL?` would otherwise slip past into the
+dispatch body and emit a type-mismatched writeback. Locked by the unit test
+`EmitProtocolExtension_InOutOptionalObjCBridgeableValueParam_EmitsTrapStubNotDispatch`.
+
+Covered end-to-end by `URLOptionalSink` / `exerciseURLOptionalSink` in
+`BindingTests/Sources/SwiftBindingsTestLib/Foundation/URLContainerWitness.swift` and
+`URLContainerWitnessTests.cs`: a Swift reverse driver sets `sinkURL` and calls `acceptURL(_:)` on a
+C# conformer with both `.some` and `.none`, the C# side echoes the values back into a summary string, and
+the round-trip is asserted plus a 250-iteration GC-pressure loop (a wrong layout read corrupts the
+round-trip or crashes). Verified RED before the fix (both new tests SIGSEGV'd inside the setter receiver)
+and GREEN after, on the iOS Simulator (Mono JIT) and physical device (NativeAOT). The dispatchable-closure
+fan-out param write site shares the same `EmitMethodReceiverBody` read loop and
+`GetOptionalObjCBridgeableValueInnerName` write gate as the covered method-param site, so its `.some`/
+`.none` behavior carries by construction (structural coverage; no dedicated fixture).
+
+**Deliberately still open — subscript setter (a separate Mechanism B gap, NOT half-fixed):** the
+subscript-setter receiver is a **bespoke receiver** that never wires the whole-value setter conversion
+this pass fixes, so a bridgeable-VALUE subscript is broken independently of the optional-layout issue —
+it is CS0029-broken for **all** bridgeable-value subscripts (optional or not), a broader emission gap
+gated out at emission rather than a layout mismatch. Folding it into this read-direction pass would be a
+partial patch on a different mechanism (`no-session-cascade`); it is left as its own future item.
 
 ---
 

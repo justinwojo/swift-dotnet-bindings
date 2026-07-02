@@ -3718,6 +3718,41 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
+    public void EmitProtocolExtension_InOutOptionalObjCBridgeableValueParam_EmitsTrapStubNotDispatch()
+    {
+        // An inout Optional<ObjC-bridgeable VALUE> param (inout Decimal?) has the same limitation as
+        // the non-optional inout case: the mutated value cannot be bridged back across the ObjC bridge.
+        // The param-in optional arm binds `var amountRef = amountNS.map { passUnretained($0).toOpaque() }`
+        // (an Optional<UnsafeMutableRawPointer>) as its writeback source, so a dispatched body would emit
+        // `amount = amountRef` — assigning UnsafeMutableRawPointer? to Decimal? → the generated wrapper
+        // fails to compile. The method must route to the SAME fatalError trap stub as the non-optional
+        // inout case, not EmitMethodImplementation's optional-value param arm.
+        var foundation = new ModuleTypeDatabase("Foundation", "/fake/Foundation.framework/Foundation");
+        var decimalName = SwiftTypeName.FromModuleQualifiedName("Foundation.Decimal");
+        foundation.RegisterType(decimalName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSDecimalNumber"),
+            SwiftTypeName = decimalName,
+            MetadataAccessor = "$s10Foundation7DecimalVMa",
+            Flags = TypeRecordFlags.ObjCBridgeable | TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Struct,
+        });
+        _typeDatabase.AddModuleDatabase(foundation);
+
+        var protocol = CreateSimpleProtocol("AmountMutator");
+        protocol.Methods.Add(CreateMethodWithInOutParam(
+            "update", "amount", new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Foundation.Decimal"))));
+
+        var output = EmitProtocolExtension(protocol);
+
+        // Routed to the trap stub, NOT the optional-value dispatch arm (no dangling amountRef writeback).
+        Assert.Contains("inout ObjC-bridgeable parameter cannot be dispatched", output);
+        Assert.Contains("amount: inout", output);
+        Assert.DoesNotContain("amountRef", output);
+        Assert.DoesNotContain("amountNS", output);
+    }
+
+    [Fact]
     public void EmitProtocolVtableStruct_InOutObjCBridgeableParam_RetainsVtableSlot()
     {
         // The inout ObjC-bridgeable method routes its witness body to a fatalError trap stub, but

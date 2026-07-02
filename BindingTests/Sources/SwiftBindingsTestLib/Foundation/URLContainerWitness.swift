@@ -117,6 +117,70 @@ public func summarizeURLScalarProvider(_ provider: any URLScalarProvider) -> Str
         + "|maybeNilProp=\(maybeNilProp)|maybeNilMethod=\(maybeNilMethod)"
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// READ-IN (param-in) mirror of the reverse-RETURN scalar tests above: a protocol whose requirements
+// RECEIVE a scalar Optional ObjC-bridgeable VALUE (URL?) INTO the conformer — a settable property and
+// a method param — so Optional<URL> crosses Swift → C# through the reverse EveryProtocol vtable. This
+// exercises the READ direction the scalar-return fix left open: Optional<URL> is a 16-byte resilient
+// value (URL.size == 16, URL?.size == 16), so passing `&copy` of that multi-word value and reading it
+// C#-side as a one-word SwiftOptional<IntPtr> reinterprets URL's storage bytes as an ObjC pointer →
+// corruption/crash. The fix bridges to a one-word optional ObjC pointer on both sides (nil ↔
+// IntPtr.Zero), a +0 borrow that is the exact mirror of the reverse-RETURN +1 transfer. Observation is
+// through String getters (the already-robust read direction), so a mis-read setter/param corrupts an
+// observable round-trip rather than silently passing.
+
+/// Protocol whose requirements RECEIVE a scalar Optional ObjC-bridgeable VALUE (URL?): a settable
+/// property (reverse SETTER receiver) and a method param (reverse METHOD-PARAM receiver). The String
+/// observation getters echo the last value each received, so a wrong read is observable.
+public protocol URLOptionalSink {
+    /// Settable Optional ObjC-bridgeable VALUE — drives the reverse property-SETTER receiver.
+    var sinkURL: URL? { get set }
+
+    /// Method taking an Optional ObjC-bridgeable VALUE param — drives the reverse METHOD-PARAM receiver.
+    func acceptURL(_ url: URL?)
+
+    /// absoluteString of the last value written through `sinkURL`'s setter, or "nil".
+    var sinkDescription: String { get }
+
+    /// absoluteString of the last value passed to `acceptURL(_:)`, or "nil".
+    var acceptedDescription: String { get }
+}
+
+final class URLOptionalSinkConformer: URLOptionalSink {
+    private var _sink: URL?
+    private var _accepted: URL?
+    var sinkURL: URL? {
+        get { _sink }
+        set { _sink = newValue }
+    }
+    func acceptURL(_ url: URL?) { _accepted = url }
+    var sinkDescription: String { _sink?.absoluteString ?? "nil" }
+    var acceptedDescription: String { _accepted?.absoluteString ?? "nil" }
+}
+
+/// Vends a Swift conformer as an existential (forward-direction control for the read-in protocol).
+public func makeURLOptionalSink() -> any URLOptionalSink {
+    URLOptionalSinkConformer()
+}
+
+/// Reverse-dispatch driver: Swift receives a (typically C#-implemented) `URLOptionalSink` and writes
+/// BOTH a `.some(URL)` and a `.none` through the settable property AND the method param, reading the
+/// String observation channel after each write. A correct summary proves the read-in Optional
+/// ObjC-bridgeable VALUE param crosses Swift → C# with the right one-word optional-pointer layout for
+/// both the `.some` and `.none` cases, at both the property-setter and method-param emission sites.
+public func exerciseURLOptionalSink(_ sink: any URLOptionalSink) -> String {
+    var s = sink
+    s.sinkURL = URL(string: "https://cs-sink-some.example.com")
+    let sinkSome = s.sinkDescription
+    s.sinkURL = nil
+    let sinkNone = s.sinkDescription
+    s.acceptURL(URL(string: "https://cs-accept-some.example.com"))
+    let acceptSome = s.acceptedDescription
+    s.acceptURL(nil)
+    let acceptNone = s.acceptedDescription
+    return "sinkSome=\(sinkSome)|sinkNone=\(sinkNone)|acceptSome=\(acceptSome)|acceptNone=\(acceptNone)"
+}
+
 /// Reverse-dispatch driver: Swift receives a (typically C#-implemented) `URLContainerProvider`
 /// existential and invokes each requirement, so the ObjC-bridgeable whole-container return values
 /// cross C# → Swift through the EveryProtocol vtable — the reverse of `makeURLContainerProvider`'s

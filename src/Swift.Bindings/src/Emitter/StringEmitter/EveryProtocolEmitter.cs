@@ -1625,11 +1625,13 @@ public class EveryProtocolEmitter
                 {
                     EmitClosureMethodStub(writer, method);
                 }
-                // An inout ObjC-bridgeable param (inout URL/URLRequest/Decimal) would need the
-                // mutated ObjC pointer bridged back into the Swift value type after the vtable
-                // call — a writeback path neither the Swift caller arm nor the C# receiver
-                // implements. Emit a trap stub so the requirement is satisfied, rather than the
-                // dangling-var writeback EmitMethodImplementation would otherwise produce.
+                // An inout ObjC-bridgeable param (inout URL/URLRequest/Decimal, or the optional
+                // inout URL?) would need the mutated ObjC pointer bridged back into the Swift value
+                // type after the vtable call — a writeback path neither the Swift caller arm nor the
+                // C# receiver implements. Emit a trap stub so the requirement is satisfied, rather
+                // than the type-mismatched pointer writeback EmitMethodImplementation would otherwise
+                // produce (the optional param-in arm's `{p}Ref` writeback source is an
+                // UnsafeMutableRawPointer?, not the URL? the inout signature declares).
                 else if (MethodHasInOutObjCBridgeableParam(method))
                 {
                     EmitInOutObjCBridgeableMethodStub(writer, method);
@@ -2876,6 +2878,21 @@ public class EveryProtocolEmitter
                 {{fnExpr}}({{branchVtableExpr}}, &selfProto, &newValueRef)
                 """);
         }
+        else if (GetOptionalObjCBridgeableValueInnerName(property.SwiftTypeSpec) is not null)
+        {
+            // Optional ObjC-bridgeable VALUE setter (URL?): pass a single optional ObjC POINTER word
+            // (nil = 0x0), borrowing (+0) the bridged NSObject — the write mirror of the reverse-RETURN
+            // optional-bridgeable arm. `newValueNS` (Optional<AnyObject>) holds the bridged object alive
+            // across the call; `newValueRef` (Optional<UnsafeMutableRawPointer>) is the one nil-optimized
+            // word the C# receiver reads as a bare IntPtr. The plain-value `else` arm below would pass the
+            // multi-word Optional<URL> bytes, which the receiver then misreads as one word → layout mismatch.
+            writer.WriteLines($$"""
+                var selfProto: {{protoName}} = self
+                let newValueNS = newValue.map { $0 as AnyObject }
+                var newValueRef = newValueNS.map { Unmanaged.passUnretained($0).toOpaque() }
+                {{fnExpr}}({{branchVtableExpr}}, &selfProto, &newValueRef)
+                """);
+        }
         else if (RequiresExplicitValuePointer(property.SwiftTypeSpec))
         {
             // Array/String setter value: route through an explicitly-typed pointer so Swift's
@@ -3633,16 +3650,23 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
-    /// True when any parameter is both <c>inout</c> and an ObjC-bridgeable value type
-    /// (URL/URLRequest/Decimal). The reverse-dispatch path cannot write the mutated value
-    /// back across the ObjC bridge, so such methods get a trap stub instead.
+    /// True when any parameter is both <c>inout</c> and an ObjC-bridgeable value type — either the
+    /// non-optional shape (<c>inout URL</c>/<c>URLRequest</c>/<c>Decimal</c>) or the optional shape
+    /// (<c>inout URL?</c>). The reverse-dispatch path cannot write the mutated value back across the
+    /// ObjC bridge in either case — the param-in arms bind a bridged ObjC-pointer temporary
+    /// (<c>{p}Ref</c>) as the writeback source, so a dispatched body would assign that pointer to the
+    /// Swift value type and fail to compile — so such methods get a trap stub instead. The optional
+    /// arm must be caught here too because <see cref="IsObjCBridgeableParam"/> does NOT unwrap
+    /// <c>Optional</c>, so it alone would let <c>inout URL?</c> slip past into the dispatch body.
     /// </summary>
     private bool MethodHasInOutObjCBridgeableParam(MethodDecl method)
     {
         for (int i = 1; i < method.CSSignature.Count; i++) // skip return at [0]
         {
             var param = method.CSSignature[i];
-            if (param.IsInOut && IsObjCBridgeableParam(param.SwiftTypeSpec))
+            if (param.IsInOut &&
+                (IsObjCBridgeableParam(param.SwiftTypeSpec) ||
+                 GetOptionalObjCBridgeableValueInnerName(param.SwiftTypeSpec) is not null))
                 return true;
         }
         return false;
@@ -3814,6 +3838,20 @@ public class EveryProtocolEmitter
                 argPassList.Add($"var {paramName}Ref = Unmanaged.passUnretained({paramName}NS).toOpaque()");
                 argRefList.Add($"&{paramName}Ref");
                 argWritebackSources.Add($"{paramName}Copy");
+            }
+            else if (GetOptionalObjCBridgeableValueInnerName(param.SwiftTypeSpec) is not null)
+            {
+                // Optional ObjC-bridgeable VALUE param (URL?): pass a single optional ObjC POINTER word
+                // (nil = 0x0), borrowing (+0) the bridged NSObject — the Optional.map wrapper of the
+                // non-optional arm above so .none passes a nil (0x0) word. The C# receiver reads a bare
+                // IntPtr and +0-bridges the live NSObject. `{p}NS` (Optional<AnyObject>) holds it alive
+                // across the call; `{p}Ref` (Optional<UnsafeMutableRawPointer>) is the nil-optimized word.
+                // The plain `&{p}Copy` else arm would pass the multi-word Optional<URL> bytes → receiver
+                // misreads one word → layout mismatch.
+                argPassList.Add($"let {paramName}NS = {escapedParam}.map {{ $0 as AnyObject }}");
+                argPassList.Add($"var {paramName}Ref = {paramName}NS.map {{ Unmanaged.passUnretained($0).toOpaque() }}");
+                argRefList.Add($"&{paramName}Ref");
+                argWritebackSources.Add($"{paramName}Ref");
             }
             else if (RequiresExplicitValuePointer(param.SwiftTypeSpec))
             {
@@ -4386,6 +4424,19 @@ public class EveryProtocolEmitter
                 // the buggy path reads it as an ObjC pointer and crashes — a genuine guard.
                 passLines.Add($"let {paramName}NS = {escapedParam} as AnyObject");
                 passLines.Add($"var {paramName}Ref = Unmanaged.passUnretained({paramName}NS).toOpaque()");
+                argRefList.Add($"&{paramName}Ref");
+            }
+            else if (GetOptionalObjCBridgeableValueInnerName(param.SwiftTypeSpec) is not null)
+            {
+                // Optional ObjC-bridgeable VALUE param (URL?) alongside a dispatchable closure: the same
+                // single optional ObjC POINTER word (nil = 0x0) as the non-closure method fan-out's
+                // optional arm, borrowing (+0) the bridged NSObject. `{p}NS` (Optional<AnyObject>) holds it
+                // alive across the call; `{p}Ref` (Optional<UnsafeMutableRawPointer>) is the nil-optimized
+                // word the receiver reads as a bare IntPtr. No writeback entry (this path rejects inout).
+                // The plain `&{p}Copy` else would pass the multi-word Optional<URL> bytes → receiver misreads
+                // one word → layout mismatch.
+                passLines.Add($"let {paramName}NS = {escapedParam}.map {{ $0 as AnyObject }}");
+                passLines.Add($"var {paramName}Ref = {paramName}NS.map {{ Unmanaged.passUnretained($0).toOpaque() }}");
                 argRefList.Add($"&{paramName}Ref");
             }
             else if (RequiresExplicitValuePointer(param.SwiftTypeSpec))

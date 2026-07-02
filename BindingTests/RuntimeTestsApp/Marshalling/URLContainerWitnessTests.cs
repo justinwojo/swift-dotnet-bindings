@@ -177,4 +177,73 @@ public class URLContainerWitnessTests : TestBase
         public Foundation.NSUrl? MaybeNilURL => null;
         public Foundation.NSUrl? ProvideMaybeNilURL() => null;
     }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // READ-IN (param-in) mirror of the reverse-RETURN scalar tests above: a protocol whose
+    // requirements RECEIVE a scalar Optional ObjC-bridgeable VALUE (URL?) INTO the C# conformer — a
+    // settable property (reverse SETTER receiver) and a method param (reverse METHOD-PARAM receiver).
+    // Optional<URL> is a 16-byte resilient value, so before the fix Swift passed &copy of that
+    // multi-word value while the C# receiver read a one-word SwiftOptional<IntPtr> — a layout mismatch
+    // that reinterprets URL's storage bytes as an ObjC pointer → corruption/crash on the `.some` case.
+    // The fix bridges to a one-word optional ObjC pointer on both sides (nil ↔ IntPtr.Zero), a +0
+    // borrow that mirrors the reverse-RETURN +1 transfer. The C# conformer echoes each received value
+    // back through String observation getters (the already-robust read direction), so a mis-read
+    // setter/param corrupts an observable round-trip rather than silently passing.
+
+    /// <summary>
+    /// REVERSE direction: a C#-implemented conformer RECEIVES an Optional ObjC-bridgeable VALUE (URL?)
+    /// through a settable property and a method param. Swift writes BOTH a `.some(URL)` and a `.none`
+    /// through each, reading the String observation channel after every write. A correct summary proves
+    /// the read-in Optional bridgeable VALUE crosses Swift → C# with the right one-word optional-pointer
+    /// layout for both the `.some` and `.none` cases, at both the property-setter and method-param
+    /// emission sites.
+    /// </summary>
+    public void TestReverseOptionalSinkDispatchCSharpConformerRoundTrips()
+    {
+        var summary = TestLibFunctions.ExerciseURLOptionalSink(new CSharpURLOptionalSink());
+        AssertEqual(ExpectedSinkSummary, summary,
+            "Swift writes both .some(URL?) and .none into the C# conformer's setter and method param through the reverse EveryProtocol vtable");
+    }
+
+    /// <summary>
+    /// The layout-mismatch failure mode is a corrupt read: reinterpreting the multi-word Optional&lt;URL&gt;
+    /// as a one-word optional pointer reads unrelated storage bytes as an ObjC pointer. Driving the
+    /// reverse read-in dispatch repeatedly with interleaved GC pressure (each iteration allocates fresh
+    /// URLs and drains finalizers) makes any dangling/garbage-pointer window recur many times; a stable,
+    /// correct summary on every iteration proves the one-word optional-pointer borrow round-trips.
+    /// </summary>
+    public void TestReverseOptionalSinkDispatchSurvivesGCPressure()
+    {
+        const int iterations = 250;
+        for (int i = 0; i < iterations; i++)
+        {
+            var summary = TestLibFunctions.ExerciseURLOptionalSink(new CSharpURLOptionalSink());
+            if (summary != ExpectedSinkSummary)
+                throw new System.Exception(
+                    $"reverse read-in Optional dispatch corrupted at iteration {i}: expected '{ExpectedSinkSummary}', got '{summary}'");
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
+        AssertTrue(true,
+            $"reverse read-in Optional ObjC dispatch round-tripped correctly across {iterations} GC-pressured iterations (no layout-mismatch corruption)");
+    }
+
+    private const string ExpectedSinkSummary =
+        "sinkSome=https://cs-sink-some.example.com|" +
+        "sinkNone=nil|" +
+        "acceptSome=https://cs-accept-some.example.com|" +
+        "acceptNone=nil";
+
+    /// C# implementation of the read-in protocol. The settable property and the method param each store
+    /// the last received value; the String observation getters echo its <c>AbsoluteString</c> (or "nil"),
+    /// so a mis-read of the Optional bridgeable VALUE surfaces as a wrong observed string.
+    private sealed class CSharpURLOptionalSink : IURLOptionalSink
+    {
+        private Foundation.NSUrl? _sink;
+        private Foundation.NSUrl? _accepted;
+        public Foundation.NSUrl? SinkURL { get => _sink; set => _sink = value; }
+        public void AcceptURL(Foundation.NSUrl? url) => _accepted = url;
+        public string SinkDescription => _sink?.AbsoluteString ?? "nil";
+        public string AcceptedDescription => _accepted?.AbsoluteString ?? "nil";
+    }
 }

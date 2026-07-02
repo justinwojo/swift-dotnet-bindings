@@ -349,22 +349,34 @@ public partial class ProtocolProxyEmitter
                     // idiomatic cast (which would re-wrap and, for the optional, false-trip on Unsafe.Read).
                     var classCopyOut = GetReceiverClassCopyOutExpr("valuePtr", property.SwiftTypeSpec);
 
+                    // Optional ObjC-bridgeable VALUE setter (URL?): the Swift thunk borrows the bridged
+                    // NSObject and passes one optional ObjC pointer word (nil = 0x0), so read a bare IntPtr
+                    // and +0-bridge it — NOT the default two-word SwiftOptional<IntPtr> carrier, which would
+                    // reinterpret the value's storage bytes as a pointer. Own the marshal read AND the
+                    // assignment together (coupled) and short-circuit the default conversion below — mirror
+                    // of the reverse-RETURN optional-bridgeable arm.
+                    // Call unconditionally so the out-vars are definitely assigned; class copy-out still wins.
+                    bool objcOptApplies = TryGetReceiverOptionalObjCBridgeableValueRead(property.SwiftTypeSpec, "valuePtr", "value", out var objcOptMarshal, out var objcOptConv);
+                    bool isObjCOptRead = classCopyOut == null && objcOptApplies;
+
                     // Check if the property type needs conversion (e.g., SwiftOptional<SwiftString> → string?)
                     // The receiver marshals the Swift ABI type, but the interface uses the idiomatic C# type.
                     // Projection-based conversion handles existentials, strings, arrays, dicts, and optionals.
-                    var returnConversion = classCopyOut != null ? null : GetReceiverSetterConversion("value", property.SwiftTypeSpec);
-                    var assignmentExpr = returnConversion ?? "value";
+                    var returnConversion = (classCopyOut != null || isObjCOptRead) ? null : GetReceiverSetterConversion("value", property.SwiftTypeSpec);
+                    var assignmentExpr = isObjCOptRead ? objcOptConv : (returnConversion ?? "value");
                     // F1: Narrow nint/nuint ABI value to int/uint for property assignment.
                     // Plain nint: value is nint (MarshalFromSwift<nint>) → (int)value.
                     // Optional<nint>: returnConversion is "((nint?)value)" → (int?)((nint?)value).
-                    if (classCopyOut == null && NativeIntOverloadEmitter.TryGetNarrowedType(property.SwiftTypeSpec, out var narrowedType))
+                    if (!isObjCOptRead && classCopyOut == null && NativeIntOverloadEmitter.TryGetNarrowedType(property.SwiftTypeSpec, out var narrowedType))
                         assignmentExpr = $"({narrowedType}){assignmentExpr}";
 
                     // String property: local MarshalFromSwift<SwiftString> uses Unsafe.Read which
                     // can't construct a managed SwiftString from raw Swift memory. Use runtime marshaller.
                     // Reference-backed collection wrappers (SwiftArray/SwiftDictionary/SwiftSet) hit the same
                     // Unsafe.Read-on-a-managed-ref hazard and route through GetReceiverRawMaterialization.
-                    var marshalExpr = classCopyOut
+                    var marshalExpr = isObjCOptRead
+                        ? objcOptMarshal
+                        : classCopyOut
                         ?? (IsStringTypeSpec(property.SwiftTypeSpec)
                             ? $"global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(valuePtr)"
                             : GetReceiverRawMaterialization(abiTypeName, "valuePtr", property.SwiftTypeSpec));
@@ -1173,6 +1185,14 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine($"var {rawArgName} = {GetReceiverRawMaterialization(paramTypeName, $"rawArg{argIndex}", param.SwiftTypeSpec)};");
                 writer.WriteLine($"var {argName} = {receiverDictConversion};");
             }
+            // Optional ObjC-bridgeable VALUE param (URL?): the Swift thunk borrows the bridged NSObject and
+            // passes one optional ObjC pointer word (nil = 0x0), so read a bare IntPtr and +0-bridge it —
+            // NOT the default two-word SwiftOptional<IntPtr> carrier. Mirror of the property-setter arm.
+            else if (TryGetReceiverOptionalObjCBridgeableValueRead(param.SwiftTypeSpec, $"rawArg{argIndex}", rawArgName, out var objcOptMarshal, out var objcOptConv))
+            {
+                writer.WriteLine($"var {rawArgName} = {objcOptMarshal};");
+                writer.WriteLine($"var {argName} = {objcOptConv};");
+            }
             else
             {
                 var setterConversion = GetReceiverSetterConversion(rawArgName, param.SwiftTypeSpec);
@@ -1839,6 +1859,36 @@ public partial class ProtocolProxyEmitter
     }
 
     /// <summary>
+    /// Optional ObjC-bridgeable VALUE (URL?, NS_TYPED_ENUM newtypes) arriving INTO a reverse-dispatch
+    /// receiver — a settable property or a method param. This is the READ mirror of the reverse-RETURN
+    /// optional-bridgeable arm (see GetReceiverOptionalGetterConversion's ObjCBridgeableProjection case):
+    /// the Swift thunk borrows the bridged NSObject and passes a single optional ObjC POINTER (nil = 0x0)
+    /// occupying one nil-pointer-optimized word, NOT the multi-word resilient Optional&lt;URL&gt; bytes. So
+    /// the receiver must read that borrowed slot as a bare <c>IntPtr</c> (one word) and bridge the live
+    /// NSObject at +0 — <c>GetNSObject</c> does NOT consume a retain, matching the Swift-side
+    /// <c>passUnretained</c> borrow. Reading it as <c>SwiftOptional&lt;IntPtr&gt;</c> (the default ABI carrier
+    /// for an Optional) reinterprets the value's storage as a two-word case+payload → wrong pointer →
+    /// corruption/SIGSEGV on the <c>.some</c> case. The marshal type and the conversion are returned
+    /// together so they can never drift. Optional&lt;class-reference&gt; (ObjCBridged / ObjCRooted / pure
+    /// Swift class) is a genuine nil-pointer-optimized single-word <c>SwiftOptional&lt;IntPtr&gt;</c> and is
+    /// deliberately NOT handled here — it keeps its existing path. Returns false for every other shape.
+    /// </summary>
+    private bool TryGetReceiverOptionalObjCBridgeableValueRead(TypeSpec? typeSpec, string slotExpr, string varName, out string marshalExpr, out string convExpr)
+    {
+        marshalExpr = "";
+        convExpr = "";
+        if (typeSpec == null)
+            return false;
+        var projection = s_projectionFactory.Project(typeSpec,
+            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
+        if (projection is not OptionalProjection { InnerProjection: ObjCBridgeableProjection objc })
+            return false;
+        marshalExpr = $"MarshalFromSwift<IntPtr>({slotExpr})";
+        convExpr = $"({varName} == global::System.IntPtr.Zero ? null : {MarshallingHelpers.FormatObjCBridgeCall(objc.PublicType, varName, nonNull: true)})";
+        return true;
+    }
+
+    /// <summary>
     /// True when a receiver parameter's ABI carrier is a reference-backed <c>ISwiftObject</c> collection
     /// wrapper (<c>SwiftArray</c>/<c>SwiftDictionary</c>/<c>SwiftSet</c>) that must be materialized through
     /// <c>NewFromPayload</c> rather than <c>Unsafe.Read</c>. The top-level projection KIND is the reliable
@@ -1931,7 +1981,15 @@ public partial class ProtocolProxyEmitter
             DateProjection => $"((double?){varName}) is {{}} {varName}DateVal ? (System.DateTimeOffset?){DateProjection.SwiftEpoch}.AddSeconds({varName}DateVal) : null",
             NativeRemappedProjection nrp => $"(({nrp.SwiftWrapperType}?){varName})?.{nrp.ToConversionMethod}()",
             ObjCBridgedProjection objc => $"({varName}.Case == Swift.SwiftOptionalCases.None ? null : {MarshallingHelpers.FormatObjCBridgeCall(objc.PublicType, $"{varName}.Some", nonNull: true)})",
-            ObjCBridgeableProjection objc => $"({varName}.Case == Swift.SwiftOptionalCases.None ? null : {MarshallingHelpers.FormatObjCBridgeCall(objc.PublicType, $"{varName}.Some", nonNull: true)})",
+            // Optional ObjC-bridgeable VALUE (URL?, NS_TYPED_ENUM newtypes) is a MULTI-word resilient value,
+            // NOT a nil-pointer-optimized one-word slot like the ObjCBridged CLASS arm above. Its
+            // reverse-receiver read is owned by the coupled TryGetReceiverOptionalObjCBridgeableValueRead at
+            // the property-setter / method-param emission sites (read one optional ObjC pointer word, +0
+            // bridge). Reaching this arm would mean a value-materialization caller skipped that interception
+            // and paired a .Case/.Some read with the default two-word SwiftOptional<IntPtr> marshal — the
+            // exact layout mismatch the fix removed — so fail closed at generation rather than emit it.
+            ObjCBridgeableProjection => throw new InvalidOperationException(
+                "Optional<ObjC-bridgeable value> reverse-receiver read must be handled by TryGetReceiverOptionalObjCBridgeableValueRead (one-word optional ObjC pointer), not GetReceiverOptionalSetterConversion."),
             ArrayProjection arr => GetReceiverOptionalContainerSetterConversion(arr, varName, arr.PublicType),
             DictionaryProjection dict => GetReceiverOptionalContainerSetterConversion(dict, varName, dict.PublicType),
             SetProjection set => GetReceiverOptionalContainerSetterConversion(set, varName, set.PublicType),
