@@ -25,9 +25,11 @@ public static class ObjCBridgeRecordRekeyer
     /// <summary>
     /// Returns <paramref name="records"/> with each <see cref="TypeRecord.SwiftTypeName"/> re-keyed to
     /// <c>{<paramref name="moduleName"/>}.{swiftImportName}</c>. The record's raw ObjC name is read from
-    /// its C# projection name (the companion emits <c>partial interface {rawName}</c> /
-    /// <c>enum {rawName}</c> verbatim, so <see cref="TypeRecord.CSharpTypeName"/>'s <c>Name</c> is the
-    /// raw ObjC name regardless of any name the factory stamped on the Swift key). When
+    /// the unqualified part of its incoming Swift key (<see cref="TypeRecord.SwiftTypeName"/>'s
+    /// <c>Name</c>): the factory stamps every record's pre-rekey Swift key with the raw ObjC
+    /// declaration name, so this is the raw name across all record kinds. (Its C# projection name is
+    /// NOT a reliable source — a typed-enum record projects to <c>Foundation.NSString</c>, whose
+    /// <c>Name</c> is <c>NSString</c>, not the typedef's own name.) When
     /// <paramref name="objcImportedTypeNames"/> has no entry for that raw name — the ObjC type is not
     /// referenced by this framework's own Swift ABI, so the ABI cannot tell us its Swift-import name —
     /// the record keeps its existing (raw) Swift name, anchored to <paramref name="moduleName"/>. A
@@ -46,7 +48,7 @@ public static class ObjCBridgeRecordRekeyer
         var result = new List<TypeRecord>(records.Count);
         foreach (var record in records)
         {
-            var rawObjCName = record.CSharpTypeName.Name;
+            var rawObjCName = record.SwiftTypeName.Name;
             var swiftName = objcImportedTypeNames.TryGetValue(rawObjCName, out var mapped)
                 ? mapped
                 : record.SwiftTypeName.Name;

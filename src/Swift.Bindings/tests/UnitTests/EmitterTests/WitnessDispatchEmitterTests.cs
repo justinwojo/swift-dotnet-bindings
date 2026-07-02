@@ -1627,6 +1627,29 @@ public class WitnessDispatchEmitterTests
         return typeDatabase;
     }
 
+    /// <summary>
+    /// Like <see cref="CreateTypeDatabaseWithProtocols"/> but also registers <c>Foundation.URL</c> as an
+    /// ObjC-bridgeable value type, so a container of URL (Set/Array/Dictionary) satisfies
+    /// <c>IsObjCBridgeableContainer</c> and takes the whole-container NS* bridge path.
+    /// </summary>
+    private static TypeDatabase CreateTypeDatabaseWithBridgeableUrl(params string[] protocolNames)
+    {
+        var typeDatabase = CreateTypeDatabaseWithProtocols(protocolNames);
+        var foundation = new ModuleTypeDatabase("Foundation", "/tmp/Foundation.dylib");
+        foundation.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Foundation.URL"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrl"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.URL"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.ObjCBridgeable,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(foundation);
+        return typeDatabase;
+    }
+
     private static TypeDatabase CreateTypeDatabaseWithClassesAndStructs(
         string[] classes, string[] structs, string[] nonFrozenStructs,
         string[] frozenRefFieldStructs = null)
@@ -2366,6 +2389,90 @@ public class WitnessDispatchEmitterTests
         Assert.Contains("} catch {", output);
         Assert.Contains("errorOut.pointee = UnsafeRawPointer(Unmanaged.passRetained(error as AnyObject).toOpaque())", output);
         Assert.Contains("return nil", output);
+    }
+
+    [Fact]
+    public void EmitWitnessDispatch_ObjCBridgeableContainerPropertyGetter_EmitsWholeContainerBridge()
+    {
+        // A container whose element is ObjC-bridgeable (Set<Foundation.URL>) crosses the boundary
+        // as a whole NS* collection at +1 (design b), NOT as a native Swift container box (design a):
+        // pass the result `as AnyObject` retained, and emit NO free function (the C# SafeHandle/
+        // GetINativeObject adoption balances the +1).
+        var db = CreateTypeDatabaseWithBridgeableUrl("TestModule.MyProtocol");
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+
+        var setType = new NamedTypeSpec("Swift.Set");
+        setType.GenericParameters.Add(new NamedTypeSpec("Foundation.URL"));
+        var protocol = CreateProtocolWithProperty("MyProtocol", "urls", setType);
+        var output = EmitDispatchWithEmitter(emitter, protocol, ctx);
+
+        Assert.Contains("@_cdecl(\"SBW_MyProtocol_get_urls_0\")", output);
+        Assert.Contains("Unmanaged.passRetained(result as AnyObject).toOpaque()", output);
+        // Whole-container bridge — no native Swift container box, so no allocate + no free function.
+        Assert.DoesNotContain("allocate(capacity: 1)", output);
+        Assert.DoesNotContain("SBW_MyProtocol_free_get_urls_0", output);
+    }
+
+    [Fact]
+    public void EmitWitnessDispatch_ObjCBridgeableContainerMethodReturn_EmitsWholeContainerBridge()
+    {
+        var db = CreateTypeDatabaseWithBridgeableUrl("TestModule.MyProtocol");
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(new NamedTypeSpec("Foundation.URL"));
+        var protocol = CreateProtocolWithMethod("MyProtocol", "provideUrls", arrayType);
+        var output = EmitDispatchWithEmitter(emitter, protocol, ctx);
+
+        Assert.Contains("@_cdecl(\"SBW_MyProtocol_method_provideUrls_0\")", output);
+        Assert.Contains("Unmanaged.passRetained(result as AnyObject).toOpaque()", output);
+        Assert.DoesNotContain("allocate(capacity: 1)", output);
+        Assert.DoesNotContain("SBW_MyProtocol_free_method_provideUrls_0", output);
+    }
+
+    [Fact]
+    public void EmitWitnessDispatch_ObjCBridgeableDictionaryMethodReturn_EmitsWholeContainerBridge()
+    {
+        // Dictionary value is ObjC-bridgeable — the value leg alone triggers the whole-container bridge.
+        var db = CreateTypeDatabaseWithBridgeableUrl("TestModule.MyProtocol");
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+
+        var dictType = new NamedTypeSpec("Swift.Dictionary");
+        dictType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictType.GenericParameters.Add(new NamedTypeSpec("Foundation.URL"));
+        var protocol = CreateProtocolWithMethod("MyProtocol", "provideMap", dictType);
+        var output = EmitDispatchWithEmitter(emitter, protocol, ctx);
+
+        Assert.Contains("@_cdecl(\"SBW_MyProtocol_method_provideMap_0\")", output);
+        Assert.Contains("Unmanaged.passRetained(result as AnyObject).toOpaque()", output);
+        Assert.DoesNotContain("allocate(capacity: 1)", output);
+        Assert.DoesNotContain("SBW_MyProtocol_free_method_provideMap_0", output);
+    }
+
+    [Fact]
+    public void EmitWitnessDispatch_ThrowingObjCBridgeableContainerMethod_EmitsBridgeAndErrorOut()
+    {
+        // Throwing whole-container bridge: success path passes the container `as AnyObject` retained;
+        // failure path writes errorOut and returns nil. Still no native container box / free function.
+        var db = CreateTypeDatabaseWithBridgeableUrl("TestModule.MyProtocol");
+        var ctx = new ModuleEmissionContext();
+        var emitter = new WitnessDispatchEmitter(db, NullLogger.Instance, "TestModule", ctx);
+
+        var setType = new NamedTypeSpec("Swift.Set");
+        setType.GenericParameters.Add(new NamedTypeSpec("Foundation.URL"));
+        var protocol = CreateProtocolWithMethod("MyProtocol", "fetchUrls", setType);
+        protocol.Methods[0].Throws = true;
+        var output = EmitDispatchWithEmitter(emitter, protocol, ctx);
+
+        Assert.Contains("-> UnsafeMutableRawPointer?", output);
+        Assert.Contains("try existential.fetchUrls()", output);
+        Assert.Contains("return Unmanaged.passRetained(result as AnyObject).toOpaque()", output);
+        Assert.Contains("errorOut.pointee = UnsafeRawPointer(Unmanaged.passRetained(error as AnyObject).toOpaque())", output);
+        Assert.DoesNotContain("allocate(capacity: 1)", output);
+        Assert.DoesNotContain("SBW_MyProtocol_free_method_fetchUrls_0", output);
     }
 
     #endregion

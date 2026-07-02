@@ -6756,6 +6756,128 @@ public class ProtocolProxyEmitterTests
         Assert.Contains("SBW_TestProtocol_free_method_getItems_0", output);
     }
 
+    // ---- ObjC-bridgeable-element containers: whole-container NS* bridge (design b) ----------
+    //
+    // When a witness-dispatched collection's ELEMENT is ObjC-bridgeable (e.g. Set<Foundation.URL>,
+    // where URL bridges to NSUrl — the exact shape FBSDKLoginKit's Set<LoggingBehavior> took once
+    // its NS_TYPED_ENUM typedef synthesized an ObjCBridgeable record), the container crosses the
+    // boundary as one NS* collection pointer at +1, NOT as a native Swift container box. The proxy
+    // must read it via the NS bridge (GetINativeObject/ArrayFromHandleFunc with ownership adoption)
+    // and emit NO free P/Invoke — the design-a free path emitted a malformed empty first argument
+    // to the bridge call (the original CS0839). These mirror the three design-a tests directly above
+    // (Swift.String/Swift.Int32 elements), which DO emit the free function.
+
+    [Fact]
+    public void EmitProxyClass_ObjCBridgeableSetPropertyGetter_EmitsWholeContainerBridgeNoFree()
+    {
+        RegisterObjCBridgeableType("Foundation.URL", "Foundation.NSUrl");
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        RegisterProtocol("TestProtocol");
+
+        var setType = new NamedTypeSpec("Swift.Set");
+        setType.GenericParameters.Add(new NamedTypeSpec("Foundation.URL"));
+
+        protocolDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "urls",
+            SwiftTypeSpec = setType,
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("urls_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Accessor still dispatched to Swift.
+        Assert.Contains("SBW_TestProtocol_get_urls_0", output);
+        // Whole-container NS bridge, adopting the +1 (owns: true).
+        Assert.Contains("ObjCRuntime.Runtime.GetINativeObject<Foundation.NSSet>(resultPtr, true)", output);
+        // No native Swift container box, so NO free function anywhere (extern OR body).
+        Assert.DoesNotContain("SBW_TestProtocol_free_get_urls_0", output);
+        // The original CS0839: a malformed empty first argument to the bridge call.
+        Assert.DoesNotContain("GetINativeObject<Foundation.NSSet>(, true)", output);
+        Assert.DoesNotContain("GetINativeObject<Foundation.NSSet>( , true)", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ObjCBridgeableArrayReturnMethod_EmitsWholeContainerBridgeNoFree()
+    {
+        RegisterObjCBridgeableType("Foundation.URL", "Foundation.NSUrl");
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        RegisterProtocol("TestProtocol");
+
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(new NamedTypeSpec("Foundation.URL"));
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "provideUrls",
+            MangledName = "$sprovideUrls",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = "", PrivateName = "",
+                    SwiftTypeSpec = arrayType,
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false, IsSynthesizedAccessor = false
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("SBW_TestProtocol_method_provideUrls_0", output);
+        // NSArray bridge that releases the input handle (adopts the +1).
+        Assert.Contains("Foundation.NSArray.ArrayFromHandleFunc<", output);
+        Assert.Contains("(resultPtr, h => ObjCRuntime.Runtime.GetNSObject<", output);
+        Assert.Contains("(h)!, true)", output);
+        Assert.DoesNotContain("SBW_TestProtocol_free_method_provideUrls_0", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ObjCBridgeableDictionaryReturnMethod_EmitsWholeContainerBridgeNoFree()
+    {
+        RegisterSwiftString();
+        RegisterObjCBridgeableType("Foundation.URL", "Foundation.NSUrl");
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        RegisterProtocol("TestProtocol");
+
+        var dictType = new NamedTypeSpec("Swift.Dictionary");
+        dictType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictType.GenericParameters.Add(new NamedTypeSpec("Foundation.URL"));
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "provideMap",
+            MangledName = "$sprovideMap",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = "", PrivateName = "",
+                    SwiftTypeSpec = dictType,
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false, IsSynthesizedAccessor = false
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("SBW_TestProtocol_method_provideMap_0", output);
+        // NSDictionary bridge, adopting the +1 (owns: true).
+        Assert.Contains("ObjCRuntime.Runtime.GetINativeObject<Foundation.NSDictionary>(resultPtr, true)", output);
+        Assert.DoesNotContain("SBW_TestProtocol_free_method_provideMap_0", output);
+    }
+
     #endregion
 
     #region Proxy Lifetime Ownership Tests

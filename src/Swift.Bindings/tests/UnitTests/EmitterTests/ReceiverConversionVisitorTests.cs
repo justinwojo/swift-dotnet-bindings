@@ -274,4 +274,63 @@ public class ReceiverConversionVisitorTests
     }
 
     #endregion
+
+    #region Reverse ObjC-bridgeable whole-container return (C# conformer → Swift thunk)
+
+    // A reverse-dispatch receiver returning a whole container whose element is ObjC-bridgeable
+    // (Set<URL>/[URL]/[String:URL]) must bridge the ENTIRE container to a single NS* collection
+    // handle carrying a transferred +1 ARC retain — NOT the layout-incompatible native-Swift
+    // SwiftSet<IntPtr>.FromEnumerable(result.Select(e => e.Handle)) path, which does not even
+    // compile (NativeHandle vs nint) and would reinterpret an NS pointer as a Swift container.
+    // The Swift EveryProtocol thunk consumes the +1 with takeRetainedValue(). These pin the
+    // projection-level conversion that GetReceiver{Set,Array,Dict}GetterConversion delegate to
+    // when UsesObjCContainerBridge; the helper wiring + Swift side are covered end-to-end by the
+    // byte-identical generated-output bake, the compile gate, and the reverse BindingTest.
+
+    [Fact]
+    public void ReverseObjCContainer_Set_TransfersRetainedNSSet()
+    {
+        var set = new SetProjection(new ObjCBridgeableProjection("Foundation.NSUrl"), isParameter: true);
+        Assert.True(set.UsesObjCContainerBridge);
+        Assert.Equal(
+            "global::Swift.Runtime.Arc.UnknownObjectRetain(new Foundation.NSSet(result.ToArray()).Handle)",
+            set.GetReverseReceiverObjCBridgeConversion("result"));
+    }
+
+    [Fact]
+    public void ReverseObjCContainer_Array_TransfersRetainedNSArray()
+    {
+        var arr = new ArrayProjection(new ObjCBridgeableProjection("Foundation.NSUrl"), isParameter: true);
+        Assert.True(arr.UsesObjCContainerBridge);
+        Assert.Equal(
+            "global::Swift.Runtime.Arc.UnknownObjectRetain(Foundation.NSArray.FromNSObjects(result.ToArray()).Handle)",
+            arr.GetReverseReceiverObjCBridgeConversion("result"));
+    }
+
+    [Fact]
+    public void ReverseObjCContainer_Dictionary_TransfersRetainedNSDictionary()
+    {
+        var dict = new DictionaryProjection(
+            new StringProjection(), new ObjCBridgeableProjection("Foundation.NSUrl"), isParameter: true);
+        Assert.True(dict.UsesObjCContainerBridge);
+        // Value (URL) is already an NSObject → passed through; String key → new NSString(...).
+        Assert.Equal(
+            "global::Swift.Runtime.Arc.UnknownObjectRetain(Foundation.NSDictionary.FromObjectsAndKeys(" +
+            "result.Select(kvp => kvp.Value).ToArray(), " +
+            "result.Select(kvp => new Foundation.NSString(kvp.Key)).ToArray()).Handle)",
+            dict.GetReverseReceiverObjCBridgeConversion("result"));
+    }
+
+    [Fact]
+    public void ReverseObjCContainer_Set_DoesNotEmitBrokenNativeSwiftContainerPath()
+    {
+        // Regression guard for the CS1503 / layout-wrong shape this fix replaced.
+        var conv = new SetProjection(new ObjCBridgeableProjection("Foundation.NSUrl"), isParameter: true)
+            .GetReverseReceiverObjCBridgeConversion("result");
+        Assert.DoesNotContain("SwiftSet<", conv);
+        Assert.DoesNotContain("FromEnumerable", conv);
+        Assert.DoesNotContain("e.Handle", conv);
+    }
+
+    #endregion
 }

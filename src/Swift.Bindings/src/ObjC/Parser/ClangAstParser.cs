@@ -847,7 +847,12 @@ public static class ClangAstParser
         var typedefDecl = new ObjCTypedefDecl
         {
             Name = name,
-            UnderlyingType = ObjCTypeRefParser.Parse(underlyingQualType)
+            UnderlyingType = ObjCTypeRefParser.Parse(underlyingQualType),
+            // NS_TYPED_ENUM / NS_TYPED_EXTENSIBLE_ENUM lower to clang's swift_wrapper attribute, which
+            // -ast-dump=json emits as a SwiftNewTypeAttr child. Its presence is what distinguishes a
+            // Swift-newtype typedef (bridges to an _ObjectiveCBridgeable value-type struct) from a plain
+            // alias; the string argument is not needed (and JSON omits it, as for SwiftNameAttr).
+            IsSwiftNewType = HasDirectChildOfKind(element, "SwiftNewTypeAttr")
         };
         return (typedefDecl, promotedStruct);
     }

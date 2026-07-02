@@ -2702,6 +2702,9 @@ public class EveryProtocolEmitter
     {
         bool isStringGetter = property.SwiftTypeSpec is NamedTypeSpec getterNts && getterNts.Name == "Swift.String";
         bool isObjCBridgeableGetter = !isStringGetter && IsObjCBridgeableParam(property.SwiftTypeSpec);
+        bool isObjCBridgeableContainerGetter = !isStringGetter && !isObjCBridgeableGetter
+            && property.SwiftTypeSpec != null
+            && CdeclParamMapper.IsObjCBridgeableContainer(property.SwiftTypeSpec, _typeDatabase);
 
         writer.WriteLine("get {");
         writer.Indent++;
@@ -2762,12 +2765,22 @@ public class EveryProtocolEmitter
                 return str
                 """);
         }
-        else if (isObjCBridgeableGetter)
+        else if (isObjCBridgeableGetter || isObjCBridgeableContainerGetter)
         {
+            // The C# receiver placed one ObjC object pointer in the return buffer. A SCALAR
+            // ObjC-bridgeable value crosses at +0 (the receiver returns the wrapper's .Handle
+            // without a transfer retain), so consume it with takeUnretainedValue. A whole-CONTAINER
+            // bridge (Set/Array/Dictionary of an ObjC-bridgeable leaf) crosses at +1: the receiver
+            // builds a fresh NSSet/NSArray/NSDictionary and transfers a retain (Arc.UnknownObjectRetain),
+            // because that managed wrapper has no guaranteed lifetime once the receiver frame returns —
+            // so consume the transferred retain with takeRetainedValue and let ARC free the temporary
+            // ObjC collection after `as!` bridges it into a native Swift container. Mirrors, in reverse,
+            // the forward accessor's Unmanaged.passRetained(+1) / C# owns:true adoption.
+            var take = isObjCBridgeableContainerGetter ? "takeRetainedValue" : "takeUnretainedValue";
             writer.WriteLines($$"""
                 let resultObjPtr = resultPtr.load(as: UnsafeRawPointer.self)
                 resultPtr.deallocate()
-                return Unmanaged<AnyObject>.fromOpaque(resultObjPtr).takeUnretainedValue() as! {{swiftTypeNameForMetatype}}
+                return Unmanaged<AnyObject>.fromOpaque(resultObjPtr).{{take}}() as! {{swiftTypeNameForMetatype}}
                 """);
         }
         else
@@ -2963,6 +2976,9 @@ public class EveryProtocolEmitter
         // wrapper must decode the slice rather than reinterpret-casting.
         bool isStringGetter = subscript.ReturnTypeSpec is NamedTypeSpec returnNts && returnNts.Name == "Swift.String";
         bool isObjCBridgeableGetter = !isStringGetter && IsObjCBridgeableParam(subscript.ReturnTypeSpec);
+        bool isObjCBridgeableContainerGetter = !isStringGetter && !isObjCBridgeableGetter
+            && subscript.ReturnTypeSpec != null
+            && CdeclParamMapper.IsObjCBridgeableContainer(subscript.ReturnTypeSpec, _typeDatabase);
 
         writer.WriteLine("get {");
         writer.Indent++;
@@ -3018,12 +3034,15 @@ public class EveryProtocolEmitter
                 return str
                 """);
         }
-        else if (isObjCBridgeableGetter)
+        else if (isObjCBridgeableGetter || isObjCBridgeableContainerGetter)
         {
+            // +0 scalar (takeUnretainedValue) vs +1 whole-container bridge (takeRetainedValue);
+            // see EmitPropertyGetterBody for the ownership rationale.
+            var take = isObjCBridgeableContainerGetter ? "takeRetainedValue" : "takeUnretainedValue";
             writer.WriteLines($$"""
                 let resultObjPtr = resultPtr.load(as: UnsafeRawPointer.self)
                 resultPtr.deallocate()
-                return Unmanaged<AnyObject>.fromOpaque(resultObjPtr).takeUnretainedValue() as! {{returnTypeNameForMetatype}}
+                return Unmanaged<AnyObject>.fromOpaque(resultObjPtr).{{take}}() as! {{returnTypeNameForMetatype}}
                 """);
         }
         else
@@ -3840,6 +3859,8 @@ public class EveryProtocolEmitter
         // returns (e.g. URL) arrive as an ObjC pointer the body bridges back to the value type.
         bool isStringMethodReturn = hasReturn && returnType is NamedTypeSpec retNts && retNts.Name == "Swift.String";
         bool isObjCBridgeableReturn = hasReturn && !isStringMethodReturn && returnType != null && IsObjCBridgeableParam(returnType);
+        bool isObjCBridgeableContainerReturn = hasReturn && !isStringMethodReturn && !isObjCBridgeableReturn
+            && returnType != null && CdeclParamMapper.IsObjCBridgeableContainer(returnType, _typeDatabase);
 
         if (branches.Count == 1 && !forceSafeFanOut)
         {
@@ -3862,15 +3883,18 @@ public class EveryProtocolEmitter
                             return str
                         """);
                 }
-                else if (isObjCBridgeableReturn)
+                else if (isObjCBridgeableReturn || isObjCBridgeableContainerReturn)
                 {
+                    // +0 scalar (takeUnretainedValue) vs +1 whole-container bridge (takeRetainedValue);
+                    // see EmitPropertyGetterBody for the ownership rationale.
+                    var take = isObjCBridgeableContainerReturn ? "takeRetainedValue" : "takeUnretainedValue";
                     writer.WriteLines($$"""
                             var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
                             {{argPassCode}}let resultPtr = {{vtableInstanceName}}.{{fieldName}}!(
                                 {{vtableInstanceName}}.csVTHandle, &selfProto{{argRefs}}){{writebackCode}}
                             let resultObjPtr = resultPtr.load(as: UnsafeRawPointer.self)
                             resultPtr.deallocate()
-                            return Unmanaged<AnyObject>.fromOpaque(resultObjPtr).takeUnretainedValue() as! {{returnTypeNameForMetatype}}
+                            return Unmanaged<AnyObject>.fromOpaque(resultObjPtr).{{take}}() as! {{returnTypeNameForMetatype}}
                         """);
                 }
                 else
@@ -3898,8 +3922,8 @@ public class EveryProtocolEmitter
         {
             EmitMethodFanOutBody(writer, method, protocolDecl.SwiftTypeName.ModuleQualifiedName,
                 branches, argPassList, writebackLines, argRefs,
-                hasReturn, isStringMethodReturn, isObjCBridgeableReturn, returnTypeNameForMetatype,
-                extensionAvailability);
+                hasReturn, isStringMethodReturn, isObjCBridgeableReturn, isObjCBridgeableContainerReturn,
+                returnTypeNameForMetatype, extensionAvailability);
         }
 
         writer.Indent--;
@@ -3918,7 +3942,7 @@ public class EveryProtocolEmitter
     private void EmitMethodFanOutBody(SwiftWriter writer, MethodDecl method, string ownerProtoName,
         IReadOnlyList<(ProtocolDecl Proto, int Index)> branches,
         IReadOnlyList<string> argPassList, IReadOnlyList<string> writebackLines, string argRefs,
-        bool hasReturn, bool isStringMethodReturn, bool isObjCBridgeableReturn,
+        bool hasReturn, bool isStringMethodReturn, bool isObjCBridgeableReturn, bool isObjCBridgeableContainerReturn,
         string returnTypeNameForMetatype, IReadOnlyList<AvailabilityAnnotation>? extensionAvailability)
     {
         // Param copies + ObjC bridge locals reference only the function arguments, so emit them
@@ -3988,12 +4012,15 @@ public class EveryProtocolEmitter
                 return str
                 """);
         }
-        else if (isObjCBridgeableReturn)
+        else if (isObjCBridgeableReturn || isObjCBridgeableContainerReturn)
         {
+            // +0 scalar (takeUnretainedValue) vs +1 whole-container bridge (takeRetainedValue);
+            // see EmitPropertyGetterBody for the ownership rationale.
+            var take = isObjCBridgeableContainerReturn ? "takeRetainedValue" : "takeUnretainedValue";
             writer.WriteLines($$"""
                 let resultObjPtr = resultPtr.load(as: UnsafeRawPointer.self)
                 resultPtr.deallocate()
-                return Unmanaged<AnyObject>.fromOpaque(resultObjPtr).takeUnretainedValue() as! {{returnTypeNameForMetatype}}
+                return Unmanaged<AnyObject>.fromOpaque(resultObjPtr).{{take}}() as! {{returnTypeNameForMetatype}}
                 """);
         }
         else

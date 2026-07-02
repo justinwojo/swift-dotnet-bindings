@@ -364,6 +364,35 @@ public class ArrayProjection : ITypeProjection
     /// For nested containers (e.g., [[URL]]), inner elements must be recursively converted
     /// to their ObjC collection counterparts before wrapping in the outer NSArray.
     /// </summary>
+    /// <summary>
+    /// REVERSE-dispatch receiver conversion: a C#-implemented conformer returns this whole
+    /// container, which must cross back to the Swift EveryProtocol thunk as an NSArray pointer.
+    /// Builds the NSArray from the C# elements (recursively bridging nested ObjC containers) and
+    /// transfers a +1 ARC retain via <c>Arc.UnknownObjectRetain</c> (dispatches to objc_retain).
+    /// The transfer retain keeps the collection — and the elements it retains — alive after the
+    /// receiver frame returns, independent of the freshly-allocated managed wrapper's finalization;
+    /// the Swift thunk balances it with <c>takeRetainedValue()</c>. This is the reverse of the
+    /// forward accessor's <c>Unmanaged.passRetained</c>(+1) / C# <c>owns: true</c> adoption.
+    /// </summary>
+    public string GetReverseReceiverObjCBridgeConversion(string varName)
+    {
+        var isNestedContainer = _elementProjection is ArrayProjection or DictionaryProjection or SetProjection
+            && _elementProjection.UsesObjCContainerBridge;
+        string arrayExpr;
+        if (isNestedContainer)
+        {
+            var innerConv = _elementProjection.GetParameterElementConversion("e");
+            arrayExpr = innerConv != null
+                ? $"{varName}.Select(e => (Foundation.NSObject){innerConv}).ToArray()"
+                : $"{varName}.ToArray()";
+        }
+        else
+        {
+            arrayExpr = $"{varName}.ToArray()";
+        }
+        return $"global::Swift.Runtime.Arc.UnknownObjectRetain(Foundation.NSArray.FromNSObjects({arrayExpr}).Handle)";
+    }
+
     private MarshalPlan BuildObjCBridgeParameterPlan(string paramName)
     {
         // For nested containers (e.g., [[URL]]), inner elements need recursive conversion

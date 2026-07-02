@@ -1674,6 +1674,11 @@ public partial class ProtocolProxyEmitter
 
     private string? GetReceiverSetGetterConversion(SetProjection set, string varName)
     {
+        // ObjC-bridgeable element (e.g. Set<URL>): the whole container bridges to an NSSet handed to
+        // Swift as a +1-retained NS pointer (the reverse of the forward accessor's NS-bridge), NOT a
+        // layout-incompatible SwiftSet<IntPtr>. The Swift thunk balances the retain with takeRetainedValue().
+        if (set.UsesObjCContainerBridge)
+            return set.GetReverseReceiverObjCBridgeConversion(varName);
         var rawElem = set.ElementProjection.SwiftContainerGenericType;
         var elemConv = set.ElementProjection.GetParameterElementConversion("e");
         // Skip per-element conversion when SwiftContainerGenericType matches the C# public type
@@ -1687,6 +1692,10 @@ public partial class ProtocolProxyEmitter
 
     private string? GetReceiverArrayGetterConversion(ArrayProjection arr, string varName)
     {
+        // ObjC-bridgeable element (e.g. Array<URL>): whole container bridges to a +1-retained NSArray
+        // pointer (see GetReceiverSetGetterConversion), not a layout-incompatible SwiftArray<IntPtr>.
+        if (arr.UsesObjCContainerBridge)
+            return arr.GetReverseReceiverObjCBridgeConversion(varName);
         var rawElem = arr.ElementProjection.SwiftContainerGenericType;
         var elemConv = arr.ElementProjection.GetParameterElementConversion("e");
         // Same skip-conversion rule as ArrayProjection.BuildContainerSetup.
@@ -1697,6 +1706,11 @@ public partial class ProtocolProxyEmitter
 
     private string? GetReceiverDictGetterConversion(DictionaryProjection dict, string varName)
     {
+        // ObjC-bridgeable key or value (e.g. Dictionary<String,URL>): whole container bridges to a
+        // +1-retained NSDictionary pointer (see GetReceiverSetGetterConversion), not a layout-
+        // incompatible SwiftDictionary<IntPtr,IntPtr>.
+        if (dict.UsesObjCContainerBridge)
+            return dict.GetReverseReceiverObjCBridgeConversion(varName);
         var rawK = dict.KeyProjection.SwiftContainerGenericType;
         var rawV = dict.ValueProjection.SwiftContainerGenericType;
         var keyConv = dict.KeyProjection.GetParameterElementConversion("kvp.Key");

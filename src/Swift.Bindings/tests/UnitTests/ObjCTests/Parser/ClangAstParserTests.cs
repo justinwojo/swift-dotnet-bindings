@@ -1867,6 +1867,38 @@ public class ClangAstParserTests
         Assert.Empty(module.Structs);
         Assert.Single(module.Typedefs);
         Assert.Equal("LabelPrinterSerialNumber", module.Typedefs[0].Name);
+        // A plain NSString typedef (no NS_TYPED_ENUM) must NOT be flagged as a Swift newtype.
+        Assert.False(module.Typedefs[0].IsSwiftNewType);
+    }
+
+    [Fact]
+    public void Parse_TypedefDecl_WithSwiftNewTypeAttr_FlagsSwiftNewType()
+    {
+        // typedef NSString *MyAuthType NS_TYPED_EXTENSIBLE_ENUM NS_SWIFT_NAME(AuthType);
+        // clang lowers NS_TYPED_ENUM / NS_TYPED_EXTENSIBLE_ENUM to the swift_wrapper attribute,
+        // which -ast-dump=json emits as a SwiftNewTypeAttr child alongside the type node (and a
+        // SwiftNameAttr for the NS_SWIFT_NAME). The parser must set IsSwiftNewType so the bridge
+        // factory routes it to an ObjCBridgeable record.
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "TypedefDecl",
+            "name": "MyAuthType",
+            {{MakeLoc()}},
+            "type": { "qualType": "NSString *" },
+            "inner": [
+                { "kind": "ObjCObjectPointerType", "qualType": "NSString *" },
+                { "kind": "SwiftNewTypeAttr" },
+                { "kind": "SwiftNameAttr" }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var typedef = Assert.Single(module.Typedefs);
+        Assert.Equal("MyAuthType", typedef.Name);
+        Assert.True(typedef.IsSwiftNewType);
+        Assert.Equal("NSString", typedef.UnderlyingType.Name);
+        Assert.True(typedef.UnderlyingType.IsPointer);
     }
 
     // ──────────────────────────────────────────────

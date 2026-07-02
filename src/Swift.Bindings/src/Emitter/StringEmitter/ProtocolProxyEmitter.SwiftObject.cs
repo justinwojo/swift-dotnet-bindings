@@ -537,13 +537,32 @@ public partial class ProtocolProxyEmitter
             }
             else if (hasGetter && dispatchEmitter.IsPropertyCollectionReturn(property))
             {
-                // BoundGenericReturn getter: same P/Invoke shape as ExistentialReturn
                 var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolName, "get", property.Name, 0);
                 if (!emittedPInvokes.Add(accessorSymbol))
                     continue;
 
-                var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolName, "get", property.Name, 0);
-                EmitHeapPointerGetterPInvokePair(writer, accessorSymbol, freeSymbol, wrapperLibPath);
+                // ObjC-bridgeable containers return a +1 NS* collection pointer with NO free function
+                // (the C# whole-container bridge adopts the +1) — same accessor-only shape as ClassReturn.
+                // Native Swift container boxes use the accessor + typed free pair.
+                if (CdeclParamMapper.IsObjCBridgeableContainer(property.SwiftTypeSpec, _typeDatabase))
+                {
+                    writer.WriteLine();
+                    PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+                    {
+                        LibraryPath = wrapperLibPath,
+                        EntryPoint = accessorSymbol,
+                        MethodName = accessorSymbol,
+                        ReturnType = "IntPtr",
+                        ParametersString = "IntPtr containerPtr",
+                        CallingConvention = PInvokeCallingConvention.Cdecl,
+                        Visibility = PInvokeVisibility.Public
+                    });
+                }
+                else
+                {
+                    var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolName, "get", property.Name, 0);
+                    EmitHeapPointerGetterPInvokePair(writer, accessorSymbol, freeSymbol, wrapperLibPath);
+                }
             }
             else if (hasGetter && dispatchEmitter.IsPropertyExistentialReturn(property))
             {
@@ -684,9 +703,14 @@ public partial class ProtocolProxyEmitter
 
                 // Free function: always for ExistentialReturn and BoundGenericReturn,
                 // for value-returning ThrowingBlittableOrString,
-                // never for ClassReturn (SafeHandle handles ARC release)
+                // never for ClassReturn (SafeHandle handles ARC release). An ObjC-bridgeable
+                // container BoundGenericReturn also skips it — it returns a +1 NS* collection
+                // pointer the C# whole-container bridge adopts (owns: true), not a native Swift box.
+                var isObjCBridgedContainerReturn = dispatchKind == MethodDispatchKind.BoundGenericReturn &&
+                                                   returnType != null &&
+                                                   CdeclParamMapper.IsObjCBridgeableContainer(returnType, _typeDatabase);
                 var needsFree = dispatchKind == MethodDispatchKind.ExistentialReturn ||
-                                dispatchKind == MethodDispatchKind.BoundGenericReturn ||
+                                (dispatchKind == MethodDispatchKind.BoundGenericReturn && !isObjCBridgedContainerReturn) ||
                                 (dispatchKind == MethodDispatchKind.ThrowingBlittableOrString && hasReturn);
                 if (needsFree)
                 {

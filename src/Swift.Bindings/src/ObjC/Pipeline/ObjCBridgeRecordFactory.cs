@@ -37,9 +37,16 @@ namespace BindingsGeneration.ObjC;
 /// independently testable).
 /// </para>
 /// <para>
-/// Phase 1 handles ObjC classes (→ <see cref="TypeRecordKind.Class"/>, ObjCBridged) and NS_ENUM
-/// (→ <see cref="TypeRecordKind.Enum"/>, SimpleEnum). NS_OPTIONS (imports as an OptionSet struct,
-/// not an enum), ObjC protocols, and NS_TYPED_ENUM are out of Phase-1 scope.
+/// Handles ObjC classes (→ <see cref="TypeRecordKind.Class"/>, ObjCBridged), NS_ENUM
+/// (→ <see cref="TypeRecordKind.Enum"/>, SimpleEnum), and NS_TYPED_ENUM /
+/// NS_TYPED_EXTENSIBLE_ENUM over an NSString base (→ <see cref="TypeRecordKind.Struct"/>,
+/// ObjCBridgeable). A typed enum such as <c>typedef NSString *FBSDKLoginAuthType
+/// NS_TYPED_EXTENSIBLE_ENUM</c> imports into Swift as an <c>_ObjectiveCBridgeable</c> value-type
+/// newtype wrapper backed by an NSString, so it marshals through the same whole-object /
+/// whole-container ObjC bridge as <c>Foundation.URL ↔ NSURL</c>: the C# projection is
+/// <c>Foundation.NSString</c> and the record carries a matching <c>NativeTypeName</c> so
+/// <see cref="ITypeProjection"/> selection lands on <c>ObjCBridgeableProjection</c>. NS_OPTIONS
+/// (imports as an OptionSet struct, not an enum) and ObjC protocols remain out of scope.
 /// </para>
 /// </summary>
 public static class ObjCBridgeRecordFactory
@@ -117,13 +124,44 @@ public static class ObjCBridgeRecordFactory
             });
         }
 
+        // NS_TYPED_ENUM / NS_TYPED_EXTENSIBLE_ENUM over an NSString base → ObjCBridgeable struct
+        // records. Clang lowers these to a typedef carrying the swift_wrapper attribute
+        // (IsSwiftNewType); Swift imports each as an _ObjectiveCBridgeable value-type newtype backed
+        // by an NSString. Marshalling reuses the URL↔NSURL path: the public C# projection and the ABI
+        // carrier are both Foundation.NSString, and NativeTypeName being set routes selection to
+        // ObjCBridgeableProjection (whole-object pointer bridge for scalar/optional positions,
+        // whole-container NSArray/NSSet/NSDictionary bridge for collection positions). Only the
+        // NSString-backed shape is bridged here — a typed enum over a non-object base (e.g. a typedef
+        // over a numeric type marked NS_TYPED_ENUM) has no _ObjectiveCBridgeable import and is skipped.
+        // The record is keyed by the RAW ObjC typedef name; ObjCBridgeRecordRekeyer re-keys it to the
+        // Swift-import name (e.g. FBSDKLoginAuthType → LoginAuthType) using the ABI-harvested map.
+        var typedefCount = 0;
+        foreach (var td in module.Typedefs)
+        {
+            if (!td.IsSwiftNewType || !ResolvesToNSStringPointer(td.UnderlyingType, typedefMap))
+                continue;
+
+            var key = SwiftTypeName.FromModuleQualifiedName($"{moduleName}.{td.Name}");
+            var nsString = CSharpTypeName.FromNamespaceAndName("Foundation", "NSString");
+            records.Add(new TypeRecord
+            {
+                CSharpTypeName = nsString,
+                NativeTypeName = nsString,
+                SwiftTypeName = key,
+                MetadataAccessor = string.Empty,
+                Flags = TypeRecordFlags.ObjCBridgeable,
+                Kind = TypeRecordKind.Struct,
+            });
+            typedefCount++;
+        }
+
         if (records.Count > 0)
         {
             logger.LogInformation(
                 "Mixed bridge: synthesized {Count} ObjC type-resolution record(s) for module '{Module}' " +
-                "({ClassCount} class(es), {EnumCount} enum(s)).",
+                "({ClassCount} class(es), {EnumCount} enum(s), {TypedEnumCount} typed enum(s)).",
                 records.Count, moduleName,
-                module.Classes.Count, module.Enums.Count(e => !e.IsOptions));
+                module.Classes.Count, module.Enums.Count(e => !e.IsOptions), typedefCount);
         }
 
         return records;
@@ -135,4 +173,26 @@ public static class ObjCBridgeRecordFactory
     /// </summary>
     private static string SwiftFacingName(string? swiftName, string objcName)
         => string.IsNullOrEmpty(swiftName) ? objcName : swiftName!;
+
+    /// <summary>
+    /// True when <paramref name="type"/> is <c>NSString *</c> directly or resolves to it through the
+    /// module's typedef chain (<paramref name="typedefMap"/> already collapses chains to their leaf).
+    /// Gates typed-enum bridging: only an NSString-backed NS_TYPED_ENUM imports into Swift as an
+    /// <c>_ObjectiveCBridgeable</c> newtype and can cross the boundary as an NSString pointer.
+    /// </summary>
+    private static bool ResolvesToNSStringPointer(ObjCTypeRef type, Dictionary<string, ObjCTypeRef> typedefMap)
+    {
+        if (type is { Name: "NSString", IsPointer: true })
+            return true;
+
+        if (typedefMap.TryGetValue(type.Name, out var resolved))
+        {
+            if (resolved is { Name: "NSString", IsPointer: true })
+                return true;
+            if (resolved.Name == "NSString" && type.IsPointer)
+                return true;
+        }
+
+        return false;
+    }
 }

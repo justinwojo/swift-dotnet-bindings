@@ -545,6 +545,25 @@ public class DictionaryProjection : ITypeProjection
     }
 
     /// <summary>
+    /// REVERSE-dispatch receiver conversion: a C#-implemented conformer returns this whole
+    /// dictionary, which must cross back to the Swift EveryProtocol thunk as an NSDictionary pointer.
+    /// Reuses <see cref="GetParameterElementConversion"/>'s single-expression
+    /// <c>NSDictionary.FromObjectsAndKeys(...)</c> builder (recursively bridging nested ObjC
+    /// containers via <see cref="ToNSObject"/>) and transfers a +1 ARC retain via
+    /// <c>Arc.UnknownObjectRetain</c> (dispatches to objc_retain). The transfer retain keeps the
+    /// dictionary — and the keys/values it retains — alive after the receiver frame returns,
+    /// independent of the freshly-allocated managed wrapper's finalization; the Swift thunk balances
+    /// it with <c>takeRetainedValue()</c>. This is the reverse of the forward accessor's
+    /// <c>Unmanaged.passRetained</c>(+1) / C# <c>owns: true</c> adoption.
+    public string GetReverseReceiverObjCBridgeConversion(string varName)
+    {
+        var keyToNS = ToNSObject(_keyProjection, "kvp.Key");
+        var valToNS = ToNSObject(_valueProjection, "kvp.Value");
+        var nsDict = $"Foundation.NSDictionary.FromObjectsAndKeys({varName}.Select(kvp => {valToNS}).ToArray(), {varName}.Select(kvp => {keyToNS}).ToArray())";
+        return $"global::Swift.Runtime.Arc.UnknownObjectRetain({nsDict}.Handle)";
+    }
+
+    /// <summary>
     /// ObjC bridge parameter plan: create NSDictionary from C# key-value pairs.
     /// </summary>
     private MarshalPlan BuildObjCBridgeParameterPlan(string paramName)

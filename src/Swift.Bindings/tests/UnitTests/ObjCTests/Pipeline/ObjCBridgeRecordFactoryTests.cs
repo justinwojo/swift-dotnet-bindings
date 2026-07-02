@@ -165,6 +165,119 @@ public class ObjCBridgeRecordFactoryTests
         Assert.Equal(companionBase, EnumHandler.GetCSharpEnumUnderlyingType(record.RawValueTypeName));
     }
 
+    // --- NS_TYPED_ENUM / NS_TYPED_EXTENSIBLE_ENUM records ---
+
+    /// <summary>
+    /// Builds an ObjC typedef as the parser produces it for
+    /// <c>typedef NSString *Name NS_TYPED_[EXTENSIBLE_]ENUM</c>: an NSString-pointer underlying type
+    /// carrying the swift_wrapper attribute (IsSwiftNewType).
+    /// </summary>
+    private static ObjCTypedefDecl SwiftNewTypeString(string name) => new()
+    {
+        Name = name,
+        UnderlyingType = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+        IsSwiftNewType = true,
+    };
+
+    [Fact]
+    public void TypedEnumRecord_OverNSString_IsObjCBridgeableStruct()
+    {
+        // typedef NSString *FBSDKLoginAuthType NS_TYPED_EXTENSIBLE_ENUM. It imports into Swift as an
+        // _ObjectiveCBridgeable value-type newtype backed by an NSString, so it must marshal through
+        // the same URL↔NSURL ObjC bridge: an ObjCBridgeable struct record projecting to NSString.
+        var module = ObjCModuleBuilder.Create(Module)
+            .WithTypedef(SwiftNewTypeString("FBSDKLoginAuthType"))
+            .Build();
+
+        var record = Assert.Single(ObjCBridgeRecordFactory.CreateRecords(module, Module, Namespace, Logger));
+
+        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.ObjCBridgeable));
+        // NOT the ObjCBridged (class-pointer) classifier — that would pick ObjCBridgedProjection,
+        // whose container carrier is a raw IntPtr set (SwiftSet<IntPtr>), not the whole-NSSet bridge.
+        Assert.False(MarshallingHelpers.IsObjCBridged(record));
+        Assert.Equal("Foundation.NSString", record.CSharpTypeName.FullyQualifiedName);
+        Assert.NotNull(record.NativeTypeName);
+        Assert.Equal("Foundation.NSString", record.NativeTypeName!.FullyQualifiedName);
+    }
+
+    [Fact]
+    public void TypedEnumRecord_KeyedByRawObjCName()
+    {
+        // The Swift-import name (NS_SWIFT_NAME(LoginAuthType)) isn't recoverable from the clang JSON
+        // AST, so the factory keys by the RAW typedef name and ObjCBridgeRecordRekeyer remaps it later.
+        // The rekeyer reads the raw name from SwiftTypeName.Name (CSharpTypeName is Foundation.NSString),
+        // so the raw name MUST live on the Swift key.
+        var module = ObjCModuleBuilder.Create(Module)
+            .WithTypedef(SwiftNewTypeString("FBSDKLoginAuthType"))
+            .Build();
+
+        var record = Assert.Single(ObjCBridgeRecordFactory.CreateRecords(module, Module, Namespace, Logger));
+
+        Assert.Equal("FBSDKCoreKit.FBSDKLoginAuthType", record.SwiftTypeName.ModuleQualifiedName);
+        Assert.Equal("FBSDKLoginAuthType", record.SwiftTypeName.Name);
+    }
+
+    [Fact]
+    public void TypedEnumRecord_ResolvesThroughTypedefChain()
+    {
+        // typedef NSString *Base;  typedef Base Alias NS_TYPED_ENUM;
+        // BuildResolvedTypedefMap collapses the chain to NSString*, so the NSString-backing gate on the
+        // swift_wrapper typedef still fires even when the base is one hop away.
+        var module = ObjCModuleBuilder.Create(Module)
+            .WithTypedef(new ObjCTypedefDecl
+            {
+                Name = "BaseString",
+                UnderlyingType = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+            })
+            .WithTypedef(new ObjCTypedefDecl
+            {
+                Name = "AliasedAuthType",
+                UnderlyingType = new ObjCTypeRef { Name = "BaseString", IsPointer = true },
+                IsSwiftNewType = true,
+            })
+            .Build();
+
+        var record = Assert.Single(ObjCBridgeRecordFactory.CreateRecords(module, Module, Namespace, Logger));
+
+        Assert.Equal("FBSDKCoreKit.AliasedAuthType", record.SwiftTypeName.ModuleQualifiedName);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.ObjCBridgeable));
+    }
+
+    [Fact]
+    public void PlainNSStringTypedef_WithoutSwiftNewType_IsSkipped()
+    {
+        // A plain `typedef NSString *SerialNumber` (no NS_TYPED_ENUM) is NOT a bridgeable newtype —
+        // it does not import as an _ObjectiveCBridgeable struct, so no record is synthesized.
+        var module = ObjCModuleBuilder.Create(Module)
+            .WithTypedef(new ObjCTypedefDecl
+            {
+                Name = "SerialNumber",
+                UnderlyingType = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                IsSwiftNewType = false,
+            })
+            .Build();
+
+        Assert.Empty(ObjCBridgeRecordFactory.CreateRecords(module, Module, Namespace, Logger));
+    }
+
+    [Fact]
+    public void TypedEnum_OverNonNSStringBase_IsSkipped()
+    {
+        // NS_TYPED_ENUM over a non-object base (e.g. an NSNumber-backed or numeric typedef) has no
+        // NSString bridge; Phase-1 bridges only the NSString-backed shape. Skip rather than mis-marshal.
+        var module = ObjCModuleBuilder.Create(Module)
+            .WithTypedef(new ObjCTypedefDecl
+            {
+                Name = "SomeNumberKind",
+                UnderlyingType = new ObjCTypeRef { Name = "NSNumber", IsPointer = true },
+                IsSwiftNewType = true,
+            })
+            .Build();
+
+        Assert.Empty(ObjCBridgeRecordFactory.CreateRecords(module, Module, Namespace, Logger));
+    }
+
     // --- Mixed / empty modules ---
 
     [Fact]

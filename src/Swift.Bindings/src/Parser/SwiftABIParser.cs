@@ -3742,12 +3742,17 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Decodes the raw Objective-C declaration name from a Clang USR for the ObjC-imported kinds
-        /// the mixed bridge handles: a pure ObjC class (<c>c:objc(cs)&lt;Name&gt;</c>) or a C/ObjC
-        /// enum, including <c>NS_ENUM</c> (<c>c:@E@&lt;Name&gt;</c> / <c>c:@EA@&lt;Name&gt;</c>).
+        /// the mixed bridge handles: a pure ObjC class (<c>c:objc(cs)&lt;Name&gt;</c>), a C/ObjC enum
+        /// including <c>NS_ENUM</c> (<c>c:@E@&lt;Name&gt;</c> / <c>c:@EA@&lt;Name&gt;</c>), and a
+        /// file-scoped typedef including <c>NS_TYPED_ENUM</c> / <c>NS_TYPED_EXTENSIBLE_ENUM</c>
+        /// (<c>c:&lt;file&gt;@T@&lt;Name&gt;</c>, e.g. <c>c:FBSDKLoginAuthType.h@T@FBSDKLoginAuthType</c>;
+        /// the file component may be empty for a compiler builtin typedef, <c>c:@T@&lt;Name&gt;</c>).
         /// Returns <c>null</c> for any other USR — notably an <c>@objc</c>-exported <em>Swift</em>
         /// class, whose USR carries a Swift-module origin marker (<c>c:@M@&lt;module&gt;@objc(cs)…</c>)
         /// and which is bound by the Swift pipeline under its Swift name, so it must not be treated
-        /// as a pure-ObjC import.
+        /// as a pure-ObjC import. A typedef belonging to a dependency module (e.g. UIKit's
+        /// <c>UIApplicationLaunchOptionsKey</c>) is decoded here but discarded by
+        /// <see cref="CaptureObjCImportedTypeNames"/>'s own-module <c>printedName</c> guard.
         /// </summary>
         private static string? ObjCImportedRawName(string? usr)
         {
@@ -3762,6 +3767,25 @@ namespace BindingsGeneration
             const string enumMarker = "c:@E@";
             if (usr.StartsWith(enumMarker, StringComparison.Ordinal))
                 return usr.Substring(enumMarker.Length);
+            // File-scoped typedef: the file prefix varies (and is empty for builtins), so match the
+            // "@T@" segment wherever it falls rather than by a fixed-length prefix. Guard on the
+            // "c:" scheme so a Swift-symbol USR ("s:…") can never be mis-decoded as a typedef.
+            const string typedefMarker = "@T@";
+            if (usr.StartsWith("c:", StringComparison.Ordinal))
+            {
+                // The typedef name is the trailing C identifier, so anchor on the LAST "@T@": a file
+                // component that itself contains the marker (or any compound USR) would otherwise make
+                // IndexOf keep the earlier segment as part of the name. Then require the remainder to be
+                // a pure identifier (no residual "@" segment marker or punctuation) so a malformed USR
+                // can't seed a bogus rename key — mirrors CaptureObjCImportedTypeNames's own-name guard.
+                var idx = usr.LastIndexOf(typedefMarker, StringComparison.Ordinal);
+                if (idx >= 0)
+                {
+                    var name = usr.Substring(idx + typedefMarker.Length);
+                    if (name.Length > 0 && name.All(c => char.IsLetterOrDigit(c) || c == '_'))
+                        return name;
+                }
+            }
             return null;
         }
 

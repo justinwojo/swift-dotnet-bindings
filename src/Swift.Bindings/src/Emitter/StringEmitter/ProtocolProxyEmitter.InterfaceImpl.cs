@@ -1064,23 +1064,46 @@ public partial class ProtocolProxyEmitter
                     // EveryProtocol conformance was not emitted) it throws here, during pure string
                     // projection — before any getter body is written.
                     var marshalExpr = GetCollectionMarshalExpression(property.SwiftTypeSpec, "resultPtr");
-                    writer.WriteLines($$"""
-                        get
-                        {
-                            if (_disposed) throw new ObjectDisposedException(GetType().Name);
-                            if (_csharpImpl != null)
-                                return _csharpImpl.{{propertyName}};
-                            fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+                    // ObjC-bridgeable containers return a +1 NS* collection pointer with no free
+                    // function; the bridge read (GetINativeObject owns: true) adopts the +1, so the
+                    // getter reads it directly with no finally-free — same shape as the class-return
+                    // getter and the tested concrete container path.
+                    if (CdeclParamMapper.IsObjCBridgeableContainer(property.SwiftTypeSpec, _typeDatabase))
+                    {
+                        writer.WriteLines($$"""
+                            get
                             {
-                                IntPtr resultPtr = NativeMethods.{{accessorSymbol}}((IntPtr)containerPtr);
-                                try
+                                if (_disposed) throw new ObjectDisposedException(GetType().Name);
+                                if (_csharpImpl != null)
+                                    return _csharpImpl.{{propertyName}};
+                                fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
                                 {
+                                    IntPtr resultPtr = NativeMethods.{{accessorSymbol}}((IntPtr)containerPtr);
                                     return {{marshalExpr}};
                                 }
-                                finally { NativeMethods.{{freeSymbol}}(resultPtr); }
                             }
-                        }
-                        """);
+                            """);
+                    }
+                    else
+                    {
+                        writer.WriteLines($$"""
+                            get
+                            {
+                                if (_disposed) throw new ObjectDisposedException(GetType().Name);
+                                if (_csharpImpl != null)
+                                    return _csharpImpl.{{propertyName}};
+                                fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+                                {
+                                    IntPtr resultPtr = NativeMethods.{{accessorSymbol}}((IntPtr)containerPtr);
+                                    try
+                                    {
+                                        return {{marshalExpr}};
+                                    }
+                                    finally { NativeMethods.{{freeSymbol}}(resultPtr); }
+                                }
+                            }
+                            """);
+                    }
                 }
                 catch (SuppressedProxyReferenceException)
                 {
@@ -2588,6 +2611,18 @@ public partial class ProtocolProxyEmitter
         if (projection == null)
             return $"Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<object>({ptrVar})";
 
+        // ObjC-bridgeable containers cross the boundary as a whole NS* collection pointer (the Swift
+        // wrapper returns Unmanaged.passRetained(result as AnyObject).toOpaque()), NOT a native Swift
+        // container box. GetReturnContainerConversion returns a self-contained expression that reads
+        // the pointer via GetINativeObject<NS*>(ptr, owns: true) — adopting the +1 — so it is used
+        // directly on the real pointer, never composed after a native-container MarshalFromSwift read.
+        if (projection.UsesObjCContainerBridge)
+        {
+            var bridgeConversion = projection.GetReturnContainerConversion(ptrVar);
+            if (bridgeConversion != null)
+                return bridgeConversion;
+        }
+
         var containerType = projection.ContainerTypeName;
         // Pass empty containerVar to get just the conversion suffix (e.g., ".AsProjected(e => ...)")
         var suffix = projection.GetReturnContainerConversion("");
@@ -2628,9 +2663,111 @@ public partial class ProtocolProxyEmitter
             writer.WriteLine($"throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
             return;
         }
+
+        // ObjC-bridgeable containers return a +1 NS* collection pointer with no free function; the
+        // bridge read (GetINativeObject owns: true, baked into resultExpression) adopts the +1, so the
+        // body reads it directly with no finally-free — the whole-container "design b" the concrete
+        // and property-getter paths already use. Native Swift container boxes keep the free pattern.
+        if (CdeclParamMapper.IsObjCBridgeableContainer(returnType, _typeDatabase))
+        {
+            EmitObjCBridgedContainerReturnMethodBody(writer, method, dispatchEmitter,
+                methodName, argsString, argNames, paramSwiftTypeSpecs,
+                accessorSymbol, resultExpression);
+            return;
+        }
+
         EmitHeapPointerMethodBody(writer, method, dispatchEmitter,
             methodName, argsString, argNames, paramSwiftTypeSpecs,
             accessorSymbol, freeSymbol, resultExpression);
+    }
+
+    /// <summary>
+    /// Emits the C# dispatch body for methods returning an ObjC-bridgeable whole container
+    /// (Set/Array/Dictionary of an _ObjectiveCBridgeable element). The Swift accessor returns a +1
+    /// retained NS* collection pointer (Unmanaged.passRetained(result as AnyObject)); the C# read
+    /// (<paramref name="resultExpression"/>) adopts the +1 via GetINativeObject(..., owns: true).
+    /// No free function and no ARC-release catch: the bridge read owns the pointer, so releasing it
+    /// again would over-release. Mirrors the no-free property-getter and concrete container paths.
+    /// </summary>
+    private void EmitObjCBridgedContainerReturnMethodBody(
+        CSharpWriter writer, MethodDecl method,
+        WitnessDispatchEmitter dispatchEmitter,
+        string methodName, string argsString,
+        List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs,
+        string accessorSymbol, string resultExpression)
+    {
+        writer.WriteLines($$"""
+            if (_csharpImpl != null)
+                return _csharpImpl.{{methodName}}({{argsString}});
+            fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+            {
+            """);
+        writer.Indent++;
+
+        // Declare pin handles before try for exception-safe cleanup
+        var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs);
+        bool needsOuterTry = pinHandles.Count > 0;
+
+        if (needsOuterTry)
+        {
+            writer.WriteLine("try");
+            writer.WriteLine("{");
+            writer.Indent++;
+        }
+
+        // Marshal each parameter
+        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, dispatchEmitter);
+
+        // Build P/Invoke call args
+        var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
+        for (int i = 0; i < argNames.Count; i++)
+        {
+            pInvokeArgs.Add($"(IntPtr)(&arg{i}Slice)");
+        }
+
+        if (method.Throws)
+        {
+            pInvokeArgs.Add("(IntPtr)(&errorOut)");
+            var pInvokeArgsString = string.Join(", ", pInvokeArgs);
+
+            // Throwing: nil result pointer means error (Swift wrapper returns nil on the catch path).
+            writer.WriteLines($$"""
+                IntPtr errorOut = IntPtr.Zero;
+                IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                if (resultPtr == IntPtr.Zero)
+                {
+                """);
+            writer.Indent++;
+            EmitSwiftErrorHandling(writer);
+            writer.Indent--;
+            writer.WriteLines($$"""
+                }
+                return {{resultExpression}};
+                """);
+        }
+        else
+        {
+            var pInvokeArgsString = string.Join(", ", pInvokeArgs);
+            writer.WriteLines($$"""
+                IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                return {{resultExpression}};
+                """);
+        }
+
+        if (needsOuterTry)
+        {
+            writer.Indent--;
+            writer.WriteLine("}");
+            writer.WriteLine("finally");
+            writer.WriteLine("{");
+            writer.Indent++;
+            EmitPinHandleCleanup(writer, pinHandles);
+            writer.Indent--;
+            writer.WriteLine("}");
+        }
+
+        writer.Indent--;
+        writer.WriteLine("}");
     }
 
     /// <summary>

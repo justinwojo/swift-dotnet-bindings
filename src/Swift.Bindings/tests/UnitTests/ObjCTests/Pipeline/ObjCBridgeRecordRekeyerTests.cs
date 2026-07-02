@@ -130,6 +130,34 @@ public class ObjCBridgeRecordRekeyerTests
     }
 
     [Fact]
+    public void Rekey_TypedEnumRecord_ReadsRawNameFromSwiftKey_NotCSharpProjection()
+    {
+        // An NS_TYPED_ENUM record projects to Foundation.NSString, so its CSharpTypeName.Name is
+        // "NSString" — NOT the typedef's own name. The raw ObjC name lives ONLY on the pre-rekey Swift
+        // key (SwiftTypeName.Name == "FBSDKLoginAuthType"). The rekeyer must read the raw name from
+        // there to hit the ABI map; reading CSharpTypeName.Name would look up "NSString", miss, and
+        // leave the record stuck under the raw key (unresolvable by a Swift member naming LoginAuthType).
+        var typedEnum = new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSString"),
+            NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSString"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{Module}.FBSDKLoginAuthType"),
+            MetadataAccessor = string.Empty,
+            Flags = TypeRecordFlags.ObjCBridgeable,
+            Kind = TypeRecordKind.Struct,
+        };
+        var map = new Dictionary<string, string> { ["FBSDKLoginAuthType"] = "LoginAuthType" };
+
+        var record = Assert.Single(ObjCBridgeRecordRekeyer.Rekey(new[] { typedEnum }, Module, map));
+
+        Assert.Equal("FBSDKCoreKit.LoginAuthType", record.SwiftTypeName.ModuleQualifiedName);
+        Assert.Equal("LoginAuthType", record.SwiftTypeName.Name);
+        // The C# projection and ObjC-bridge classification survive the re-key untouched.
+        Assert.Equal("Foundation.NSString", record.CSharpTypeName.FullyQualifiedName);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.ObjCBridgeable));
+    }
+
+    [Fact]
     public void Rekey_MapsEachRecordIndependently()
     {
         var records = new[]

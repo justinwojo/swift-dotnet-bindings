@@ -277,6 +277,48 @@ ThrowsWalker key-divergence lead sit in this gap).
 
 ---
 
+## Scalar ObjC-bridgeable reverse-dispatch returns are +0 (owner decision)
+
+**Surfaced 2026-07 during the NS_TYPED_ENUM / ObjC-bridge container work; confirmed by paired
+review (independent-reviewer ratings: Medium and High). Latent — GC-timing-dependent, hard to
+force red (same shape as the finalizer/VWT-destroy hazard). PRE-EXISTING and OUT OF SCOPE of the
+container work; recorded here as a design decision, not a known-active regression in that change.**
+
+When Swift calls a C#-implemented protocol conformer (reverse dispatch) and the requirement returns
+a **scalar** (non-container) ObjC-bridgeable value — `Foundation.URL`, `Data`, or a synthesized
+`NS_TYPED_ENUM` newtype — the handoff is **+0**: the C# receiver returns the wrapper's raw pointer
+(`Visit(ObjCBridgeableProjection p) => "{_varName}.Handle"` and the `ObjCBridgedProjection` sibling
+in `ReceiverConversionVisitors.cs`; the Optional arms in `ProtocolProxyEmitter.Receivers.cs` do the
+same via `{...}Val.Handle`), and the Swift `@_cdecl` thunk reads it with `takeUnretainedValue()`
+(the scalar arms in `EveryProtocolEmitter.cs`). No retain crosses the boundary.
+
+Hazard: if the C# getter returns a **freshly allocated** wrapper (e.g. `new NSString("rerequest")`),
+that wrapper becomes GC-eligible the instant the receiver frame returns. If a GC runs before the
+Swift thunk consumes the pointer, the underlying ObjC object can be released → use-after-free. It is
+safe today only for the common case where the returned object is kept alive by a longer-lived owner
+(a stored field, an interned constant); the generator cannot tell the two apart, so +0 is unsafe in
+general.
+
+This is the scalar sibling of the container defect already fixed in the ObjC-bridge work: whole-
+container reverse returns (`Set<URL>` / `[URL]` / `[String:URL]`) now transfer **+1**
+(`Arc.UnknownObjectRetain(...)` on the C# side ↔ `takeRetainedValue()` in the thunk). The container
+path had to change because it previously did not even compile; the scalar path compiles and has
+shipped since the Foundation.URL ObjC bridge landed, so it was left untouched.
+
+- **Why it is an owner decision, not an inline fix:** flipping the convention touches the *entire*
+  scalar ObjC-bridged/bridgeable reverse-dispatch family (URL, Data, NSURLSession, every
+  NS_TYPED_ENUM), not just the newly-added type — a broad behavioral ARC change on pre-existing,
+  working-in-practice code, outside the container change's scope.
+- **Fix design (if approved):** make the scalar reverse arms +1, symmetric with the container fix —
+  C# `Arc.UnknownObjectRetain(wrapper.Handle)`, Swift thunk `takeRetainedValue()` — across the
+  property getter, method return, and Optional arms, changed in lock-step on both sides. Land a
+  scalar-return BindingTests fixture: a protocol requirement returning a scalar `URL` (and an
+  NS_TYPED_ENUM newtype) implemented by a C# conformer that returns a fresh wrapper each call;
+  assert round-trip value preserved and no crash (an over-release would crash the round-trip, so the
+  fix is verifiable even though the +0 bug itself resists a deterministic red).
+
+---
+
 ## Recommended BindingTests fixtures (condensed)
 
 Durable end-to-end gates the audits recommended for the items above (Swift shapes only):

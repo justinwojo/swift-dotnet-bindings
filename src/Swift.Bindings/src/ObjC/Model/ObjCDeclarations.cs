@@ -207,6 +207,15 @@ public sealed record ObjCTypedefDecl
 {
     public required string Name { get; init; }
     public required ObjCTypeRef UnderlyingType { get; init; }
+
+    /// <summary>
+    /// True when the typedef carries clang's <c>swift_wrapper</c> attribute — i.e. it is an
+    /// <c>NS_TYPED_ENUM</c> / <c>NS_TYPED_EXTENSIBLE_ENUM</c> (e.g. <c>typedef NSString *Foo
+    /// NS_TYPED_EXTENSIBLE_ENUM</c>). Such a typedef imports into Swift as a value-type struct that
+    /// bridges to its underlying ObjC object (an <c>_ObjectiveCBridgeable</c> newtype wrapper), so the
+    /// bridge factory synthesizes an ObjC-bridgeable type record for it. Plain typedefs leave this false.
+    /// </summary>
+    public bool IsSwiftNewType { get; init; }
 }
 
 public sealed record ObjCCategoryDecl

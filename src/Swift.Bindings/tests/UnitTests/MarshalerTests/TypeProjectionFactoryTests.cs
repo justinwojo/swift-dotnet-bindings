@@ -4,6 +4,9 @@
 #nullable enable
 
 using System.Diagnostics.CodeAnalysis;
+using BindingsGeneration.ObjC;
+using BindingsGeneration.Tests.ObjCTests;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -118,6 +121,40 @@ public class TypeProjectionFactoryTests
         // Must NOT be NativeRemappedProjection (SafeHandle) — must be ObjCBridgeableProjection (IntPtr)
         Assert.IsNotType<NativeRemappedProjection>(projection);
         Assert.IsType<ObjCBridgeableProjection>(projection);
+    }
+
+    [Fact]
+    public void Project_ObjCTypedEnumRecord_FromBridgeFactory_ReturnsObjCBridgeableProjection()
+    {
+        // End-to-end parity: the record ObjCBridgeRecordFactory synthesizes for an NS_TYPED_ENUM
+        // (typedef NSString *FBSDKLoginAuthType NS_TYPED_EXTENSIBLE_ENUM) must route through the SAME
+        // whole-object / whole-container ObjC bridge as Foundation.URL — ObjCBridgeableProjection —
+        // when TypeProjectionFactory resolves a Swift member that names it. Feeding the factory's own
+        // output (not a hand-built record) keeps the two ends from silently drifting apart.
+        var module = ObjCModuleBuilder.Create("FBSDKLoginKit")
+            .WithTypedef(new ObjCTypedefDecl
+            {
+                Name = "FBSDKLoginAuthType",
+                UnderlyingType = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                IsSwiftNewType = true,
+            })
+            .Build();
+        var bridgeRecord = Assert.Single(
+            ObjCBridgeRecordFactory.CreateRecords(module, "FBSDKLoginKit", "FacebookLogin.Binding", NullLogger.Instance));
+
+        var db = new MockTypeDatabase();
+        db.AddType(bridgeRecord.SwiftTypeName.ModuleQualifiedName, bridgeRecord);
+        var ctx = CreateContext(db);
+        var typeSpec = new NamedTypeSpec(bridgeRecord.SwiftTypeName.ModuleQualifiedName);
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        var bridgeable = Assert.IsType<ObjCBridgeableProjection>(projection);
+        Assert.Equal("Foundation.NSString", bridgeable.PublicType);
+        Assert.Equal("IntPtr", bridgeable.PInvokeType);
+        // The whole-container bridge (NSArray/NSSet/NSDictionary) — the property that makes
+        // Set<LoginAuthType> safe, unlike a plain ObjCBridged element (SwiftSet<IntPtr>).
+        Assert.True(bridgeable.UsesObjCContainerBridge);
     }
 
     [Fact]

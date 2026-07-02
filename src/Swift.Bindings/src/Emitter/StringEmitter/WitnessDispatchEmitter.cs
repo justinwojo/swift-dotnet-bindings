@@ -1970,12 +1970,24 @@ public class WitnessDispatchEmitter
     /// </summary>
     private void EmitClassReturnMethodAccessor(SwiftWriter writer, MethodDecl method, ProtocolDecl protocolDecl, string moduleQualifiedName, int index)
     {
-        var protocolName = protocolDecl.Name;
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var swiftConcreteType = GetSwiftConcreteTypeName(returnType!);
         if (swiftConcreteType == null)
             return;
 
+        EmitPassRetainedAnyObjectMethodAccessor(writer, method, protocolDecl, moduleQualifiedName, index);
+    }
+
+    /// <summary>
+    /// Emits a witness dispatch accessor whose return value is handed to C# as a +1 retained
+    /// object pointer via <c>Unmanaged.passRetained(result as AnyObject).toOpaque()</c> — no free
+    /// function (the C# SafeHandle / ObjC bridge adopts the +1). Shared by the Swift-class return
+    /// path and the ObjC-bridgeable whole-container return path (Set/Array/Dictionary of an
+    /// _ObjectiveCBridgeable element bridges to NSSet/NSArray/NSDictionary through <c>as AnyObject</c>).
+    /// </summary>
+    private void EmitPassRetainedAnyObjectMethodAccessor(SwiftWriter writer, MethodDecl method, ProtocolDecl protocolDecl, string moduleQualifiedName, int index)
+    {
+        var protocolName = protocolDecl.Name;
         var accessorSymbol = GetAccessorSymbol(protocolName, "method", method.Name, index);
         bool needsMainActor = method.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
         var mainActorAttr = needsMainActor ? "@MainActor " : "";
@@ -2312,6 +2324,16 @@ public class WitnessDispatchEmitter
     /// </summary>
     private void EmitCollectionReturnPropertyGetterAccessor(SwiftWriter writer, PropertyDecl property, ProtocolDecl protocolDecl, string moduleQualifiedName)
     {
+        // ObjC-bridgeable containers (Set/Array/Dictionary of an _ObjectiveCBridgeable element)
+        // cross the boundary as a whole NS* collection at +1, NOT as a native Swift container box.
+        // Emit the same passRetained(result as AnyObject) accessor the class-return path uses (no
+        // free function); the C# side reads it via the ObjC whole-container bridge (owns: true).
+        if (CdeclParamMapper.IsObjCBridgeableContainer(property.SwiftTypeSpec, _typeDatabase))
+        {
+            EmitClassReturnPropertyGetterAccessor(writer, property, protocolDecl, moduleQualifiedName);
+            return;
+        }
+
         var protocolName = protocolDecl.Name;
         var swiftCollectionType = GetSwiftCollectionTypeString(property.SwiftTypeSpec);
         if (swiftCollectionType == null)
@@ -2335,6 +2357,16 @@ public class WitnessDispatchEmitter
     private void EmitCollectionReturnMethodAccessor(SwiftWriter writer, MethodDecl method, ProtocolDecl protocolDecl, string moduleQualifiedName, int index)
     {
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+
+        // ObjC-bridgeable containers cross the boundary as a whole NS* collection at +1 (see
+        // EmitCollectionReturnPropertyGetterAccessor). Emit the passRetained(result as AnyObject)
+        // accessor (no free function); the C# side adopts the +1 via the whole-container bridge.
+        if (returnType != null && CdeclParamMapper.IsObjCBridgeableContainer(returnType, _typeDatabase))
+        {
+            EmitPassRetainedAnyObjectMethodAccessor(writer, method, protocolDecl, moduleQualifiedName, index);
+            return;
+        }
+
         var swiftCollectionType = GetSwiftCollectionTypeString(returnType!);
         if (swiftCollectionType == null)
             return;

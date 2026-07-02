@@ -63,6 +63,92 @@ public class ObjCImportedTypeNamesParserTests
     }
 
     [Fact]
+    public void Captures_ObjCTypedef_FromFileScopedTypedefUsr()
+    {
+        // NS_TYPED_ENUM (typedef NSString *Foo) imports as an 8-byte newtype struct. Its Clang identity
+        // is a file-scoped typedef USR c:<file>@T@<RawName>; the NS_SWIFT_NAME rename lands only in
+        // printedName. This is the exact real-world FBSDKLoginAuthType shape: raw FBSDKLoginAuthType
+        // imported into Swift as LoginAuthType. The harvest must decode the @T@ segment and record the
+        // rename so ObjCBridgeRecordRekeyer can re-key the mixed-bridge record off the raw name.
+        var parser = CreateMinimalParser();
+        var node = Nominal(
+            name: "LoginAuthType",
+            printedName: "TestModule.LoginAuthType",
+            usr: "c:FBSDKLoginAuthType.h@T@FBSDKLoginAuthType");
+
+        parser.CreateTypeSpec(node);
+
+        Assert.True(parser.ObjCImportedTypeNames.TryGetValue("FBSDKLoginAuthType", out var swiftName));
+        Assert.Equal("LoginAuthType", swiftName);
+    }
+
+    [Fact]
+    public void Captures_ObjCTypedef_FromBuiltinTypedefUsr()
+    {
+        // A typedef declared without an owning file (builtin/compiler-provided) drops the file segment:
+        // c:@T@<RawName>. The @T@ decode must still recover the raw name from the file-less form.
+        var parser = CreateMinimalParser();
+        var node = Nominal(name: "Behavior", printedName: "TestModule.Behavior", usr: "c:@T@MBehavior");
+
+        parser.CreateTypeSpec(node);
+
+        Assert.True(parser.ObjCImportedTypeNames.TryGetValue("MBehavior", out var swiftName));
+        Assert.Equal("Behavior", swiftName);
+    }
+
+    [Fact]
+    public void Captures_ObjCTypedef_AnchorsOnTrailingIdentifier_WhenEarlierMarkerPresent()
+    {
+        // A compound/multi-segment USR can carry the "@T@" marker more than once (e.g. a file component
+        // that itself contains it). The typedef name is the TRAILING C identifier, so the decode anchors
+        // on the LAST "@T@": anchoring on the first would fold the intervening segment into the key
+        // ("Path.h@T@LoginAuthType"), and the rekeyer would then never find the record under the true
+        // raw name and the Swift member would degrade to AnyType.
+        var parser = CreateMinimalParser();
+        var node = Nominal(
+            name: "LoginAuthType",
+            printedName: "TestModule.LoginAuthType",
+            usr: "c:Weird@T@Path.h@T@LoginAuthType");
+
+        parser.CreateTypeSpec(node);
+
+        Assert.True(parser.ObjCImportedTypeNames.TryGetValue("LoginAuthType", out var swiftName));
+        Assert.Equal("LoginAuthType", swiftName);
+    }
+
+    [Fact]
+    public void Ignores_ObjCTypedef_WhenTrailingNameIsNotPlainIdentifier()
+    {
+        // After anchoring on the last "@T@", the remainder must be a pure C identifier. A residual
+        // segment marker or other punctuation means a malformed/compound USR — skip rather than seed a
+        // decorated key that can never be matched (mirrors the own-name identifier guard the class/enum
+        // capture path applies to the Swift-side name).
+        var parser = CreateMinimalParser();
+        var node = Nominal(
+            name: "Bad",
+            printedName: "TestModule.Bad",
+            usr: "c:foo.h@T@Bad@Suffix");
+
+        parser.CreateTypeSpec(node);
+
+        Assert.Empty(parser.ObjCImportedTypeNames);
+    }
+
+    [Fact]
+    public void Ignores_DependencyModuleTypedef()
+    {
+        // A typedef imported from a DEPENDENCY (printedName leads with the dependency module) is filtered
+        // by the same this-module guard the class/enum paths use — cross-module bridging is out of scope,
+        // and recording it could mis-key this module's own raw name (e.g. UIKit's CGPathRef / launch keys).
+        var parser = CreateMinimalParser();
+        var node = Nominal(name: "OtherType", printedName: "Dep.OtherType", usr: "c:Dep.h@T@DepType");
+
+        parser.CreateTypeSpec(node);
+
+        Assert.Empty(parser.ObjCImportedTypeNames);
+    }
+
+    [Fact]
     public void Ignores_SwiftObjCClass_NotPureObjC()
     {
         // An @objc SWIFT class has usr c:@M@<module>@objc(cs)<Name> — it is Swift-owned, not an imported

@@ -616,13 +616,21 @@ partial class Build
         // unconstrained generic struct with a stored T + a T-returning method), so it
         // generates + compiles through the minimal mixed pipeline the same way.
         // The bridge members reference the umbrella-header ObjC types by their Swift-import
-        // names: the probe class as `Greeter` (NS_SWIFT_NAME) and the NS_ENUM as
-        // `{module}Level` (no rename). Compiled with -import-underlying-module so Lib.swift
-        // sees the framework's own ObjC half. makeGreeter() returns the class (drives the
-        // ObjCBridged/GetNSObject path); echoLevel() round-trips the enum (SimpleEnum path).
+        // names: the probe class as `Greeter` (NS_SWIFT_NAME), the NS_ENUM as `{module}Level`
+        // (no rename), and the NS_TYPED_EXTENSIBLE_ENUM as `AuthType` (NS_SWIFT_NAME rename).
+        // Compiled with -import-underlying-module so Lib.swift sees the framework's own ObjC
+        // half. makeGreeter() returns the class (drives the ObjCBridged/GetNSObject path);
+        // echoLevel() round-trips the enum (SimpleEnum path); echoAuthType() round-trips the
+        // typed enum (ObjCBridgeable → Foundation.NSString path) — the LoginKit authType shape.
+        // echoOptionalAuthType() round-trips the SAME typed enum in Optional position
+        // (`AuthType?`), which is the real LoginKit surface (`FBLoginButton.authType`,
+        // `LoginConfiguration.authType`, and the authType initializer parameters are all
+        // `LoginAuthType?`) — it drives OptionalProjection wrapping the ObjCBridgeable projection.
         var bridgeMembers = withObjCTypeBridge
             ? $"public func makeGreeter() -> Greeter {{ return Greeter() }}\n" +
-              $"public func echoLevel(_ l: {module}Level) -> {module}Level {{ return l }}\n"
+              $"public func echoLevel(_ l: {module}Level) -> {module}Level {{ return l }}\n" +
+              $"public func echoAuthType(_ a: AuthType) -> AuthType {{ return a }}\n" +
+              $"public func echoOptionalAuthType(_ a: AuthType?) -> AuthType? {{ return a }}\n"
             : "";
 
         var libSwift = buildRoot / "Lib.swift";
@@ -663,12 +671,20 @@ partial class Build
         var sdkPath = XcRun.GetSdkPath(sdkName);
 
         // When bridging, the umbrella header (the surface swiftc imports as the module's ObjC
-        // half AND the generator parses to bind the ObjC companion) declares an NS_ENUM and
-        // renames the probe class to Swift `Greeter` via NS_SWIFT_NAME. The companion still
-        // emits the RAW ObjC name (partial interface {probeClass}); NS_SWIFT_NAME only steers
-        // the Swift-import name, which is exactly what the bridge re-keyer reconciles.
+        // half AND the generator parses to bind the ObjC companion) declares an NS_ENUM, an
+        // NS_TYPED_EXTENSIBLE_ENUM (typedef NSString *…), and renames the probe class to Swift
+        // `Greeter` via NS_SWIFT_NAME. The companion still emits the RAW ObjC name (partial
+        // interface {probeClass}); NS_SWIFT_NAME only steers the Swift-import name, which is
+        // exactly what the bridge re-keyer reconciles.
+        //
+        // The typed enum ({module}AuthType, renamed to Swift `AuthType`) is the FBSDKLoginAuthType
+        // shape from issue #40's LoginKit report: NS_TYPED_ENUM/NS_TYPED_EXTENSIBLE_ENUM imports as
+        // an 8-byte _ObjectiveCBridgeable newtype struct over an NSString reference. Without the
+        // typedef in scope the Swift member's parameter/return degrades to Swift.AnyType; the bridge
+        // synthesizes an ObjCBridgeable record (→ Foundation.NSString) so it resolves + round-trips.
         var probeInterface = withObjCTypeBridge
             ? $"typedef NS_ENUM(NSInteger, {module}Level) {{ {module}LevelLow = 0, {module}LevelHigh = 1 }};\n" +
+              $"typedef NSString *{module}AuthType NS_TYPED_EXTENSIBLE_ENUM NS_SWIFT_NAME(AuthType);\n" +
               $"NS_SWIFT_NAME(Greeter)\n@interface {probeClass} : NSObject\n- (NSString *)greeting;\n@end\n"
             : $"@interface {probeClass} : NSObject\n- (NSString *)greeting;\n@end\n";
 
@@ -863,14 +879,26 @@ partial class Build
         // / Swift.AnyType, `{probeClass} x = ...MakeGreeter()` fails CS0029 and a dropped
         // member fails CS0117 — so a resolution regression cannot slip through as a green
         // build. The runtime prints then prove the value actually round-trips: makeGreeter()
-        // materializes the peer via GetNSObject (its greeting matches), and echoLevel()
-        // preserves the enum case.
+        // materializes the peer via GetNSObject (its greeting matches), echoLevel() preserves
+        // the enum case, and echoAuthType() round-trips an NSString through the typed-enum
+        // (NS_TYPED_EXTENSIBLE_ENUM → Foundation.NSString) marshalling path — the explicit
+        // `Foundation.NSString` on both sides is the compile gate against an AnyType degrade.
+        // echoOptionalAuthType() repeats the round-trip in Optional position (`AuthType?` →
+        // `Foundation.NSString?`), the real LoginKit authType shape, with both a present value
+        // and nil to exercise the OptionalProjection-over-ObjCBridgeable both-arms path.
         var bridgeProgram = exerciseTypeBridge
             ? $$"""
                 global::{{module}}.{{probeClass}} bridged = global::{{module}}.Functions.MakeGreeter();
                 Console.WriteLine("BRIDGE_GREETING:" + bridged.Greeting());
                 global::{{module}}.{{module}}Level echoed = global::{{module}}.Functions.EchoLevel(global::{{module}}.{{module}}Level.High);
                 Console.WriteLine("BRIDGE_ENUM:" + (int)echoed);
+                global::Foundation.NSString authIn = new global::Foundation.NSString("auth-roundtrip");
+                global::Foundation.NSString authOut = global::{{module}}.Functions.EchoAuthType(authIn);
+                Console.WriteLine("BRIDGE_AUTHTYPE:" + authOut);
+                global::Foundation.NSString? optAuthOut = global::{{module}}.Functions.EchoOptionalAuthType(authIn);
+                Console.WriteLine("BRIDGE_OPTAUTHTYPE:" + (optAuthOut?.ToString() ?? "<null>"));
+                global::Foundation.NSString? optAuthNil = global::{{module}}.Functions.EchoOptionalAuthType(null);
+                Console.WriteLine("BRIDGE_OPTAUTHTYPE_NIL:" + (optAuthNil is null ? "nil" : "notnil"));
 
                 """
             : "";
@@ -937,7 +965,28 @@ partial class Build
                 Assert.Fail(
                     $"PackGate (mixed/{module}): expected 'BRIDGE_ENUM:1' in stdout — the NS_ENUM did not round-trip " +
                     $"through the type-resolution bridge.\nstdout:\n{stdout}\nstderr:\n{stderr}");
-            Log.Information("PackGate (mixed/static) type-bridge run OK — ObjC class + NS_ENUM resolved from Swift ABI and round-tripped");
+            // The NS_TYPED_EXTENSIBLE_ENUM round-tripped an NSString value through the ObjCBridgeable
+            // (Foundation.NSString) marshalling path — the LoginKit authType shape actually working end
+            // to end, not just resolving at generation time.
+            if (!stdout.Contains("BRIDGE_AUTHTYPE:auth-roundtrip", StringComparison.Ordinal))
+                Assert.Fail(
+                    $"PackGate (mixed/{module}): expected 'BRIDGE_AUTHTYPE:auth-roundtrip' in stdout — the " +
+                    $"NS_TYPED_EXTENSIBLE_ENUM (typed-enum → Foundation.NSString) did not round-trip through the " +
+                    $"type-resolution bridge.\nstdout:\n{stdout}\nstderr:\n{stderr}");
+            // Same typed enum in Optional position (the real LoginKit authType shape): a present
+            // value round-trips its string and nil round-trips as nil, proving OptionalProjection
+            // over the ObjCBridgeable projection works for both arms.
+            if (!stdout.Contains("BRIDGE_OPTAUTHTYPE:auth-roundtrip", StringComparison.Ordinal))
+                Assert.Fail(
+                    $"PackGate (mixed/{module}): expected 'BRIDGE_OPTAUTHTYPE:auth-roundtrip' in stdout — the " +
+                    $"NS_TYPED_EXTENSIBLE_ENUM in Optional position (typed-enum? → Foundation.NSString?) did not " +
+                    $"round-trip a present value.\nstdout:\n{stdout}\nstderr:\n{stderr}");
+            if (!stdout.Contains("BRIDGE_OPTAUTHTYPE_NIL:nil", StringComparison.Ordinal))
+                Assert.Fail(
+                    $"PackGate (mixed/{module}): expected 'BRIDGE_OPTAUTHTYPE_NIL:nil' in stdout — a nil " +
+                    $"NS_TYPED_EXTENSIBLE_ENUM in Optional position did not round-trip as nil.\n" +
+                    $"stdout:\n{stdout}\nstderr:\n{stderr}");
+            Log.Information("PackGate (mixed/static) type-bridge run OK — ObjC class + NS_ENUM + NS_TYPED_ENUM (value + optional) resolved from Swift ABI and round-tripped");
         }
 
         if (assertSingleRegistration)
@@ -996,7 +1045,40 @@ partial class Build
                 $"PackGate (mixed/static): the generated Swift binding does not reference the companion enum " +
                 $"'{module}Level' — the NS_ENUM member did not resolve through the type-resolution bridge.");
 
-        Log.Information("PackGate (mixed/static) type-bridge generation OK — class→GetNSObject<{Probe}>, enum→{Module}Level",
+        // The typed-enum member (echoAuthType) must resolve to Foundation.NSString via the synthesized
+        // ObjCBridgeable record. A regression would degrade its parameter/return to Swift.AnyType (or
+        // drop the member): assert EchoAuthType is emitted AND its signature names NSString, so a
+        // degraded AnyType binding fails the gate at generation time — earlier than the consumer run.
+        var authTypeLines = text.Split('\n')
+            .Where(l => l.Contains("EchoAuthType", StringComparison.Ordinal))
+            .ToList();
+        if (authTypeLines.Count == 0)
+            Assert.Fail(
+                "PackGate (mixed/static): the generated Swift binding does not emit the EchoAuthType member — the " +
+                "NS_TYPED_EXTENSIBLE_ENUM parameter/return degraded to Swift.AnyType and the member was dropped.");
+        if (!authTypeLines.Any(l => l.Contains("NSString", StringComparison.Ordinal)))
+            Assert.Fail(
+                "PackGate (mixed/static): the generated EchoAuthType member does not resolve the NS_TYPED_EXTENSIBLE_ENUM " +
+                "to Foundation.NSString (no NSString in its signature) — the typed-enum bridge record was not applied.");
+
+        // Same gate for the Optional-position member (echoOptionalAuthType): it must emit and resolve
+        // to Foundation.NSString (through OptionalProjection over the ObjCBridgeable projection), the
+        // real LoginKit authType shape. "EchoAuthType" is not a substring of "EchoOptionalAuthType",
+        // so the filter above never matched this member.
+        var optAuthTypeLines = text.Split('\n')
+            .Where(l => l.Contains("EchoOptionalAuthType", StringComparison.Ordinal))
+            .ToList();
+        if (optAuthTypeLines.Count == 0)
+            Assert.Fail(
+                "PackGate (mixed/static): the generated Swift binding does not emit the EchoOptionalAuthType member — the " +
+                "Optional NS_TYPED_EXTENSIBLE_ENUM parameter/return degraded to Swift.AnyType and the member was dropped.");
+        if (!optAuthTypeLines.Any(l => l.Contains("NSString", StringComparison.Ordinal)))
+            Assert.Fail(
+                "PackGate (mixed/static): the generated EchoOptionalAuthType member does not resolve the Optional " +
+                "NS_TYPED_EXTENSIBLE_ENUM to Foundation.NSString — OptionalProjection over the typed-enum bridge record was not applied.");
+
+        Log.Information(
+            "PackGate (mixed/static) type-bridge generation OK — class→GetNSObject<{Probe}>, enum→{Module}Level, typedEnum→NSString (value + optional)",
             probeClass, module);
     }
 
