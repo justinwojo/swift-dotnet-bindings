@@ -948,6 +948,39 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void Emit_ProjectReferenceTargets_MixedFramework_CompanionGetTargetPathStripsRuntimeIdentifier()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
+                {
+                    OutputDirectory = dir,
+                    ModuleName = "ImagePipeline",
+                    PackageId = "ImagePipeline.Swift.iOS",
+                    EffectiveMinimumOSVersion = "15.0",
+                    HasWrapperXCFramework = true,
+                    ObjCCompanionProjectFileName = "ImagePipeline.ObjC.iOS.csproj",
+                }, NullLogger.Instance);
+
+                var prContent = File.ReadAllText(
+                    Path.Combine(dir, "ImagePipeline.Swift.iOS.ProjectReference.targets"));
+
+                // The companion is a managed-only library with a single TFM and no <RuntimeIdentifiers>,
+                // so it always builds RID-agnostic (…/<tfm>/<name>.dll). A consumer app builds
+                // RID-specific, and when its RID arrives as a GLOBAL property (a command-line
+                // -p:RuntimeIdentifier=…, e.g. the CI harness) it propagates through this <MSBuild>
+                // GetTargetPath call unless removed — making the query report a RID-qualified path
+                // (…/<tfm>/<rid>/<name>.dll) that does not exist, which RAR silently drops (CS0012/CS0246
+                // on the ObjC types). The RemoveProperties MUST strip RuntimeIdentifier alongside
+                // TargetFramework so the query resolves the actual RID-agnostic output. Asserting the
+                // literal keeps the two names paired: dropping RuntimeIdentifier here re-opens the bug.
+                Assert.Contains("RemoveProperties=\"TargetFramework;RuntimeIdentifier\"", prContent);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
         public void Emit_ProjectReferenceTargets_MixedFramework_CompanionResolveFailsClosedSWIFTBIND042()
         {
             var dir = CreateTempDir();

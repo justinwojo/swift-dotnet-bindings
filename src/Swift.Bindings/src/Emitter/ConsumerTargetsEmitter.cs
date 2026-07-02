@@ -347,9 +347,21 @@ namespace BindingsGeneration
             // doesn't propagate through ProjectReference. So a ProjectReference consumer's own C#
             // can't see the ObjC types (CS0246) unless we inject an explicit assembly Reference to
             // the companion's built output. GetTargetPath returns that output (the companion is built
-            // during the consumer's ResolveProjectReferences, via the Swift csproj's own reference to
-            // it). A <Reference> never promotes to a nuspec <dependency>, so the one-xcframework →
-            // one-package contract is preserved. Emitted only for mixed frameworks.
+            // out-of-band by the referenced binding's own _BuildMixedObjCCompanion, which runs on every
+            // binding build; DependsOnTargets="ResolveProjectReferences" guarantees that ran first). A
+            // <Reference> never promotes to a nuspec <dependency>, so the one-xcframework → one-package
+            // contract is preserved. Emitted only for mixed frameworks.
+            //
+            // RemoveProperties MUST strip RuntimeIdentifier as well as TargetFramework. The companion is
+            // a managed-only library with a single TFM and no <RuntimeIdentifiers>, so it always builds
+            // RID-agnostic (…/<tfm>/<name>.dll). But a consumer app builds RID-specific, and when its RID
+            // arrives as a GLOBAL property (e.g. the CI harness's `-p:RuntimeIdentifier=…`) it propagates
+            // through this <MSBuild> task unless removed — making GetTargetPath report a RID-qualified
+            // path (…/<tfm>/<rid>/<name>.dll) that does not exist. RAR then silently drops the missing
+            // reference and the ObjC types fail to resolve (CS0012/CS0246 — the exact symptom on a mixed
+            // ProjectReference consumer built with a command-line RID). Forwarding the RID is also unsafe
+            // for a Build here: the companion's restore has no RID target, so a RID-specific build fails
+            // NETSDK1047. Stripping the RID makes the query resolve the actual RID-agnostic output.
             var companionReferenceTarget = options.ObjCCompanionProjectFileName == null
                 ? ""
                 : $"""
@@ -369,7 +381,7 @@ namespace BindingsGeneration
                     <MSBuild Projects="$(MSBuildThisFileDirectory){options.ObjCCompanionProjectFileName}"
                              Targets="GetTargetPath"
                              Properties="Configuration=$(Configuration)"
-                             RemoveProperties="TargetFramework"
+                             RemoveProperties="TargetFramework;RuntimeIdentifier"
                              BuildInParallel="false">
                       <Output TaskParameter="TargetOutputs" ItemName="_SwiftBinding{sanitized}ObjCCompanionAssembly" />
                     </MSBuild>
