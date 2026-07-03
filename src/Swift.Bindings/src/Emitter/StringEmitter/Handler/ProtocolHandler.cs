@@ -537,9 +537,18 @@ namespace BindingsGeneration
                 case ProxyEmissionDecision.SuppressedByConformance:
                     var suppressedProxyClassName = ProtocolProxyEmissionPolicy.ProxyClassName(protocolDecl);
                     context.EmissionContext!.RecordSuppressedProxy(suppressedProxyClassName);
+                    // A protocol dropped from suitableProtocols before any conformance decision was
+                    // recorded has a null GetConformanceSkipReason. Rather than collapse every such
+                    // pre-filter drop to the opaque "no decision recorded", attribute the drop from the
+                    // protocol's shape (internal / associated-type-or-Self / genuinely unexplained) so
+                    // the skip triage can bucket it — internal is expected, an unexplained public one is
+                    // worth a look. EveryProtocolSkipCause owns this vocabulary end to end.
+                    var conformanceSkipCause = context.EmissionContext.GetConformanceSkipReason(
+                        protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name)
+                        ?? EveryProtocolSkipCause.ForDroppedProtocol(protocolDecl);
                     ReportCollector.RecordMemberSkipped(BindingItemKind.Type, suppressedProxyClassName,
                         protocolDecl, SkipReason.EveryProtocolConformanceSkipped,
-                        $"Protocol proxy skipped: EveryProtocol conformance was not emitted ({context.EmissionContext.GetConformanceSkipReason(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name) ?? "no decision recorded"}).");
+                        $"Protocol proxy skipped: EveryProtocol conformance was not emitted ({conformanceSkipCause}).");
                     break;
 
                 default:

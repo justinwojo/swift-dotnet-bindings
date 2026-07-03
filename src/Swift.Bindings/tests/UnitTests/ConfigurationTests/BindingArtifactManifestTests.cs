@@ -108,6 +108,51 @@ public class BindingArtifactManifestTests
     }
 
     [Fact]
+    public void Projection_PopulatesSkipTriage_PostCoGating()
+    {
+        // Two generation-time skips (one expected-nonpublic, one unexplained EveryProtocol drop),
+        // plus a wrapper-stripped member co-gated in. The triage must be computed AFTER co-gating so
+        // the MissingWrapperSymbol member — which only exists post-projection — lands in Review.
+        var report = new BindingReport { ModuleName = "TriageDemo" };
+        report.EmittedMembers = 1;
+        report.EmittedMembersByKind[BindingItemKind.Method] = 1;
+        report.SkippedItems.Add(new SkippedItem
+        {
+            Kind = BindingItemKind.Type,
+            Name = "InternalThing",
+            Reason = SkipReason.ModuleInternal,
+        });
+        report.SkippedItems.Add(new SkippedItem
+        {
+            Kind = BindingItemKind.Type,
+            Name = "CAPIReporterProxy",
+            ContainingType = "TriageDemo.CAPIReporter",
+            Reason = SkipReason.EveryProtocolConformanceSkipped,
+            Details = "Protocol proxy skipped: EveryProtocol conformance was not emitted (no decision recorded).",
+        });
+
+        var manifest = new BindingArtifactManifest
+        {
+            Module = "TriageDemo",
+            Generation = GenerationSection.From(report),
+            Wrapper = new WrapperSection { Status = PhaseStatus.Success },
+        };
+        ((List<CoGatedMember>)manifest.Wrapper!.CSharpCoGatedMembers).Add(Heuristic("M0", "TriageDemo.Db", 0));
+
+        var projected = BindingReportProjection.Project(manifest);
+
+        Assert.NotNull(projected.SkipTriage);
+        var triage = projected.SkipTriage!;
+        Assert.Equal(3, triage.Total);
+        Assert.Equal(1, triage.ByDisposition["ExpectedNonPublic"]);
+        Assert.Equal(2, triage.ByDisposition["Review"]);
+        Assert.Equal(2, triage.ReviewCount);
+        // The co-gated wrapper-stripped member proves the roll-up ran post-cogating.
+        Assert.Contains(triage.ReviewItems, i => i.Reason == SkipReason.MissingWrapperSymbol);
+        Assert.Contains(triage.ReviewItems, i => i.Reason == SkipReason.EveryProtocolConformanceSkipped);
+    }
+
+    [Fact]
     public void Projection_ClampsEmittedMembersAtZero()
     {
         // Pathological case: more cogated than emitted. Top-level scalar must not go negative.

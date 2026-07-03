@@ -66,6 +66,14 @@ public sealed class BindingReport
     /// Null when the module has no SwiftUI views.
     /// </summary>
     public BridgeSummary? BridgeSummary { get; set; }
+
+    /// <summary>
+    /// Actionability roll-up of <see cref="SkippedItems"/> — how many skips are expected vs. worth a
+    /// look, plus the short "to review" list. Computed as a pure function of the settled skip list at
+    /// projection time (see <see cref="BindingReportProjection.Project"/>). Null only on a report that
+    /// was never projected (e.g. a mid-pipeline accumulator).
+    /// </summary>
+    public SkipTriageSummary? SkipTriage { get; set; }
 }
 
 /// <summary>

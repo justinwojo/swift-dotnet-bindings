@@ -89,12 +89,43 @@ public static class ReportEmitter
                 else
                     logger.LogInformation("  {Reason}: {Count}", group.Key, group.Count());
             }
+            LogTriage(report.SkipTriage, logger);
             logger.LogInformation("Skipped items are excluded from C# output but don't affect the rest of the generated API.");
             logger.LogInformation("See binding-report.json for per-item skip reasons and workaround suggestions.");
         }
 
         if (reportPath != null)
             logger.LogInformation("Report: {ReportPath}", reportPath);
+    }
+
+    /// <summary>
+    /// Logs the actionability roll-up: how many skips are expected vs. worth a look, and the short
+    /// "to review" list. This is the "80% is expected, here's the 20% to investigate" headline.
+    /// No-op when the report was never projected (<paramref name="triage"/> null).
+    /// </summary>
+    private static void LogTriage(SkipTriageSummary? triage, ILogger logger)
+    {
+        if (triage == null || triage.Total == 0)
+            return;
+
+        var expected = triage.ByDisposition.GetValueOrDefault(SkipDisposition.ExpectedNonPublic.ToString())
+                     + triage.ByDisposition.GetValueOrDefault(SkipDisposition.ExpectedStructural.ToString());
+        var knownLimitation = triage.ByDisposition.GetValueOrDefault(SkipDisposition.KnownLimitation.ToString());
+        var expectedFraction = (double)expected / triage.Total;
+
+        logger.LogInformation(
+            "Skip triage: {Expected} expected ({Fraction:P0}), {Known} known limitations, {Review} to review.",
+            expected, expectedFraction, knownLimitation, triage.ReviewCount);
+
+        if (triage.ReviewCount > 0)
+        {
+            logger.LogInformation("  To review ({Count}) — the tool cannot explain these; investigate:", triage.ReviewCount);
+            foreach (var item in triage.ReviewItems)
+            {
+                var where = item.ContainingType != null ? $"{item.ContainingType}.{item.Name}" : item.Name;
+                logger.LogInformation("    {Kind} {Where} — {Reason}", item.Kind, where, item.Reason);
+            }
+        }
     }
 
     private static double GetCoverage(int emitted, int total) =>

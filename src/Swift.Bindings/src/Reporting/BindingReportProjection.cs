@@ -67,6 +67,10 @@ public static class BindingReportProjection
             }
         }
 
+        // Roll the settled skip list up by actionability last — after co-gating has folded every
+        // wrapper-stripped member in — so the triage reflects final reality, not the mid-pipeline guess.
+        report.SkipTriage = SkipTriageBuilder.Build(report.SkippedItems);
+
         return report;
     }
 
