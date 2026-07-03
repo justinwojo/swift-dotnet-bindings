@@ -104,14 +104,41 @@ public class ObjCBridgeRecordFactoryTests
     }
 
     [Fact]
-    public void NsOptionsEnum_IsExcluded()
+    public void NsOptionsEnum_BridgesAsSimpleEnumWithOptionSetFlag()
     {
-        // NS_OPTIONS imports as an OptionSet struct, not a C# enum — Phase 1 does not bridge it.
+        // NS_OPTIONS imports as an OptionSet struct whose init(rawValue:) is non-failable. It bridges
+        // as a SimpleEnum record (the C# companion is the [Flags] enum StructsAndEnumsEmitter emits),
+        // but ADDITIONALLY carries the OptionSet flag so the @_cdecl reconstruction skips the failable
+        // `guard let` form (see CdeclParamMapper). A plain NS_ENUM must NOT carry the flag.
         var module = ObjCModuleBuilder.Create(Module)
-            .WithEnum("FBSDKLoginError", e => e.Options().UnderlyingType("NSUInteger").Case("a"))
+            .WithEnum("FBSDKShareBridgeOptions", e => e.Options().SwiftName("ShareBridgeOptions").UnderlyingType("NSUInteger").Case("photoAsset").Case("videoData"))
             .Build();
 
-        Assert.Empty(ObjCBridgeRecordFactory.CreateRecords(module, Module, Namespace, Logger));
+        var record = Assert.Single(ObjCBridgeRecordFactory.CreateRecords(module, Module, Namespace, Logger));
+
+        Assert.Equal("FBSDKCoreKit.ShareBridgeOptions", record.SwiftTypeName.ModuleQualifiedName);
+        Assert.Equal("FBSDKShareBridgeOptions", record.CSharpTypeName.Name);
+        Assert.Equal(TypeRecordKind.Enum, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.SimpleEnum));
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.OptionSet));
+        // NSUInteger native-width unsigned → the Swift OptionSet's RawValue is UInt.
+        Assert.Equal("UInt", record.RawValueTypeName);
+        Assert.False(MarshallingHelpers.IsObjCBridged(record));
+    }
+
+    [Fact]
+    public void NsEnum_DoesNotCarryOptionSetFlag()
+    {
+        // Guard against over-application: a plain (non-options) NS_ENUM must never get the OptionSet
+        // flag, or its @_cdecl reconstruction would drop the failable guard a RawRepresentable needs.
+        var module = ObjCModuleBuilder.Create(Module)
+            .WithEnum("FBSDKLoginBehavior", e => e.Case("browser").Case("systemAccount"))
+            .Build();
+
+        var record = Assert.Single(ObjCBridgeRecordFactory.CreateRecords(module, Module, Namespace, Logger));
+
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.SimpleEnum));
+        Assert.False(record.Flags.HasFlag(TypeRecordFlags.OptionSet));
     }
 
     // The enum-width contract has TWO halves the factory must satisfy at once:
@@ -281,7 +308,7 @@ public class ObjCBridgeRecordFactoryTests
     // --- Mixed / empty modules ---
 
     [Fact]
-    public void MixedModule_ProducesClassAndEnumRecords_SkipsOptions()
+    public void MixedModule_ProducesClassAndEnumRecords_IncludingOptions()
     {
         var module = ObjCModuleBuilder.Create(Module)
             .WithClass("FBSDKAccessToken", configure: c => c.SwiftName("AccessToken"))
@@ -292,9 +319,11 @@ public class ObjCBridgeRecordFactoryTests
 
         var records = ObjCBridgeRecordFactory.CreateRecords(module, Module, Namespace, Logger);
 
-        Assert.Equal(3, records.Count); // 2 classes + 1 NS_ENUM; NS_OPTIONS excluded
+        Assert.Equal(4, records.Count); // 2 classes + 1 NS_ENUM + 1 NS_OPTIONS
         Assert.Equal(2, records.Count(r => r.Kind == TypeRecordKind.Class));
-        Assert.Single(records, r => r.Kind == TypeRecordKind.Enum);
+        Assert.Equal(2, records.Count(r => r.Kind == TypeRecordKind.Enum));
+        // Exactly the NS_OPTIONS record carries the OptionSet flag.
+        Assert.Single(records, r => r.Flags.HasFlag(TypeRecordFlags.OptionSet));
     }
 
     [Fact]

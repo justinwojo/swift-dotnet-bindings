@@ -91,6 +91,13 @@ public enum TypeRecordFlags
     // ClassExistentialContainer1 carrier (whose metadata registration needs that descriptor);
     // they marshal through the descriptor-free opaque existential container instead.
     ObjCProtocol = 1 << 16,
+    // This flag indicates a SimpleEnum whose init(rawValue:) is NON-failable — i.e. a Swift
+    // OptionSet (the shape an ObjC NS_OPTIONS bitmask imports as). A plain RawRepresentable enum
+    // synthesizes a failable init?(rawValue:), so its @_cdecl reconstruction guards the result
+    // (`guard let x = T(rawValue:)`); an OptionSet's init(rawValue:) always succeeds and returns a
+    // non-optional, so the same guard/force-unwrap would not compile. Set alongside SimpleEnum to
+    // steer the raw-value reconstruction (see CdeclParamMapper) to the direct, non-failable form.
+    OptionSet = 1 << 17,
 }
 
 /// <summary>

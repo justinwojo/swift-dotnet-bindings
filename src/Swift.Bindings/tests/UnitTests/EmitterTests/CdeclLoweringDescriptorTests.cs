@@ -65,6 +65,10 @@ public class CdeclLoweringDescriptorTests
         RegisterStruct(test, "TestModule.MyStruct", "$s10TestModule8MyStructVMa", frozen: true);
         Register(test, "TestModule.MyNonFrozenStruct", TypeRecordKind.Struct, TypeRecordFlags.None);
         Register(test, "TestModule.MyEnum", TypeRecordKind.Enum, TypeRecordFlags.SimpleEnum, rawValueType: "Swift.Int");
+        Register(test, "TestModule.MyOptionSet", TypeRecordKind.Enum,
+            TypeRecordFlags.SimpleEnum | TypeRecordFlags.OptionSet, rawValueType: "Swift.Int");
+        Register(test, "TestModule.MyOptionSetU", TypeRecordKind.Enum,
+            TypeRecordFlags.SimpleEnum | TypeRecordFlags.OptionSet, rawValueType: "Swift.UInt");
         Register(test, "TestModule.MyComplexEnum", TypeRecordKind.Enum, TypeRecordFlags.None);
         db.AddModuleDatabase(test);
 
@@ -351,6 +355,27 @@ public class CdeclLoweringDescriptorTests
         => AssertDescriptor(Describe(Named("TestModule.MyEnum")), CdeclParamCategory.SimpleEnum,
             "_ value: Int",
             "guard let valueVal = TestModule.MyEnum(rawValue: value) else { preconditionFailure(\"[SwiftBindings] Invalid raw value \\(value) for TestModule.MyEnum\") }",
+            "valueVal");
+
+    [Fact]
+    public void OptionSet_ReconstructsNonFailably()
+        // An imported ObjC NS_OPTIONS bitmask carries SimpleEnum | OptionSet. Its Swift OptionSet
+        // init(rawValue:) is NON-failable and returns a non-optional, so the reconstruction is a
+        // direct `let` bind — NOT the failable `guard let … else { preconditionFailure }` form the
+        // plain RawRepresentable enum (MyEnum) uses. Same SimpleEnum category and cdecl param shape.
+        => AssertDescriptor(Describe(Named("TestModule.MyOptionSet")), CdeclParamCategory.SimpleEnum,
+            "_ value: Int",
+            "let valueVal = TestModule.MyOptionSet(rawValue: value)",
+            "valueVal");
+
+    [Fact]
+    public void OptionSet_UnsignedNativeWidthRaw_ReconstructsNonFailably()
+        // The realistic ObjC NS_OPTIONS shape backs on NSUInteger → native-width Swift UInt.
+        // The cdecl scalar is UInt and the reconstruction stays the non-failable OptionSet form —
+        // the C# [Flags] companion's ulong underlying transports the raw bits across the boundary.
+        => AssertDescriptor(Describe(Named("TestModule.MyOptionSetU")), CdeclParamCategory.SimpleEnum,
+            "_ value: UInt",
+            "let valueVal = TestModule.MyOptionSetU(rawValue: value)",
             "valueVal");
 
     [Fact]

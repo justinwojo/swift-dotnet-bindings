@@ -233,12 +233,13 @@ public static class ObjCPipeline
         }
 
         // Post-hoc mixed validation: require at least one ObjC class, protocol, category, or
-        // bridgeable NS_ENUM. A surface that is only a bridgeable enum — or whose classes were all
-        // consumed by mixed dedup — must STILL emit the companion: a synthesized bridge record
-        // resolves a Swift member to that C# enum, so skipping emission here would leave the record
-        // pointing at a type absent from the companion assembly (CS0246 at consumer compile).
+        // bridgeable enum. A surface that is only a bridgeable enum — NS_ENUM or NS_OPTIONS, both of
+        // which now get a synthesized SimpleEnum bridge record — or whose classes were all consumed
+        // by mixed dedup must STILL emit the companion: the bridge record resolves a Swift member to
+        // that C# enum, so skipping emission here would leave the record pointing at a type absent
+        // from the companion assembly (CS0246 at consumer compile).
         if (isMixed && module.Classes.Count == 0 && module.Protocols.Count == 0
-            && module.Categories.Count == 0 && !module.Enums.Any(e => !e.IsOptions))
+            && module.Categories.Count == 0 && module.Enums.Count == 0)
         {
             logger.LogInformation(
                 "Mixed framework '{Module}': no ObjC classes, protocols, or enums found — skipping ObjC emission.",

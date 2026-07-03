@@ -46,7 +46,12 @@ namespace BindingsGeneration.ObjC;
 /// whole-container ObjC bridge as <c>Foundation.URL ↔ NSURL</c>: the C# projection is
 /// <c>Foundation.NSString</c> and the record carries a matching <c>NativeTypeName</c> so
 /// <see cref="ITypeProjection"/> selection lands on <c>ObjCBridgeableProjection</c>. NS_OPTIONS
-/// (imports as an OptionSet struct, not an enum) and ObjC protocols remain out of scope.
+/// bitmasks bridge as SimpleEnum records too (their C# companion is the <c>[Flags]</c> enum
+/// <see cref="StructsAndEnumsEmitter"/> already emits, so the raw-value round-trip is identical to
+/// NS_ENUM) but additionally carry <see cref="TypeRecordFlags.OptionSet"/>: an NS_OPTIONS imports
+/// into Swift as an OptionSet struct whose <c>init(rawValue:)</c> is non-failable, so the flag steers
+/// the <c>@_cdecl</c> reconstruction away from the failable <c>guard let</c> form real enums use.
+/// ObjC protocols remain out of scope.
 /// </para>
 /// </summary>
 public static class ObjCBridgeRecordFactory
@@ -87,38 +92,43 @@ public static class ObjCBridgeRecordFactory
             });
         }
 
-        // NS_ENUM → SimpleEnum records. NS_OPTIONS (OptionSet struct) is excluded — it is not a
-        // C# enum. The raw value type must be the Swift raw type the imported enum actually declares,
-        // because the generic SimpleEnum param path reconstructs the case via `Type(rawValue:)` and
-        // the @_cdecl wrapper's parameter is typed by RawValueTypeName — a mismatch won't compile.
-        // Two distinct cases:
-        //  - Native-width NS_ENUMs (NSInteger/NSUInteger, and the no-explicit-base default) import
-        //    into Swift as `Int`/`UInt`, NOT `Int64`/`UInt64`, even though both share the same 64-bit
-        //    C# width. Swift's synthesized initializer is `init(rawValue: Int)`, so the raw type must
-        //    be the platform-width scalar `Int`/`UInt` or `X(rawValue:)` in the wrapper fails to bind.
-        //  - Fixed-width NS_ENUMs (int32_t, uint8_t, …) keep their exact scalar spelling.
+        // NS_ENUM and NS_OPTIONS → SimpleEnum records. Both import into Swift as a RawRepresentable
+        // value type reconstructed via `Type(rawValue:)`, and both share the same C# companion shape:
+        // the plain / `[Flags]` enum StructsAndEnumsEmitter already emits. So SimpleEnumProjection (a
+        // raw-value cast) marshals either with no new marshaler code. The only difference is on the
+        // Swift side: an NS_OPTIONS bitmask imports as an OptionSet struct whose `init(rawValue:)` is
+        // NON-failable, so its record additionally carries TypeRecordFlags.OptionSet to steer the
+        // @_cdecl reconstruction to the direct (non-`guard let`) form — see CdeclParamMapper.
+        // The raw value type must be the Swift raw type the imported type actually declares, because
+        // the generic SimpleEnum param path reconstructs via `Type(rawValue:)` and the @_cdecl
+        // wrapper's parameter is typed by RawValueTypeName — a mismatch won't compile. Two cases:
+        //  - Native-width (NSInteger/NSUInteger, and the no-explicit-base default) imports into Swift
+        //    as `Int`/`UInt`, NOT `Int64`/`UInt64`, even though both share the same 64-bit C# width.
+        //    Swift's synthesized initializer is `init(rawValue: Int)`, so the raw type must be the
+        //    platform-width scalar `Int`/`UInt` or `X(rawValue:)` in the wrapper fails to bind.
+        //  - Fixed-width (int32_t, uint8_t, …) keeps its exact scalar spelling.
         // Either way the C# underlying width still round-trips: EnumHandler.GetCSharpEnumUnderlyingType
         // maps both "Int" and "Int64" to "long" (and "UInt"/"UInt64" to "ulong"), so the width the C#
         // side casts to and the scalar the wrapper receives agree by construction. The `Type(rawValue:)`
-        // reconstruction is always available (every ObjC NS_ENUM imports as RawRepresentable), so no
-        // per-enum case data is needed here.
+        // reconstruction is always available (RawRepresentable NS_ENUM / OptionSet NS_OPTIONS alike),
+        // so no per-case data is needed here.
         foreach (var enumDecl in module.Enums)
         {
-            if (enumDecl.IsOptions)
-                continue;
-
             var (companionBase, isNativeWidth) = StructsAndEnumsEmitter.ResolveEnumBackingType(enumDecl, typedefMap);
             var rawValueType = isNativeWidth
                 ? (companionBase == "ulong" ? "UInt" : "Int")
                 : EnumHandler.GetSwiftScalarType(companionBase);
             var key = SwiftTypeName.FromModuleQualifiedName(
                 $"{moduleName}.{SwiftFacingName(enumDecl.SwiftName, enumDecl.Name)}");
+            var flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum;
+            if (enumDecl.IsOptions)
+                flags |= TypeRecordFlags.OptionSet;
             records.Add(new TypeRecord
             {
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName(resolvedNamespace, enumDecl.Name),
                 SwiftTypeName = key,
                 MetadataAccessor = string.Empty,
-                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+                Flags = flags,
                 Kind = TypeRecordKind.Enum,
                 RawValueTypeName = rawValueType,
             });
@@ -161,7 +171,7 @@ public static class ObjCBridgeRecordFactory
                 "Mixed bridge: synthesized {Count} ObjC type-resolution record(s) for module '{Module}' " +
                 "({ClassCount} class(es), {EnumCount} enum(s), {TypedEnumCount} typed enum(s)).",
                 records.Count, moduleName,
-                module.Classes.Count, module.Enums.Count(e => !e.IsOptions), typedefCount);
+                module.Classes.Count, module.Enums.Count, typedefCount);
         }
 
         return records;

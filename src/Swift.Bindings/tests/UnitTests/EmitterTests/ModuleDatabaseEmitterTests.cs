@@ -113,6 +113,42 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public async Task Emit_OptionSetEnum_PreservesOptionSetFlag()
+        {
+            // An OptionSet (bridged NS_OPTIONS) SimpleEnum must round-trip its OptionSet flag through
+            // the module-database XML, or a cross-module consumer would reconstruct it with the failable
+            // guard form and fail to compile against the non-failable OptionSet init(rawValue:).
+            var dir = CreateTempDir();
+            try
+            {
+                var module = new ModuleTypeDatabase("MyLib", "/fake/MyLib.dylib");
+                var swiftName = SwiftTypeName.FromModuleQualifiedName("MyLib.ShareOptions");
+                var record = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "ShareOptions"),
+                    SwiftTypeName = swiftName,
+                    MetadataAccessor = "$s5MyLib12ShareOptionsV",
+                    Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum | TypeRecordFlags.OptionSet,
+                    Kind = TypeRecordKind.Enum,
+                    RawValueTypeName = "UInt"
+                };
+                module.RegisterType(swiftName, record);
+
+                var path = ModuleDatabaseEmitter.Emit(module, dir, NullLogger.Instance);
+                Assert.NotNull(path);
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                Assert.True(loaded!.Flags.HasFlag(TypeRecordFlags.SimpleEnum));
+                Assert.True(loaded.Flags.HasFlag(TypeRecordFlags.OptionSet));
+                Assert.Equal("UInt", loaded.RawValueTypeName);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
         public async Task Emit_ProtocolRecords_PreservesKindAndFlags()
         {
             var dir = CreateTempDir();

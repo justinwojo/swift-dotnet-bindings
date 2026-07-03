@@ -403,6 +403,7 @@ namespace BindingsGeneration
                 string hasAssociatedTypes = typeDeclarationNode?.Attributes?["hasAssociatedTypes"]?.Value ?? "false";
                 string hasSelfRequirement = typeDeclarationNode?.Attributes?["hasSelfRequirement"]?.Value ?? "false";
                 string simpleEnum = typeDeclarationNode?.Attributes?["simpleEnum"]?.Value ?? "false";
+                string optionSet = typeDeclarationNode?.Attributes?["optionSet"]?.Value ?? "false";
                 string inheritedRequirementsOnly = typeDeclarationNode?.Attributes?["inheritedRequirementsOnly"]?.Value ?? "false";
                 string classBound = typeDeclarationNode?.Attributes?["classBound"]?.Value ?? "false";
                 string objcRooted = typeDeclarationNode?.Attributes?["objcRooted"]?.Value ?? "false";
@@ -550,6 +551,7 @@ namespace BindingsGeneration
                             (hasAssociatedTypes.ToLower() == "true" ? TypeRecordFlags.HasAssociatedTypes : TypeRecordFlags.None) |
                             (hasSelfRequirement.ToLower() == "true" ? TypeRecordFlags.HasSelfRequirement : TypeRecordFlags.None) |
                             (simpleEnum.ToLower() == "true" ? TypeRecordFlags.SimpleEnum : TypeRecordFlags.None) |
+                            (optionSet.ToLower() == "true" ? TypeRecordFlags.OptionSet : TypeRecordFlags.None) |
                             (inheritedRequirementsOnly.ToLower() == "true" ? TypeRecordFlags.InheritedRequirementsOnly : TypeRecordFlags.None) |
                             (classBound.ToLower() == "true" ? TypeRecordFlags.ClassBound : TypeRecordFlags.None) |
                             (objcRooted.ToLower() == "true" ? TypeRecordFlags.ObjCRooted : TypeRecordFlags.None) |

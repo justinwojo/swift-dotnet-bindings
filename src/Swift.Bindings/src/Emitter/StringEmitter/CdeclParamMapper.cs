@@ -551,7 +551,15 @@ public static class CdeclParamMapper
                 var rawType = GetSwiftRawValueType(typeRecord.RawValueTypeName);
 
                 string conversion;
-                if (!string.IsNullOrEmpty(typeRecord.RawValueTypeName))
+                if (typeRecord.Flags.HasFlag(TypeRecordFlags.OptionSet))
+                {
+                    // OptionSet (e.g. an imported ObjC NS_OPTIONS bitmask): init(rawValue:) is
+                    // NON-failable and returns a non-optional, so bind it directly. Every raw
+                    // bit pattern is a valid OptionSet — there is no invalid-value case to guard —
+                    // and a `guard let` / force-unwrap on a non-optional would not compile.
+                    conversion = $"let {label}Val = {swiftType}(rawValue: {label})";
+                }
+                else if (!string.IsNullOrEmpty(typeRecord.RawValueTypeName))
                 {
                     // RawRepresentable enum: init(rawValue:) safely maps raw value → case
                     // regardless of in-memory storage size. The synthesized init?(rawValue:)
