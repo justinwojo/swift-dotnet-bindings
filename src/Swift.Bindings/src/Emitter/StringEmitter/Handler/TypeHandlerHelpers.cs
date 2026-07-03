@@ -1621,7 +1621,8 @@ internal static class ProtocolConformanceHelper
         public static bool TryGetDescriptionPropertyName(
             TypeDecl typeDecl,
             Dictionary<string, string>? renames,
-            out string propertyName)
+            out string propertyName,
+            Dictionary<string, string>? enumPropertyRenames = null)
         {
             propertyName = "";
 
@@ -1638,6 +1639,9 @@ internal static class ProtocolConformanceHelper
 
             propertyName = NameProvider.GetFinalMemberName(
                 NameProvider.GetPropertyName(descProp.Name, typeDecl.Name), renames);
+            // A `description` property renamed away from a colliding enum case (DescriptionValue)
+            // must be referenced under that name here too. No-op unless the enum channel maps it.
+            propertyName = NameProvider.GetFinalMemberName(propertyName, enumPropertyRenames);
             return true;
         }
 
@@ -1647,9 +1651,10 @@ internal static class ProtocolConformanceHelper
         public static void EmitToStringIfDescriptionExists(
             IndentedTextWriter writer,
             TypeDecl typeDecl,
-            Dictionary<string, string>? renames)
+            Dictionary<string, string>? renames,
+            Dictionary<string, string>? enumPropertyRenames = null)
         {
-            if (TryGetDescriptionPropertyName(typeDecl, renames, out var propertyName))
+            if (TryGetDescriptionPropertyName(typeDecl, renames, out var propertyName, enumPropertyRenames))
             {
                 writer.WriteLine($"public override string ToString() => {propertyName};");
                 writer.WriteLine();

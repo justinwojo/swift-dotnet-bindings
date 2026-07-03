@@ -413,6 +413,10 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         string? containingTypeName = (propertyDecl.ParentDecl as TypeDecl)?.Name;
         var baseName = NameProvider.GetPropertyName(propertyDecl.Name, containingTypeName);
         var propertyName = NameProvider.GetFinalMemberName(baseName, context.PropertyRenames);
+        // Apply the enum property-only rename channel (Image -> ImageValue) for an enum computed
+        // property that collides with a same-named case constructor. Keyed on the post-PropertyRenames
+        // name; null (and thus a no-op) for every non-enum-collision property.
+        propertyName = NameProvider.GetFinalMemberName(propertyName, context.EnumPropertyRenames);
 
         // For setter-only closures, filter out getter accessors — the callback (setter) path works
         // but the getter (invocation) path can't marshal the closure's non-primitive parameters.

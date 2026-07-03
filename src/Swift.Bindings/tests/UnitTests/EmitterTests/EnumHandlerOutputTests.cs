@@ -698,6 +698,11 @@ public class EnumHandlerOutputTests
     [Fact]
     public void Emit_EnumWithAssociatedValueCaseAndMatchingStaticProperty_SkipsDuplicateStaticProperty()
     {
+        // A STATIC property colliding with a case-constructor name keeps the pre-existing
+        // drop-as-DuplicateSignature handling. The FB-1 instance-property recovery
+        // (Emit_EnumWithAssociatedValueCaseAndCollidingInstanceProperty_RecoversPropertyWithValueSuffix)
+        // is deliberately scoped to instance accessors — the reported collisions are all instance,
+        // and static recovery has no runtime coverage — so the static side still fails closed.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("PlaybackMode", moduleDecl, isFrozen: true);
@@ -714,6 +719,44 @@ public class EnumHandlerOutputTests
         Assert.Contains("public static unsafe PlaybackMode Paused(", csOutput);
         Assert.Contains("public static int Active", csOutput);
         Assert.DoesNotContain("public static int Paused", csOutput);
+        // The static side is dropped, NOT recovered under a Value suffix (that path is instance-only).
+        Assert.DoesNotContain("PausedValue", csOutput);
+    }
+
+    [Fact]
+    public void Emit_EnumWithAssociatedValueCaseAndCollidingInstanceProperty_RecoversPropertyWithValueSuffix()
+    {
+        // FB-1: Swift legally allows an enum case and a same-named INSTANCE computed property
+        // (e.g. SharePhoto.Source's `.image` case + an `image` accessor that reads the payload out
+        // of self). Both project to the C# identifier `Image`; a property and the case-factory
+        // METHOD sharing a name is a CS0102 duplicate, so the property was previously dropped as a
+        // DuplicateSignature. The property side is now disambiguated with the Value suffix
+        // (Image -> ImageValue) while the case factory keeps the bare `Image` name.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("ShareSource", moduleDecl, isFrozen: true);
+
+        var imageCase = CreateCase("image");
+        imageCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(imageCase);
+        enumDecl.Cases.Add(CreateCase("empty"));
+
+        // Colliding instance computed property `image` (projects to `Image`).
+        enumDecl.Properties.Add(CreateInstanceIntProperty("image", enumDecl, moduleDecl));
+        // Non-colliding instance property must keep its natural name.
+        enumDecl.Properties.Add(CreateInstanceIntProperty("weight", enumDecl, moduleDecl));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // The case factory keeps the bare name. This guards the FB-1 trap: routing the rename
+        // through the shared propertyRenames dict would rename the CASE too, turning the factory
+        // into ImageValue(...) and re-creating the collision one level down.
+        Assert.Contains("ShareSource Image(", csOutput);
+        // The colliding property is RECOVERED under the Value-suffixed name, not dropped.
+        Assert.Contains("ImageValue", csOutput);
+        // Non-colliding property keeps its natural name (no gratuitous suffix).
+        Assert.Contains("Weight", csOutput);
+        Assert.DoesNotContain("WeightValue", csOutput);
     }
 
     [Fact]

@@ -24,6 +24,15 @@
     <ProjectReference Include="../../src/Swift.Runtime/src/Swift.Runtime.csproj" />
     <ProjectReference Include="../../src/Swift.Bindings.Apple/Swift.Bindings.Apple.csproj" />
   </ItemGroup>
+  <!-- W-1 pure-ObjC clang-umbrella fixture: the generator's ObjC pass emits a bgen binding
+       project (output-objc/ObjCUmbrella.ObjC.iOS.csproj). Referencing it here makes the
+       compile-only gate build the ObjC binding (bgen + ApiDefinition.cs compile) too. The
+       binding project carries its own NativeReference to the fixture xcframework and surfaces it
+       transitively via IsBindingProject's GetNativeManifest — no .ProjectReference.targets needed.
+       Exists-gated: on non-iOS regens output-objc/ is absent and the reference is simply dropped. -->
+  <ItemGroup Condition="Exists('../output-objc/ObjCUmbrella.ObjC.iOS.csproj')">
+    <ProjectReference Include="../output-objc/ObjCUmbrella.ObjC.iOS.csproj" />
+  </ItemGroup>
   <!-- Cross-module: SwiftBindingsTestLib.cs references IDependencyProtocol from the dependency namespace.
        Using a targeted alias avoids ambiguity with identically-named types (e.g., Functions) in both namespaces. -->
   <ItemGroup>

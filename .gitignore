@@ -213,6 +213,7 @@ testing/
 src/samples/
 BindingTests/output/
 BindingTests/output-macos/
+BindingTests/output-objc/
 BindingTests/SwiftBridge/device/
 BindingTests/RuntimeTestsApp/TestClasses.g.txt
 BindingTests/RuntimeTestsApp.Mac/TestClasses.g.txt

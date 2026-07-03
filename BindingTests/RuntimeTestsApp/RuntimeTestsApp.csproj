@@ -89,6 +89,16 @@
                       AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
   </ItemGroup>
 
+  <!-- W-1 pure-ObjC clang-umbrella fixture: the generator's ObjC pass emits a bgen binding
+       project (output-objc/ObjCUmbrella.ObjC.iOS.csproj). A single ProjectReference surfaces both
+       the managed binding AND the fixture xcframework — the binding project carries its own
+       NativeReference and propagates it transitively via IsBindingProject's built-in
+       GetNativeManifest, so no <NativeReference>/.ProjectReference.targets is needed at the app
+       level. Exists-gated so a non-iOS regen (which doesn't emit output-objc/) drops the reference. -->
+  <ItemGroup Condition="Exists('../output-objc/ObjCUmbrella.ObjC.iOS.csproj')">
+    <ProjectReference Include="../output-objc/ObjCUmbrella.ObjC.iOS.csproj" />
+  </ItemGroup>
+
   <!-- Cross-module: SwiftBindingsTestLib.cs references IDependencyProtocol from the dependency namespace.
        Using a targeted alias avoids ambiguity with identically-named types (e.g., Functions) in both namespaces. -->
   <ItemGroup Condition="Exists('../output/SwiftBindingsTestLibDependency.cs')">

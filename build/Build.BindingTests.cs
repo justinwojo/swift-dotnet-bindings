@@ -103,6 +103,9 @@ partial class Build
         // --- Create xcframeworks ---
         CreateXcframeworks(platform, includeDevice, simBuildDir);
 
+        // --- Pure-ObjC clang-umbrella fixture (W-1), iOS only ---
+        BuildObjCUmbrellaXcframework(platform, includeDevice);
+
         Log.Information("=== Build Complete ===");
         Log.Information("xcframeworks: {Main}, {Dep}", BtXcframeworkDir, BtDepXcframeworkDir);
     }
@@ -496,6 +499,11 @@ partial class Build
             // Clean up dep temp directory
             ((AbsolutePath)depOutputDir).DeleteDirectory();
         }
+
+        // Pure-ObjC clang-umbrella fixture (W-1): generate its bgen binding via --objc into
+        // output-objc/ (iOS only). Runs after the Swift generate so a single RegenerateBindings
+        // pass refreshes both fixtures for the ProjectReference the app/compile-check consume.
+        RegenerateObjCUmbrellaBindings(platformOverride ?? ApplePlatform.IOS);
 
         // Report output
         var csCount = Directory.GetFiles(BtOutputDir, "*.cs", SearchOption.AllDirectories).Length;

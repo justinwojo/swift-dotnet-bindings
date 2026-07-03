@@ -323,6 +323,77 @@ namespace BindingsGeneration
                 }
             }
 
+            // Recover enum INSTANCE computed properties whose projected C# name collides with an
+            // emitted case-constructor name. Swift legally allows a case and a same-named computed
+            // property in one enum (e.g. SharePhoto.Source's `.image` case + instance `image`
+            // accessor); both project to the same C# identifier and the property was previously
+            // dropped as a DuplicateSignature. Disambiguate the PROPERTY side with the existing
+            // Value-suffix idiom (Image -> ImageValue). The rename rides a property-only channel
+            // (TypeHandlerContext.EnumPropertyRenames): routing it through the shared `propertyRenames`
+            // dict would also rename the case (which reads the same dict) and recreate the collision
+            // one level down. Cosmetic only — the projected name never feeds the P/Invoke EntryPoint
+            // or @_cdecl wrapper symbols.
+            // Scoped to INSTANCE properties: a colliding STATIC property keeps its pre-existing
+            // drop-as-DuplicateSignature handling (the reported collisions are all instance
+            // accessors, and static recovery has no runtime coverage — the fail-closed skip at the
+            // property loop below still fires for it because no rename is recorded here).
+            var enumPropertyRenames = new Dictionary<string, string>();
+            if (emittedCaseConstructorNames.Count > 0)
+            {
+                // Names already claimed by cases, tags, TryGet helpers, nested types, and other
+                // properties — the disambiguated property name must avoid every one of them.
+                var reservedNames = new HashSet<string>(emittedCaseConstructorNames);
+                foreach (var nestedType in enumDecl.Types)
+                    reservedNames.Add(NameProvider.ToPascalCase(nestedType.Name));
+                if (enumDecl.Cases.Any())
+                {
+                    reservedNames.Add("CaseTag");
+                    reservedNames.Add("Tag");
+                }
+                foreach (var assocCase in enumDecl.Cases.Where(c => c.HasAssociatedValues))
+                    reservedNames.Add($"TryGet{NameProvider.GetCaseName(assocCase.Name, caseNameMap)}");
+                foreach (var simpleCase in enumDecl.Cases.Where(c => !c.HasAssociatedValues))
+                    reservedNames.Add(NameProvider.GetFinalMemberName(
+                        NameProvider.GetCaseName(simpleCase.Name, caseNameMap), propertyRenames));
+                foreach (var p in enumDecl.Properties)
+                {
+                    // Only members that will actually be EMITTED claim a C# name. An internal or
+                    // @_spi property is dropped by CanEmitProperty (ModuleInternal) and never appears
+                    // in the output, so reserving its name would only push a recoverable PUBLIC
+                    // sibling's Value suffix higher (Image -> ImageValue2) with no real collision to
+                    // avoid. (A colliding internal property still gets a rename in the scan below so
+                    // its true skip reason wins over DuplicateSignature — that is intentional.)
+                    if (p.IsModuleInternal || p.IsSpiProtected)
+                        continue;
+                    reservedNames.Add(NameProvider.GetFinalMemberName(
+                        NameProvider.GetPropertyName(p.Name, enumDecl.Name), propertyRenames));
+                }
+
+                foreach (var propertyDecl in enumDecl.Properties)
+                {
+                    if (propertyDecl.IsStatic)
+                        continue;
+                    var collidingName = NameProvider.GetFinalMemberName(
+                        NameProvider.GetPropertyName(propertyDecl.Name, enumDecl.Name), propertyRenames);
+                    if (!emittedCaseConstructorNames.Contains(collidingName))
+                        continue;
+                    var candidate = $"{collidingName}Value";
+                    var suffix = 2;
+                    while (reservedNames.Contains(candidate) || enumPropertyRenames.ContainsValue(candidate))
+                    {
+                        candidate = $"{collidingName}Value{suffix}";
+                        suffix++;
+                    }
+                    enumPropertyRenames[collidingName] = candidate;
+                    reservedNames.Add(candidate);
+                }
+            }
+
+            // Thread the property-only rename channel to PropertyHandler. Reassign unconditionally
+            // (even when empty) so any value inherited from an enclosing enum's childContext is
+            // reset — a parent enum's rename must never leak onto a nested enum's property.
+            childContext = childContext with { EnumPropertyRenames = enumPropertyRenames };
+
             // Determine if no-payload case properties can be cached as lazy singletons.
             // Only cache when the enum is effectively immutable from C# — mutating methods
             // or writable instance properties would allow a cached singleton to be globally mutated.
@@ -372,7 +443,11 @@ namespace BindingsGeneration
             {
                 var propertyName = NameProvider.GetFinalMemberName(
                     NameProvider.GetPropertyName(propertyDecl.Name, enumDecl.Name), propertyRenames);
-                if (emittedCaseConstructorNames.Contains(propertyName))
+                // A property colliding with a case-constructor name is recovered (not dropped) when
+                // the pre-pass assigned it a Value-suffixed rename; PropertyHandler emits it under
+                // that disambiguated name via EnumPropertyRenames. Only fail closed if no rename
+                // exists (defensive — the pre-pass covers every colliding property).
+                if (emittedCaseConstructorNames.Contains(propertyName) && !enumPropertyRenames.ContainsKey(propertyName))
                 {
                     _logger.LogInformation($"Skipping enum property '{enumDecl.Name}.{propertyName}' because a case constructor with the same C# name is already emitted.");
                     ReportCollector.RecordMemberSkipped(propertyDecl, SkipReason.DuplicateSignature, $"Enum property '{propertyName}' collides with case constructor name.");
@@ -415,7 +490,9 @@ namespace BindingsGeneration
             // Include actual property names (post-rename), case constructor names, and synthesized names.
             var propertyNames = new HashSet<string>(enumDecl.Properties.Select(p =>
                 NameProvider.GetFinalMemberName(
-                    NameProvider.GetPropertyName(p.Name, enumDecl.Name), propertyRenames)));
+                    NameProvider.GetFinalMemberName(
+                        NameProvider.GetPropertyName(p.Name, enumDecl.Name), propertyRenames),
+                    enumPropertyRenames)));
 
             // Nested type names collide with method names in C# (CS0102)
             foreach (var nestedType in enumDecl.Types)
@@ -475,7 +552,7 @@ namespace BindingsGeneration
             foreach (var methodDecl in enumDecl.Methods.Where(m => m.IsConstructor))
                 ReportCollector.RecordMemberEmitted(methodDecl);
 
-            ToStringHelper.EmitToStringIfDescriptionExists(csWriter, enumDecl, propertyRenames);
+            ToStringHelper.EmitToStringIfDescriptionExists(csWriter, enumDecl, propertyRenames, enumPropertyRenames);
 
             SubscriptHandler.EmitSubscripts(csWriter, swiftWriter, enumDecl, env.TypeDatabase, conductor, childContext, _logger);
 
