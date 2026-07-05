@@ -555,9 +555,30 @@ public static class ObjCTypeMapper
 
     static string MapBlockType(ObjCTypeRef typeRef, HashSet<string>? genericTypeParams = null, Dictionary<string, ObjCTypeRef>? typedefMap = null, HashSet<string>? localProtocolNames = null, HashSet<string>? classProtocolClashNames = null)
     {
-        var returnType = typeRef.BlockReturnType != null
-            ? MapType(typeRef.BlockReturnType, genericTypeParams: genericTypeParams, typedefMap: typedefMap, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames)
-            : "void";
+        string returnType;
+        if (typeRef.BlockReturnType == null)
+        {
+            returnType = "void";
+        }
+        else if (BlockReturnMapsToProtocolInterface(typeRef.BlockReturnType, typedefMap, localProtocolNames))
+        {
+            // A block/delegate that RETURNS a protocol type (`id<Proto>`, or a bare own-protocol
+            // name) must bind that return slot to `NSObject`, NOT the protocol interface `IProto`
+            // that every other position uses. bgen marshals a block's return value through
+            // `Runtime.RetainAndAutoreleaseNSObject(retval)`, whose parameter is `NSObject?`; an
+            // `INativeObject` protocol interface is not an `NSObject`, so the generated
+            // Trampolines.g.cs fails to compile (CS1503). Block PARAMETER positions are unaffected
+            // (bgen reads those via `Runtime.GetINativeObject<IProto>()`), so only the return is
+            // widened. Any conforming NSObject the consumer returns still marshals correctly, and
+            // widening only in return position preserves the `IProto` binding — and its
+            // conforming-subclass InvalidCastException fix — for parameters, properties, and
+            // ordinary (non-block) method returns.
+            returnType = "NSObject";
+        }
+        else
+        {
+            returnType = MapType(typeRef.BlockReturnType, genericTypeParams: genericTypeParams, typedefMap: typedefMap, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames);
+        }
 
         var paramTypes = typeRef.BlockParams.Select(p => MapType(p, genericTypeParams: genericTypeParams, typedefMap: typedefMap, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames)).ToList();
 
@@ -573,6 +594,37 @@ public static class ObjCTypeMapper
 
         var allTypes = paramTypes.Append(returnType);
         return $"Func<{string.Join(", ", allTypes)}>";
+    }
+
+    /// <summary>
+    /// True when a block's return type would map to a protocol INTERFACE (<c>IProto</c>) — an
+    /// <c>id&lt;Proto&gt;</c> carrying at least one bindable protocol, or a bare own-protocol name.
+    /// Mirrors the two <see cref="MapType"/> arms (protocol-qualified <c>id</c> and direct
+    /// own-protocol-name) that emit <c>IProto</c>. Such a return must be widened to <c>NSObject</c>
+    /// in block position; see <see cref="MapBlockType"/> for why.
+    /// </summary>
+    static bool BlockReturnMapsToProtocolInterface(ObjCTypeRef returnType, Dictionary<string, ObjCTypeRef>? typedefMap, HashSet<string>? localProtocolNames)
+    {
+        // Either form MapType emits `IProto` for, checked WITHOUT a typedef hop:
+        //  - `id<Proto>` carrying at least one bindable protocol (mirrors MapType arm 3), and
+        //  - a bare own-protocol name, e.g. a block returning `SomeProto *` (mirrors MapType arm 10b).
+        // The `id<Proto>` check must run BEFORE any hop: `id` itself resolves through typedefMap to
+        // the clang-internal `objc_object` (which carries no protocol qualifications), so hopping
+        // first would lose them.
+        bool MapsToInterfaceDirectly(ObjCTypeRef t) =>
+            (t.Name == "id" && t.ProtocolQualifications.Any(p => p != "NSObject" && p != "NSFastEnumeration"))
+            || (localProtocolNames != null && localProtocolNames.Contains(t.Name));
+
+        if (MapsToInterfaceDirectly(returnType))
+            return true;
+
+        // A typedef referenced by name — resolve a single hop and re-check BOTH forms, mirroring
+        // MapType's typedef-hop arm feeding the protocol-`id` and bare-own-protocol arms. Covers
+        // `typedef id<Proto> Alias;` AND `typedef Proto Alias;` (an alias of a bare protocol name);
+        // re-checking only the `id<Proto>` form here would let the latter leak `IProto` (CS1503).
+        return typedefMap != null
+            && typedefMap.TryGetValue(returnType.Name, out var resolved)
+            && MapsToInterfaceDirectly(resolved);
     }
 
     /// <summary>

@@ -79,4 +79,19 @@ extern int32_t OUExportedTriple(int32_t x);
 - (OUCamera *)camera:(NSInteger)bounds fittingX:(NSInteger)x edgePadding:(NSInteger)padding;
 @end
 
+// MARK: - Shape 6 — a block whose RETURN type is a protocol (`id<OUElement>`).
+//
+// `OUElementFactory` is a block that RETURNS `id<OUElement>` — the exact shape of Google
+// AdMob's mediation `...LoadCompletionHandler` (which returns `id<...AdEventDelegate>`).
+// bgen marshals a block's return value through `Runtime.RetainAndAutoreleaseNSObject(NSObject?)`,
+// so the generator MUST widen a protocol-typed block RETURN to `NSObject`; emitting the interface
+// `IOUElement` in that slot fails to compile (CS1503) in the generated Trampolines.g.cs. Block
+// PARAMETER protocol types are unaffected (Shape 3's `NSArray<id<OUElement>>` covers reading a
+// protocol back in). `runFactory:` invokes the block and round-trips the produced element's text.
+typedef id<OUElement> _Nonnull (^OUElementFactory)(NSInteger index);
+
+@interface OUFactoryHost : NSObject
+- (NSString *)runFactory:(OUElementFactory)factory;
+@end
+
 NS_ASSUME_NONNULL_END

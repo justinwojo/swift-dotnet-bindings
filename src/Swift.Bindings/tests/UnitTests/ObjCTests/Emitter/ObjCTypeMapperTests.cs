@@ -243,6 +243,125 @@ public class ObjCTypeMapperTests
     }
 
     [Fact]
+    public void MapType_BlockReturningProtocolId_WidensReturnToNSObject()
+    {
+        // A block that RETURNS `id<Proto>` (e.g. AdMob's mediation LoadCompletionHandler) must
+        // bind the return slot to NSObject, NOT the protocol interface IProto. bgen marshals a
+        // block's return through Runtime.RetainAndAutoreleaseNSObject(NSObject?), which cannot take
+        // an INativeObject interface — emitting IProto there fails to compile (CS1503) in
+        // Trampolines.g.cs. Parameters keep IProto (bgen reads them via GetINativeObject<IProto>).
+        var typeRef = new ObjCTypeRef
+        {
+            Name = "block",
+            IsBlock = true,
+            BlockReturnType = new ObjCTypeRef { Name = "id", IsPointer = true, ProtocolQualifications = ["GADMediationBannerAdEventDelegate"] },
+            BlockParams = [new ObjCTypeRef { Name = "id", IsPointer = true, ProtocolQualifications = ["GADMediationBannerAd"] }, new ObjCTypeRef { Name = "NSError", IsPointer = true }],
+        };
+        // Return -> NSObject; parameter protocol id<GADMediationBannerAd> keeps its IProto interface.
+        Assert.Equal("Func<IGADMediationBannerAd, NSError, NSObject>", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void MapType_BlockReturningBareProtocolName_WidensReturnToNSObject()
+    {
+        // Same rule via the bare own-protocol-name form (MapType arm 10b): a block returning
+        // `SomeProto *` where SomeProto is a local protocol still widens the return to NSObject.
+        var local = new HashSet<string> { "MyProto" };
+        var typeRef = new ObjCTypeRef
+        {
+            Name = "block",
+            IsBlock = true,
+            BlockReturnType = new ObjCTypeRef { Name = "MyProto", IsPointer = true },
+            BlockParams = [new ObjCTypeRef { Name = "NSString", IsPointer = true }],
+        };
+        Assert.Equal("Func<string, NSObject>", ObjCTypeMapper.MapType(typeRef, localProtocolNames: local));
+        // A block PARAMETER typed by the same bare protocol name keeps IMyProto (only return widens).
+        var paramTypeRef = new ObjCTypeRef
+        {
+            Name = "block",
+            IsBlock = true,
+            BlockReturnType = new ObjCTypeRef { Name = "void" },
+            BlockParams = [new ObjCTypeRef { Name = "MyProto", IsPointer = true }],
+        };
+        Assert.Equal("Action<IMyProto>", ObjCTypeMapper.MapType(paramTypeRef, localProtocolNames: local));
+    }
+
+    [Fact]
+    public void MapType_BlockReturningConcreteClass_Unaffected()
+    {
+        // Only protocol-typed returns widen. A block returning a concrete class keeps that class.
+        var typeRef = new ObjCTypeRef
+        {
+            Name = "block",
+            IsBlock = true,
+            BlockReturnType = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+            BlockParams = [new ObjCTypeRef { Name = "NSInteger" }],
+        };
+        Assert.Equal("Func<nint, string>", ObjCTypeMapper.MapType(typeRef));
+    }
+
+    [Fact]
+    public void MapType_BlockReturningTypedefIdProtocolAlias_WidensReturnToNSObject()
+    {
+        // `typedef id<Proto> Alias;` used as a block return. The alias name is neither `id` nor a
+        // local protocol, so it must resolve one typedef hop and re-check the id<Proto> form —
+        // then widen to NSObject exactly as a direct id<Proto> return does.
+        var typedefMap = new Dictionary<string, ObjCTypeRef>
+        {
+            ["MyDelegateAlias"] = new ObjCTypeRef { Name = "id", IsPointer = true, ProtocolQualifications = ["MyProto"] },
+        };
+        var typeRef = new ObjCTypeRef
+        {
+            Name = "block",
+            IsBlock = true,
+            BlockReturnType = new ObjCTypeRef { Name = "MyDelegateAlias", IsPointer = true },
+            BlockParams = [new ObjCTypeRef { Name = "NSInteger" }],
+        };
+        Assert.Equal("Func<nint, NSObject>", ObjCTypeMapper.MapType(typeRef, typedefMap: typedefMap));
+    }
+
+    [Fact]
+    public void MapType_BlockReturningTypedefBareProtocolAlias_WidensReturnToNSObject()
+    {
+        // `typedef Proto Alias;` (an alias of a BARE own-protocol name) used as a block return. The
+        // hop resolves to a bare local protocol, which MapType maps to IProto (arm 10b) — so the
+        // return must widen to NSObject. Re-checking only the id<Proto> form after the hop would
+        // leak IProto into the block-return slot (CS1503 in the generated trampoline).
+        var local = new HashSet<string> { "MyProto" };
+        var typedefMap = new Dictionary<string, ObjCTypeRef>
+        {
+            ["MyProtoAlias"] = new ObjCTypeRef { Name = "MyProto", IsPointer = true },
+        };
+        var typeRef = new ObjCTypeRef
+        {
+            Name = "block",
+            IsBlock = true,
+            BlockReturnType = new ObjCTypeRef { Name = "MyProtoAlias", IsPointer = true },
+            BlockParams = [new ObjCTypeRef { Name = "NSString", IsPointer = true }],
+        };
+        Assert.Equal("Func<string, NSObject>", ObjCTypeMapper.MapType(typeRef, typedefMap: typedefMap, localProtocolNames: local));
+    }
+
+    [Fact]
+    public void MapType_BlockReturningTypedefConcreteAlias_NotWidened()
+    {
+        // The typedef hop must NOT over-widen: an alias resolving to a concrete class is not a
+        // protocol interface, so the return keeps the concrete mapping (here `string`).
+        var typedefMap = new Dictionary<string, ObjCTypeRef>
+        {
+            ["MyStringAlias"] = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+        };
+        var typeRef = new ObjCTypeRef
+        {
+            Name = "block",
+            IsBlock = true,
+            BlockReturnType = new ObjCTypeRef { Name = "MyStringAlias", IsPointer = true },
+            BlockParams = [new ObjCTypeRef { Name = "NSInteger" }],
+        };
+        Assert.Equal("Func<nint, string>", ObjCTypeMapper.MapType(typeRef, typedefMap: typedefMap));
+    }
+
+    [Fact]
     public void MapType_BlockNonVoidNoParams_ReturnsFuncOfR()
     {
         var typeRef = new ObjCTypeRef

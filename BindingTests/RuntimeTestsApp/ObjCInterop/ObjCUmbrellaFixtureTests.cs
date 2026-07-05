@@ -13,7 +13,7 @@ namespace RuntimeTestsApp.ObjCInterop;
 /// gate for the generator behaviors a real pure-ObjC framework (e.g. MapLibre) depends on.
 ///
 /// The fixture is generated through the generator's <c>--objc</c> (bgen) pipeline and consumed here
-/// via a single ProjectReference to the emitted binding project. Each test exercises one of the five
+/// via a single ProjectReference to the emitted binding project. Each test exercises one of the six
 /// deliberately-shaped cases; the fact that ANY of these tests runs at all already proves the app
 /// launched without an Objective-C duplicate-selector registration abort (Shape 1's failure mode).
 /// </summary>
@@ -93,6 +93,21 @@ public class ObjCUmbrellaFixtureTests : TestBase
         using var assigned = new OUCamera(9);
         map.Camera = assigned;
         AssertEqual(9, (int)map.Camera.Altitude, "the `camera` property round-trips a distinct value");
+    }
+
+    /// <summary>
+    /// Shape 6 — a block whose RETURN type is a protocol (<c>id&lt;OUElement&gt;</c>), the exact shape of
+    /// Google AdMob's mediation <c>...LoadCompletionHandler</c>. The generator widened the protocol-typed
+    /// block return to <c>NSObject</c> in that slot — a bare <c>IOUElement</c> there fails to compile
+    /// (CS1503) inside bgen's generated block trampoline. The managed factory returns a conforming
+    /// <c>OUElementBox</c>; Objective-C invokes the block, then dispatches the element's protocol method
+    /// back to produce the round-tripped text.
+    /// </summary>
+    public void TestProtocolReturningBlockRoundTrips()
+    {
+        using var host = new OUFactoryHost();
+        string described = host.RunFactory((nint index) => new OUElementBox($"factory-{index}"));
+        AssertEqual("element:factory-3", described, "the protocol-returning factory block round-trips through NSObject");
     }
 
     /// <summary>

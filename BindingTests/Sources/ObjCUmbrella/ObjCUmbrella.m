@@ -54,3 +54,11 @@ int32_t OUExportedTriple(int32_t x) { return x * 3; }
     return [[OUCamera alloc] initWithAltitude:bounds + x + padding];
 }
 @end
+
+// Shape 6 — invoke the protocol-returning factory block and round-trip the element's text.
+@implementation OUFactoryHost
+- (NSString *)runFactory:(OUElementFactory)factory {
+    id<OUElement> element = factory(3);
+    return [element describeElement];
+}
+@end
