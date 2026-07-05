@@ -501,6 +501,144 @@ namespace BindingsGeneration.Tests
             Assert.Contains("CoreDatabase.xml", output);
         }
 
+        // ── SWIFTBIND005: the empty-DLL trap (issue #43) ──
+        // A project that carries an @(ObjcBindingApiDefinition) item but omits
+        // <IsBindingProject>true</IsBindingProject> ships an empty (0-type) binding
+        // assembly because bgen (engaged solely by IsBindingProject) never runs.
+        // _ValidateObjCBindingProjectMode fails the build before CoreCompile so the
+        // empty assembly is never produced. These tests exercise the REAL guard target
+        // from Sdk.targets against temp projects that import Sdk.props/Sdk.targets.
+
+        // Writes a temp project importing the real SDK with a configurable ObjC-binding
+        // shape. Machinery-heavy targets are left untouched — the tests invoke only the
+        // guard (or a stubbed CoreCompile), so discovery/generation never run.
+        private void WriteObjcBindingModeProject(
+            bool declareApiDefinition, bool isBindingProject, bool stubCoreCompile = false)
+        {
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            var apiDefItem = declareApiDefinition
+                ? """<ItemGroup><ObjcBindingApiDefinition Include="ApiDefinition.cs" /></ItemGroup>"""
+                : "";
+            var isBindingProp = isBindingProject
+                ? "<IsBindingProject>true</IsBindingProject>"
+                : "";
+            // Wiring test only: no-op the real CoreCompile (which drops its restore/RAR
+            // dependency chain, so no NuGet restore is needed) and the sibling pre-compile
+            // hook _AssertSwiftBindingHookWiring (which would otherwise fire SWIFTBIND062
+            // because _GenerateSwiftBindings never stamped here). What remains wired
+            // BeforeTargets="CoreCompile" is the guard under test.
+            var stubs = stubCoreCompile
+                ? "<Target Name=\"CoreCompile\" />\n  <Target Name=\"_AssertSwiftBindingHookWiring\" />"
+                : "";
+
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                    {isBindingProp}
+                  </PropertyGroup>
+                  {apiDefItem}
+                  <Import Project="{sdkTargetsPath}" />
+                  {stubs}
+                </Project>
+                """;
+            WriteTestProject(project);
+        }
+
+        [Fact]
+        public void ObjCBindingApiDefinitionWithoutIsBindingProject_FailsWithSWIFTBIND005()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            WriteObjcBindingModeProject(declareApiDefinition: true, isBindingProject: false);
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" " +
+                "-t:_ValidateObjCBindingProjectMode -p:BuildingProject=true -nologo -v:n");
+
+            Assert.NotEqual(0, result.ExitCode);
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.Contains("SWIFTBIND005", output);
+            Assert.Contains("IsBindingProject", output);
+        }
+
+        [Fact]
+        public void ObjCBindingApiDefinitionWithIsBindingProject_Passes()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // The healthy binding-project shape — and the exact shape of the mixed ObjC
+            // companion (ObjcBindingApiDefinition present, IsBindingProject=true, no
+            // SwiftFrameworkType). The guard must NOT fire here.
+            WriteObjcBindingModeProject(declareApiDefinition: true, isBindingProject: true);
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" " +
+                "-t:_ValidateObjCBindingProjectMode -p:BuildingProject=true -nologo -v:n");
+
+            Assert.True(result.ExitCode == 0,
+                $"Guard fired for a valid binding project.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+            Assert.DoesNotContain("SWIFTBIND005", result.StdOut + "\n" + result.StdErr);
+        }
+
+        [Fact]
+        public void NoObjCBindingApiDefinition_Passes()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // No ObjC ApiDefinition at all (a plain Swift-ABI binding, minus IsBindingProject):
+            // the guard keys off the item's presence, so it must stay inert.
+            WriteObjcBindingModeProject(declareApiDefinition: false, isBindingProject: false);
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" " +
+                "-t:_ValidateObjCBindingProjectMode -p:BuildingProject=true -nologo -v:n");
+
+            Assert.True(result.ExitCode == 0,
+                $"Guard fired without an ObjcBindingApiDefinition item.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+            Assert.DoesNotContain("SWIFTBIND005", result.StdOut + "\n" + result.StdErr);
+        }
+
+        [Fact]
+        public void ObjCBindingApiDefinitionWithoutIsBindingProject_DesignTimeBuild_DoesNotFire()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // The misconfigured shape, but under a design-time build. The guard is gated on
+            // the real-build idiom (DesignTimeBuild != true AND BuildingProject == true), so
+            // it must stay silent — an IDE design-time build never ships the empty assembly.
+            WriteObjcBindingModeProject(declareApiDefinition: true, isBindingProject: false);
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" " +
+                "-t:_ValidateObjCBindingProjectMode -p:BuildingProject=true -p:DesignTimeBuild=true -nologo -v:n");
+
+            Assert.True(result.ExitCode == 0,
+                $"Guard fired during a design-time build.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+            Assert.DoesNotContain("SWIFTBIND005", result.StdOut + "\n" + result.StdErr);
+        }
+
+        [Fact]
+        public void ObjCBindingApiDefinitionWithoutIsBindingProject_FiresBeforeCoreCompile()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // Wiring proof: with a no-op CoreCompile, requesting CoreCompile must still run
+            // the guard (BeforeTargets="CoreCompile") and fail — so the empty assembly is
+            // never produced. Catches a future rename of the CoreCompile anchor.
+            WriteObjcBindingModeProject(declareApiDefinition: true, isBindingProject: false, stubCoreCompile: true);
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" " +
+                "-t:CoreCompile -p:BuildingProject=true -nologo -v:n");
+
+            Assert.NotEqual(0, result.ExitCode);
+            Assert.Contains("SWIFTBIND005", result.StdOut + "\n" + result.StdErr);
+        }
+
         // ── Auto-detected dependency resolution behavioral tests ──
 
         [Fact]

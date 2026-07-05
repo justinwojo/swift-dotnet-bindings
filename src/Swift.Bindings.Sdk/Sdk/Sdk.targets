@@ -3024,6 +3024,59 @@ done; true"
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 5·guard: Fail loud on an ObjC ApiDefinition without bgen mode    -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- The empty-DLL trap (issue #43). A project that carries an
+       @(ObjcBindingApiDefinition) item — whether the consumer hand-declared it
+       (a bgen ApiDefinition.cs from objective-sharpie or a prior generator run)
+       or _IncludeGeneratedSwiftBindings injected our generator's ApiDefinition.cs
+       — produces types ONLY if the .NET iOS binding generator (bgen) runs over it.
+       bgen is engaged solely by <IsBindingProject>true</IsBindingProject>, which
+       Microsoft.iOS.Sdk reads at evaluation time. Without it, the ObjcBindingApiDefinition
+       item is silently ignored: `dotnet build` returns 0 and ships an empty (~5.6 KB,
+       0-type) assembly, and the consumer only discovers the binding is empty at
+       reference-resolution time.
+
+       SWIFTBIND004/SWIFTBIND021 already guard the SDK-generated ObjC flows, but both
+       additionally key off $(SwiftFrameworkType) == 'ObjC' AND the presence of a
+       SwiftFramework / SwiftAppleFrameworkTarget item — so a hand-rolled csproj that
+       declares ObjcBindingApiDefinition directly (no SwiftFramework item, and often no
+       SwiftFrameworkType) slips past both. This guard keys off the SYMPTOM — an
+       ObjcBindingApiDefinition item present — instead of the SDK configuration
+       properties, so it fires for every shape that would ship the empty assembly.
+
+       The gate is IsBindingProject alone, NOT SwiftFrameworkType: bgen runs off
+       IsBindingProject regardless of SwiftFrameworkType. The mixed-framework ObjC
+       companion csproj (ObjCBindingProjectEmitter) is exactly this shape —
+       ObjcBindingApiDefinition present, IsBindingProject=true, and deliberately NO
+       SwiftFrameworkType=ObjC — and is a fully working binding; adding
+       'OR $(SwiftFrameworkType) != ObjC' to the condition would false-trip it. The
+       mixed-framework MAIN Swift csproj has ApiDefinition.cs on disk but never adds it
+       as an ObjcBindingApiDefinition item, so keying off the item (not the file on disk)
+       also leaves it untouched.
+
+       Runs before CoreCompile (so the empty assembly is never produced) and after
+       _IncludeGeneratedSwiftBindings (so generator-injected items are visible too);
+       hand-declared items are present from evaluation. Gated on the real-build idiom
+       (DesignTimeBuild != true AND BuildingProject == true — the same guard the
+       _AssertSwiftBindingHookWiring tripwire uses) so a design-time IDE build or an
+       isolated `dotnet build -t:CoreCompile` — where ObjcBindingApiDefinition injection
+       may not have run — cannot false-trip. Error, not warning: an empty binding
+       assembly is never intentional, and no legitimate flow carries an
+       ObjcBindingApiDefinition item with IsBindingProject unset. (The mixed companion
+       imports Microsoft.NET.Sdk, not SwiftBindings.Sdk, so this guard is not even
+       present in its build — but keying on IsBindingProject alone keeps the condition
+       correct regardless.) -->
+  <Target Name="_ValidateObjCBindingProjectMode"
+          AfterTargets="_IncludeGeneratedSwiftBindings"
+          BeforeTargets="CoreCompile"
+          Condition="'$(DesignTimeBuild)' != 'true' AND '$(BuildingProject)' == 'true'">
+    <Error Condition="'@(ObjcBindingApiDefinition)' != '' AND '$(IsBindingProject)' != 'true'"
+           Code="SWIFTBIND005"
+           Text="This project declares an ObjC binding (ObjcBindingApiDefinition item '@(ObjcBindingApiDefinition)'), but &lt;IsBindingProject&gt;true&lt;/IsBindingProject&gt; is missing from the csproj body. The .NET iOS binding generator (bgen) reads IsBindingProject at evaluation time; without it the ApiDefinition is never processed and the build silently produces an empty (0-type) binding assembly. Add &lt;IsBindingProject&gt;true&lt;/IsBindingProject&gt; to your project's PropertyGroup. If you are binding an xcframework through the SwiftBindings generator, also add &lt;SwiftFrameworkType&gt;ObjC&lt;/SwiftFrameworkType&gt; in the same PropertyGroup so the ObjC ApiDefinition is generated. The 'dotnet new swift-binding' template sets both correctly." />
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 5a: Root the NativeAOT trimmer descriptor (SDK-direct path)      -->
   <!--                                                                         -->
   <!-- In SDK-direct mode the app IS the binding: Target 5 above folds the     -->
