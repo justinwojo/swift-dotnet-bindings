@@ -274,6 +274,24 @@ public protocol CrossModuleParentDelegate: AnyObject {
     func crossModuleDidNotify(value: Int32)
 }
 
+// MARK: - Cross-module CARRIER-SPLIT parent (dependency half)
+//
+// Dependency half of the cross-module carrier-split gate. This parent requires
+// no NSObjectProtocol, so its umbrella conformance routes to the plain
+// `EveryProtocol` carrier. The consuming module declares a child that refines
+// this parent AND NSObjectProtocol (SwiftBindingsTestLib/Protocols/
+// CrossCarrierInheritedProtocol.swift), so the child routes to the NSObject-rooted
+// `EveryObjCProtocol` carrier. Because the parent lives in a *different* module,
+// the emitter's cross-carrier suppression gate must resolve the parent's carrier
+// across the module boundary — otherwise it silently misses the split and emits
+// an unsatisfiable `extension EveryObjCProtocol: <child>` in the consuming module.
+public protocol CrossCarrierCrossModuleParent: AnyObject {
+    /// Reverse-dispatched into by a C# conformer through the parent's
+    /// `EveryProtocol` witness. Returns a distinguishable value so the runtime
+    /// test can prove the parent conformance survives the child's suppression.
+    func crossCarrierLabel() -> String
+}
+
 // MARK: - Transitive Cross-Module Ancestor Chain
 //
 // A local child in another module inherits CrossModuleTransitiveParentDelegate,

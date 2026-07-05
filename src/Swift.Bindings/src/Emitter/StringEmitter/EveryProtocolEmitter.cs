@@ -37,6 +37,19 @@ public class EveryProtocolEmitter
     private IReadOnlyList<ProtocolDecl>? _allProtocols;
 
     /// <summary>
+    /// Cross-module parent protocol decls (from <c>--framework-dependency</c> modules) that a
+    /// module-local child inherits across the boundary, captured during
+    /// <see cref="PreScanProtocols"/>. These are NOT in <see cref="_allProtocols"/> (which holds
+    /// only the module-local <c>suitableProtocols</c>), but each one HAS its own EveryProtocol
+    /// conformance emitted on a carrier chosen by <see cref="GetCarrierClassName"/> — so
+    /// <see cref="AnyInheritedProtocolOnDifferentCarrier"/> must resolve inherited names against
+    /// this list too, or a cross-module carrier split is silently missed and the child's
+    /// <c>extension {carrier}: Child</c> is emitted without a witness for the cross-module parent
+    /// requirement, failing wrapper compilation.
+    /// </summary>
+    private IReadOnlyList<ProtocolDecl>? _crossModuleParents;
+
+    /// <summary>
     /// True while emitting an NSObjectProtocol-only conformance: the Swift extension
     /// must hang off <c>EveryObjCProtocol</c> (NSObject-rooted) rather than the plain
     /// Swift <c>EveryProtocol</c>. Reset between protocols by
@@ -106,6 +119,26 @@ public class EveryProtocolEmitter
     /// and leaves the other carrier's extension empty and unsatisfiable ("does not conform"),
     /// which then fails wrapper compilation. Prefixing every group key with the carrier keeps the
     /// ownership/sibling partition carrier-local so each carrier gets a satisfying witness.</para>
+    ///
+    /// <para>The rooting helpers below (<see cref="HasClassSuperclassRequirement"/> /
+    /// <see cref="IsEntityRootedProtocol"/> / <see cref="IsClassBoundProtocol"/> /
+    /// <see cref="IsNSObjectProtocolOnly"/>) walk transitive inheritance through
+    /// <see cref="_allProtocols"/> only — NOT <see cref="_crossModuleParents"/>. So when this runs on
+    /// a cross-module parent whose OWN NSObjectProtocol/Entity rooting is reachable only through a
+    /// SECOND cross-module protocol (invisible to the module-local walk), that parent is classified
+    /// as plain <c>EveryProtocol</c> even if its true carrier is <c>EveryObjCProtocol</c> /
+    /// <c>EveryEntityProtocol</c> — an intra-module-only transitive approximation. This is
+    /// deliberately left as-is because it is self-consistent and fail-closed: the SAME
+    /// <see cref="GetCarrierClassName"/> is a pure function of these two inputs and runs at BOTH the
+    /// split-detection site (<see cref="AnyInheritedProtocolOnDifferentCarrier"/>) and wherever the
+    /// parent's own witness is emitted, so a mis-classification is applied identically on both sides
+    /// and can never produce the inconsistent child-carrier-vs-parent-carrier pairing that yields an
+    /// unsatisfiable <c>extension {carrier}: Child</c>. The only reachable consequence is
+    /// OVER-suppressing a child conformance (both sides read plain <c>EveryProtocol</c> and agree
+    /// there is no split when a fully-resolved view might have found one), never emitting a wrapper
+    /// that fails to compile. Widening the helpers to search <see cref="_crossModuleParents"/> would
+    /// only trade over-suppression for a narrower over-suppression, not unlock a recovered
+    /// conformance, so it is not worth the added surface.</para>
     /// </summary>
     private string GetCarrierClassName(ProtocolDecl protocolDecl)
     {
@@ -117,6 +150,124 @@ public class EveryProtocolEmitter
             return "EveryObjCProtocol";
         return "EveryProtocol";
     }
+
+    /// <summary>
+    /// Returns true if this protocol's EveryProtocol conformance would be emitted on a
+    /// DIFFERENT umbrella carrier class than one of its transitively-inherited protocols —
+    /// resolved against both the module-local protocols AND the cross-module
+    /// (<c>--framework-dependency</c>) parents (see <see cref="ResolveInheritedConformer"/>), since
+    /// a cross-module parent gets its own EveryProtocol conformance in this module too. An @objc
+    /// protocol that refines another @objc protocol can route to
+    /// <c>EveryObjCProtocol</c> (it directly lists <c>NSObjectProtocol</c>) while the parent —
+    /// @objc but not itself NSObjectProtocol-rooted — routes to the plain <c>EveryProtocol</c>.
+    /// Swift then demands the child's carrier also conform to the inherited parent, but the
+    /// parent's witness body was emitted on the other carrier, so
+    /// <c>extension EveryObjCProtocol: Child</c> fails to compile ("type 'EveryObjCProtocol'
+    /// does not conform to protocol 'Parent'"). Cross-extension witness resolution never bridges
+    /// carriers (see <see cref="GetCarrierClassName"/>), so the split cannot be stitched. Suppress
+    /// the child conformance fail-closed: recovering it would require re-homing every inherited
+    /// @objc ancestor onto the child's carrier (a broad carrier-routing change) for no demonstrated
+    /// consumer value. Placed in BOTH the emission ladder and the <see cref="WillSkipConformance"/>
+    /// pre-scan so the C# proxy and the sibling-plan input stay in lockstep (mirrors the
+    /// <see cref="HasNoncopyableMember(ProtocolDecl)"/> gate's dual placement).
+    /// </summary>
+    private bool HasCrossCarrierInheritedRequirement(ProtocolDecl protocolDecl)
+    {
+        if (_allProtocols == null)
+            return false;
+        var childCarrier = GetCarrierClassName(protocolDecl);
+        return AnyInheritedProtocolOnDifferentCarrier(
+            protocolDecl, childCarrier, new HashSet<string>(StringComparer.Ordinal));
+    }
+
+    private bool AnyInheritedProtocolOnDifferentCarrier(
+        ProtocolDecl protocolDecl, string childCarrier, HashSet<string> visited)
+    {
+        var qualifiedName = protocolDecl.SwiftTypeName?.ToString() ?? protocolDecl.Name;
+        if (!visited.Add(qualifiedName))
+            return false;
+
+        foreach (var inherited in protocolDecl.InheritedProtocols)
+        {
+            var simpleName = GetSimpleName(inherited.Name);
+            // Resolve the inherited entry to a ProtocolDecl that emits its own EveryProtocol
+            // conformance — module-local first, then a cross-module (--framework-dependency)
+            // parent. Both carry a separate conformance on a carrier chosen by
+            // GetCarrierClassName, so both must be compared against the child's carrier. Stdlib /
+            // Foundation roots (NSObjectProtocol, AnyObject, Sendable, …) are in neither list and
+            // carry no separate conformance, so they are correctly ignored here — the
+            // NSObjectProtocol root is what pushes the child onto EveryObjCProtocol in the first
+            // place, not a peer conformance the carrier must re-satisfy.
+            var inheritedDecl = ResolveInheritedConformer(simpleName, inherited.Name);
+            if (inheritedDecl == null)
+                continue;
+
+            // Every transitive ancestor that emits its own conformance must land on the SAME
+            // carrier as the child, or the child's `extension {carrier}: Child` is left without a
+            // witness for the inherited requirements. Compare each against the ORIGINAL child
+            // carrier (not the immediate parent's).
+            if (GetCarrierClassName(inheritedDecl) != childCarrier)
+                return true;
+
+            if (AnyInheritedProtocolOnDifferentCarrier(inheritedDecl, childCarrier, visited))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Resolves an inherited-protocol reference to the <see cref="ProtocolDecl"/> that emits its
+    /// own EveryProtocol conformance: module-local (<see cref="_allProtocols"/>) first, then a
+    /// cross-module (<c>--framework-dependency</c>) parent (<see cref="_crossModuleParents"/>).
+    /// Returns null for stdlib / Foundation roots (which emit no separate conformance) and for any
+    /// parent filtered out of both lists. Restricting resolution to exactly the two lists the
+    /// emitter drives <see cref="GetCarrierClassName"/> over keeps the gate's carrier computation
+    /// identical to where the parent's witness actually lands.
+    ///
+    /// <para>Unlike the single-module carrier helpers (which search only <see cref="_allProtocols"/>,
+    /// where Swift's same-module name uniqueness makes a bare simple-name match unambiguous),
+    /// <see cref="_crossModuleParents"/> can hold two protocols with the SAME simple name from two
+    /// different <c>--framework-dependency</c> modules (and a local protocol can share that simple
+    /// name too). A module-qualified inherited reference (<c>"Dep2.Parent"</c>) must therefore bind
+    /// the decl whose OWN module-qualified name matches — a bare <c>p.Name == simpleName</c> would
+    /// return the first-seen namesake (e.g. <c>Dep1.Parent</c> or a local <c>Parent</c>) and read
+    /// the wrong carrier, over- or under-detecting the split. So prefer an exact module-qualified
+    /// match; only fall back to simple-name resolution when the reference itself is unqualified
+    /// (where a single in-scope protocol of that name is the only unambiguous reading).</para>
+    /// </summary>
+    private ProtocolDecl? ResolveInheritedConformer(string simpleName, string qualifiedName)
+    {
+        bool MatchesQualified(ProtocolDecl p) =>
+            // Bare-name arm. Dead for a module-qualified reference (a candidate's simple Name never
+            // equals "Module.Name"), but LOAD-BEARING for an unqualified one: it binds an unqualified
+            // reference to a local same-named protocol while still inside the _allProtocols-first
+            // scan, so an unqualified local ref cannot leak into a same-simple-named cross-module
+            // namesake whose SwiftTypeName happens to render bare. Do NOT drop it as "dead" — the
+            // qualified phase would then fall through to _crossModuleParents and mis-resolve.
+            p.Name == qualifiedName ||
+            p.SwiftTypeName?.ToString() == qualifiedName ||
+            QualifiedProtocolName(p) == qualifiedName;
+
+        var qualifiedHit = _allProtocols?.FirstOrDefault(MatchesQualified)
+            ?? _crossModuleParents?.FirstOrDefault(MatchesQualified);
+        if (qualifiedHit != null)
+            return qualifiedHit;
+
+        // No module-qualified match: the reference is unqualified (simpleName == qualifiedName), or
+        // the candidate carries no module metadata. Resolve by simple name — an unqualified Swift
+        // reference is only well-formed when exactly one protocol of that name is in scope.
+        bool MatchesSimple(ProtocolDecl p) => p.Name == simpleName;
+        return _allProtocols?.FirstOrDefault(MatchesSimple)
+            ?? _crossModuleParents?.FirstOrDefault(MatchesSimple);
+    }
+
+    /// <summary>
+    /// The module-qualified <c>{Module}.{Name}</c> identity of a protocol, used to disambiguate a
+    /// same-simple-named protocol across dependency modules. Prefers the parser-supplied
+    /// <see cref="ProtocolDecl.ModuleDecl"/>; falls back to the bare name when no module is set.
+    /// </summary>
+    private static string QualifiedProtocolName(ProtocolDecl p) =>
+        p.ModuleDecl?.Name is { Length: > 0 } module ? $"{module}.{p.Name}" : p.Name;
 
     public EveryProtocolEmitter(ITypeDatabase typeDatabase, ILogger logger, string moduleName, ModuleEmissionContext? emissionContext = null)
     {
@@ -1827,12 +1978,21 @@ public class EveryProtocolEmitter
     /// appears before ParentProtocol in the list, the pre-scan will have already identified
     /// ParentProtocol as unsatisfied if it has static method requirements, etc.
     /// </summary>
-    public void PreScanProtocols(IReadOnlyList<ProtocolDecl> protocols)
+    public void PreScanProtocols(
+        IReadOnlyList<ProtocolDecl> protocols,
+        IReadOnlyList<ProtocolDecl>? crossModuleParents = null)
     {
         // Capture the module-local protocol list so transitive class-bound /
         // NSObjectProtocol-only checks can resolve inherited module-local protocols
         // by name at the routing checkpoints below.
         _allProtocols = protocols;
+
+        // Capture the cross-module parent decls so the cross-carrier suppression gate can
+        // resolve a child's inherited parent that lives in a --framework-dependency module and
+        // compare its emitted carrier (see AnyInheritedProtocolOnDifferentCarrier). Without this,
+        // `local Child : Dep.Parent, NSObjectProtocol` routes to EveryObjCProtocol while Dep.Parent
+        // emits on plain EveryProtocol, and the split is missed.
+        _crossModuleParents = crossModuleParents;
 
         // Pass 1: identify protocols that will be skipped by structural gates
         foreach (var protocolDecl in protocols)
@@ -1946,6 +2106,16 @@ public class EveryProtocolEmitter
             if (!IsEntityRootedProtocol(protocolDecl, _typeDatabase, _allProtocols))
                 return true;
         }
+
+        // Carrier-split gate: a refined @objc protocol whose inherited @objc parent routes to a
+        // different umbrella carrier cannot have its `extension {carrier}: Child` satisfied — the
+        // parent's witness lives on the other carrier. Seed the skip here so PreScanProtocols marks
+        // it in _skippedProtocols: IsConformanceSkipped then drops it from the sibling-plan owner
+        // input (and keeps it as a filtered peer), and Pass-2 genericSig propagation sees it, in
+        // lockstep with the emission-ladder gate in EmitProtocolConformance. See
+        // HasCrossCarrierInheritedRequirement.
+        if (HasCrossCarrierInheritedRequirement(protocolDecl))
+            return true;
 
         if (InheritsCaseIterable(protocolDecl))
             return true;
@@ -2243,6 +2413,20 @@ public class EveryProtocolEmitter
                 RecordSkip("ClassSuperclassRequired");
                 return;
             }
+        }
+
+        // Skip protocols whose EveryProtocol conformance would emit on a different umbrella
+        // carrier (EveryObjCProtocol / EveryEntityProtocol / EveryProtocol) than a
+        // transitively-inherited module-local protocol. The child's `extension {carrier}: Child`
+        // would be left without a witness for the parent's requirements — Swift rejects it with
+        // "type '{carrier}' does not conform to protocol 'Parent'". Cross-extension witness
+        // resolution never bridges carriers, so suppress fail-closed rather than emit a wrapper
+        // that fails to compile. Mirrors the WillSkipConformance pre-scan gate.
+        if (HasCrossCarrierInheritedRequirement(protocolDecl))
+        {
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: inherited protocol routes to a different umbrella carrier (cross-carrier witness split)");
+            RecordSkip("CrossCarrierInheritedRequirement");
+            return;
         }
 
         // Skip protocols whose genericSig constrains Self (τ_0_0) to conform to a protocol

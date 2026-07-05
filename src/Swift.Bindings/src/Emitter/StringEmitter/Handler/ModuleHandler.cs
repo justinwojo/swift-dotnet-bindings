@@ -1377,8 +1377,33 @@ namespace BindingsGeneration
             emitter.EmitCodableStubsIfNeeded(swiftWriter, suitableProtocols, protocols, typeDatabase);
 
             // Pre-scan: identify protocols that will be skipped by structural gates.
-            // This makes genericSig constraint checks order-independent.
-            emitter.PreScanProtocols(suitableProtocols);
+            // This makes genericSig constraint checks order-independent. Pass the cross-module
+            // parents so the cross-carrier suppression gate can resolve a child that inherits a
+            // parent in a --framework-dependency module (which emits its own EveryProtocol
+            // conformance below) and detect a carrier split across the module boundary.
+            emitter.PreScanProtocols(suitableProtocols, crossModuleParents);
+
+            // Drop cross-module parents that no LONGER have a live local child after the pre-scan.
+            // A cross-module parent's Swift EveryProtocol scaffolding (vtable struct + setter
+            // trampoline + extension, emitted at the crossModuleParents loop below) is only wired
+            // on the C# side by an inheriting LOCAL child proxy's static cctor
+            // (EmitCrossModuleParentVtableInit). If every local child that reaches this parent is
+            // suppressed — e.g. the cross-carrier gate drops a `Child : Dep.Parent, NSObjectProtocol`
+            // whose carrier splits from the parent's — no C# mirror is emitted, and the parent's
+            // Swift scaffolding is left orphaned: Swift declares the `_vtable` struct + `Set…_vtable`
+            // setter but C# never mirrors it or P/Invokes the setter (an artifact-parity divergence
+            // and a latent EntryPointNotFound). Keep a parent iff some EMITTABLE local child
+            // transitively inherits it; otherwise neither side emits.
+            crossModuleParents = crossModuleParents
+                .Where(parent => suitableProtocols.Any(local =>
+                    !emitter.IsConformanceSkipped(local)
+                    && TransitivelyInheritsCrossModuleParent(
+                        local, moduleDecl,
+                        new HashSet<string>(StringComparer.Ordinal)
+                        {
+                            $"{parent.ModuleDecl?.Name}.{parent.Name}",
+                        })))
+                .ToList();
 
             // Track emitted method signatures globally to detect conflicts across protocols
             // Key is the Swift method signature (e.g., "removeAll()")

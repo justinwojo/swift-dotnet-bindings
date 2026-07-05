@@ -675,6 +675,178 @@ public class EveryProtocolEmitterTests
         Assert.Empty(fallbacks);
     }
 
+    #region Cross-carrier inherited-requirement suppression (refined @objc protocol)
+
+    [Fact]
+    public void CrossCarrierInheritedRequirement_ObjCChildRefiningPlainObjCParent_ChildSuppressed()
+    {
+        // Shape: `@objc protocol Parent { func validateThing() }` — no NSObjectProtocol, so it
+        // routes to the plain EveryProtocol carrier — and `@objc protocol Child : Parent,
+        // NSObjectProtocol { var flag: Int { get } }` — lists NSObjectProtocol, so it routes to the
+        // NSObject-rooted EveryObjCProtocol carrier. Swift then requires EveryObjCProtocol to also
+        // satisfy Parent, but Parent's witness body was emitted on EveryProtocol, so
+        // `extension EveryObjCProtocol: Child` fails to compile ("type 'EveryObjCProtocol' does not
+        // conform to protocol 'Parent'"). The child conformance must be suppressed fail-closed while
+        // the parent's own plain-carrier conformance is left intact.
+        var parent = CreateProtocolWithMethod("CarrierParent", "validateThing");
+        var child = CreateProtocolWithProperty("CarrierChild", "flag", hasGetter: true, hasSetter: false);
+        child.InheritedProtocols.Add(new NamedTypeSpec("TestModule.CarrierParent"));
+        child.InheritedProtocols.Add(new NamedTypeSpec("ObjectiveC.NSObjectProtocol"));
+
+        _emitter.PreScanProtocols(new[] { parent, child });
+
+        // Pre-scan seeds the skip so IsConformanceSkipped removes the child from the sibling-plan
+        // owner input (and Pass-2 genericSig propagation sees it); the parent is unaffected.
+        Assert.True(_emitter.IsConformanceSkipped(child));
+        Assert.False(_emitter.IsConformanceSkipped(parent));
+
+        // Emission ladder suppresses the wrapper conformance on either carrier.
+        var childOutput = EmitFullConformance(child);
+        Assert.DoesNotContain("extension EveryObjCProtocol: TestModule.CarrierChild", childOutput);
+        Assert.DoesNotContain("extension EveryProtocol: TestModule.CarrierChild", childOutput);
+
+        // The parent still gets its plain-carrier conformance — the fix is surgical.
+        Assert.Contains("extension EveryProtocol: TestModule.CarrierParent", EmitFullConformance(parent));
+    }
+
+    [Fact]
+    public void CrossCarrierInheritedRequirement_ConsistentObjCChain_NotSuppressed()
+    {
+        // Both parent and child list NSObjectProtocol → both route to EveryObjCProtocol. Same carrier
+        // on both, so the child's conformance is satisfiable and must NOT be over-suppressed.
+        var parent = CreateObjCProtocolWithMethod("ObjCChainParent", "validateThing");
+        var child = CreateObjCProtocolWithProperty("ObjCChainChild", "flag", hasGetter: true, hasSetter: false);
+        child.InheritedProtocols.Add(new NamedTypeSpec("TestModule.ObjCChainParent"));
+
+        _emitter.PreScanProtocols(new[] { parent, child });
+
+        Assert.False(_emitter.IsConformanceSkipped(child));
+        Assert.False(_emitter.IsConformanceSkipped(parent));
+    }
+
+    [Fact]
+    public void CrossCarrierInheritedRequirement_PlainRefinement_NotSuppressed()
+    {
+        // Both parent and child are plain Swift protocols → both route to EveryProtocol. No carrier
+        // split, so the gate leaves the common refinement case untouched.
+        var parent = CreateProtocolWithMethod("PlainChainParent", "validateThing");
+        var child = CreateProtocolWithProperty("PlainChainChild", "flag", hasGetter: true, hasSetter: false);
+        child.InheritedProtocols.Add(new NamedTypeSpec("TestModule.PlainChainParent"));
+
+        _emitter.PreScanProtocols(new[] { parent, child });
+
+        Assert.False(_emitter.IsConformanceSkipped(child));
+        Assert.False(_emitter.IsConformanceSkipped(parent));
+        Assert.Contains("extension EveryProtocol: TestModule.PlainChainChild", EmitFullConformance(child));
+    }
+
+    [Fact]
+    public void CrossCarrierInheritedRequirement_CrossModuleParentRefinedByObjCChild_ChildSuppressed()
+    {
+        // Cross-module variant: the parent lives in a --framework-dependency module (DepModule), so it
+        // is supplied via the crossModuleParents argument, NOT the module-local list. The parent is a
+        // plain protocol → routes to EveryProtocol; the local child refines it AND NSObjectProtocol →
+        // routes to EveryObjCProtocol. Same carrier split as the same-module case, but the parent is
+        // only resolvable through the cross-module list. The gate must resolve it there and suppress
+        // the child fail-closed — otherwise the local wrapper emits an unsatisfiable
+        // `extension EveryObjCProtocol: DepChild`.
+        var parent = CreateCrossModuleParentWithMethod("DepModule", "DepCarrierParent", "validateThing");
+        var child = CreateProtocolWithProperty("DepCarrierChild", "flag", hasGetter: true, hasSetter: false);
+        child.InheritedProtocols.Add(new NamedTypeSpec("DepModule.DepCarrierParent"));
+        child.InheritedProtocols.Add(new NamedTypeSpec("ObjectiveC.NSObjectProtocol"));
+
+        _emitter.PreScanProtocols(new[] { child }, new[] { parent });
+
+        Assert.True(_emitter.IsConformanceSkipped(child));
+        // Emission ladder suppresses the wrapper conformance on either carrier.
+        var childOutput = EmitFullConformance(child);
+        Assert.DoesNotContain("extension EveryObjCProtocol: TestModule.DepCarrierChild", childOutput);
+        Assert.DoesNotContain("extension EveryProtocol: TestModule.DepCarrierChild", childOutput);
+    }
+
+    [Fact]
+    public void CrossCarrierInheritedRequirement_CrossModuleConsistentObjCChain_NotSuppressed()
+    {
+        // The cross-module parent ALSO lists NSObjectProtocol → routes to EveryObjCProtocol, same as the
+        // child. No carrier split, so the child must NOT be over-suppressed even though the parent is
+        // cross-module.
+        var parent = CreateCrossModuleParentWithMethod("DepModule", "DepObjCParent", "validateThing");
+        parent.InheritedProtocols.Add(new NamedTypeSpec("ObjectiveC.NSObjectProtocol"));
+        var child = CreateProtocolWithProperty("DepObjCChild", "flag", hasGetter: true, hasSetter: false);
+        child.InheritedProtocols.Add(new NamedTypeSpec("DepModule.DepObjCParent"));
+        child.InheritedProtocols.Add(new NamedTypeSpec("ObjectiveC.NSObjectProtocol"));
+
+        _emitter.PreScanProtocols(new[] { child }, new[] { parent });
+
+        Assert.False(_emitter.IsConformanceSkipped(child));
+    }
+
+    [Fact]
+    public void CrossCarrierInheritedRequirement_CrossModuleParentNotSupplied_SplitNotDetected()
+    {
+        // Guards the load-bearing crossModuleParents argument: without it the gate cannot resolve the
+        // cross-module parent's carrier, so the split is silently missed and the child is NOT suppressed.
+        // ModuleHandler MUST pass the parents (which it does) for the cross-module split to be caught —
+        // this asserts the mechanism is the parent list, not incidental behaviour.
+        var child = CreateProtocolWithProperty("UnresolvedParentChild", "flag", hasGetter: true, hasSetter: false);
+        child.InheritedProtocols.Add(new NamedTypeSpec("DepModule.DepCarrierParent"));
+        child.InheritedProtocols.Add(new NamedTypeSpec("ObjectiveC.NSObjectProtocol"));
+
+        // No crossModuleParents supplied — the dep parent is unresolvable.
+        _emitter.PreScanProtocols(new[] { child });
+
+        Assert.False(_emitter.IsConformanceSkipped(child));
+    }
+
+    [Fact]
+    public void CrossCarrierInheritedRequirement_SameSimpleNameCrossModuleParents_NoFalseSplitOnObjCNamesake()
+    {
+        // Two --framework-dependency modules each export a protocol with the SAME simple name
+        // "Delegate": DepA.Delegate is plain (→ EveryProtocol) and DepB.Delegate lists
+        // NSObjectProtocol (→ EveryObjCProtocol). The local child refines the ObjC one
+        // (DepB.Delegate) AND NSObjectProtocol, so it routes to EveryObjCProtocol — the SAME
+        // carrier as its true parent → NO split → it must NOT be suppressed. Resolving the
+        // inherited "DepB.Delegate" by bare simple name binds the FIRST-seen namesake
+        // (DepA.Delegate, plain → EveryProtocol), fabricates a carrier split, and over-suppresses
+        // a child that compiles fine. The resolver must disambiguate by module-qualified name.
+        var plainNamesake = CreateCrossModuleParentWithMethod("DepA", "Delegate", "doA");
+        var objcNamesake = CreateCrossModuleParentWithMethod("DepB", "Delegate", "doB");
+        objcNamesake.InheritedProtocols.Add(new NamedTypeSpec("ObjectiveC.NSObjectProtocol"));
+
+        var child = CreateProtocolWithProperty("SameNameDelegateChild", "flag", hasGetter: true, hasSetter: false);
+        child.InheritedProtocols.Add(new NamedTypeSpec("DepB.Delegate"));
+        child.InheritedProtocols.Add(new NamedTypeSpec("ObjectiveC.NSObjectProtocol"));
+
+        // plainNamesake FIRST so a bare simple-name FirstOrDefault resolves "DepB.Delegate" to it.
+        _emitter.PreScanProtocols(new[] { child }, new[] { plainNamesake, objcNamesake });
+
+        Assert.False(_emitter.IsConformanceSkipped(child));
+    }
+
+    [Fact]
+    public void CrossCarrierInheritedRequirement_SameSimpleNameCrossModuleParents_StillDetectsRealSplit()
+    {
+        // Same two same-simple-name namesakes, but the ObjC child now refines the PLAIN one
+        // (DepA.Delegate → EveryProtocol). That IS a real carrier split (child EveryObjCProtocol,
+        // parent EveryProtocol), so the child MUST be suppressed — proving the qualified resolver
+        // binds DepA.Delegate specifically and does not simply always latch the ObjC namesake.
+        // objcNamesake is listed FIRST so a first-match resolver would pick it and MISS the split.
+        var plainNamesake = CreateCrossModuleParentWithMethod("DepA", "Delegate", "doA");
+        var objcNamesake = CreateCrossModuleParentWithMethod("DepB", "Delegate", "doB");
+        objcNamesake.InheritedProtocols.Add(new NamedTypeSpec("ObjectiveC.NSObjectProtocol"));
+
+        var child = CreateProtocolWithProperty("SplitDelegateChild", "flag", hasGetter: true, hasSetter: false);
+        child.InheritedProtocols.Add(new NamedTypeSpec("DepA.Delegate"));
+        child.InheritedProtocols.Add(new NamedTypeSpec("ObjectiveC.NSObjectProtocol"));
+
+        // objcNamesake FIRST so a bare simple-name FirstOrDefault resolves "DepA.Delegate" to it.
+        _emitter.PreScanProtocols(new[] { child }, new[] { objcNamesake, plainNamesake });
+
+        Assert.True(_emitter.IsConformanceSkipped(child));
+    }
+
+    #endregion
+
     private static EveryProtocolEmitter.MethodEmissionPlan PlanFor(
         IReadOnlyDictionary<(string ProtoQName, string CarrierAndSignature), EveryProtocolEmitter.MethodEmissionPlan> plans,
         ProtocolDecl proto)
@@ -2656,6 +2828,17 @@ public class EveryProtocolEmitterTests
 
         protocol.Methods.Add(CreateMethodDecl(methodName));
 
+        return protocol;
+    }
+
+    // A parent protocol homed in a --framework-dependency module: same shape as
+    // CreateProtocolWithMethod but its SwiftTypeName is qualified with the dependency module so the
+    // cross-carrier gate treats it as a cross-module parent (supplied via PreScanProtocols'
+    // crossModuleParents argument rather than the module-local list).
+    private ProtocolDecl CreateCrossModuleParentWithMethod(string module, string name, string methodName)
+    {
+        var protocol = CreateProtocolWithMethod(name, methodName);
+        protocol.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{module}.{name}");
         return protocol;
     }
 
