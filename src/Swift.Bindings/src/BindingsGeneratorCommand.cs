@@ -1382,9 +1382,10 @@ public static class BindingsGeneratorCommand
                 // so the companion emitter and these binding-project/consumer-targets emitters
                 // share one probe and one drop decision (Gap 2).
 
-                // Mixed requires a zero-exit pipeline AND at least one ObjC class, protocol, or
-                // category after filtering (see IsMixedFramework for the deliberate "zero types
-                // → Swift-only" decision).
+                // Mixed requires a zero-exit pipeline AND at least one bindable ObjC type — class,
+                // protocol, category, or bridgeable enum — after filtering (see IsMixedFramework for
+                // the deliberate "zero types → Swift-only" decision, and why the enum term must
+                // track the ObjCPipeline companion-emission gate).
                 bool isMixed = IsMixedFramework(mixedObjcResult);
                 string? objcProjFileName = isMixed
                     ? Path.GetFileName(mixedObjcResult!.ProjectPath!)
@@ -1966,20 +1967,35 @@ public static class BindingsGeneratorCommand
 
     /// <summary>
     /// Classifies a framework as "Mixed" (Swift API + an embedded ObjC companion) iff the ObjC
-    /// pipeline both <b>succeeded</b> (exit 0) AND produced at least one bindable ObjC class,
-    /// protocol, or category <i>after</i> mixed-framework filtering. A zero-exit run that filtered
-    /// down to zero bindable types is deliberately treated as a plain Swift framework — there is no
-    /// managed ObjC surface to embed, so emitting a companion (and its <c>SWIFTBIND039</c> contract)
-    /// would be spurious. This is the same predicate that decides <c>frameworkType</c> and whether
-    /// an <c>objcProjectName</c> is recorded, so the companion-embed machinery and the metadata
-    /// agree by construction. Callers that detected an ObjC surface but reach here with a non-zero
-    /// exit are handled earlier by <see cref="ShouldAbortForFailedMixedObjC"/>.
+    /// pipeline both <b>succeeded</b> (exit 0) AND produced at least one bindable ObjC type — a
+    /// class, protocol, category, <b>or a bridgeable enum</b> — <i>after</i> mixed-framework
+    /// filtering. A zero-exit run that filtered down to zero bindable types is deliberately treated
+    /// as a plain Swift framework — there is no managed ObjC surface to embed, so emitting a
+    /// companion (and its <c>SWIFTBIND039</c> contract) would be spurious.
+    ///
+    /// <para>The enum term is load-bearing and MUST stay in lockstep with the companion-emission
+    /// gate in <c>ObjCPipeline.FilterAndEmit</c> (which skips emission only when
+    /// classes/protocols/categories/enums are ALL zero). A bridged <c>NS_ENUM</c>/<c>NS_OPTIONS</c>
+    /// with no accompanying ObjC class still forces a companion — a synthesized bridge record
+    /// resolves a Swift member (e.g. <c>validate(options:)</c>) to that companion's <c>[Flags]</c>
+    /// enum. If this predicate drops the enum term while the pipeline still emits the companion, the
+    /// framework is mis-classified "Swift", the SDK never builds/references the companion
+    /// (<c>_BuildMixedObjCCompanion</c>/<c>_ReferenceMixedObjCCompanion</c> are both gated on
+    /// <c>FrameworkType == 'Mixed'</c>), and the Swift binding's reference to the enum fails with
+    /// CS0234 — the exact failure mode of an enum-only companion (no class-bearing PackGate fixture
+    /// exercises that shape).</para>
+    ///
+    /// This is the same predicate that decides <c>frameworkType</c> and whether an
+    /// <c>objcProjectName</c> is recorded, so the companion-embed machinery and the metadata agree
+    /// by construction. Callers that detected an ObjC surface but reach here with a non-zero exit
+    /// are handled earlier by <see cref="ShouldAbortForFailedMixedObjC"/>.
     /// </summary>
     internal static bool IsMixedFramework(ObjCPipelineResult? mixedObjcResult)
         => mixedObjcResult?.ExitCode == 0
            && (mixedObjcResult.Module?.Classes.Count > 0
                || mixedObjcResult.Module?.Protocols.Count > 0
-               || mixedObjcResult.Module?.Categories.Count > 0);
+               || mixedObjcResult.Module?.Categories.Count > 0
+               || mixedObjcResult.Module?.Enums.Count > 0);
 
     internal static List<string>? GetDependencyModuleNamesForSwiftImports(
         IReadOnlyList<FrameworkDependencyInfo>? resolvedDependencies)

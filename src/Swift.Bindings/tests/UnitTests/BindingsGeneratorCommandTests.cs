@@ -620,16 +620,25 @@ public class ShouldAbortForFailedMixedObjCTests
 /// <summary>
 /// <c>IsMixedFramework</c> decides <c>frameworkType</c> ("Mixed" vs "Swift") and whether an
 /// <c>objcProjectName</c>/companion-embed machinery is recorded. A framework is Mixed iff the
-/// ObjC pipeline succeeded AND produced at least one bindable class, protocol, or category after
-/// mixed-framework filtering. The deliberate edge: a zero-exit run whose module filtered down to
-/// zero bindable types is a plain Swift framework — no managed ObjC surface exists to embed, so
-/// emitting a companion (and its SWIFTBIND039 contract) would be spurious. Pinning this keeps the
-/// "zero types → Swift-only" outcome a documented, tested decision rather than silent behavior.
+/// ObjC pipeline succeeded AND produced at least one bindable class, protocol, category, or
+/// bridgeable enum after mixed-framework filtering. The deliberate edge: a zero-exit run whose
+/// module filtered down to zero bindable types is a plain Swift framework — no managed ObjC surface
+/// exists to embed, so emitting a companion (and its SWIFTBIND039 contract) would be spurious.
+/// Pinning this keeps the "zero types → Swift-only" outcome a documented, tested decision rather
+/// than silent behavior.
+///
+/// The enum cases are the regression guard for an enum-only companion (a bridged NS_ENUM/NS_OPTIONS
+/// with no ObjC class): the ObjCPipeline still emits a companion for it because a synthesized bridge
+/// record resolves a Swift member to that companion's [Flags] enum, so this predicate must classify
+/// it Mixed too — otherwise the metadata says "Swift", the SDK never builds/references the
+/// companion, and the Swift binding's reference to the enum fails CS0234. No class-bearing fixture
+/// covers that shape, so it lives here.
 /// </summary>
 public class IsMixedFrameworkTests
 {
     private static ObjCModule ModuleWith(
-        bool withClass = false, bool withProtocol = false, bool withCategory = false)
+        bool withClass = false, bool withProtocol = false, bool withCategory = false,
+        bool withEnum = false, bool enumIsOptions = false)
     {
         var module = new ObjCModule { ModuleName = "M" };
         if (withClass)
@@ -638,6 +647,8 @@ public class IsMixedFrameworkTests
             module.Protocols.Add(new ObjCProtocolDecl { Name = "Bar" });
         if (withCategory)
             module.Categories.Add(new ObjCCategoryDecl { CategoryName = "Ext", ClassName = "Foo" });
+        if (withEnum)
+            module.Enums.Add(new ObjCEnumDecl { Name = "Level", IsOptions = enumIsOptions });
         return module;
     }
 
@@ -671,6 +682,21 @@ public class IsMixedFrameworkTests
     {
         var result = new ObjCPipelineResult(
             0, ModuleWith(withClass: cls, withProtocol: proto, withCategory: cat), null);
+        Assert.True(BindingsGeneratorCommand.IsMixedFramework(result));
+    }
+
+    [Theory]
+    [InlineData(false)] // bridged NS_ENUM
+    [InlineData(true)]  // bridged NS_OPTIONS
+    public void ZeroExit_WithBridgedEnumOnly_IsMixed(bool enumIsOptions)
+    {
+        // An enum-only companion (no ObjC class/protocol/category) is still Mixed: the ObjCPipeline
+        // emits a companion for the bridged enum, and a Swift member resolves to that companion's
+        // [Flags] enum — so the metadata MUST say "Mixed" or the SDK never builds/references the
+        // companion and the Swift binding's enum reference fails CS0234. This is the FBSDKShareKit
+        // (FBSDKShareBridgeOptions) shape that no class-bearing fixture exercises.
+        var result = new ObjCPipelineResult(
+            0, ModuleWith(withEnum: true, enumIsOptions: enumIsOptions), null);
         Assert.True(BindingsGeneratorCommand.IsMixedFramework(result));
     }
 
