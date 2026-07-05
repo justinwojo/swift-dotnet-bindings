@@ -75,7 +75,11 @@ namespace BindingsGeneration
             {
                 resultName = ReturnLocalName;
             }
-            csWriter.WriteLine($"{accessModifier} static bool TryCreate({_wrapperSignature.ParametersStringWithoutDefaults()}{(_wrapperSignature.Parameters.Count > 0 ? ", " : "")}out {typeName} {resultName})");
+            // FB-1b: a failable init whose projected TryCreate signature collided with an earlier sibling
+            // is recovered under a distinguishing-label-suffixed factory name (e.g. TryCreateWithMessengerPageId);
+            // the first-declared/no-collision case keeps the plain "TryCreate".
+            var factoryName = _env.FailableFactoryName ?? "TryCreate";
+            csWriter.WriteLine($"{accessModifier} static bool {factoryName}({_wrapperSignature.ParametersStringWithoutDefaults()}{(_wrapperSignature.Parameters.Count > 0 ? ", " : "")}out {typeName} {resultName})");
             EmitBodyStart(csWriter);
             EmitAvailabilityGuard(csWriter);
             EmitUnsafeBlockStart(csWriter);

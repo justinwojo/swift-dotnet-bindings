@@ -265,6 +265,16 @@ namespace BindingsGeneration
         public string? AdoptedOverrideCSharpName { get; set; }
 
         /// <summary>
+        /// FB-1b: when non-null, the C# static-factory name a failable init (<c>init?</c>/<c>init!</c>)
+        /// emits under, replacing the default <c>TryCreate</c>. Set by the <c>IHandler</c> dedup pass only
+        /// when this init's projected <c>TryCreate</c> signature collides with an earlier-declared sibling,
+        /// so the otherwise-dropped overload is recovered under a distinguishing-label suffix
+        /// (e.g. <c>TryCreateWithMessengerPageId</c>). Null — the common case — leaves the emitter's plain
+        /// <c>TryCreate</c>. Only <see cref="WrapperEmitter.EmitFailableFactory"/> reads it.
+        /// </summary>
+        public string? FailableFactoryName { get; set; }
+
+        /// <summary>
         /// Gets the C# method name, resolving any collisions with property names
         /// and applying collision disambiguation suffix when needed.
         /// </summary>

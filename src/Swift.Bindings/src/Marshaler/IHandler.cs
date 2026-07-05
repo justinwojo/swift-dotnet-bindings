@@ -196,6 +196,11 @@ namespace BindingsGeneration
             var emittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal);
             // Track collision counts per projected key for disambiguation suffix generation
             var projectedKeyCollisionCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            // FB-1b: the first-declared failable init (init?/init!) to own each projected C# key. Later
+            // siblings that erase to the same TryCreate signature recover under a label-suffixed factory
+            // name (TryCreateWith{DistinguishingLabel}) computed against this winner, instead of being
+            // dropped as DuplicateSignature. Keyed by the label-free projected ctor key.
+            var firstFailableInitByProjectedKey = new Dictionary<string, MethodDecl>(StringComparer.Ordinal);
 
             var sortedDecl = TopologicallySortTypes(decl);
             var emissionCtx = context.GetEmissionContext();
@@ -473,48 +478,106 @@ namespace BindingsGeneration
                     // later siblings take the suffixed slot — matching the C# surface earlier releases shipped.
                     int collisionIndex = collisionRankMap.GetValueOrDefault(methodDecl, 0);
                     var reservedKey = ApplyCollisionSuffixToKey(projectedKey, collisionIndex);
+                    // FB-1b: recovered static-factory name for a colliding failable init; null keeps the
+                    // default "TryCreate" (winner / no-collision).
+                    string? failableFactoryName = null;
                     if (!emittedProjectedSignatures.Add(reservedKey))
                     {
                         if (methodDecl.IsConstructor)
                         {
-                            // Constructors can't be renamed — skip as before. The other
-                            // overload that owns this projected key was already emitted in
-                            // the same class body, so writing a `// Unsupported: method
-                            // 'init' — C# signature collides…` comment into csWriter here
-                            // would land directly above whatever is emitted next and read
-                            // as if it applied to that working member. Record the skip in
-                            // report.json (the audit trail) but suppress the source-level
-                            // comment — a collision-suppressed unsupported annotation landing above a
-                            // working member would
-                            // mislead readers.
-                            _logger.LogDebug($"Skipping constructor '{methodDecl.Name}' - projected C# signature collides: {projectedKey}");
-                            ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.DuplicateSignature, $"Projected C# constructor signature collides: {projectedKey}");
-                            continue;
+                            if (methodDecl.IsFailable)
+                            {
+                                // FB-1b: a failable init (init?/init!) is emitted as a static `TryCreate`
+                                // factory, which — unlike a real constructor whose name is the type name —
+                                // CAN be renamed. Recover the otherwise-dropped overload by suffixing its
+                                // distinguishing Swift argument label(s) versus the winning sibling
+                                // (e.g. TryCreateWithMessengerPageId), rather than skipping it as a
+                                // DuplicateSignature. The first-declared init keeps the plain `TryCreate`
+                                // name (nothing already emitted is renamed).
+                                firstFailableInitByProjectedKey.TryGetValue(projectedKey, out var winner);
+                                failableFactoryName = BuildFailableFactoryName(methodDecl, winner, projectedKey, projectedKeyCollisionCounts);
+                                // The Add(reservedKey) above reserved the CONSTRUCTOR key namespace, but the
+                                // recovered factory emits under `failableFactoryName` — an ordinary static method.
+                                // Its true C# signature is `{name}({inputs}, out {Self})`: the trailing `out`
+                                // gives it a DIFFERENT arity than any same-named natural method (which never emits
+                                // an `out`), so those never collide in C#. The only member that CAN duplicate a
+                                // factory's signature is ANOTHER failable factory with the same name + input types.
+                                // Reserve the factory in its own namespace (so a natural same-name method can't
+                                // false-trigger an escalation) and, on a genuine factory-vs-factory clash, walk to
+                                // the next free numeric suffix. Defensive: the primary label-dedup above already
+                                // collapses same-label siblings and BuildFailableFactoryName's numeric fallback
+                                // counter keeps unlabeled siblings distinct, so no in-tree input reaches the
+                                // escalation — but the reservation closes the structural fail-open (an untracked
+                                // emitted signature) so a future change to name rendering can't silently emit CS0111.
+                                int factoryParen = projectedKey.IndexOf('(');
+                                if (factoryParen > 0)
+                                {
+                                    string factoryParams = projectedKey.Substring(factoryParen);
+                                    const string factoryNamespace = "failable-factory:";
+                                    if (!emittedProjectedSignatures.Add(factoryNamespace + failableFactoryName + factoryParams))
+                                    {
+                                        int factorySuffix = 1;
+                                        string escalatedName;
+                                        do
+                                        {
+                                            escalatedName = $"{failableFactoryName}{++factorySuffix}";
+                                        } while (!emittedProjectedSignatures.Add(factoryNamespace + escalatedName + factoryParams));
+                                        failableFactoryName = escalatedName;
+                                    }
+                                }
+                                _logger.LogDebug($"Recovering failable init '{methodDecl.Name}' — projected C# signature collides: {projectedKey} → {failableFactoryName}");
+                                // fall through: emit the factory under the disambiguated name
+                            }
+                            else
+                            {
+                                // Real constructors can't be renamed — skip as before. The other
+                                // overload that owns this projected key was already emitted in
+                                // the same class body, so writing a `// Unsupported: method
+                                // 'init' — C# signature collides…` comment into csWriter here
+                                // would land directly above whatever is emitted next and read
+                                // as if it applied to that working member. Record the skip in
+                                // report.json (the audit trail) but suppress the source-level
+                                // comment — a collision-suppressed unsupported annotation landing above a
+                                // working member would
+                                // mislead readers.
+                                _logger.LogDebug($"Skipping constructor '{methodDecl.Name}' - projected C# signature collides: {projectedKey}");
+                                ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.DuplicateSignature, $"Projected C# constructor signature collides: {projectedKey}");
+                                continue;
+                            }
                         }
-
-                        // Occupancy escalation: the rank-derived slot is already taken by an UNRELATED natural
-                        // name (a method literally named to match the suffixed form). Walk to the next free
-                        // suffix. Seed from the rank so an in-group member never collapses onto a lower-ranked
-                        // sibling's already-reserved slot.
-                        var count = Math.Max(collisionIndex,
-                            projectedKeyCollisionCounts.TryGetValue(projectedKey, out var seeded) ? seeded : 0);
-                        string disambiguatedKey;
-                        do
+                        else
                         {
-                            collisionIndex = ++count;
-                            disambiguatedKey = ApplyCollisionSuffixToKey(projectedKey, collisionIndex);
-                        } while (!emittedProjectedSignatures.Add(disambiguatedKey));
-                        projectedKeyCollisionCounts[projectedKey] = collisionIndex;
-
-                        _logger.LogDebug($"Disambiguating method '{methodDecl.Name}' — collision #{collisionIndex + 1} for projected key: {projectedKey} → {disambiguatedKey}");
-                    }
-                    else if (collisionIndex > 0)
-                    {
-                        // In-group member that claimed its rank-derived suffixed slot directly (no occupancy
-                        // clash). Record the high-water mark so a later unrelated natural-name collision on the
-                        // same projected key escalates ABOVE this slot rather than re-issuing it.
-                        if (!projectedKeyCollisionCounts.TryGetValue(projectedKey, out var seeded) || seeded < collisionIndex)
+                            // Occupancy escalation: the rank-derived slot is already taken by an UNRELATED natural
+                            // name (a method literally named to match the suffixed form). Walk to the next free
+                            // suffix. Seed from the rank so an in-group member never collapses onto a lower-ranked
+                            // sibling's already-reserved slot.
+                            var count = Math.Max(collisionIndex,
+                                projectedKeyCollisionCounts.TryGetValue(projectedKey, out var seeded) ? seeded : 0);
+                            string disambiguatedKey;
+                            do
+                            {
+                                collisionIndex = ++count;
+                                disambiguatedKey = ApplyCollisionSuffixToKey(projectedKey, collisionIndex);
+                            } while (!emittedProjectedSignatures.Add(disambiguatedKey));
                             projectedKeyCollisionCounts[projectedKey] = collisionIndex;
+
+                            _logger.LogDebug($"Disambiguating method '{methodDecl.Name}' — collision #{collisionIndex + 1} for projected key: {projectedKey} → {disambiguatedKey}");
+                        }
+                    }
+                    else
+                    {
+                        if (collisionIndex > 0)
+                        {
+                            // In-group member that claimed its rank-derived suffixed slot directly (no occupancy
+                            // clash). Record the high-water mark so a later unrelated natural-name collision on the
+                            // same projected key escalates ABOVE this slot rather than re-issuing it.
+                            if (!projectedKeyCollisionCounts.TryGetValue(projectedKey, out var seeded) || seeded < collisionIndex)
+                                projectedKeyCollisionCounts[projectedKey] = collisionIndex;
+                        }
+                        // FB-1b: the first failable init to claim a projected key is the winner — it keeps the
+                        // plain `TryCreate` name and later same-key failable siblings disambiguate against it.
+                        if (methodDecl.IsConstructor && methodDecl.IsFailable)
+                            firstFailableInitByProjectedKey.TryAdd(projectedKey, methodDecl);
                     }
 
                     if (conductor.TryGetMethodHandler(methodDecl, out var handler))
@@ -522,6 +585,9 @@ namespace BindingsGeneration
                         // Pass property names and P/Invoke helper context to the method environment
                         var env = new MethodEnvironment(methodDecl, typeDatabase, siblingPropertyNames, context.PInvokeHelperContext, context.CompositionCollector);
                         env.CollisionIndex = collisionIndex;
+                        // FB-1b: a recovered colliding failable init emits under a label-disambiguated
+                        // static-factory name; null leaves the emitter's default "TryCreate".
+                        env.FailableFactoryName = failableFactoryName;
                         // Scenario A: a derived override of one collision-suffixed base overload
                         // must adopt the ancestor slot's emitted name (resolved by full Swift selector,
                         // labels included) — otherwise it recomputes a suffix-free name from its own
@@ -1012,6 +1078,59 @@ namespace BindingsGeneration
             var parenIndex = projectedKey.IndexOf('(');
             if (parenIndex < 0) return $"{projectedKey}{collisionIndex + 1}";
             return $"{projectedKey[..parenIndex]}{collisionIndex + 1}{projectedKey[parenIndex..]}";
+        }
+
+        /// <summary>
+        /// FB-1b: computes the disambiguated static-factory name for a failable init (<c>init?</c>/
+        /// <c>init!</c>) whose projected C# <c>TryCreate</c> signature collides with an earlier-declared
+        /// sibling. The first-declared init keeps the plain <c>TryCreate</c> name; each colliding sibling
+        /// is suffixed by its <b>distinguishing</b> Swift argument label(s) — the labels that differ from
+        /// the <paramref name="winner"/> at the same position — producing e.g. <c>TryCreateWithMessengerPageId</c>.
+        /// The colliding siblings share the same projected parameter types and arity by construction (that
+        /// is what makes their keys collide), so a position-wise label comparison is well-defined; and
+        /// because <see cref="GetMethodSignatureKey"/> (the primary dedup) already includes labels, any
+        /// sibling reaching this projected-collision path differs from the winner in at least one usable
+        /// label, so the distinguishing set is non-empty in practice. A defensive numeric fallback keeps the
+        /// name unique in the pathological all-unlabeled case (which primary dedup would already have
+        /// collapsed). Purely additive to the emitted surface: nothing already emitted is renamed.
+        /// </summary>
+        /// <param name="failableInit">The colliding failable init to name.</param>
+        /// <param name="winner">The first-declared failable init that owns the plain <c>TryCreate</c> slot,
+        /// or null if the slot was claimed by a non-failable constructor (then all usable labels distinguish).</param>
+        /// <param name="projectedKey">The label-free projected ctor key, used only for the numeric fallback counter.</param>
+        /// <param name="projectedKeyCollisionCounts">Shared per-body counter reused for the numeric fallback.</param>
+        internal static string BuildFailableFactoryName(
+            MethodDecl failableInit, MethodDecl? winner, string projectedKey,
+            Dictionary<string, int> projectedKeyCollisionCounts)
+        {
+            var sb = new System.Text.StringBuilder();
+            var winnerArgs = winner?.CSSignature;
+            // CSSignature[0] is the return type; real parameters start at index 1.
+            for (int i = 1; i < failableInit.CSSignature.Count; i++)
+            {
+                var arg = failableInit.CSSignature[i];
+                if (arg.SwiftTypeSpec == null || arg.SwiftTypeSpec.IsEmptyTuple)
+                    continue;
+                var label = arg.GetSwiftName();
+                if (string.IsNullOrEmpty(label) || label == "_" || SwiftBuilder.IsAutoGeneratedArgName(label))
+                    continue;
+                // A label shared with the winner at the same position does not distinguish this overload.
+                if (winnerArgs != null && i < winnerArgs.Count && winnerArgs[i].GetSwiftName() == label)
+                    continue;
+                sb.Append(char.ToUpperInvariant(label[0]));
+                if (label.Length > 1)
+                    sb.Append(label.Substring(1));
+            }
+
+            if (sb.Length > 0)
+                return $"TryCreateWith{sb}";
+
+            // Pathological fallback: no usable distinguishing label (e.g. all positional/synthesized).
+            // Take the next free numeric suffix on the shared per-body counter so the name is still unique
+            // and never collapses onto the winner's "TryCreate".
+            var next = (projectedKeyCollisionCounts.TryGetValue(projectedKey, out var seeded) ? seeded : 0) + 1;
+            projectedKeyCollisionCounts[projectedKey] = next;
+            return $"TryCreate{next + 1}";
         }
 
         /// <summary>

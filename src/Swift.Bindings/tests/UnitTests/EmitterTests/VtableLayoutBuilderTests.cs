@@ -351,11 +351,11 @@ public class VtableLayoutBuilderTests
         var instanceSub = CreateSubscript();
         var staticSub = CreateSubscript(isStatic: true);
         Assert.Equal(
-            VtableLayoutBuilder.ClassifySubscript(instanceSub, proto) == SlotVerdict.Included,
-            ProtocolVtableMembers.IncludesSubscript(instanceSub, proto));
+            VtableLayoutBuilder.ClassifySubscript(instanceSub, proto, closureHandler) == SlotVerdict.Included,
+            ProtocolVtableMembers.IncludesSubscript(instanceSub, proto, closureHandler));
         Assert.Equal(
-            VtableLayoutBuilder.ClassifySubscript(staticSub, proto) == SlotVerdict.Included,
-            ProtocolVtableMembers.IncludesSubscript(staticSub, proto));
+            VtableLayoutBuilder.ClassifySubscript(staticSub, proto, closureHandler) == SlotVerdict.Included,
+            ProtocolVtableMembers.IncludesSubscript(staticSub, proto, closureHandler));
 
         var plain = CreateMethod("foo");
         var ctor = CreateMethod("init", isConstructor: true);

@@ -142,6 +142,17 @@ public class MemberGateEvaluator
             }
         }
 
+        // P8b: @objc protocol existential in an unsupported nested position (container/tuple/closure).
+        // Only a bare `any P` / `Optional<any P>` property marshals as a single ObjC object pointer; a
+        // nested position would route the reverse-dispatch receiver through the 40-byte ExistentialContainer1
+        // carrier against an 8-byte @objc stride — a buffer over-read. Fail closed, in lockstep with the
+        // concrete-side gate (MemberEmissionValidator.CanEmitProperty) AND the reverse-dispatch
+        // VtableLayoutBuilder.ClassifyProperty: the requirement must leave the interface declaration and its
+        // vtable slot together, or the vtable size desyncs → SIGSEGV.
+        if (ExistentialHandler.HasUnsupportedObjCProtocolExistentialPosition(property.SwiftTypeSpec, _typeDatabase))
+            return GateResult.Skipped(SkipReason.UnsupportedExistential,
+                "Property has an @objc protocol existential in an unsupported nested position (container/tuple/closure).");
+
         // P9: Pattern 2 emission-time gate — property type reaches a name in
         // ModuleDecl.InternalTypeNames. Mirrors S6 in EvaluateSubscript and the
         // concrete-side gate in MemberValidationPipeline.ValidatePropertyEmission.
@@ -204,6 +215,20 @@ public class MemberGateEvaluator
                 existentialHandler.IsOptionalExistential(arg.SwiftTypeSpec));
             if (hasExistentialParam)
                 softFlags |= SoftGateFlags.HasExistentialParam;
+        }
+
+        // @objc protocol existential in an unsupported nested position — hard, fail-closed drop, in lockstep
+        // with the concrete-side gate (MemberEmissionValidator.ShouldSkipMethodEmission) AND the
+        // reverse-dispatch VtableLayoutBuilder.ClassifyMethod. Only a bare `any P` / `Optional<any P>` marshals
+        // as a single ObjC object pointer; a nested container/tuple/closure position would route the reverse
+        // receiver through the 40-byte ExistentialContainer1 carrier against an 8-byte @objc stride (buffer
+        // over-read). The gate is the SAME predicate on both sides so dropping the requirement from the
+        // interface and dropping its vtable slot stay in lockstep — desyncing them would blow up vtable size → SIGSEGV.
+        foreach (var arg in method.CSSignature)
+        {
+            if (ExistentialHandler.HasUnsupportedObjCProtocolExistentialPosition(arg.SwiftTypeSpec, _typeDatabase))
+                return GateResult.Skipped(SkipReason.UnsupportedExistential,
+                    "Method has an @objc protocol existential in an unsupported nested position (container/tuple/closure).");
         }
 
         // Closure parameter (soft gate — accumulate)
@@ -313,6 +338,18 @@ public class MemberGateEvaluator
                     kind == ValidationRuleSet.UnsupportedReferenceKind.NetUnavailable
                         ? $"Subscript signature references .NET-unavailable type '{offending}'."
                         : "Subscript signature references unsupported module (SwiftUI/Combine).");
+        }
+
+        // S5b: @objc protocol existential in an unsupported nested position — hard, fail-closed drop, in
+        // lockstep with the reverse-dispatch VtableLayoutBuilder.ClassifySubscript. The predicate only fires
+        // for nested container/tuple/closure positions (a bare `any P` is fine), which would route the
+        // reverse receiver through the 40-byte ExistentialContainer1 carrier against an 8-byte @objc stride
+        // (buffer over-read). Drop from interface AND vtable slot together, else vtable size desyncs → SIGSEGV.
+        foreach (var spec in subscript.IndexParameters.Select(p => p.SwiftTypeSpec).Prepend(subscript.ReturnTypeSpec))
+        {
+            if (ExistentialHandler.HasUnsupportedObjCProtocolExistentialPosition(spec, _typeDatabase))
+                return GateResult.Skipped(SkipReason.UnsupportedExistential,
+                    "Subscript has an @objc protocol existential in an unsupported nested position (container/tuple/closure).");
         }
 
         // S6: Pattern 2 emission-time gate — subscript signature reaches a name in

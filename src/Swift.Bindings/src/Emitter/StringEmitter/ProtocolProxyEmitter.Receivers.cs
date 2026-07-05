@@ -51,7 +51,7 @@ public partial class ProtocolProxyEmitter
                 subscriptIndex++;
                 continue;
             }
-            if (applyVtableMembershipFilter && !ProtocolVtableMembers.IncludesSubscript(subscript, protocolDecl))
+            if (applyVtableMembershipFilter && !ProtocolVtableMembers.IncludesSubscript(subscript, protocolDecl, closureHandler))
             {
                 subscriptIndex++;
                 continue;

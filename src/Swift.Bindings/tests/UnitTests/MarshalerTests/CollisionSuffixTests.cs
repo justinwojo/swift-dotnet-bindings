@@ -110,6 +110,101 @@ public class CollisionSuffixTests
 
     #endregion
 
+    #region FB-1b — failable-init overload-collapse factory naming
+
+    // Two `init?` overloads whose parameter labels differ (messengerPageId vs nonce) but erase to the
+    // same projected C# `TryCreate(IEnumerable<string>, LoginTracking, string, out …)` signature. Before
+    // FB-1b the second was dropped as DuplicateSignature; now the first-declared keeps the plain
+    // `TryCreate` and the colliding sibling recovers under a label-disambiguated static-factory name.
+    // Behavior (not exact strings): the distinguishing label appears in the sibling's name, the SHARED
+    // labels do not, and the recovered name never collapses onto the winner's plain `TryCreate`.
+
+    [Fact]
+    public void BuildFailableFactoryName_CollidingSibling_SuffixesOnlyTheDistinguishingLabel()
+    {
+        var winner = FailableInit(("permissions", "Swift.Array"), ("tracking", "TestModule.LoginTracking"), ("nonce", "Swift.String"));
+        var sibling = FailableInit(("permissions", "Swift.Array"), ("tracking", "TestModule.LoginTracking"), ("messengerPageId", "Swift.String"));
+
+        var name = BaseHandler.BuildFailableFactoryName(sibling, winner, "ctor(...)", new Dictionary<string, int>());
+
+        Assert.NotEqual("TryCreate", name);
+        Assert.Contains("MessengerPageId", name);   // the label that distinguishes this overload
+        Assert.DoesNotContain("Permissions", name);  // shared with the winner → not a distinguisher
+        Assert.DoesNotContain("Tracking", name);
+        AssertValidIdentifier(name);
+    }
+
+    [Fact]
+    public void BuildFailableFactoryName_NoWinner_AllLabelsDistinguish()
+    {
+        // When the plain slot was claimed by a non-failable constructor (winner == null), every usable
+        // label distinguishes the recovered factory.
+        var sibling = FailableInit(("host", "Swift.String"), ("port", "Swift.Int"));
+
+        var name = BaseHandler.BuildFailableFactoryName(sibling, winner: null, "ctor(...)", new Dictionary<string, int>());
+
+        Assert.NotEqual("TryCreate", name);
+        Assert.Contains("Host", name);
+        Assert.Contains("Port", name);
+        AssertValidIdentifier(name);
+    }
+
+    [Fact]
+    public void BuildFailableFactoryName_NoUsableLabels_FallsBackToUniqueNumericName()
+    {
+        // Pathological all-synthesized-label case: no distinguishing label to suffix, so a numeric
+        // fallback keeps the name unique and off the winner's plain `TryCreate`.
+        var sibling = FailableInit(("arg0", "Swift.String"), ("arg1", "Swift.Int"));
+
+        var name = BaseHandler.BuildFailableFactoryName(sibling, winner: null, "ctor(...)", new Dictionary<string, int>());
+
+        Assert.NotEqual("TryCreate", name);
+        Assert.StartsWith("TryCreate", name);
+        AssertValidIdentifier(name);
+    }
+
+    private static void AssertValidIdentifier(string name)
+    {
+        Assert.False(string.IsNullOrEmpty(name));
+        Assert.True(char.IsLetter(name[0]) || name[0] == '_');
+        Assert.All(name, c => Assert.True(char.IsLetterOrDigit(c) || c == '_'));
+    }
+
+    private static MethodDecl FailableInit(params (string label, string type)[] labels)
+    {
+        var sig = new List<ArgumentDecl> { InitArg(string.Empty, "Swift.Optional") }; // CSSignature[0] = return
+        foreach (var (label, type) in labels)
+            sig.Add(InitArg(label, type));
+        return new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule4initX",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            IsFailable = true,
+            CSSignature = sig,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false,
+        };
+    }
+
+    private static ArgumentDecl InitArg(string label, string type) => new ArgumentDecl
+    {
+        Name = label,
+        PrivateName = label,
+        SwiftTypeSpec = new NamedTypeSpec(type),
+        IsInOut = false,
+        IsGeneric = false,
+        ParentDecl = null,
+        ModuleDecl = null,
+    };
+
+    #endregion
+
     #region Helpers
 
     private static string InvokeApplyCollisionSuffixToKey(string projectedKey, int collisionIndex)

@@ -37,6 +37,15 @@ internal enum SlotVerdict
     /// carries that earlier index and <see cref="VtableSlot.Included"/> == false.
     /// </summary>
     DuplicateOverload,
+    /// <summary>
+    /// The requirement carries an <c>@objc</c> protocol existential in an unsupported nested position
+    /// (container/tuple/closure). Only a bare <c>any P</c> / <c>Optional&lt;any P&gt;</c> marshals as a single
+    /// ObjC object pointer; a nested position would route the reverse receiver through the 40-byte
+    /// <c>ExistentialContainer1</c> carrier against an 8-byte <c>@objc</c> stride (buffer over-read). Dropped
+    /// fail-closed, in lockstep with <see cref="MemberGateEvaluator"/> so the interface declaration and the
+    /// vtable slot leave together — desyncing them would blow up vtable size → SIGSEGV.
+    /// </summary>
+    ExcludedUnsupportedObjCExistential,
 }
 
 /// <summary>
@@ -152,7 +161,7 @@ internal sealed class VtableLayoutBuilder
         int subscriptIndex = 0;
         foreach (var subscript in protocol.Subscripts)
         {
-            var verdict = ClassifySubscript(subscript, protocol);
+            var verdict = ClassifySubscript(subscript, protocol, _closureHandler);
             if (verdict == SlotVerdict.ExcludedStatic)
             {
                 slots.Add(new VtableSlot(
@@ -240,6 +249,11 @@ internal sealed class VtableLayoutBuilder
             return SlotVerdict.ExcludedSelfTyped;
         if (EveryProtocolEmitter.IsMixedGenericProtocol(protocol))
             return SlotVerdict.ExcludedMixedGeneric;
+        // Lockstep with MemberGateEvaluator.EvaluateMethod: a nested @objc protocol existential (the
+        // reverse-path over-read) drops the requirement from BOTH the interface and this vtable slot.
+        foreach (var arg in method.CSSignature)
+            if (ExistentialHandler.HasUnsupportedObjCProtocolExistentialPosition(arg.SwiftTypeSpec, closureHandler.TypeDatabase))
+                return SlotVerdict.ExcludedUnsupportedObjCExistential;
         return SlotVerdict.Included;
     }
 
@@ -255,6 +269,11 @@ internal sealed class VtableLayoutBuilder
             return SlotVerdict.ExcludedObjCOptional;
         if (!property.IsProtocolRequirement)
             return SlotVerdict.ExcludedNonRequirement;
+        // Lockstep with MemberGateEvaluator.EvaluateProperty (P8b): a nested @objc protocol existential (the
+        // reverse-path over-read) drops the requirement from BOTH the interface and this vtable slot. Checked
+        // before either Included return so a closure-typed property carrying `any objcP` is dropped too.
+        if (ExistentialHandler.HasUnsupportedObjCProtocolExistentialPosition(property.SwiftTypeSpec, closureHandler.TypeDatabase))
+            return SlotVerdict.ExcludedUnsupportedObjCExistential;
         bool isMixedGeneric = EveryProtocolEmitter.IsMixedGenericProtocol(protocol);
         if (EveryProtocolEmitter.HasClosureInPropertyType(property))
         {
@@ -275,7 +294,7 @@ internal sealed class VtableLayoutBuilder
     /// Classifies a subscript's vtable-slot membership. Mirrors
     /// <see cref="ProtocolVtableMembers.IncludesSubscript"/> (which delegates here).
     /// </summary>
-    internal static SlotVerdict ClassifySubscript(SubscriptDecl subscript, ProtocolDecl protocol)
+    internal static SlotVerdict ClassifySubscript(SubscriptDecl subscript, ProtocolDecl protocol, ClosureHandler closureHandler)
     {
         if (subscript.IsStatic)
             return SlotVerdict.ExcludedStatic;
@@ -285,6 +304,11 @@ internal sealed class VtableLayoutBuilder
             return SlotVerdict.ExcludedSelfTyped;
         if (EveryProtocolEmitter.IsMixedGenericProtocol(protocol))
             return SlotVerdict.ExcludedMixedGeneric;
+        // Lockstep with MemberGateEvaluator.EvaluateSubscript (S5b): a nested @objc protocol existential (the
+        // reverse-path over-read) drops the requirement from BOTH the interface and this vtable slot.
+        foreach (var spec in subscript.IndexParameters.Select(p => p.SwiftTypeSpec).Prepend(subscript.ReturnTypeSpec))
+            if (ExistentialHandler.HasUnsupportedObjCProtocolExistentialPosition(spec, closureHandler.TypeDatabase))
+                return SlotVerdict.ExcludedUnsupportedObjCExistential;
         return SlotVerdict.Included;
     }
 

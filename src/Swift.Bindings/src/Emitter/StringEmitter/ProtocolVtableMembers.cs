@@ -19,8 +19,8 @@ internal static class ProtocolVtableMembers
     internal static bool IncludesProperty(PropertyDecl property, ProtocolDecl protocol, ClosureHandler closureHandler)
         => VtableLayoutBuilder.ClassifyProperty(property, protocol, closureHandler) == SlotVerdict.Included;
 
-    internal static bool IncludesSubscript(SubscriptDecl subscript, ProtocolDecl protocol)
-        => VtableLayoutBuilder.ClassifySubscript(subscript, protocol) == SlotVerdict.Included;
+    internal static bool IncludesSubscript(SubscriptDecl subscript, ProtocolDecl protocol, ClosureHandler closureHandler)
+        => VtableLayoutBuilder.ClassifySubscript(subscript, protocol, closureHandler) == SlotVerdict.Included;
 
     internal static bool IncludesMethod(MethodDecl method, ProtocolDecl protocol, ClosureHandler closureHandler)
         => VtableLayoutBuilder.ClassifyMethod(method, protocol, closureHandler) == SlotVerdict.Included;

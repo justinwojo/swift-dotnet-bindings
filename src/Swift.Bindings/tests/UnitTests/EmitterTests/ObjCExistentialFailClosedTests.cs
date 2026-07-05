@@ -331,4 +331,207 @@ public class ObjCExistentialFailClosedTests
     }
 
     #endregion
+
+    #region Reverse-path lockstep — MemberGateEvaluator (interface) + VtableLayoutBuilder (vtable slot)
+
+    // The concrete-witness path (MemberEmissionValidator, above) was the ONLY enforcer of the @objc
+    // nested-existential gate. The protocol reverse-dispatch path is a SEPARATE pair of oracles — the
+    // member gate that decides interface membership and the vtable classifier that decides slot
+    // membership — and both must drop the same shape or the C# vtable desyncs from the Swift `{P}_vtable`
+    // struct (→ SIGSEGV on the NativeAOT device leg). These tests pin that both fire on a nested @objc
+    // existential, that neither touches the supported bare form, and — critically — that they agree.
+
+    private static ProtocolDecl Protocol(string name) => new ProtocolDecl
+    {
+        Name = name,
+        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+        MangledName = $"$s10TestModule{name.Length}{name}P",
+        Properties = new List<PropertyDecl>(),
+        Methods = new List<MethodDecl>(),
+        Types = new List<TypeDecl>(),
+        Operators = new List<OperatorDecl>(),
+        Subscripts = new List<SubscriptDecl>(),
+        AssociatedTypes = new List<AssociatedTypeDecl>(),
+        InheritedProtocols = new List<NamedTypeSpec>(),
+        HasSelfRequirement = false,
+        IsClassBound = true,
+        ParentDecl = null,
+        ModuleDecl = null,
+    };
+
+    private static PropertyDecl RequirementProperty(TypeSpec spec) => new PropertyDecl
+    {
+        Name = "shapes",
+        IsStatic = false,
+        HasStorage = false,
+        IsProtocolRequirement = true,
+        SwiftTypeSpec = spec,
+        Accessors = new List<AccessorDecl>(),
+        ParentDecl = null,
+        ModuleDecl = null,
+    };
+
+    private static SubscriptDecl RequirementSubscript(TypeSpec returnSpec) => new SubscriptDecl
+    {
+        Name = "subscript",
+        ReturnTypeSpec = returnSpec,
+        IndexParameters = new List<ArgumentDecl> { Arg("index", Int()) },
+        IsStatic = false,
+        Accessors = new List<AccessorDecl>(),
+        MangledName = "$sSubscript",
+        ParentDecl = null,
+        ModuleDecl = null,
+    };
+
+    [Fact]
+    public void MemberGate_MethodWithNestedObjCParam_DropsFromInterface()
+    {
+        var db = BuildDatabase();
+        var proto = Protocol("P");
+        var method = Method("takesArray", isAsync: false,
+            Arg(string.Empty, Void()),
+            Arg("xs", Array(Any(ObjCProto))));
+
+        var result = new MemberGateEvaluator(db).EvaluateMethod(method, null, proto);
+
+        Assert.True(result.IsSkipped);
+        Assert.Equal(SkipReason.UnsupportedExistential, result.Reason);
+    }
+
+    [Fact]
+    public void MemberGate_PropertyWithNestedObjC_DropsFromInterface()
+    {
+        var db = BuildDatabase();
+        var proto = Protocol("P");
+        var result = new MemberGateEvaluator(db).EvaluateProperty(RequirementProperty(Array(Any(ObjCProto))), null, proto);
+
+        Assert.True(result.IsSkipped);
+        Assert.Equal(SkipReason.UnsupportedExistential, result.Reason);
+    }
+
+    [Fact]
+    public void MemberGate_SubscriptWithNestedObjCReturn_DropsFromInterface()
+    {
+        var db = BuildDatabase();
+        var proto = Protocol("P");
+        var result = new MemberGateEvaluator(db).EvaluateSubscript(RequirementSubscript(Array(Any(ObjCProto))), null, proto);
+
+        Assert.True(result.IsSkipped);
+        Assert.Equal(SkipReason.UnsupportedExistential, result.Reason);
+    }
+
+    [Fact]
+    public void MemberGate_MethodWithBareObjCParam_NotDroppedForExistentialReason()
+    {
+        // Surgical: the supported bare `any P` form is NOT hard-dropped by the @objc gate (it may still
+        // route through the interface as a soft-gated existential, but never as UnsupportedExistential).
+        var db = BuildDatabase();
+        var proto = Protocol("P");
+        var method = Method("takesBare", isAsync: false,
+            Arg(string.Empty, Void()),
+            Arg("x", Any(ObjCProto)));
+
+        var result = new MemberGateEvaluator(db).EvaluateMethod(method, null, proto);
+
+        Assert.False(result.IsSkipped && result.Reason == SkipReason.UnsupportedExistential);
+    }
+
+    [Fact]
+    public void VtableClassify_MethodWithNestedObjCParam_ExcludesSlot()
+    {
+        var db = BuildDatabase();
+        var closureHandler = new ClosureHandler(db);
+        var proto = Protocol("P");
+        var method = Method("takesArray", isAsync: false,
+            Arg(string.Empty, Void()),
+            Arg("xs", Array(Any(ObjCProto))));
+
+        Assert.Equal(SlotVerdict.ExcludedUnsupportedObjCExistential,
+            VtableLayoutBuilder.ClassifyMethod(method, proto, closureHandler));
+    }
+
+    [Fact]
+    public void VtableClassify_PropertyWithNestedObjC_ExcludesSlot()
+    {
+        var db = BuildDatabase();
+        var closureHandler = new ClosureHandler(db);
+        var proto = Protocol("P");
+
+        Assert.Equal(SlotVerdict.ExcludedUnsupportedObjCExistential,
+            VtableLayoutBuilder.ClassifyProperty(RequirementProperty(Array(Any(ObjCProto))), proto, closureHandler));
+    }
+
+    [Fact]
+    public void VtableClassify_SubscriptWithNestedObjCReturn_ExcludesSlot()
+    {
+        var db = BuildDatabase();
+        var closureHandler = new ClosureHandler(db);
+        var proto = Protocol("P");
+
+        Assert.Equal(SlotVerdict.ExcludedUnsupportedObjCExistential,
+            VtableLayoutBuilder.ClassifySubscript(RequirementSubscript(Array(Any(ObjCProto))), proto, closureHandler));
+    }
+
+    [Fact]
+    public void VtableClassify_MethodWithBareObjCParam_KeepsSlot()
+    {
+        // The supported bare form still occupies a slot — the gate is surgical, only nested drops.
+        var db = BuildDatabase();
+        var closureHandler = new ClosureHandler(db);
+        var proto = Protocol("P");
+        var method = Method("takesBare", isAsync: false,
+            Arg(string.Empty, Void()),
+            Arg("x", Any(ObjCProto)));
+
+        Assert.Equal(SlotVerdict.Included,
+            VtableLayoutBuilder.ClassifyMethod(method, proto, closureHandler));
+    }
+
+    [Theory]
+    [MemberData(nameof(NestedObjCShapes))]
+    public void MemberGateAndVtableClassify_AgreeOnNestedObjCMethod(string label, TypeSpec spec)
+    {
+        // THE lockstep invariant: interface-drop ⇔ vtable-slot-drop. If these ever diverge for a shape,
+        // the C# vtable buffer and the Swift `{P}_vtable` struct desync → device SIGSEGV.
+        Assert.NotNull(label);
+        var db = BuildDatabase();
+        var closureHandler = new ClosureHandler(db);
+        var proto = Protocol("P");
+        var method = Method("m", isAsync: false, Arg(string.Empty, Void()), Arg("p", spec));
+
+        bool droppedFromInterface = new MemberGateEvaluator(db).EvaluateMethod(method, null, proto).IsSkipped;
+        bool droppedFromVtable =
+            VtableLayoutBuilder.ClassifyMethod(method, proto, closureHandler) != SlotVerdict.Included;
+
+        Assert.Equal(droppedFromInterface, droppedFromVtable);
+    }
+
+    [Fact]
+    public void VtableBuild_NestedObjCMethodFirst_ConsumesIndexAndPushesLaterMethod()
+    {
+        // Skip-but-consume, asserted at the Build() layer: a dropped nested-@objc-existential method still
+        // consumes its slot index, so a later SUPPORTED method lands at the NEXT slot — never at the dropped
+        // member's index, and never double-counted. This is the exact device-only slot skew the
+        // ObjCExistentialReverseVtableLockstep runtime fixture guards end-to-end (hazard declared FIRST, a
+        // supported scalar LAST); pinning the index arithmetic here catches a regression at the unit layer
+        // before it reaches the NativeAOT leg.
+        var db = BuildDatabase();
+        var proto = Protocol("P");
+        proto.Methods.Add(Method("absorb", isAsync: false,
+            Arg(string.Empty, Void()), Arg("xs", Array(Any(ObjCProto)))));
+        proto.Methods.Add(Method("count", isAsync: false, Arg(string.Empty, Int())));
+
+        var layout = new VtableLayoutBuilder(db).Build(proto);
+
+        var hazard = layout.Slots.Single(s => s.AsMethod!.Name == "absorb");
+        Assert.Equal(SlotVerdict.ExcludedUnsupportedObjCExistential, hazard.Verdict);
+        Assert.False(hazard.Included);
+        Assert.Equal(0, hazard.SlotIndex);    // consumed the index
+
+        var supported = layout.Slots.Single(s => s.AsMethod!.Name == "count");
+        Assert.True(supported.Included);
+        Assert.Equal(1, supported.SlotIndex); // pushed past the hole, not sitting on the dropped index
+    }
+
+    #endregion
 }

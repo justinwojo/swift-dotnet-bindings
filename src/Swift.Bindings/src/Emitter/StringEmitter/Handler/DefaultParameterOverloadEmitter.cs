@@ -128,6 +128,9 @@ public static class DefaultParameterOverloadEmitter
             // recomputes from the bare NameProvider name + suffix, which would yield `Process` and
             // silently bind the trimmed overload to the wrong base slot. Propagate the adopted name.
             overloadEnv.AdoptedOverrideCSharpName = env.AdoptedOverrideCSharpName;
+            // FB-1b: a recovered colliding failable init emits under a label-disambiguated factory name
+            // (e.g. TryCreateWithMessengerPageId); its default-arg trimmed overloads must share that name.
+            overloadEnv.FailableFactoryName = env.FailableFactoryName;
             overloadEnv.EmissionContext = env.EmissionContext;
 
             // Set @_cdecl constructor wrapper flags BEFORE SignatureHandler construction.
@@ -250,6 +253,23 @@ public static class DefaultParameterOverloadEmitter
                     int keyParen = projectedKey.IndexOf('(');
                     if (keyParen > 0)
                         projectedKey = overloadEnv.AdoptedOverrideCSharpName + projectedKey.Substring(keyParen);
+                }
+                // FB-1b: a recovered colliding failable init's default-arg trimmed overloads emit under the
+                // label-disambiguated factory name (overloadEnv.FailableFactoryName, propagated above), NOT the
+                // ctor name GetProjectedOverloadKey rebuilds. Re-key into the SAME "failable-factory:" namespace
+                // the main dedup loop reserved the full factory under (prefix + factory name + input-type list),
+                // so a trimmed factory overload dedups only against other factory overloads of the same
+                // name+arity. Without this the trimmed overload dedups in the ctor namespace and a trimmed
+                // input list matching an UNRELATED init's ctor(...) key would silently drop a valid overload —
+                // the very silent-drop FB-1b exists to prevent, one path deeper. The factory name already
+                // carries the disambiguation, so the numeric collision suffix applied above is irrelevant here
+                // (only the params substring, which the suffix leaves untouched, is used); adoption and a
+                // failable factory are mutually exclusive, so this never double-applies.
+                if (overloadEnv.FailableFactoryName != null)
+                {
+                    int factoryParen = projectedKey.IndexOf('(');
+                    if (factoryParen > 0)
+                        projectedKey = "failable-factory:" + overloadEnv.FailableFactoryName + projectedKey.Substring(factoryParen);
                 }
                 if (!env.EmittedProjectedSignatures.Add(projectedKey))
                 {

@@ -1559,9 +1559,17 @@ public class EveryProtocolEmitter
             }
             if (emittedMembers.Add($"property:{property.Name}"))
             {
+                // @objc protocol existential in an unsupported nested position (container/tuple/closure):
+                // dropped fail-closed from the C# interface AND the reverse-dispatch vtable slot (see
+                // VtableLayoutBuilder.ClassifyProperty, which makes it skip-but-consume). The Swift
+                // requirement still needs a witness so this EveryProtocol conformance compiles, so emit a
+                // fatalError stub — never dispatched, since C# has no interface member and no vtable slot to
+                // fill. Checked FIRST to match the classifier's precedence.
+                if (HasUnsupportedObjCExistentialProperty(property))
+                    EmitObjCExistentialPropertyStub(writer, property);
                 // Closure properties: dispatchable shapes go through the real proxy
                 // dispatch path; non-dispatchable shapes get fatalError stubs.
-                if (HasClosureInPropertyType(property))
+                else if (HasClosureInPropertyType(property))
                 {
                     if (!isMixedGenericProtocol && IsDispatchableClosureProperty(property, closureHandler))
                         EmitDispatchableClosurePropertyImplementation(writer, property, protocolDecl, vtableInstanceName, closureHandler, plan, availAnnotations);
@@ -1615,8 +1623,12 @@ public class EveryProtocolEmitter
             }
             if (emittedMembers.Add(subscriptKey))
             {
+                // @objc existential in an unsupported nested position → dropped fail-closed from the
+                // interface + vtable slot (skip-but-consume); witness the Swift requirement with a stub.
+                if (HasUnsupportedObjCExistentialSubscript(subscript))
+                    EmitObjCExistentialSubscriptStub(writer, subscript, subscriptIndex);
                 // Self-typed subscripts get fatalError() stubs
-                if (ContainsSelfTypeParam(subscript.ReturnTypeSpec) ||
+                else if (ContainsSelfTypeParam(subscript.ReturnTypeSpec) ||
                     subscript.IndexParameters.Any(ip => ContainsSelfTypeParam(ip.SwiftTypeSpec)))
                     EmitSelfTypedSubscriptStub(writer, subscript, subscriptIndex);
                 // Mixed generic protocols: all subscripts get stubs to avoid incorrect type projections
@@ -1734,11 +1746,26 @@ public class EveryProtocolEmitter
             // lets both Add, whereas the async-omitted key would suppress the second as a redeclaration.
             if (isNewMethod && emittedBodySignatures.Add(witnessGroupKey))
             {
+                // @objc protocol existential in an unsupported nested position (container/tuple/closure)
+                // on any parameter or the return: dropped fail-closed from the C# interface AND the
+                // reverse-dispatch vtable slot (see VtableLayoutBuilder.ClassifyMethod, skip-but-consume).
+                // The Swift requirement still needs a witness, so emit a fatalError stub — never dispatched
+                // (no interface member, no filled vtable slot). Checked first here for clarity; note
+                // ClassifyMethod orders the non-dispatchable-closure and Self/mixed-generic exclusions BEFORE
+                // this one, so a member that is BOTH would record a different SlotVerdict there. That is
+                // harmless: every one of those verdicts is Included=false skip-but-consume, so the vtable
+                // struct omits the field and consumes the index identically regardless of which reason wins,
+                // and the stub emitted here is a fatalError either way. Membership — not the verdict label —
+                // is the lockstep invariant, and it agrees.
+                if (MethodHasUnsupportedObjCExistential(method))
+                {
+                    EmitObjCExistentialMethodStub(writer, method);
+                }
                 // Closure methods on the dispatch surface get a real implementation that
                 // extracts (fnPtr, ctx) and forwards to C# through the expanded cdecl
                 // vtable. Off-surface closure methods that aren't yet lifted into dispatch
                 // get the fatalError stub.
-                if (HasClosureInMethodSignature(method))
+                else if (HasClosureInMethodSignature(method))
                 {
                     if (IsDispatchableClosureMethod(method, closureHandler))
                         EmitClosureMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx, closureHandler, methodPlan, availAnnotations);
@@ -3895,6 +3922,119 @@ public class EveryProtocolEmitter
         writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl} {{");
         writer.Indent++;
         writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: method '{method.Name}' with an inout ObjC-bridgeable parameter cannot be dispatched through vtable\")");
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
+    }
+
+    // ---- @objc protocol existential in an unsupported nested position (fail-closed drop) ----------
+    //
+    // An @objc protocol's existential marshals as a single 8-byte ObjC object pointer (no witness-table
+    // word). Only a bare `any P` / `Optional<any P>` is supported; a nested position (container/tuple/
+    // closure) would route the reverse receiver through the 40-byte ExistentialContainer1 carrier over
+    // that 8-byte stride — a buffer over-read. Such a requirement is dropped fail-closed from BOTH the C#
+    // interface (MemberGateEvaluator) and the reverse-dispatch vtable slot (VtableLayoutBuilder.Classify*,
+    // where it is skip-but-consume: index consumed, field omitted). The Swift protocol still requires a
+    // witness, so the EveryProtocol extension emits a fatalError stub — it is never dispatched, because C#
+    // has no interface member and no filled vtable slot pointing at it. The predicates below MUST use the
+    // identical ExistentialHandler.HasUnsupportedObjCProtocolExistentialPosition oracle the classifier
+    // uses, or the stub/skip-but-consume decision here desyncs from the vtable struct → SIGSEGV.
+
+    private bool HasUnsupportedObjCExistentialProperty(PropertyDecl property) =>
+        ExistentialHandler.HasUnsupportedObjCProtocolExistentialPosition(property.SwiftTypeSpec, _typeDatabase);
+
+    private bool MethodHasUnsupportedObjCExistential(MethodDecl method) =>
+        method.CSSignature.Any(arg =>
+            ExistentialHandler.HasUnsupportedObjCProtocolExistentialPosition(arg.SwiftTypeSpec, _typeDatabase));
+
+    private bool HasUnsupportedObjCExistentialSubscript(SubscriptDecl subscript) =>
+        subscript.IndexParameters.Select(p => p.SwiftTypeSpec).Prepend(subscript.ReturnTypeSpec)
+            .Any(spec => ExistentialHandler.HasUnsupportedObjCProtocolExistentialPosition(spec, _typeDatabase));
+
+    /// <summary>
+    /// Emits a fatalError() stub for a property whose type carries an @objc protocol existential in an
+    /// unsupported nested position. Satisfies the Swift requirement; never dispatched.
+    /// </summary>
+    private void EmitObjCExistentialPropertyStub(SwiftWriter writer, PropertyDecl property)
+    {
+        var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
+        var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
+        var swiftTypeName = RenderTypeSpecWithSelfSubstitution(property.SwiftTypeSpec);
+
+        writer.WriteLine($"public var {NameProvider.ParserNameToSwift(property)}: {swiftTypeName} {{");
+        writer.Indent++;
+        if (hasGetter)
+            writer.WriteLine($"get {{ fatalError(\"[SwiftBindings] EveryProtocol: property '{property.Name}' with a nested @objc protocol existential cannot be dispatched through vtable\") }}");
+        if (hasSetter)
+            writer.WriteLine($"set {{ fatalError(\"[SwiftBindings] EveryProtocol: property '{property.Name}' with a nested @objc protocol existential cannot be dispatched through vtable\") }}");
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
+    }
+
+    /// <summary>
+    /// Emits a fatalError() stub for a method whose signature carries an @objc protocol existential in an
+    /// unsupported nested position. Satisfies the Swift requirement; never dispatched.
+    /// </summary>
+    private void EmitObjCExistentialMethodStub(SwiftWriter writer, MethodDecl method)
+    {
+        var parameters = new List<string>();
+        for (int i = 1; i < method.CSSignature.Count; i++)
+        {
+            var param = method.CSSignature[i];
+            var paramTypeName = RenderTypeSpecWithSelfSubstitution(param.SwiftTypeSpec);
+            var externalLabel = GetSwiftParameterLabel(param, i);
+            var internalName = GetSwiftParameterName(param, i);
+            var inoutPrefix = param.IsInOut ? "inout " : "";
+            if (externalLabel == "_")
+                parameters.Add($"_ {internalName}: {inoutPrefix}{paramTypeName}");
+            else if (externalLabel == internalName)
+                parameters.Add($"{internalName}: {inoutPrefix}{paramTypeName}");
+            else
+                parameters.Add($"{externalLabel} {internalName}: {inoutPrefix}{paramTypeName}");
+        }
+
+        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        var hasReturn = returnType != null && !returnType.IsEmptyTuple;
+        var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitution(returnType!) : "Void";
+        // Keep the requirement's own effects — a stub satisfies its protocol either way (see
+        // EmitSelfTypedMethodStub for the effect-mismatch fan-out rationale).
+        var asyncDecl = method.IsAsync ? " async" : "";
+        var throwsDecl = method.Throws ? " throws" : "";
+        var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
+
+        writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl} {{");
+        writer.Indent++;
+        writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: method '{method.Name}' with a nested @objc protocol existential cannot be dispatched through vtable\")");
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
+    }
+
+    /// <summary>
+    /// Emits a fatalError() stub for a subscript whose signature carries an @objc protocol existential in
+    /// an unsupported nested position. Satisfies the Swift requirement; never dispatched.
+    /// </summary>
+    private void EmitObjCExistentialSubscriptStub(SwiftWriter writer, SubscriptDecl subscript, int index)
+    {
+        var parameters = new List<string>();
+        for (int i = 0; i < subscript.IndexParameters.Count; i++)
+        {
+            var param = subscript.IndexParameters[i];
+            var typeName = RenderTypeSpecWithSelfSubstitution(param.SwiftTypeSpec);
+            var externalLabel = NameProvider.GetSubscriptExternalLabel(param);
+            var internalName = $"arg{i}";
+            parameters.Add($"{externalLabel} {internalName}: {typeName}");
+        }
+
+        var returnTypeName = RenderTypeSpecWithSelfSubstitution(subscript.ReturnTypeSpec);
+
+        writer.WriteLine($"public subscript({string.Join(", ", parameters)}) -> {returnTypeName} {{");
+        writer.Indent++;
+        if (subscript.HasGetter)
+            writer.WriteLine($"get {{ fatalError(\"[SwiftBindings] EveryProtocol: subscript with a nested @objc protocol existential cannot be dispatched through vtable\") }}");
+        if (subscript.HasSetter)
+            writer.WriteLine($"set {{ fatalError(\"[SwiftBindings] EveryProtocol: subscript with a nested @objc protocol existential cannot be dispatched through vtable\") }}");
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();

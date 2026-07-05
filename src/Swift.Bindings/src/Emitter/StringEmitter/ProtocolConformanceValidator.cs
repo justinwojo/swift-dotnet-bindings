@@ -410,6 +410,11 @@ public class ProtocolConformanceValidator
             var subscriptKey = ProtocolSignatureHelper.GetSubscriptSignatureKey(protoSubscript, _typeDatabase, protocolDecl);
             if (!requiredSubscripts.Add(subscriptKey)) continue;
 
+            // Skip subscripts that won't appear in the interface (mirrors ProtocolHandler gates /
+            // the property + method loops above). A dropped requirement is not a live `: IFoo` member.
+            if (IsSubscriptSkippedFromInterface(protoSubscript, protocolDecl))
+                continue;
+
             // Find matching subscript in CONCRETE TYPE
             var concreteSubscript = FindMatchingSubscript(concreteType, protoSubscript, protocolDecl);
             if (concreteSubscript == null)
@@ -1144,6 +1149,19 @@ public class ProtocolConformanceValidator
         var evaluator = new MemberGateEvaluator(_typeDatabase);
         var result = evaluator.EvaluateMethod(method, _moduleDecl, protocolDecl);
         // InterfaceOnly (closure/existential methods) → NOT skipped from interface (they ARE in the interface)
+        return result.IsSkipped;
+    }
+
+    /// <summary>
+    /// Checks if a protocol subscript would be skipped from the interface.
+    /// Delegates to MemberGateEvaluator for unified gate logic — mirrors the property/method helpers so a
+    /// requirement the interface dropped (e.g. an @objc-existential nested position) is not re-validated as
+    /// a live `: IFoo` member here, which would spuriously drop the whole conformance (CS0535).
+    /// </summary>
+    private bool IsSubscriptSkippedFromInterface(SubscriptDecl subscript, ProtocolDecl protocolDecl)
+    {
+        var evaluator = new MemberGateEvaluator(_typeDatabase);
+        var result = evaluator.EvaluateSubscript(subscript, _moduleDecl, protocolDecl);
         return result.IsSkipped;
     }
 }

@@ -1,368 +1,212 @@
 # Facebook + MapLibre — remaining work to ship
 
-**Status:** triaged 2026-07-02, then code-path-scoped the same day by four parallel investigations
-(FB-1, FB-3, ML-1, W-1). Both libraries are **feasibility-proven and runtime-green**; what remains is a
-small, enumerated set of generator improvements plus a durable-test gap. Numbers below were **measured** by
-regenerating both bindings against `main` @ `262ea8c3` (local SDK `0.16.1-d8local` for Facebook, `d7local`
-for MapLibre). Every work item carries the exact fix location and the traps found during scoping, so an
-implementation session can execute without re-discovering the code path.
-
-**Scoping changed the plan in three ways** — read these before the detail:
-1. **ML-1 (MapLibre `camera` collision) is already fixed** (commit `3e5a0a5e`, 2026-06-28). The prior doc
-   carried a stale spike finding. It is *not* a work item — it becomes a regression scenario inside W-1.
-2. **FB-3 (`validate(options:)`) graduated from "don't-chase" to a real, well-shaped feature**: it's an
-   ObjC `NS_OPTIONS` type-database gap, the direct sibling of the `NS_ENUM` / `NS_TYPED_EXTENSIBLE_ENUM`
-   bridges already landed. High-value and low-risk (established pattern).
-3. **FB-1b (two `LoginConfiguration` inits) is a genuine loss**, not benign — but fixing it needs a
-   public-API naming decision, so it's its own item, not a rider on FB-1.
+**Single source of truth.** This doc supersedes and consolidates the four docs that used to track this
+batch (the old `facebook-maplibre-remaining-work.md` triage and `src/docs/ship-sessions/{01-fb3-ns-options,
+02-fb2-any-p-collections,02-fb2-deferral}.md`) — all now deleted. Everything below is **future-relevant
+only**; completed work is captured as one-line "already done" notes, not re-litigated. Decisions were
+locked by the owner 2026-07-05.
 
 ---
 
-## Snapshot
+## Status in one line
 
-| Library | Feasibility | Runtime | Generator work remaining | Real ship blocker |
-|---|---|---|---|---|
-| **MapLibre** | Proven | sim 10/0/0 + device NativeAOT 10/0/0 | **None** (ML-1 already fixed) | **Durable test coverage** (W-1 — no BindingTests gate for its pure-ObjC shape) |
-| **Facebook** | Proven | sim 6/0 + device NativeAOT 6/0 | FB-1 (cheap), FB-3 + FB-2 (features), FB-1b (needs API decision) | Product call (surface polish + demand), not generator |
+**Generator work is complete except two small, agreed items** (a naming dedup and a fail-closed defect
+hardening — see the Build session below). Both libraries are feasibility-proven and runtime-green on sim +
+device. Everything else remaining is ship-mechanics (pack-and-consume verification, App Store hygiene,
+release lanes) and two documented known-limitations.
 
-The primary consumer surface works at runtime for both. Facebook's Login and Share flows round-trip;
-MapLibre renders a real map from C# with delegate callbacks firing ObjC→C#.
+## What already shipped (do not redo)
 
----
+- **W-1** — pure-ObjC clang-umbrella BindingTests fixture (5 behavior-asserted shapes + the ML-1 collision
+  regression scenario). The durable gate for MapLibre's shape.
+- **FB-1** — enum computed-property vs case-name collision recovery (`EnumPropertyRenames` channel). General
+  fix; the 6 named FBSDKShareKit members it targeted turned out `@usableFromInline internal` (correctly
+  suppressed, not recoverable) — the real public photo/video-source API was already emitted.
+- **FB-3** — ObjC `NS_OPTIONS` → Swift type-DB bridge (sibling of the `NS_ENUM` / `NS_TYPED_EXTENSIBLE_ENUM`
+  bridges). Unblocked all `Share*Content.validate(options:)` methods. Committed.
+- **FB-2 (Swift-protocol half)** — `[any P]` collections (`Array`/`Dictionary`/nested) for **Swift**
+  protocol elements, forward projection + reverse dispatch. Committed. Only the `@objc`-element case was
+  deferred (now a documented limitation — see below).
+- **ML-1** — MapLibre `camera` property/method collision. Fixed (`3e5a0a5e`); guarded by W-1's regression
+  scenario.
 
-## Suggested sequencing (for `/next-session`)
+## Locked ship decisions (2026-07-05)
 
-**Batch A — one session, cheap, TDD.** The durable-test foundation plus the one cheap generator fix.
-- **W-1** pure-ObjC umbrella fixture (4 shapes + 1 regression scenario) — the MapLibre durability gate.
-- **FB-1** enum property/case rename — small, self-contained, its test lands in the Swift enum fixtures.
-- These pair naturally: build the fixtures, one shape is red until FB-1 lands, then green.
-
-**Batch B — separate session(s), features, each needs a device run (marshalling/type-DB changes).**
-- **FB-3** `NS_OPTIONS` type-database bridge — recommended *first* of the two: lower risk, follows the
-  established `NS_ENUM` pattern, generalizes to every mixed binding, and may knock loose 2 Review proxies.
-- **FB-2** `[any P]` collection existentials — bigger; a deeper existential-marshalling change.
-
-**Standalone — its own design pass, not batched.**
-- **FB-1b** `LoginConfiguration` init overload-collapse — real loss, but the fix renames a public
-  `TryCreate` method, which is an API-shape decision to settle before implementing.
-
-**Then — pre-ship verification & prep (not a generator session).** The generator sessions close the
-*generator* work; they don't by themselves publish a package. After they land, prove the packages actually
-build, link, and run from a clean consumer, and settle the open product/API calls — see
-**Post-batch — pre-ship verification & prep** below. MapLibre reaches this step after Batch A alone; it does
-not wait on the Facebook feature sessions.
-
-Parallelizing across worktrees is **not** worth it: the surface is small and every change re-serializes on
-the one simulator/device runtime gate and a single combined packages-repo re-measure. Do the batches in
-sequence; parallelize only investigation and fixture-source authoring (as was done here).
+- **Facebook kit scope: ship all 5** — `SwiftBindings.Facebook.{CoreBasics, AEM, Core, Login, Share}`.
+  CoreBasics/AEM/Core are the mandatory dependency closure; Login is the concentrated demand; **ShareKit is
+  the differentiator** (the closest existing binding, brandmooffin, ships no ShareKit; Xamarin.Facebook is
+  frozen ~6 majors back) and is runtime-green + improved by FB-3. The old "demand-gate ShareKit" caution is
+  retired — its cost was generator effort, which is now spent.
+- **MapLibre: GO.** Generator-complete; ships on its V-1 alone (does not wait on any Facebook work).
+- **FB-1b (naming dedup): BUILD IT** — see Build session, item 1.
+- **FB-2 `@objc` container existentials: harden the latent defect, skip the forward feature** — see Build
+  session item 2 for the hardening; see Known limitations for why the forward feature is dropped.
 
 ---
 
-## Batch A
+## Remaining ship checklist
 
-### W-1 — Generalized pure-ObjC umbrella BindingTests fixture  ·  **DONE 2026-07-03 (fixture + 5 behavior-asserted shapes shipped; sim-green)**
+None of this is generator work except the Build session. Do V-1 once per library after that library's
+generator work lands. **Until a real consumer links the real package, "shippable" is a claim, not a fact.**
 
-**Why.** BindingTests (the durable end-to-end gate) has an `ObjCInterop` suite and the synthetic mixed
-ObjC+Swift fixture (`--mixed-pack` / `--mixed-direct`), but **zero authored `module.modulemap` fixtures** —
-i.e. no durable test for a **pure-ObjC clang-umbrella library**, which is exactly what MapLibre is. The
-generator behaviors MapLibre depends on (duplicate-selector flattening, static-inline exclusion, double-`I`
-protocol avoidance, protocol-typed collection round-trip, property-vs-method disambiguation, `ApiDefinition.cs`
-emission) have no regression gate. ML-1 already regressed-then-was-fixed silently once; this fixture stops
-the next one.
+1. **Build session** (the two generator items below). Rides the upcoming SDK/runtime regression cycle.
+2. **V-1 MapLibre** — pure-ObjC pack lane. Build the real nupkg (`dotnet nuke BuildLibrary --library
+   MapLibre --all-products`), then from a **fresh single-`PackageReference` consumer app**, build + run on
+   the iOS Simulator and on device (NativeAOT). Assert the map renders and a delegate callback fires ObjC→C#.
+   This is the gap the synthetic gates don't cover (no pure-ObjC nupkg-consumption leg exists).
+3. **V-1 Facebook** — mixed ObjC+Swift pack lane. `--mixed-pack` on the real binding: pack the 5 kits, then
+   from a single-`PackageReference` consumer build (sim) + NativeAOT-publish (device), and assert Login + a
+   Share flow round-trip with the ObjC classes registering exactly once ("Class X is implemented in both …"
+   is the failure to rule out).
+4. **App Store hygiene** — `nuke binding-tests --appstore-hygiene` (library-agnostic, once). Asserts the
+   runtime nupkg embeds as a signed framework and a built `.ipa` is TN2435-compliant. Green before any publish.
+5. **Cut releases** via the normal `release/**` flow (MapLibre lane; Facebook lane).
 
-**A synthetic ObjC framework** (`module.modulemap` + umbrella header + `.m` files), not MapLibre, asserted
-by behavior. The four expressible-in-pure-ObjC shapes:
-- a selector exposed as **both a property and a method** → duplicate-selector flattening (no launch abort);
-- a `static inline` C function **and** a real exported C function → the exported one binds via
-  `DllImport("__Internal")`, the inline one is correctly excluded (no dead P/Invoke → no link failure);
-- an ObjC **protocol used as a collection element** (`NSArray<id<Foo>>`) → `IFoo` round-trips with no
-  double-`I` collapse / `InvalidCastException`;
-- a **delegate protocol** with an optional callback → ObjC→C# override dispatch fires.
-- **+ regression scenario (the ML-1 shape):** a multi-keyword method whose *first* selector segment
-  collides with an unrelated property's bare name (e.g. a `camera` property alongside a
-  `camera:fittingX:edgePadding:` method) → the property keeps `Camera`, the method disambiguates. This is a
-  *different* collision than the same-selector-as-both-property-and-method bullet above, and it guards
-  commit `3e5a0a5e`. Test-only.
-
-The fifth shape from the earlier draft — a nested enum whose property collides with a case — **cannot be
-expressed in pure ObjC** (`NS_ENUM` compiles to plain integer constants, no computed properties). That is
-intrinsically the FB-1 bug: a *Swift* enum with associated values. Its test lives with FB-1, in the Swift
-enum fixtures — not here.
-
-**Wiring checklist** (scoped against the current harness):
-- **Source dir:** a new sibling under `BindingTests/Sources/` (e.g. `Sources/ObjCUmbrella/`) with `.h`/`.m`
-  + `Modules/module.modulemap` + `Headers/{Module}.h`. Keep it out of the Swift target's source list or
-  the framework misclassifies as Mixed. Closest copyable pattern is the mixed fixture's ObjC companion —
-  the modulemap+umbrella shape at `build/Build.PackGate.MixedFixture.cs:~696` and the selector-dedup
-  "Shape B" at `~:557`.
-- **Build:** mirror the Swift fixture's pipeline in `build/Build.BindingTests.cs` (`BuildXcframework` →
-  `RegenerateBindings`). Invoke the generator with **`--objc`** (`CliOptions.cs:176-179`) to force the ObjC
-  pipeline deterministically rather than relying on Swift-resolution fallback. The resolver validates the
-  modulemap at `XCFrameworkResolver.ResolveObjCFramework` (`XCFrameworkResolver.cs:433-486`).
-- **Generated output:** the ObjC pipeline emits **fixed filenames** (`ApiDefinition.cs`,
-  `StructsAndEnums.cs`, `BgenDelegates.cs`) into `-o`, so give the fixture its **own** output dir (e.g.
-  `BindingTests/output-objc/`) to avoid collision with the Swift path's `SwiftBindingsTestLib.cs`.
-- **Link:** in `BindingTests/RuntimeTestsApp/RuntimeTestsApp.csproj`, add `<Compile Include>` for the
-  generated `.cs` and a `<NativeReference Include=... Kind="Framework">` for the fixture xcframework,
-  mirroring the existing `SwiftBindingsTestLib` block.
-- **Assertions:** a new file in `BindingTests/RuntimeTestsApp/ObjCInterop/` (domain-matched).
-
-Keep the MapLibre spike app in the packages repo as the pre-release "a real map renders" integration check
-— the one thing a synthetic fixture can't prove.
-
-### FB-1 — `DuplicateSignature`: enum computed-property collides with a case name  ·  **DONE 2026-07-03 (general feature shipped + tested; the 6 named FB members are internal — see Outcome)**
-
-**What.** A Swift enum with associated values exposes a computed property whose name matches one of its
-cases; the generator projects both to the same C# name and **drops the property entirely**.
-
-**Evidence (6 members, all `KnownLimitation` disposition — currently silently accepted).**
-`SharePhoto.Source.{image,url,asset}` and `ShareVideo.Source.{data,url,asset}` — Details e.g. *"Enum
-property 'Image' collides with case constructor name."* Recovering them lets a consumer read a photo/video's
-source.
-
-**Fix location + the trap.**
-- Skip is raised at `EnumHandler.cs:373-380` (property loop: `emittedCaseConstructorNames.Contains(propertyName)`
-  → `RecordMemberSkipped(... DuplicateSignature ...)` → `continue`).
-- Case-constructor names are built at `EnumHandler.cs:316-317` / `EnumHandler.CaseConstruction.cs:17-20`;
-  property names via `NameProvider.GetPropertyName` (`NameProvider.cs:980-997`), applied at
-  `PropertyHandler.cs:413-415`.
-- **Fix:** disambiguate the *property* side with the existing `Value`-suffix idiom
-  (`Image`→`ImageValue`, numeric fallback `Value2`…, mirroring
-  `NameProvider.ComputePropertyRenamesForNestedTypeCollisions` at `NameProvider.cs:1073-1101`).
-- **⚠ Load-bearing trap:** do **not** add these to the shared `propertyRenames` dict. That dict is read by
-  *both* the property-naming path **and** the case-constructor-naming path, and the Swift property and case
-  share the literal same identifier — so `propertyRenames["Image"]="ImageValue"` would rename the *case*
-  too and silently recreate the collision one level down. Instead add a **property-only rename channel**:
-  a new optional field on `TypeHandlerContext` (`Marshaler/TypeHandlerContext.cs:27-33`, a record — additive),
-  populated by a pre-pass in `EnumHandler` (the `emittedCaseConstructorNames` set is fully built before the
-  property loop), applied only at `PropertyHandler.cs:414-415`. Keep every case-name call site reading only
-  the original `propertyRenames`. Also update the in-sync consumers: the `propertyNames` HashSet
-  (`EnumHandler.cs:416-419`) and `ToStringHelper` (`EnumHandler.cs:478`).
-- Confirmed **cosmetic only** — the projected C# name never feeds the P/Invoke `EntryPoint` / `@_cdecl`
-  wrapper symbols, so no ABI or reverse-dispatch impact.
-
-**Tests.** Add a Swift enum with associated values + a computed property named like a case to
-`BindingTests/Sources/SwiftBindingsTestLib/Enums/`; assert both the case constructor and the (renamed)
-property surface and round-trip. This is the shape that can't live in W-1's pure-ObjC fixture.
-
-**Outcome (2026-07-03).** The general feature shipped exactly as scoped: a property-only rename channel
-(`TypeHandlerContext.EnumPropertyRenames`) populated by an `EnumHandler` pre-pass over the colliding
-INSTANCE properties, applied only at the `PropertyHandler` name site. Coverage: an emitter unit test
-(`EnumHandlerOutputTests.Emit_EnumWithAssociatedValueCaseAndCollidingInstanceProperty_RecoversPropertyWithValueSuffix`,
-plus the preserved static-skip sibling) and an end-to-end BindingTests fixture
-(`Enums/CasePropertyCollisionEnum.swift` + `Marshalling/EnumCasePropertyCollisionTests.cs`) that proves a
-genuinely-PUBLIC colliding property (`ShareSource.image`/`link`/`blob`) recovers as `ImageValue`/`LinkValue`/
-`BlobValue`, round-trips, and dispatches to Swift (fallback + match paths). Scoped to **instance** properties:
-a colliding STATIC property keeps its pre-existing drop-as-`DuplicateSignature` behavior (no runtime coverage
-for static recovery).
-
-**Finding — the 6 named FBSDKShareKit members are internal, not recoverable.** Regenerating FBSDKShareKit
-confirms the `DuplicateSignature` "collides with case constructor name" skips are **gone** for all six
-(`SharePhoto.Source.{image,url,asset}`, `ShareVideo.Source.{data,url,asset}`) — but they are **not emitted**:
-they now report `ModuleInternal` ("Internal property suppressed from bindings."). This is correct, not a
-regression. `SharePhoto.Source` / `ShareVideo.Source` are `@usableFromInline internal` enums — present in
-`FBSDKShareKit.abi.json` but absent from **both** the public and the private `.swiftinterface`; the parser
-sets `IsModuleInternal=true` for their computed accessors. The original triage misread the
-`DuplicateSignature` label as "a public property we could recover"; in reality the case-collision skip
-(`EnumHandler.cs`, ~`:440`) fired *before* the emittability check (`MemberEmissionValidator.CanEmitProperty`
-→ `ModuleInternal`) and masked the true reason. The rename pre-pass now lets every colliding instance
-property flow to its true skip reason instead of masking it as `DuplicateSignature`. The real public
-photo/video-source API is the class-level properties — `SharePhoto.Image`/`ImageUrl`/`PhotoAsset`,
-`ShareVideo.Data`/`VideoAsset`/`VideoURL` — which are already emitted. So FB-1 surfaces **no new
-FBSDKShareKit API**; its value is the general generator improvement for genuinely-public colliding enum
-properties (and more accurate skip reporting for the internal/unemittable ones).
-
-**Review refinement (2026-07-03).** Paired Codex + Grok review (no High findings; both independently
-confirmed the `ModuleInternal` suppression is correct) converged on one non-functional imprecision: the
-pre-pass's `reservedNames` seed pulled from *every* property, including internal/`@_spi` ones that
-`CanEmitProperty` always drops. That let an internal sibling's projected name push a genuinely-recoverable
-public property's suffix higher (`Image` → `ImageValue2`) with no real collision to avoid. Fixed by
-skipping `IsModuleInternal`/`IsSpiProtected` properties when seeding `reservedNames` — those never emit, so
-they don't "claim" a C# name (aligning the set with its documented purpose). Provably collision-safe
-(over-reservation was already the conservative direction; this only removes a spurious suffix bump), leaves
-the rename scan's diagnostic improvement intact, and is output-identical across all fixtures + FBSDKShareKit.
+**Document the two known limitations** (below) in the wiki Known Limitations page as part of the release.
 
 ---
 
-## Batch B
+## Known limitations to document (not bugs — deliberate scope)
 
-### FB-3 — Bridge ObjC `NS_OPTIONS` bitmasks into the Swift type database  ·  **priority: medium-high (recommended first feature)**
+- **FB App Links `[any P]` collections (`@objc` element case).** `AppLink.targets` /
+  `AppLink.init(sourceURL:targets:webURL:)` / `AppLink.appLink(…)` / `AppLinkFactory.createAppLink` /
+  `AppLinkNavigation.navigationType` don't bind. Root cause: `AppLinkTargetProtocol` is an **`@objc`
+  protocol** (`NS_SWIFT_NAME(AppLinkTargetProtocol)` over `@protocol FBSDKAppLinkTarget`), so
+  `[any AppLinkTargetProtocol]` is the heavyweight `@objc`-container-existential case — out of scope
+  (see below). `AppLinkNavigation`'s inits also take `[String:Any]` dictionaries, an independent by-design
+  drop. Facebook App Links deep-linking is therefore unsupported; **Login and Share are unaffected.**
+- **FB `LoginConfiguration(messengerPageId:)` init.** Being recovered by Build-session item 1 — if that
+  item is descoped for any reason, document it here instead.
 
-**What (reframed by scoping).** Every `Share*Content` type drops `validate(options: ShareBridgeOptions)
-throws` as `UnsupportedSignature` "unsupported placeholder type." The signature is *clean*
-(no `[String:Any]`) — the block is that `ShareBridgeOptions` is an ObjC **`NS_OPTIONS`** bitmask
-(`NS_SWIFT_NAME(ShareBridgeOptions)`) that never gets a Swift type record in a mixed binding, so it degrades
-to `Swift.AnyType` and the whole method is dropped (`MethodHandler.cs:1448-1459`, via
-`MethodSignature.ContainsPlaceholder` at `MethodSignature.cs:138-140`).
+## Why the `@objc` `[any P]` forward feature is dropped (don't re-investigate)
 
-**Why it's now attractive.** The Clang parser *already* fully extracts it —
-`ClangAstParser.cs:~590-654` produces `ObjCEnumDecl { IsOptions=true, Cases, UnderlyingType }`, the same
-data shape as `NS_ENUM`. It's `ObjCBridgeRecordFactory` that *explicitly* excludes it today:
-`if (enumDecl.IsOptions) continue;` (`ObjCBridgeRecordFactory.cs:107-108`, with the design comment at
-`:48-49` / `:90-91`). This is the **direct sibling** of the `NS_ENUM` → `SimpleEnum` bridge (same file) and
-the `NS_TYPED_EXTENSIBLE_ENUM` bridge landed today in `be5b70f8` — an established, low-risk pattern.
+Enabling forward `@objc [any objcP]` collections is **not** "lift a gate." Per the (now-deleted) deferral
+investigation, it requires rewriting a fail-closed regression gate, two novel `.map`-laundering `@_cdecl`
+wrapper shapes, a **mandatory** physical-device (NativeAOT) validation, and it still leaves the reverse
+direction broken (no sound retainable 8-byte `@objc` carrier exists — that needs new runtime
+existential-container plumbing). The payoff is a niche feature (App Links deep-linking) plus a general
+capability with little real-world demand (`[any objcProtocol]` collections are rare). Risk/payoff is poor
+**regardless of schedule** — this is demand-driven work, not hygiene work. A full turnkey "Design B" revival
+spec exists in git history if demand ever appears — retrieve it with
+`git show 8d06bd0d:src/docs/ship-sessions/02-fb2-deferral.md` rather than carrying it here.
 
-**Fix shape.**
-1. New `IsOptions == true` branch in `ObjCBridgeRecordFactory` synthesizing a type record (bitmask /
-   `[Flags]`-style) with the same raw-value round-trip the `SimpleEnum` path already uses.
-2. Companion C# emission: `[Flags] public enum ShareBridgeOptions : nuint { Default = 0, PhotoAsset = 1<<0, … }`.
-3. Marshal parameter/return through the raw-value round-trip (reuse the `SimpleEnum` mechanism).
+## Explicitly NOT worth doing (settled — don't chase)
 
-**Payoff.** Unblocks all 8 `validate(options:)` methods + `_ShareUtility.validateShareContent`, and
-generalizes to any mixed binding using `NS_OPTIONS` (very common in ObjC). **Possible knock-on:** the 2
-Review-tier EveryProtocol proxies `SharingContent` / `SharingValidatable` were skipped precisely because
-`ShareBridgeOptions` had *no Swift type-database record* — giving it one may flip that predicate and recover
-their proxies. Verify after FB-3 lands; don't promise it up front (the proxy path may have other gates).
+- **Internal DI infra** (`DependentAsObject/Value/Type`) and **underscore SPI** (`_WebDialog`, `_BridgeAPI*`,
+  `_ShareUtility`, `_ViewImpressionLogger`) — never consumer surface.
+- **`[String:Any]` dictionary bridging** (`Share*Content.addParameters(_:options:)`, `AppLinkNavigation`
+  extras/appLinkData) — by-design AnyType-in-container.
+- **The 3 Review-tier proxies** (`CAPIReporter`, `SharingContent`, `SharingValidatable`) — reference ObjC
+  types/protocols with no Swift TypeDatabase record; zero recoverable consumer value (only a C#-side
+  *implementer* would notice, and none exists). FB-3 already gave `ShareBridgeOptions` a record; re-check
+  after it whether `SharingContent`/`SharingValidatable` flipped, but don't design toward it.
 
-**Tests.** BindingTests: an `NS_OPTIONS` typedef in a mixed fixture consumed by a Swift method
-`validate(options:)`; assert the `[Flags]` enum round-trips and the method is reachable. Device run required
-(marshalling change).
+## Facebook surface — the one-line evidence base
 
-### FB-2 — `UnsupportedExistential`: collections of `any P` (`[any AppLinkTargetProtocol]`)  ·  **priority: medium**
-
-**What.** `any P` in *direct* parameter position is supported; `Array<any P>` (a bound generic whose
-element is an existential) is dropped. *(Not code-path-scoped this round — investigate the
-`ExistentialHandler` gate before implementing.)*
-
-**Evidence (consumer-facing ~6 of 12).** `AppLink.targets`/`.init`/`.appLink`,
-`AppLinkFactory.createAppLink`, `AppLinkNavigation.navigationType`, `ShareMediaContent` — all *"Bound generic
-contains existential type argument 'any …Protocol'."* The rest are internal `_BridgeAPI*` / `AEMReporter`.
-
-**Fix approach.** Extend existential support to bound-generic element position (Array/Dictionary of `any P`)
-in reverse dispatch and forward projection — the `ExistentialHandler`
-`HasUnsupportedObjCProtocolExistentialPosition` gate drops it today. One general fix, reusable across
-libraries. Medium effort (touches projection + container marshalling). The FB feature itself (App Links deep
-linking) is niche; the *fix* is what has value. Device run required.
-
-**Tests.** BindingTests: a method taking/returning `[any P]` for an ObjC and a Swift protocol; assert a
-heterogeneous collection round-trips.
+Measured across the 4 consumer kits: **916/2019 members emitted; 71% of skips never-public, 21% by-design,
+8% (99) actionable — of which ~45 are internal DI/SPI**. The genuinely consumer-facing, cleanly-fixable
+remainder was exactly FB-1 / FB-2 / FB-3 / FB-1b, now all resolved or decided. The primary consumer types
+(Settings, Profile, ApplicationDelegate, LoginManager, LoginConfiguration, AccessToken, ShareLinkContent,
+SharePhotoContent, ShareVideoContent, ShareMediaContent, ShareDialog) are present and runtime-proven. So
+Facebook's ship decision is a product call about polish + demand, not generator completeness.
 
 ---
 
-## Standalone
+## Build session — the two remaining generator items (kick off next)
 
-### FB-1b — `LoginConfiguration` init overload-collapse  ·  **priority: medium, needs an API decision first**
+Self-contained brief for a fresh Claude session. Read `CLAUDE.md` first — its build/test targets,
+zero-regression policy, and "no shortcuts / root-cause fixes" rule are binding. Both items are **general
+generator improvements** surfaced by Facebook, not FB-specific hacks, and both ride the upcoming SDK/runtime
+regression cycle. All file:line pointers below are **approximate — verify with grep before editing**; the
+tree moves.
 
-**What (verdict: real loss).** Two `init?` overloads project to a C# `TryCreate` signature already claimed
-by a sibling, and are dropped:
+### Scope
+
+Two independent items. They can land in either order or as separate commits.
+
+### Item 1 — FB-1b: failable-init overload-collapse dedup naming
+
+**Problem.** Two `LoginConfiguration` `init?` overloads erase to the same C# `TryCreate` signature and one is
+silently dropped (`DuplicateSignature`):
 - `init?(permissions:, tracking:, messengerPageId: String?)` collides with the emitted
-  `init?(permissions:, tracking:, nonce: String)` — both erase to `TryCreate(IEnumerable<string>,
-  LoginTracking, string, out)`.
+  `init?(permissions:, tracking:, nonce: String)` — both erase to
+  `TryCreate(IEnumerable<string>, LoginTracking, string, out …)`.
 - the 4-arg `+appSwitch:` variant collides the same way.
 
 `messengerPageId` and `nonce` are semantically distinct but both erase to C# `string`, so the first-declared
-wins the slot. Confirmed no surviving `TryCreate` / factory lets a caller supply *only* `permissions +
-tracking + messengerPageId(+ appSwitch)` — genuinely unreachable (evidence: generated `TryCreate` list in
-`FBSDKLoginKit.cs` around :7856/:7903/:7950; skip raised at `IHandler.cs:491`).
+wins the slot and the sibling is unreachable (no factory lets a caller supply only
+`permissions + tracking + messengerPageId(+appSwitch)`).
 
-**Why standalone.** Different subsystem from FB-1 (constructor/`TryCreate` dedup, not `EnumHandler`), and
-disambiguation must rename the **externally visible** `TryCreate` (e.g. `TryCreateWithMessengerPageId` vs
-`TryCreateWithNonce`) — there's no quiet return/receiver slot to suffix. Which label wins the plain
-`TryCreate`, how many overloads may differ this way, and the ordering-dependence are an API-shape design
-call to settle before implementing.
+**Fix — the agreed naming rule (general, backward-compatible).** When N failable-init (or ctor) overloads
+collide on erased C# signature, **the first-declared keeps the plain `TryCreate` name; each colliding sibling
+is suffixed by its distinguishing parameter label** — `TryCreateWithMessengerPageId`, and the appSwitch
+variant disambiguated the same way. This recovers the dropped init **without renaming anything already
+emitted** (minimal surprise), and generalizes to any library with erased-signature init overloads.
 
----
+**Where.** The `DuplicateSignature` skip for constructors is raised on the concrete-emission path
+(`Emitter/StringEmitter/Handler/ClassHandler.cs` / `MethodHandler.cs`); the failable-init `TryCreate` name is
+produced in `Emitter/StringEmitter/Handler/WrapperEmitter.FailableFactory.cs` and
+`ConstructorWrapperEmitter.cs`. Grep `DuplicateSignature` + `TryCreate` to pin the exact collision site and
+naming site before editing. Prefer disambiguating at the name site over widening the collision predicate.
 
-## Post-batch — pre-ship verification & prep
+**Trap.** Keep the disambiguation confined to the externally-visible factory name — there is no quiet
+return/receiver slot to suffix here (unlike an internal wrapper), so the change *is* public API by design.
+Verify the recovered `TryCreateWithMessengerPageId` and the unchanged `TryCreate` both round-trip.
 
-The last mile between "generator done" and "published nupkg." **None of this is generator work** — it's
-proving the package actually builds, links, and runs from a *clean* consumer, plus settling the two open
-product/API calls. Do V-1 once per library after that library's generator work lands. **Until a real
-consumer links the real package, "shippable" is a claim, not a proven fact** — so treat V-1 as the gate that
-converts "the generator is done" into "the binding is verified shippable."
+**Tests.** Add a Swift type with two failable inits whose parameter labels differ but erase to the same C#
+signature (mirror the `LoginConfiguration` shape) to `BindingTests/Sources/SwiftBindingsTestLib/` +
+assertions in the matching domain file: assert both factories are reachable and construct distinct instances.
+Add an emitter unit test asserting the naming rule (first-wins keeps `TryCreate`, sibling gets the label
+suffix) — assert behavior, not exact strings.
 
-### V-1 — Pack-and-consume verification (per library)
+### Item 2 — Harden the latent `@objc [any P]` reverse-path over-read (fail-closed)
 
-Emitting correct bindings ≠ a NuGet package a clean consumer links and runs. The synthetic pack gates prove
-the *mechanism*; V-1 proves *these* packages.
-- **MapLibre (pure-ObjC pack lane).** Build the real nupkg (`dotnet nuke BuildLibrary --library MapLibre
-  --all-products`), then from a *fresh* single-`PackageReference` consumer app, build + run on the iOS
-  Simulator and on device (NativeAOT). Assert the map renders and a delegate callback fires — the spike
-  app's scenarios, but consuming the *packed* artifact, not a project reference. This is the gap the
-  synthetic gates don't cover: BindingTests has no pure-ObjC nupkg-consumption leg, and W-1 proves the
-  generated binding, not the packed one.
-- **Facebook (mixed ObjC+Swift pack lane).** The `--mixed-pack` shape on the *real* binding: pack the 5 FB
-  kits, then from a single-`PackageReference` consumer, build (sim) and NativeAOT-publish (device), and
-  assert Login + a Share flow round-trip with the ObjC classes registering exactly once (the
-  duplicate-ObjC-registration hazard — "Class X is implemented in both …").
-- **App Store hygiene (library-agnostic, once).** Run `nuke binding-tests --appstore-hygiene` — it asserts
-  the runtime nupkg embeds as a signed framework and a built `.ipa` is TN2435-compliant. Must be green
-  before any publish.
+**Problem (a real latent defect, independent of the dropped forward feature).** The reverse/interface path
+is existential-blind. A protocol whose requirement is typed `[any objcP]` (custom, non-Apple `@objc`
+protocol) currently (a) is declared in the C# protocol interface **and** (b) receives an `Included`
+reverse-dispatch vtable slot — **without** consulting the `@objc`-existential gate
+(`ExistentialHandler.HasUnsupportedObjCProtocolExistentialPosition`, enforced only on the concrete-witness
+path). Its reverse receiver is then emitted with a 40-byte `ExistentialContainer1` carrier against an 8-byte
+`@objc` element stride — **a buffer over-read.** No current fixture exercises this shape, so it's latent, but
+it's a genuine hazard behind the compile. A regression/hardening cycle is the right time to close it.
 
-### V-2 — Settle FB-1b (API decision)
+**Fix — drop `@objc`-container-existential protocol requirements fail-closed, in lockstep.** Add the
+`@objc`-container-existential detection to **both** the member gate (`Emitter/StringEmitter/
+MemberGateEvaluator.cs`, `Evaluate*`) **and** the vtable classifier
+(`Emitter/StringEmitter/VtableLayout.cs`, `ClassifyMethod`/`ClassifyProperty`/`ClassifySubscript`) so the
+requirement is dropped from the interface declaration **and** its vtable slot **together**. Lockstep is
+mandatory: dropping from one but not the other desyncs vtable size → SIGSEGV (see
+`.claude/rules/constraints.md` "vtable size desync"). Keep `ProtocolConformanceValidator`'s `:`
+conformance-keeping re-check consistent so it doesn't retain a `: IFoo` conformance whose member just went
+away (would otherwise CS0535). Grep **every** consumer of both gates before landing so no path is left
+half-lifted.
 
-Either pick the disambiguated `TryCreate` naming rule (e.g. `TryCreateWithMessengerPageId` vs
-`TryCreateWithNonce`) and implement it, or accept the two dropped inits as a documented consumer-facing
-limitation (wiki Known Limitations). Owner call — do not autopilot the naming.
+**Scope guard.** This closes the reverse hole by making the shape a clean fail-closed drop — it does **not**
+enable the forward `@objc [any objcP]` feature (explicitly out of scope; see Known limitations). Keep the
+existing `ObjCExistentialOutOfScopeGate` fixture's Dictionary/tuple/closure/async cases dropped as they are.
 
-### V-3 — Product go/no-go
+**Tests.** Add a fixture protocol with an `[any objcP]` requirement (a custom `@objc` protocol element) that
+**would** have hit the over-read; assert it is now cleanly dropped (compile-gate: the member is absent from
+the emitted interface and no vtable slot references it, the binding compiles, no runtime over-read). This is
+a fail-closed assertion — behavior is "the hazardous member does not emit," not "it round-trips."
 
-Owner decisions, not engineering: which FB kits ship (Login is the concentrated demand; confirm ShareKit
-demand before shipping Share), MapLibre demand, and the version/lane per library — see **Ship decisions**
-below. Then cut the release via the normal `release/**` flow.
+### Validation (hard gates — green ≥ baseline before commit)
 
----
+1. `nuke test` — unit tests; ≥ the `swift_bindings_unit_pass` floor in
+   `build/baselines/validation-baseline.json`.
+2. `nuke binding-tests` — default iOS Simulator (Mono JIT); regenerates + compiles + runs. ≥
+   `runtime_tests.simulator.pass` baseline, 0 fail.
+3. `nuke binding-tests --device --device-udid 559479FD-3C60-51E4-8B2C-872D8CBA8B54` — physical iPhone
+   (NativeAOT). **Required for item 2** (existential/container behavior is where Mono and NativeAOT diverge);
+   recommended for item 1. First `--device` run must NOT use `--skip-regen`.
+4. Optional canary: `nuke validate` — item 2 touches shared vtable/gate classification with real blast
+   radius, so a real-world sweep is worth it if you have time. If you run it, `git checkout` the ~8
+   `-behaviortier` version-stamp files it dirties but **keep** the updated baseline json; treat only a
+   `cs_compile`/`swift_compile` drop below baseline as a regression.
 
-## Facebook — measured skip accounting
+### Guardrails
 
-The generator fail-closes on any member it can't faithfully bind, so a raw skip count over-reads as "thin".
-The `SkipTriage` roll-up in each `binding-report.json` buckets every skip by actionability. Aggregated
-across the four consumer kits:
-
-| Kit | Types | Members | Skips | Never-public | By-design | Actionable | Review |
-|---|---|---|---|---|---|---|---|
-| Core (FBSDKCoreKit) | 158/159 | 429/1055 | 673 | 516 | 113 | 43 | 1 |
-| AEM (FBAEMKit) | 25/25 | 70/201 | 157 | 98 | 55 | 4 | 0 |
-| Login (FBSDKLoginKit) | 83/83 | 256/468 | 250 | 181 | 52 | 17 | 0 |
-| Share (FBSDKShareKit) | 61/61 | 161/295 | 165 | 92 | 36 | 35 | 2 |
-| **Total** | **327/328** | **916/2019** | **1245** | **887 (71%)** | **256 (21%)** | **99 (8%)** | **3** |
-
-The 99 actionable skips by reason: 48 `UnsupportedSignature`, 25 `AnyTypeFallback`, 12
-`UnsupportedExistential`, 8 `DuplicateSignature`, 3 `UnsupportedType`, 1 each of
-`UnsatisfiedGenericConstraint` / `NonBlittableCallConvSwift` / `GenericProtocolConstraint`. ~45 of the 99
-are still not consumer surface (internal DI infra, underscore SPI, by-design `[String:Any]` helpers). The
-genuinely consumer-facing, cleanly-fixable remainder is the FB-1 / FB-2 / FB-3 / FB-1b sets above.
-
----
-
-## Explicitly NOT worth doing
-
-- **Internal DI infrastructure** (`DependentAsObject` / `DependentAsValue` / `DependentAsType`) and
-  **underscore SPI** (`_WebDialog`, `_BridgeAPI*`, `_ShareUtility`, `_ViewImpressionLogger`) — ~30 of the 99
-  "actionable" skips. Never consumer surface.
-- **`[String:Any]` dictionary bridging** (`Share*Content.addParameters(_:options:)`) — by-design
-  AnyType-in-container. Distinct from FB-3's `validate(options:)`, which is recoverable.
-- **The 3rd Review proxy `CAPIReporter`** — its requirement references `GraphRequestFactoryProtocol`, an ObjC
-  *protocol* with no Swift type-database record (a different missing-type class than FB-3's `NS_OPTIONS`).
-  Recovery would need cross-pipeline import of ObjC protocol metadata into the Swift TypeDatabase — general
-  but low payoff (only a C#-side *implementer* would notice, and none exists). Leave it.
-  *(The other 2 Review proxies, `SharingContent`/`SharingValidatable`, are gated on FB-3 — re-evaluate after.)*
-
----
-
-## Ship decisions (product calls, not generator work)
-
-- **Facebook.** Feasibility is settled and the primary surface is runtime-proven. The open question is
-  whether "primary surface + the gaps above" clears the quality bar, plus a ShareKit **demand check** (Login
-  is the concentrated demand; don't assume Share). FB-1 (and optionally FB-3) raise polish; none of the
-  above blocks the primary flows.
-- **MapLibre.** GO on feasibility; ML-1 is fixed, so the only real gate is **W-1** (durable tests) before a
-  NuGet ship.
-- **Firebase** (out of scope here) — collaborate-vs-compete; both tooling gaps are closed, so it's a pure
-  product/vision call, no generator work pending.
-
----
-
-## Reproducing the measurements
-
-1. Pack the SDK from `main`: `nuke pack --version <ver> --apple-version 26.2.8 --skip-apple`, copy the
-   `SwiftBindings.{Runtime,Sdk,Templates}.<ver>.nupkg` into the packages repo's `local-packages/`, and wipe
-   `~/.nuget/packages/swiftbindings.*/<ver>` so the fresh feed is used.
-2. Clean `obj`/`bin`, then `dotnet nuke BuildLibrary --library Facebook --all-products` (mixed → emits
-   `binding-report.json` per kit) or `--library MapLibre` (pure ObjC → emits `ApiDefinition.cs`; no report).
-3. Each Facebook `binding-report.json` carries `EmittedTypes`/`EmittedMembers`/`SkippedItems[]` (with
-   `Reason` / `ContainingType` / `Name` / `Details`) and the `SkipTriage` roll-up (`ByDisposition` +
-   `ReviewItems`). Group `SkippedItems` by `Reason`, filter to the `KnownLimitation` tier for the actionable
-   set. MapLibre is pure ObjC, so verify it structurally: build the binding, confirm `MLNMapView.Camera` is
-   a working property in the generated `MLNMapView.g.cs`, and confirm every `DllImport("__Internal")`
-   entrypoint is an *exported* symbol (`nm -gU` on the framework binary, both device and simulator slices).
+- Root-cause fix, not symptom suppression. No weakened assertions, no `[Skip]` to force green.
+- Item 2 is fail-closed hardening — if you find yourself widening emission (enabling a new shape) rather than
+  cleanly dropping the hazardous one, stop: that's the out-of-scope forward feature.
+- Confirm regenerated output compiles (the `nuke binding-tests` regen does this) — don't assume.

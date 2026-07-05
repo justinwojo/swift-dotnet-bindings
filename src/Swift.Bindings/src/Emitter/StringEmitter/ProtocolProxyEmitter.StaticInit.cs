@@ -263,7 +263,7 @@ public partial class ProtocolProxyEmitter
             {
                 // A non-static excluded subscript still consumes its index below so the numbering
                 // matches the struct layout; only the assignment is gated on layout + fillability.
-                if (ProtocolVtableMembers.IncludesSubscript(subscript, protocolDecl) &&
+                if (ProtocolVtableMembers.IncludesSubscript(subscript, protocolDecl, vtableClosureHandler) &&
                     !_skippedSubscriptIndices.Contains(subscriptIndex))
                     EmitLocalVtableSubscriptAssignment(writer, subscript, subscriptIndex);
             }
@@ -349,7 +349,7 @@ public partial class ProtocolProxyEmitter
             var subscriptKey = $"subscript_{subscriptIndex}";
             if (emittedSubscripts.Add(subscriptKey))
             {
-                if (ProtocolVtableMembers.IncludesSubscript(subscript, protocolDecl) &&
+                if (ProtocolVtableMembers.IncludesSubscript(subscript, protocolDecl, vtableClosureHandler) &&
                     !_skippedSubscriptIndices.Contains(subscriptIndex))
                     EmitSwiftVtableSubscriptAssignment(writer, subscript, subscriptIndex);
             }
@@ -648,7 +648,7 @@ public partial class ProtocolProxyEmitter
             // dispatchable instance subscript lands at the slot the struct
             // emitter assigned to it.
             if (subscript.IsStatic) continue;
-            if (!ProtocolVtableMembers.IncludesSubscript(subscript, parentDecl)) { subscriptIndex++; continue; }
+            if (!ProtocolVtableMembers.IncludesSubscript(subscript, parentDecl, vtableClosureHandler)) { subscriptIndex++; continue; }
             EmitLocalVtableSubscriptAssignment(writer, subscript, subscriptIndex);
             subscriptIndex++;
         }
@@ -718,7 +718,7 @@ public partial class ProtocolProxyEmitter
             // See the local-vtable loop above for the static-vs-filtered
             // index-consumption rationale.
             if (subscript.IsStatic) continue;
-            if (!ProtocolVtableMembers.IncludesSubscript(subscript, parentDecl)) { subscriptIndex++; continue; }
+            if (!ProtocolVtableMembers.IncludesSubscript(subscript, parentDecl, vtableClosureHandler)) { subscriptIndex++; continue; }
             EmitSwiftVtableSubscriptAssignment(writer, subscript, subscriptIndex, localVtableField);
             subscriptIndex++;
         }
