@@ -62,3 +62,21 @@ int32_t OUExportedTriple(int32_t x) { return x * 3; }
     return [element describeElement];
 }
 @end
+
+// Shape 7 — return known values of each formerly-unresolvable Apple system type.
+@implementation OUSystemTypes
+- (NSOperatingSystemVersion)minimumVersion {
+    NSOperatingSystemVersion v;
+    v.majorVersion = 15;
+    v.minorVersion = 2;
+    v.patchVersion = 0;
+    return v;
+}
+- (BOOL)acceptsReadingOptions:(NSDataReadingOptions)options {
+    return (options & NSDataReadingMappedIfSafe) != 0;
+}
+- (NSURLSessionTaskState)currentTaskState { return NSURLSessionTaskStateSuspended; }
+- (UIApplicationState)preferredApplicationState { return UIApplicationStateBackground; }
+- (NSJSONReadingOptions)defaultReadingOptions { return NSJSONReadingMutableContainers; }
+- (NSJSONWritingOptions)defaultWritingOptions { return NSJSONWritingPrettyPrinted; }
+@end

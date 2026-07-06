@@ -12,7 +12,11 @@ public sealed record ObjCPipelineResult(
     string? ErrorMessage,
     string? ApiDefinitionPath = null,
     string? StructsAndEnumsPath = null,
-    string? ProjectPath = null);
+    string? ProjectPath = null,
+    // A1: the accumulated skip diagnostics for this run, so the pure-ObjC caller can persist the
+    // ObjC drop set into the binding manifest/report (the mixed caller reuses the parse's
+    // Diagnostics directly). Null only when a run produced no diagnostics object at all.
+    ObjCBindingDiagnostics? Diagnostics = null);
 
 /// <summary>
 /// Output of <see cref="ObjCPipeline.Parse"/>: the parsed-and-eligibility-filtered ObjC module,
@@ -58,7 +62,8 @@ public static class ObjCPipeline
             resolution, xcframeworkPath, logger, commandRunner,
             namespacePattern, additionalFrameworkSearchPaths, platformInfo);
         if (parse.ExitCode != 0 || parse.Module == null)
-            return new ObjCPipelineResult(parse.ExitCode, parse.Module, parse.ErrorMessage);
+            return new ObjCPipelineResult(parse.ExitCode, parse.Module, parse.ErrorMessage,
+                Diagnostics: parse.Diagnostics);
 
         return FilterAndEmit(
             parse.Module, parse.ResolvedNamespace, parse.PlatformInfo, parse.Diagnostics,
@@ -244,7 +249,7 @@ public static class ObjCPipeline
             logger.LogInformation(
                 "Mixed framework '{Module}': no ObjC classes, protocols, or enums found — skipping ObjC emission.",
                 resolution.ModuleName);
-            return new ObjCPipelineResult(0, module, null);
+            return new ObjCPipelineResult(0, module, null, Diagnostics: diagnostics);
         }
 
         // 4e. Detect delegate/data-source protocols and mark them with IsDelegateProtocol.
@@ -303,7 +308,7 @@ public static class ObjCPipeline
         DumpSummary(module, logger);
         diagnostics.LogSummary(logger);
 
-        return new ObjCPipelineResult(0, module, null, apiDefPath, structsPath, projectPath);
+        return new ObjCPipelineResult(0, module, null, apiDefPath, structsPath, projectPath, diagnostics);
     }
 
     /// <summary>

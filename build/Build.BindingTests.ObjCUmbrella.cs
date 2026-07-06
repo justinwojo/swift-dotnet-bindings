@@ -109,12 +109,13 @@ partial class Build
             "-o", objectFile.ToString(),
         });
 
-        // Link a dynamic framework binary. Foundation is linked explicitly for the NSString /
-        // NSArray literals; the install_name is the framework @rpath so the app loader resolves it.
+        // Link a dynamic framework binary. Foundation is linked for the NSString / NSArray literals
+        // and UIKit for Shape 7's UIApplicationState reference; the install_name is the framework
+        // @rpath so the app loader resolves it.
         RunObjCUmbrellaTool("clang", new[]
         {
             "-dynamiclib", "-target", target, "-isysroot", sdkPath.ToString(),
-            "-framework", "Foundation",
+            "-framework", "Foundation", "-framework", "UIKit",
             "-install_name", $"@rpath/{ObjCUmbrellaModule}.framework/{ObjCUmbrellaModule}",
             objectFile.ToString(), "-o", binaryPath.ToString(),
         });

@@ -511,6 +511,11 @@ public static class BindingsGeneratorCommand
                     sdkMode: sdkMode, isMixed: false,
                     additionalFrameworkSearchPaths: objcSearchPaths,
                     platformInfo: platformInfo);
+                // A1: make the ObjC drop set visible. A pure-ObjC binding runs no Swift generation
+                // pass (no manifest yet), so persist one carrying the ObjC skip section — otherwise
+                // these drops live only in an INFO log and never reach binding-report.json's gate.
+                if (objcResult.ExitCode == 0)
+                    PersistPureObjCSkipReport(outputDirectory, objcResolution.ModuleName, objcResult.Diagnostics, logger);
                 context.ExitCode = objcResult.ExitCode;
                 if (objcResult.ErrorMessage != null)
                     logger.LogError("{Message}", objcResult.ErrorMessage);
@@ -569,6 +574,11 @@ public static class BindingsGeneratorCommand
                     sdkMode: sdkMode, isMixed: false,
                     additionalFrameworkSearchPaths: objcSearchPaths,
                     platformInfo: platformInfo);
+                // A1: make the ObjC drop set visible. A pure-ObjC binding runs no Swift generation
+                // pass (no manifest yet), so persist one carrying the ObjC skip section — otherwise
+                // these drops live only in an INFO log and never reach binding-report.json's gate.
+                if (objcResult.ExitCode == 0)
+                    PersistPureObjCSkipReport(outputDirectory, objcResolution.ModuleName, objcResult.Diagnostics, logger);
                 context.ExitCode = objcResult.ExitCode;
                 if (objcResult.ErrorMessage != null)
                     logger.LogError("{Message}", objcResult.ErrorMessage);
@@ -1344,6 +1354,16 @@ public static class BindingsGeneratorCommand
                 excludeTypeNames: swiftTypeNames,
                 sourceNativeLinkage: sourceNativeLinkage,
                 hasWrapperXCFramework: wrapperWillExist);
+            // A1: attach the ObjC surface's dropped symbols to the manifest the Swift generation
+            // pass already wrote into this output dir, so they fold into binding-report.json's
+            // single SkipTriage/ReviewCount gate. mixedParse.Diagnostics is the same object
+            // FilterAndEmit accumulated into. Recorded even if the pipeline then aborts below, so a
+            // failed mixed run still surfaces whatever it dropped before failing.
+            BindingArtifactManifestStore.ReadModifyWrite(
+                outputDirectory,
+                resolution.ModuleName,
+                m => m.ObjC = ObjCSection.From(mixedParse.Diagnostics),
+                logger);
             // Fail closed: the framework HAS an ObjC surface (mixedObjcResolution != null), so a
             // non-zero pipeline exit means we tried to bind a known ObjC surface and failed. Do
             // NOT silently degrade to a Swift-only package — that drops the ObjC types with no
@@ -1796,6 +1816,32 @@ public static class BindingsGeneratorCommand
     /// </summary>
     internal static bool ShouldAbortForFailedMixedObjC(ObjCPipelineResult? mixedObjcResult)
         => mixedObjcResult != null && mixedObjcResult.ExitCode != 0;
+
+    /// <summary>
+    /// A1: persist a pure-ObjC binding's dropped-symbol diagnostics into the output directory's
+    /// binding manifest (and the rederived <c>binding-report.json</c>). A pure-ObjC binding runs no
+    /// Swift generation pass, so no manifest exists yet and this is the sole writer — it builds a
+    /// Partial manifest carrying only the ObjC section, which <see cref="BindingReportProjection"/>
+    /// folds into the <c>SkipTriage</c>/<c>ReviewCount</c> gate. No-op when the run produced no
+    /// diagnostics object (an early resolve failure before any emission).
+    /// </summary>
+    private static void PersistPureObjCSkipReport(
+        string outputDirectory, string moduleName, ObjCBindingDiagnostics? diagnostics, ILogger logger)
+    {
+        if (diagnostics == null)
+            return;
+
+        var manifest = new BindingArtifactManifest
+        {
+            Module = moduleName,
+            GeneratorVersion = BindingArtifactManifestStore.GetGeneratorVersion(),
+            Status = ManifestStatus.Partial,
+            PartialReason =
+                "Pure-ObjC binding: no Swift generation phase runs, so the manifest carries only the ObjC skip section.",
+            ObjC = ObjCSection.From(diagnostics),
+        };
+        BindingArtifactManifestStore.Write(manifest, outputDirectory, logger);
+    }
 
     /// <summary>
     /// Selects the platform-appropriate framework search path (<c>-F</c> slice dir) for each

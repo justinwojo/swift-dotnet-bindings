@@ -39,6 +39,17 @@ public class SkipDispositionClassifierTests
     [InlineData(SkipReason.NetUnavailableType, SkipDisposition.KnownLimitation)]
     [InlineData(SkipReason.AbsentFrameworkType, SkipDisposition.KnownLimitation)]
     [InlineData(SkipReason.DuplicateSignature, SkipDisposition.KnownLimitation)]
+    // ObjC binding-path reasons: consumer-visible documented gaps are KnownLimitation, correct-by-design
+    // structural skips are ExpectedStructural, and none default to Review (every ObjC drop is attributed).
+    [InlineData(SkipReason.ObjCUnresolvableType, SkipDisposition.KnownLimitation)]
+    [InlineData(SkipReason.ObjCUnsupportedConstruct, SkipDisposition.KnownLimitation)]
+    [InlineData(SkipReason.ObjCDuplicateSignature, SkipDisposition.KnownLimitation)]
+    [InlineData(SkipReason.ObjCVariadicFunction, SkipDisposition.KnownLimitation)]
+    [InlineData(SkipReason.ObjCUnavailableApi, SkipDisposition.ExpectedStructural)]
+    [InlineData(SkipReason.ObjCAccessibilityConflict, SkipDisposition.ExpectedStructural)]
+    [InlineData(SkipReason.ObjCEmptyCategory, SkipDisposition.ExpectedStructural)]
+    [InlineData(SkipReason.ObjCDuplicateSelector, SkipDisposition.ExpectedStructural)]
+    [InlineData(SkipReason.ObjCMissingNativeSymbol, SkipDisposition.ExpectedStructural)]
     [InlineData(SkipReason.MissingHandler, SkipDisposition.Review)]
     [InlineData(SkipReason.MissingWrapperSymbol, SkipDisposition.Review)]
     [InlineData(SkipReason.EveryProtocolConformanceSkipped, SkipDisposition.Review)]

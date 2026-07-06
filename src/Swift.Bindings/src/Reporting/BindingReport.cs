@@ -191,6 +191,36 @@ public enum SkipReason
     /// generation-time warning — attribute the drop to a genuinely unbindable cross-framework type.
     /// </summary>
     AbsentFrameworkType,
+
+    // ── ObjC binding path (mixed + pure-ObjC surfaces) ────────────────────────────────
+    // A mixed (ObjC+Swift) binding — and a pure-ObjC binding — has an ObjC surface whose
+    // drops the ObjC pipeline (ClangAstParser → ApiDefinitionEmitter) records as its own
+    // ObjCSkipReason vocabulary. These reasons mirror that vocabulary 1:1 (mapped by
+    // ObjCSkipProjection) so the ObjC drop set folds into the SAME SkipTriage/ReviewCount
+    // gate as the Swift surface, instead of being invisible in any persisted artifact. Each
+    // stays distinct from its Swift near-analogue (e.g. ObjCUnresolvableType vs
+    // UnsupportedType) so the by-reason breakdown attributes each drop to its real cause
+    // rather than relabelling an ObjC cause as a semantically-different Swift one.
+
+    /// <summary>ObjC member dropped because a referenced type is not in the ObjC type registry.</summary>
+    ObjCUnresolvableType,
+    /// <summary>ObjC declaration marked unavailable on this platform (NS_UNAVAILABLE / deprecated-unavailable).</summary>
+    ObjCUnavailableApi,
+    /// <summary>ObjC construct not yet supported by the binding generator.</summary>
+    ObjCUnsupportedConstruct,
+    /// <summary>ObjC member dropped to resolve a name/accessibility conflict.</summary>
+    ObjCAccessibilityConflict,
+    /// <summary>ObjC member's projected C# signature collides with another member.</summary>
+    ObjCDuplicateSignature,
+    /// <summary>ObjC variadic function/method — not representable as a P/Invoke.</summary>
+    ObjCVariadicFunction,
+    /// <summary>ObjC category contributed no bindable members.</summary>
+    ObjCEmptyCategory,
+    /// <summary>ObjC declaration has no matching exported native symbol in any linked binary.</summary>
+    ObjCMissingNativeSymbol,
+    /// <summary>ObjC duplicate selector flattened to a single member across the type hierarchy.</summary>
+    ObjCDuplicateSelector,
+
     Unknown,
 }
 

@@ -72,6 +72,24 @@ public static class WorkaroundRecommendations
             "The Swift type is auto-bridged but not yet present in the .NET Foundation assembly. Write a Swift wrapper that exposes the data through a supported type (e.g. a plain String).",
         SkipReason.AbsentFrameworkType =>
             "The member references a framework type that has no .NET binding available. Add a binding for the framework that declares the type, or write a Swift wrapper that exposes the data through a supported type.",
+        SkipReason.ObjCUnresolvableType =>
+            "The ObjC member references a type absent from the ObjC type registry. Register the Apple/ObjC type in objc-type-mappings.json (or bind the framework that declares it) so the member resolves.",
+        SkipReason.ObjCUnavailableApi =>
+            "The ObjC API is marked unavailable on this platform (NS_UNAVAILABLE / deprecated-unavailable); no binding is emitted by design.",
+        SkipReason.ObjCUnsupportedConstruct =>
+            "The ObjC construct is not yet supported by the generator. Expose the functionality through a supported ObjC declaration shape.",
+        SkipReason.ObjCAccessibilityConflict =>
+            "The ObjC member was dropped to resolve a name/accessibility conflict. Rename the conflicting member in the source framework to disambiguate.",
+        SkipReason.ObjCDuplicateSignature =>
+            "The ObjC member's projected C# signature collides with another member. Rename one selector in the source framework to disambiguate the projected signature.",
+        SkipReason.ObjCVariadicFunction =>
+            "ObjC variadic functions/methods are not representable as a P/Invoke. Expose a non-variadic wrapper that takes an explicit array or count.",
+        SkipReason.ObjCEmptyCategory =>
+            "The ObjC category contributed no bindable members, so nothing was emitted; no action needed.",
+        SkipReason.ObjCMissingNativeSymbol =>
+            "The ObjC declaration has no matching exported native symbol in any linked binary (header-only / static-inline / unexported global); binding it would fail to link.",
+        SkipReason.ObjCDuplicateSelector =>
+            "Duplicate selectors across the ObjC type hierarchy are flattened to a single member by design; no action needed.",
         SkipReason.Unknown =>
             "Investigate the specific member in the generator output.",
         _ => null,
@@ -141,6 +159,24 @@ public static class WorkaroundRecommendations
             "Foundation type not yet available in .NET",
         SkipReason.AbsentFrameworkType =>
             "framework type has no .NET binding available",
+        SkipReason.ObjCUnresolvableType =>
+            "ObjC type not in the ObjC type registry",
+        SkipReason.ObjCUnavailableApi =>
+            "ObjC API unavailable on this platform (by design)",
+        SkipReason.ObjCUnsupportedConstruct =>
+            "ObjC construct not yet supported",
+        SkipReason.ObjCAccessibilityConflict =>
+            "ObjC member dropped to resolve a name/accessibility conflict",
+        SkipReason.ObjCDuplicateSignature =>
+            "ObjC member's projected C# signature collides with another member",
+        SkipReason.ObjCVariadicFunction =>
+            "ObjC variadic function/method not representable",
+        SkipReason.ObjCEmptyCategory =>
+            "ObjC category contributed no bindable members",
+        SkipReason.ObjCMissingNativeSymbol =>
+            "ObjC declaration has no exported native symbol",
+        SkipReason.ObjCDuplicateSelector =>
+            "ObjC duplicate selector flattened by design",
         SkipReason.Unknown =>
             "unclassified skip reason",
         _ => null,

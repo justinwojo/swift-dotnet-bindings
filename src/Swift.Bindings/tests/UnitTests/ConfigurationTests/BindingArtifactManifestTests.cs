@@ -3,6 +3,7 @@
 
 #nullable enable
 
+using BindingsGeneration.ObjC;
 using Microsoft.Extensions.Logging.Abstractions;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
@@ -377,6 +378,109 @@ public class BindingArtifactManifestTests
         var emptyProjected = BindingReportProjection.Project(
             new BindingArtifactManifest { Module = "Demo", Generation = GenerationSection.From(NewReport()) });
         Assert.Empty(emptyProjected.ObjCPrefixBridges);
+    }
+
+    [Fact]
+    public void ObjCSection_And_Projection_FoldMixedObjCSkipsIntoSkipTriage()
+    {
+        // A1: a mixed (ObjC+Swift) binding writes the Swift surface through Generation and attaches the
+        // ObjC drop set as an ObjCSection. binding-report.json is rederived from the manifest, so the
+        // ObjC skips must survive a JSON round-trip AND fold into the SAME SkipTriage/ReviewCount gate
+        // as the Swift surface — otherwise an ObjC-heavy library's drops stay invisible to the release
+        // signal (the exact "47 dropped in FBSDKCoreKit, none in any persisted artifact" gap).
+        var diagnostics = new ObjCBindingDiagnostics();
+        diagnostics.RecordSkip("Method", "FBSDKBasicUtility.jsonObjectWithData",
+            ObjCSkipReason.UnresolvableType, "NSJSONReadingOptions not in registry");
+        diagnostics.RecordSkip("class", "OMIDAdSession",
+            ObjCSkipReason.MissingNativeSymbol, "no _OBJC_CLASS_$_OMIDAdSession symbol");
+        diagnostics.RecordSkip("Function", "FBSDKLog",
+            ObjCSkipReason.VariadicFunction, "variadic function");
+
+        var swift = NewReport("Mixed");
+        var manifest = new BindingArtifactManifest
+        {
+            Module = "Mixed",
+            Generation = GenerationSection.From(swift),
+            ObjC = ObjCSection.From(diagnostics),
+        };
+
+        // Section carries the mapped report vocabulary and a by-reason roll-up.
+        Assert.Equal(3, manifest.ObjC!.SkippedSymbolCount);
+        Assert.Equal(1, manifest.ObjC.SkippedByReason["ObjCUnresolvableType"]);
+
+        var settings = new JsonSerializerSettings
+        {
+            Converters = new List<JsonConverter> { new StringEnumConverter() },
+        };
+        var json = JsonConvert.SerializeObject(manifest, settings);
+        var parsed = JsonConvert.DeserializeObject<BindingArtifactManifest>(json, settings)!;
+
+        var projected = BindingReportProjection.Project(parsed);
+
+        // All three ObjC drops appear in the projected report's skip list with their mapped reasons.
+        Assert.Contains(projected.SkippedItems,
+            i => i.Reason == SkipReason.ObjCUnresolvableType && i.Name == "FBSDKBasicUtility.jsonObjectWithData");
+        Assert.Contains(projected.SkippedItems, i => i.Reason == SkipReason.ObjCMissingNativeSymbol);
+        Assert.Contains(projected.SkippedItems, i => i.Reason == SkipReason.ObjCVariadicFunction);
+
+        // They roll into the triage gate: unresolvable-type + variadic are KnownLimitation, the
+        // over-binding is ExpectedStructural — none land in Review (every ObjC drop is attributed).
+        Assert.NotNull(projected.SkipTriage);
+        var triage = projected.SkipTriage!;
+        Assert.Equal(0, triage.ReviewCount);
+        Assert.Equal(2, triage.ByDisposition["KnownLimitation"]);
+        Assert.Equal(1, triage.ByDisposition["ExpectedStructural"]);
+
+        // The ObjC drops also update the scalar roll-ups, not just the flat list, so the report stays
+        // internally consistent: the two ObjC methods (the `Function` maps to Method) land in
+        // SkippedMembers + the per-kind roll-up and the dropped `class` lands in SkippedTypes — and the
+        // whole thing satisfies SkippedItems.Count == SkippedTypes + SkippedMembers.
+        Assert.Equal(2, projected.SkippedMembers);
+        Assert.Equal(2, projected.SkippedMembersByKind[BindingItemKind.Method]);
+        Assert.Equal(1, projected.SkippedTypes);
+        Assert.Equal(projected.SkippedItems.Count, projected.SkippedTypes + projected.SkippedMembers);
+    }
+
+    [Fact]
+    public void ObjCSection_Only_PureObjCManifest_ProjectsSkipTriage()
+    {
+        // A1: a pure-ObjC binding runs no Swift generation pass, so the manifest has NO Generation
+        // section — only the ObjC one. The projection must still fold those drops and build the triage,
+        // so a pure-ObjC library's drop set is visible in binding-report.json exactly like a mixed one.
+        var diagnostics = new ObjCBindingDiagnostics();
+        diagnostics.RecordSkip("Method", "OUThing.doStuff",
+            ObjCSkipReason.UnresolvableType, "SomeType not in registry");
+
+        var manifest = new BindingArtifactManifest
+        {
+            Module = "PureObjC",
+            ObjC = ObjCSection.From(diagnostics),
+        };
+
+        var projected = BindingReportProjection.Project(manifest);
+
+        Assert.Single(projected.SkippedItems);
+        Assert.Equal(SkipReason.ObjCUnresolvableType, projected.SkippedItems[0].Reason);
+        Assert.NotNull(projected.SkipTriage);
+        Assert.Equal(1, projected.SkipTriage!.Total);
+        Assert.Equal(0, projected.SkipTriage.ReviewCount);
+
+        // Even with NO Generation section the scalar roll-ups reflect the ObjC drop (they would
+        // otherwise stay at their zero defaults while SkippedItems.Count is 1 — the inconsistency the
+        // fold is careful to avoid). The single dropped method counts as a member, not a type.
+        Assert.Equal(1, projected.SkippedMembers);
+        Assert.Equal(1, projected.SkippedMembersByKind[BindingItemKind.Method]);
+        Assert.Equal(0, projected.SkippedTypes);
+        Assert.Equal(projected.SkippedItems.Count, projected.SkippedTypes + projected.SkippedMembers);
+    }
+
+    [Fact]
+    public void Projection_NoObjCSection_LeavesSkipListUnchanged()
+    {
+        // Legacy / Swift-only: a manifest with no ObjC section projects with no ObjC-path skips added.
+        var projected = BindingReportProjection.Project(
+            new BindingArtifactManifest { Module = "Demo", Generation = GenerationSection.From(NewReport()) });
+        Assert.DoesNotContain(projected.SkippedItems, i => i.Reason.ToString().StartsWith("ObjC"));
     }
 
     [Fact]

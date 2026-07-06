@@ -998,6 +998,48 @@ public class ObjCTypeMapperTests
         Assert.Equal(expected, ObjCTypeMapper.IsApiDefinitionTypeResolvable(mappedType, knownTypes, sdkNames));
     }
 
+    // Standard Apple Foundation/UIKit enum/option/struct types (NSDataReadingOptions,
+    // NSURLSessionTaskState, UIApplicationState, NSOperatingSystemVersion) are declared in system
+    // headers, so the clang AST parser never records them in the bound framework's own decls nor in
+    // its appleSdkTypeNamespaces set. Once ANY class/protocol is captured (sdkNames non-empty — the
+    // common case for a real framework), the coarse NS/UI-prefix fallback is bypassed, so the ONLY
+    // thing that keeps a member referencing one of these from being dropped as UnresolvableType is
+    // their registration in objc-type-mappings.json's objcValueTypes (folded into knownTypes). These
+    // assertions pass sdkNames that deliberately EXCLUDE the four types, so a green result proves the
+    // registry entry — not the SDK set or the prefix fallback — is doing the resolving. Removing an
+    // entry silently reopens the drop; this test turns that into an immediate red.
+    [Theory]
+    [InlineData("NSDataReadingOptions", true)]       // NS_OPTIONS (no acronym rename)
+    [InlineData("NSUrlSessionTaskState", true)]      // NS_ENUM, mapped from NSURLSessionTaskState
+    [InlineData("UIApplicationState", true)]         // NS_ENUM (non-NS prefix, unchanged)
+    [InlineData("NSOperatingSystemVersion", true)]   // system struct (no acronym rename)
+    [InlineData("NSJsonReadingOptions", true)]       // NS_OPTIONS, mapped from NSJSONReadingOptions
+    [InlineData("NSJsonWritingOptions", true)]       // NS_OPTIONS, mapped from NSJSONWritingOptions
+    [InlineData("NSUnregisteredOptions", false)]     // negative control: not registered anywhere
+    public void IsApiDefinitionTypeResolvable_StandardAppleValueTypes_ResolveViaRegistry(string mappedType, bool expected)
+    {
+        var knownTypes = ObjCTypeMapper.BuildKnownMappedTypes();
+        // A realistic non-empty SDK set that does NOT contain the four target types — so resolution
+        // can only succeed through the knownTypes registry path, never the sdkNames membership or the
+        // -fmodules NS/UI-prefix fallback (which is bypassed once sdkNames is non-empty).
+        var sdkNames = new HashSet<string> { "NSObject", "NSData", "NSUrlSession", "UIApplication" };
+        Assert.Equal(expected, ObjCTypeMapper.IsApiDefinitionTypeResolvable(mappedType, knownTypes, sdkNames));
+    }
+
+    // The four target types must also be recognized as ObjC value types, so a pointer to one is
+    // treated as a by-value out-parameter rather than an object reference.
+    [Theory]
+    [InlineData("NSDataReadingOptions")]
+    [InlineData("NSUrlSessionTaskState")]
+    [InlineData("UIApplicationState")]
+    [InlineData("NSOperatingSystemVersion")]
+    [InlineData("NSJsonReadingOptions")]
+    [InlineData("NSJsonWritingOptions")]
+    public void IsObjCValueType_StandardAppleValueTypes_Recognized(string typeName)
+    {
+        Assert.True(AppleFrameworkRegistry.IsObjCValueType(typeName));
+    }
+
     // Direct coverage of the reverse-acronym helper, including roundtrip with Apply.
     [Theory]
     [InlineData("NSHttpUrlResponse", "NSHTTPURLResponse")]

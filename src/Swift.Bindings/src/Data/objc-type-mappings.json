@@ -168,7 +168,10 @@
     "simd_float2", "simd_float3", "simd_float4",
     "simd_float4x4", "simd_float3x3",
     "MTLOrigin", "MTLSize", "MTLRegion",
-    "AVAudio3DPoint", "AVAudio3DVector", "AVAudio3DAngularOrientation"
+    "AVAudio3DPoint", "AVAudio3DVector", "AVAudio3DAngularOrientation",
+    "NSOperatingSystemVersion",
+    "NSDataReadingOptions", "NSUrlSessionTaskState", "UIApplicationState",
+    "NSJsonReadingOptions", "NSJsonWritingOptions"
   ],
   "systemStructs": [
     "CLLocationCoordinate2D", "MKCoordinateSpan", "MKCoordinateRegion",
@@ -178,6 +181,6 @@
     "UIEdgeInsets", "NSDirectionalEdgeInsets",
     "NSRange", "UIOffset", "CATransform3D",
     "SCNVector3", "SCNVector4", "SCNMatrix4",
-    "MKTileOverlayPath"
+    "MKTileOverlayPath", "NSOperatingSystemVersion"
   ]
 }

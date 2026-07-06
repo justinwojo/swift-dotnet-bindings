@@ -67,6 +67,32 @@ public static class BindingReportProjection
             }
         }
 
+        // A1: fold the ObjC binding surface's dropped symbols into the same skip list. For a mixed
+        // binding these join the Swift drops; for a pure-ObjC binding (no Generation section) this is
+        // the entire skip set. Either way they roll into the single SkipTriage/ReviewCount gate below,
+        // so an ObjC-heavy library's drops are no longer invisible to the release signal. Update the
+        // scalar roll-ups too (not just the flat list), so the persisted report stays internally
+        // consistent — SkippedItems.Count == SkippedTypes + SkippedMembers — instead of leaving the
+        // ObjC drops out of SkippedMembers/SkippedTypes (and zeroed on a pure-ObjC manifest). Types
+        // count against SkippedTypes; members against SkippedMembers + the per-kind roll-up, mirroring
+        // the Swift path's split (ReportCollector never puts a Type in SkippedMembersByKind).
+        if (manifest.ObjC is { } objc)
+        {
+            foreach (var item in objc.SkippedItems)
+            {
+                report.SkippedItems.Add(item);
+                if (item.Kind == BindingItemKind.Type)
+                {
+                    report.SkippedTypes += 1;
+                }
+                else
+                {
+                    report.SkippedMembers += 1;
+                    AdjustKind(report.SkippedMembersByKind, item.Kind, +1);
+                }
+            }
+        }
+
         // Roll the settled skip list up by actionability last — after co-gating has folded every
         // wrapper-stripped member in — so the triage reflects final reality, not the mid-pipeline guess.
         report.SkipTriage = SkipTriageBuilder.Build(report.SkippedItems);

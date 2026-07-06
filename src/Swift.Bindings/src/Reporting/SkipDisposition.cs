@@ -101,6 +101,24 @@ public static class SkipDispositionClassifier
             [SkipReason.NetUnavailableType] = SkipDisposition.KnownLimitation,
             [SkipReason.AbsentFrameworkType] = SkipDisposition.KnownLimitation,
 
+            // ── ObjC binding path ─────────────────────────────────────────────────────────────
+            // Dispositions mirror the Swift-side character of each cause: a type the registry
+            // simply doesn't carry yet, an unsupported construct, a duplicate-signature collision,
+            // and a variadic are consumer-visible documented gaps (KnownLimitation); a
+            // deliberately-unavailable API, an accessibility/name-conflict resolution, an empty
+            // category, a flattened duplicate selector, and an over-binding with no native symbol
+            // are correct-by-design structural skips (ExpectedStructural). None are Review — every
+            // ObjC drop the pipeline records has an attributed cause here.
+            [SkipReason.ObjCUnresolvableType] = SkipDisposition.KnownLimitation,
+            [SkipReason.ObjCUnsupportedConstruct] = SkipDisposition.KnownLimitation,
+            [SkipReason.ObjCDuplicateSignature] = SkipDisposition.KnownLimitation,
+            [SkipReason.ObjCVariadicFunction] = SkipDisposition.KnownLimitation,
+            [SkipReason.ObjCUnavailableApi] = SkipDisposition.ExpectedStructural,
+            [SkipReason.ObjCAccessibilityConflict] = SkipDisposition.ExpectedStructural,
+            [SkipReason.ObjCEmptyCategory] = SkipDisposition.ExpectedStructural,
+            [SkipReason.ObjCDuplicateSelector] = SkipDisposition.ExpectedStructural,
+            [SkipReason.ObjCMissingNativeSymbol] = SkipDisposition.ExpectedStructural,
+
             // ── Review — the tool cannot (yet) explain the skip ───────────────────────────────
             [SkipReason.MissingHandler] = SkipDisposition.Review,
             [SkipReason.MissingWrapperSymbol] = SkipDisposition.Review,

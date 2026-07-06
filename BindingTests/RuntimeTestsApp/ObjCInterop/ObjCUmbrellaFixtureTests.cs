@@ -4,6 +4,7 @@
 using Foundation;
 using ObjCUmbrella;
 using RuntimeTestsApp.Infrastructure;
+using UIKit;
 
 namespace RuntimeTestsApp.ObjCInterop;
 
@@ -16,6 +17,12 @@ namespace RuntimeTestsApp.ObjCInterop;
 /// via a single ProjectReference to the emitted binding project. Each test exercises one of the six
 /// deliberately-shaped cases; the fact that ANY of these tests runs at all already proves the app
 /// launched without an Objective-C duplicate-selector registration abort (Shape 1's failure mode).
+///
+/// Shape 7 additionally guards the standard-Apple-type registry (objc-type-mappings.json): four
+/// members whose signatures reference <c>NSOperatingSystemVersion</c>, <c>NSDataReadingOptions</c>,
+/// <c>NSURLSessionTaskState</c>, and <c>UIApplicationState</c> — types that were once absent from
+/// the registry and so silently dropped every member using them. That the members below EXIST to be
+/// called (this file compiles) is the standing proof the registry gap stays closed.
 /// </summary>
 public class ObjCUmbrellaFixtureTests : TestBase
 {
@@ -108,6 +115,41 @@ public class ObjCUmbrellaFixtureTests : TestBase
         using var host = new OUFactoryHost();
         string described = host.RunFactory((nint index) => new OUElementBox($"factory-{index}"));
         AssertEqual("element:factory-3", described, "the protocol-returning factory block round-trips through NSObject");
+    }
+
+    /// <summary>
+    /// Shape 7 (A2) — four members whose signatures reference standard Apple value types that were
+    /// once absent from the ObjC type registry (<c>NSOperatingSystemVersion</c> struct;
+    /// <c>NSDataReadingOptions</c>, <c>NSURLSessionTaskState</c>, <c>UIApplicationState</c> enums), so
+    /// any member using them was silently dropped as an unresolvable type. Registering them closed the
+    /// gap; each member below binding AND resolving its type against Microsoft.iOS is the durable proof.
+    /// Note the <c>URL</c>→<c>Url</c> acronym on the projected <c>NSUrlSessionTaskState</c>.
+    /// </summary>
+    public void TestStandardAppleTypesResolveAndRoundTrip()
+    {
+        using var system = new OUSystemTypes();
+
+        NSOperatingSystemVersion version = system.MinimumVersion();
+        AssertEqual(15, (int)version.Major, "NSOperatingSystemVersion struct round-trips its major component");
+        AssertEqual(2, (int)version.Minor, "NSOperatingSystemVersion struct round-trips its minor component");
+
+        // Microsoft.iOS names the `NSDataReadingMappedIfSafe` bit `Mapped`.
+        AssertTrue(system.AcceptsReadingOptions(NSDataReadingOptions.Mapped),
+            "NSDataReadingOptions flag is honored when the mapped-if-safe bit is set");
+        AssertFalse(system.AcceptsReadingOptions(NSDataReadingOptions.Uncached),
+            "NSDataReadingOptions flag is rejected when a different bit is set");
+
+        AssertEqual((int)NSUrlSessionTaskState.Suspended, (int)system.CurrentTaskState(),
+            "NSUrlSessionTaskState enum round-trips");
+        AssertEqual((int)UIApplicationState.Background, (int)system.PreferredApplicationState(),
+            "UIApplicationState enum round-trips");
+
+        // The FBSDKTypeUtility JSON surface: NSJSONReadingOptions / NSJSONWritingOptions, projected with
+        // the JSON→Json acronym. MutableContainers / PrettyPrinted round-trip through the registered types.
+        AssertEqual((int)NSJsonReadingOptions.MutableContainers, (int)system.DefaultReadingOptions(),
+            "NSJsonReadingOptions enum round-trips");
+        AssertEqual((int)NSJsonWritingOptions.PrettyPrinted, (int)system.DefaultWritingOptions(),
+            "NSJsonWritingOptions enum round-trips");
     }
 
     /// <summary>

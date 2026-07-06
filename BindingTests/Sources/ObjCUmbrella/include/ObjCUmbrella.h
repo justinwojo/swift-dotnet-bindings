@@ -8,6 +8,9 @@
 // per-shape comments. Asserted by behavior from RuntimeTestsApp/ObjCInterop.
 
 #import <Foundation/Foundation.h>
+// UIKit is imported for Shape 7's UIApplicationState (a UIKit NS_ENUM). It also brings the
+// wider UIKit surface into the clang module, which the parser's platform-stub filter drops.
+#import <UIKit/UIKit.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -92,6 +95,28 @@ typedef id<OUElement> _Nonnull (^OUElementFactory)(NSInteger index);
 
 @interface OUFactoryHost : NSObject
 - (NSString *)runFactory:(OUElementFactory)factory;
+@end
+
+// MARK: - Shape 7 (A2) — members whose signatures reference standard Apple value types that were
+// absent from the ObjC type registry.
+//
+// `NSDataReadingOptions`, `NSURLSessionTaskState`, `UIApplicationState` (enums) and
+// `NSOperatingSystemVersion` (a Foundation struct) were all unresolvable, so any ObjC member using
+// them was silently dropped as `ObjCSkipReason.UnresolvableType` — genuinely-public API vanishing
+// with no persisted diagnostic. Registering them (objc-type-mappings.json) closes the gap; these
+// members are the durable proof it stays closed: each must bind AND the emitted C# must resolve the
+// type against Microsoft.iOS (Foundation/UIKit). Note the `URL`→`Url` acronym on the projected
+// `NSUrlSessionTaskState`. Round-trips a known value per type.
+@interface OUSystemTypes : NSObject
+- (NSOperatingSystemVersion)minimumVersion;
+- (BOOL)acceptsReadingOptions:(NSDataReadingOptions)options;
+- (NSURLSessionTaskState)currentTaskState;
+- (UIApplicationState)preferredApplicationState;
+// NSJSONReadingOptions / NSJSONWritingOptions are the exact FBSDKTypeUtility JSON-utility surface
+// (JSONObjectWithData:options: / dataWithJSONObject:options:); they exercise the same objcValueTypes
+// registry path, projected with the JSON→Json acronym.
+- (NSJSONReadingOptions)defaultReadingOptions;
+- (NSJSONWritingOptions)defaultWritingOptions;
 @end
 
 NS_ASSUME_NONNULL_END

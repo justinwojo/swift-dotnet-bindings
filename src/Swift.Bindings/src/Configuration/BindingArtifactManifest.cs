@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using BindingsGeneration.ObjC;
+
 namespace BindingsGeneration;
 
 /// <summary>
@@ -45,6 +47,17 @@ public sealed class BindingArtifactManifest
 
     public WrapperSection? Wrapper { get; set; }
     public BridgeSection? Bridge { get; set; }
+
+    /// <summary>
+    /// A1: the ObjC binding surface's dropped symbols. A mixed (ObjC+Swift) binding has two
+    /// independent binding surfaces; only the Swift one flows through <see cref="Generation"/>.
+    /// The ObjC pipeline records its drops as <c>ObjCBindingDiagnostics</c> whose only prior sink
+    /// was an INFO log line — never serialized, never in <c>SkipTriage</c>. Carrying them here folds
+    /// the ObjC drop set into the rederived <c>binding-report.json</c>'s single <c>ReviewCount</c>
+    /// gate (<see cref="BindingReportProjection"/>). Null for Swift-only bindings and for legacy
+    /// manifests written before this section existed.
+    /// </summary>
+    public ObjCSection? ObjC { get; set; }
 }
 
 public enum ManifestStatus
@@ -374,6 +387,51 @@ public sealed class BridgeSection
             BridgeCompiled = outcome.BridgeCompiled,
             SliceCount = outcome.CompilationResult?.SliceCount ?? 0,
         };
+    }
+}
+
+/// <summary>
+/// A1: ObjC-binding-phase snapshot. Records the symbols the ObjC pipeline dropped, already
+/// projected into the shared report vocabulary (<see cref="SkippedItem"/>) so
+/// <see cref="BindingReportProjection"/> can fold them straight into the rederived report's
+/// <c>SkippedItems</c> / <c>SkipTriage</c> without re-touching the ObjC domain types. Present on
+/// mixed and pure-ObjC manifests; absent (null) on Swift-only bindings.
+/// </summary>
+public sealed class ObjCSection
+{
+    public DateTimeOffset UpdatedAt { get; init; } = DateTimeOffset.UtcNow;
+    public PhaseStatus Status { get; init; } = PhaseStatus.Success;
+
+    /// <summary>Total symbols the ObjC pipeline dropped (== <see cref="SkippedItems"/>.Count).</summary>
+    public int SkippedSymbolCount { get; init; }
+
+    /// <summary>Drop count keyed by <see cref="SkipReason"/> name — the ObjC slice of the by-reason roll-up.</summary>
+    public Dictionary<string, int> SkippedByReason { get; init; } = new();
+
+    /// <summary>
+    /// The dropped ObjC symbols as <see cref="SkippedItem"/>s (mapped by <see cref="ObjCSkipProjection"/>).
+    /// Stored already-projected so the report projection is a plain append — the same shape
+    /// <see cref="GenerationSection.SkippedItems"/> already round-trips through the manifest.
+    /// </summary>
+    public List<SkippedItem> SkippedItems { get; init; } = new();
+
+    public static ObjCSection From(ObjCBindingDiagnostics diagnostics)
+    {
+        ArgumentNullException.ThrowIfNull(diagnostics);
+
+        var section = new ObjCSection
+        {
+            SkippedSymbolCount = diagnostics.SkippedSymbols.Count,
+            Status = diagnostics.SkippedSymbols.Count == 0 ? PhaseStatus.Success : PhaseStatus.Warning,
+        };
+        foreach (var symbol in diagnostics.SkippedSymbols)
+        {
+            var item = ObjCSkipProjection.ToSkippedItem(symbol);
+            section.SkippedItems.Add(item);
+            var key = item.Reason.ToString();
+            section.SkippedByReason[key] = section.SkippedByReason.GetValueOrDefault(key) + 1;
+        }
+        return section;
     }
 }
 

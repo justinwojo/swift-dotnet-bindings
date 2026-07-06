@@ -5,6 +5,7 @@
 using System.CommandLine;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Console;
 using Newtonsoft.Json.Linq;
 using BindingsGeneration.ObjC;
 
@@ -2462,7 +2463,12 @@ namespace BindingsGeneration
         {
             return LoggerFactory.Create(builder =>
             {
-                builder.AddConsole();
+                // Route Error/Critical to stderr so stdout carries only intended machine-readable
+                // output. The --resolve-auto-deps verb writes a frozen "PROJREF|"/"WARN|" line
+                // grammar to stdout that the SDK captures via ConsoleToMSBuild; without this, a
+                // LogError on the failure path lands on stdout and pollutes that grammar (the SDK
+                // drops the stray line silently, hiding the actual diagnostic).
+                builder.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Error);
 
                 builder.SetMinimumLevel(verbosity switch
                 {
