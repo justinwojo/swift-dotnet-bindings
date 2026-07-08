@@ -305,6 +305,19 @@ namespace BindingsGeneration
         public bool IsProtocolExtensionMethod { get; set; } = false;
 
         /// <summary>
+        /// When true, this synthetic method actually wraps a read-only protocol-extension
+        /// PROPERTY default surfaced as a zero-parameter getter method (see
+        /// <c>ProtocolExtensionEmitter</c>). The Swift member is read as a property
+        /// (<c>instance.name</c>), NOT invoked (<c>instance.name()</c>): any wrapper body
+        /// that renders the call — the free-function path or the concrete-specialization
+        /// (CSM) path for generic parents — MUST omit the call parens for these, or swiftc
+        /// rejects the wrapper with "cannot call value of non-function type". The
+        /// <c>IsProperty</c> signal is otherwise lost once the property is lowered into a
+        /// <see cref="MethodDecl"/>, so this flag carries it forward.
+        /// </summary>
+        public bool IsExtensionPropertyGetter { get; set; } = false;
+
+        /// <summary>
         /// Stable cross-emitter identity for the underlying Swift method that this
         /// wrapper claims. Used by
         /// <see cref="ModuleEmissionContext.TryClaimWrapperSymbol"/> so two emitters

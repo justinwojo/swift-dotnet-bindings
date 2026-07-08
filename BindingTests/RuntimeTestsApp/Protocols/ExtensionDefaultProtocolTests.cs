@@ -91,4 +91,44 @@ public class ExtensionDefaultProtocolTests : TestBase
         using var tip = SwiftBindingsTestLib.Functions.CreateEmptyTip();
         AssertEqual(0, tip.GetTipPriorityScore(), "EmptyTip.GetTipPriorityScore()");
     }
+
+    // ─── Read-only extension-default Bool properties on a GENERIC conformer ───
+    // isReversible / isAdditive are extension defaults on `CsmReversibleAction`, surfaced on
+    // the GENERIC conformer `CsmFromToBy<Value>` through the concrete-specialization (CSM) path
+    // rather than the non-generic free-function path. That path once rendered the getter as a
+    // method CALL (`__self.isReversible()`), which swiftc rejects for a Bool value, so the whole
+    // specialization wrapper failed to compile and the SDK gave up (SWIFTBIND051) — the exact
+    // RealityFoundation `FromToByAction<Value>` regression this fixture pins. These round-trip a
+    // value derived from instance state (stepCount), proving real self-dispatch, not a constant.
+
+    public void TestJointActionIsReversibleTrue()
+    {
+        // stepCount == 3 → isReversible (3 > 0) == true.
+        using var action = SwiftBindingsTestLib.Functions.MakeJointAction(3);
+        AssertTrue(action.IsReversible(), "CsmFromToBy<CsmJointValue>(3).IsReversible()");
+    }
+
+    public void TestJointActionIsReversibleFalse()
+    {
+        // stepCount == 0 → isReversible (0 > 0) == false. Discriminates real self-dispatch
+        // from a constant: the same extension default returns the other boolean here.
+        using var action = SwiftBindingsTestLib.Functions.MakeJointAction(0);
+        AssertFalse(action.IsReversible(), "CsmFromToBy<CsmJointValue>(0).IsReversible()");
+    }
+
+    public void TestJointActionIsAdditiveTrue()
+    {
+        // stepCount == 4 → isAdditive (4 % 2 == 0) == true; isReversible (4 > 0) == true.
+        using var action = SwiftBindingsTestLib.Functions.MakeJointAction(4);
+        AssertTrue(action.IsAdditive(), "CsmFromToBy<CsmJointValue>(4).IsAdditive()");
+        AssertTrue(action.IsReversible(), "CsmFromToBy<CsmJointValue>(4).IsReversible()");
+    }
+
+    public void TestJointActionIsAdditiveFalse()
+    {
+        // stepCount == 3 → isAdditive (3 % 2 == 0) == false — the second getter flips
+        // independently of the first, so both specialization wrappers are exercised.
+        using var action = SwiftBindingsTestLib.Functions.MakeJointAction(3);
+        AssertFalse(action.IsAdditive(), "CsmFromToBy<CsmJointValue>(3).IsAdditive()");
+    }
 }

@@ -949,6 +949,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
         {
             callExpr = $"{parentSwiftName}({string.Join(", ", callArgs)})";
         }
+        else if (method.IsExtensionPropertyGetter)
+        {
+            // A read-only extension-default property surfaced as a synthetic getter method
+            // is READ, not called — `__self.name`, no parens. Emitting `__self.name()` makes
+            // swiftc reject the wrapper with "cannot call value of non-function type".
+            callExpr = $"{callTarget}.{NameProvider.ParserNameToSwift(method)}";
+        }
         else
         {
             callExpr = $"{callTarget}.{NameProvider.ParserNameToSwift(method)}({string.Join(", ", callArgs)})";

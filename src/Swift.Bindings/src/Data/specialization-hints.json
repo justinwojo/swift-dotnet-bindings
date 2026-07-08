@@ -119,6 +119,13 @@
       ]
     },
     {
+      "protocol": "SwiftBindingsTestLib.CsmAnimatableValue",
+      "conformers": [
+        { "swiftType": "SwiftBindingsTestLib.CsmJointValue", "csharpType": "CsmJointValue" },
+        { "swiftType": "SwiftBindingsTestLib.CsmWeightValue", "csharpType": "CsmWeightValue" }
+      ]
+    },
+    {
       "protocol": "SwiftBindingsTestLib.Tagger",
       "conformers": [
         { "swiftType": "SwiftBindingsTestLib.StringTagger", "csharpType": "StringTagger", "associatedTypes": { "Marker": "Swift.String" } },

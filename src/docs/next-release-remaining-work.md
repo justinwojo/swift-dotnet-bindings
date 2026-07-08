@@ -10,6 +10,82 @@ actually still open.
 
 ---
 
+## 0. RESOLVED — 0.17.0 regression: RealityFoundation wrapper compile fails
+
+**Status: FIXED 2026-07-08.** Root-caused, fixed at the generator, covered by a BindingTests fixture +
+unit tests, and verified: RealityFoundation now compiles its wrapper clean under the final 0.17.0 SDK
+(`RealityFoundationSwiftBindings.xcframework` produced, `Build succeeded, 0 Error(s)`, no SWIFTBIND050/051).
+
+**Root cause.** A read-only Swift protocol-extension-default **property** surfaced on a **generic** conforming
+type (RealityKit's `FromToByAction<Value>.isReversible` / `.isAdditive`, extension defaults on an
+`AnimatableData`-constrained parent) routes through the concrete-specialization (CSM) path. That path rendered
+the getter as a method **call** — `__self.isReversible()` — invoking a `Bool` value like a function, so swiftc
+rejected the whole specialization wrapper ("cannot call value of non-function type 'Bool'") and the SDK gave up
+(SWIFTBIND051). Fix: carry `MethodDecl.IsExtensionPropertyGetter` (from `extMethod.IsProperty`) through the
+synthetic-getter pipeline and, in `ConcreteProtocolSpecializationEmitter`, **read** the member (`__self.name`,
+no parens) for that flag.
+
+**Secondary fix (dead-symbol parity).** For a generic conformer the member is surfaced exclusively via CSM, so
+the generic `@_silgen_name("SBSW_…")` free-function wrapper `ProtocolExtensionEmitter` also emitted had no C#
+caller — a dead exported symbol (the parity gate's `symbol-reverse` divergence, which RF shipped). It is now
+suppressed, but **only** when the member actually routes to CSM — gated on the pipeline's own
+`IsCsmSyncEligibleForGenericParent` predicate, never a blanket `IsGeneric` test, so a nested-generic-parent
+conformer (which CSM excludes) keeps the wrapper its open-generic `MethodGenericBridge` P/Invoke still calls.
+
+**Coverage.** `BindingTests/Sources/SwiftBindingsTestLib/Protocols/ExtensionDefaultProtocol.swift` reproduces
+the RF shape (`CsmFromToBy<Value: CsmAnimatableValue>` with extension-default Bool getters); four runtime tests
+(`ExtensionDefaultProtocolTests.TestJointActionIsReversible*/IsAdditive*`) round-trip the getters on the closed
+specialization (sim-green). Unit tests pin the read-not-call body and the non-over-suppression gate
+(`ConcreteSpecializationEngineTests`, `ProtocolExtensionEmitterTests`).
+
+**Historical detail (kept for context).** The regression gate never reached its test matrix — it aborted in
+pre-flight.
+
+**Symptom.** `RegressionValidate` pre-flight rebuilds the cross-framework Apple supplements from source with
+the new SDK (`PackCrossFrameworkDependencies` → `BuildAndPackAppleFramework`, `Build.RegressionValidate.cs:664`).
+`Matter` packed OK; **`RealityFoundation` failed** on TFM `net10.0-ios26.2` with:
+
+```
+error SWIFTBIND051: Swift wrapper compilation failed for 'RealityFoundationSwiftBindings'.
+```
+
+The whole run exited 255; no `artifacts/regression-validate-0.17.0.json` was written, and Step 3
+(internal-binding-testing) never ran.
+
+**Detail not yet captured.** The underlying `SWIFTBIND050` swiftc errors are **not** surfaced by the SDK even
+at `-v normal` — only the `SWIFTBIND051` give-up prints. The emitted wrapper source is at
+`…/apple-frameworks/RealityFoundation/obj/Release/net10.0-ios26.2/swift-binding/RealityFoundation.Wrapper.swift`.
+Standalone repro:
+`dotnet build apple-frameworks/RealityFoundation/SwiftBindings.Apple.RealityFoundation.csproj -c Release -f net10.0-ios26.2`.
+Root-causing needs a way to see the swiftc stderr the wrapper-compile step swallows.
+
+**Strong evidence this is a 0.17.0 regression, not pre-existing.** A `SwiftBindings.Apple.RealityFoundation.26.2.8`
+nupkg built successfully under the 0.16.0-era generator (local nupkg dated 2026-06-27, the 0.16.0 /
+apple-26.2.8 release window). The same supplement now fails to compile its wrapper under 0.17.0. Suspect
+commits: the 42 since `sdk-v0.16.0` that touched Apple type-mapping, generic-parent handling, and
+existentials. Not yet bisected.
+
+**Scoping nuance for the ship decision.** This failure is in a cross-framework Apple *supplement* that the
+harness always rebuilds in pre-flight. The 0.17.0 plan reuses the *published* Apple 26.2.8, so the shipped
+Apple packages would remain the working 0.16.0-built ones — narrowly, this supplement isn't being
+republished. Broadly, it proves the 0.17.0 generator can't build a real framework that 0.16.0 built, and the
+harness can't complete to clear the rest of the matrix regardless. Either way the gate did not pass.
+
+**Resolution.** Option (a) — root-caused and fixed at the generator (see above); no owner trade-off needed. The
+final 0.17.0 SDK-lane nupkgs were repacked and RealityFoundation rebuilt clean against them. Re-run
+`/regression-validation --version 0.17.0 --apple-version 26.2.8` to clear the rest of the matrix — the RF
+pre-flight rebuild no longer aborts.
+
+**Diagnostic-surfacing follow-up (separable, not blocking).** Root-causing this needed the emitted wrapper
+source / the `<binary>.swiftc-stderr.txt` dump because the SDK's two-pass `_CompileSwiftWrapper` catches the
+generator's non-zero exit and prints only the SWIFTBIND051 give-up — the generator's SWIFTBIND050 (which
+already carries a filtered `error:`-line preview, `SwiftWrapperCompiler.cs:~1915`) is not echoed to normal
+build verbosity. A durability win for the *next* wrapper regression would be to surface that preview at
+`-v normal`. It's an SDK wrapper-compile-path change (delicate — see `.claude/rules/constraints.md`), so it's
+scoped as its own task, not folded into the CSM fix.
+
+---
+
 ## A. Code fixes to land
 
 ### A1. ObjC-path skip reporting is invisible — bridge it into the binding report

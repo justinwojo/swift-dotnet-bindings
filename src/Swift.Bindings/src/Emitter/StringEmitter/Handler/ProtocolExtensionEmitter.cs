@@ -482,16 +482,36 @@ public static class ProtocolExtensionEmitter
             if (!ctx.TryClaimWrapperSymbol(typeName, extMethod.MethodName, sourceKey, symbolName))
                 return;
 
-            // Non-closure method: existing path
-            EmitSwiftWrapper(conformingType, extMethod, parameters, returnTypeSpec, symbolName, isThrows, useCdecl,
-                typeDatabase, ctx, protocolAvailability);
-
             var syntheticMethod = BuildSyntheticMethodDecl(
                 moduleDecl, conformingType, extMethod, parameters, returnTypeSpec, returnTypeName, symbolName, isThrows, useCdecl);
             syntheticMethod.StructuralIdentityKey = sourceKey;
 
             conformingType.Methods.Add(syntheticMethod);
             ctx.ProtocolExtInjectedCount++;
+
+            // Emit the Swift free-function wrapper UNLESS this member will be routed through the
+            // concrete-specialization (CSM) generic-parent path. When CSM routes it,
+            // ConcreteProtocolSpecializationEmitter emits a per-concrete-argument
+            // `@_cdecl("SBW_CSM_…")` wrapper that a C# extension method on the closed generic type
+            // P/Invokes, AND MemberValidationPipeline suppresses the open-generic member emission
+            // (RoutedElsewhere) — so nothing ever P/Invokes the generic `@_silgen_name("SBSW_…")`
+            // wrapper this method would produce, leaving a dead exported symbol (the parity gate's
+            // `symbol-reverse` divergence; a real dead symbol RealityFoundation shipped). Gating on
+            // the SAME predicate the pipeline uses (not a blanket `IsGeneric`) keeps the wrapper for
+            // generic conformers CSM does NOT route — e.g. a NESTED generic parent, which
+            // EmitConcreteSpecializationsForGenericParent excludes — where the open-generic
+            // MethodGenericBridge P/Invoke is the wrapper's live caller. The synthetic MethodDecl
+            // is added above first so FindSpecializableMethods (which reads Methods live) can match
+            // it by reference; the symbol stays claimed either way so no later pass re-emits it.
+            bool routedToCsm = conformingType.IsGeneric &&
+                ctx.SpecializationEngine is { } specEngine &&
+                ConcreteProtocolSpecializationEmitter.IsCsmSyncEligibleForGenericParent(
+                    syntheticMethod, conformingType, typeDatabase, specEngine);
+            if (!routedToCsm)
+            {
+                EmitSwiftWrapper(conformingType, extMethod, parameters, returnTypeSpec, symbolName, isThrows, useCdecl,
+                    typeDatabase, ctx, protocolAvailability);
+            }
         }
     }
 
@@ -2330,6 +2350,11 @@ public static class ProtocolExtensionEmitter
             UsesFreeFunctionWrapper = true,
             UsesCdeclMethodWrapper = useCdecl,
             IsProtocolExtensionMethod = true,
+            // Read-only extension-default properties are surfaced through this synthetic-method
+            // pipeline but must be READ, not called, in every wrapper body — including the CSM
+            // path for generic conformers, which would otherwise emit `__self.name()` and fail
+            // swiftc with "cannot call value of non-function type".
+            IsExtensionPropertyGetter = extMethod.IsProperty,
             IsActorIsolated = extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated,
             IsMainActorIsolated = extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated,
         };
@@ -2470,6 +2495,11 @@ public static class ProtocolExtensionEmitter
             UsesFreeFunctionWrapper = true,
             UsesCdeclMethodWrapper = useCdecl,
             IsProtocolExtensionMethod = true,
+            // Read-only extension-default properties are surfaced through this synthetic-method
+            // pipeline but must be READ, not called, in every wrapper body — including the CSM
+            // path for generic conformers, which would otherwise emit `__self.name()` and fail
+            // swiftc with "cannot call value of non-function type".
+            IsExtensionPropertyGetter = extMethod.IsProperty,
             IsActorIsolated = extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated,
             IsMainActorIsolated = extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated,
         };

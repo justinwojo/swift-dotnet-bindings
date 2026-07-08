@@ -341,6 +341,48 @@ public class ProtocolExtensionEmitterTests
     }
 
     [Fact]
+    public void ReadOnlyBoolProperty_GenericConformerNotCsmRouted_StillEmitsSilgenWrapper()
+    {
+        // A read-only extension-default property on a GENERIC conforming type is normally
+        // surfaced through the concrete-specialization (CSM) path, whose SBW_CSM_ wrappers are
+        // the live callers — so the generic @_silgen_name("SBSW_…") free-function wrapper is dead
+        // and gets suppressed. But that suppression is gated on the member ACTUALLY routing to
+        // CSM (IsCsmSyncEligibleForGenericParent). When it does NOT route — e.g. a nested generic
+        // parent (excluded by EmitConcreteSpecializationsForGenericParent) or a constraint with
+        // no discoverable conformers — the open-generic MethodGenericBridge P/Invoke is the
+        // wrapper's live caller, so the SBSW_ wrapper MUST still be emitted. Over-suppressing it
+        // would ship a C# P/Invoke to a missing Swift symbol (EntryPointNotFound at runtime). Here
+        // the absence of a SpecializationEngine stands in for "not CSM-routed".
+        var (moduleDecl, conformingType, typeDatabase) = CreateSetup("TestModule", "Box", "TipLike");
+        conformingType.GenericParameters.Add(new GenericArgumentDecl(
+            TypeName: "τ_0_0",
+            SugaredTypeName: "Value",
+            GenericConformances: new List<GenericParameterConformance>(),
+            AssosiatedTypeConformances: new List<GenericParameterConformance>()));
+
+        var extMethods = CreateExtensionMethodDict("TestModule.TipLike",
+            CreateExtProperty("shouldDisplayTip", "public var shouldDisplayTip: Swift.Bool { get }"));
+
+        // No SpecializationEngine → not CSM-routed → the wrapper is the live surface, keep it.
+        var ctx = new ModuleEmissionContext();
+        Assert.Null(ctx.SpecializationEngine);
+        ProtocolExtensionEmitter.InjectExtensionMethods(moduleDecl, extMethods, typeDatabase, Logger, ctx);
+
+        // Synthetic method still injected so the (would-be) CSM path has the member to specialize.
+        Assert.Single(conformingType.Methods);
+        Assert.True(conformingType.Methods[0].IsProtocolExtensionMethod);
+
+        // Generic conformer forces the @_silgen_name (SBSW_) path; because the member is NOT
+        // CSM-routed the wrapper is emitted, not suppressed.
+        var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
+        Assert.Contains("@_silgen_name(", wrapperLines);
+        Assert.Contains("SBSW_", wrapperLines);
+        // Still a property READ (no parens), not an invocation.
+        Assert.Contains("return instance.shouldDisplayTip", wrapperLines);
+        Assert.DoesNotContain("instance.shouldDisplayTip(", wrapperLines);
+    }
+
+    [Fact]
     public void ReadWriteProperty_NotInjected()
     {
         // A read-write extension-default property (get set) is deferred — surfacing the

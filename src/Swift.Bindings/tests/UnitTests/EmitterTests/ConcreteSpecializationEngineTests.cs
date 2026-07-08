@@ -800,6 +800,49 @@ public class ConcreteSpecializationEngineTests
     }
 
     [Fact]
+    public void EmitConcreteSpecializations_ParentOnlyPropertyGetter_ReadsPropertyWithoutCallParens()
+    {
+        // Regression (RealityFoundation `FromToByAction<T>.isReversible`/`isAdditive`): a read-only
+        // protocol-extension Bool PROPERTY default is surfaced as a synthetic zero-parameter getter
+        // method (IsExtensionPropertyGetter=true) and, when the conformer is a generic parent, flows
+        // into the CSM parent-only path. That path historically emitted `__self.isReversible()` —
+        // calling a Bool value like a function — so swiftc rejected the whole wrapper with "cannot
+        // call value of non-function type 'Bool'" and the SDK gave up (SWIFTBIND051). The getter
+        // must be READ, not invoked. Asserts the emitted Swift reads `.isReversible` with NO call
+        // parens while still folding Bool → Int8 (`? 1 : 0`).
+        // AsyncLibraryName non-empty → GenerationMode.XCFramework, which the parent-generic
+        // CSM emission gates on (WrapperValidation.IsXCFrameworkMode).
+        var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
+        var conformerTypeName = SwiftTypeName.FromModuleQualifiedName("TestLib.ConcreteItem");
+        db.Register(conformerTypeName, "TestLib", "ConcreteItem");
+
+        var engine = new ConcreteSpecializationEngine(db);
+        var moduleDecl = CreateModuleWithConformer("TestLib", "TestLib.ConcreteItem", "TestLib.Processable");
+        engine.IndexModuleConformances(moduleDecl);
+
+        var typeDecl = CreateGenericStructWithParentOnlyPropertyGetter(
+            "Bag", "isReversible", "TestLib.Processable");
+
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        // Parent-generic specs route through the dedicated generic-parent entry point.
+        ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializationsForGenericParent(
+            csWriter, swiftWriter, typeDecl, db, new ModuleEmissionContext(), engine, NullLogger.Instance);
+
+        var swift = swiftOutput.ToString();
+
+        // The getter is read as a property...
+        Assert.Contains("__self.isReversible", swift);
+        // ...NOT invoked like a function (the bug shape).
+        Assert.DoesNotContain("__self.isReversible()", swift);
+        // Bool return still folds to the Int8 cdecl shape.
+        Assert.Contains("? 1 : 0", swift);
+    }
+
+    [Fact]
     public void FindSpecializableMethods_ParentOnlyPlainMethod_NonResolvableParent_ReturnsEmpty()
     {
         // Parent-only methods require the parent's PAT generic to have hint-resolved
@@ -2593,6 +2636,71 @@ public class ConcreteSpecializationEngineTests
             {
                 new() { Name = "", PrivateName = "", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new TupleTypeSpec(new List<TypeSpec>()), IsGeneric = false },
                 new() { Name = "text", PrivateName = "text", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec("Swift.String"), IsGeneric = false }
+            },
+            AvailabilityAnnotations = null
+        };
+
+        var structDecl = new StructDecl
+        {
+            Name = typeName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestLib.{typeName}"),
+            MangledName = "",
+            IsFrozen = true,
+            GenericParameters = new List<GenericArgumentDecl> { parentGenericParam },
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl> { method },
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            MetadataAccessor = "",
+            AvailabilityAnnotations = null
+        };
+
+        method.ParentDecl = structDecl;
+        return structDecl;
+    }
+
+    // Builds a generic parent whose parent-only member is a read-only protocol-extension
+    // PROPERTY default surfaced as a synthetic zero-parameter Bool getter method
+    // (IsExtensionPropertyGetter=true) — the RealityKit `FromToByAction<T>.isReversible`
+    // shape. The CSM wrapper must READ this member (`__self.isReversible`), not CALL it
+    // (`__self.isReversible()`), or swiftc rejects the wrapper with "cannot call value of
+    // non-function type 'Bool'".
+    private static StructDecl CreateGenericStructWithParentOnlyPropertyGetter(
+        string typeName, string getterName, string protocolName)
+    {
+        var protocolTypeName = SwiftTypeName.FromModuleQualifiedName(protocolName);
+
+        var parentConformance = new GenericParameterConformance(
+            new[] { "τ_0_0" }, protocolTypeName, ConformanceKind.Protocol);
+
+        var parentGenericParam = new GenericArgumentDecl(
+            "τ_0_0", "T",
+            new List<GenericParameterConformance> { parentConformance },
+            new List<GenericParameterConformance>());
+
+        // Zero-parameter Bool getter: CSSignature carries only the return slot (Swift.Bool).
+        var method = new MethodDecl
+        {
+            Name = getterName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            MangledName = $"$s{typeName}{getterName}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false,
+            IsProtocolExtensionMethod = true,
+            IsExtensionPropertyGetter = true,
+            UsesWrapperLibrary = true,
+            UsesFreeFunctionWrapper = true,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = "", PrivateName = "", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec("Swift.Bool"), IsGeneric = false }
             },
             AvailabilityAnnotations = null
         };
