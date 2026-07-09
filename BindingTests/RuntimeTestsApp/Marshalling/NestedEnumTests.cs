@@ -18,17 +18,17 @@ public class NestedEnumTests : TestBase
 
     public void TestCodecFormatValues()
     {
-        AssertEqual(Codec.FormatType.Json, (Codec.FormatType)0, "Json is 0");
-        AssertEqual(Codec.FormatType.Xml, (Codec.FormatType)1, "Xml is 1");
-        AssertEqual(Codec.FormatType.Binary, (Codec.FormatType)2, "Binary is 2");
+        AssertEqual(Codec.FormatKind.Json, (Codec.FormatKind)0, "Json is 0");
+        AssertEqual(Codec.FormatKind.Xml, (Codec.FormatKind)1, "Xml is 1");
+        AssertEqual(Codec.FormatKind.Binary, (Codec.FormatKind)2, "Binary is 2");
         TestLogger.Info("Codec.Format enum values passed");
     }
 
     public void TestCodecFormatDistinct()
     {
-        AssertTrue(Codec.FormatType.Json != Codec.FormatType.Xml, "Json != Xml");
-        AssertTrue(Codec.FormatType.Xml != Codec.FormatType.Binary, "Xml != Binary");
-        AssertTrue(Codec.FormatType.Json != Codec.FormatType.Binary, "Json != Binary");
+        AssertTrue(Codec.FormatKind.Json != Codec.FormatKind.Xml, "Json != Xml");
+        AssertTrue(Codec.FormatKind.Xml != Codec.FormatKind.Binary, "Xml != Binary");
+        AssertTrue(Codec.FormatKind.Json != Codec.FormatKind.Binary, "Json != Binary");
         TestLogger.Info("Codec.Format distinct values passed");
     }
 
@@ -54,38 +54,38 @@ public class NestedEnumTests : TestBase
 
     public void TestCodecEncodingFromRawValueUtf8()
     {
-        var encoding = Codec.EncodingType.FromRawValue("utf-8");
+        var encoding = Codec.EncodingKind.FromRawValue("utf-8");
         AssertNotNull(encoding, "Encoding utf-8 not null");
-        AssertEqual(Codec.EncodingType.CaseTag.Utf8, encoding!.Tag, "utf-8 tag");
-        TestLogger.Info("Codec.EncodingType.FromRawValue(utf-8) passed");
+        AssertEqual(Codec.EncodingKind.CaseTag.Utf8, encoding!.Tag, "utf-8 tag");
+        TestLogger.Info("Codec.EncodingKind.FromRawValue(utf-8) passed");
     }
 
     public void TestCodecEncodingFromRawValueAscii()
     {
-        var encoding = Codec.EncodingType.FromRawValue("ascii");
+        var encoding = Codec.EncodingKind.FromRawValue("ascii");
         AssertNotNull(encoding, "Encoding ascii not null");
-        AssertEqual(Codec.EncodingType.CaseTag.Ascii, encoding!.Tag, "ascii tag");
-        TestLogger.Info("Codec.EncodingType.FromRawValue(ascii) passed");
+        AssertEqual(Codec.EncodingKind.CaseTag.Ascii, encoding!.Tag, "ascii tag");
+        TestLogger.Info("Codec.EncodingKind.FromRawValue(ascii) passed");
     }
 
     public void TestCodecEncodingFromRawValueLatin1()
     {
-        var encoding = Codec.EncodingType.FromRawValue("latin-1");
+        var encoding = Codec.EncodingKind.FromRawValue("latin-1");
         AssertNotNull(encoding, "Encoding latin-1 not null");
-        AssertEqual(Codec.EncodingType.CaseTag.Latin1, encoding!.Tag, "latin-1 tag");
-        TestLogger.Info("Codec.EncodingType.FromRawValue(latin-1) passed");
+        AssertEqual(Codec.EncodingKind.CaseTag.Latin1, encoding!.Tag, "latin-1 tag");
+        TestLogger.Info("Codec.EncodingKind.FromRawValue(latin-1) passed");
     }
 
     public void TestCodecEncodingFromRawValueInvalid()
     {
-        var encoding = Codec.EncodingType.FromRawValue("bogus");
+        var encoding = Codec.EncodingKind.FromRawValue("bogus");
         AssertNull(encoding, "Invalid encoding is null");
-        TestLogger.Info("Codec.EncodingType.FromRawValue(bogus) = null");
+        TestLogger.Info("Codec.EncodingKind.FromRawValue(bogus) = null");
     }
 
     public void TestCodecEncodingRawValueRoundTrip()
     {
-        var encoding = Codec.EncodingType.FromRawValue("utf-8");
+        var encoding = Codec.EncodingKind.FromRawValue("utf-8");
         AssertNotNull(encoding, "Encoding not null");
         var raw = encoding!.RawValue.ToString();
         AssertEqual("utf-8", raw, "utf-8 raw value round-trip");
@@ -98,37 +98,37 @@ public class NestedEnumTests : TestBase
 
     public void TestCodecConstructionJson()
     {
-        var encoding = Codec.EncodingType.FromRawValue("utf-8");
+        var encoding = Codec.EncodingKind.FromRawValue("utf-8");
         AssertNotNull(encoding, "Encoding not null");
-        var codec = new Codec(Codec.FormatType.Json, encoding!);
-        AssertEqual(Codec.FormatType.Json, codec.Format, "Codec format is Json");
+        var codec = new Codec(Codec.FormatKind.Json, encoding!);
+        AssertEqual(Codec.FormatKind.Json, codec.Format, "Codec format is Json");
         TestLogger.Info("Codec construction with Json format passed");
     }
 
     public void TestCodecConstructionXml()
     {
-        var encoding = Codec.EncodingType.FromRawValue("ascii");
+        var encoding = Codec.EncodingKind.FromRawValue("ascii");
         AssertNotNull(encoding, "Encoding not null");
-        var codec = new Codec(Codec.FormatType.Xml, encoding!);
-        AssertEqual(Codec.FormatType.Xml, codec.Format, "Codec format is Xml");
+        var codec = new Codec(Codec.FormatKind.Xml, encoding!);
+        AssertEqual(Codec.FormatKind.Xml, codec.Format, "Codec format is Xml");
         TestLogger.Info("Codec construction with Xml format passed");
     }
 
     public void TestCodecEncodingValueProperty()
     {
-        var encoding = Codec.EncodingType.FromRawValue("utf-8");
+        var encoding = Codec.EncodingKind.FromRawValue("utf-8");
         AssertNotNull(encoding, "Encoding not null");
-        var codec = new Codec(Codec.FormatType.Binary, encoding!);
+        var codec = new Codec(Codec.FormatKind.Binary, encoding!);
         var encodingBack = codec.Encoding;
-        AssertEqual(Codec.EncodingType.CaseTag.Utf8, encodingBack.Tag, "EncodingValue tag is Utf8");
+        AssertEqual(Codec.EncodingKind.CaseTag.Utf8, encodingBack.Tag, "EncodingValue tag is Utf8");
         TestLogger.Info("Codec.EncodingValue property passed");
     }
 
     public void TestCodecGetDescribe()
     {
-        var encoding = Codec.EncodingType.FromRawValue("utf-8");
+        var encoding = Codec.EncodingKind.FromRawValue("utf-8");
         AssertNotNull(encoding, "Encoding not null");
-        var codec = new Codec(Codec.FormatType.Json, encoding!);
+        var codec = new Codec(Codec.FormatKind.Json, encoding!);
         var desc = codec.GetDescribe();
         AssertTrue(desc.Contains("utf-8"), "Describe contains encoding raw value");
         TestLogger.Info($"Codec.GetDescribe() = \"{desc}\"");
@@ -333,18 +333,18 @@ public class NestedEnumTests : TestBase
 
     public void TestNestedClassRename_TypeExists()
     {
-        // The nested class Animator is renamed to AnimatorType to avoid collision
+        // The nested class Animator is renamed to AnimatorInfo to avoid collision
         // with the animator property (PascalCase → Animator).
-        using var animator = new ImageTransitionTest.AnimatorType(true);
-        AssertTrue(animator != null, "AnimatorType should be constructible");
-        TestLogger.Info("Nested class rename: type exists as AnimatorType");
+        using var animator = new ImageTransitionTest.AnimatorInfo(true);
+        AssertTrue(animator != null, "AnimatorInfo should be constructible");
+        TestLogger.Info("Nested class rename: type exists as AnimatorInfo");
     }
 
     public void TestNestedClassRename_PropertyAccess()
     {
         // The property name stays as Animator (PascalCase of "animator"),
-        // the TYPE is renamed to AnimatorType.
-        using var animator = new ImageTransitionTest.AnimatorType(true);
+        // the TYPE is renamed to AnimatorInfo.
+        using var animator = new ImageTransitionTest.AnimatorInfo(true);
         using var transition = new ImageTransitionTest(animator);
         var result = transition.Animator;
         AssertTrue(result != null, "Animator property should return non-null");
@@ -354,8 +354,8 @@ public class NestedEnumTests : TestBase
     public void TestNestedClassRename_MethodOnRenamed()
     {
         // Verify the renamed nested class methods work at runtime —
-        // this exercises SwiftClassHandle<AnimatorType> end-to-end.
-        using var animator = new ImageTransitionTest.AnimatorType(true);
+        // this exercises SwiftClassHandle<AnimatorInfo> end-to-end.
+        using var animator = new ImageTransitionTest.AnimatorInfo(true);
         var status = animator.GetStatus();
         AssertEqual("active", status, "Active animator status");
         TestLogger.Info("Nested class rename: method dispatch works");
@@ -364,7 +364,7 @@ public class NestedEnumTests : TestBase
     public void TestNestedClassRename_FullRoundTrip()
     {
         // Full round-trip: create nested class, pass to parent, read back via property.
-        using var animator = new ImageTransitionTest.AnimatorType(false);
+        using var animator = new ImageTransitionTest.AnimatorInfo(false);
         using var transition = new ImageTransitionTest(animator);
         var description = transition.GetDescribe();
         AssertEqual("Transition with inactive animator", description, "Full round-trip describe");

@@ -195,7 +195,7 @@ public func createToken(value: String) -> Token {
 
 /// Class with a nested class whose name collides with a property name.
 /// When PascalCased, the property `animator` becomes `Animator` — the same as
-/// the nested class name. The generator must rename the type to `AnimatorType`
+/// the nested class name. The generator must rename the type to `AnimatorInfo`
 /// and update ALL references including SwiftClassHandle<T> generic parameters.
 public class ImageTransitionTest {
     public final class Animator {

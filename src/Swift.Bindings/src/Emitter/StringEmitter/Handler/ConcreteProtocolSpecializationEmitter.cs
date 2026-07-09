@@ -3232,7 +3232,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
     /// is captured at conformance-index time (Program.cs), which runs BEFORE the nested-type rename
     /// pre-pass (<see cref="NameProvider.PrecomputeNestedTypeRenames"/>) mutates the type record's
     /// <c>CSharpTypeName</c> for sibling-member collisions — e.g. Swift <c>Codec.Encoding</c> becomes
-    /// C# <c>Codec.EncodingType</c> when <c>Codec</c> also exposes an <c>Encoding</c> property. For a
+    /// C# <c>Codec.EncodingKind</c> when <c>Codec</c> also exposes an <c>Encoding</c> property. For a
     /// nested conformer whose type record is live, re-resolve the post-rename fully-qualified name so
     /// the emitted overload references the type by the name actually declared. Flat conformers and
     /// hint conformers (<c>byte[]</c>, <c>Foundation.Data</c>) are never collision-renamed in-module,

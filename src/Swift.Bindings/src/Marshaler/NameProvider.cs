@@ -149,7 +149,7 @@ public static class NameProvider
 {
     // Dictionary of Swift property names that need special renaming in C#.
     // Currently empty — historical StoreKit-specific overrides were removed once
-    // ApplyNestedTypeRenames' Type-suffix cascade covered the same collisions.
+    // ApplyNestedTypeRenames' kind-aware suffix cascade covered the same collisions.
     // Left in place as an extension point for any future unavoidable one-off renames.
     private static readonly Dictionary<string, string> PropertyNameMappings = new();
 
@@ -279,6 +279,32 @@ public static class NameProvider
             return ToPascalCase(segment);
         // Already PascalCase, abbreviation (URL, F9S1), or short pattern (F0_S1) → leave unchanged
         return segment;
+    }
+
+    /// <summary>
+    /// Returns the emitted C# leaf name of a nested type for member-collision detection — the
+    /// renamed name when the nested-type-rename pre-pass disambiguated it (e.g. a sibling `entry`
+    /// property forced <c>Entry</c> → <c>EntryInfo</c>, or <c>Format</c> → <c>FormatKind</c>),
+    /// otherwise the natural PascalCase leaf. Method/subscript collision sets must reserve THIS
+    /// name, not the raw Swift-name PascalCase: after a rename the C# type is <c>EntryInfo</c>, so a
+    /// sibling method projecting to <c>EntryInfo</c> (from <c>entryInfo()</c>) — not one projecting
+    /// to <c>Entry</c> — is the CS0102 duplicate that must force the method to <c>EntryInfoMethod</c>.
+    /// Behavior-preserving for non-renamed types: the override fires only when the registered C#
+    /// leaf actually differs from the natural type-name PascalCase, so a non-renamed type's
+    /// collision name stays exactly the <see cref="ToPascalCase(string)"/> it has always been.
+    /// </summary>
+    internal static string GetEmittedNestedTypeLeafName(TypeDecl nestedType, ITypeDatabase? typeDatabase)
+    {
+        if (typeDatabase != null
+            && typeDatabase.TryGetTypeRecord(nestedType.SwiftTypeName, out var record))
+        {
+            var csName = record.CSharpTypeName.Name;
+            var lastDot = csName.LastIndexOf('.');
+            var leaf = lastDot >= 0 ? csName.Substring(lastDot + 1) : csName;
+            if (leaf != ToPascalCaseForTypeName(nestedType.Name))
+                return leaf;
+        }
+        return ToPascalCase(nestedType.Name);
     }
 
     /// <summary>
@@ -971,7 +997,8 @@ public static class NameProvider
     /// and handling reserved keywords and CS0542 (property vs. containing-type) collisions.
     /// Sibling nested-type collisions (CS0102) are resolved via the
     /// <see cref="ApplyNestedTypeRenames"/> pre-pass (which renames the nested type with a
-    /// "Type" suffix) plus <see cref="ComputePropertyRenamesForNestedTypeCollisions"/> +
+    /// kind-aware semantic suffix — enum→"Kind", struct/class→"Info") plus
+    /// <see cref="ComputePropertyRenamesForNestedTypeCollisions"/> +
     /// <see cref="GetFinalMemberName"/> for cases where the nested type isn't renamed.
     /// </summary>
     /// <param name="swiftPropertyName">The original Swift property name.</param>
@@ -1064,7 +1091,8 @@ public static class NameProvider
     /// Computes property/member renames needed to avoid property/nested-type name collisions.
     /// When a member name collides with a nested type name, the member is renamed with a "Value" suffix.
     /// Exception: when a property's return type IS the colliding nested type, the nested type is renamed
-    /// instead (with "Type" suffix), keeping the property name clean for better consumer ergonomics.
+    /// instead (with a kind-aware semantic suffix — enum→"Kind", struct/class→"Info"), keeping the
+    /// property name clean for better consumer ergonomics.
     /// </summary>
     /// <param name="memberNames">PascalCase member names (properties, enum cases).</param>
     /// <param name="nestedTypeNames">Nested type names.</param>
@@ -1104,7 +1132,8 @@ public static class NameProvider
     /// Computes property renames for a type declaration to resolve property/nested-type name collisions.
     /// Returns a dictionary mapping original member name → renamed name.
     /// When a property's return type IS the colliding nested type, the nested type is renamed instead
-    /// (with "Type" suffix) via TypeDatabase CSharpTypeName update, keeping the property name clean.
+    /// (with a kind-aware semantic suffix — enum→"Kind", struct/class→"Info") via TypeDatabase
+    /// CSharpTypeName update, keeping the property name clean.
     /// </summary>
     /// <param name="typeDecl">The type declaration containing properties and nested types.</param>
     /// <param name="typeDatabase">The type database for type resolution and nested type renames.</param>
@@ -1189,7 +1218,8 @@ public static class NameProvider
     /// <summary>
     /// Detects and applies CSharpTypeName renames for property/nested-type name collisions
     /// where the property's return type IS the colliding nested type. In these cases, the
-    /// nested TYPE is renamed (with "Type" suffix) instead of the property.
+    /// nested TYPE is renamed (with a kind-aware semantic suffix — enum→"Kind", struct/class→"Info")
+    /// instead of the property.
     /// </summary>
     private static void ApplyNestedTypeRenames(TypeDecl typeDecl, ITypeDatabase typeDatabase)
     {
@@ -1204,12 +1234,15 @@ public static class NameProvider
         var parentFullName = typeDecl.SwiftTypeName.ToString();
 
         // Build the set of names that are already taken in this container, so we can avoid
-        // creating a new collision when we add the "Type" suffix. Includes:
-        //   - Original Swift nested type leaf names
+        // creating a new collision when we append the kind-aware suffix. Includes:
+        //   - Emitted C# nested type leaf names — PascalCased to match emission. A Swift type
+        //     identifier may be lowercase (`struct entryInfo {}`), which emits as `EntryInfo`;
+        //     seeding the raw Swift name would let a rename target (`Entry` → `EntryInfo`) land
+        //     on that sibling's emitted leaf without the numeric-fallback guard firing → CS0102.
         //   - Pascal-cased property/member names
         // Updated as we apply renames so a later rename can detect collisions with an
         // earlier rename's chosen name.
-        var takenNames = new HashSet<string>(nestedTypeNameSet);
+        var takenNames = new HashSet<string>(typeDecl.Types.Select(t => ToPascalCaseForTypeName(t.Name)));
         foreach (var prop in emittableProperties)
             takenNames.Add(GetPropertyName(prop.Name, typeDecl.Name));
 
@@ -1232,26 +1265,44 @@ public static class NameProvider
                 var nestedType = typeDecl.Types.FirstOrDefault(t => t.Name == csPropertyName);
                 if (nestedType != null && typeDatabase.TryGetTypeRecord(nestedType.SwiftTypeName, out var nestedRecord))
                 {
-                    // Pick a new leaf name by appending "Type" until it does not collide with
-                    // any existing member name, original nested type name, or earlier rename.
-                    // Without this check, e.g. `Transaction.Offer` (which collides with the
-                    // `offer` property) would rename to `OfferType` and clash with the existing
-                    // sibling `Transaction.OfferType` struct that is itself the renamed target
-                    // of the `offerType` property — yielding CS0102 / CS0542.
+                    // Pick a new leaf name by appending the kind-aware suffix chosen below until it
+                    // does not collide with any existing member name, original nested type name, or
+                    // earlier rename in this loop. Without the takenNames guard, two sibling
+                    // properties that each force a rename onto the same base leaf (e.g. a struct
+                    // `Transaction.Offer` → OfferInfo and a later sibling that would also land on
+                    // OfferInfo) would emit duplicate C# type names — yielding CS0102 / CS0542.
                     // Also reject collision with the renamed type's OWN child names — a child
                     // sharing the new leaf name trips CS0542 ("member names cannot be the
                     // same as their enclosing type"), e.g. Swift `Card.Wallet` renamed to
-                    // `WalletType` while it already contains a nested enum `WalletType`.
-                    var ownChildNames = new HashSet<string>(nestedType.Types.Select(t => t.Name));
-                    // Disambiguate the nested type from the colliding property with a single
-                    // "Type" suffix (Wallet → WalletType). When that is itself taken — or when the
-                    // property name already ends in "Type", so the suffix would immediately stutter
-                    // (AlertType → AlertTypeType) — fall back to a numeric suffix instead of stacking
-                    // more "Type"s, which produced machine-vomit names like "WalletTypeType" /
-                    // "OfferTypeTypeType". The numeric form matches the generator's other dedup paths.
-                    var baseLeafName = csPropertyName.EndsWith("Type", StringComparison.Ordinal)
+                    // `WalletInfo` while it already contains a nested type `WalletInfo` (or a
+                    // lowercase `walletInfo`, which emits as `WalletInfo`). PascalCase the child
+                    // names so the guard compares against the emitted C# leaf, not the raw Swift name.
+                    var ownChildNames = new HashSet<string>(nestedType.Types.Select(t => ToPascalCaseForTypeName(t.Name)));
+                    // Disambiguate the nested type from the colliding property with a kind-aware
+                    // semantic suffix: an enum is a closed case-set → "Kind" (idiomatic .NET:
+                    // SyntaxKind, DateTimeKind); a struct/class is a data aggregate → "Info"
+                    // (FileInfo, ProcessStartInfo). The emitted name still contains the full Swift
+                    // leaf (OfferType → OfferTypeKind), so a consumer grepping the Swift name still
+                    // finds it, and the multi-collision cascade resolves without noise: a sibling
+                    // `Offer` struct → OfferInfo and `OfferType` enum → OfferTypeKind are obviously
+                    // distinct, where the old numeric scheme produced the misleading, family-looking
+                    // OfferType2/OfferType3.
+                    var suffix = nestedType switch
+                    {
+                        EnumDecl => "Kind",
+                        _ => "Info",
+                    };
+                    // Anti-stutter: if the Swift leaf already ends in the chosen suffix (an enum
+                    // `TokenKind`, a struct `PayloadInfo`), don't double it into KindKind/InfoInfo —
+                    // use the leaf as-is and let the numeric fallback below disambiguate. This is the
+                    // b6d1ba50 anti-stutter guard generalized from the single "Type" suffix to the two
+                    // kind-based suffixes.
+                    var baseLeafName = csPropertyName.EndsWith(suffix, StringComparison.Ordinal)
                         ? csPropertyName
-                        : csPropertyName + "Type";
+                        : csPropertyName + suffix;
+                    // Numeric fallback — now fires only when the semantic name is itself already taken
+                    // by a sibling, an earlier rename in this loop, or the renamed type's own child
+                    // (the CS0542 ownChildNames guard). Matches the generator's other dedup paths.
                     var newLeafName = baseLeafName;
                     for (int dedupSuffix = 2;
                          newLeafName == csPropertyName
@@ -1265,8 +1316,8 @@ public static class NameProvider
                     var oldCSharpName = nestedRecord.CSharpTypeName.Name;
                     var @namespace = nestedRecord.CSharpTypeName.Namespace;
                     // Replace only the trailing segment (leaf name), not all occurrences.
-                    // e.g., "Parent.Configuration" → "Parent.ConfigurationType",
-                    // NOT "Configuration.Configuration" → "ConfigurationType.ConfigurationType"
+                    // e.g., "Parent.Configuration" → "Parent.ConfigurationInfo",
+                    // NOT "Configuration.Configuration" → "ConfigurationInfo.ConfigurationInfo"
                     var lastDot = oldCSharpName.LastIndexOf('.');
                     var newCSharpName = lastDot >= 0
                         ? oldCSharpName.Substring(0, lastDot + 1) + newLeafName
@@ -1332,8 +1383,8 @@ public static class NameProvider
 
     /// <summary>
     /// Cascades a CSharpTypeName rename to all descendant types in the TypeDatabase.
-    /// When a parent type is renamed (e.g., "Module.Cache" → "Module.CacheType"),
-    /// all nested types must also be updated (e.g., "Module.Cache.Caches" → "Module.CacheType.Caches").
+    /// When a parent type is renamed (e.g., "Module.Cache" → "Module.CacheInfo"),
+    /// all nested types must also be updated (e.g., "Module.Cache.Caches" → "Module.CacheInfo.Caches").
     /// </summary>
     private static void CascadeTypeRename(TypeDecl parentType, string oldPrefix, string newPrefix,
         string @namespace, ITypeDatabase typeDatabase)

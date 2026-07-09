@@ -233,8 +233,8 @@ public struct DependencyTokenB {
 
 /// Reproduces the nested-type / property name collision shape: a struct with a
 /// nested enum whose name matches a property's PascalCase name. The generator's
-/// `NameProvider.ApplyNestedTypeRenames` renames the nested type with a `Type`
-/// suffix (`AlertType` -> `AlertTypeType`) and the property keeps its original
+/// `NameProvider.ApplyNestedTypeRenames` renames the nested type with a kind-aware
+/// semantic suffix — enum -> `Kind` (`AlertType` -> `AlertTypeKind`) — and the property keeps its original
 /// PascalCase name. The producer module persists the renamed C# name in its
 /// emitted module-database XML so the consumer module resolves cross-module
 /// references against the renamed name.

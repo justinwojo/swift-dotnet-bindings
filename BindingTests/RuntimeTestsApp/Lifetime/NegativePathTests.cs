@@ -98,7 +98,7 @@ public class NegativePathTests : TestBase
 
     public void TestContentTypeInvalidRawValue()
     {
-        var invalid = NetworkConfig.ContentType2.FromRawValue("invalid/type");
+        var invalid = NetworkConfig.ContentTypeKind.FromRawValue("invalid/type");
         AssertNull(invalid, "ContentType.FromRawValue(invalid/type) returns null");
 
         TestLogger.Info("ContentType invalid raw value returns null");

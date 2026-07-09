@@ -107,7 +107,7 @@ namespace BindingsGeneration
                 {
                     // Collect nested type C# names — Namespace.NestedType refers to the collision class's
                     // nested type, not a namespace member. These must NOT get global:: qualification.
-                    // Use C# names (not Swift names) because nested type renames (e.g., Connection → ConnectionType)
+                    // Use C# names (not Swift names) because nested type renames (e.g., Connection → ConnectionKind)
                     // mean the generated code uses the renamed name.
                     var nestedTypeNames = new HashSet<string>();
                     if (collisionType is TypeDecl td)
@@ -115,7 +115,7 @@ namespace BindingsGeneration
                         foreach (var nested in td.Types)
                         {
                             var csLeafName = NameProvider.ToPascalCaseForTypeName(nested.Name);
-                            // Check TypeDatabase for rename (e.g., Connection → ConnectionType)
+                            // Check TypeDatabase for rename (e.g., Connection → ConnectionKind)
                             if (_typeDatabase.TryGetTypeRecord(nested.SwiftTypeName, out var nestedRecord))
                             {
                                 var csName = nestedRecord.CSharpTypeName.Name;

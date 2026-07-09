@@ -207,7 +207,7 @@ namespace BindingsGeneration
 
                         // Apply nested-type rename pass to the dep module so cross-module
                         // references in the bound module's emit resolve to the renamed C# name
-                        // (e.g., Parent.AlertType → Parent.AlertTypeType when the parent has a
+                        // (e.g., Parent.AlertType enum → Parent.AlertTypeKind when the parent has a
                         // colliding property). Without this, dep TypeRecords keep the raw Swift
                         // leaf name and the consumer emits `Dep.Parent.AlertType` which C#
                         // resolves to the property rather than the type — CS0426.

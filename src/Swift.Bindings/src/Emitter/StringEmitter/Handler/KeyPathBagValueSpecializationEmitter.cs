@@ -712,7 +712,7 @@ internal static class KeyPathBagValueSpecializationEmitter
         // ConcreteConformer.CSharpType is stored as `Module.Type` (no global:: prefix) and is
         // captured at conformance-index time, BEFORE the nested-type rename pre-pass
         // (NameProvider.PrecomputeNestedTypeRenames) mutates a nested type's C# name for a
-        // sibling-member collision (Swift `Codec.Encoding` → C# `Codec.EncodingType` when
+        // sibling-member collision (Swift `Codec.Encoding` → C# `Codec.EncodingKind` when
         // `Codec` also has an `Encoding` property). This name is used below as the closed-
         // generic receiver type argument, so a renamed nested conformer would otherwise name a
         // non-existent type. Re-resolve a live nested conformer's post-rename name; flat and

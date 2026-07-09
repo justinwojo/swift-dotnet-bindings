@@ -636,7 +636,7 @@ namespace BindingsGeneration
                             // Recorded here (not in a later model walk) because env.CSharpMethodName's
                             // collision suffix is only known inside this disambiguation loop.
                             emissionCtx.RecordApiManifestEntry(
-                                ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, env.CSharpMethodName, projectedKey),
+                                ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, env.CSharpMethodName, projectedKey, env.TypeDatabase),
                                 env.EmissionSymbol);
                         }
                         // AF13: stash the emission-time symbol this method settled on, keyed by

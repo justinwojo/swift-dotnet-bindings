@@ -67,30 +67,30 @@ public class OptionSetTests : TestBase
 
     public void TestImageRequestOptionsDisableCacheRawValue()
     {
-        var opt = ImageRequest.OptionsType.DisableCache;
+        var opt = ImageRequest.OptionsInfo.DisableCache;
         AssertTrue(opt.RawValue != 0, "DisableCache RawValue should be non-zero");
-        TestLogger.Info($"ImageRequest.OptionsType.DisableCache.RawValue = {opt.RawValue}");
+        TestLogger.Info($"ImageRequest.OptionsInfo.DisableCache.RawValue = {opt.RawValue}");
     }
 
     public void TestImageRequestOptionsReturnCachedRawValue()
     {
-        var opt = ImageRequest.OptionsType.ReturnCached;
+        var opt = ImageRequest.OptionsInfo.ReturnCached;
         AssertTrue(opt.RawValue != 0, "ReturnCached RawValue should be non-zero");
-        TestLogger.Info($"ImageRequest.OptionsType.ReturnCached.RawValue = {opt.RawValue}");
+        TestLogger.Info($"ImageRequest.OptionsInfo.ReturnCached.RawValue = {opt.RawValue}");
     }
 
     public void TestImageRequestOptionsLowPriorityRawValue()
     {
-        var opt = ImageRequest.OptionsType.LowPriority;
+        var opt = ImageRequest.OptionsInfo.LowPriority;
         AssertTrue(opt.RawValue != 0, "LowPriority RawValue should be non-zero");
-        TestLogger.Info($"ImageRequest.OptionsType.LowPriority.RawValue = {opt.RawValue}");
+        TestLogger.Info($"ImageRequest.OptionsInfo.LowPriority.RawValue = {opt.RawValue}");
     }
 
     public void TestImageRequestOptionsDistinct()
     {
-        var disable = ImageRequest.OptionsType.DisableCache.RawValue;
-        var cached = ImageRequest.OptionsType.ReturnCached.RawValue;
-        var low = ImageRequest.OptionsType.LowPriority.RawValue;
+        var disable = ImageRequest.OptionsInfo.DisableCache.RawValue;
+        var cached = ImageRequest.OptionsInfo.ReturnCached.RawValue;
+        var low = ImageRequest.OptionsInfo.LowPriority.RawValue;
 
         AssertTrue(disable != cached, "DisableCache != ReturnCached");
         AssertTrue(disable != low, "DisableCache != LowPriority");
@@ -167,7 +167,7 @@ public class OptionSetTests : TestBase
 
     public void TestImageRequestConstruction()
     {
-        var options = ImageRequest.OptionsType.DisableCache;
+        var options = ImageRequest.OptionsInfo.DisableCache;
         var request = new ImageRequest(options);
         AssertEqual(options.RawValue, request.Options.RawValue, "OptionsValue RawValue matches");
         TestLogger.Info($"ImageRequest construction: OptionsValue.RawValue = {request.Options.RawValue}");
@@ -175,21 +175,21 @@ public class OptionSetTests : TestBase
 
     public void TestImageRequestOptionsValueGetSet()
     {
-        var request = new ImageRequest(ImageRequest.OptionsType.DisableCache);
-        AssertEqual(ImageRequest.OptionsType.DisableCache.RawValue, request.Options.RawValue, "Initial options");
+        var request = new ImageRequest(ImageRequest.OptionsInfo.DisableCache);
+        AssertEqual(ImageRequest.OptionsInfo.DisableCache.RawValue, request.Options.RawValue, "Initial options");
 
-        request.Options = ImageRequest.OptionsType.LowPriority;
-        AssertEqual(ImageRequest.OptionsType.LowPriority.RawValue, request.Options.RawValue, "Updated options");
+        request.Options = ImageRequest.OptionsInfo.LowPriority;
+        AssertEqual(ImageRequest.OptionsInfo.LowPriority.RawValue, request.Options.RawValue, "Updated options");
         TestLogger.Info("ImageRequest.OptionsValue get/set passed");
     }
 
     public void TestImageRequestOptionsEquality()
     {
-        var a = ImageRequest.OptionsType.DisableCache;
-        var b = ImageRequest.OptionsType.DisableCache;
+        var a = ImageRequest.OptionsInfo.DisableCache;
+        var b = ImageRequest.OptionsInfo.DisableCache;
         AssertTrue(a == b, "DisableCache == DisableCache");
 
-        var c = ImageRequest.OptionsType.LowPriority;
+        var c = ImageRequest.OptionsInfo.LowPriority;
         AssertTrue(a != c, "DisableCache != LowPriority");
         TestLogger.Info("ImageRequest.Options equality passed");
     }

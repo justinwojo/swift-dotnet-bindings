@@ -344,7 +344,7 @@ namespace BindingsGeneration
                 // properties — the disambiguated property name must avoid every one of them.
                 var reservedNames = new HashSet<string>(emittedCaseConstructorNames);
                 foreach (var nestedType in enumDecl.Types)
-                    reservedNames.Add(NameProvider.ToPascalCase(nestedType.Name));
+                    reservedNames.Add(NameProvider.GetEmittedNestedTypeLeafName(nestedType, env.TypeDatabase));
                 if (enumDecl.Cases.Any())
                 {
                     reservedNames.Add("CaseTag");
@@ -494,9 +494,11 @@ namespace BindingsGeneration
                         NameProvider.GetPropertyName(p.Name, enumDecl.Name), propertyRenames),
                     enumPropertyRenames)));
 
-            // Nested type names collide with method names in C# (CS0102)
+            // Nested type names collide with method names in C# (CS0102) — reserve the EMITTED
+            // leaf so a renamed nested type (e.g. Entry → EntryInfo) forces a method projecting
+            // to the renamed name to disambiguate, not one projecting to the pre-rename name.
             foreach (var nestedType in enumDecl.Types)
-                propertyNames.Add(NameProvider.ToPascalCase(nestedType.Name));
+                propertyNames.Add(NameProvider.GetEmittedNestedTypeLeafName(nestedType, env.TypeDatabase));
 
             // Include case-derived names to prevent method collisions
             foreach (var caseName in emittedCaseConstructorNames)

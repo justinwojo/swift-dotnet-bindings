@@ -483,8 +483,9 @@ public class TypeHandlersOutputTests
     public void Emit_FrozenStructHandler_PropertyTypeIsNestedType_RenamesTypeNotProperty()
     {
         // Property "configuration" → PascalCase "Configuration" collides with nested type "Configuration".
-        // Since the property type IS the nested type, rename the nested TYPE (→ "ConfigurationType")
-        // instead of the property. This keeps the property name clean for better consumer ergonomics.
+        // Since the property type IS the nested type, rename the nested TYPE (→ "ConfigurationInfo",
+        // struct → "Info" suffix) instead of the property. This keeps the property name clean for
+        // better consumer ergonomics.
         var typeDatabase = new TypeDatabase();
         var module = new ModuleTypeDatabase("ImagePipeline", "/tmp/ImagePipeline.dylib");
 
@@ -599,8 +600,8 @@ public class TypeHandlersOutputTests
 
         // Property should keep original name "Configuration" (no "Value" suffix)
         Assert.DoesNotContain("ConfigurationValue", output);
-        // Nested type should be renamed to "ConfigurationType" in C# declaration
-        Assert.Contains("partial struct ConfigurationType", output);
+        // Nested type should be renamed to "ConfigurationInfo" in C# declaration
+        Assert.Contains("partial struct ConfigurationInfo", output);
     }
 
     [Fact]
@@ -635,7 +636,7 @@ public class TypeHandlersOutputTests
     [Fact]
     public void Emit_ClassHandler_RenamedNestedClass_SwiftClassHandleUsesRenamedName()
     {
-        // Bug: When a nested class is renamed (Animator → AnimatorType to avoid property collision),
+        // Bug: When a nested class is renamed (Animator → AnimatorInfo to avoid property collision),
         // SwiftClassHandle<T> in the private constructor must use the renamed name.
         // This test exercises the full ClassHandler emission path, not just the helper method.
         var typeDatabase = new TypeDatabase();
@@ -717,7 +718,7 @@ public class TypeHandlersOutputTests
         nestedClassDecl.ParentDecl = parentClassDecl;
         moduleDecl.Types.Add(parentClassDecl);
 
-        // Pre-pass: apply CSharpTypeName renames (Animator → AnimatorType)
+        // Pre-pass: apply CSharpTypeName renames (Animator → AnimatorInfo)
         NameProvider.PrecomputeNestedTypeRenames(moduleDecl, typeDatabase);
 
         // Emit the nested class through ClassHandler
@@ -733,10 +734,10 @@ public class TypeHandlersOutputTests
 
         var output = csOutput.ToString();
 
-        // The nested class should be renamed to AnimatorType
-        Assert.Contains("partial class AnimatorType", output);
+        // The nested class should be renamed to AnimatorInfo
+        Assert.Contains("partial class AnimatorInfo", output);
         // SwiftClassHandle<T> must use the renamed name everywhere
-        Assert.Contains("SwiftClassHandle<AnimatorType>", output);
+        Assert.Contains("SwiftClassHandle<AnimatorInfo>", output);
         // The old unrenamed name must NOT appear in SwiftClassHandle
         Assert.DoesNotContain("SwiftClassHandle<Animator>", output);
     }

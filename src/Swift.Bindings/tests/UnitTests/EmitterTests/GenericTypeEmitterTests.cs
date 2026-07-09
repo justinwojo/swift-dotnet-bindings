@@ -274,7 +274,7 @@ public class GenericTypeEmitterTests
     [Fact]
     public void GetTypeNameWithGenerics_UsesRenamedCSharpTypeName_WhenTypeDatabaseProvided()
     {
-        // Nested type "Configuration" was renamed to "ConfigurationType" in TypeDatabase.
+        // Nested type "Configuration" was renamed to "ConfigurationInfo" in TypeDatabase.
         // GetTypeNameWithGenerics should use the CSharpTypeName leaf name, not TypeDecl.Name.
         var typeDatabase = new TypeDatabase();
         var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
@@ -282,7 +282,7 @@ public class GenericTypeEmitterTests
         var configSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.ImagePipeline.Configuration");
         module.RegisterType(configSwiftName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ImagePipeline.ConfigurationType"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ImagePipeline.ConfigurationInfo"),
             SwiftTypeName = configSwiftName,
             MetadataAccessor = "$sMa",
             Flags = TypeRecordFlags.Frozen,
@@ -310,7 +310,7 @@ public class GenericTypeEmitterTests
         Assert.Equal("Configuration", GenericTypeEmitter.GetTypeNameWithGenerics(typeDecl));
 
         // With TypeDatabase: uses renamed CSharpTypeName leaf
-        Assert.Equal("ConfigurationType", GenericTypeEmitter.GetTypeNameWithGenerics(typeDecl, typeDatabase));
+        Assert.Equal("ConfigurationInfo", GenericTypeEmitter.GetTypeNameWithGenerics(typeDecl, typeDatabase));
     }
 
     #region Cross-Module Constraint Stripping Tests

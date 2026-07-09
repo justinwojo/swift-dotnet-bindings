@@ -96,8 +96,8 @@ public struct KeyVaultBox<T: NestedKeyMaterial> {
 
 /// Collision-renamed nested conformer. `CollisionVault` exposes both an `entry` property and a
 /// nested `Entry` type, so their C# projections clash (property `Entry` vs type `Entry`) and the
-/// nested type is renamed to `EntryType` by the nested-type-collision pre-pass — exactly the
-/// `Codec.Encoding` property/`Codec.Encoding` type shape that becomes `Codec.EncodingType`.
+/// nested type is renamed to `EntryInfo` by the nested-type-collision pre-pass — exactly the
+/// `Codec.Encoding` property/`Codec.Encoding` type shape that becomes `Codec.EncodingKind`.
 /// Because `Entry` also conforms to `NestedKeyMaterial`, every CSM shape (method, init factory,
 /// generic-parent extension) must reference this conformer by its *post-rename* C# name. The
 /// conformer's C# name is cached at conformance-index time, before the rename pre-pass runs, so
@@ -108,7 +108,7 @@ public struct KeyVaultBox<T: NestedKeyMaterial> {
 public struct CollisionVault {
     // The property's *type* is the nested type itself, so the C# projections collide as
     // `Entry` (property) vs `Entry` (type). That exact shape routes the collision pre-pass to
-    // rename the nested TYPE with a "Type" suffix (-> `EntryType`) while the property keeps the
+    // rename the nested TYPE with a kind-aware suffix (`Entry` is a struct -> `Info` -> `EntryInfo`) while the property keeps the
     // clean name — the `Codec.encoding: Encoding` / `Codec.Encoding` precedent. A property of an
     // unrelated type (e.g. `String`) would instead rename the property, leaving the type un-renamed
     // and the re-resolve branch dormant.

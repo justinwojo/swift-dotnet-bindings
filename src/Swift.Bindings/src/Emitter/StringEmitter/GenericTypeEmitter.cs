@@ -75,7 +75,7 @@ public static class GenericTypeEmitter
     /// Gets the type name with generic parameters appended.
     /// For example, "Box" becomes "Box&lt;T0&gt;" for a generic type.
     /// When a type database is provided, checks if the CSharpTypeName was renamed
-    /// (e.g., nested type "Options" → "OptionsType" to avoid CS0102 collision with a property).
+    /// (e.g., nested type "Options" → "OptionsInfo" to avoid CS0102 collision with a property).
     /// </summary>
     /// <param name="typeDecl">The type declaration.</param>
     /// <param name="typeDatabase">Optional type database for CSharpTypeName rename resolution.</param>
@@ -85,7 +85,7 @@ public static class GenericTypeEmitter
         var baseName = NameProvider.ToPascalCaseForTypeName(typeDecl.Name);
 
         // Check if CSharpTypeName was renamed (e.g., by ComputePropertyRenames for nested type collisions).
-        // The CSharpTypeName.Name may be "Parent.OptionsType" when TypeDecl.Name is still "Options".
+        // The CSharpTypeName.Name may be "Parent.OptionsInfo" when TypeDecl.Name is still "Options".
         if (typeDatabase != null && typeDatabase.TryGetTypeRecord(typeDecl.SwiftTypeName, out var record))
         {
             var csName = record.CSharpTypeName.Name;

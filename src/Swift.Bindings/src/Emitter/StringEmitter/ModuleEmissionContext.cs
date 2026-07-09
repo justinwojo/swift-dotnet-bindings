@@ -1185,19 +1185,34 @@ public sealed class ModuleEmissionContext
     /// method/free-function name always precedes its parameter list, so the first '(' reliably
     /// splits name from params even when a projected param type contains parentheses.
     /// </summary>
-    public static string BuildApiManifestKey(BaseDecl? parent, string csharpName, string projectedKey)
+    public static string BuildApiManifestKey(BaseDecl? parent, string csharpName, string projectedKey,
+        ITypeDatabase? typeDatabase = null)
     {
         int paren = projectedKey.IndexOf('(');
         string paramPortion = paren >= 0 ? projectedKey.Substring(paren) : "()";
-        string parentPath = BuildParentPath(parent);
+        string parentPath = BuildParentPath(parent, typeDatabase);
         return parentPath.Length > 0
             ? $"{parentPath}.{csharpName}{paramPortion}"
             : $"{csharpName}{paramPortion}";
     }
 
-    private static string BuildParentPath(BaseDecl? parent)
+    private static string BuildParentPath(BaseDecl? parent, ITypeDatabase? typeDatabase)
     {
         if (parent is null or ModuleDecl) return "";
+        // Prefer the authoritative C# nested path from the TypeDatabase so an emission-time
+        // nested-type rename (Entry → EntryInfo when a sibling `entry` property collides) is
+        // reflected in a member's parent path — keeping a member declared ON the renamed type
+        // consistent with that same type as it appears in parameter positions (both would
+        // otherwise disagree: parameters resolve through the renamed record, the raw decl-name
+        // walk does not). The registered C# name is module-excluded and carries the full nested
+        // path, matching this manifest's per-module keying. Fall back to the raw decl-name walk
+        // when the parent has no registered record (synthetic/unresolved decls).
+        if (typeDatabase != null && parent is TypeDecl parentType
+            && typeDatabase.TryGetTypeRecord(parentType.SwiftTypeName, out var rec)
+            && !string.IsNullOrEmpty(rec.CSharpTypeName.Name))
+        {
+            return rec.CSharpTypeName.Name;
+        }
         var names = new List<string>();
         for (BaseDecl? d = parent; d is not null and not ModuleDecl; d = d.ParentDecl)
             names.Add(d.Name);

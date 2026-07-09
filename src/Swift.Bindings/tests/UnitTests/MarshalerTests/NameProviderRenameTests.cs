@@ -80,7 +80,7 @@ public class NameProviderRenameTests
     [Fact]
     public void ComputePropertyRenamesForNestedTypeCollisions_TypeRenamed_SkipsPropertyRename()
     {
-        // When a nested type was renamed (e.g., Configuration → ConfigurationType), the
+        // When a nested type was renamed (e.g., Configuration → ConfigurationInfo), the
         // property should NOT be renamed — the collision is resolved by the type rename.
         var memberNames = new[] { "Configuration", "Name" };
         var nestedTypeNames = new[] { "Configuration", "Settings" };
@@ -163,8 +163,9 @@ public class NameProviderRenameTests
     public void ComputePropertyRenames_PropertyTypeIsNestedType_RenamesTypeNotProperty()
     {
         // Property "configuration" (PascalCase: "Configuration") collides with nested type "Configuration".
-        // Since the property type IS the nested type, rename the nested TYPE to "ConfigurationType"
-        // instead of renaming the PROPERTY — better consumer ergonomics.
+        // Since the property type IS the nested type, rename the nested TYPE — a struct, so the
+        // kind-aware suffix is "Info" → "ConfigurationInfo" — instead of renaming the PROPERTY
+        // (better consumer ergonomics).
         var typeDatabase = new TypeDatabase();
         var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
 
@@ -246,16 +247,16 @@ public class NameProviderRenameTests
         // Property should NOT be renamed — nested type was renamed instead
         Assert.Empty(renames);
 
-        // Nested type's CSharpTypeName should be updated to "ConfigurationType"
+        // Nested type's CSharpTypeName should be updated to "ConfigurationInfo" (struct → "Info")
         Assert.True(typeDatabase.TryGetTypeRecord(configSwiftName, out var configRecord));
-        Assert.Equal("ImagePipeline.ConfigurationType", configRecord!.CSharpTypeName.Name);
+        Assert.Equal("ImagePipeline.ConfigurationInfo", configRecord!.CSharpTypeName.Name);
     }
 
     [Fact]
     public void ComputePropertyRenames_PropertyTypeIsNestedType_CascadesRenameToChildren()
     {
-        // When nested type "Cache" is renamed to "CacheType", its child types must also be updated.
-        // E.g., "ImagePipeline.Cache.Caches" → "ImagePipeline.CacheType.Caches"
+        // When nested type "Cache" (a struct → "Info" suffix) is renamed to "CacheInfo", its child
+        // types must also be updated. E.g., "ImagePipeline.Cache.Caches" → "ImagePipeline.CacheInfo.Caches"
         var typeDatabase = new TypeDatabase();
         var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
 
@@ -366,13 +367,13 @@ public class NameProviderRenameTests
         // Property not renamed
         Assert.Empty(renames);
 
-        // Nested type renamed
+        // Nested type renamed (struct → "Info")
         Assert.True(typeDatabase.TryGetTypeRecord(cacheSwiftName, out var cacheRecord));
-        Assert.Equal("ImagePipeline.CacheType", cacheRecord!.CSharpTypeName.Name);
+        Assert.Equal("ImagePipeline.CacheInfo", cacheRecord!.CSharpTypeName.Name);
 
         // Child type also renamed (cascaded)
         Assert.True(typeDatabase.TryGetTypeRecord(cachesSwiftName, out var cachesRecord));
-        Assert.Equal("ImagePipeline.CacheType.Caches", cachesRecord!.CSharpTypeName.Name);
+        Assert.Equal("ImagePipeline.CacheInfo.Caches", cachesRecord!.CSharpTypeName.Name);
     }
 
     [Fact]
@@ -382,15 +383,15 @@ public class NameProviderRenameTests
         //   struct Transaction {
         //     var offer: Offer
         //     var offerType: OfferType
-        //     struct Offer { ... }
-        //     struct OfferType { ... }
+        //     struct Offer { ... }   // data aggregate
+        //     enum OfferType { ... } // closed case-set
         //   }
-        // Naive rename: Offer→OfferType (collides with sibling OfferType).
-        // The "OfferType" rename target itself collides with the *other* nested type, which
-        // would produce CS0102 ("type already contains a definition for OfferType"). The fix
-        // appends a single "Type" suffix and then disambiguates with a numeric suffix until the
-        // new leaf name is unique among all members + nested types — Offer→OfferType2,
-        // OfferType→OfferType3 — rather than stacking "Type"s into OfferTypeType/OfferTypeTypeType.
+        // Both nested types collide with a same-named property, so both are renamed. The
+        // kind-aware scheme picks the suffix from each type's kind: the `Offer` STRUCT gets
+        // "Info" → OfferInfo, the `OfferType` ENUM gets "Kind" → OfferTypeKind. The two are
+        // obviously distinct and neither reads as a numbered variant of the other — the cascade
+        // resolves with no numeric suffix at all, where the old scheme produced the misleading
+        // OfferType2/OfferType3 family (and the pre-b6d1ba50 scheme the OfferTypeType stutter).
         var typeDatabase = new TypeDatabase();
         var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
 
@@ -439,7 +440,9 @@ public class NameProviderRenameTests
         };
 
         var offerDecl = CreateStructDecl("Offer", offerSwiftName, moduleDecl);
-        var offerTypeDecl = CreateStructDecl("OfferType", offerTypeSwiftName, moduleDecl);
+        // OfferType is a Swift enum in the real StoreKit API — build it as an EnumDecl so the
+        // kind-aware suffix picks "Kind", not the struct "Info".
+        var offerTypeDecl = CreateEnumDecl("OfferType", offerTypeSwiftName, moduleDecl);
 
         var parentDecl = new StructDecl
         {
@@ -496,20 +499,23 @@ public class NameProviderRenameTests
         Assert.True(typeDatabase.TryGetTypeRecord(offerSwiftName, out var offerRecord));
         Assert.True(typeDatabase.TryGetTypeRecord(offerTypeSwiftName, out var offerTypeRecord));
 
-        // Both renamed leaf names must be distinct (otherwise CS0102 in generated C#).
-        Assert.NotEqual(offerRecord!.CSharpTypeName.Name, offerTypeRecord!.CSharpTypeName.Name);
+        var offerLeaf = LeafName(offerRecord!.CSharpTypeName.Name);
+        var offerTypeLeaf = LeafName(offerTypeRecord!.CSharpTypeName.Name);
 
-        // Neither rename may collide with the original sibling leaf names.
-        var offerLeaf = LeafName(offerRecord.CSharpTypeName.Name);
-        var offerTypeLeaf = LeafName(offerTypeRecord.CSharpTypeName.Name);
+        // Kind-aware suffixes resolve the cascade cleanly with no numeric tail: the `Offer` struct
+        // gets "Info", the `OfferType` enum gets "Kind".
+        Assert.Equal("OfferInfo", offerLeaf);
+        Assert.Equal("OfferTypeKind", offerTypeLeaf);
+
+        // Both must be distinct (otherwise CS0102) and neither may reuse an original sibling leaf.
+        Assert.NotEqual(offerLeaf, offerTypeLeaf);
         Assert.NotEqual("Offer", offerLeaf);
         Assert.NotEqual("OfferType", offerLeaf);
         Assert.NotEqual("OfferType", offerTypeLeaf);
         Assert.NotEqual("Offer", offerTypeLeaf);
 
-        // Both rename targets still start with the matching property's PascalCase name + a single
-        // "Type" suffix, and are disambiguated with a numeric tail rather than a stuttering chain
-        // of "Type"s. Neither may contain the "TypeType" machine-vomit the fix removes.
+        // Each rename still contains the matching property's PascalCase name so a consumer grepping
+        // the Swift name finds it, and neither carries the "TypeType" stutter the scheme removes.
         Assert.StartsWith("Offer", offerLeaf);
         Assert.StartsWith("OfferType", offerTypeLeaf);
         Assert.DoesNotContain("TypeType", offerLeaf);
@@ -827,6 +833,28 @@ public class NameProviderRenameTests
             Subscripts = new List<SubscriptDecl>(),
             GenericParameters = new List<GenericArgumentDecl>(),
             Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$sMa"
+        };
+    }
+
+    private static EnumDecl CreateEnumDecl(string name, SwiftTypeName swiftName, ModuleDecl moduleDecl)
+    {
+        return new EnumDecl
+        {
+            Name = name,
+            SwiftTypeName = swiftName,
+            MangledName = "$sN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            Cases = new List<EnumCaseDecl>(),
             ParentDecl = null,
             ModuleDecl = moduleDecl,
             IsFrozen = true,

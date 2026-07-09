@@ -2220,26 +2220,26 @@ public class ModuleHandlerTests
     [Fact]
     public void QualifyNamespaceReferences_RenamedNestedType_NotQualified()
     {
-        // Bug: When a nested type is renamed (e.g., Connection → ConnectionType to avoid
-        // property collision), QualifyNamespaceReferences must use the C# name (ConnectionType),
+        // Bug: When a nested type is renamed (e.g., Connection → ConnectionKind to avoid
+        // property collision), QualifyNamespaceReferences must use the C# name (ConnectionKind),
         // not the Swift name (Connection), in the nestedTypeNames set. Otherwise, qualified
         // references using the renamed type get incorrectly global:: qualified.
-        var input = "public static void GetDescription(this NetworkMonitor.ConnectionType self)";
-        var nestedTypeNames = new HashSet<string> { "ConnectionType" }; // C# name after rename
+        var input = "public static void GetDescription(this NetworkMonitor.ConnectionKind self)";
+        var nestedTypeNames = new HashSet<string> { "ConnectionKind" }; // C# name after rename
 
         var result = StringEmitter.QualifyNamespaceReferences(input, "NetworkMonitor", nestedTypeNames);
 
         // Nested type reference should NOT get global:: qualification
-        Assert.Contains("NetworkMonitor.ConnectionType", result);
-        Assert.DoesNotContain("global::NetworkMonitor.ConnectionType", result);
+        Assert.Contains("NetworkMonitor.ConnectionKind", result);
+        Assert.DoesNotContain("global::NetworkMonitor.ConnectionKind", result);
     }
 
     [Fact]
     public void QualifyNamespaceReferences_NonNestedType_GetsGlobalQualified()
     {
         // Non-nested types in the same namespace should get global:: qualification
-        var input = "public class NetworkMonitorConnectionTypeExtensions : NetworkMonitor.SomeOtherType";
-        var nestedTypeNames = new HashSet<string> { "ConnectionType" };
+        var input = "public class NetworkMonitorConnectionKindExtensions : NetworkMonitor.SomeOtherType";
+        var nestedTypeNames = new HashSet<string> { "ConnectionKind" };
 
         var result = StringEmitter.QualifyNamespaceReferences(input, "NetworkMonitor", nestedTypeNames);
 
@@ -2251,14 +2251,14 @@ public class ModuleHandlerTests
     public void QualifyNamespaceReferences_SwiftNameNotInSet_GetsIncorrectlyQualified()
     {
         // Demonstrates the bug: if the SET uses Swift name "Connection" instead of C# name
-        // "ConnectionType", the renamed type gets incorrectly qualified.
-        var input = "public static void GetDescription(this NetworkMonitor.ConnectionType self)";
+        // "ConnectionKind", the renamed type gets incorrectly qualified.
+        var input = "public static void GetDescription(this NetworkMonitor.ConnectionKind self)";
         var swiftNames = new HashSet<string> { "Connection" }; // Wrong: Swift name, not C#
 
         var result = StringEmitter.QualifyNamespaceReferences(input, "NetworkMonitor", swiftNames);
 
         // With the wrong set, it would get incorrectly qualified
-        Assert.Contains("global::NetworkMonitor.ConnectionType", result);
+        Assert.Contains("global::NetworkMonitor.ConnectionKind", result);
     }
 
     [Fact]
@@ -2356,7 +2356,7 @@ public class ModuleHandlerTests
         nestedEnumDecl.ParentDecl = classDecl;
         moduleDecl.Types.Add(classDecl);
 
-        // 3. Run PrecomputeNestedTypeRenames — this renames Connection → ConnectionType in TypeDatabase
+        // 3. Run PrecomputeNestedTypeRenames — this renames Connection → ConnectionKind in TypeDatabase
         NameProvider.PrecomputeNestedTypeRenames(moduleDecl, typeDatabase);
 
         // 4. Build nestedTypeNames the same way ModuleEmitter.cs:92-107 does
@@ -2381,16 +2381,16 @@ public class ModuleHandlerTests
         }
 
         // Verify the set contains the RENAMED C# name, not the Swift name
-        Assert.Contains("ConnectionType", nestedTypeNames);
+        Assert.Contains("ConnectionKind", nestedTypeNames);
         Assert.DoesNotContain("Connection", nestedTypeNames);
 
         // 5. QualifyNamespaceReferences with the TypeDatabase-derived set
-        var input = "public static void GetDescription(this NetworkMonitor.ConnectionType self)";
+        var input = "public static void GetDescription(this NetworkMonitor.ConnectionKind self)";
         var result = StringEmitter.QualifyNamespaceReferences(input, "NetworkMonitor", nestedTypeNames);
 
         // Renamed nested type should NOT get global:: qualification
-        Assert.Contains("NetworkMonitor.ConnectionType", result);
-        Assert.DoesNotContain("global::NetworkMonitor.ConnectionType", result);
+        Assert.Contains("NetworkMonitor.ConnectionKind", result);
+        Assert.DoesNotContain("global::NetworkMonitor.ConnectionKind", result);
     }
 
     #endregion

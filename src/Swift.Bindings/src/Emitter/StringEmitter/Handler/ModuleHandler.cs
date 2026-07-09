@@ -303,7 +303,7 @@ namespace BindingsGeneration
                             // key is the bare C# name (a free function can't collide with a type member's key).
                             if (methodDecl.WasEmitted)
                                 context.GetEmissionContext()?.RecordApiManifestEntry(
-                                    ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, methodEnv.CSharpMethodName, projectedKey),
+                                    ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, methodEnv.CSharpMethodName, projectedKey, env.TypeDatabase),
                                     methodEnv.EmissionSymbol);
                         }
                         else

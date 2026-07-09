@@ -74,10 +74,10 @@ public class RouteC_GenericRequest<Item: RouteC_Filterable> {
 // MARK: - Collision-renamed nested conformer (Route C re-resolution witness)
 //
 // `RouteC_CollisionScope` exposes a property whose type is its own sibling nested `Catalog` type,
-// so the nested-type-collision pre-pass renames the nested TYPE to `CatalogType` while the property
+// so the nested-type-collision pre-pass renames the nested TYPE to `CatalogInfo` while the property
 // keeps its name (the `Codec.encoding: Encoding` shape). Because `Catalog` conforms to
 // `RouteC_Filterable`, Route C closes its specialization receiver over the *renamed* conformer —
-// `RouteC_GenericRequest<RouteC_CollisionScope.CatalogType>` — even though the conformer's C# name
+// `RouteC_GenericRequest<RouteC_CollisionScope.CatalogInfo>` — even though the conformer's C# name
 // was cached (as `...Catalog`) at conformance-index time, before the rename pre-pass ran. The
 // synthetic Route C extension-class name still derives from the cached pre-rename leaf. This is the
 // only fixture that drives Route C's post-rename type-reference re-resolution; the flat

@@ -918,7 +918,7 @@ public class WrapperEmitterReturnTests
     [Fact]
     public void GetRootBaseTypeNameWithGenerics_UsesRenamedName_WhenTypeDatabaseProvided()
     {
-        // Bug: When a nested type is renamed (e.g., Animator → AnimatorType to avoid property
+        // Bug: When a nested type is renamed (e.g., Animator → AnimatorInfo to avoid property
         // collision), GetRootBaseTypeNameWithGenerics was not passing typeDatabase through to
         // GetTypeNameWithGenerics, so SwiftClassHandle<T> in the constructor used the old name.
         var moduleDecl = CreateModuleDecl("ImageLoader");
@@ -945,7 +945,7 @@ public class WrapperEmitterReturnTests
         var module = new ModuleTypeDatabase("ImageLoader", "/tmp/ImageLoader.dylib");
         module.RegisterType(classDecl.SwiftTypeName, new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ImageLoader", "ImageTransition.AnimatorType"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ImageLoader", "ImageTransition.AnimatorInfo"),
             SwiftTypeName = classDecl.SwiftTypeName,
             MetadataAccessor = "$sMa",
             Flags = TypeRecordFlags.None,
@@ -957,9 +957,9 @@ public class WrapperEmitterReturnTests
         var withoutDb = ClassISwiftObjectMethodWriter.GetRootBaseTypeNameWithGenerics(classDecl);
         Assert.Equal("Animator", withoutDb);
 
-        // With typeDatabase: returns renamed C# name "AnimatorType"
+        // With typeDatabase: returns renamed C# name "AnimatorInfo"
         var withDb = ClassISwiftObjectMethodWriter.GetRootBaseTypeNameWithGenerics(classDecl, typeDatabase);
-        Assert.Equal("AnimatorType", withDb);
+        Assert.Equal("AnimatorInfo", withDb);
     }
 
     [Fact]

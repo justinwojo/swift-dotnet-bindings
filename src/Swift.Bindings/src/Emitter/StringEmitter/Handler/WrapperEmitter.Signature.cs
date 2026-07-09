@@ -621,9 +621,13 @@ namespace BindingsGeneration
                     .Select(p => NameProvider.GetFinalMemberName(
                         NameProvider.GetPropertyName(p.Name, classDecl.Name), propertyRenames)),
                 StringComparer.Ordinal);
-            // Nested type names collide with method names in C# (CS0102)
+            // Nested type names collide with method names in C# (CS0102) — reserve the EMITTED
+            // leaf so a renamed nested type (e.g. Entry → EntryInfo) forces a method projecting
+            // to the renamed name to disambiguate, not one projecting to the pre-rename name.
+            // typeDatabase may be null in the test-only fallback path above; the helper then
+            // degrades to the raw ToPascalCase leaf, preserving the prior behavior.
             foreach (var nestedType in classDecl.Types)
-                props.Add(NameProvider.ToPascalCase(nestedType.Name));
+                props.Add(NameProvider.GetEmittedNestedTypeLeafName(nestedType, typeDatabase));
 
             // Use the canonical IsSelfReturningMethod helper which also checks
             // concrete parent-type returns (not just DynamicSelf/literal "Self").

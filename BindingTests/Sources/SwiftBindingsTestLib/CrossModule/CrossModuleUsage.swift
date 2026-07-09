@@ -313,7 +313,7 @@ extension DependencyService {
 // MARK: - Cross-Module Nested-Type Rename Propagation
 
 /// Returns the alert-type case from a dependency-owned `DependencyContainer`.
-/// Locks the producer-side nested-type rename (`AlertType` -> `AlertTypeType`):
+/// Locks the producer-side nested-type rename (`AlertType` -> `AlertTypeKind`):
 /// the consumer must reference the renamed C# name when emitting this
 /// function's return type and `Container_AlertType_Get` thunk signature.
 public func getDependencyContainerAlertType(_ container: DependencyContainer) -> DependencyContainer.AlertType {
@@ -327,7 +327,7 @@ public func makeDependencyContainer(name: String, alert: DependencyContainer.Ale
 }
 
 /// Holds a renamed cross-module nested type as a property. The consumer-emitted
-/// property type must use `DependencyContainer.AlertTypeType`, otherwise the
+/// property type must use `DependencyContainer.AlertTypeKind`, otherwise the
 /// generated C# fails to compile with CS0426.
 public struct DependencyContainerHolder {
     public let label: String

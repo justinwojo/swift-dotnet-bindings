@@ -7,15 +7,15 @@
 // to a protocol whose required members are provided ONLY by a constrained protocol
 // extension (`extension P where Self: RawRepresentable, Self.RawValue: P { ... }`). The
 // parent struct has a property whose C# name collides with the nested type name, forcing
-// the nested-type-collision pre-pass to rename the nested type with a `Type` suffix
-// (`Kind` -> `KindType`), so the conformance must survive both the constrained-extension
+// the nested-type-collision pre-pass to rename the nested type with a kind-aware suffix
+// (`Kind` is a struct -> `Info` -> `KindInfo`), so the conformance must survive both the constrained-extension
 // validator branch AND the post-rename name re-resolution branch.
 //
 // Pre-fix, `ProtocolExtensionDefaultsIndex` silently skipped any extension whose
 // `WhereConstraints.Count > 0`, so `CanFullyImplementProtocol` saw the property
 // requirement as "no member and no extension default" and rejected the conformance,
-// dropping `IConstrainedDefaulted` from the C# interface list on `ConstraintHost.KindType`.
-// `DefaultedCursor<KindType>` then failed CS0311 ("no implicit reference conversion to
+// dropping `IConstrainedDefaulted` from the C# interface list on `ConstraintHost.KindInfo`.
+// `DefaultedCursor<KindInfo>` then failed CS0311 ("no implicit reference conversion to
 // `IConstrainedDefaulted`"). The witness-table dictionary entry was emitted correctly —
 // the gap was strictly in the interface declaration list.
 //
@@ -64,7 +64,7 @@ extension ConstrainedDefaulted where Self: RawRepresentable, Self.RawValue: Cons
 
 /// Parent type with a property/nested-type name collision. The C# projection of
 /// `let kind: Kind` is the property `Kind`, which clashes with the nested type `Kind`.
-/// The nested-type-collision pre-pass renames the nested TYPE to `KindType` while the
+/// The nested-type-collision pre-pass renames the nested TYPE to `KindInfo` while the
 /// property keeps its name — the property/nested-type name-collision trigger shape.
 @frozen
 public struct ConstraintHost {
@@ -82,16 +82,16 @@ public struct ConstraintHost {
     }
 
     /// Returning a `DefaultedCursor<Kind>` forces the generator to emit a C# method
-    /// returning `DefaultedCursor<KindType>` (post-rename). The cursor's
+    /// returning `DefaultedCursor<KindInfo>` (post-rename). The cursor's
     /// `T: ConstrainedDefaulted` constraint becomes `where T : IConstrainedDefaulted`
-    /// in C#, so this method is what trips CS0311 when `KindType` drops the interface.
+    /// in C#, so this method is what trips CS0311 when `KindInfo` drops the interface.
     public func makeCursor() -> DefaultedCursor<Kind> {
         DefaultedCursor(value: Kind(rawValue: DefaultRawValue(value: 1)))
     }
 }
 
 /// Generic carrier with a `ConstrainedDefaulted` constraint. The C# emission
-/// preserves the constraint, so any closed instantiation over `ConstraintHost.KindType`
+/// preserves the constraint, so any closed instantiation over `ConstraintHost.KindInfo`
 /// must see the post-rename type declaring `IConstrainedDefaulted`.
 public struct DefaultedCursor<T: ConstrainedDefaulted> {
     public let value: T

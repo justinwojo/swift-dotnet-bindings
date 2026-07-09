@@ -151,43 +151,43 @@ public class NestedConformerSpecializationTests : TestBase
     }
 
     // --- Collision-renamed conformer: CollisionVault.Entry is the property/type-name clash that
-    // renames the nested *type* to EntryType while the property keeps its name. The conformer's
+    // renames the nested *type* to EntryInfo while the property keeps its name. The conformer's
     // C# name is cached at conformance-index time (pre-rename, "Entry"), so every CSM type
-    // reference must re-resolve the live name (EntryType) at emission. The synthetic factory and
+    // reference must re-resolve the live name (EntryInfo) at emission. The synthetic factory and
     // extension-class names still derive from the cached Swift name (..._CollisionVault_Entry),
     // so these tests pin BOTH halves of the split: name-by-cache, type-by-live-lookup. Without
     // the re-resolution they would name the non-existent CollisionVault.Entry and fail to compile.
 
     public void TestCollisionConformer_Construct_AndReadMaterial()
     {
-        using var key = new SwiftBindingsTestLib.CollisionVault.EntryType(tag: "c");
+        using var key = new SwiftBindingsTestLib.CollisionVault.EntryInfo(tag: "c");
         AssertEqual("collision-entry:c", key.Material,
-            "CollisionVault.EntryType.material round-trip");
+            "CollisionVault.EntryInfo.material round-trip");
     }
 
     public void TestRegisterKey_CollisionConformer()
     {
         using var registrar = new KeyRegistrar(realm: "realm");
-        using var key = new SwiftBindingsTestLib.CollisionVault.EntryType(tag: "c");
+        using var key = new SwiftBindingsTestLib.CollisionVault.EntryInfo(tag: "c");
         AssertEqual("realm/collision-entry:c", registrar.RegisterKey(key),
-            "RegisterKey(CollisionVault.EntryType) overload");
+            "RegisterKey(CollisionVault.EntryInfo) overload");
     }
 
     public void TestSealedKey_FromCollisionConformer()
     {
-        using var key = new SwiftBindingsTestLib.CollisionVault.EntryType(tag: "c");
+        using var key = new SwiftBindingsTestLib.CollisionVault.EntryInfo(tag: "c");
         using var sealed_ = SealedKey.FromSwiftBindingsTestLib_CollisionVault_Entry(key);
         AssertEqual("sealed[collision-entry:c]", sealed_.Descriptor,
-            "SealedKey.From(CollisionVault.EntryType) factory");
+            "SealedKey.From(CollisionVault.EntryInfo) factory");
     }
 
     public void TestKeyVaultBox_CollisionConformer_Describe()
     {
-        using var seed = new SwiftBindingsTestLib.CollisionVault.EntryType(tag: "c");
+        using var seed = new SwiftBindingsTestLib.CollisionVault.EntryInfo(tag: "c");
         using var box = KeyVaultBoxSwiftBindingsTestLib_CollisionVault_EntryCsmExtensions
             .FromSwiftBindingsTestLib_CollisionVault_Entry(seed);
         AssertEqual("box[collision-entry:c]", box.Describe(),
-            "KeyVaultBox<CollisionVault.EntryType>.Describe extension");
+            "KeyVaultBox<CollisionVault.EntryInfo>.Describe extension");
     }
 
     // --- Shape 2 (throwing): generic THROWING initializer — the exact CryptoKit HPKE
@@ -227,10 +227,10 @@ public class NestedConformerSpecializationTests : TestBase
 
     public void TestThrowingSealedBox_FromCollisionConformer_Success()
     {
-        using var key = new SwiftBindingsTestLib.CollisionVault.EntryType(tag: "c");
+        using var key = new SwiftBindingsTestLib.CollisionVault.EntryInfo(tag: "c");
         using var box = ThrowingSealedBox.FromSwiftBindingsTestLib_CollisionVault_Entry(key, new byte[] { 0xFF }, shouldSucceed: true);
         AssertEqual("throwing-sealed[collision-entry:c|info:ff]", box.Descriptor,
-            "ThrowingSealedBox.From(CollisionVault.EntryType) throwing factory — success round-trip carries concrete Data info");
+            "ThrowingSealedBox.From(CollisionVault.EntryInfo) throwing factory — success round-trip carries concrete Data info");
     }
 
     public void TestThrowingSealedBox_FromFlatConformer_Throws()

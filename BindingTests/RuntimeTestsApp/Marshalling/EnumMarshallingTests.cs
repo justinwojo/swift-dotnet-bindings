@@ -259,25 +259,25 @@ public class EnumMarshallingTests : TestBase
 
     public void TestOrderStatusFromRawValue()
     {
-        // Test nested OrderContainer.StatusType enum — raw values are "order_*", not case names.
-        // Nested type is StatusType (not Status) because `status` property shadows it; generator
-        // applies Type-suffix rename to the nested type.
-        var pending = OrderContainer.StatusType.FromRawValue("order_pending");
-        AssertNotNull(pending, "OrderContainer.StatusType order_pending not null");
+        // Test nested OrderContainer.StatusKind enum — raw values are "order_*", not case names.
+        // Nested type is StatusKind (not Status) because `status` property shadows it; the generator
+        // applies the kind-aware suffix rename to the nested type (enum → "Kind").
+        var pending = OrderContainer.StatusKind.FromRawValue("order_pending");
+        AssertNotNull(pending, "OrderContainer.StatusKind order_pending not null");
         AssertEqual("order_pending", pending!.RawValue.ToString(), "order_pending round-trip");
 
-        var shipped = OrderContainer.StatusType.FromRawValue("order_shipped");
-        AssertNotNull(shipped, "OrderContainer.StatusType order_shipped not null");
+        var shipped = OrderContainer.StatusKind.FromRawValue("order_shipped");
+        AssertNotNull(shipped, "OrderContainer.StatusKind order_shipped not null");
         AssertEqual("order_shipped", shipped!.RawValue.ToString(), "order_shipped round-trip");
 
-        var invalid = OrderContainer.StatusType.FromRawValue("bogus");
+        var invalid = OrderContainer.StatusKind.FromRawValue("bogus");
         AssertNull(invalid, "Invalid order status is null");
 
         // Case name (not raw value) should also return null
-        var caseName = OrderContainer.StatusType.FromRawValue("pending");
+        var caseName = OrderContainer.StatusKind.FromRawValue("pending");
         AssertNull(caseName, "Case name 'pending' is not a valid raw value");
 
-        TestLogger.Info("OrderContainer.StatusType FromRawValue passed");
+        TestLogger.Info("OrderContainer.StatusKind FromRawValue passed");
     }
 
     public void TestOrderStatusAllCases()
@@ -286,11 +286,11 @@ public class EnumMarshallingTests : TestBase
         var cases = new[] { "order_pending", "order_processing", "order_shipped", "order_delivered", "order_cancelled" };
         foreach (var rawValue in cases)
         {
-            var status = OrderContainer.StatusType.FromRawValue(rawValue);
-            AssertNotNull(status, $"OrderContainer.StatusType {rawValue} not null");
+            var status = OrderContainer.StatusKind.FromRawValue(rawValue);
+            AssertNotNull(status, $"OrderContainer.StatusKind {rawValue} not null");
             AssertEqual(rawValue, status!.RawValue.ToString(), $"{rawValue} round-trip");
         }
-        TestLogger.Info("OrderContainer.StatusType all cases passed");
+        TestLogger.Info("OrderContainer.StatusKind all cases passed");
     }
 
     public void TestPaymentContainerCreation()
@@ -308,15 +308,15 @@ public class EnumMarshallingTests : TestBase
     public void TestPaymentStatusFromRawValue()
     {
         // Swift raw values are "payment_*" prefixed, not case names.
-        // Nested type renamed to StatusType (see TestOrderStatusFromRawValue).
+        // Nested type renamed to StatusKind (see TestOrderStatusFromRawValue).
         var cases = new[] { "payment_pending", "payment_authorized", "payment_captured", "payment_refunded", "payment_failed" };
         foreach (var rawValue in cases)
         {
-            var status = PaymentContainer.StatusType.FromRawValue(rawValue);
-            AssertNotNull(status, $"PaymentContainer.StatusType {rawValue} not null");
+            var status = PaymentContainer.StatusKind.FromRawValue(rawValue);
+            AssertNotNull(status, $"PaymentContainer.StatusKind {rawValue} not null");
             AssertEqual(rawValue, status!.RawValue.ToString(), $"{rawValue} round-trip");
         }
-        TestLogger.Info("PaymentContainer.StatusType all cases passed");
+        TestLogger.Info("PaymentContainer.StatusKind all cases passed");
     }
 
     #endregion
@@ -340,7 +340,7 @@ public class EnumMarshallingTests : TestBase
         var cases = new[] { "application/json", "application/xml", "multipart/form-data", "text/plain" };
         foreach (var rawValue in cases)
         {
-            var ct = NetworkConfig.ContentType2.FromRawValue(rawValue);
+            var ct = NetworkConfig.ContentTypeKind.FromRawValue(rawValue);
             AssertNotNull(ct, $"ContentType {rawValue} not null");
             AssertEqual(rawValue, ct!.RawValue.ToString(), $"{rawValue} round-trip");
         }
