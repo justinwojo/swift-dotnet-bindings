@@ -3,7 +3,9 @@
 
 #nullable enable
 
+using System.IO;
 using System.Linq;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -158,6 +160,54 @@ public class SuppressedProxyReportingTests
             var item = Assert.Single(report.SkippedItems);
             Assert.Equal(SkipReason.SuppressedProxyMemberDegraded, item.Reason);
             Assert.Contains("(receiver-failfast)", item.Details);
+            // API contract: a non-null proxy name reaches the row's Details (so triage can grep the
+            // receiver-failfast rows by proxy just like the produce/consume rows) rather than falling back
+            // to the generic "a suppressed protocol proxy". This asserts the RecordReceiver→Details plumbing
+            // for a named subject; that the EMITTER actually passes the exception's ProxyClassName here
+            // (not null) is locked separately by
+            // EmitReceiverOrDegrade_SuppressedProxy_RecordsRowNamingTheProxyFromException, which drives the
+            // real emitter catch path.
+            Assert.Contains("IAnalyzerProxy", item.Details);
+            Assert.DoesNotContain("a suppressed protocol proxy", item.Details);
+            Assert.Equal(SkipDisposition.KnownLimitation, SkipDispositionClassifier.Classify(item));
+        });
+    }
+
+    /// <summary>
+    /// End-to-end wiring lock for the reverse-dispatch receiver path. Drives the actual emitter degrade
+    /// branch (<see cref="ProtocolProxyEmitter.EmitReceiverOrDegrade"/>) with an <c>emitBody</c> that throws
+    /// <see cref="SuppressedProxyReferenceException"/> — the shape a receiver whose existential references a
+    /// suppressed proxy takes — and asserts the recorded row NAMES the proxy carried on the exception. This
+    /// is the regression the API-level <see cref="RecordReceiver_FailFast_RecordsClassifiedDegradedSkip"/>
+    /// cannot catch: reverting the emitter to pass <c>null</c> (dropping <c>ex.ProxyClassName</c>) leaves that
+    /// test green but fails this one, because only this test exercises the catch → <c>ex.ProxyClassName</c> →
+    /// <see cref="SuppressedProxyReporting.RecordReceiver"/> plumbing.
+    /// </summary>
+    [Fact]
+    public void EmitReceiverOrDegrade_SuppressedProxy_RecordsRowNamingTheProxyFromException()
+    {
+        RunWithCollector(_ =>
+        {
+            var typeDatabase = new TypeDatabase();
+            typeDatabase.AddModuleDatabase(new ModuleTypeDatabase("TestModule", "/fake/path"));
+            var emitter = new ProtocolProxyEmitter(
+                typeDatabase, NullLogger.Instance, "TestModule", new ModuleEmissionContext());
+
+            var writer = new CSharpWriter(new StringWriter());
+            emitter.EmitReceiverOrDegrade(
+                writer, "void", "Receive_analyze", "IntPtr vtHandle, IntPtr selfContainer, IntPtr valuePtr",
+                "IAnalyzer.analyze(with:)",
+                emitBody: () => throw new SuppressedProxyReferenceException("IAnalyzerReceiverProxy"));
+        },
+        report =>
+        {
+            var item = Assert.Single(report.SkippedItems);
+            Assert.Equal(SkipReason.SuppressedProxyMemberDegraded, item.Reason);
+            Assert.Contains("(receiver-failfast)", item.Details);
+            // The name comes off the thrown exception, threaded through EmitSuppressedProxyReceiverStub —
+            // NOT the null-subject generic fallback. This is what pins the emitter wiring.
+            Assert.Contains("IAnalyzerReceiverProxy", item.Details);
+            Assert.DoesNotContain("a suppressed protocol proxy", item.Details);
             Assert.Equal(SkipDisposition.KnownLimitation, SkipDispositionClassifier.Classify(item));
         });
     }

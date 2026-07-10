@@ -149,7 +149,11 @@ public partial class ProtocolProxyEmitter
     /// channel propagated uncaught to <c>StringEmitter.EmitModule</c> and aborted the WHOLE module with
     /// no <c>.cs</c> produced.
     /// </summary>
-    private void EmitReceiverOrDegrade(
+    // internal (not private) so the degrade path can be exercised in isolation: a unit test injects an
+    // emitBody that throws SuppressedProxyReferenceException and asserts the recorded report row names the
+    // proxy carried on the exception — the regression lock for the catch → ex.ProxyClassName → RecordReceiver
+    // wiring that an API-level RecordReceiver test cannot cover.
+    internal void EmitReceiverOrDegrade(
         CSharpWriter writer, string returnType, string receiverName, string paramList,
         string memberDescriptor, Action emitBody)
     {
@@ -158,10 +162,10 @@ public partial class ProtocolProxyEmitter
         {
             emitBody();
         }
-        catch (SuppressedProxyReferenceException)
+        catch (SuppressedProxyReferenceException ex)
         {
             writer.RollbackTo(checkpoint);
-            EmitSuppressedProxyReceiverStub(writer, returnType, receiverName, paramList, memberDescriptor);
+            EmitSuppressedProxyReceiverStub(writer, returnType, receiverName, paramList, memberDescriptor, ex.ProxyClassName);
         }
     }
 
@@ -182,13 +186,16 @@ public partial class ProtocolProxyEmitter
     /// unreachable.</para>
     /// </summary>
     private void EmitSuppressedProxyReceiverStub(
-        CSharpWriter writer, string returnType, string receiverName, string paramList, string memberDescriptor)
+        CSharpWriter writer, string returnType, string receiverName, string paramList, string memberDescriptor,
+        string? proxyClassName)
     {
         _emissionContext.TryRecordDegradedReverseDispatchReceiver(memberDescriptor);
         // Promote the build-only SWIFTBIND061 warning to a durable, classified skip in the persisted
         // report — the receiver's reverse-dispatch surface is degraded (fail-fast), and a decline must
         // not live only as a log line. Report-layer identity dedup keeps distinct overloads distinct.
-        SuppressedProxyReporting.RecordReceiver(memberDescriptor, null);
+        // Pass the suppressed proxy's name (carried on the exception) so the row names the exact protocol,
+        // matching every other Record* site and keeping the row greppable by protocol during triage.
+        SuppressedProxyReporting.RecordReceiver(memberDescriptor, proxyClassName);
         writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         writer.WriteLine($"private static {returnType} {receiverName}({paramList})");
         writer.WriteLine("{");
