@@ -202,22 +202,65 @@ generator work — until a real consumer links the real package, "shippable" is 
    (`dotnet nuke BuildLibrary --library MapLibre --all-products`), then from a **fresh
    single-`PackageReference` consumer app**, build + run on the iOS Simulator and on device (NativeAOT).
    Assert the map renders and a delegate callback fires ObjC→C#. No pure-ObjC nupkg-consumption leg exists
-   elsewhere, so the synthetic gates don't cover this. (Note: MapLibre isn't yet present under
-   `swift-dotnet-packages/libraries/` — this is the first build of it.)
+   elsewhere, so the synthetic gates don't cover this.
+
+   **Status (2026-07-10) — sim pack lane PROVEN (device remains, attended).** The real
+   `SwiftBindings.MapLibre.6.27.0.nupkg` builds (`nuke BuildLibrary --library MapLibre --all-products`) and packs
+   (`nuke Pack --library MapLibre --version 6.27.0`), self-carrying the 2-slice `MapLibre.xcframework`
+   (device `ios-arm64` + `ios-arm64_x86_64-simulator`) under `runtimes/ios-arm64/native/`, no declared
+   deps. A clean single-`PackageReference` consumer (`iossimulator-arm64`) auto-embeds `MapLibre.framework`
+   into `Frameworks/`, renders the map (`didFinishLoadingStyle` + `didFinishLoadingMap` + `fullyRendered:true`
+   all fired) and fires ObjC→C# delegates (`regionDidChangeAnimated`) — 11/0/0 API-pattern matrix on the
+   iOS Simulator, zero native-load errors. See the results table below. (`libraries/MapLibre/` is now
+   present as untracked scratch in `swift-dotnet-packages` — the earlier "not yet present" note is
+   superseded.)
 
 2. **V-1 Facebook — mixed ObjC+Swift pack lane.** Run `--mixed-pack` on the real binding: pack the 5 kits,
    then from a single-`PackageReference` consumer build (sim) + NativeAOT-publish (device). Assert Login + a
    Share flow round-trip with the ObjC classes registering exactly once ("Class X is implemented in both …"
-   is the failure to rule out). (`libraries/Facebook/` exists but is untracked scratch state with no
-   completed `--mixed-pack` run yet.)
+   is the failure to rule out).
+
+   **Status (2026-07-10) — harness `--mixed-pack` sim leg GREEN; real 5-kit pack + device remain.**
+   `nuke binding-tests --mixed-pack` (synthetic mixed ObjC+Swift fixture, the issue-#40 shape) passed on
+   the iOS Simulator (Mono JIT): one nupkg, one `PackageReference`, ObjC type usable and the class
+   registered exactly once — no "implemented in both". This proves the duplicate-registration *mechanism*;
+   packing + consuming the **real 5 FB kits**, and the device (NativeAOT) leg, are still open (attended).
+   (`libraries/Facebook/` remains untracked scratch state.)
 
 3. **App Store hygiene.** `nuke binding-tests --appstore-hygiene` (library-agnostic, run once). Asserts the
    runtime nupkg embeds as a signed framework and a built `.ipa` is TN2435-compliant. Must be green before
    any publish.
 
+   **Status (2026-07-10) — PASSED on host (structural + signed IPA).** Structural nupkg checks green
+   (framework xcframework preserved: device arm64, sim arm64+x86_64; no loose dylib; no injector script)
+   AND the signed-IPA leg *ran* (codesigning identity present) and passed — runtime embeds as a signed
+   `Frameworks/SwiftBindingsRuntime.framework` (@rpath install_name), no loose dylib, zero `libswift*.dylib`,
+   no `SwiftSupport/`, app + framework signatures verify.
+
 4. **Cut releases** via the normal `release/**` flow — MapLibre lane and Facebook lane.
 
 5. **Document the two known limitations** (below) in the wiki Known Limitations page as part of the release.
+
+### §B unattended-leg results — 2026-07-10 (macOS host + iOS Simulator; no device)
+
+Executed the decision-independent, no-device, no-attendance legs of §B. All three green. The device
+(NativeAOT) legs — MapLibre's single-`PackageReference` consumer and the real 5-kit Facebook mixed
+pack lane — remain as an owner-attended follow-up (unchanged scope). The App Store hygiene IPA leg is
+host-only and already ran here (item 3 above), so nothing device-side remains for it.
+
+| Leg | Command | Wall | Result | Log |
+|---|---|---|---|---|
+| MapLibre V-1 (pure-ObjC pack lane, sim) | `nuke BuildLibrary --library MapLibre --all-products` + `nuke Pack --library MapLibre --version 6.27.0` (in `swift-dotnet-packages`) → single-`PackageReference` consumer `dotnet build -c Debug` (`iossimulator-arm64`) → `simctl install/launch` on booted iPhone 17 Pro Max | build 12s + pack 11s + consumer 44s + run ~16s | **PASS** — native self-embedded, map rendered, ObjC→C# delegates fired, **11 pass / 0 fail / 0 skip**, 0 native-load errors | `/tmp/sb-maplibre-build.log`, `/tmp/sb-maplibre-build2.log`, `/tmp/sb-maplibre-run.log` |
+| Facebook mixed V-1 (synthetic fixture) | `nuke binding-tests --mixed-pack` (default sim) | 109s | **PASS** — structural OK (`_OBJC_CLASS_$_SbMixedPackProbe`, companion in `lib/`); consumer ran on sim: `OBJC_GREETING:objc-mixed-ok` + `TEST SUCCESS`, class registered once, no "implemented in both" | `/tmp/sb-leg2-mixedpack.log` |
+| App Store hygiene | `nuke binding-tests --appstore-hygiene` | 31s | **PASS** — structural nupkg OK **and** signed-IPA leg ran (identity present): signed `SwiftBindingsRuntime.framework`, no loose dylib, zero `libswift*`, signatures verify | `/tmp/sb-leg3-hygiene.log` |
+
+Notes: the MapLibre nupkg embeds the full 2-slice xcframework under `runtimes/ios-arm64/native/` and declares
+no dependencies (pure-ObjC → Microsoft.iOS ObjC runtime, no `SwiftBindings.Runtime`); a single
+`PackageReference` is self-sufficient. The Facebook leg is the harness synthetic-mixed fixture (the issue-#40
+duplicate-registration shape), which proves the *mechanism* — packing/consuming the real 5 kits stays open.
+The hygiene IPA leg is host-only and ran because the signing identity was present; on an identity-less host it
+records an honest SKIP (structural still fail-closed). MT7154 `Swift/*Database.xml` BundleResource-dedup
+warnings in the hygiene publish are the known-benign LogicalName collisions, not chased.
 
 ### Known limitations to document (deliberate scope, not bugs)
 
