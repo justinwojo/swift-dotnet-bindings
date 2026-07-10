@@ -43,4 +43,29 @@ public class ClientCarrier: NSObject {
         self.info = nil
         super.init()
     }
+
+    /// Returns the held info through a *method return* of `Optional<InfoCarrier>`.
+    /// A method return crosses the emitter's OptionalProjection copy-out path, which is
+    /// DISTINCT from the `info` property accessor path (AccessorConversionVisitors) that
+    /// the property tests above pin. The accessor path is the one that historically had the
+    /// double-VWT `InitializeWithCopy` small-string corruption; OptionalProjection always
+    /// bypassed `SwiftOptional` (the IntPtr result IS the payload), so it never had that bug.
+    /// This exercises the return copy-out with the same multi-String-field shape to gate its
+    /// string integrity independently.
+    public func snapshotInfo() -> InfoCarrier? {
+        return self.info
+    }
+}
+
+/// Builds an `InfoCarrier` Swift-side and hands it back through the `Optional<InfoCarrier>`
+/// return path, so the String bytes originate and live Swift-side before crossing the
+/// bridge — the exact condition under which the small-string ivar corruption was observed.
+public func makeInfoCarrier(name: String, partnerId: String?, version: String?, url: String?) -> InfoCarrier? {
+    return InfoCarrier(name: name, partnerId: partnerId, version: version, url: url)
+}
+
+/// Same `Optional<InfoCarrier>` return type, returning nil — gates the None branch of the
+/// method-return path (IntPtr.Zero → null) independently of the property accessor's None.
+public func makeNilInfoCarrier() -> InfoCarrier? {
+    return nil
 }

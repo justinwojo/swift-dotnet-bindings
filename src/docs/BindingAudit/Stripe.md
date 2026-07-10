@@ -21,7 +21,9 @@ packages. Real generator gaps are narrow and concentrated in **closure-typed con
 `confirmHandler`, Apple Pay handlers) and a few PassKit existential/placeholder types. Biggest risks: (1) the
 deferred/server-side-confirmation PaymentSheet flow is **not constructible** from C# (closure gap), and (2) a
 **documented `STPAPIClient.AppInfo` NSString string-corruption bug is masked as a test `Skip`** rather than
-fixed.
+fixed. *(Risk (2) is **RESOLVED** — see §3: it was a general `Optional<ObjC-rooted class>` accessor
+double-VWT-copy bug, fixed generator-side and pinned by BindingTests; only an external test-mask cleanup in the
+consuming repo remains.)*
 
 ## 1. Coverage
 
@@ -178,10 +180,34 @@ Config, Connect, CrossModule, CustomerSheet, EmbeddedConfig, …).
   go green), this is a **real StripeCore marshalling defect** that should be reproduced in BindingTests and
   fixed, not skipped. Only 2 `Skip`s exist and this is one of them.
 
+  > **RESOLVED — classified as a real, already-fixed *general* marshalling bug (not package-specific, not a
+  > bad test).** Root cause: the emitter returned `Optional<Class/ObjC-rooted class>` property getters as
+  > `SwiftOptional<T>`, routing them through `MarshalFromSwift` + `NewSome` — **two VWT `InitializeWithCopy`
+  > calls** that mangled the returned object's inline small-string (SSO) ivar (+2 at byte offset 4, cumulative
+  > per access). The audit's *`swift_retain`-on-tagged-pointer* mechanism is **refuted**: the corruption
+  > *location* (the inline small-string ivar) matched, but the cause was the double VWT copy in the accessor
+  > return, not a retain on a tagged pointer. **The corruption was accessor-only**, fixed by `19560c96`
+  > (accessor → direct `IntPtr` + `GetINativeObject<T>(ptr, owns:true)` / `MarshalFromSwift<T>`, zero VWT ops;
+  > also closes a retain leak). The sibling method-**return** path (`OptionalProjection`) always bypassed
+  > `SwiftOptional` (the IntPtr result IS the payload), so it never had the corruption; `793e77a4` fixed a
+  > *separate* retain **leak** there (`ownsReference:false → true`), not string corruption.
+  > Durable gate: BindingTests `OptionalObjCClassPropertyTests` over the faithful shape
+  > (`ClientCarrier.info: InfoCarrier?` / `InfoCarrier.name: String`). The property-accessor path is green on
+  > Mono JIT (sim) + NativeAOT (device) (original gate `7ae2ed3c`); the method-return copy-out
+  > (`snapshotInfo`/`makeInfoCarrier`) was added here and is green on Mono JIT (sim), exercising the identical
+  > `IntPtr` + `GetINativeObject(owns:true)` copy-out as the accessor (no new NativeAOT ABI surface), so string
+  > integrity is now gated on both emitter copy-out paths (the accessor that had the bug and the return path
+  > that never did). **Remaining action is external** (out of this
+  > repo): the mask still lives in `swift-dotnet-packages/libraries/Stripe/tests/Program.cs:684–718` — flip the
+  > `results.Skip("StripeCore_STPAPIClient_AppInfo", "String corruption…")` branch to `results.Pass` asserting
+  > `readBack.Name == "TestApp"` (all four fields ideally); the generator fix already makes it pass, so the
+  > Skip is now a stale mask of a fixed defect and a standing no-expected-failures violation.
+
 **Untested high-value surface:** the entire async payment path (`CreatePaymentMethodAsync`,
 `ConfirmPaymentIntentAsync`, `HandleNextActionAsync`), `PaymentSheet.PresentAsync`, and `STPPaymentMethod`
-decode from a JSON response. **Recommended additions (headless where possible):** (1) a BindingTests repro for
-the `STPAPIClient.AppInfo` NSString corruption — assert `readBack.Name == "TestApp"` and let it go *red*; (2)
+decode from a JSON response. **Recommended additions (headless where possible):** (1) **DONE** — the
+`STPAPIClient.AppInfo` NSString corruption is reproduced and gated by BindingTests `OptionalObjCClassPropertyTests`
+(see the §3 RESOLVED callout); the only leftover is the external `Program.cs:707` Skip→assert flip; (2)
 drive `PaymentSheet.PresentAsync(vc)` against a fake client secret to at least exercise the Task/present path
 (assert it returns a `PaymentSheetResult` failure, not a crash); (3) decode a captured PaymentIntent JSON
 through `STPPaymentIntent`/`STPPaymentMethod` to prove the `ISTPAPIResponseDecodable` synthesized helpers.
@@ -190,7 +216,7 @@ through `STPPaymentIntent`/`STPPaymentMethod` to prove the `ISTPAPIResponseDecod
 
 | # | Dimension | Finding | Recommendation | Effort | Value |
 |---|---|---|---|---|---|
-| 1 | 3 (bug) | `STPAPIClient.AppInfo` NSString round-trip corruption masked as a test `Skip` (`Program.cs:707`); hypothesis = tagged-pointer corruption on getter `NewSome` path | Reproduce in BindingTests, let it go red, root-cause the NSString retain/marshalling path in StripeCore | Med | **High** |
+| 1 | 3 (bug) | **RESOLVED.** `STPAPIClient.AppInfo` NSString round-trip corruption masked as a test `Skip` (`Program.cs:707`); the tagged-pointer hypothesis was refuted — real cause was a double VWT `InitializeWithCopy` in the `SwiftOptional<T>` accessor return | Fixed generator-side by `19560c96` (accessor; the corruption was accessor-only — `793e77a4` was a separate return-path leak fix). Gated by BindingTests `OptionalObjCClassPropertyTests` on both copy-out paths. External follow-up: flip the `Program.cs:707` Skip to a `Name == "TestApp"` assertion | Med | **High** |
 | 2 | 1 | Deferred-intent flow unusable: `PaymentSheet.IntentConfiguration` has no C# ctor — `confirmHandler`/`confirmationTokenConfirmHandler` async closures skipped (`StripePaymentSheet.cs:29114`) | Generator unlock for async closure-typed config properties (store C# delegate, re-enter async); or document a Swift-shim workaround | High | **High** |
 | 3 | 1 | Apple-Pay-in-sheet unconstructible: `PaymentSheet.ApplePayConfiguration.init` (PassKit placeholder) + handlers skipped | Resolve `PKPaymentButtonType`/closure handlers, or ship a Swift shim | Med | Med |
 | 4 | 1 | DuplicateSignature drops one overload of `PaymentSheet.init`/`FlowController.presentPaymentOptions` (×3) | Cross-cutting theme #7: disambiguate colliding overloads via Swift argument labels instead of dropping | Med | Med (broad) |

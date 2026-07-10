@@ -31,8 +31,10 @@ folder; this is the index + cross-cutting synthesis. Rubric: [`_METHODOLOGY.md`]
    `RoomCaptureViewDelegate`), and "bring-your-own" extension points that are dead (BlinkIDUX analyzers).
    This is the highest-value, highest-risk theme in the whole audit.
 
-3. **One confirmed runtime bug is currently masked as a test `Skip`** (Stripe `STPAPIClient.AppInfo`
-   NSString corruption) — it should be a failing BindingTests repro, not a skip. See the dedicated section.
+3. **One confirmed runtime bug was masked as a test `Skip`** (Stripe `STPAPIClient.AppInfo` NSString
+   corruption) — now **RESOLVED**: it was a general `Optional<ObjC-rooted class>` accessor double-VWT-copy bug,
+   fixed generator-side and pinned by a BindingTests gate; only an external test-mask cleanup remains. See the
+   dedicated section.
 
 4. **The universal weakness is test *depth*, not coverage.** Nearly every binding's tests prove
    construction / metadata / enum ordinals but **not the end-to-end functional flow** the library exists
@@ -180,7 +182,11 @@ where possible** — and pin every verified runtime bug below with a red test.
 
 ---
 
-## Confirmed runtime bug (masked as a Skip)
+## Confirmed runtime bug (masked as a Skip) — RESOLVED
+
+*The original finding is preserved below as historical context; the imperative actions it lists (reproduce in
+BindingTests, grep siblings) are now done — see the **RESOLVED** blockquote at the end of this section for
+current status.*
 
 **Stripe `STPAPIClient.AppInfo` — NSString round-trip corruption**
 (`libraries/Stripe/tests/Program.cs:707`). The test sets `AppInfo`, reads it back, and when the readback
@@ -192,6 +198,31 @@ in **BindingTests**, let it go **red**, and root-cause the NSString tagged-point
 `StripeCore`. The tagged-pointer mechanism is a hypothesis, not established — the repro should confirm it.
 **Recommend grepping the other ObjC-bridged bindings (Matter, Stripe3DS2, BlinkID) for similar masked
 Skips**, since an NSString-getter corruption would not be Stripe-specific.
+
+> **RESOLVED (classification: real *general* marshalling bug — not package-specific, not a bad test).**
+> Root cause: the emitter returned `Optional<Class/ObjC-rooted class>` property getters as `SwiftOptional<T>`,
+> forcing them through `MarshalFromSwift` + `NewSome` — **two VWT `InitializeWithCopy` calls** that mangled the
+> returned object's inline small-string (SSO) ivar (+2 at byte offset 4, cumulative). The tagged-pointer
+> `swift_retain` mechanism is **refuted**: the corruption *location* (the SSO ivar) matched, but the *cause* was
+> the double VWT copy in the accessor return. **The corruption was accessor-only**, fixed by `19560c96`
+> (accessor → direct `IntPtr` + `GetINativeObject<T>(ptr, owns:true)` / `MarshalFromSwift<T>`, zero VWT ops;
+> also closes a retain leak). The sibling method-**return** path (`OptionalProjection`) always bypassed
+> `SwiftOptional` (the IntPtr result IS the payload), so it never had the corruption; `793e77a4` fixed a
+> *separate* retain **leak** there (`ownsReference:false → true`), not string corruption.
+> **Gated:** BindingTests `OptionalObjCClassPropertyTests` over the faithful `InfoCarrier`/`ClientCarrier` shape.
+> The property-accessor path is green on Mono JIT (sim) + NativeAOT (device) (original gate `7ae2ed3c`); the
+> method-return copy-out (`snapshotInfo`/`makeInfoCarrier`) was added here and is green on Mono JIT (sim),
+> exercising the identical `IntPtr` + `GetINativeObject(owns:true)` copy-out as the accessor (no new NativeAOT
+> ABI surface), so string integrity is now gated on `OptionalProjection` too, not just the accessor (the
+> accessor is the path that had the corruption; the return path never did). **This repo is done; the only
+> remaining action is external:**
+> `swift-dotnet-packages/libraries/Stripe/tests/Program.cs:684–718` — replace the corruption
+> `results.Skip("StripeCore_STPAPIClient_AppInfo", …)` branch with `results.Pass` asserting
+> `readBack.Name == "TestApp"` (all four fields ideally); the generator fix already makes it pass.
+> **Sibling sweep (done):** no other NSString/ObjC-bridging masked Skips exist in the audit corpus — Matter's
+> lone skip is a legitimate factory/storage-delegate setup skip; BlinkID's "skips" are the generator's
+> compile-time skip-reason taxonomy (not runtime masks); Stripe3DS2 records none; Lottie's are missing-test-asset
+> skips. The "grep the other ObjC-bridged bindings" recommendation is closed with no new repro campaigns opened.
 
 ---
 
