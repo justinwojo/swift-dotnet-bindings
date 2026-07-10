@@ -630,6 +630,11 @@ namespace BindingsGeneration
                                 // WrapperEmitter.Marshalling's gate for the wrapper-library param path.
                                 if (!_env.ExistentialHandler.IsProxyNameSuppressed(filteredProxy, qualifiedProxy, _env.EmissionContext))
                                     proxyClassName = qualifiedProxy;
+                                else
+                                    // Persist the CONSUME degrade: the suppressed proxy leaves the wrap
+                                    // fallback off, so this parameter accepts only Swift-vended conformers.
+                                    // Sibling of WrapperEmitter.Marshalling's gate; dedups to one method row.
+                                    SuppressedProxyReporting.Record(_env.MethodDecl, SuppressedProxyReporting.Site.ConsumeDegraded, qualifiedProxy);
                             }
                             AddParameter(
                                 new MarshalledType.Existential(containerType, publicType) { ProxyClassName = proxyClassName },

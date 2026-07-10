@@ -38,6 +38,7 @@ public class SkipDispositionClassifierTests
     [InlineData(SkipReason.AnyTypeFallback, SkipDisposition.KnownLimitation)]
     [InlineData(SkipReason.NetUnavailableType, SkipDisposition.KnownLimitation)]
     [InlineData(SkipReason.AbsentFrameworkType, SkipDisposition.KnownLimitation)]
+    [InlineData(SkipReason.SuppressedProxyMemberDegraded, SkipDisposition.KnownLimitation)]
     [InlineData(SkipReason.DuplicateSignature, SkipDisposition.KnownLimitation)]
     // ObjC binding-path reasons: consumer-visible documented gaps are KnownLimitation, correct-by-design
     // structural skips are ExpectedStructural, and none default to Review (every ObjC drop is attributed).
@@ -164,6 +165,28 @@ public class SkipDispositionClassifierTests
         var details = $"Protocol proxy skipped: EveryProtocol conformance was not emitted ({cause}).";
 
         Assert.Equal(expected, EveryProtocolSkipCause.ClassifyDisposition(details));
+    }
+
+    /// <summary>
+    /// Every dropped-from-candidacy structural cause (mechanism D) must round-trip through the Details
+    /// template to <see cref="SkipDisposition.ExpectedStructural"/> — the whole point of attributing the
+    /// drop instead of falling back to "no decision recorded" (Review). A cause that accidentally
+    /// contained the "no decision recorded" or "module-internal protocol" substring would misclassify,
+    /// so this doubles as a guard on the token vocabulary.
+    /// </summary>
+    [Theory]
+    [InlineData(EveryProtocolSkipCause.DroppedForeignProtocol)]
+    [InlineData(EveryProtocolSkipCause.DroppedClassIdentity)]
+    [InlineData(EveryProtocolSkipCause.DroppedClassSuperclass)]
+    [InlineData(EveryProtocolSkipCause.DroppedInheritsUnsatisfiable)]
+    [InlineData(EveryProtocolSkipCause.DroppedInternalTypeReach)]
+    [InlineData(EveryProtocolSkipCause.DroppedPropertyTypeConflict)]
+    [InlineData(EveryProtocolSkipCause.DroppedMemberKindConflict)]
+    [InlineData(EveryProtocolSkipCause.DroppedCandidacyStructural)]
+    public void DroppedCandidacyCause_ClassifiesStructural_NotReview(string cause)
+    {
+        var details = $"Protocol proxy skipped: EveryProtocol conformance was not emitted ({cause}).";
+        Assert.Equal(SkipDisposition.ExpectedStructural, EveryProtocolSkipCause.ClassifyDisposition(details));
     }
 
     private static ProtocolDecl Protocol(bool isModuleInternal, bool hasSelf, int associatedTypes)

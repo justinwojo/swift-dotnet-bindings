@@ -566,6 +566,11 @@ namespace BindingsGeneration
                         // witness table. Replaces the retired generate-then-strip wrap-fallback downgrade post-pass.
                         if (!_env.ExistentialHandler.IsProxyNameSuppressed(filteredProxy, qualifiedProxy, _emissionContext))
                             proxyClassName = qualifiedProxy;
+                        else
+                            // Persist the CONSUME degrade: this parameter accepts only Swift-vended
+                            // conformers (no proxy to wrap a C#-authored one). Multiple degraded params
+                            // on one method dedup to a single method-level row (FromMethod identity).
+                            SuppressedProxyReporting.Record(_env.MethodDecl, SuppressedProxyReporting.Site.ConsumeDegraded, qualifiedProxy);
                     }
                     // Thread the runtime owns-bit out of GetOrCreate (declared before the try
                     // by EmitExistentialHeapDeclarations) so the finally / async holder destroys ONLY

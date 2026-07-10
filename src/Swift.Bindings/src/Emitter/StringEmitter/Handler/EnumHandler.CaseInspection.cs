@@ -289,7 +289,7 @@ namespace BindingsGeneration
                 csWriter.Indent--;
                 csWriter.WriteLine("}"); // TryGet
             }
-            catch (SuppressedProxyReferenceException)
+            catch (SuppressedProxyReferenceException ex)
             {
                 csWriter.RollbackTo(__tryGetCp);
                 csWriter.WriteLine("{");
@@ -297,6 +297,8 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
+                SuppressedProxyReporting.Record(BindingItemKind.Method, $"{enumDecl.Name}.TryGet{capitalizedName}", enumDecl,
+                    SuppressedProxyReporting.Site.ProduceThrow, ex.ProxyClassName);
             }
             csWriter.WriteLine();
         }
@@ -465,7 +467,7 @@ namespace BindingsGeneration
                 csWriter.Indent--;
                 csWriter.WriteLine("}"); // TryGet
             }
-            catch (SuppressedProxyReferenceException)
+            catch (SuppressedProxyReferenceException ex)
             {
                 csWriter.RollbackTo(__tryGetTupleCp);
                 csWriter.WriteLine("{");
@@ -473,6 +475,8 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
+                SuppressedProxyReporting.Record(BindingItemKind.Method, $"{enumDecl.Name}.TryGet{capitalizedName}", enumDecl,
+                    SuppressedProxyReporting.Site.ProduceThrow, ex.ProxyClassName);
             }
             csWriter.WriteLine();
 

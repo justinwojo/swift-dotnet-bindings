@@ -100,6 +100,11 @@ public static class SkipDispositionClassifier
             [SkipReason.CovariantReturnNotRepresentable] = SkipDisposition.KnownLimitation,
             [SkipReason.NetUnavailableType] = SkipDisposition.KnownLimitation,
             [SkipReason.AbsentFrameworkType] = SkipDisposition.KnownLimitation,
+            // A degraded reverse-dispatch member (throwing PRODUCE stub / consume-only / fail-fast
+            // receiver) is a decided, documented capability gap — the {Protocol}Proxy could not be
+            // synthesized, so C#-authored conformance to that protocol isn't possible. Consumer-visible
+            // but attributed, so KnownLimitation, not Review. The per-site cause lives in Details.
+            [SkipReason.SuppressedProxyMemberDegraded] = SkipDisposition.KnownLimitation,
 
             // ── ObjC binding path ─────────────────────────────────────────────────────────────
             // Dispositions mirror the Swift-side character of each cause: a type the registry
@@ -182,6 +187,41 @@ public static class EveryProtocolSkipCause
     /// identify a specific cause — the genuinely-unexplained case that a human should look at.
     /// </summary>
     public const string NoDecisionRecorded = "no decision recorded";
+
+    // ── Dropped-from-candidacy structural causes ─────────────────────────────────────────
+    // A protocol filtered out of `suitableProtocols` (dropped candidacy) BEFORE any
+    // RecordConformanceDecision call reaches ProtocolHandler with GetConformanceSkipReason==null
+    // and falls back to ForDroppedProtocol, which — for a public, non-Self, non-associated-type
+    // protocol — can only report `NoDecisionRecorded` (Review-tier noise). The
+    // EmitEveryProtocolConformances post-step attributes each such drop to the specific structural
+    // filter that fired (mirroring the suitableProtocols .Where chain in order) and records THIS
+    // token, so the skip classifies as ExpectedStructural instead of Review. None of these tokens
+    // contain the `NoDecisionRecorded` / `ModuleInternal` substrings, so ClassifyDisposition buckets
+    // them structural by exclusion.
+
+    /// <summary>Re-exported stdlib/foreign protocol — its requirements are not defined in this module.</summary>
+    public const string DroppedForeignProtocol = "re-exported protocol not defined in this module";
+
+    /// <summary>Class-bound protocol requiring NSObject/AnyObject identity semantics EveryProtocol can't provide.</summary>
+    public const string DroppedClassIdentity = "class-bound protocol requiring NSObject/AnyObject identity semantics";
+
+    /// <summary>Protocol requires a concrete class superclass EveryProtocol (a plain class) does not inherit.</summary>
+    public const string DroppedClassSuperclass = "protocol requires a concrete class-superclass constraint";
+
+    /// <summary>Inherits a protocol EveryProtocol can't witness (CaseIterable / associated-type / unsatisfied stdlib).</summary>
+    public const string DroppedInheritsUnsatisfiable = "inherits a protocol EveryProtocol cannot witness";
+
+    /// <summary>A member signature reaches a module-internal type EveryProtocol can't implement against.</summary>
+    public const string DroppedInternalTypeReach = "member signature reaches a module-internal type";
+
+    /// <summary>Sibling protocols require a same-named property at conflicting types — both are dropped.</summary>
+    public const string DroppedPropertyTypeConflict = "sibling-protocol property-type conflict";
+
+    /// <summary>A sibling protocol requires a property whose name collides with this protocol's same-named method.</summary>
+    public const string DroppedMemberKindConflict = "sibling-protocol member-kind conflict (property vs same-named method)";
+
+    /// <summary>Dropped from EveryProtocol candidacy by a structural filter with no more-specific attribution.</summary>
+    public const string DroppedCandidacyStructural = "dropped from EveryProtocol candidacy (structural)";
 
     /// <summary>
     /// Shape-based cause for a protocol dropped from <c>suitableProtocols</c> before any

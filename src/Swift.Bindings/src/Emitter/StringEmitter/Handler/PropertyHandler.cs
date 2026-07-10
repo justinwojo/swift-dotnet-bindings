@@ -1074,7 +1074,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             {
                 (conv, requiresDisposal) = GetAccessorGetterConversion(projection, $"{methodName}()");
             }
-            catch (SuppressedProxyReferenceException)
+            catch (SuppressedProxyReferenceException ex)
             {
                 // A collection/optional getter element's existential proxy was suppressed. Keep the public
                 // property present with a throwing getter — matching the scalar existential getter (which
@@ -1082,6 +1082,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 // public-member rewrite. The throw fires during pure string projection (no getter body
                 // written yet), so this is a clean check-via-catch with nothing to roll back (Hazard D).
                 csWriter.WriteLine($"get => throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
+                SuppressedProxyReporting.Record(propertyDecl, SuppressedProxyReporting.Site.ProduceThrow, ex.ProxyClassName, AccessorKind.Getter);
                 return;
             }
             if (conv != null)
@@ -1208,6 +1209,10 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                     // conformers. Replaces the retired generate-then-strip wrap-fallback downgrade post-pass.
                     if (!propertyEnv.ExistentialHandler.IsProxyNameSuppressed(filteredProxy, qualifiedProxy, propertyEnv.EmissionContext))
                         proxyClassName = qualifiedProxy;
+                    else
+                        // Persist the CONSUME degrade: a C#-authored conformer can't be marshalled into
+                        // this setter (no proxy to wrap it), so it accepts only Swift-vended values.
+                        SuppressedProxyReporting.Record(propertyDecl, SuppressedProxyReporting.Site.ConsumeDegraded, qualifiedProxy, AccessorKind.Setter);
                 }
                 // When the factory boxes a value conformer at +1, the @in_guaranteed setter
                 // wrapper only borrows the buffer (reads via .pointee, copies into the property), so

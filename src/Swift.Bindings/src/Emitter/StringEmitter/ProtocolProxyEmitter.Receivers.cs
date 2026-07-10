@@ -185,6 +185,10 @@ public partial class ProtocolProxyEmitter
         CSharpWriter writer, string returnType, string receiverName, string paramList, string memberDescriptor)
     {
         _emissionContext.TryRecordDegradedReverseDispatchReceiver(memberDescriptor);
+        // Promote the build-only SWIFTBIND061 warning to a durable, classified skip in the persisted
+        // report — the receiver's reverse-dispatch surface is degraded (fail-fast), and a decline must
+        // not live only as a log line. Report-layer identity dedup keeps distinct overloads distinct.
+        SuppressedProxyReporting.RecordReceiver(memberDescriptor, null);
         writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         writer.WriteLine($"private static {returnType} {receiverName}({paramList})");
         writer.WriteLine("{");

@@ -541,9 +541,10 @@ namespace BindingsGeneration
                 {
                     _ = GetAccessorGetterConversion(retProjection, $"{methodName}({args})");
                 }
-                catch (SuppressedProxyReferenceException)
+                catch (SuppressedProxyReferenceException ex)
                 {
                     csWriter.WriteLine($"get => throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
+                    SuppressedProxyReporting.Record(subscriptDecl, SuppressedProxyReporting.Site.ProduceThrow, ex.ProxyClassName, AccessorKind.SubscriptGetter);
                     return;
                 }
             }

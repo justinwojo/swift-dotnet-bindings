@@ -766,6 +766,7 @@ public static class ExistentialBypassEmitter
         string? returnWrapExpr = null;
         string? existentialReadExpr = null;
         bool returnProxySuppressed = false;
+        string? suppressedReturnProxyName = null;
         if (isExistentialReturn)
         {
             var protocolList = env.ExistentialHandler.ToProtocolListTypeSpec(returnArg.SwiftTypeSpec)!;
@@ -802,6 +803,7 @@ public static class ExistentialBypassEmitter
                      env.ExistentialHandler.IsProxyReferenceSuppressed(protocolList, env.EmissionContext))
             {
                 returnProxySuppressed = true;
+                suppressedReturnProxyName = env.ExistentialHandler.GetQualifiedProxyClassName(protocolList);
             }
             else
             {
@@ -914,6 +916,9 @@ public static class ExistentialBypassEmitter
             csWriter.WriteLine($"throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
             csWriter.Indent--;
             csWriter.WriteLine("}");
+            // Persist the PRODUCE degrade: the existential-return bypass member throws because its
+            // {Protocol}Proxy was suppressed. Mirrors WrapperEmitter's full-wrapper produce-throw gate.
+            SuppressedProxyReporting.Record(methodDecl, SuppressedProxyReporting.Site.ProduceThrow, suppressedReturnProxyName);
             return;
         }
 

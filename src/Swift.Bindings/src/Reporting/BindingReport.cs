@@ -192,6 +192,28 @@ public enum SkipReason
     /// </summary>
     AbsentFrameworkType,
 
+    /// <summary>
+    /// An EveryProtocol reverse-dispatch surface (proxy-backed member) was <b>emitted but degraded</b>
+    /// because the protocol's <c>{Protocol}Proxy</c> conformance could not be synthesized. Unlike
+    /// <see cref="EveryProtocolConformanceSkipped"/> (recorded once for the suppressed proxy <em>class</em>,
+    /// <see cref="BindingItemKind.Type"/>), this is recorded per <em>member</em> so the persisted report
+    /// carries a durable, classified diagnostic for each degradation site instead of a silent throwing
+    /// stub / dropped wrap / fail-fast warning. The concrete site is stamped into
+    /// <see cref="SkippedItem.Details"/> via <c>SuppressedProxyReporting</c>:
+    /// <list type="bullet">
+    /// <item><b>produce-throw</b> — a getter/return that could only construct the missing proxy now emits
+    /// a throwing stub (the trust failure a fail-closed 1.0 aims to eliminate; omission is the ideal but
+    /// requires threading the suppressed-proxy set into member validation — see the session generalization
+    /// report).</item>
+    /// <item><b>consume-degraded</b> — a setter/parameter keeps working for Swift-vended conformers, but a
+    /// C#-authored conformer cannot be marshalled in (no proxy to wrap it), so a reverse callback set from
+    /// C# never fires.</item>
+    /// <item><b>receiver-failfast</b> — a reverse-dispatch receiver fail-fasts because its existential
+    /// payload references the missing proxy; the vtable slot is retained for layout parity.</item>
+    /// </list>
+    /// </summary>
+    SuppressedProxyMemberDegraded,
+
     // ── ObjC binding path (mixed + pure-ObjC surfaces) ────────────────────────────────
     // A mixed (ObjC+Swift) binding — and a pure-ObjC binding — has an ObjC surface whose
     // drops the ObjC pipeline (ClangAstParser → ApiDefinitionEmitter) records as its own

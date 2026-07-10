@@ -705,10 +705,14 @@ namespace BindingsGeneration
             {
                 EmitMethodBody(csWriter, swiftWriter);
             }
-            catch (SuppressedProxyReferenceException)
+            catch (SuppressedProxyReferenceException ex)
             {
                 csWriter.RollbackTo(proxyBodyCheckpoint);
                 EmitProxySuppressedThrowBody(csWriter);
+                // Persist the per-member decline as a classified skip (not a silent throw stub). This is
+                // the sole boundary for method-path degraded members, including scalar property/subscript
+                // accessors that restub here rather than in their own handler.
+                SuppressedProxyReporting.Record(_env.MethodDecl, SuppressedProxyReporting.Site.ProduceThrow, ex.ProxyClassName);
             }
         }
 

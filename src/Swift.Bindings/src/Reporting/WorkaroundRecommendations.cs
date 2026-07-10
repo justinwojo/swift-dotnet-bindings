@@ -72,6 +72,8 @@ public static class WorkaroundRecommendations
             "The Swift type is auto-bridged but not yet present in the .NET Foundation assembly. Write a Swift wrapper that exposes the data through a supported type (e.g. a plain String).",
         SkipReason.AbsentFrameworkType =>
             "The member references a framework type that has no .NET binding available. Add a binding for the framework that declares the type, or write a Swift wrapper that exposes the data through a supported type.",
+        SkipReason.SuppressedProxyMemberDegraded =>
+            "This member reverse-dispatches through a protocol whose {Protocol}Proxy conformance could not be synthesized, so a C#-authored conformer cannot be marshalled (a produce getter throws, a consume setter/parameter accepts only Swift-vended values, or a receiver fail-fasts). Consume a Swift-vended conformer, or expose the functionality through a Swift wrapper that avoids requiring C#-side conformance to this protocol.",
         SkipReason.ObjCUnresolvableType =>
             "The ObjC member references a type absent from the ObjC type registry. Register the Apple/ObjC type in objc-type-mappings.json (or bind the framework that declares it) so the member resolves.",
         SkipReason.ObjCUnavailableApi =>
@@ -159,6 +161,8 @@ public static class WorkaroundRecommendations
             "Foundation type not yet available in .NET",
         SkipReason.AbsentFrameworkType =>
             "framework type has no .NET binding available",
+        SkipReason.SuppressedProxyMemberDegraded =>
+            "reverse-dispatch member degraded (proxy conformance not synthesized): produce-throw / consume-only / fail-fast receiver",
         SkipReason.ObjCUnresolvableType =>
             "ObjC type not in the ObjC type registry",
         SkipReason.ObjCUnavailableApi =>

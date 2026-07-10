@@ -1346,6 +1346,50 @@ namespace BindingsGeneration
             foreach (var p in readOnlyProxyProtocols)
                 emissionCtx?.MarkReadOnlyProxy(p.Name);
 
+            // Attribute every protocol dropped from EveryProtocol candidacy (mechanism D:
+            // "dropped-candidacy"). Such a protocol left `suitableProtocols` via one of the .Where
+            // filters or a conflict pass ABOVE without any RecordConformanceDecision call, so when
+            // ProtocolHandler later classifies its proxy SuppressedByConformance, GetConformanceSkipReason
+            // returns null and it falls back to ForDroppedProtocol → "no decision recorded" (the Review-tier
+            // noise this pass eliminates). Record a `false` decision carrying the specific structural cause
+            // so the persisted skip classifies ExpectedStructural.
+            //
+            // Guarded on suitableProtocols.Count > 0 so this NEVER runs on the empty early-return path
+            // below: with no emitted conformance, ConformanceDecisions would be empty, and pushing its
+            // Count 0→>0 here would flip ProtocolProxyEmissionPolicy.Decide from Emit to
+            // SuppressedByConformance for protocols that today emit their proxy — a behavior change out of
+            // scope. When suitableProtocols is non-empty the emit loop below records ≥1 decision, so
+            // Count>0 already holds when the policy reads it; recording additional `false` entries for
+            // already-dropped protocols is inert (they would be SuppressedByConformance regardless).
+            if (emissionCtx != null && suitableProtocols.Count > 0)
+            {
+                var suitableNamesForDrop = new HashSet<string>(suitableProtocols.Select(p => p.Name), StringComparer.Ordinal);
+                var readOnlyNamesForDrop = new HashSet<string>(readOnlyProxyProtocols.Select(p => p.Name), StringComparer.Ordinal);
+                foreach (var p in protocols)
+                {
+                    // Self-/associated-type and module-internal protocols are already classified
+                    // correctly by ForDroppedProtocol (ExpectedStructural / ExpectedNonPublic); leave them.
+                    if (p.HasSelfRequirement || p.AssociatedTypes.Count > 0 || p.IsModuleInternal)
+                        continue;
+                    // A protocol that will emit (suitable) or reads via its own witness table (read-only)
+                    // is not a dropped candidacy.
+                    if (suitableNamesForDrop.Contains(p.Name) || readOnlyNamesForDrop.Contains(p.Name))
+                        continue;
+                    // Unsupported-module protocols are classified on the SkippedUnsupportedModule channel,
+                    // not SuppressedByConformance — don't double-attribute them here.
+                    if (HasMembersReferencingUnsupportedModule(p, typeDatabase))
+                        continue;
+                    var dropKey = p.SwiftTypeName?.ModuleQualifiedName ?? p.Name;
+                    // Already emitted or already carries an emit-time decline reason — don't overwrite.
+                    if (emissionCtx.WasConformanceEmitted(dropKey) || emissionCtx.GetConformanceSkipReason(dropKey) != null)
+                        continue;
+                    var cause = ClassifyDroppedCandidacy(
+                        p, protocols, typeDatabase, moduleDecl.Name,
+                        conflictingPropertyNames, methodNamesCollidingWithProperties);
+                    emissionCtx.RecordConformanceDecision(dropKey, emitted: false, cause);
+                }
+            }
+
             if (!suitableProtocols.Any())
             {
                 // No EveryProtocol-backed conformances — but read-only proxies still need their
@@ -1871,6 +1915,63 @@ namespace BindingsGeneration
                 }
             }
             return false;
+        }
+
+        /// <summary>
+        /// Attributes a protocol dropped from EveryProtocol candidacy to the specific structural
+        /// filter that removed it, mirroring the <c>suitableProtocols</c> .Where chain in order.
+        /// Returns the matching <see cref="EveryProtocolSkipCause"/> token; the caller records it as
+        /// the conformance skip reason so the persisted diagnostic classifies ExpectedStructural
+        /// instead of "no decision recorded" (Review). Callers pre-exclude Self/associated-type,
+        /// module-internal, and unsupported-module protocols (classified on other channels), so those
+        /// arms are not repeated here. The two conflict passes run AFTER all .Where filters, so their
+        /// checks come last — a protocol removed by an earlier filter never reached the conflict scan.
+        /// </summary>
+        private static string ClassifyDroppedCandidacy(
+            ProtocolDecl protocolDecl,
+            IReadOnlyList<ProtocolDecl> protocols,
+            ITypeDatabase typeDatabase,
+            string moduleName,
+            HashSet<string> conflictingPropertyNames,
+            HashSet<string> methodNamesCollidingWithProperties)
+        {
+            // Bug #14: a protocol re-exported from another module (mangled name / SwiftTypeName.Module
+            // not this module's) is not locally defined and carries no synthesizable requirements here.
+            bool localMangled = IsMangledNameFromModule(protocolDecl.MangledName, moduleName)
+                || (string.IsNullOrEmpty(protocolDecl.MangledName)
+                    && protocolDecl.SwiftTypeName != null
+                    && string.Equals(protocolDecl.SwiftTypeName.Module, moduleName, StringComparison.Ordinal));
+            if (!localMangled)
+                return EveryProtocolSkipCause.DroppedForeignProtocol;
+
+            if (EveryProtocolEmitter.IsClassBoundProtocol(protocolDecl, protocols)
+                && !EveryProtocolEmitter.IsNSObjectProtocolOnly(protocolDecl, protocols))
+                return EveryProtocolSkipCause.DroppedClassIdentity;
+
+            if (EveryProtocolEmitter.HasClassSuperclassRequirement(protocolDecl, typeDatabase, protocols)
+                && !EveryProtocolEmitter.IsEntityRootedProtocol(protocolDecl, typeDatabase, protocols))
+                return EveryProtocolSkipCause.DroppedClassSuperclass;
+
+            if (EveryProtocolEmitter.InheritsCaseIterable(protocolDecl, protocols)
+                || InheritsProtocolWithAssociatedTypes(protocolDecl, protocols, typeDatabase)
+                || EveryProtocolEmitter.InheritsUnsatisfiedStdlibProtocol(protocolDecl, protocols))
+                return EveryProtocolSkipCause.DroppedInheritsUnsatisfiable;
+
+            if (HasMembersReferencingInternalTypes(protocolDecl, typeDatabase, moduleName))
+                return EveryProtocolSkipCause.DroppedInternalTypeReach;
+
+            if (conflictingPropertyNames.Count > 0 && protocolDecl.Properties.Any(prop =>
+                    !prop.IsStatic && !prop.IsObjCOptional && prop.IsProtocolRequirement
+                    && conflictingPropertyNames.Contains(prop.Name)))
+                return EveryProtocolSkipCause.DroppedPropertyTypeConflict;
+
+            if (methodNamesCollidingWithProperties.Count > 0 && protocolDecl.Methods.Any(m =>
+                    !m.IsConstructor && m.MethodType != MethodType.Static && !m.IsObjCOptional
+                    && m.CSSignature.Count == 1
+                    && methodNamesCollidingWithProperties.Contains(m.Name)))
+                return EveryProtocolSkipCause.DroppedMemberKindConflict;
+
+            return EveryProtocolSkipCause.DroppedCandidacyStructural;
         }
 
         /// <summary>
