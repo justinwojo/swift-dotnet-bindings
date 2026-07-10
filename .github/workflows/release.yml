@@ -453,6 +453,51 @@ jobs:
         timeout-minutes: 10
         run: dotnet nuke validate-blast-radius
 
+  # --- PackGate: nupkg packaging regression gate (hosted-CI-safe) ---
+  # Runs on the release lane (and dry-run branches, via publish-release's needs)
+  # so a green pipeline actually proves the nupkg packaging the gate catalog
+  # covers — the 0.17.0 RealityFoundation wrapper-slice regression was caught
+  # only by an owner-invoked local harness. macOS host only: no signing identity,
+  # no simulator, no device. Covers the wrapper-slice Info.plist checks, the
+  # source-built mixed (ObjC+Swift) fixture, the nupkg structure assertions, and
+  # AOT-injection descriptor flow. The source-xcframework slicing legs are the
+  # only part gated on `nuke fetch` (Nuke is mode:source — a build-from-source
+  # step we deliberately keep off the release critical path); PackGate logs and
+  # skips them when .libraries/Nuke is absent, without failing.
+
+  packgate:
+    name: PackGate
+    needs: [validate-branch]
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 26.3
+        run: sudo xcode-select -s /Applications/Xcode_26.3.app
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install workloads
+        run: dotnet workload restore
+
+      - name: Restore Nuke tool
+        run: dotnet tool restore
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-
+
+      - name: Pack gate (nupkg packaging regression)
+        timeout-minutes: 30
+        run: dotnet nuke pack-gate
+
   # --- Publish (gated by all validation jobs + pack) ---
 
   publish-release:
@@ -463,6 +508,7 @@ jobs:
       - build-and-test
       - bindingtests
       - blast-radius
+      - packgate
       - release-pack
     environment: nuget-publish
     steps:

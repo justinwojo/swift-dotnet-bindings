@@ -64,6 +64,12 @@
          without a project reference to _build. BCL-only string work, so it compiles AOT-clean under
          this project's IsAotCompatible + warnings-as-errors. -->
     <Compile Include="../../../../build/Models/MsBuildPropertyValue.cs" Link="Models/MsBuildPropertyValue.cs" />
+    <!-- Link-compile the release-gates result manifest so its pure serialization / leg aggregation
+         (skip != pass, any-fail => non-zero exit) and fail-closed catalog integrity (Validate) are
+         unit-tested here without a project reference to _build. BCL-only with source-generated JSON
+         (ReleaseGatesManifestJsonContext) + #nullable enable, so it compiles AOT-clean under this
+         project's IsAotCompatible + warnings-as-errors + Nullable=disable. -->
+    <Compile Include="../../../../build/Models/ReleaseGatesManifest.cs" Link="Models/ReleaseGatesManifest.cs" />
   </ItemGroup>
 
   <ItemGroup>

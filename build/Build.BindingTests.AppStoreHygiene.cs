@@ -100,11 +100,10 @@ partial class Build
 
         using var scope = new VersionScope(AppStoreHygieneVersion, RootDirectory);
 
-        BuildAppStoreHygieneFeed(nupkgDir, scope);
-
-        // Cheap structural proof first (no device / signing): the nupkg ships the framework
-        // xcframework with the right slices and no loose dylib / injector script.
-        AssertRuntimeNupkgPackaging(nupkgDir);
+        // Structural proof first (no device / signing): pack the runtime feed and assert the nupkg
+        // ships the framework xcframework with the right slices and no loose dylib / injector script.
+        // Shared with the ReleaseGates composed leg so both run byte-identical structural checks.
+        RunAppStoreHygieneStructuralChecks(nupkgDir, scope);
 
         // Tri-state (Finding 61): the structural nupkg checks above need no signing and have run. The
         // device-IPA leg requires this host to sign with AppStoreHygieneCodesignKey. If it can't, report
@@ -125,6 +124,30 @@ partial class Build
         File.WriteAllText(appDir / "NuGet.config", MixedPackNuGetConfig(nupkgDir, fixtureNupkgDir: null));
 
         RunAppStoreHygieneIpaLeg(appDir, scratch);
+    }
+
+    // Structural-only core of the App Store hygiene gate: pack the runtime feed, then assert the
+    // nupkg's native packaging (framework xcframework slices, buildTransitive targets, no loose
+    // dylib / SwiftSupport injector). No device, no signing — the durable structural regression net.
+    // Extracted so the ReleaseGates composer can run exactly these checks without the device-IPA leg.
+    void RunAppStoreHygieneStructuralChecks(AbsolutePath nupkgDir, VersionScope scope)
+    {
+        BuildAppStoreHygieneFeed(nupkgDir, scope);
+        AssertRuntimeNupkgPackaging(nupkgDir);
+    }
+
+    // Self-contained structural entry for the ReleaseGates composed leg: mirrors RunAppStoreHygieneLeg's
+    // scratch + VersionScope setup exactly (same AppStoreHygieneScratch wipe, same throwaway version)
+    // but stops after the structural checks — the device-IPA leg is recorded separately as a skip.
+    void RunAppStoreHygieneStructuralOnly()
+    {
+        var scratch = AppStoreHygieneScratch;
+        if (Directory.Exists(scratch)) scratch.DeleteDirectory();
+        var nupkgDir = scratch / "packages";
+        nupkgDir.CreateDirectory();
+
+        using var scope = new VersionScope(AppStoreHygieneVersion, RootDirectory);
+        RunAppStoreHygieneStructuralChecks(nupkgDir, scope);
     }
 
     // Tri-state input (Finding 61): does this host have the codesigning identity this gate signs the

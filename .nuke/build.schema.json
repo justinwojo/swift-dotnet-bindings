@@ -42,6 +42,7 @@
         "RegenerateBindings",
         "RegenerateStoreKitSnapshot",
         "RegenStdlibConformances",
+        "ReleaseGates",
         "RuntimeUnitTests",
         "SeedApiManifestBaseline",
         "SeedParityBaseline",
@@ -273,6 +274,10 @@
         "Quick": {
           "type": "boolean",
           "description": "Reuse cached validation output"
+        },
+        "RequireComplete": {
+          "type": "boolean",
+          "description": "ReleaseGates: also fail the target when any recorded skip is undispositioned (RC-strict mode). Default off — intentional skips exit zero; ship-readiness is read from the manifest, not $?"
         },
         "SeedRuntimeIdentityBaseline": {
           "type": "boolean",

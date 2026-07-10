@@ -1,0 +1,200 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+//
+// Build.ReleaseGates.cs — composed release-gate orchestrator + result manifest
+//
+// Runs the release-relevant gate legs and writes a machine-readable manifest
+// (ReleaseGatesManifest) recording every leg as pass | fail | skipped(reason).
+// The point is to make the release lane prove what the gate catalog can prove,
+// and to make a "skipped" leg impossible to mistake for a "passed" one.
+//
+// Composition, not redesign: no existing gate target is modified. The three
+// heavyweight legs run as subprocesses of the ALREADY-BUILT _build assembly
+// (typeof(Build).Assembly.Location) — never a recursive `dotnet nuke` / `dotnet
+// run --project build/_build.csproj`, which would rebuild _build while the
+// parent is live and multiply Compile across the legs. The appstore-hygiene
+// STRUCTURAL leg has no dedicated target (its own target also runs the heavy
+// device-IPA leg on a signing host), so it runs in-process via the extracted
+// RunAppStoreHygieneStructuralOnly() helper.
+//
+// The heavy device / mixed-pack / mixed-direct / signed-IPA legs are recorded
+// as skipped("not run in this invocation") so a release decision must explicitly
+// disposition them. This target is intentionally NOT wired into CI — it is the
+// RC-checklist primitive.
+
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using Nuke.Common;
+using Nuke.Common.IO;
+using Nuke.Common.Tooling;
+using Serilog;
+
+partial class Build
+{
+    [Parameter("ReleaseGates: also fail the target when any recorded skip is undispositioned (RC-strict mode). " +
+               "Default off — intentional skips exit zero; ship-readiness is read from the manifest, not $?.")]
+    readonly bool RequireComplete;
+
+    AbsolutePath ReleaseGatesScratch => RootDirectory / "artifacts" / "release-gates";
+    AbsolutePath ReleaseGatesManifestPath => ReleaseGatesScratch / "release-gates-manifest.json";
+
+    // NOTE: intentionally NOT .DependsOn(Compile). Each executed leg subprocess builds what it needs
+    // — Test and PackGate DependsOn(Compile); the BindingTests compile-only path runs its own
+    // regen+compile pipeline — and the legs run sequentially against a shared on-disk build tree, so
+    // an earlier leg's Compile persists for later ones. Keeping Compile off the orchestrator means a
+    // build failure inside a leg is captured as that leg's manifest entry rather than aborting the
+    // orchestrator before the manifest is written. The in-process structural leg self-provisions via DotNetPack.
+    Target ReleaseGates => _ => _
+        .Description("Composes the release-relevant gate legs (unit tests, strict compile-only " +
+                     "binding-tests, PackGate, appstore-hygiene structural) and writes a JSON result " +
+                     "manifest recording every leg as pass|fail|skipped. Not wired into CI.")
+        .Executes(() =>
+        {
+            var scratch = ReleaseGatesScratch;
+            if (Directory.Exists(scratch)) scratch.DeleteDirectory();   // never leave stale evidence looking current
+            scratch.CreateDirectory();
+
+            // Seed the full canonical catalog up front: executed legs start as fail(not-reached) so an
+            // orchestrator crash leaves a loud, honest manifest; the four not-run legs start as skips.
+            var manifest = ReleaseGatesManifest.Seed(
+                generatedUtc: DateTime.UtcNow.ToString("O"),
+                gitSha: ReadHeadShaShort(),
+                host: Environment.MachineName,
+                invocation: "release-gates (macOS host; no device, no signing, no mixed/IPA legs)");
+            manifest.Save(ReleaseGatesManifestPath);
+
+            try
+            {
+                manifest = RunComposedTargetLeg(manifest, ReleaseGatesManifest.LegIds.UnitTests,
+                    new[] { "Test" });
+                manifest = RunComposedTargetLeg(manifest, ReleaseGatesManifest.LegIds.BindingTestsCompileOnly,
+                    new[] { "BindingTests", "--strict", "--compile-only" });
+                manifest = RunComposedTargetLeg(manifest, ReleaseGatesManifest.LegIds.PackGate,
+                    new[] { "PackGate" });
+                manifest = RunStructuralHygieneLeg(manifest);
+            }
+            finally
+            {
+                // Always persist the best-known manifest, even if the orchestrator threw outside a
+                // leg's own catch — the artifact is the whole point.
+                manifest.Save(ReleaseGatesManifestPath);
+                LogReleaseGatesSummary(manifest);
+            }
+
+            var integrity = manifest.Validate();
+            if (integrity.Count > 0)
+            {
+                foreach (var err in integrity)
+                    Log.Error("  release-gates catalog integrity: {Error}", err);
+                Assert.Fail($"ReleaseGates: manifest failed catalog integrity ({integrity.Count} error(s)) — " +
+                            $"a leg row was dropped, duplicated, or malformed. Manifest: {ReleaseGatesManifestPath}");
+            }
+
+            if (manifest.AnyFailed)
+            {
+                var failed = manifest.Legs.Where(l => l.Status == GateLegStatus.Fail).Select(l => l.Id);
+                Assert.Fail($"ReleaseGates: leg(s) failed [{string.Join(", ", failed)}]. " +
+                            $"execution_outcome={manifest.ExecutionOutcome}, ship_ready={manifest.ShipReady}. " +
+                            $"Manifest: {ReleaseGatesManifestPath}");
+            }
+
+            if (RequireComplete && manifest.UndispositionedSkipIds.Count > 0)
+                Assert.Fail($"ReleaseGates --require-complete: {manifest.UndispositionedSkipIds.Count} " +
+                            $"undispositioned skip(s): {string.Join(", ", manifest.UndispositionedSkipIds)}. " +
+                            $"Manifest: {ReleaseGatesManifestPath}");
+
+            Log.Information("ReleaseGates OK — execution_outcome={Outcome}, catalog_completeness={Completeness}, " +
+                            "ship_ready={ShipReady}. Manifest: {Path}",
+                manifest.ExecutionOutcome, manifest.CatalogCompleteness, manifest.ShipReady, ReleaseGatesManifestPath);
+        });
+
+    // Runs one existing gate TARGET as a subprocess of the already-built _build assembly and records
+    // its exit code as pass/fail. Never `dotnet nuke` / `dotnet run` (that rebuilds _build live).
+    ReleaseGatesManifest RunComposedTargetLeg(ReleaseGatesManifest manifest, string legId, string[] targetAndFlags)
+    {
+        var buildDll = typeof(Build).Assembly.Location;
+        var argLine = ArgumentEscaper.Join(new[] { buildDll }.Concat(targetAndFlags).ToArray());
+        var logPath = ReleaseGatesScratch / $"{legId}.log";
+        var relLog = RelativeManifestLog(logPath);
+        Log.Information("=== release-gates leg '{Leg}': dotnet {Args} ===", legId, argLine);
+
+        var sw = Stopwatch.StartNew();
+        GateLeg leg;
+        try
+        {
+            var proc = ProcessTasks.StartProcess("dotnet", argLine, workingDirectory: RootDirectory, logOutput: false)
+                .AssertWaitForExit();
+            sw.Stop();
+            // Capture BOTH stdout and stderr (in emission order) — the failure reason points the
+            // operator at this log, so a child that diagnoses to stderr must not leave it empty.
+            File.WriteAllText(logPath, string.Join(Environment.NewLine, proc.Output.Select(o => o.Text)));
+            leg = proc.ExitCode == 0
+                ? GateLeg.Pass(legId, sw.ElapsedMilliseconds, relLog)
+                : GateLeg.Fail(legId,
+                    $"`dotnet {argLine}` exited {proc.ExitCode} — see {relLog}",
+                    GateLegReasonCode.LegFailed, sw.ElapsedMilliseconds, relLog);
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            File.WriteAllText(logPath, ex.ToString());
+            leg = GateLeg.Fail(legId,
+                $"leg threw before completing: {ex.Message}",
+                GateLegReasonCode.LegFailed, sw.ElapsedMilliseconds, relLog);
+        }
+
+        var updated = manifest.WithLeg(leg);
+        updated.Save(ReleaseGatesManifestPath);   // incremental persistence between legs
+        Log.Information("    leg '{Leg}' -> {Status} ({Ms} ms)", legId, leg.Status, leg.DurationMs);
+        return updated;
+    }
+
+    // The appstore-hygiene STRUCTURAL checks run in-process (no dedicated structural-only target exists;
+    // --appstore-hygiene would also run the heavy device-IPA leg on a signing host). Behaviour-identical
+    // to the structural prefix of RunAppStoreHygieneLeg.
+    ReleaseGatesManifest RunStructuralHygieneLeg(ReleaseGatesManifest manifest)
+    {
+        const string legId = ReleaseGatesManifest.LegIds.AppStoreHygieneStructural;
+        Log.Information("=== release-gates leg '{Leg}': appstore-hygiene structural checks (in-process) ===", legId);
+
+        var sw = Stopwatch.StartNew();
+        GateLeg leg;
+        try
+        {
+            RunAppStoreHygieneStructuralOnly();
+            sw.Stop();
+            leg = GateLeg.Pass(legId, sw.ElapsedMilliseconds);
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            leg = GateLeg.Fail(legId,
+                $"structural hygiene checks failed: {ex.Message}",
+                GateLegReasonCode.LegFailed, sw.ElapsedMilliseconds);
+        }
+
+        var updated = manifest.WithLeg(leg);
+        updated.Save(ReleaseGatesManifestPath);
+        Log.Information("    leg '{Leg}' -> {Status} ({Ms} ms)", legId, leg.Status, leg.DurationMs);
+        return updated;
+    }
+
+    void LogReleaseGatesSummary(ReleaseGatesManifest manifest)
+    {
+        Log.Information("================ release-gates summary ================");
+        foreach (var leg in manifest.Legs)
+            Log.Information("  {Status,-8} {Leg,-30} {Reason}",
+                leg.Status, leg.Id, leg.Status == GateLegStatus.Pass ? "" : leg.Reason);
+        Log.Information("  execution_outcome={Outcome}  catalog_completeness={Completeness}  ship_ready={ShipReady}",
+            manifest.ExecutionOutcome, manifest.CatalogCompleteness, manifest.ShipReady);
+        if (manifest.UndispositionedSkipIds.Count > 0)
+            Log.Information("  undispositioned skips: {Skips}", string.Join(", ", manifest.UndispositionedSkipIds));
+        Log.Information("======================================================");
+    }
+
+    string RelativeManifestLog(AbsolutePath logPath)
+        => Path.GetRelativePath(RootDirectory, logPath).Replace('\\', '/');
+}
