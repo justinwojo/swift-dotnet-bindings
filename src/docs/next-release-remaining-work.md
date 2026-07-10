@@ -86,9 +86,28 @@ scoped as its own task, not folded into the CSM fix.
 
 ---
 
-## A. Code fixes to land
+## A. Code fixes — RESOLVED
+
+All three landed on `main` and are covered by assertions at the right layer (see the per-item
+**Status** banners below). The original problem statements are kept for context.
 
 ### A1. ObjC-path skip reporting is invisible — bridge it into the binding report
+
+**Status: RESOLVED (`3de82f4a`).** `ObjCBindingDiagnostics` now projects into the *persisted* report:
+`BindingsGeneratorCommand` attaches `ObjCSection.From(diagnostics)` to the manifest on both the mixed
+(`BindingArtifactManifestStore.ReadModifyWrite`) and pure-ObjC (`PersistPureObjCSkipReport` → `Write`)
+paths, and `BindingReportProjection.Project` folds those drops into the rederived `binding-report.json`'s
+`SkippedItems` and the single `SkipTriage`/`ReviewCount` gate. The assertions cover the manifest→report fold
+(each builds an `ObjCSection`-carrying manifest and runs it through projection; the command-side attach+persist
+wiring above is the production path, verified by reading `BindingsGeneratorCommand.cs`, not a command
+integration test):
+`BindingArtifactManifestTests.ObjCSection_And_Projection_FoldMixedObjCSkipsIntoSkipTriage` (mixed — the
+`FBSDKBasicUtility.jsonObjectWithData` / `FBSDKLog` / `OMIDAdSession` drop shapes appear with mapped
+reasons and roll into the triage) and `.ObjCSection_Only_PureObjCManifest_ProjectsSkipTriage` (pure-ObjC).
+`ObjCSkipProjectionTests` pins the `ObjCSkipReason` → `SkipReason` mapping; `SkipDispositionClassifierTests`
+pins that those ObjC reasons classify as `KnownLimitation`/`ExpectedStructural`, never `Review`.
+
+*Original problem statement and plan (historical — the Status above is the outcome):*
 
 A mixed (ObjC+Swift) binding has **two** independent binding surfaces, and only the Swift one is reported.
 The Swift path writes `binding-report.json` with the `SkipTriage` roll-up (`src/Swift.Bindings/src/Reporting/`).
@@ -113,6 +132,19 @@ under-reported.
 
 ### A2. Missing standard Apple type mappings → silent public-member drops
 
+**Status: RESOLVED (`3de82f4a`).** `NSOperatingSystemVersion`, `NSDataReadingOptions`,
+`NSUrlSessionTaskState`, `UIApplicationState`, and the `NSJsonReadingOptions` / `NSJsonWritingOptions` pair
+are registered in `objc-type-mappings.json` (`objcValueTypes`, plus `systemStructs` for the struct).
+Assertions: `ObjCTypeMapperTests.IsApiDefinitionTypeResolvable_StandardAppleValueTypes_ResolveViaRegistry`
+proves each of the six *resolves* through the registry (the passed SDK-name set deliberately excludes them,
+so a green result isolates the registry path; negative control `NSUnregisteredOptions` stays unresolvable),
+`.IsObjCValueType_StandardAppleValueTypes_Recognized` proves each is *recognized as an ObjC value type* by
+`AppleFrameworkRegistry.IsObjCValueType`, and the BindingTests fixture
+`ObjCUmbrellaFixtureTests.TestStandardAppleTypesResolveAndRoundTrip` binds and round-trips a member using
+each one against Microsoft.iOS.
+
+*Original problem statement and plan (historical — the Status above is the outcome):*
+
 Common Apple Foundation/UIKit types are absent from the ObjC type registry, so any member referencing them
 is dropped as `ObjCSkipReason.UnresolvableType`. Confirmed absent (0 hits in generator src):
 `NSDataReadingOptions`, `NSUrlSessionTaskState`, `UIApplicationState`, `NSOperatingSystemVersion`. Also
@@ -130,6 +162,18 @@ registry gap can't silently reopen. Drop site to reference while fixing: `ApiDef
 `ObjCTypeMapper.cs` unresolvable-type warning path.
 
 ### A3. `--resolve-auto-deps` diagnostics go to stdout, not stderr (was R4-D5, + D6 test)
+
+**Status: RESOLVED (`3de82f4a`, stderr-threshold assertion added here).**
+`Program.CreateLoggerFactory` routes the console logger's Error/Critical threshold to stderr
+(`LogToStandardErrorThreshold = LogLevel.Error`). Assertions: the D6 stdout-grammar test
+`AutoDepResolverCliTests.ResolveAutoDeps_ResolvableAndUnresolvableSpecs_StdoutIsOnlyFrozenGrammar` runs the
+verb with resolvable + unresolvable specs at default verbosity and asserts every stdout line
+`StartsWith("PROJREF|")` or `"WARN|"` (both shapes present, so non-vacuous); and
+`CreateLoggerFactoryTests.CreateLoggerFactory_RoutesErrorToStdErr_AndInformationToStdOut` pins the
+threshold itself — an Error lands on stderr and an Information on stdout — which the grammar test cannot
+observe, since its stdout lines come straight from `Console.Out` and never pass through the logger.
+
+*Original problem statement and plan (historical — the Status above is the outcome):*
 
 `BindingsGeneratorCommand.cs`'s `--resolve-auto-deps` failure path `LogError`s through the default
 `AddConsole()` logger, which has no `LogToStandardErrorThreshold`, so errors land on stdout at low
