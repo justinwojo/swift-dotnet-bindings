@@ -1316,6 +1316,14 @@ namespace BindingsGeneration
                 compilationResult, asyncLibraryAutoWired: false, sdkMode: true, compilationException,
                 contractualUnmet);
             outcome.LogTo(logger);
+            // This path always passes asyncLibraryAutoWired: false, so a wrapper compile failure is a
+            // plain (null-code) non-fatal Warning — NOT a SWIFTBIND050. LogTo routes it to stdout, which
+            // the SDK's _CompileSwiftWrapper Exec captures at low importance and swallows at -v normal —
+            // leaving the next wrapper regression with only the SWIFTBIND051 give-up and no swiftc cause
+            // until a -v:detailed rerun. Echo the preview (the exception's error: lines) to stderr
+            // (captured at high importance) so it's visible on the first build. Diagnostic text only —
+            // exit code and classification are unchanged.
+            outcome.EchoWrapperFailurePreviewToStandardError(Console.Error);
 
             IReadOnlyList<CoGatedMember> coGated = Array.Empty<CoGatedMember>();
             if (outcome.StrippedSymbols.Count > 0)

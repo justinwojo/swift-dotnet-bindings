@@ -106,5 +106,40 @@ namespace BindingsGeneration
             else if (IsWarning)
                 logger.LogWarning("{Message}", Message);
         }
+
+        /// <summary>
+        /// Writes a non-fatal wrapper-compile failure's swiftc-error preview — the filtered swiftc
+        /// <c>error:</c> lines carried in <see cref="Message"/> — to <paramref name="standardError"/>.
+        ///
+        /// A wrapper-compile failure that is non-fatal (exit 0) is emitted by <see cref="LogTo"/> at
+        /// Warning level, which the generator's console logger routes to STDOUT — its stderr threshold
+        /// sits at Error. Every SDK Exec that invokes the generator captures its stdout at low importance
+        /// (swallowed at <c>-v normal</c>) but stderr at high importance, so at normal verbosity only the
+        /// give-up (SWIFTBIND051) surfaces and the actual swiftc cause is invisible until a rerun at
+        /// <c>-v:detailed</c>. Echoing the preview to stderr makes the next wrapper regression
+        /// diagnosable on the first build, without lowering the logger's stdout/stderr threshold — that
+        /// threshold is a frozen contract for the resolve-auto-deps stdout grammar.
+        ///
+        /// The gate is <see cref="CompilationException"/>, not the SWIFTBIND050 code: two distinct
+        /// classifications carry the swiftc preview and BOTH must surface. When <c>--async-library</c> was
+        /// auto-wired (the inline Apple-framework generate path) a compile failure is a Fatal downgraded
+        /// in SDK mode to a SWIFTBIND050 warning; when it was NOT auto-wired (the <c>--compile-wrapper-only</c>
+        /// path, which always passes <c>asyncLibraryAutoWired: false</c>) the same failure is a plain,
+        /// null-code Warning. Both embed the exception's capped <c>error:</c> preview in <see cref="Message"/>.
+        /// Keying on the 050 code alone would leave the compile-wrapper-only path — the common third-party
+        /// SDK flow — silent.
+        ///
+        /// Diagnostic surfacing only: <see cref="ExitCode"/> and the outcome classification are unchanged,
+        /// and the same message still reaches stdout via <see cref="LogTo"/>. A no-op for any outcome that
+        /// does not carry a swiftc compile exception — a fatal already reaches stderr via
+        /// <see cref="LogTo"/>'s error path (and is excluded by <see cref="IsWarning"/>); a success, an
+        /// all-stripped-blocks warning (no exception, no <c>error:</c> preview), and the SWIFTBIND056
+        /// contract violation all stay silent.
+        /// </summary>
+        public void EchoWrapperFailurePreviewToStandardError(TextWriter standardError)
+        {
+            if (IsWarning && CompilationException != null)
+                standardError.WriteLine(Message);
+        }
     }
 }

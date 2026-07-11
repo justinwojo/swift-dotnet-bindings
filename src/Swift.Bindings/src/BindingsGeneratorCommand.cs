@@ -1084,6 +1084,12 @@ public static class BindingsGeneratorCommand
             var outcome = WrapperBuildOutcome.From(
                 compilationResult, asyncLibraryAutoWired, sdkMode, compilationException, contractualUnmet);
             outcome.LogTo(logger);
+            // On the inline Apple-framework generate path asyncLibraryAutoWired is true, so a wrapper
+            // failure is a Fatal downgraded (SDK mode) to a SWIFTBIND050 warning that LogTo sends to
+            // stdout — swallowed by the generate Exec at -v normal. Echo the swiftc preview to stderr
+            // (captured at high importance, IgnoreStandardErrorWarningFormat) so it's visible on the
+            // first build. No-op unless the outcome carries a compile exception.
+            outcome.EchoWrapperFailurePreviewToStandardError(Console.Error);
             if (outcome.IsFatal)
             {
                 context.ExitCode = outcome.ExitCode;
@@ -1246,6 +1252,9 @@ public static class BindingsGeneratorCommand
             var directOutcome = WrapperBuildOutcome.From(
                 directResult, asyncLibraryAutoWired: false, sdkMode, directException, directContractualUnmet);
             directOutcome.LogTo(logger);
+            // Same swallow as the other outcome sites: the non-fatal Warning LogTo emits to stdout is
+            // dropped at -v normal, so echo the swiftc preview to stderr on the first build.
+            directOutcome.EchoWrapperFailurePreviewToStandardError(Console.Error);
             if (directOutcome.IsFatal)
             {
                 context.ExitCode = directOutcome.ExitCode;
