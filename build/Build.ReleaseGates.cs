@@ -38,6 +38,24 @@ partial class Build
                "Default off — intentional skips exit zero; ship-readiness is read from the manifest, not $?.")]
     readonly bool RequireComplete;
 
+    [Parameter("ReleaseGatesAttest: catalog leg id to attest/disposition (e.g. binding-tests-device). " +
+               "Omit (with --require-complete) to only check the persisted manifest.")]
+    readonly string? Leg;
+
+    [Parameter("ReleaseGatesAttest: attested result — 'pass' flips an attended leg to pass with evidence; " +
+               "'waived'/'accepted' attaches a resolving disposition to a not-run skip.")]
+    readonly string? Result;
+
+    [Parameter("ReleaseGatesAttest: who is recording this (accountability, stamped into the manifest).")]
+    readonly string? By;
+
+    [Parameter("ReleaseGatesAttest: evidence path (leg log / artifact). Required for --result pass.")]
+    readonly string? Evidence;
+
+    [Parameter("ReleaseGatesAttest: manifest path override (defaults to the canonical release-gates artifact). " +
+               "Point at a scratch copy for a dry run so the real artifact is untouched.")]
+    readonly string? Manifest;
+
     AbsolutePath ReleaseGatesScratch => RootDirectory / "artifacts" / "release-gates";
     AbsolutePath ReleaseGatesManifestPath => ReleaseGatesScratch / "release-gates-manifest.json";
 
@@ -109,6 +127,107 @@ partial class Build
             Log.Information("ReleaseGates OK — execution_outcome={Outcome}, catalog_completeness={Completeness}, " +
                             "ship_ready={ShipReady}. Manifest: {Path}",
                 manifest.ExecutionOutcome, manifest.CatalogCompleteness, manifest.ShipReady, ReleaseGatesManifestPath);
+        });
+
+    // Write path for the attended legs the macOS-host orchestrator seeds as skips. `ReleaseGates`
+    // always wipes+reseeds, so its own --require-complete can never observe a post-hoc attest; this
+    // target instead records the attended result into the ALREADY-PERSISTED manifest and evaluates
+    // --require-complete against that loaded manifest (no reseed). Intended sequence:
+    // orchestrate once -> attest N -> check; never re-orchestrate after attesting (the wipe is
+    // intentional). Not wired into CI — an RC-checklist primitive like ReleaseGates itself.
+    Target ReleaseGatesAttest => _ => _
+        .Description("Records an ATTENDED release-gate leg's result into the persisted ReleaseGates " +
+                     "manifest: --result pass flips an attended leg to pass with evidence; " +
+                     "--result waived|accepted attaches a resolving disposition to a not-run skip. " +
+                     "Refuses unknown legs, an evidence-less pass, and overwriting a real executed " +
+                     "pass/fail. Honors --require-complete against the LOADED manifest (no reseed). " +
+                     "Omit --leg/--result to only check. Not wired into CI.")
+        .Executes(() =>
+        {
+            string manifestPath = Manifest is { Length: > 0 }
+                ? Path.GetFullPath(Manifest, RootDirectory)
+                : ReleaseGatesManifestPath;
+
+            if (!File.Exists(manifestPath))
+                Assert.Fail($"ReleaseGatesAttest: no manifest at {manifestPath}. Run `nuke release-gates` " +
+                            "first — this target records attended results into an existing manifest.");
+
+            var manifest = ReleaseGatesManifest.Load(manifestPath);
+
+            // Refuse to mutate an already-broken artifact — fail loud with its integrity errors.
+            var preErrors = manifest.Validate();
+            if (preErrors.Count > 0)
+            {
+                foreach (var e in preErrors) Log.Error("  loaded-manifest integrity: {Error}", e);
+                Assert.Fail($"ReleaseGatesAttest: loaded manifest is not catalog-sound ({preErrors.Count} " +
+                            $"error(s)); refusing to attest onto it. Manifest: {manifestPath}");
+            }
+
+            var hasLeg = Leg is { Length: > 0 };
+            var hasResult = Result is { Length: > 0 };
+            if (hasLeg != hasResult)
+                Assert.Fail("ReleaseGatesAttest: --leg and --result must be given together " +
+                            "(or omit both to only check the manifest).");
+
+            if (hasLeg)
+            {
+                var legId = Leg!;
+                var result = Result!;
+                if (result != GateLegStatus.Pass
+                    && result != DispositionDecision.Accepted
+                    && result != DispositionDecision.Waived)
+                    Assert.Fail($"ReleaseGatesAttest: --result '{result}' is not one of " +
+                                $"pass | {DispositionDecision.Waived} | {DispositionDecision.Accepted}.");
+
+                var by = By ?? "";
+                var atUtc = DateTime.UtcNow.ToString("O");
+                try
+                {
+                    manifest = result == GateLegStatus.Pass
+                        ? manifest.AttestPass(legId, by, Evidence ?? "", atUtc)
+                        : manifest.DispositionSkip(legId, result, by, atUtc,
+                            note: Evidence is { Length: > 0 } ? $"evidence: {Evidence}" : "");
+                }
+                catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+                {
+                    Assert.Fail($"ReleaseGatesAttest: {ex.Message}");
+                }
+
+                // Defensive: our own write must keep the catalog sound before it hits disk.
+                var postErrors = manifest.Validate();
+                if (postErrors.Count > 0)
+                {
+                    foreach (var e in postErrors) Log.Error("  post-attest integrity: {Error}", e);
+                    Assert.Fail($"ReleaseGatesAttest: the attest produced an unsound manifest " +
+                                $"({postErrors.Count} error(s)); not saving. Manifest: {manifestPath}");
+                }
+
+                manifest.Save(manifestPath);
+                Log.Information("ReleaseGatesAttest: recorded leg '{Leg}' as '{Result}' by '{By}' -> {Path}",
+                    legId, result, by, manifestPath);
+            }
+            else
+            {
+                Log.Information("ReleaseGatesAttest: check-only (no --leg/--result). Manifest: {Path}", manifestPath);
+            }
+
+            LogReleaseGatesSummary(manifest);
+
+            if (RequireComplete && manifest.RecommendedExitCode(requireComplete: true) != 0)
+            {
+                // Surface ALL three reasons a require-complete check can fail (a failed leg, an unsound
+                // catalog, an undispositioned skip) — not just the skip list, so a run blocked by a
+                // failed executed leg is not mis-read as "just needs more attests".
+                var failedIds = manifest.Legs.Where(l => l.Status == GateLegStatus.Fail).Select(l => l.Id);
+                Assert.Fail($"ReleaseGatesAttest --require-complete: manifest is not ship-ready — " +
+                            $"execution_outcome={manifest.ExecutionOutcome}, ship_ready={manifest.ShipReady}, " +
+                            $"catalog_sound={manifest.IsCatalogSound}, failed legs: [{string.Join(", ", failedIds)}], " +
+                            $"undispositioned skips: [{string.Join(", ", manifest.UndispositionedSkipIds)}]. " +
+                            $"Manifest: {manifestPath}");
+            }
+
+            Log.Information("ReleaseGatesAttest OK — ship_ready={ShipReady}, catalog_completeness={Completeness}. " +
+                            "Manifest: {Path}", manifest.ShipReady, manifest.CatalogCompleteness, manifestPath);
         });
 
     // Runs one existing gate TARGET as a subprocess of the already-built _build assembly and records
@@ -186,8 +305,16 @@ partial class Build
     {
         Log.Information("================ release-gates summary ================");
         foreach (var leg in manifest.Legs)
-            Log.Information("  {Status,-8} {Leg,-30} {Reason}",
-                leg.Status, leg.Id, leg.Status == GateLegStatus.Pass ? "" : leg.Reason);
+        {
+            // Surface the attended marker so an attested pass and a resolving disposition are visibly
+            // distinct from a bare orchestrator pass / an undispositioned skip in the human summary.
+            var detail = leg.Attestation is { } att
+                ? $"attested pass by {att.By} ({leg.Log})"
+                : leg.Disposition is { IsResolving: true } d
+                    ? $"{d.Decision} by {d.By}"
+                    : leg.Status == GateLegStatus.Pass ? "" : leg.Reason;
+            Log.Information("  {Status,-8} {Leg,-30} {Detail}", leg.Status, leg.Id, detail);
+        }
         Log.Information("  execution_outcome={Outcome}  catalog_completeness={Completeness}  ship_ready={ShipReady}",
             manifest.ExecutionOutcome, manifest.CatalogCompleteness, manifest.ShipReady);
         if (manifest.UndispositionedSkipIds.Count > 0)

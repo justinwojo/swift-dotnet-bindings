@@ -359,6 +359,260 @@ public class ReleaseGatesManifestTests
         Assert.Contains(m.Validate(), e => e.Contains("disposition") && e.Contains("by"));
     }
 
+    // ---- attest / disposition write path (release-gates-attest) ----
+
+    private const string FixedAt = "2026-07-10T12:00:00Z";
+
+    private static readonly string[] AttendedLegIds =
+        ReleaseGatesManifest.CanonicalCatalog.Except(ReleaseGatesManifest.ExecutedLegIds).ToArray();
+
+    [Fact]
+    public void AttestPass_flips_exactly_one_leg_to_pass_and_preserves_the_rest()
+    {
+        var before = AllExecutedPassed();
+        var m = before.AttestPass(ReleaseGatesManifest.LegIds.BindingTestsDevice, "justin",
+            "artifacts/release-gates/binding-tests-device.log", FixedAt);
+
+        var device = m.Legs.Single(l => l.Id == ReleaseGatesManifest.LegIds.BindingTestsDevice);
+        Assert.Equal(GateLegStatus.Pass, device.Status);
+        Assert.NotNull(device.Attestation);
+        Assert.Equal("justin", device.Attestation!.By);
+        Assert.Equal(FixedAt, device.Attestation.At);
+        Assert.Equal("artifacts/release-gates/binding-tests-device.log", device.Log);   // evidence lives in Log
+        Assert.Null(device.Disposition);                                                // a pass is not a disposition
+        Assert.Empty(m.Validate());
+
+        // Every OTHER leg is byte-for-byte the row it was before the attest.
+        foreach (var b in before.Legs.Where(l => l.Id != ReleaseGatesManifest.LegIds.BindingTestsDevice))
+            Assert.Equal(b, m.Legs.Single(l => l.Id == b.Id));
+    }
+
+    [Fact]
+    public void AttestPass_on_every_attended_leg_reaches_ship_ready_and_is_no_longer_a_skip()
+    {
+        // Verdict integration: an attested pass counts as executed-green with no special-casing —
+        // the leg drops out of the skip set, and once all four attended legs are attested the catalog
+        // is complete and ship-ready, and --require-complete exits zero.
+        var m = AllExecutedPassed();
+        foreach (var id in AttendedLegIds)
+            m = m.AttestPass(id, "justin", $"artifacts/release-gates/{id}.log", FixedAt);
+
+        Assert.Empty(m.Validate());
+        Assert.False(m.AnyFailed);
+        Assert.Empty(m.UndispositionedSkipIds);
+        Assert.Equal(ReleaseGatesManifest.CompletenessComplete, m.CatalogCompleteness);
+        Assert.True(m.ShipReady);
+        Assert.Equal(0, m.RecommendedExitCode(requireComplete: true));
+        foreach (var id in AttendedLegIds)
+        {
+            var leg = m.Legs.Single(l => l.Id == id);
+            Assert.Equal(GateLegStatus.Pass, leg.Status);
+            Assert.NotNull(leg.Attestation);
+        }
+    }
+
+    [Fact]
+    public void Attested_passes_and_resolving_dispositions_together_are_ship_ready()
+    {
+        // Two attended legs actually ran green (attested pass); two are owner-waived/accepted. Mixed
+        // resolution still reaches ship-ready — and the disposed legs are NOT passes.
+        var m = AllExecutedPassed()
+            .AttestPass(ReleaseGatesManifest.LegIds.BindingTestsDevice, "justin",
+                "artifacts/release-gates/binding-tests-device.log", FixedAt)
+            .AttestPass(ReleaseGatesManifest.LegIds.MixedPack, "justin",
+                "artifacts/release-gates/mixed-pack.log", FixedAt)
+            .DispositionSkip(ReleaseGatesManifest.LegIds.MixedDirect, DispositionDecision.Waived, "justin", FixedAt)
+            .DispositionSkip(ReleaseGatesManifest.LegIds.AppStoreHygieneSignedIpa, DispositionDecision.Accepted, "justin", FixedAt);
+
+        Assert.Empty(m.Validate());
+        Assert.True(m.ShipReady);
+        Assert.Equal(0, m.RecommendedExitCode(requireComplete: true));
+
+        var waived = m.Legs.Single(l => l.Id == ReleaseGatesManifest.LegIds.MixedDirect);
+        Assert.Equal(GateLegStatus.Skipped, waived.Status);   // disposition != attested pass
+        Assert.Null(waived.Attestation);
+        Assert.True(waived.Disposition!.IsResolving);
+    }
+
+    [Fact]
+    public void A_bare_attended_pass_without_attestation_fails_integrity_and_is_not_ship_ready()
+    {
+        // The silent-ship-ready hole: a plain Pass on an attended leg drops out of the skip set
+        // (UndispositionedSkipIds is skip-only). It MUST fail catalog integrity for lacking
+        // accountability, so it can never read ship-ready — the fail-closed twin of "a waive without
+        // a 'by' does not resolve".
+        var m = AllExecutedPassed()
+            .WithLeg(GateLeg.Pass(ReleaseGatesManifest.LegIds.BindingTestsDevice));   // no attestation, no by, no log
+        foreach (var id in new[]
+                 {
+                     ReleaseGatesManifest.LegIds.MixedPack,
+                     ReleaseGatesManifest.LegIds.MixedDirect,
+                     ReleaseGatesManifest.LegIds.AppStoreHygieneSignedIpa,
+                 })
+            m = m.DispositionSkip(id, DispositionDecision.Waived, "justin", FixedAt);
+
+        // Completeness is otherwise satisfied (device no longer a skip, others waived)…
+        Assert.Empty(m.UndispositionedSkipIds);
+        Assert.Equal(ReleaseGatesManifest.CompletenessComplete, m.CatalogCompleteness);
+        // …but the accountability-less attended pass breaks integrity, which vetoes ship-readiness.
+        Assert.Contains(m.Validate(), e =>
+            e.Contains(ReleaseGatesManifest.LegIds.BindingTestsDevice) && e.Contains("attended"));
+        Assert.False(m.IsCatalogSound);
+        Assert.False(m.ShipReady);
+        Assert.Equal(1, m.RecommendedExitCode(requireComplete: false));
+    }
+
+    [Fact]
+    public void AttestPass_never_overwrites_an_orchestrator_pass_or_a_fail()
+    {
+        var passed = AllExecutedPassed();   // unit-tests is an orchestrator pass, no attestation
+        Assert.Throws<InvalidOperationException>(() =>
+            passed.AttestPass(ReleaseGatesManifest.LegIds.UnitTests, "justin", "x.log", FixedAt));
+
+        var failed = passed.WithLeg(GateLeg.Fail(ReleaseGatesManifest.LegIds.PackGate, "pack-gate exited 1"));
+        Assert.Throws<InvalidOperationException>(() =>
+            failed.AttestPass(ReleaseGatesManifest.LegIds.PackGate, "justin", "x.log", FixedAt));
+    }
+
+    [Fact]
+    public void AttestPass_allows_correcting_an_already_attested_pass()
+    {
+        var typo = AllExecutedPassed()
+            .AttestPass(ReleaseGatesManifest.LegIds.BindingTestsDevice, "jstin", "device.log", FixedAt);
+        var corrected = typo.AttestPass(ReleaseGatesManifest.LegIds.BindingTestsDevice, "justin", "device.log", FixedAt);
+
+        var leg = corrected.Legs.Single(l => l.Id == ReleaseGatesManifest.LegIds.BindingTestsDevice);
+        Assert.Equal("justin", leg.Attestation!.By);
+        Assert.Empty(corrected.Validate());
+    }
+
+    [Fact]
+    public void AttestPass_rejects_unknown_leg_blank_evidence_blank_by_and_blank_timestamp()
+    {
+        var m = AllExecutedPassed();
+        Assert.Throws<ArgumentException>(() => m.AttestPass("not-a-leg", "justin", "e.log", FixedAt));
+        Assert.Throws<ArgumentException>(() =>
+            m.AttestPass(ReleaseGatesManifest.LegIds.BindingTestsDevice, "justin", "   ", FixedAt));
+        Assert.Throws<ArgumentException>(() =>
+            m.AttestPass(ReleaseGatesManifest.LegIds.BindingTestsDevice, "", "e.log", FixedAt));
+        // The write API fail-closes a blank timestamp symmetrically with 'by'/evidence — an
+        // attested pass stamps who/when, so it never reaches the manifest missing its 'at'.
+        Assert.Throws<ArgumentException>(() =>
+            m.AttestPass(ReleaseGatesManifest.LegIds.BindingTestsDevice, "justin", "e.log", "   "));
+    }
+
+    [Fact]
+    public void DispositionSkip_waive_resolves_but_stays_skipped()
+    {
+        var m = AllExecutedPassed()
+            .DispositionSkip(ReleaseGatesManifest.LegIds.BindingTestsDevice, DispositionDecision.Waived, "justin", FixedAt);
+        var leg = m.Legs.Single(l => l.Id == ReleaseGatesManifest.LegIds.BindingTestsDevice);
+
+        Assert.Equal(GateLegStatus.Skipped, leg.Status);   // NOT flipped to pass
+        Assert.Null(leg.Attestation);
+        Assert.True(leg.Disposition!.IsResolving);
+        Assert.DoesNotContain(ReleaseGatesManifest.LegIds.BindingTestsDevice, m.UndispositionedSkipIds);
+        Assert.Empty(m.Validate());
+    }
+
+    [Fact]
+    public void DispositionSkip_rejects_non_resolving_unknown_and_non_skip_targets()
+    {
+        var m = AllExecutedPassed();
+        // run-before-ship is a known but non-resolving decision — the attest write path only records
+        // resolving accept/waive, never a still-pending acknowledgment.
+        Assert.Throws<ArgumentException>(() =>
+            m.DispositionSkip(ReleaseGatesManifest.LegIds.MixedPack, DispositionDecision.RunBeforeShip, "justin", FixedAt));
+        Assert.Throws<ArgumentException>(() =>
+            m.DispositionSkip(ReleaseGatesManifest.LegIds.MixedPack, "bogus", "justin", FixedAt));
+        Assert.Throws<ArgumentException>(() =>
+            m.DispositionSkip("not-a-leg", DispositionDecision.Waived, "justin", FixedAt));
+        Assert.Throws<ArgumentException>(() =>
+            m.DispositionSkip(ReleaseGatesManifest.LegIds.MixedPack, DispositionDecision.Waived, " ", FixedAt));
+        // An executed (non-skip) leg cannot be dispositioned.
+        Assert.Throws<InvalidOperationException>(() =>
+            m.DispositionSkip(ReleaseGatesManifest.LegIds.UnitTests, DispositionDecision.Waived, "justin", FixedAt));
+    }
+
+    [Fact]
+    public void Validate_rejects_an_attestation_on_a_non_pass_status()
+    {
+        var m = ReleaseGatesManifest.Seed()
+            .WithLeg(new GateLeg
+            {
+                Id = ReleaseGatesManifest.LegIds.MixedPack,
+                Status = GateLegStatus.Skipped,
+                Reason = "x",
+                Attestation = new LegAttestation { By = "justin", At = FixedAt },
+            });
+
+        Assert.Contains(m.Validate(), e =>
+            e.Contains(ReleaseGatesManifest.LegIds.MixedPack) && e.Contains("attestation") && e.Contains("not 'pass'"));
+    }
+
+    [Fact]
+    public void Validate_rejects_a_disposition_on_a_non_skip_status()
+    {
+        var m = AllExecutedPassed()
+            .WithLeg(GateLeg.Pass(ReleaseGatesManifest.LegIds.UnitTests, 10) with
+            {
+                Disposition = new LegDisposition { Decision = DispositionDecision.Waived, By = "justin", At = FixedAt },
+            });
+
+        Assert.Contains(m.Validate(), e =>
+            e.Contains(ReleaseGatesManifest.LegIds.UnitTests) && e.Contains("disposition") && e.Contains("not 'skipped'"));
+    }
+
+    [Fact]
+    public void Validate_rejects_an_attested_pass_with_blank_evidence_or_timestamp()
+    {
+        // Twin of the bare-attended-pass case: an attestation is present with a valid 'by', but the
+        // evidence Log is whitespace (H1 rule) or the 'at' timestamp is blank — both break integrity,
+        // so an attended pass cannot read accountable on a partial/hand-edited row.
+        var blankLog = AllExecutedPassed()
+            .WithLeg(new GateLeg
+            {
+                Id = ReleaseGatesManifest.LegIds.BindingTestsDevice,
+                Status = GateLegStatus.Pass,
+                Log = "   ",
+                Attestation = new LegAttestation { By = "justin", At = FixedAt },
+            });
+        Assert.Contains(blankLog.Validate(), e =>
+            e.Contains(ReleaseGatesManifest.LegIds.BindingTestsDevice) && e.Contains("attended"));
+        Assert.False(blankLog.ShipReady);
+
+        var blankAt = AllExecutedPassed()
+            .WithLeg(new GateLeg
+            {
+                Id = ReleaseGatesManifest.LegIds.MixedPack,
+                Status = GateLegStatus.Pass,
+                Log = "artifacts/release-gates/mixed-pack.log",
+                Attestation = new LegAttestation { By = "justin", At = "" },
+            });
+        Assert.Contains(blankAt.Validate(), e =>
+            e.Contains(ReleaseGatesManifest.LegIds.MixedPack) && e.Contains("'at'"));
+        Assert.False(blankAt.ShipReady);
+    }
+
+    [Fact]
+    public void Attestation_round_trips_and_preserves_ship_ready()
+    {
+        var m = AllExecutedPassed();
+        foreach (var id in AttendedLegIds)
+            m = m.AttestPass(id, "justin", $"artifacts/release-gates/{id}.log", FixedAt);
+        Assert.True(m.ShipReady);
+
+        var round = ReleaseGatesManifest.Parse(m.ToJson());
+        var device = round.Legs.Single(l => l.Id == ReleaseGatesManifest.LegIds.BindingTestsDevice);
+        Assert.Equal(GateLegStatus.Pass, device.Status);
+        Assert.NotNull(device.Attestation);
+        Assert.Equal("justin", device.Attestation!.By);
+        Assert.Equal(FixedAt, device.Attestation.At);
+        Assert.Equal("artifacts/release-gates/binding-tests-device.log", device.Log);
+        Assert.True(round.ShipReady);
+        Assert.Empty(round.Validate());
+    }
+
     // Attach the same disposition to every recorded skip.
     private static ReleaseGatesManifest DisposeAllSkipsWith(ReleaseGatesManifest m, LegDisposition disposition)
     {

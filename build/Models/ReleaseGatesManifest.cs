@@ -210,6 +210,75 @@ public record ReleaseGatesManifest
         return this with { Legs = next };
     }
 
+    // ---- Attested / dispositioned write path (release-gates-attest) ----
+
+    /// <summary>Records an ATTENDED leg that ran off the orchestrator host and PASSED: flips a
+    /// currently-<c>skipped</c> catalog leg (or re-attests an already-attested pass, so a typo in
+    /// <paramref name="by"/> is correctable) to <c>pass</c>, stamping who/when and the evidence path
+    /// (into <see cref="GateLeg.Log"/>). Distinct from a waive/accept disposition — the leg genuinely
+    /// passed. Never overwrites a real orchestrator-executed pass (which carries no attestation) or a
+    /// fail, so an attend can never hide a hard failure. Throws on an unknown leg, blank
+    /// <paramref name="by"/>, <paramref name="evidence"/> or <paramref name="atUtc"/>, or a
+    /// non-attestable current status.</summary>
+    public ReleaseGatesManifest AttestPass(string legId, string by, string evidence, string atUtc)
+    {
+        RequireKnownLeg(legId);
+        if (string.IsNullOrWhiteSpace(by))
+            throw new ArgumentException("attest pass requires a non-empty 'by' (accountability)", nameof(by));
+        if (string.IsNullOrWhiteSpace(evidence))
+            throw new ArgumentException(
+                "attest pass requires non-empty evidence (proof the attended leg ran and passed)", nameof(evidence));
+        if (string.IsNullOrWhiteSpace(atUtc))
+            throw new ArgumentException(
+                "attest pass requires a non-empty timestamp (an attested pass stamps who/when)", nameof(atUtc));
+
+        var leg = Legs.Single(l => l.Id == legId);
+        var attestable = leg.Status == GateLegStatus.Skipped
+                         || (leg.Status == GateLegStatus.Pass && leg.Attestation is not null);
+        if (!attestable)
+            throw new InvalidOperationException(
+                $"leg '{legId}' is '{leg.Status}' and cannot be attested to pass — only a not-run skip " +
+                "(or a correction to an already-attested pass) is attestable; a real executed pass or a " +
+                "fail is never overwritten.");
+
+        // AttestedPass rebuilds the row fresh, so any stale skip disposition is cleared on the flip.
+        return WithLeg(GateLeg.AttestedPass(legId, by, atUtc, evidence));
+    }
+
+    /// <summary>Attaches a resolving disposition (<c>accepted</c>/<c>waived</c>) to a
+    /// currently-<c>skipped</c> leg — the leg did NOT run but the owner accepts/waives the coverage
+    /// gap. Distinct from <see cref="AttestPass"/> (which records an actual pass): the status stays
+    /// <c>skipped</c>. Throws on an unknown leg, a non-resolving/unknown <paramref name="decision"/>,
+    /// blank <paramref name="by"/>, or a leg that is not currently a skip.</summary>
+    public ReleaseGatesManifest DispositionSkip(string legId, string decision, string by, string atUtc, string note = "")
+    {
+        RequireKnownLeg(legId);
+        if (!DispositionDecision.Resolving.Contains(decision))
+            throw new ArgumentException(
+                $"disposition decision '{decision}' does not resolve a skip — expected one of: " +
+                $"{string.Join(", ", DispositionDecision.Resolving)}", nameof(decision));
+        if (string.IsNullOrWhiteSpace(by))
+            throw new ArgumentException("a disposition requires a non-empty 'by' (accountability)", nameof(by));
+
+        var leg = Legs.Single(l => l.Id == legId);
+        if (leg.Status != GateLegStatus.Skipped)
+            throw new InvalidOperationException(
+                $"leg '{legId}' is '{leg.Status}', not a skip — a disposition only applies to a not-run skip.");
+
+        return WithLeg(leg with
+        {
+            Disposition = new LegDisposition { Decision = decision, By = by, At = atUtc, Note = note },
+        });
+    }
+
+    void RequireKnownLeg(string legId)
+    {
+        if (!CanonicalCatalog.Contains(legId))
+            throw new ArgumentException(
+                $"unknown leg id '{legId}' — not in catalog v{CurrentCatalogVersion}. Known ids: " +
+                $"{string.Join(", ", CanonicalCatalog)}", nameof(legId));
+    }
+
     // ---- Catalog integrity ----
 
     /// <summary>Catalog integrity check: exactly one leg per <see cref="CanonicalCatalog"/> id
@@ -226,6 +295,7 @@ public record ReleaseGatesManifest
             errors.Add($"catalog_version {CatalogVersion} != expected {CurrentCatalogVersion}");
 
         var catalog = new HashSet<string>(CanonicalCatalog, StringComparer.Ordinal);
+        var executed = new HashSet<string>(ExecutedLegIds, StringComparer.Ordinal);
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var leg in Legs)
         {
@@ -244,7 +314,31 @@ public record ReleaseGatesManifest
                     errors.Add($"leg '{leg.Id}' has an unknown disposition decision '{disp.Decision}'");
                 if (string.IsNullOrWhiteSpace(disp.By))
                     errors.Add($"leg '{leg.Id}' has a disposition with no 'by' (accountability)");
+                // A disposition resolves a SKIP; on any other status it is a malformed row (an
+                // attested pass clears its disposition on the flip — see AttestPass).
+                if (leg.Status != GateLegStatus.Skipped)
+                    errors.Add($"leg '{leg.Id}' carries a disposition but is '{leg.Status}', not 'skipped' " +
+                               "(dispositions apply only to a not-run skip)");
             }
+            if (leg.Attestation is { } att)
+            {
+                if (leg.Status != GateLegStatus.Pass)
+                    errors.Add($"leg '{leg.Id}' carries an attestation but is '{leg.Status}', not 'pass'");
+                if (string.IsNullOrWhiteSpace(att.By))
+                    errors.Add($"leg '{leg.Id}' has an attestation with no 'by' (accountability)");
+                if (string.IsNullOrWhiteSpace(att.At))
+                    errors.Add($"leg '{leg.Id}' has an attestation with no 'at' (when) — an attested pass stamps who/when");
+            }
+            // Fail-closed accountability for an ATTENDED pass: any pass on a leg the orchestrator does
+            // not run itself must carry an attestation (with a 'by') AND an evidence log. Without this a
+            // bare Pass(attendedLeg) would drop out of the skip set (UndispositionedSkipIds is skip-only)
+            // and read ship-ready with none of the accountability a waive already requires.
+            if (leg.Status == GateLegStatus.Pass && !executed.Contains(leg.Id)
+                && (leg.Attestation is null
+                    || string.IsNullOrWhiteSpace(leg.Attestation.By)
+                    || string.IsNullOrWhiteSpace(leg.Log)))
+                errors.Add($"leg '{leg.Id}' is 'pass' but is an attended leg without a valid attestation " +
+                           "(an attended pass needs a 'by' and an evidence log to be accountable)");
         }
         foreach (var id in CanonicalCatalog)
             if (!seen.Contains(id))
@@ -291,10 +385,17 @@ public record GateLeg
 
     [JsonPropertyName("duration_ms")] public long? DurationMs { get; init; }
 
-    /// <summary>Disposition overlay for a skip (accept / waive / run-before-ship). Always
-    /// <c>null</c> in v1 — the socket exists so a release decision can be attached without a second
-    /// sidecar format.</summary>
+    /// <summary>Disposition overlay for a skip (accept / waive / run-before-ship). Attached by
+    /// <c>release-gates-attest --result waived|accepted</c> to resolve a not-run skip's coverage gap;
+    /// the leg stays <see cref="GateLegStatus.Skipped"/>. Distinct from <see cref="Attestation"/>.</summary>
     [JsonPropertyName("disposition")] public LegDisposition? Disposition { get; init; }
+
+    /// <summary>Attestation overlay for an ATTENDED leg that ran off the orchestrator host (device /
+    /// mixed / signed-IPA) and PASSED. Present only on an attested <see cref="GateLegStatus.Pass"/>;
+    /// its evidence path lives in <see cref="Log"/>. Presence distinguishes an attended pass from an
+    /// orchestrator-executed pass (which carries none) and from a waive/accept <see cref="Disposition"/>
+    /// (which stays skipped). Recorded via <c>release-gates-attest --result pass</c>.</summary>
+    [JsonPropertyName("attestation")] public LegAttestation? Attestation { get; init; }
 
     public static GateLeg Pass(string id, long? durationMs = null, string? log = null) =>
         new()
@@ -333,6 +434,23 @@ public record GateLeg
     /// it). Recorded as a <b>fail</b> so an incomplete run is loud rather than a silent gap.</summary>
     public static GateLeg NotReached(string id) =>
         Fail(id, "leg not reached — the orchestrator did not run it", GateLegReasonCode.OrchestratorNotReached);
+
+    /// <summary>An ATTENDED leg that ran off the orchestrator host and PASSED, recorded via
+    /// <c>release-gates-attest</c>. Status is <c>pass</c> (executed-green for verdict purposes), the
+    /// <paramref name="evidence"/> path lives in <see cref="Log"/>, and who/when is stamped in
+    /// <see cref="Attestation"/>. Carries no reason code, exactly like an orchestrator pass — the
+    /// attestation is the attended marker. Rebuilt fresh, so a prior skip disposition does not ride
+    /// along onto the pass row.</summary>
+    public static GateLeg AttestedPass(string id, string by, string atUtc, string evidence) =>
+        new()
+        {
+            Id = id,
+            Status = GateLegStatus.Pass,
+            ReasonCode = GateLegReasonCode.None,
+            Reason = "",
+            Log = evidence,
+            Attestation = new LegAttestation { By = by, At = atUtc },
+        };
 }
 
 /// <summary>Disposition overlay attached to a skip so a release decision is machine-checkable.
@@ -354,6 +472,18 @@ public record LegDisposition
     [JsonIgnore]
     public bool IsResolving =>
         DispositionDecision.Resolving.Contains(Decision) && !string.IsNullOrWhiteSpace(By);
+}
+
+/// <summary>Who/when overlay stamped on an ATTENDED, attested <see cref="GateLegStatus.Pass"/> leg
+/// (a device / mixed / signed-IPA leg run off the orchestrator host and recorded via
+/// <c>release-gates-attest --result pass</c>). The evidence path lives in <see cref="GateLeg.Log"/>.
+/// Presence marks a pass as attended-attested rather than orchestrator-run;
+/// <see cref="ReleaseGatesManifest.Validate"/> fail-closes an attended pass that lacks one, so a
+/// bare pass can never read ship-ready without accountability.</summary>
+public record LegAttestation
+{
+    [JsonPropertyName("by")] public string By { get; init; } = "";
+    [JsonPropertyName("at")] public string At { get; init; } = "";
 }
 
 /// <summary>Closed set of disposition decisions. A skip is only <i>resolved</i> (removed from

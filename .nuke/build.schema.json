@@ -43,6 +43,7 @@
         "RegenerateStoreKitSnapshot",
         "RegenStdlibConformances",
         "ReleaseGates",
+        "ReleaseGatesAttest",
         "RuntimeUnitTests",
         "SeedApiManifestBaseline",
         "SeedParityBaseline",
@@ -142,6 +143,10 @@
           "type": "boolean",
           "description": "Opt-in: through a Runtime-referencing consumer, build a device App Store IPA and assert TN2435 hygiene — the native runtime embeds as a signed SwiftBindingsRuntime.framework (not a loose dylib), the app embeds zero libswift*.dylib, no SwiftSupport/ folder is present, and the app signature verifies. Also asserts the runtime nupkg preserves the framework xcframework. Builds + inspects on the host; needs a code-signing identity but no connected device. Never part of the default run or --compile-only"
         },
+        "By": {
+          "type": "string",
+          "description": "ReleaseGatesAttest: who is recording this (accountability, stamped into the manifest)"
+        },
         "Catalyst": {
           "type": "boolean",
           "description": "Run on Mac Catalyst"
@@ -206,6 +211,10 @@
           "type": "boolean",
           "description": "Opt in to the WorkoutKit smoke tests (regenerates BindingTests/obj/WorkoutKitSnapshot/ in-tree)"
         },
+        "Evidence": {
+          "type": "string",
+          "description": "ReleaseGatesAttest: evidence path (leg log / artifact). Required for --result pass"
+        },
         "FetchFirst": {
           "type": "boolean",
           "description": "Run fetch before validation"
@@ -235,6 +244,10 @@
           "description": "Max parallel validation workers",
           "format": "int32"
         },
+        "Leg": {
+          "type": "string",
+          "description": "ReleaseGatesAttest: catalog leg id to attest/disposition (e.g. binding-tests-device). Omit (with --require-complete) to only check the persisted manifest"
+        },
         "Lifetime": {
           "type": "boolean",
           "description": "Run extended lifetime / GC-pressure assertions in BindingTests/RuntimeTestsApp/Lifetime/"
@@ -250,6 +263,10 @@
         "MacosX64": {
           "type": "boolean",
           "description": "Run on macOS for x86_64 under Rosetta (Mono-x64 proof on Apple Silicon)"
+        },
+        "Manifest": {
+          "type": "string",
+          "description": "ReleaseGatesAttest: manifest path override (defaults to the canonical release-gates artifact). Point at a scratch copy for a dry run so the real artifact is untouched"
         },
         "MixedDirect": {
           "type": "boolean",
@@ -278,6 +295,10 @@
         "RequireComplete": {
           "type": "boolean",
           "description": "ReleaseGates: also fail the target when any recorded skip is undispositioned (RC-strict mode). Default off — intentional skips exit zero; ship-readiness is read from the manifest, not $?"
+        },
+        "Result": {
+          "type": "string",
+          "description": "ReleaseGatesAttest: attested result — 'pass' flips an attended leg to pass with evidence; 'waived'/'accepted' attaches a resolving disposition to a not-run skip"
         },
         "SeedRuntimeIdentityBaseline": {
           "type": "boolean",
