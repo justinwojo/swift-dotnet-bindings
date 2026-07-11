@@ -98,7 +98,16 @@ public static class SuppressedProxyReporting
     /// replace — the SWIFTBIND061 build warning, promoting the decline to a persisted classified skip.
     /// </summary>
     public static void RecordReceiver(string memberDescriptor, string? proxyOrProtocol)
+        => RecordReceiver(memberDescriptor, Site.ReceiverFailFast, proxyOrProtocol);
+
+    /// <summary>
+    /// Records a degraded reverse-dispatch receiver at a caller-chosen <paramref name="site"/> — the
+    /// receiver <b>getter</b> drops its C#-conformer wrap fallback silently (a CONSUME degrade), unlike
+    /// the setter/parameter receiver which fail-fasts. Same descriptor-only surface as the fail-fast
+    /// overload (no <c>BaseDecl</c> in scope), so the row still attributes by descriptor string.
+    /// </summary>
+    public static void RecordReceiver(string memberDescriptor, Site site, string? proxyOrProtocol)
         => ReportCollector.RecordMemberSkipped(
             BindingItemKind.Method, memberDescriptor, containingDecl: null,
-            SkipReason.SuppressedProxyMemberDegraded, Details(Site.ReceiverFailFast, proxyOrProtocol));
+            SkipReason.SuppressedProxyMemberDegraded, Details(site, proxyOrProtocol));
 }

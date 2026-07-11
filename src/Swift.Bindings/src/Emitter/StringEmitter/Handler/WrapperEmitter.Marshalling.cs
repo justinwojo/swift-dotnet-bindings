@@ -642,6 +642,16 @@ namespace BindingsGeneration
             if (projection == null)
                 return false;
 
+            // CONSUME degrade (collection surface): a container/optional parameter whose existential
+            // element's proxy was suppressed drops its per-element `static __v => new {Proxy}(__v)` wrap
+            // fallback inside the leaf ExistentialProjection, which owns no decl. Record the decline against
+            // the owning method here — the SCALAR existential param path already records at its own site
+            // (EmitExistentialContainerMarshalling). Property/subscript ACCESSOR methods are recorded by
+            // their owning handlers (PropertyHandler / SubscriptHandler); skip them to avoid a duplicate row.
+            if (!_env.MethodDecl.IsAccessor && !_env.MethodDecl.IsSubscriptAccessor)
+                foreach (var proxyName in SuppressedProxyProjectionWalk.CollectSuppressedProxyNames(projection))
+                    SuppressedProxyReporting.Record(_env.MethodDecl, SuppressedProxyReporting.Site.ConsumeDegraded, proxyName);
+
             var csName = NameProvider.GetCSharpParameterName(argumentDecl);
 
             // B12: ObjC optional inner — extract Handle directly instead of using projection.
@@ -939,6 +949,32 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Records the per-member CONSUME degrade for any suppressed EveryProtocol proxy referenced by a
+        /// closure's <paramref name="consumeTypes"/> — the delegate RETURN of a closure PARAMETER, or the
+        /// invoker ARGUMENTS of a returned closure — each marshalled C#→Swift. When the proxy was
+        /// suppressed the closure callback / invoke-thunk drops its <c>static __v =&gt; new {Proxy}(__v)</c>
+        /// wrap fallback silently; re-query the suppression predicate at the TypeSpec level and record one
+        /// classified KnownLimitation row per distinct suppressed proxy against the owning method. Keyed on
+        /// the suppressed-proxy predicate (the walk), so a no-proxy / <c>object</c> / union closure
+        /// contributes nothing. The walk builds NO projection — a fresh projection of a Foundation.Data or
+        /// ObjC-prefixed consume type would record an Apple-supplement dependency / bridge and change
+        /// emission — so it emits no C# and the callback bodies stay byte-identical.
+        /// </summary>
+        private void RecordClosureConsumeDegrade(IEnumerable<TypeSpec> consumeTypes)
+        {
+            foreach (var consumeType in consumeTypes)
+            {
+                if (consumeType == null)
+                    continue;
+                // _env.ExistentialHandler carries CurrentModuleName, so a cross-module suppressed proxy is
+                // qualified and matched against the dependency's cross-module set (not the local one).
+                foreach (var proxyName in SuppressedProxyTypeSpecWalk.CollectSuppressedProxyNames(
+                    consumeType, _env.ExistentialHandler, _emissionContext))
+                    SuppressedProxyReporting.Record(_env.MethodDecl, SuppressedProxyReporting.Site.ConsumeDegraded, proxyName);
+            }
+        }
+
+        /// <summary>
         /// Emits callback functions and pointers for escaping closures.
         /// When HasClosureCdeclWrapper is set, non-async closure callbacks use CallConvCdecl
         /// instead of CallConvSwift to avoid Mono JIT assertion crashes.
@@ -955,6 +991,12 @@ namespace BindingsGeneration
                 var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argumentDecl)!;
                 if (!_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
                     continue;
+
+                // A closure PARAMETER whose delegate RETURN references a suppressed EveryProtocol proxy
+                // drops its C#→Swift wrap fallback in the callback's return marshalling
+                // (BuildCallbackReturnStatement) — a silent CONSUME degrade of THIS member. The callback's
+                // ARGUMENT trampoline is the opposite (Swift→C#) PRODUCE direction and is NOT recorded here.
+                RecordClosureConsumeDegrade(new[] { closureTypeSpec.ReturnType });
 
                 // Non-optional @convention(c) closures: emit [UnmanagedCallersOnly(CallConvCdecl)]
                 // callback + [ThreadStatic] delegate storage. This is the AOT-safe path (no JIT

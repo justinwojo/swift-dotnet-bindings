@@ -153,7 +153,14 @@ public partial class ProtocolProxyEmitter
     // emitBody that throws SuppressedProxyReferenceException and asserts the recorded report row names the
     // proxy carried on the exception — the regression lock for the catch → ex.ProxyClassName → RecordReceiver
     // wiring that an API-level RecordReceiver test cannot cover.
-    internal void EmitReceiverOrDegrade(
+    /// <returns>
+    /// <c>true</c> when the body threw (a PRODUCE arm hit a suppressed proxy) and was replaced by the
+    /// fail-fast stub; <c>false</c> when the body emitted cleanly. Callers use this to decide whether to
+    /// ALSO record the getter/return's CONSUME degrade: a member already fail-fast-stubbed must not be
+    /// re-recorded as a consume-degrade (its return is never marshalled), so
+    /// <see cref="RecordReceiverGetterConsumeDegrade"/> runs only on a <c>false</c> return.
+    /// </returns>
+    internal bool EmitReceiverOrDegrade(
         CSharpWriter writer, string returnType, string receiverName, string paramList,
         string memberDescriptor, Action emitBody)
     {
@@ -161,12 +168,37 @@ public partial class ProtocolProxyEmitter
         try
         {
             emitBody();
+            return false;
         }
         catch (SuppressedProxyReferenceException ex)
         {
             writer.RollbackTo(checkpoint);
             EmitSuppressedProxyReceiverStub(writer, returnType, receiverName, paramList, memberDescriptor, ex.ProxyClassName);
+            return true;
         }
+    }
+
+    /// <summary>
+    /// Records a CONSUME degrade for a reverse-dispatch receiver GETTER/return whose existential value
+    /// (or collection element) references a suppressed proxy. Unlike the setter/parameter receiver — which
+    /// THROWS <see cref="SuppressedProxyReferenceException"/> and fail-fasts (recorded by
+    /// <see cref="EmitSuppressedProxyReceiverStub"/>) — the getter marshals C#→Swift through the CONSUME
+    /// arm (<c>GetOwnedParameterElementConversion</c> / <c>GetArrayElementCarrierConversion</c>), which
+    /// silently DROPS the wrap fallback: a Swift-vended conformer still round-trips, but a C#-authored one
+    /// cannot be handed back. The projection is rebuilt read-only here (<c>IsParameter: true</c>, matching
+    /// the getter's C#→Swift direction) and the walk collects the suppressed-proxy leaves; it emits no C#.
+    /// Call ONLY when the receiver did not already degrade to a fail-fast stub (see
+    /// <see cref="EmitReceiverOrDegrade"/>'s return), so a member that fail-fasts on a suppressed PARAM is
+    /// not also mis-recorded here.
+    /// </summary>
+    private void RecordReceiverGetterConsumeDegrade(string memberDescriptor, TypeSpec? valueTypeSpec)
+    {
+        if (valueTypeSpec == null)
+            return;
+        var projection = s_projectionFactory.Project(valueTypeSpec,
+            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
+        foreach (var proxyName in SuppressedProxyProjectionWalk.CollectSuppressedProxyNames(projection))
+            SuppressedProxyReporting.RecordReceiver(memberDescriptor, SuppressedProxyReporting.Site.ConsumeDegraded, proxyName);
     }
 
     /// <summary>
@@ -272,8 +304,9 @@ public partial class ProtocolProxyEmitter
             var receiverName = $"Receive_{property.Name}_get";
             if (emittedReceivers.Add(receiverName))
             {
-                EmitReceiverOrDegrade(writer, "IntPtr", receiverName, "IntPtr vtHandle, IntPtr selfContainer",
-                    $"{protocolDecl.Name}.{property.Name} getter", () =>
+                var getterDescriptor = $"{protocolDecl.Name}.{property.Name} getter";
+                var degraded = EmitReceiverOrDegrade(writer, "IntPtr", receiverName, "IntPtr vtHandle, IntPtr selfContainer",
+                    getterDescriptor, () =>
                 {
                     // The interface property uses idiomatic C# types (e.g., string, string?, IReadOnlyList<string>)
                     // but MarshalToSwiftBuffer expects Swift ABI types (SwiftString, SwiftOptional<SwiftString>, etc.).
@@ -343,6 +376,11 @@ public partial class ProtocolProxyEmitter
                     writer.WriteLine("}");
                     writer.WriteLine();
                 });
+                // Reverse-dispatch getter CONSUME degrade: the getter hands `result` back to Swift via the
+                // silent-drop CONSUME arm (no throw → not a fail-fast stub), so record it here when the body
+                // emitted cleanly. A suppressed proxy on the getter's value type surfaces one classified row.
+                if (!degraded)
+                    RecordReceiverGetterConsumeDegrade(getterDescriptor, property.SwiftTypeSpec);
             }
         }
 
@@ -758,8 +796,9 @@ public partial class ProtocolProxyEmitter
                 var paramTypes = "IntPtr vtHandle, IntPtr selfContainer" + string.Concat(
                     subscript.IndexParameters.Select((p, i) => $", IntPtr arg{i}"));
 
-                EmitReceiverOrDegrade(writer, "IntPtr", receiverName, paramTypes,
-                    $"{protocolDecl.Name} subscript{RenderReceiverParamSignature(subscript.IndexParameters)} getter", () =>
+                var getterDescriptor = $"{protocolDecl.Name} subscript{RenderReceiverParamSignature(subscript.IndexParameters)} getter";
+                var degraded = EmitReceiverOrDegrade(writer, "IntPtr", receiverName, paramTypes,
+                    getterDescriptor, () =>
                 {
                     writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
                     writer.WriteLine($"private static IntPtr {receiverName}({paramTypes})");
@@ -834,6 +873,11 @@ public partial class ProtocolProxyEmitter
                     writer.WriteLine("}");
                     writer.WriteLine();
                 });
+                // Reverse-dispatch subscript-getter CONSUME degrade: the value returns to Swift via the
+                // silent-drop CONSUME arm (no throw → not a fail-fast stub), so record it when the body
+                // emitted cleanly — the subscript twin of the property-getter gate above.
+                if (!degraded)
+                    RecordReceiverGetterConsumeDegrade(getterDescriptor, subscript.ReturnTypeSpec);
             }
         }
 
@@ -1071,11 +1115,18 @@ public partial class ProtocolProxyEmitter
         // receiverName / paramTypes), so the vtable static-init that address-takes &Receive_* still
         // resolves (a missing symbol is CS0103). The closure / async-closure / real-async receiver
         // shapes returned early above and are not routed through here — they take dedicated emit paths.
-        EmitReceiverOrDegrade(writer, csharpReturnType, receiverName, paramTypes,
-            $"{protocolDecl.Name}.{method.Name}{RenderReceiverParamSignature(nonEmptyParams)}",
+        var methodDescriptor = $"{protocolDecl.Name}.{method.Name}{RenderReceiverParamSignature(nonEmptyParams)}";
+        var degraded = EmitReceiverOrDegrade(writer, csharpReturnType, receiverName, paramTypes,
+            methodDescriptor,
             () => EmitMethodReceiverBody(writer, method, protocolDecl, interfaceName, index,
                 receiverName, paramTypes, csharpReturnType, returnType, hasReturn,
                 nonEmptyParams, closureHandlerForParams, siblingFallbacks));
+        // Reverse-dispatch return-value CONSUME degrade: a method that RETURNS an existential hands it
+        // back to Swift via the silent-drop CONSUME arm. Record it only when the body did NOT fail-fast
+        // (a suppressed existential PARAM throws and is already recorded as receiver-failfast) — the
+        // returned value is never marshalled from a fail-fast stub, so it must not be double-classified.
+        if (!degraded && hasReturn)
+            RecordReceiverGetterConsumeDegrade(methodDescriptor, returnType);
     }
 
     /// <summary>

@@ -208,9 +208,28 @@ namespace BindingsGeneration
             var projectedArgs = new Dictionary<int, MarshalPlan>();
             // Track tuple params with per-element conversion (maps param index → converted tuple expression)
             var tuplePInvokeExprs = new Dictionary<int, string>();
+            // Side-effect-free handler for the per-payload CONSUME-degrade walk below. Built with a null
+            // composition collector and CurrentModuleName so it resolves cross-module proxy qualification
+            // (matching the projection sites) without recording any dependency or composition.
+            var consumeDegradeHandler = new ExistentialHandler(typeDatabase) { CurrentModuleName = moduleDecl.Name };
             for (int i = 0; i < parameters.Count; i++)
             {
                 var (type, publicType, name, typeSpec) = parameters[i];
+                // Persist the per-member CONSUME degrade for any suppressed EveryProtocol proxy in this
+                // associated value. Each payload marshalling arm below — the scalar existential container,
+                // the bound-generic [any P]/Optional<any P> projection, and the per-element tuple
+                // projections — silently DROPS the C#-conformer `static __v => new {Proxy}(__v)` wrap
+                // fallback when the proxy was suppressed, leaving the decline unrecorded. Re-query the
+                // suppression predicate at the TypeSpec level (NOT via a fresh projection: projecting a
+                // Foundation.Data payload would record an Apple-supplement dependency and change emission),
+                // and record one classified KnownLimitation row per distinct suppressed proxy, attributed
+                // to the (enum, case) member. Pure read: emits no C#, so the body stays byte-identical.
+                foreach (var suppressedProxy in SuppressedProxyTypeSpecWalk.CollectSuppressedProxyNames(
+                    typeSpec, consumeDegradeHandler, emissionCtx))
+                {
+                    SuppressedProxyReporting.Record(BindingItemKind.Method, caseName, enumDecl,
+                        SuppressedProxyReporting.Site.ConsumeDegraded, suppressedProxy);
+                }
                 // Strip @ verbatim prefix for compound variable names (e.g., @in → in).
                 // The @ prefix is valid at the START of a C# identifier but invalid mid-identifier.
                 // Compound names like __{bareName} produce @__in (valid), not __@in (invalid).

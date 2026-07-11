@@ -220,6 +220,10 @@ namespace BindingsGeneration
                         var invokeThunkLib = invokeThunkInfo?.libraryName;
                         var invokeThunkHelper = invokeThunkInfo?.helperName;
 
+                        // A returned closure's INVOKER marshals its ARGUMENTS C#→Swift; a suppressed-proxy
+                        // existential arg drops its wrap fallback (GetSwiftInvokeArgExpression / struct-param
+                        // path) — a silent CONSUME degrade of this member. Pure read: byte-identical.
+                        RecordClosureConsumeDegrade(closureTypeSpec.EachArgument());
                         csWriter.WriteLines($$"""
                             unsafe {
                                 var {{ReturnLocalName}} = *(SwiftClosureData*){{ResultPtrName}};
@@ -403,6 +407,9 @@ namespace BindingsGeneration
                         var invokeThunkLib = invokeThunkInfo?.libraryName;
                         var invokeThunkHelper = invokeThunkInfo?.helperName;
 
+                        // See the sibling closure-return block above: record the returned closure's
+                        // invoker-ARGUMENT CONSUME degrade for any suppressed proxy. Pure read.
+                        RecordClosureConsumeDegrade(closureTypeSpec.EachArgument());
                         csWriter.WriteLines($$"""
                             unsafe {
                                 var {{ReturnLocalName}} = *(SwiftClosureData*){{ResultPtrName}};
@@ -753,6 +760,10 @@ namespace BindingsGeneration
                     var invokeThunkName = invokeThunkInfo?.entryPoint;
                     var invokeThunkLib = invokeThunkInfo?.libraryName;
                     var invokeThunkHelper = invokeThunkInfo?.helperName;
+
+                    // See the sibling closure-return blocks: record the returned closure's invoker-ARGUMENT
+                    // CONSUME degrade for any suppressed proxy. Pure read: byte-identical.
+                    RecordClosureConsumeDegrade(closureTypeSpec.EachArgument());
 
                     // Throwing closures need special marshalling to handle SwiftError
                     if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))

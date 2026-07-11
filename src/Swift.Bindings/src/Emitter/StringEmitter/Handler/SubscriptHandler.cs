@@ -627,6 +627,16 @@ namespace BindingsGeneration
                 // values go through ExistentialContainerFactory.GetOrCreate, which constructs no proxy.)
                 new ProjectionContext { TypeDatabase = typeDatabase, IsParameter = true, EmissionContext = emissionContext });
 
+            // Persist the CONSUME degrade for the COLLECTION subscript-setter surface: a `[any P]`/`Set`/
+            // `[K: any P]`/`(any P)?` value whose existential element's proxy was suppressed drops its
+            // per-element wrap fallback inside the leaf projection (which owns no decl) — the subscript twin
+            // of the PropertyHandler container-setter gate. Recorded here, BEFORE the string-index early
+            // return below: the fixed-block setter path (EmitCdeclSetterWithFixedBlock) still applies
+            // retProjection and drops the same fallback, so it must not skip the report row.
+            if (retProjection != null)
+                foreach (var proxyName in SuppressedProxyProjectionWalk.CollectSuppressedProxyNames(retProjection))
+                    SuppressedProxyReporting.Record(subscriptDecl, SuppressedProxyReporting.Site.ConsumeDegraded, proxyName, AccessorKind.SubscriptSetter);
+
             // @_cdecl subscript wrapper with string index params: wrap call in unsafe fixed block
             // Pass retProjection so value type conversion (e.g. string→SwiftString) is applied.
             if (hasStringIndexParam)
@@ -635,6 +645,7 @@ namespace BindingsGeneration
                     paramInfos, hasStringIndexParam, valueProjection: retProjection, isStringValue: false);
                 return;
             }
+
             if (retProjection != null)
             {
                 var (conv, requiresDisposal) = GetAccessorSetterConversion(retProjection, "value");

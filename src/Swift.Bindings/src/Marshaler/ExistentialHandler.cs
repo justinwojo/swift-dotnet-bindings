@@ -696,6 +696,70 @@ public class ExistentialHandler
     }
 
     /// <summary>
+    /// Side-effect-free mirror of the projection factory's <c>proxyClassName != null</c> gate
+    /// (<see cref="TypeProjectionFactory"/>): true when a single-protocol existential would project to a
+    /// real, emittable proxy interface (<c>I{Name}</c> / <c>IP&lt;X&gt;</c>), false when it degrades to
+    /// <c>object</c>. The <c>object</c>-degrade for a single protocol is a protocol-with-associated-types /
+    /// Self-requirement (PAT) surface: <c>any P</c> collapses to <c>object</c>, so it carries NO
+    /// <c>static __v =&gt; new {Proxy}(__v)</c> wrap fallback for a CONSUME arm to drop — reporting one
+    /// would be a false degrade row. A reporting-only walk therefore ANDs this in alongside the suppression
+    /// predicate to match <see cref="ExistentialProjection.SuppressedProxyName"/> (whose factory sets
+    /// <c>proxyClassName</c> null for the same PAT surface, keeping the projection path silent).
+    ///
+    /// <para>Stays side-effect-free — it records NOTHING to <c>AppleSupplementReferences</c>, the
+    /// <c>ReportCollector</c>, or the <c>CompositionCollector</c> — so a reporting walk may call it without
+    /// altering emitted output. Two calls it must AVOID both record the <c>Foundation.AnyError</c> supplement
+    /// for <c>Swift.Error</c>: <see cref="GetPublicExistentialType"/> (directly, and via the supplement-
+    /// recording <c>TryGetTypeRecord</c> it uses to resolve constrained generic args) and — less obviously —
+    /// <see cref="ITypeDatabase.TryGetTypeRecordWithoutSupplement"/> itself, whose resolver cascade includes
+    /// <c>SwiftErrorStrategy</c> and thus records <c>Foundation.AnyError</c> when handed <c>Swift.Error</c>.
+    /// So the well-known short-circuit below is by NAME (mirroring the factory's
+    /// <c>!TryGetWellKnownProtocolType</c> half) and runs BEFORE the TypeRecord probe — never resolving
+    /// <c>Swift.Error</c>. A constrained <c>any P&lt;Concrete&gt;</c> (generic args present) binds its
+    /// associated types at the use site and projects to <c>IP&lt;X&gt;</c>, so it is treated as a real proxy,
+    /// matching the factory's constrained-existential arm; the arg-resolvability sub-check the factory then
+    /// runs is deliberately NOT replicated (it would require the supplement-recording resolver), leaving a
+    /// constrained-but-unresolvable PAT as the one accepted, side-effect-free-mandated approximation.</para>
+    /// </summary>
+    public bool ProjectsToProxyInterface(ProtocolListTypeSpec protocolList)
+    {
+        // Dispatch exactly like GetPublicExistentialType: markers + ObjC filtered, then on count.
+        var effective = GetEffectiveProtocols(protocolList);
+        if (effective.Count != 1)
+            return false; // 0 → object/bareAny; 2+ → composition (marshals via EC2+, no single-proxy fallback)
+        var protocol = effective[0];
+
+        // Well-known (Swift.Error → Foundation.AnyError): no proxy. Matched by NAME — the factory's
+        // !TryGetWellKnownProtocolType gate — BEFORE any TypeRecord resolve, because resolving Swift.Error
+        // (even via TryGetTypeRecordWithoutSupplement's SwiftErrorStrategy cascade arm) records the
+        // Foundation.AnyError supplement, which a diagnostic-only walk must never do.
+        if (protocol.Name == "Swift.Error")
+            return false;
+
+        SwiftTypeName swiftTypeName;
+        try
+        {
+            swiftTypeName = SwiftTypeName.FromTypeSpec(protocol);
+        }
+        catch
+        {
+            return false; // malformed name → GetPublicExistentialType degrades to object
+        }
+
+        if (!_typeDatabase.TryGetTypeRecordWithoutSupplement(swiftTypeName, out var typeRecord) ||
+            typeRecord.Kind != TypeRecordKind.Protocol)
+            return false; // no TypeRecord / non-protocol (misclassified metatype) → object
+
+        // PAT / Self-requirement → object, UNLESS constrained `any P<Concrete>` (binds ATs at the use site).
+        if ((typeRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement) ||
+             typeRecord.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes)) &&
+            protocol.GenericParameters.Count == 0)
+            return false;
+
+        return true;
+    }
+
+    /// <summary>
     /// Returns the protocol interface name for public API (e.g., "IDescribable").
     /// For multi-protocol compositions, returns a combined interface name.
     /// Well-known stdlib protocols (e.g., Swift.Error) return their direct runtime types.

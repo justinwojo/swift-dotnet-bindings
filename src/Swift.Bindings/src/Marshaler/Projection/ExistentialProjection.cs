@@ -76,6 +76,30 @@ public class ExistentialProjection : ITypeProjection
     public bool IsObjCExistential => _isObjCExistential;
 
     /// <summary>
+    /// True when this existential leaf names a proxy whose EveryProtocol conformance was NOT emitted
+    /// (see the <c>proxyIsSuppressed</c> constructor parameter). A CONSUME site that drops its
+    /// <c>static __v =&gt; new {Proxy}(__v)</c> wrap fallback because of this is a degraded member — read
+    /// this together with <see cref="SuppressedProxyName"/> to record the decline. Read-only projection
+    /// of the private suppression state so a collection handler that owns the decl can walk the container
+    /// sub-projections and classify a per-element consume-degrade (the leaf itself has no owning decl).
+    /// </summary>
+    public bool ConsumeProxyIsSuppressed => _proxyIsSuppressed;
+
+    /// <summary>
+    /// The suppressed proxy class name to name in a degraded-member report row, or <c>null</c> when this
+    /// leaf's CONSUME arm never had a per-element wrap fallback to drop. Non-null ONLY for a suppressed
+    /// single-protocol <see cref="ExistentialContainer1"/> proxy — the exact shape whose CONSUME arms emit
+    /// the <c>static __v =&gt; new {Proxy}(__v)</c> fallback (see the EC1 gate on the container/element
+    /// conversions). A live proxy, a well-known/<c>object</c> leaf, an existential union, and an
+    /// EC2+/composition leaf (which marshals via <c>((ISwiftExistentialConvertible&lt;…&gt;)x).GetExistentialContainer()</c>
+    /// with NO wrap fallback either way) each yield <c>null</c>, so a suppressed composition is not
+    /// mis-recorded as a consume-degrade. Kept in lockstep with <see cref="SuppressedProxyTypeSpecWalk"/>'s
+    /// EC1 gate so the projection walk and the TypeSpec walk report the same set.
+    /// </summary>
+    public string? SuppressedProxyName =>
+        _proxyIsSuppressed && _containerType == "Swift.Runtime.ExistentialContainer1" ? _proxyClassName : null;
+
+    /// <summary>
     /// C#→Swift parameter extraction for an <c>@objc</c> existential: read the underlying ObjC object
     /// pointer (the proxy's <c>SwiftHandle</c> = <c>_swiftContainer.Payload0</c>). The argument is rooted
     /// on the caller's stack across the synchronous call, so the +0 borrow needs no extra keepalive

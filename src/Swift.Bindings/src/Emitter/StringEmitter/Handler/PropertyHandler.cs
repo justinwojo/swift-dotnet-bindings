@@ -1355,6 +1355,13 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             new ProjectionContext { TypeDatabase = propertyEnv.TypeDatabase, IsParameter = true, GenericContext = genericContext, EmissionContext = propertyEnv.EmissionContext });
         if (projection != null)
         {
+            // Persist the CONSUME degrade for the COLLECTION setter surface: a `[any P]`/`Set`/`[K: any P]`/
+            // `(any P)?` value whose existential element's proxy was suppressed drops its per-element wrap
+            // fallback inside the leaf projection (which owns no decl). The scalar-existential setter special
+            // case above already records via IsProxyNameSuppressed; this is the symmetric container gap.
+            foreach (var proxyName in SuppressedProxyProjectionWalk.CollectSuppressedProxyNames(projection))
+                SuppressedProxyReporting.Record(propertyDecl, SuppressedProxyReporting.Site.ConsumeDegraded, proxyName, AccessorKind.Setter);
+
             var (conv, requiresDisposal) = GetAccessorSetterConversion(projection, "value");
             if (conv != null)
             {
