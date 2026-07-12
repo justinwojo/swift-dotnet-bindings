@@ -736,7 +736,14 @@ public static partial class ConcreteProtocolSpecializationEmitter
             }
             else
             {
-                var (mapping, _) = CdeclReturnMapping.Classify(returnTypeSpec, typeDatabase);
+                // Property getters project the parent generic param into the return
+                // container (TypedBag<Item> → TypedBag<TcpAlbum>); classify on the
+                // substituted spec so the indirect-result decision here matches the
+                // CanEmit gate and the substituted body render below (one oracle).
+                var classifyReturnSpec = method.IsExtensionPropertyGetter
+                    ? SubstitutePairingGenericsInTypeSpec(returnTypeSpec, pairing)
+                    : returnTypeSpec;
+                var (mapping, _) = CdeclReturnMapping.Classify(classifyReturnSpec, typeDatabase);
                 needsResultPtr = mapping.Kind == CdeclReturnKind.IndirectResult;
                 directReturnMapping = mapping;
             }
@@ -1240,7 +1247,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 needsResultPtr = true;
             else if (!isStringReturn)
             {
-                var (mapping, _) = CdeclReturnMapping.Classify(returnTypeSpec, typeDatabase);
+                // Property getters carry the parent generic param into the return
+                // container; classify on the substituted spec so the indirect-result
+                // decision matches the CanEmit gate and the Swift wrapper (one oracle).
+                var classifyReturnSpec = method.IsExtensionPropertyGetter
+                    ? SubstitutePairingGenericsInTypeSpec(returnTypeSpec, pairing)
+                    : returnTypeSpec;
+                var (mapping, _) = CdeclReturnMapping.Classify(classifyReturnSpec, typeDatabase);
                 needsResultPtr = mapping.Kind == CdeclReturnKind.IndirectResult;
                 directReturnMapping = mapping;
             }
@@ -2246,6 +2259,17 @@ public static partial class ConcreteProtocolSpecializationEmitter
             TryMatchGenericParam(returnTypeSpec, pairing, out _, out returnConformer);
         bool isStringReturn = !isVoidReturn && !returnsGenericParam && WitnessDispatchEmitter.IsStringType(returnTypeSpec);
 
+        // Property getters project a bound generic that mentions a parent parameter
+        // (Collection<τ_0_0>); substitute the pairing to its concrete conformer (Collection<Song>)
+        // before classifying the @_cdecl return ABI, so this gate and both emit sites (the Swift
+        // wrapper and the C# P/Invoke) agree on ONE closed return type. Scoped to
+        // IsExtensionPropertyGetter — the only decl kind reaching this path with a τ-encoded
+        // composite return — so existing method admission stays byte-identical: returnsGenericParam
+        // and the string/Self checks above still key off the RAW spec.
+        var effectiveReturnTypeSpec = method.IsExtensionPropertyGetter
+            ? SubstitutePairingGenericsInTypeSpec(returnTypeSpec, pairing)
+            : returnTypeSpec;
+
         // Self return: @_cdecl global functions can't return Self.
         if (!isVoidReturn && !isConstructor && IsSelfReturn(returnTypeSpec))
         {
@@ -2261,8 +2285,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
         }
 
         // Unresolved generic param anywhere in the return tree (e.g. Container<T>, Container<T.Element>).
+        // A property getter's parent-param mentions are resolved by the substitution above; an
+        // associated-type or method-own param survives it and is still (correctly) rejected here.
         if (!isVoidReturn && !returnsGenericParam && !isStringReturn && !isConstructor &&
-            ContainsAnyGenericParam(returnTypeSpec))
+            ContainsAnyGenericParam(effectiveReturnTypeSpec))
         {
             rejectReason = "return type contains unresolved generic param";
             return false;
@@ -2270,7 +2296,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
 
         // Non-constructor Optional<T> return: CSM emitter lacks unwrap logic for this case.
         if (!isVoidReturn && !returnsGenericParam && !isStringReturn && !isConstructor &&
-            IsOptionalReturn(returnTypeSpec))
+            IsOptionalReturn(effectiveReturnTypeSpec))
         {
             rejectReason = "Optional return type not yet supported";
             return false;
@@ -2313,11 +2339,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
             }
             else if (!isConstructor)
             {
-                var (mapping, _) = CdeclReturnMapping.Classify(returnTypeSpec, typeDatabase);
+                var (mapping, _) = CdeclReturnMapping.Classify(effectiveReturnTypeSpec, typeDatabase);
                 if (mapping.Kind == CdeclReturnKind.IndirectResult)
                 {
                     needsIndirectResult = true;
-                    indirectReturnIsSwiftObject = returnTypeSpec is NamedTypeSpec irNamed
+                    indirectReturnIsSwiftObject = effectiveReturnTypeSpec is NamedTypeSpec irNamed
                         && typeDatabase.TryGetTypeRecord(irNamed, out var irRecord)
                         && (irRecord.Kind == TypeRecordKind.Class
                             || (irRecord.Kind == TypeRecordKind.Struct
@@ -2331,7 +2357,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     // conformer's SwiftQualifiedName because this non-generic-param arm has only the
                     // raw return TypeSpec -- no conformer object -- and Name matches the allowlist keys.
                     if (!indirectReturnIsSwiftObject
-                        && returnTypeSpec is NamedTypeSpec inlineNamed
+                        && effectiveReturnTypeSpec is NamedTypeSpec inlineNamed
                         && InlineSwiftStructAllowlist.TryGetValue(inlineNamed.Name, out var inlineRetInfo)
                         && inlineRetInfo.IsISwiftObject)
                     {
@@ -2344,7 +2370,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     // it back via MarshalFromSwift<T>, and just byte-copies then frees the wire -- no
                     // retains to manage. Admit it so typed-struct returns concretize, not only Data.
                     if (!indirectReturnIsSwiftObject
-                        && returnTypeSpec is NamedTypeSpec valueStructNamed
+                        && effectiveReturnTypeSpec is NamedTypeSpec valueStructNamed
                         && typeDatabase.TryGetTypeRecord(valueStructNamed, out var valueStructRecord)
                         && ProjectsAsBlittableValueStruct(valueStructNamed, valueStructRecord))
                     {
@@ -3298,25 +3324,31 @@ public static partial class ConcreteProtocolSpecializationEmitter
         if (typeDecl.ParentDecl is TypeDecl) return;
 
         var specializableMethods = engine.FindSpecializableMethods(typeDecl);
-        if (specializableMethods.Count == 0) return;
+        var specializableProperties = engine.FindSpecializableProperties(typeDecl);
 
         // Filter to specs whose parent generics resolved (ResolveParentSpecializableParams
         // returned non-null → all-or-nothing). The engine flags these with IsParentGeneric.
         var parentGenericSpecs = specializableMethods
             .Where(s => s.SpecializableParams.Any(p => p.IsParentGeneric))
             .ToList();
-        if (parentGenericSpecs.Count == 0) return;
+        // Property getters projecting a parent-generic container (e.g. `items: TypedBag<Item>`)
+        // are the OTHER parent-CSM source. They never appear in typeDecl.Methods, so a type whose
+        // ONLY specializable surface is such a property (MusicLibraryResponse-shaped) has zero
+        // parentGenericSpecs yet still needs its extension class. Gate on methods OR properties.
+        if (parentGenericSpecs.Count == 0 && specializableProperties.Count == 0) return;
 
         if (!WrapperValidation.IsXCFrameworkMode(typeDatabase)) return;
 
         var moduleName = typeDecl.SwiftTypeName.Module;
         var wrapperLibPath = typeDatabase.AsyncLibraryName ?? "libSwiftBindings";
 
-        // All specs share the same parent-generic param shape (same typeDecl → same
-        // generic parameters with the same resolved conformers). Derive the parent-
-        // generic param list from the first spec so we can enumerate tuples once.
-        var parentParams = parentGenericSpecs[0].SpecializableParams
-            .TakeWhile(p => p.IsParentGeneric)
+        // All specs share the same parent-generic param shape (same typeDecl → same generic
+        // parameters with the same resolved conformers). Derive the parent-generic param list
+        // from whichever source is present (properties carry the identical all-parent-generic
+        // list) so we enumerate tuples once.
+        var parentParams = (parentGenericSpecs.Count > 0
+                ? parentGenericSpecs[0].SpecializableParams.TakeWhile(p => p.IsParentGeneric)
+                : specializableProperties[0].ParentParams.AsEnumerable())
             .ToList();
         if (parentParams.Count == 0) return;
 
@@ -3432,6 +3464,24 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         moduleName, wrapperLibPath, typeDatabase, emissionContext,
                         emittedSignatures, logger, isExtension: true);
                 }
+            }
+
+            // Property getters projecting a parent-generic container: emit one closed extension
+            // getter per parent tuple (e.g. `LibraryResponse<Album>.Items() -> TypedBag<Album>`).
+            // specProp.Getter is a synthesized MethodDecl re-keyed onto the property's Swift name
+            // with IsExtensionPropertyGetter set, so the shared TryEmitConcreteOverload path
+            // renders the closed C# getter plus a `__self.name` (no-parens) Swift wrapper. The
+            // emittedSignatures set is shared with the method loop above, so a property `Items()`
+            // cannot silently collide with a method of the same projected name.
+            foreach (var specProp in specializableProperties)
+            {
+                if (!engine.ParentTupleSatisfiesMethodConstraints(specProp.Getter, typeDecl, parentTuple))
+                    continue;
+
+                TryEmitConcreteOverload(
+                    csWriter, swiftWriter, specProp.Getter, typeDecl, parentTuple,
+                    moduleName, wrapperLibPath, typeDatabase, emissionContext,
+                    emittedSignatures, logger, isExtension: true);
             }
 
             csWriter.Indent--;

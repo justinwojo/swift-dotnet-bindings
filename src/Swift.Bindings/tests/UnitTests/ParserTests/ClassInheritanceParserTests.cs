@@ -247,6 +247,66 @@ public class ClassInheritanceParserTests
         Assert.True(prop.IsFinal);
     }
 
+    [Fact]
+    public void ParseModule_PropertyWrapperProjectedValue_PreservesRawSwiftNameAsProvenance()
+    {
+        // A property-wrapper projected value `$volume` is sanitized to the C#-safe `projectedVolume`
+        // for the emitted member name, but OriginalSwiftName must retain the raw `$volume` so any
+        // Swift read (e.g. a synthesized CSM extension getter) recovers `__self.$volume` rather than
+        // the uncompilable `__self.projectedVolume`.
+        var classNode = CreateNode(kind: "TypeDecl", declKind: "Class", name: "Mixer",
+            mangledName: "$s10TestModule5MixerCN");
+        var propNode = CreateNode(kind: "Var", declKind: "Var", name: "$volume",
+            mangledName: "$s10TestModule5MixerC7$volumeSivp");
+        propNode.Children = new[] { CreateNode(kind: "TypeNominal", name: "Int") };
+
+        var getterNode = CreateNode(kind: "Accessor", declKind: "Accessor", name: "$volume_Get",
+            mangledName: "$s10TestModule5MixerC7$volumeSivg");
+        getterNode.AccessorKind = "get";
+        getterNode.Children = new[] { CreateNode(kind: "TypeNominal", name: "Int") };
+        propNode.Accessors = new[] { getterNode };
+
+        classNode.Children = new[] { propNode };
+
+        using var fixture = CreateParserWithNodes(classNode);
+        var result = fixture.Parser.ParseModule();
+
+        var cls = (ClassDecl)result.ModuleDecl.Types.Single();
+        var prop = cls.Properties.Single();
+        Assert.Equal("projectedvolume", prop.Name);
+        Assert.Equal("$volume", prop.OriginalSwiftName);
+        Assert.Equal("$volume", prop.GetSwiftName());
+    }
+
+    [Fact]
+    public void ParseModule_PlainProperty_LeavesOriginalSwiftNameNull()
+    {
+        // Control for the projected-value case: an unsanitized property carries no provenance, so
+        // GetSwiftName() falls back to Name.
+        var classNode = CreateNode(kind: "TypeDecl", declKind: "Class", name: "Mixer",
+            mangledName: "$s10TestModule5MixerCN");
+        var propNode = CreateNode(kind: "Var", declKind: "Var", name: "volume",
+            mangledName: "$s10TestModule5MixerC6volumeSivp");
+        propNode.Children = new[] { CreateNode(kind: "TypeNominal", name: "Int") };
+
+        var getterNode = CreateNode(kind: "Accessor", declKind: "Accessor", name: "volume_Get",
+            mangledName: "$s10TestModule5MixerC6volumeSivg");
+        getterNode.AccessorKind = "get";
+        getterNode.Children = new[] { CreateNode(kind: "TypeNominal", name: "Int") };
+        propNode.Accessors = new[] { getterNode };
+
+        classNode.Children = new[] { propNode };
+
+        using var fixture = CreateParserWithNodes(classNode);
+        var result = fixture.Parser.ParseModule();
+
+        var cls = (ClassDecl)result.ModuleDecl.Types.Single();
+        var prop = cls.Properties.Single();
+        Assert.Equal("volume", prop.Name);
+        Assert.Null(prop.OriginalSwiftName);
+        Assert.Equal("volume", prop.GetSwiftName());
+    }
+
     #endregion
 
     #region Test Helpers

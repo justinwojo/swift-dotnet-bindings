@@ -70,6 +70,29 @@ public class ConcreteSpecializationEngine
         List<SpecializableParam> SpecializableParams);
 
     /// <summary>
+    /// A read-only property on a generic parent whose getter returns a bound generic
+    /// that mentions a parent generic parameter (e.g. <c>items: TypedBag&lt;Item&gt;</c> on
+    /// <c>LibraryResponse&lt;Item&gt;</c>, the MusicKit <c>MusicItemCollection&lt;T&gt;</c> shape).
+    /// <para>
+    /// On the open generic shell the property type resolves the parent parameter to
+    /// <c>Swift.AnyType</c>, so PropertyHandler skips it (AnyTypeFallback). The parent-CSM
+    /// path projects it per conformer instead: <see cref="Getter"/> is a synthesized
+    /// <see cref="MethodDecl"/> (Name = the property's Swift name, <c>IsExtensionPropertyGetter</c>
+    /// = true) that the concrete-overload emitter renders as a closed extension getter.
+    /// </para>
+    /// <para>
+    /// <see cref="ParentParams"/> carries the same all-parent-generic
+    /// <see cref="SpecializableParam"/> list <see cref="ResolveParentSpecializableParams"/>
+    /// produces, so a property-only generic parent (one with no specializable methods) can
+    /// still enumerate its parent-conformer tuples.
+    /// </para>
+    /// </summary>
+    public record SpecializableProperty(
+        PropertyDecl Property,
+        MethodDecl Getter,
+        List<SpecializableParam> ParentParams);
+
+    /// <summary>
     /// A generic parameter that can be concretely specialized.
     /// <para>
     /// <see cref="CouplingConstraints"/> captures cross-param same-type constraints like
@@ -828,6 +851,104 @@ public class ConcreteSpecializationEngine
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Finds read-only properties on a generic parent whose getter returns a bound generic
+    /// that mentions a parent generic parameter (e.g. <c>items: TypedBag&lt;Item&gt;</c> on
+    /// <c>LibraryResponse&lt;Item&gt;</c>). These are AnyTypeFallback-skipped on the open shell
+    /// — the parent parameter resolves to <c>Swift.AnyType</c> — and must instead project per
+    /// conformer through the concrete-overload emitter's getter extension.
+    /// <para>
+    /// Property getters live under <see cref="PropertyDecl.Accessors"/>, NOT in
+    /// <c>typeDecl.Methods</c>, so <see cref="FindSpecializableMethods"/> never sees them. Each
+    /// discovered property carries a synthesized getter <see cref="MethodDecl"/> re-keyed onto
+    /// the property's Swift name (so the emitter renders <c>Items</c>, not <c>Items_Get</c>) with
+    /// <c>IsExtensionPropertyGetter</c> set (so the Swift wrapper reads <c>__self.items</c>).
+    /// </para>
+    /// </summary>
+    public List<SpecializableProperty> FindSpecializableProperties(TypeDecl typeDecl)
+    {
+        var result = new List<SpecializableProperty>();
+        if (!typeDecl.IsGeneric) return result;
+
+        // Every parent generic must resolve to usable conformers (all-or-nothing), the same
+        // gate the parent-only method path uses. A property-only generic parent still needs
+        // this to enumerate parent-conformer tuples in the emitter.
+        var parentSpecializableParams = ResolveParentSpecializableParams(typeDecl);
+        if (parentSpecializableParams is null) return result;
+
+        var parentParamNames = new HashSet<string>(
+            typeDecl.GenericParameters.Select(p => p.TypeName), StringComparer.Ordinal);
+
+        foreach (var property in typeDecl.Properties)
+        {
+            // Accessibility / SPI gates the MethodDecl-only CSM preflight can't see: they live
+            // on the PropertyDecl, not on the synthesized getter MethodDecl, so they'd be
+            // silently dropped if we relied on the getter's own admissibility alone.
+            if (property.IsModuleInternal || property.IsSpiProtected) continue;
+            if (property.IsStatic) continue;
+
+            var getter = property.Accessors.OfType<GetAccessorDecl>().FirstOrDefault()?.Method;
+            if (getter is null) continue;
+            // The CSM getter body is a plain instance read (`__self.name`) — reject static,
+            // async, throwing and mutating getters (no @_cdecl form for those here).
+            if (getter.MethodType == MethodType.Static) continue;
+            if (getter.IsAsync || getter.Throws || getter.IsMutating) continue;
+
+            // Only a BOUND generic (a container) that MENTIONS a parent generic parameter is in
+            // scope — the AnyTypeFallback shape. A bare parent-param return is already served by
+            // the method-CSM returnsGenericParam path, and a concrete return emits on the open
+            // shell as-is. The parent-param name set is exactly the set the emitter's pairing
+            // substitution replaces, so discovery and emission agree by construction.
+            if (getter.CSSignature.FirstOrDefault()?.SwiftTypeSpec is not NamedTypeSpec returnSpec)
+                continue;
+            if (returnSpec.GenericParameters.Count == 0) continue;
+            if (!TypeSpecHelpers.ContainsAnyTypeName(returnSpec, parentParamNames)) continue;
+            // A stdlib container of the parent param (e.g. `[Item]` → Swift.Array) is NOT the
+            // AnyTypeFallback shape: it already projects on the open generic shell as
+            // IReadOnlyList<TItem> (the factory routes it through a real ArrayProjection with the
+            // parent's C# type param, no AnyType leak). CSM-projecting it too would emit a second,
+            // shadowed `Items()` extension alongside the working property getter. Only USER-defined
+            // bound generics (which the factory returns null for → Empty context → AnyType tombstone)
+            // are the target; IsStdlibContainer is that exact null-vs-projection boundary.
+            if (TypeProjectionFactory.IsStdlibContainer(returnSpec.Name)) continue;
+
+            result.Add(new SpecializableProperty(
+                property,
+                BuildSyntheticPropertyGetter(property, getter),
+                new List<SpecializableParam>(parentSpecializableParams)));
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Re-keys a parser-created property getter (<c>{field}_Get</c>) onto the property's own
+    /// Swift name and flags it as a property read, producing the <see cref="MethodDecl"/> the
+    /// concrete-overload emitter renders as a closed extension getter. The <c>with</c> yields a
+    /// FRESH <see cref="MethodDecl"/> reference (the emission-symbol side table is keyed by
+    /// reference identity, so the synthetic never collides with the live accessor's promoted
+    /// symbol), and the copied signature/generic lists give it independent mutable containers so
+    /// a later structural edit can't alias back into the live accessor decl.
+    /// <para>
+    /// <see cref="BaseDecl.OriginalSwiftName"/> is carried from the PROPERTY: emission reads the
+    /// Swift member via the getter's <see cref="BaseDecl.GetSwiftName"/>, so a keyword-escaped
+    /// property (C# <c>_internal</c> ← Swift <c>internal</c>) must resolve to the property's Swift
+    /// identifier, not the synthetic re-keyed <see cref="BaseDecl.Name"/>.
+    /// </para>
+    /// </summary>
+    private static MethodDecl BuildSyntheticPropertyGetter(PropertyDecl property, MethodDecl getter)
+    {
+        return getter with
+        {
+            Name = property.Name,
+            OriginalSwiftName = property.OriginalSwiftName,
+            IsExtensionPropertyGetter = true,
+            IsSynthesizedAccessor = false,
+            CSSignature = new List<ArgumentDecl>(getter.CSSignature),
+            GenericParameters = new List<GenericArgumentDecl>(getter.GenericParameters),
+        };
     }
 
     /// <summary>

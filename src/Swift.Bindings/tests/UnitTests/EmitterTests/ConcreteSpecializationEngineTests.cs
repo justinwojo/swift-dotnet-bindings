@@ -842,6 +842,211 @@ public class ConcreteSpecializationEngineTests
         Assert.Contains("? 1 : 0", swift);
     }
 
+    // ==================== Typed-collection property projection (MusicItemCollection<T> shape) ====================
+    //
+    // A generic parent exposing a property whose type is a bound generic MENTIONING the parent
+    // parameter (`MusicLibraryResponse<T>.items : MusicItemCollection<T>`) resolves that parameter
+    // to Swift.AnyType on the open shell — PropertyHandler skips it (AnyTypeFallback), leaving the
+    // property dead. FindSpecializableProperties discovers exactly this shape so the emitter can
+    // project a closed per-conformer getter through the parent-CSM extension path.
+
+    [Fact]
+    public void FindSpecializableProperties_ContainerPropertyMentioningParentParam_ReturnsProperty()
+    {
+        // `Bag<T: Processable>.items : TypedBag<T>` — the AnyTypeFallback shape. The property's
+        // return is a bound generic whose argument is the parent param, so it must be discovered.
+        var db = new ResolvingTypeDatabase();
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.ConcreteItem"), "TestLib", "ConcreteItem");
+
+        var engine = new ConcreteSpecializationEngine(db);
+        var moduleDecl = CreateModuleWithConformer("TestLib", "TestLib.ConcreteItem", "TestLib.Processable");
+        engine.IndexModuleConformances(moduleDecl);
+
+        var typeDecl = CreateGenericStructWithContainerProperty(
+            "Bag", "items", "TestLib.Processable",
+            new NamedTypeSpec("TestLib.TypedBag", new NamedTypeSpec("τ_0_0")));
+
+        var result = engine.FindSpecializableProperties(typeDecl);
+
+        Assert.Single(result);
+        Assert.Equal("items", result[0].Property.Name);
+        // The synthetic getter is re-keyed onto the property's Swift name (renders `Items`, not
+        // `Items_Get`) and flagged as a property read (no call parens in the Swift wrapper).
+        Assert.Equal("items", result[0].Getter.Name);
+        Assert.True(result[0].Getter.IsExtensionPropertyGetter);
+        Assert.Single(result[0].ParentParams);
+        Assert.True(result[0].ParentParams[0].IsParentGeneric);
+    }
+
+    [Fact]
+    public void FindSpecializableProperties_ConcreteReturnProperty_ReturnsEmpty()
+    {
+        // A property whose return is a bound generic that does NOT mention the parent param
+        // (`items : TypedBag<Int>`) projects fine on the open shell — no per-T projection needed.
+        var db = new ResolvingTypeDatabase();
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.ConcreteItem"), "TestLib", "ConcreteItem");
+
+        var engine = new ConcreteSpecializationEngine(db);
+        var moduleDecl = CreateModuleWithConformer("TestLib", "TestLib.ConcreteItem", "TestLib.Processable");
+        engine.IndexModuleConformances(moduleDecl);
+
+        var typeDecl = CreateGenericStructWithContainerProperty(
+            "Bag", "items", "TestLib.Processable",
+            new NamedTypeSpec("TestLib.TypedBag", new NamedTypeSpec("Swift.Int")));
+
+        var result = engine.FindSpecializableProperties(typeDecl);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void FindSpecializableProperties_BareParentParamProperty_ReturnsEmpty()
+    {
+        // A property returning the bare parent param (`first : T`) is not a bound-generic
+        // container — GenericParameters.Count == 0 — so it is out of this projection's scope.
+        var db = new ResolvingTypeDatabase();
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.ConcreteItem"), "TestLib", "ConcreteItem");
+
+        var engine = new ConcreteSpecializationEngine(db);
+        var moduleDecl = CreateModuleWithConformer("TestLib", "TestLib.ConcreteItem", "TestLib.Processable");
+        engine.IndexModuleConformances(moduleDecl);
+
+        var typeDecl = CreateGenericStructWithContainerProperty(
+            "Bag", "first", "TestLib.Processable",
+            new NamedTypeSpec("τ_0_0"));
+
+        var result = engine.FindSpecializableProperties(typeDecl);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void FindSpecializableProperties_StaticProperty_ReturnsEmpty()
+    {
+        // Static properties have no instance receiver to extend per conformer — excluded.
+        var db = new ResolvingTypeDatabase();
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.ConcreteItem"), "TestLib", "ConcreteItem");
+
+        var engine = new ConcreteSpecializationEngine(db);
+        var moduleDecl = CreateModuleWithConformer("TestLib", "TestLib.ConcreteItem", "TestLib.Processable");
+        engine.IndexModuleConformances(moduleDecl);
+
+        var typeDecl = CreateGenericStructWithContainerProperty(
+            "Bag", "items", "TestLib.Processable",
+            new NamedTypeSpec("TestLib.TypedBag", new NamedTypeSpec("τ_0_0")),
+            isStatic: true);
+
+        var result = engine.FindSpecializableProperties(typeDecl);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void FindSpecializableProperties_NonResolvableParent_ReturnsEmpty()
+    {
+        // The parent generic must hint-resolve to usable conformers (all-or-nothing), the same
+        // gate the method path uses — otherwise the emitter has no cartesian to enumerate.
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+
+        var typeDecl = CreateGenericStructWithContainerProperty(
+            "Bag", "items", "TestLib.UnknownProtocol",
+            new NamedTypeSpec("TestLib.TypedBag", new NamedTypeSpec("τ_0_0")));
+
+        var result = engine.FindSpecializableProperties(typeDecl);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void FindSpecializableProperties_StdlibContainerReturn_ReturnsEmpty()
+    {
+        // A stdlib container of the parent param (`items : [Item]` → Swift.Array<τ_0_0>) already
+        // projects on the OPEN generic shell as IReadOnlyList<TItem> (the factory routes it through
+        // a real ArrayProjection with the parent's C# type param — no AnyType tombstone). Admitting
+        // it would emit a second, shadowed `Items()` extension alongside the working property; only
+        // USER-defined bound generics (which tombstone to AnyType) are the CSM target.
+        var db = new ResolvingTypeDatabase();
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.ConcreteItem"), "TestLib", "ConcreteItem");
+
+        var engine = new ConcreteSpecializationEngine(db);
+        var moduleDecl = CreateModuleWithConformer("TestLib", "TestLib.ConcreteItem", "TestLib.Processable");
+        engine.IndexModuleConformances(moduleDecl);
+
+        var typeDecl = CreateGenericStructWithContainerProperty(
+            "Bag", "items", "TestLib.Processable",
+            new NamedTypeSpec("Swift.Array", new NamedTypeSpec("τ_0_0")));
+
+        var result = engine.FindSpecializableProperties(typeDecl);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void FindSpecializableProperties_AsyncOrThrowsOrMutatingGetter_ReturnsEmpty()
+    {
+        // The CSM getter body is a plain synchronous instance read (`__self.name`) with no @_cdecl
+        // form for effectful accessors — async / throwing / mutating getters are excluded even
+        // though their return is the in-scope user-defined-container shape.
+        var db = new ResolvingTypeDatabase();
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.ConcreteItem"), "TestLib", "ConcreteItem");
+
+        var engine = new ConcreteSpecializationEngine(db);
+        var moduleDecl = CreateModuleWithConformer("TestLib", "TestLib.ConcreteItem", "TestLib.Processable");
+        engine.IndexModuleConformances(moduleDecl);
+
+        TypeSpec Container() => new NamedTypeSpec("TestLib.TypedBag", new NamedTypeSpec("τ_0_0"));
+
+        Assert.Empty(engine.FindSpecializableProperties(CreateGenericStructWithContainerProperty(
+            "Bag", "items", "TestLib.Processable", Container(), isAsync: true)));
+        Assert.Empty(engine.FindSpecializableProperties(CreateGenericStructWithContainerProperty(
+            "Bag", "items", "TestLib.Processable", Container(), throws: true)));
+        Assert.Empty(engine.FindSpecializableProperties(CreateGenericStructWithContainerProperty(
+            "Bag", "items", "TestLib.Processable", Container(), isMutating: true)));
+    }
+
+    [Fact]
+    public void EmitConcreteSpecializationsForGenericParent_ContainerProperty_ProjectsClosedGetterPerConformer()
+    {
+        // End-to-end unit witness: the container property projects to a closed extension getter
+        // per conformer. The public C# getter is named `Items`, receives the CLOSED parent
+        // (`Bag<ConcreteItem>`) and returns the SUBSTITUTED container (`TypedBag<ConcreteItem>` —
+        // no leaked `T`/AnyType), and the Swift wrapper READS `__self.items` with NO call parens.
+        var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.ConcreteItem"), "TestLib", "ConcreteItem");
+        // Non-frozen struct record → ClassWithOpaquePayload → indirect-result ISwiftObject, so the
+        // substituted TypedBag<ConcreteItem> return is admitted by CanEmitConcreteOverloadForPairing.
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.TypedBag"), "TestLib", "TypedBag");
+
+        var engine = new ConcreteSpecializationEngine(db);
+        var moduleDecl = CreateModuleWithConformer("TestLib", "TestLib.ConcreteItem", "TestLib.Processable");
+        engine.IndexModuleConformances(moduleDecl);
+
+        var typeDecl = CreateGenericStructWithContainerProperty(
+            "Bag", "items", "TestLib.Processable",
+            new NamedTypeSpec("TestLib.TypedBag", new NamedTypeSpec("τ_0_0")));
+
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializationsForGenericParent(
+            csWriter, swiftWriter, typeDecl, db, new ModuleEmissionContext(), engine, NullLogger.Instance);
+
+        var cs = csOutput.ToString();
+        var swift = swiftOutput.ToString();
+
+        // Closed extension getter named Items on the closed parent receiver.
+        Assert.Contains("Items(this Bag<", cs);
+        Assert.Contains("ConcreteItem", cs);
+        // The return is the SUBSTITUTED container — the parent param is closed, not leaked.
+        Assert.Contains("TypedBag<", cs);
+        Assert.DoesNotContain("Swift.AnyType", cs);
+        // Swift wrapper READS the property (no call parens) — the AnyTypeFallback getter is a read.
+        Assert.Contains("__self.items", swift);
+        Assert.DoesNotContain("__self.items()", swift);
+    }
+
     [Fact]
     public void FindSpecializableMethods_ParentOnlyPlainMethod_NonResolvableParent_ReturnsEmpty()
     {
@@ -2724,6 +2929,78 @@ public class ConcreteSpecializationEngineTests
         };
 
         method.ParentDecl = structDecl;
+        return structDecl;
+    }
+
+    // Builds `struct {typeName}<τ_0_0 : {protocolName}> { var {propertyName}: {returnSpec} { get } }`
+    // as a PropertyDecl carrying a single GetAccessorDecl, the shape FindSpecializableProperties
+    // reads (property getters live under PropertyDecl.Accessors, never in typeDecl.Methods). The
+    // getter's CSSignature is return-only (index 0 = returnSpec, no user params).
+    private static StructDecl CreateGenericStructWithContainerProperty(
+        string typeName, string propertyName, string protocolName, TypeSpec returnSpec,
+        bool isStatic = false, bool isAsync = false, bool throws = false, bool isMutating = false)
+    {
+        var protocolTypeName = SwiftTypeName.FromModuleQualifiedName(protocolName);
+
+        var parentConformance = new GenericParameterConformance(
+            new[] { "τ_0_0" }, protocolTypeName, ConformanceKind.Protocol);
+
+        var parentGenericParam = new GenericArgumentDecl(
+            "τ_0_0", "T",
+            new List<GenericParameterConformance> { parentConformance },
+            new List<GenericParameterConformance>());
+
+        var getterMethod = new MethodDecl
+        {
+            Name = $"{propertyName}_Get",
+            ParentDecl = null,
+            ModuleDecl = null,
+            MangledName = $"$s{typeName}{propertyName}g",
+            MethodType = isStatic ? MethodType.Static : MethodType.Instance,
+            IsConstructor = false,
+            Throws = throws,
+            IsAsync = isAsync,
+            IsMutating = isMutating,
+            IsSynthesizedAccessor = true,
+            UsesWrapperLibrary = true,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = "", PrivateName = "", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = returnSpec, IsGeneric = false }
+            },
+            AvailabilityAnnotations = null
+        };
+
+        var property = new PropertyDecl
+        {
+            Name = propertyName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeSpec = returnSpec,
+            HasStorage = false,
+            IsStatic = isStatic,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getterMethod } }
+        };
+
+        var structDecl = new StructDecl
+        {
+            Name = typeName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestLib.{typeName}"),
+            MangledName = "",
+            IsFrozen = true,
+            GenericParameters = new List<GenericArgumentDecl> { parentGenericParam },
+            Properties = new List<PropertyDecl> { property },
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            MetadataAccessor = "",
+            AvailabilityAnnotations = null
+        };
+
+        getterMethod.ParentDecl = structDecl;
         return structDecl;
     }
 

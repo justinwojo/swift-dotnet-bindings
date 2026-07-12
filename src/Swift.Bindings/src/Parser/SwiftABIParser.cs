@@ -3080,10 +3080,19 @@ namespace BindingsGeneration
             // Sanitize property wrapper projected value names ($volume -> projectedVolume)
             var sanitizedName = NameProvider.SanitizePropertyWrapperName(rawName);
 
+            // When sanitization renamed a projected value, preserve the raw Swift identifier as
+            // OriginalSwiftName so GetSwiftName() recovers `$volume` for Swift emission — the same
+            // provenance methods carry via ExtractUniqueNameWithOriginal. Without it, any Swift
+            // read of the member (e.g. a synthesized CSM extension getter) emits the C#-safe
+            // `__self.projectedVolume`, which swiftc rejects. Set ONLY when the name actually
+            // changed, honoring OriginalSwiftName's "null unless the parser modified Name" contract.
+            var projectedOriginalSwiftName = sanitizedName != rawName ? rawName : null;
+
             var decl = new PropertyDecl
             {
                 SwiftTypeSpec = typeSpec,
                 Name = sanitizedName,
+                OriginalSwiftName = projectedOriginalSwiftName,
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 IsStatic = node.@static ?? false,

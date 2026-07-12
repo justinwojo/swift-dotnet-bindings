@@ -569,7 +569,15 @@ public class TypeProjectionFactory
     /// Determines whether a Swift type name is a stdlib container that has a dedicated projection handler.
     /// These should not be resolved via the bound-generic optional fallback.
     /// </summary>
-    private static bool IsStdlibContainer(string name) =>
+    /// <remarks>
+    /// Also the authoritative "already projects with a real generic context" boundary consumed by
+    /// <see cref="ConcreteSpecializationEngine.FindSpecializableProperties"/>: a property whose return is
+    /// a stdlib container of the parent param (e.g. <c>[Item]</c>) projects on the open generic shell
+    /// (<c>IReadOnlyList&lt;TItem&gt;</c>) and must NOT also get a per-conformer CSM getter, whereas a
+    /// USER-defined bound generic (<c>TypedBag&lt;Item&gt;</c>) falls through to the null → AnyType
+    /// tombstone path below and IS the CSM target.
+    /// </remarks>
+    internal static bool IsStdlibContainer(string name) =>
         name is "Swift.Array" or "Swift.Dictionary" or "Swift.Set" or "Swift.Optional" or "Swift.Result"
             or "Swift.AnyKeyPath" or "Swift.PartialKeyPath" or "Swift.KeyPath"
             or "Swift.WritableKeyPath" or "Swift.ReferenceWritableKeyPath";
