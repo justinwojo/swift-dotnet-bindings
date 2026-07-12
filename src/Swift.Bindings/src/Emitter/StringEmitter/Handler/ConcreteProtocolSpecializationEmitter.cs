@@ -312,7 +312,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // the wrapper-symbol contract gate must only see symbols whose Swift wrapper
         // actually emitted.
         var csMethodName = isConstructor
-            ? $"From{string.Join("_", pairing.Select(p => SanitizeTypeName(p.Conformer.CSharpType)))}"
+            ? BuildFactoryConstructorName(pairing)
             : NameProvider.ToPascalCase(method.Name);
         var sigKey = BuildCSharpSignatureKey(csMethodName, method, pairing, typeDatabase);
         if (!emittedSignatures.Add(sigKey))
@@ -1175,7 +1175,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
     {
         var methodName = NameProvider.ToPascalCase(method.Name);
         if (isConstructor)
-            methodName = $"From{string.Join("_", pairing.Select(p => SanitizeTypeName(p.Conformer.CSharpType)))}";
+            methodName = BuildFactoryConstructorName(pairing);
 
         // Resolve the return-side conformer if the return is a generic param.
         ConcreteSpecializationEngine.ConcreteConformer? returnConformer = null;
@@ -3185,6 +3185,79 @@ public static partial class ConcreteProtocolSpecializationEmitter
     {
         return name.Replace(".", "_").Replace("<", "_").Replace(">", "")
                    .Replace(",", "_").Replace(" ", "").Replace("[", "Arr_").Replace("]", "");
+    }
+
+    /// <summary>
+    /// Builds a readable PascalCase token for the closed-specialization factory name from a
+    /// C# type expression. Each identifier fragment (split on <c>.</c>, <c>&lt;</c>, <c>&gt;</c>,
+    /// <c>,</c>, whitespace) is capitalised and concatenated with its internal casing intact, and an
+    /// array marker <c>[]</c> becomes the word <c>Array</c>. So <c>byte[]</c> → <c>ByteArray</c>
+    /// (was <c>byteArr_</c>), <c>TestLib.Outer.Inner</c> → <c>TestLibOuterInner</c>,
+    /// <c>SHA256</c> → <c>SHA256</c>, <c>HashedAuthenticationCode&lt;SHA256&gt;</c> →
+    /// <c>HashedAuthenticationCodeSHA256</c>.
+    /// <para>
+    /// Used ONLY for the C#-facing <c>From…</c> factory name — it is decoupled from the Swift
+    /// <c>@_cdecl</c> symbol, which derives from <see cref="SanitizeTypeName"/> over the conformer's
+    /// <c>SwiftQualifiedName</c>. Collision-safety does not depend on this token being injective:
+    /// the factory name flows through <see cref="BuildCSharpSignatureKey"/> (name + emitted param
+    /// types = C#'s own overload identity), so two conformers whose tokens collide either differ in
+    /// parameters (valid overload) or are a genuine duplicate signature that the emittedSignatures
+    /// dedup collapses — a token collision can never emit CS0111.
+    /// </para>
+    /// </summary>
+    internal static string BuildReadableFactoryTypeToken(string csharpType)
+    {
+        if (string.IsNullOrEmpty(csharpType))
+            return string.Empty;
+
+        var sb = new System.Text.StringBuilder();
+        var fragment = new System.Text.StringBuilder();
+
+        void FlushFragment()
+        {
+            if (fragment.Length == 0)
+                return;
+            sb.Append(char.ToUpperInvariant(fragment[0]));
+            if (fragment.Length > 1)
+                sb.Append(fragment.ToString(1, fragment.Length - 1));
+            fragment.Clear();
+        }
+
+        foreach (var c in csharpType)
+        {
+            if (char.IsLetterOrDigit(c) || c == '_')
+            {
+                fragment.Append(c);
+            }
+            else if (c == '[')
+            {
+                // Array marker: close the element fragment and spell the array-ness out.
+                FlushFragment();
+                sb.Append("Array");
+            }
+            else
+            {
+                // Any other separator (. < > , space ]) ends the current fragment.
+                FlushFragment();
+            }
+        }
+        FlushFragment();
+
+        // Drop trailing underscores so a fragment like `byteArr_` never leaks its old shape.
+        var token = sb.ToString();
+        return token.TrimEnd('_');
+    }
+
+    /// <summary>
+    /// Builds the closed-specialization constructor factory name (<c>From…</c>) for a pairing,
+    /// concatenating each conformer's readable type token. Single source of truth so the
+    /// signature-key site and the emitted-method site cannot drift.
+    /// </summary>
+    private static string BuildFactoryConstructorName(
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing)
+    {
+        return "From" + string.Concat(
+            pairing.Select(p => BuildReadableFactoryTypeToken(p.Conformer.CSharpType)));
     }
 
     // ─── Concrete parent-type name builders (generic-parent CSM path) ────

@@ -704,8 +704,9 @@ public class ConcreteSpecializationEngineTests
         var cs = csOutput.ToString();
         var swift = swiftOutput.ToString();
 
-        // (a) the per-conformer factory exists for the three-segment conformer
-        Assert.Contains("FromTestLib_Outer_Inner", cs);
+        // (a) the per-conformer factory exists for the three-segment conformer, with a readable
+        // PascalCase token (TestLib.Outer.Inner → TestLibOuterInner, not the old TestLib_Outer_Inner)
+        Assert.Contains("FromTestLibOuterInner", cs);
         // (b) it is a throwing factory — the C# P/Invoke + factory carry the Swift error-out,
         // and the @_cdecl wrapper opens a do/catch. Asserting these (not exact strings) pins the
         // throwing-ctor ABI without coupling to formatting.
@@ -755,7 +756,7 @@ public class ConcreteSpecializationEngineTests
         var swift = swiftOutput.ToString();
 
         // (i) the factory is emitted for the three-segment conformer despite the concrete Data param
-        Assert.Contains("FromTestLib_Outer_Inner", cs);
+        Assert.Contains("FromTestLibOuterInner", cs);
         // (ii) idiomatic byte[] public surface for the concrete Data param
         Assert.Contains("byte[] info", cs);
         // (iii) C# converts via FromByteArray then decomposes into two nint words; the Swift wrapper
@@ -4022,6 +4023,37 @@ public class ConcreteSpecializationEngineTests
     public void CanonicalizeConformerCSharpType_NonBare_ReturnsVerbatim(string input)
     {
         Assert.Equal(input, ConcreteProtocolSpecializationEmitter.CanonicalizeConformerCSharpType(input));
+    }
+
+    [Theory]
+    // Readable factory-token map for the closed-specialization `From…` constructor name.
+    // The old SanitizeTypeName leaked `byteArr_`, `TestLib_Outer_Inner`, etc. into public names.
+    [InlineData("byte[]", "ByteArray")]                                   // array marker spelled out (was byteArr_)
+    [InlineData("TestLib.Outer.Inner", "TestLibOuterInner")]              // dotted namespace fragments concatenated
+    [InlineData("SHA256", "SHA256")]                                      // digit-bearing designator preserved verbatim
+    [InlineData("Foundation.Data", "FoundationData")]                     // two-fragment dotted name
+    [InlineData("HashedAuthenticationCode<SHA256>", "HashedAuthenticationCodeSHA256")] // generic args folded in
+    [InlineData("Swift.Array<Byte>", "SwiftArrayByte")]                   // generic + namespace
+    [InlineData("byte[][]", "ByteArrayArray")]                            // jagged array
+    [InlineData("Byte", "Byte")]                                          // single fragment, capitalised
+    [InlineData("", "")]                                                  // empty → empty
+    public void BuildReadableFactoryTypeToken_ProducesReadablePascalToken(string input, string expected)
+    {
+        Assert.Equal(expected, ConcreteProtocolSpecializationEmitter.BuildReadableFactoryTypeToken(input));
+    }
+
+    [Theory]
+    // Collision-safety: two structurally different C# type spellings can fold to the SAME readable
+    // token. This is intentional and safe — the factory name flows through BuildCSharpSignatureKey
+    // (name + emitted param types = C#'s own overload identity), so a token collision either yields
+    // a valid overload (params differ) or a genuine duplicate that the emittedSignatures dedup
+    // collapses; it can NEVER emit CS0111. This pins the fold so a future "make it injective" change
+    // is a deliberate decision, not an accident.
+    [InlineData("Foo.Bar", "FooBar")]   // dotted
+    [InlineData("FooBar", "FooBar")]    // already one fragment — collides with the dotted form
+    public void BuildReadableFactoryTypeToken_SeparatorVariants_FoldToSameToken(string input, string folded)
+    {
+        Assert.Equal(folded, ConcreteProtocolSpecializationEmitter.BuildReadableFactoryTypeToken(input));
     }
 
     #region SubstituteSelfAndPairingGenericsInTypeSpec — return-type closure
