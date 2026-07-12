@@ -404,6 +404,10 @@ namespace BindingsGeneration
                 emissionCtx?.PushTypeNesting(typeNameWithGenerics);
                 base.HandleBaseDecl(csWriter, swiftWriter, classDecl.Types, conductor, env.TypeDatabase, childContext);
                 emissionCtx?.PopTypeNesting();
+                // Demote the raw makeAsyncIterator to [EditorBrowsable(Never)] BEFORE the
+                // method loop when this type gets the IAsyncEnumerable bridge below, so the
+                // idiomatic await-foreach surface — not the raw factory — shows in IntelliSense.
+                AsyncSequenceEmitter.TryHideRawIteratorSurface(classDecl, env.TypeDatabase);
                 base.HandleBaseDecl(csWriter, swiftWriter, classDecl.Methods, conductor, env.TypeDatabase, childContext, propertyNames);
 
                 // Emit concrete protocol specializations (e.g., func hash<D: DataProtocol>(data: D))

@@ -314,6 +314,10 @@ namespace BindingsGeneration
         private void EmitSafetyObsolete(CSharpWriter csWriter)
         {
             bool hasJitRisk = false;
+            // Tracks whether an [EditorBrowsable(Never)] has already been written for this
+            // method. EditorBrowsableAttribute is AllowMultiple=false, so the several hide
+            // conditions below must never emit it twice (CS0579).
+            bool editorBrowsableNeverEmitted = false;
             var issues = new List<string>();
 
             // Merge availability deprecation into safety obsolete
@@ -376,6 +380,7 @@ namespace BindingsGeneration
                     if (hasJitRisk)
                     {
                         csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
+                        editorBrowsableNeverEmitted = true;
                     }
                 }
                 else
@@ -385,12 +390,32 @@ namespace BindingsGeneration
                 }
             }
 
+            // The three IntelliSense-hide conditions below are NOT mutually exclusive in the
+            // type system: EditorBrowsableAttribute is AllowMultiple=false, so emitting it twice
+            // on one method is CS0579 and the whole binding fails to compile. Emit it at most
+            // once — later conditions no-op if an earlier one already wrote the attribute.
+
             // Hide original method when a simplified throwing closure overload exists.
             // The post-processor emits the user-facing convenience overload (Action/Func params);
             // this hides the raw SwiftResult-based signature from IntelliSense.
-            if (!_env.MethodDecl.IsAccessor && _env.MethodDecl.HasThrowingClosureSimplification)
+            if (!editorBrowsableNeverEmitted && !_env.MethodDecl.IsAccessor && _env.MethodDecl.HasThrowingClosureSimplification)
             {
                 csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
+                editorBrowsableNeverEmitted = true;
+            }
+
+            // Hide the raw makeAsyncIterator once the IAsyncEnumerable bridge gives consumers
+            // the idiomatic `await foreach` path. The method stays public and callable for
+            // advanced use; this only removes it from IntelliSense. The flag is set by the host
+            // handler ONLY when the Element gate succeeds, so a sequence with no bridge keeps
+            // its raw factory visible as the sole consumption path. In today's fixtures
+            // makeAsyncIterator carries a @_cdecl method wrapper (so hasJitRisk is false) and no
+            // throwing closures, so it hits only this branch — but the guard makes the
+            // single-attribute guarantee structural rather than incidental.
+            if (!editorBrowsableNeverEmitted && !_env.MethodDecl.IsAccessor && _env.MethodDecl.HideRawAsyncIteratorSurface)
+            {
+                csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
+                editorBrowsableNeverEmitted = true;
             }
         }
 

@@ -267,4 +267,149 @@ public class AsyncSequenceTests : TestBase
         AssertTrue(collected.Count < 100, "Cancelled iteration must short-circuit before upTo=100");
         TestLogger.Info($"CounterSequence(100) cancelled after {collected.Count} elements");
     }
+
+    /// <summary>
+    /// A Swift <c>next() async throws</c> that throws mid-stream must surface as a
+    /// .NET exception at the <c>await foreach</c> boundary. The bridge only
+    /// <c>await</c>s <c>NextAsync(ct)</c>, so a faulted Task propagates through the
+    /// generated async iterator state machine and rethrows. The pre-throw elements
+    /// must still be yielded in order before the exception. Mirrors StoreKit
+    /// <c>Transaction.Transactions</c> whose verification can fail mid-stream.
+    /// </summary>
+    public async Task TestThrowingSequenceRethrowsAsDotNetException()
+    {
+        var seq = new ThrowingCounterSequence(3); // yields 1, 2, then throws on the 3rd next()
+
+        var collected = new List<int>();
+        Exception? caught = null;
+        try
+        {
+            await foreach (var item in seq)
+            {
+                collected.Add(item);
+                if (collected.Count >= 10) break; // safety: fixture must throw before this
+            }
+        }
+        catch (Exception ex)
+        {
+            caught = ex;
+        }
+
+        AssertTrue(caught != null,
+            "A Swift throw inside next() must surface as a .NET exception under await foreach");
+        AssertEqual(2, collected.Count,
+            "The two pre-throw elements must be yielded in order before the exception");
+        AssertEqual(1, collected[0], "first pre-throw element");
+        AssertEqual(2, collected[1], "second pre-throw element");
+        TestLogger.Info($"ThrowingCounterSequence rethrew {caught?.GetType().Name} after {collected.Count} elements");
+    }
+
+    /// <summary>
+    /// Mid-stream cancellation must stop the sequence AND leak nothing. The Element
+    /// is a <c>TrackedRef</c> (a class counted by <see cref="LifetimeTracker"/>): after
+    /// cancelling partway through and disposing each drained element, the bridge's
+    /// <c>finally</c> disposes the Swift iterator and every produced element must
+    /// ARC-release exactly once, so the tracked live-count returns to zero. A leak
+    /// (an undisposed element, or the iterator retaining produced elements past
+    /// cancel) leaves the count above zero and this goes red. Pairs the
+    /// cancellation-stops assertion with the ownership assertion the plain
+    /// <c>CounterSequence</c> cancel test cannot make.
+    /// </summary>
+    public async Task TestTrackedRefSequenceMidStreamCancelNoLeak()
+    {
+        DrainFinalizers();
+        LifetimeTracker.Reset();
+
+        using var cts = new CancellationTokenSource();
+        var collected = new List<int>();
+
+        await WithTimeout(Task.Run(async () =>
+        {
+            var seq = new TrackedRefSequence(100);
+            try
+            {
+                await foreach (var item in seq.WithCancellation(cts.Token))
+                {
+                    collected.Add(item.Tag);
+                    item.Dispose();
+                    if (collected.Count >= 2)
+                    {
+                        cts.Cancel(); // cancel mid-stream — the next NextAsync(ct) must stop iteration
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected — mid-stream cancel surfaces as OperationCanceledException.
+            }
+        }), DefaultAsyncTimeout);
+
+        AssertTrue(collected.Count < 100, "mid-stream cancel must short-circuit before upTo=100");
+        AssertTrue(collected.Count >= 2, "must drain the elements produced before the cancel");
+        AssertTrue(collected[0] == 1 && collected[1] == 2,
+            $"TrackedRef tags must round-trip [1,2]; got [{string.Join(",", collected)}]");
+
+        // AssertNoLeaks drains finalizers and, if anything still looks live, evicts stale
+        // conservative-stack roots before re-checking — so a genuine leak still fails at
+        // exact-zero while a Mono phantom straggler from the create-and-abandon churn doesn't
+        // flake this red. Stronger than a bare AssertLiveCount snapshot for this shape.
+        LifetimeTracker.AssertNoLeaks(
+            "mid-stream cancel must dispose the Swift iterator (bridge finally) and leak no TrackedRef element");
+        TestLogger.Info($"TrackedRefSequence mid-stream cancel after {collected.Count} elements, ARC balanced to 0");
+    }
+
+    /// <summary>
+    /// An AsyncSequence reached INDIRECTLY through a computed property must still
+    /// carry the <c>IAsyncEnumerable&lt;T&gt;</c> surface so <c>await foreach</c> works
+    /// on the member. This is the real StoreKit/MusicKit shape
+    /// (<c>Transaction.updates</c>, <c>Storefront.updates</c>) — consumers never
+    /// construct the sequence directly.
+    /// </summary>
+    public async Task TestAsyncSequenceExposedAsProperty()
+    {
+        var provider = new AsyncSequenceProvider(4);
+
+        var collected = new List<int>();
+        await foreach (var item in provider.Counters)
+        {
+            collected.Add(item);
+        }
+
+        AssertEqual(4, collected.Count, "property-exposed AsyncSequence must yield seed elements");
+        AssertEqual(1, collected[0], "first element");
+        AssertEqual(4, collected[3], "last element");
+        TestLogger.Info($"AsyncSequenceProvider.Counters await foreach -> [{string.Join(", ", collected)}]");
+    }
+
+    /// <summary>
+    /// An AsyncSequence returned from a method must also carry the
+    /// <c>IAsyncEnumerable&lt;T&gt;</c> surface so <c>await foreach</c> works on the
+    /// return value. Complements the property path.
+    /// </summary>
+    public async Task TestAsyncSequenceReturnedFromMethod()
+    {
+        var provider = new AsyncSequenceProvider(0);
+
+        var collected = new List<int>();
+        await foreach (var item in provider.MakeCounters(3))
+        {
+            collected.Add(item);
+        }
+
+        AssertEqual(3, collected.Count, "method-returned AsyncSequence must yield upTo elements");
+        AssertEqual(1, collected[0], "first element");
+        AssertEqual(3, collected[2], "last element");
+        TestLogger.Info($"AsyncSequenceProvider.MakeCounters(3) await foreach -> [{string.Join(", ", collected)}]");
+    }
+
+    /// <summary>Forces finalization so <see cref="LifetimeTracker"/> observes released refs.</summary>
+    private static void DrainFinalizers()
+    {
+        for (int i = 0; i < 4; i++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
+        GC.Collect();
+    }
 }

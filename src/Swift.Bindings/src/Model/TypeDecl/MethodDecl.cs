@@ -288,6 +288,19 @@ namespace BindingsGeneration
         public bool HasThrowingClosureSimplification { get; set; } = false;
 
         /// <summary>
+        /// When true, this is the raw <c>makeAsyncIterator()</c> factory of an
+        /// AsyncSequence-conforming type whose <c>IAsyncEnumerable&lt;T&gt;</c> bridge
+        /// was emitted, so consumers have the idiomatic <c>await foreach</c> path.
+        /// The method stays public and callable for advanced use, but gets
+        /// <c>[EditorBrowsable(Never)]</c> so it no longer clutters IntelliSense.
+        /// Set by the host handler (via <see cref="AsyncSequenceEmitter.TryHideRawIteratorSurface"/>)
+        /// ONLY when the Element gate succeeds — a sequence whose Element is
+        /// unprojectable emits no bridge, so its raw factory stays visible as the
+        /// sole consumption path.
+        /// </summary>
+        public bool HideRawAsyncIteratorSurface { get; set; } = false;
+
+        /// <summary>
         /// When true, one or more parameters of this method are Swift variadic parameters
         /// (e.g., String..., Disposable...). The ABI JSON represents these as Array&lt;T&gt;,
         /// but the actual Swift API expects T... — passing [T] where T... is expected causes

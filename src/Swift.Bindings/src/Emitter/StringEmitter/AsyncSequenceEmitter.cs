@@ -15,6 +15,41 @@ namespace BindingsGeneration;
 internal static class AsyncSequenceEmitter
 {
     /// <summary>
+    /// Marks the raw <c>makeAsyncIterator()</c> factory <c>[EditorBrowsable(Never)]</c>
+    /// when <paramref name="typeDecl"/> will get the <c>IAsyncEnumerable&lt;T&gt;</c>
+    /// bridge, so the idiomatic <c>await foreach</c> surface — not the raw Swift
+    /// iterator factory — is what appears in IntelliSense. Must be called BEFORE the
+    /// type's method loop runs (the flag is read at signature-attribute emission time).
+    /// No-op when the type is not an AsyncSequence or its Element gate fails: in that
+    /// case no bridge is emitted, so the raw factory stays visible as the only way to
+    /// consume the sequence. Gates on the SAME <see cref="AsyncSequenceHandler.TryResolveElementCSharpType"/>
+    /// predicate that <see cref="TryEmitAsyncEnumerableBridge"/> uses, so the two can
+    /// never disagree about whether the bridge exists. Deliberately demotes the METHOD
+    /// only, not the nested iterator type — the nested type is only reachable through
+    /// the now-hidden factory, and hiding a returned type is the riskier change.
+    /// </summary>
+    public static void TryHideRawIteratorSurface(
+        TypeDecl typeDecl,
+        ITypeDatabase typeDatabase)
+    {
+        if (!AsyncSequenceHandler.IsAsyncSequence(typeDecl))
+            return;
+
+        var handler = new AsyncSequenceHandler(typeDatabase);
+        if (!handler.TryResolveElementCSharpType(typeDecl, out _, out _))
+            return;
+
+        // Same makeAsyncIterator match AsyncSequenceHandler.TryResolveElementCSharpType
+        // uses (Swift-cased name + PascalCased fallback).
+        var makeIter = typeDecl.Methods.FirstOrDefault(m =>
+            !m.IsConstructor &&
+            m.CSSignature.Count >= 1 &&
+            (m.Name == "makeAsyncIterator" || m.Name == "MakeAsyncIterator"));
+        if (makeIter != null)
+            makeIter.HideRawAsyncIteratorSurface = true;
+    }
+
+    /// <summary>
     /// Writes the <c>GetAsyncEnumerator</c> method and a private async-iterator
     /// helper to <paramref name="csWriter"/> when <paramref name="typeDecl"/>
     /// conforms to AsyncSequence and its Element type can be resolved.

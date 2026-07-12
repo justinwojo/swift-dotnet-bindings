@@ -63,6 +63,37 @@ public class AsyncSequenceHandlerTests
         Assert.False(handler.TryResolveElementCSharpType(notAsyncSeq, out _, out _));
     }
 
+    [Fact]
+    public void TryHideRawIteratorSurface_ResolvableElement_DemotesMakeAsyncIterator()
+    {
+        // When the Element gate succeeds, the IAsyncEnumerable<T> bridge is emitted, so the
+        // raw makeAsyncIterator factory is demoted to [EditorBrowsable(Never)] — consumers
+        // get the idiomatic await-foreach surface and the raw factory no longer clutters
+        // IntelliSense (it stays public + callable).
+        var asyncSeq = BuildAsyncSequence(elementSpec: new NamedTypeSpec("Swift.Int"));
+        var makeIter = asyncSeq.Methods.Single(m => m.Name == "makeAsyncIterator");
+        Assert.False(makeIter.HideRawAsyncIteratorSurface); // precondition: default off
+
+        AsyncSequenceEmitter.TryHideRawIteratorSurface(asyncSeq, new StubDb());
+
+        Assert.True(makeIter.HideRawAsyncIteratorSurface);
+    }
+
+    [Fact]
+    public void TryHideRawIteratorSurface_UnprojectableElement_KeepsMakeAsyncIteratorVisible()
+    {
+        // An Element that does not project to a real C# type (falls back to "object")
+        // emits NO bridge — so the raw makeAsyncIterator MUST stay visible as the only
+        // way to consume the sequence. Gating the demotion on the SAME predicate the
+        // bridge uses keeps the two from disagreeing.
+        var asyncSeq = BuildAsyncSequence(elementSpec: new NamedTypeSpec("M.SelfTyped"));
+        var makeIter = asyncSeq.Methods.Single(m => m.Name == "makeAsyncIterator");
+
+        AsyncSequenceEmitter.TryHideRawIteratorSurface(asyncSeq, new StubDb());
+
+        Assert.False(makeIter.HideRawAsyncIteratorSurface);
+    }
+
     private static StructDecl BuildAsyncSequence(NamedTypeSpec elementSpec)
     {
         // Iterator struct M.Updates.AsyncIterator with `next() -> Optional<Element>`.
