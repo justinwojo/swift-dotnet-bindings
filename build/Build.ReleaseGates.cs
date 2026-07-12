@@ -66,6 +66,12 @@ partial class Build
     // build failure inside a leg is captured as that leg's manifest entry rather than aborting the
     // orchestrator before the manifest is written. The in-process structural leg self-provisions via DotNetPack.
     Target ReleaseGates => _ => _
+        // Pure ordering edge: like SeedApiManifestBaseline, this is a standalone sink with no
+        // dependents, so Nuke's total-order-over-sinks requirement rejects the plan ("Incomplete
+        // target definition order") unless it is ordered against the other maintenance sinks. It
+        // peels after the seed chain's last link (SeedApiManifestBaseline); the body never observes
+        // the edge, and .After (unlike .DependsOn) does not pull the seed target into a solo run.
+        .After(SeedApiManifestBaseline)
         .Description("Composes the release-relevant gate legs (unit tests, strict compile-only " +
                      "binding-tests, PackGate, appstore-hygiene structural) and writes a JSON result " +
                      "manifest recording every leg as pass|fail|skipped. Not wired into CI.")
@@ -136,6 +142,10 @@ partial class Build
     // orchestrate once -> attest N -> check; never re-orchestrate after attesting (the wipe is
     // intentional). Not wired into CI — an RC-checklist primitive like ReleaseGates itself.
     Target ReleaseGatesAttest => _ => _
+        // Pure ordering edge continuing the sink chain: attest peels after ReleaseGates (the intended
+        // sequence is orchestrate-once -> attest-N -> check). Satisfies Nuke's total-order-over-sinks
+        // requirement without pulling ReleaseGates into a solo attest run (.After, not .DependsOn).
+        .After(ReleaseGates)
         .Description("Records an ATTENDED release-gate leg's result into the persisted ReleaseGates " +
                      "manifest: --result pass flips an attended leg to pass with evidence; " +
                      "--result waived|accepted attaches a resolving disposition to a not-run skip. " +
