@@ -1010,7 +1010,18 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             csWriter.WriteLine($"{csTypeName} {interfaceName}.{originalName}");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            csWriter.WriteLine($"get => {renamedName};");
+            // If the renamed public getter is compile-poisoned (SB0006) — its suppressed-proxy read can
+            // only throw — the bridge must NOT read the poisoned public property (`get => {renamedName}`
+            // would be a CS0619 build error). Emit a direct throw instead, so this explicit-interface read
+            // stays a *runtime* throw like the interface contract it fulfills (interface-contract reads stay
+            // runtime-throws, never compile-poisoned). A direct throw covers BOTH poison shapes uniformly —
+            // the scalar/optional-existential getter (which delegates to a restubbed private accessor) and
+            // the collection/optional-element getter (whose private accessor returns the raw type, so the
+            // bridge cannot delegate to it either).
+            if (validatorEmissionCtx?.WasGetterProduceThrow(propertyDecl) == true)
+                csWriter.WriteLine($"get => throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
+            else
+                csWriter.WriteLine($"get => {renamedName};");
             if (hasSetter)
                 csWriter.WriteLine($"set => {renamedName} = value;");
             csWriter.Indent--;
@@ -1035,6 +1046,17 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // proxy wrapping/unwrapping via WrapperEmitter.Return — just delegate directly
         if (isExistential || isOptionalExistential)
         {
+            // If the private accessor {methodName}() restubbed to a suppressed-proxy throw (recorded by
+            // WrapperEmitter, which cannot poison the private accessor without breaking this delegation),
+            // poison the PUBLIC getter at compile time (SB0006). The delegation body stays as the runtime
+            // backstop; where a setter exists it remains usable.
+            if (propertyEnv.EmissionContext?.WasAccessorProduceThrow(getter.Method) == true)
+            {
+                WrapperEmitter.EmitSuppressedProxyReadPoison(csWriter);
+                // Record property-level so a CS0542 interface bridge routes its read to a throw (not the
+                // poisoned public property → CS0619). See ModuleEmissionContext._produceThrowGetters.
+                propertyEnv.EmissionContext?.RecordGetterProduceThrow(propertyDecl);
+            }
             csWriter.WriteLine($"get => {methodName}();");
             return;
         }
@@ -1081,8 +1103,14 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 // delegates to a wrapper accessor that WrapperEmitter restubs) and the retired CoGater's
                 // public-member rewrite. The throw fires during pure string projection (no getter body
                 // written yet), so this is a clean check-via-catch with nothing to roll back (Hazard D).
+                // Poison the getter at compile time (SB0006) so reads fail visibly, not just at runtime.
+                WrapperEmitter.EmitSuppressedProxyReadPoison(csWriter);
                 csWriter.WriteLine($"get => throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
                 SuppressedProxyReporting.Record(propertyDecl, SuppressedProxyReporting.Site.ProduceThrow, ex.ProxyClassName, AccessorKind.Getter);
+                // Record property-level so a CS0542 interface bridge routes its read to a throw (not the
+                // poisoned public property → CS0619). This path has no accessor side-table entry (the
+                // private accessor returns the raw type, un-restubbed), so the bridge cannot delegate to it.
+                propertyEnv.EmissionContext?.RecordGetterProduceThrow(propertyDecl);
                 return;
             }
             if (conv != null)

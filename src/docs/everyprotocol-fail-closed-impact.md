@@ -1,13 +1,26 @@
 # EveryProtocol fail-closed — public-surface impact
 
-**Scope:** RealityFoundation, RoomPlan, BlinkIDUX. **Generated:** 2026-07-10, locally at HEAD
-`3df00117` **plus the consume-degrade reporting-completeness change** (this commit), iOS-simulator
-apple-framework / manual mode (`nuke validate --filter <lib>`). Local analysis only — no packing, no
-publishing. **Baseline for "before":** the 2026-06-27 binding audits
+**Scope:** RealityFoundation, RoomPlan, BlinkIDUX. **Generated:** 2026-07-12, locally at HEAD
+`3df00117` **plus the consume-degrade reporting-completeness change and the produce-throw
+compile-poison change** (this session), iOS-simulator apple-framework / manual mode
+(`nuke validate --filter <lib>`). Local analysis only — no packing, no publishing. **Baseline for
+"before":** the 2026-06-27 binding audits
 (`src/docs/BindingAudit/{RealityFoundation,RoomPlan,BlinkIDUX}.md`), which reflect the shipped
 0.17.0-era output.
 
-> **Update (this commit):** the consume-degrade coverage gap the earlier revision of this report
+> **Update (compile-poison, this session):** every **produce-throw** read/return is now
+> **compile-time-visible**. In front of the throwing stub the generator emits
+> `[Obsolete("…", error: true, DiagnosticId = "SB0006", UrlFormat = …)]`, so a consumer that reads a
+> suppressed-proxy getter/return gets a **build error (SB0006)**, not a silent runtime
+> `NotSupportedException`. The throwing body stays underneath as a defense-in-depth backstop. This is
+> **report-parity-preserving and additive to the emitted C#**: RealityFoundation still records its 10
+> rows (2 SB0006 poison sites for the 2 produce-throw getters) and RoomPlan its 2 rows (1 poison site);
+> only the `[Obsolete]` attribute lines are added to the `.cs`, and both libraries recompile clean
+> (the class's own internal reads route through the un-poisoned private `{Name}_Get()` accessor, so the
+> marker never self-errors). **consume-degrade** rows are unchanged — a setter/param that still
+> round-trips Swift-vended conformers is *not* poisoned (the assign-only surface stays usable).
+
+> **Update (reporting completeness, prior commit):** the consume-degrade coverage gap the earlier revision of this report
 > flagged is now **closed**. Every consume site that drops the per-element wrap fallback for a
 > suppressed proxy — the collection-element path plus enum-case construction, closure-return/-arg, and
 > the reverse-dispatch owned getters — now routes through `SuppressedProxyReporting`, so
@@ -24,7 +37,10 @@ When a Swift protocol's `{Protocol}Proxy` reverse-dispatch conformance cannot be
 generator **keeps** the surrounding member but degrades its behaviour:
 
 - **produce-throw** — a getter / return that could only be produced by constructing the missing proxy
-  emits a throwing stub (`NotSupportedException`).
+  is **compile-poisoned**: the member (or single accessor) carries
+  `[Obsolete("…", error: true, DiagnosticId = "SB0006")]`, so any consumer read is a **build error**,
+  and a throwing stub (`NotSupportedException`) stays underneath as a runtime backstop. The read can
+  therefore never be a *silent* runtime trap — it fails visibly at compile time or is absent.
 - **consume-degraded** — a setter / parameter still round-trips **Swift-vended** conformers, but a
   **C#-authored** conformer cannot be marshalled in (there is no proxy to wrap it). This is **not** a
   silent no-op: dropping the wrap fallback routes the value through the no-fallback
@@ -53,8 +69,9 @@ now promoted to a classified `SuppressedProxyMemberDegraded` skip row
 (disposition `KnownLimitation`) in `binding-report.json`, instead of being invisible. So "which
 members disappear under fail-closed" is really **"which public members the report now flags as
 degraded"** — the tables below — so the owner can make per-library tier calls. Every one of these
-members was already degraded in 0.17.0: a **produce-throw** getter is fully non-functional (always
-throws), while a **consume-degraded** setter/param is functional *only* for Swift-vended conformers and
+members was already degraded in 0.17.0: a **produce-throw** getter is fully non-functional (now a
+compile-time SB0006 build error on read, throwing stub underneath), while a **consume-degraded**
+setter/param is functional *only* for Swift-vended conformers and
 throws `InvalidCastException` for a C#-authored one. Either way there was never a working
 C#-conformer path — a consumer that exercised it got an exception.
 
@@ -90,8 +107,8 @@ Members that are simply **absent for other reasons** (e.g. `UnsupportedExistenti
 
 | Member | Kind | Degradation | Root-cause proxy | Skip reason (disposition) | What the consumer loses / was getting before |
 |---|---|---|---|---|---|
-| `ModelComponent.materials` (getter) | property getter | produce-throw | `MaterialProxy` | `SuppressedProxyMemberDegraded` (KnownLimitation) | Cannot **read** a model's material list — the getter throws `NotSupportedException`. The setter emits and accepts **Swift-vended** materials, but throws `InvalidCastException` for a C#-authored `IMaterial` (the setter is **now recorded** as its own collection-element consume-degrade row — see below). Before: identical throwing getter (audit "HIGH"). |
-| `Scene.synchronizationService` (getter) | method | produce-throw | `SynchronizationServiceProxy` | `SuppressedProxyMemberDegraded` (KnownLimitation) | Cannot read the multipeer sync service. Collaboration-only surface (audit "Low"). Before: throwing getter. |
+| `ModelComponent.materials` (getter) | property getter | produce-throw | `MaterialProxy` | `SuppressedProxyMemberDegraded` (KnownLimitation) | Cannot **read** a model's material list — reading the getter is now a **compile error (SB0006)**, throwing stub underneath. The setter emits and accepts **Swift-vended** materials, but throws `InvalidCastException` for a C#-authored `IMaterial` (the setter is **now recorded** as its own collection-element consume-degrade row — see below). Before: identical throwing getter (audit "HIGH"). |
+| `Scene.synchronizationService` (getter) | method | produce-throw | `SynchronizationServiceProxy` | `SuppressedProxyMemberDegraded` (KnownLimitation) | Cannot read the multipeer sync service — the getter is **compile-poisoned (SB0006)**. Collaboration-only surface (audit "Low"). Before: throwing getter. |
 | `Scene.synchronizationService` (setter) | property | consume-degraded | `SynchronizationServiceProxy` | `SuppressedProxyMemberDegraded` (KnownLimitation) | Cannot install a **C#-authored** sync service — the set **throws `InvalidCastException`** at the marshalling boundary; a Swift-vended service would still round-trip. Practically nil — custom C# sync services are not a real use case. |
 | `CustomMaterial.init` (×2 overloads) | initializer | consume-degraded | `MaterialProxy` | `SuppressedProxyMemberDegraded` (KnownLimitation) | Passing a **C#-authored** `Material` into `CustomMaterial`'s init **throws `InvalidCastException`**; Swift SDK materials (`SimpleMaterial`, `PhysicallyBasedMaterial`, …) are Swift-vended and pass normally. Practically nil. |
 | `ModelComponent.materials` (setter) | property setter | consume-degraded *(collection element)* | `MaterialProxy` | `SuppressedProxyMemberDegraded` (KnownLimitation) | Assigning a `[Material]` whose elements are **C#-authored** `IMaterial`s **throws `InvalidCastException`** per element; a list of Swift-vended materials round-trips. **Newly recorded** — the per-element decline is decided in the leaf `ExistentialProjection` and is now surfaced at the property handler. Before: identical throwing setter, unflagged. |
@@ -159,7 +176,7 @@ fallback for a suppressed proxy now lands as a classified row.
 
 | Member | Kind | Degradation | Root-cause proxy | Skip reason (disposition) | What the consumer loses / was getting before |
 |---|---|---|---|---|---|
-| `RoomCaptureView.delegate` (getter) | method | produce-throw | `RoomCaptureViewDelegateProxy` | `SuppressedProxyMemberDegraded` (KnownLimitation) | Cannot read back the assigned view delegate — the getter throws `NotSupportedException` (so `if (view.Delegate != null)` throws rather than returning null). Before: identical throwing getter. |
+| `RoomCaptureView.delegate` (getter) | method | produce-throw | `RoomCaptureViewDelegateProxy` | `SuppressedProxyMemberDegraded` (KnownLimitation) | Cannot read back the assigned view delegate — reading the getter is now a **compile error (SB0006)** (so `if (view.Delegate != null)` no longer compiles), throwing stub underneath. Before: identical throwing getter. |
 | `RoomCaptureView.delegate` (setter) | property | consume-degraded | `RoomCaptureViewDelegateProxy` | `SuppressedProxyMemberDegraded` (KnownLimitation) | **Real loss:** assigning a C#-authored `IRoomCaptureViewDelegate` compiles but **throws `InvalidCastException`** at the marshalling boundary (there is no proxy to wrap it), so scan-completion callbacks can never be delivered to a C# delegate. Workaround: the `RoomCaptureSession.Delegate` (session-delegate) path is fully functional. Before: identical throw. |
 
 **Proxy classes not emitted (root cause, pre-existing):** `RoomCaptureViewDelegateProxy` (class-bound
@@ -179,7 +196,7 @@ members surface under `UnsupportedExistential`/`AnyTypeFallback` instead (pre-ex
 
 | Member | Kind | Degradation | Root-cause proxy | Skip reason (disposition) | What the consumer loses / was getting before |
 |---|---|---|---|---|---|
-| `BlinkIDAnalyzer.events` (getter) | method | produce-throw | `EventStreamProxy` | `SuppressedProxyMemberDegraded` (KnownLimitation) | Cannot read the raw `events` `EventStream` — the getter throws `NotSupportedException`. The supported path is the concrete `BlinkIDEventStream.Stream` (`IAsyncEnumerable`), which works. Before: identical throwing getter. |
+| `BlinkIDAnalyzer.events` (getter) | method | produce-throw | `EventStreamProxy` | `SuppressedProxyMemberDegraded` (KnownLimitation) | Cannot read the raw `events` `EventStream` — the getter is **compile-poisoned (SB0006)**, throwing stub underneath. The supported path is the concrete `BlinkIDEventStream.Stream` (`IAsyncEnumerable`), which works. Before: identical throwing getter. |
 
 **Proxy classes not emitted (root cause, pre-existing):** `EventStreamProxy`,
 `ScanningResultProtocolProxy`, `CameraFrameAnalyzerProxy` — all associated-type/Self-constrained. Only
@@ -224,8 +241,9 @@ report previously tracked as a follow-up is now closed.
 - The only **functionally material** degraded member is **`RoomCaptureView.delegate` (setter)** —
   assigning a C#-authored delegate throws `InvalidCastException` at the marshalling boundary — and it has a
   documented, fully-functional workaround (`RoomCaptureSession.Delegate`).
-- **`ModelComponent.materials` (getter)** is the highest-visibility throwing getter (every `ModelEntity`
-  user can hit it). Its **setter and the `ModelComponent`/`ModelEntity` `[Material]` initializers** accept
+- **`ModelComponent.materials` (getter)** is the highest-visibility produce-throw getter (every
+  `ModelEntity` user can hit it) — now a **compile error (SB0006)** on read rather than a silent runtime
+  throw. Its **setter and the `ModelComponent`/`ModelEntity` `[Material]` initializers** accept
   Swift-vended materials but throw `InvalidCastException` for a C#-authored `IMaterial` — and those five
   setter/init degrades are **now recorded**, so the report no longer undercounts the Material surface.
 - The remaining recorded rows (`Scene.synchronizationService`, `CustomMaterial.init`, `BlinkIDAnalyzer.events`)

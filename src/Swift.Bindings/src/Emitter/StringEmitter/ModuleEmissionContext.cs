@@ -1144,6 +1144,58 @@ public sealed class ModuleEmissionContext
     public string GetMethodEmissionSymbolOrMangled(MethodDecl methodDecl) =>
         _emissionSymbolByMethod.TryGetValue(methodDecl, out var symbol) ? symbol : methodDecl.MangledName;
 
+    // ==================== Suppressed-Proxy Accessor Produce-Throw Side Table ====================
+
+    // A private property/subscript accessor method (`{Name}_Get()`) whose PRODUCE-path proxy was
+    // suppressed restubs to a throw in WrapperEmitter — but its PUBLIC surface is the property/subscript
+    // getter that *delegates* to it (`get => Name_Get();`). Poisoning the private accessor with
+    // [Obsolete(error:true)] would break that generated delegation, so the accessor is recorded here and
+    // the *public* getter is poisoned instead. Keyed by reference identity (same rationale as the emission
+    // symbol table): the property handler reads the flag off the exact accessor decl instance the wrapper
+    // emitter restubbed, and the property surface is emitted after the accessor in the same handler pass.
+    private readonly HashSet<MethodDecl> _produceThrowAccessors = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// Records that a synthesized property/subscript accessor method restubbed to a suppressed-proxy
+    /// throw during its own emission, so the public getter that delegates to it can be marked
+    /// <c>[Obsolete(error: true)]</c> instead (poisoning the private accessor would break the generated
+    /// <c>get =&gt; Name_Get();</c> delegation).
+    /// </summary>
+    public void RecordAccessorProduceThrow(MethodDecl accessorMethod) =>
+        _produceThrowAccessors.Add(accessorMethod);
+
+    /// <summary>
+    /// Returns true if <paramref name="accessorMethod"/> restubbed to a suppressed-proxy throw and its
+    /// delegating public getter must therefore carry the compile-time-visible SB0006 marker.
+    /// </summary>
+    public bool WasAccessorProduceThrow(MethodDecl accessorMethod) =>
+        _produceThrowAccessors.Contains(accessorMethod);
+
+    // A public property whose GETTER was compile-poisoned (SB0006) because its suppressed-proxy read can
+    // only throw. Set by BOTH EmitGetter poison branches — the scalar/optional-existential early-return
+    // (which delegates to a restubbed private accessor) AND the collection/optional-element projection
+    // catch (which inlines a throw and records via SuppressedProxyReporting, NOT the accessor side-table
+    // above). A CS0542 name-collision explicit-interface bridge reads this to emit a direct throw body
+    // instead of `get => {renamedName}` — reading the `[Obsolete(error:true)]` public property would be a
+    // CS0619 build error. Keyed by reference identity: the bridge is emitted after the getter in the same
+    // handler pass, off the same PropertyDecl instance.
+    private readonly HashSet<PropertyDecl> _produceThrowGetters = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// Records that <paramref name="propertyDecl"/>'s public getter was compile-poisoned (SB0006) — its
+    /// suppressed-proxy read can only throw — so a CS0542 explicit-interface bridge for it must emit a
+    /// direct throw rather than read the poisoned public property (which would be CS0619).
+    /// </summary>
+    public void RecordGetterProduceThrow(PropertyDecl propertyDecl) =>
+        _produceThrowGetters.Add(propertyDecl);
+
+    /// <summary>
+    /// Returns true if <paramref name="propertyDecl"/>'s public getter carries the SB0006 poison, so any
+    /// generated read of the public property (e.g. a CS0542 interface bridge) must be routed to a throw.
+    /// </summary>
+    public bool WasGetterProduceThrow(PropertyDecl propertyDecl) =>
+        _produceThrowGetters.Contains(propertyDecl);
+
     // ==================== API Manifest (retarget gate) ====================
 
     // Accumulates the consumer-visible binding contract: each emitted, overload-

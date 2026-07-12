@@ -537,3 +537,57 @@ public final class BoxableSubscriptSinkImpl: BoxableSubscriptSink {
 public func makeBoxableSubscriptSink(_ seed: Int32) -> any BoxableSubscriptSink {
     return BoxableSubscriptSinkImpl(seed: seed)
 }
+
+// MARK: PRODUCE (CS0542-renamed explicit-interface bridge) — poisoned getter reached via a name-collision rename
+
+/// CS0542 name-collision + suppressed-proxy PRODUCE. The property name `boxableCollider` projects to
+/// the SAME C# name as its enclosing type `BoxableCollider`, so the generator CS0542-renames the public
+/// property (→ `BoxableColliderValue`) and, because `BoxableCollider` conforms to a protocol declaring
+/// the same-named property, emits an explicit-interface bridge `IBoxableColliderProtocol.BoxableCollider`.
+/// The property is `any Boxable` (BoxableProxy suppressed) → its read is compile-poisoned (SB0006). The
+/// bridge getter must NOT read the poisoned public property (which would be a CS0619 build error and fail
+/// the whole binding compile) — instead it emits a direct throw, routed on the property-level getter-poison
+/// flag so the same path covers the collection twin below (whose private accessor returns the raw Swift
+/// array and cannot be delegated to). This is the durable compile-gate for that bridge: if the bridge ever
+/// reads the poisoned public property again, the generated `BoxableCollider.cs` stops compiling.
+public protocol BoxableColliderProtocol {
+    var boxableCollider: any Boxable { get }
+}
+
+public struct BoxableCollider: BoxableColliderProtocol {
+    public let boxableCollider: any Boxable
+    public init(_ b: any Boxable) { self.boxableCollider = b }
+    /// Non-existential read-back so the forward-dispatch construction is observable without the
+    /// suppressed-proxy read.
+    public func colliderValue() -> Int32 { boxableCollider.boxedValue() }
+}
+
+public func makeBoxableCollider(_ seed: Int32) -> BoxableCollider {
+    return BoxableCollider(BoxableIntCell(value: seed))
+}
+
+// MARK: PRODUCE (CS0542-renamed bridge, COLLECTION-element poison) — the collection twin of BoxableCollider
+
+/// Same CS0542 name-collision + explicit-interface-bridge shape as `BoxableCollider`, but the poisoned
+/// property is a COLLECTION of existentials (`[any Boxable]`). Its public getter is poisoned by the
+/// collection-element projection catch (which inlines a throw and records via `SuppressedProxyReporting`
+/// — NOT the accessor side-table), so the bridge fix must route on the property-level getter-poison flag
+/// (set by BOTH poison branches), not the accessor side-table alone. The private accessor here returns the
+/// RAW Swift array type, so the bridge cannot delegate to it — it must emit a direct throw. If the bridge
+/// ever reads the poisoned public `BoxableColliderListValue` again, the generated binding stops compiling
+/// (CS0619).
+public protocol BoxableColliderListProtocol {
+    var boxableColliderList: [any Boxable] { get }
+}
+
+public struct BoxableColliderList: BoxableColliderListProtocol {
+    public let boxableColliderList: [any Boxable]
+    public init(_ items: [any Boxable]) { self.boxableColliderList = items }
+    /// Non-existential read-back so the forward-dispatch construction is observable without the
+    /// suppressed-proxy collection read.
+    public func listCount() -> Int32 { Int32(boxableColliderList.count) }
+}
+
+public func makeBoxableColliderList(_ seed: Int32) -> BoxableColliderList {
+    return BoxableColliderList([BoxableIntCell(value: seed), BoxableIntCell(value: seed + 1)])
+}

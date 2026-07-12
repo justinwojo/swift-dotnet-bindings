@@ -191,6 +191,10 @@ namespace BindingsGeneration
                 outType = $"({string.Join(", ", tupleElements)})";
             }
 
+            // Checkpoint before the doc + signature so a suppressed-proxy produce-throw can inject the
+            // compile-time-visible SB0006 [Obsolete(error:true)] marker ahead of them; the body
+            // checkpoint below only rolls back the half-written body.
+            var __tryGetSigCp = csWriter.Checkpoint();
             // Emit the TryGet method
             csWriter.WriteLine("/// <summary>");
             csWriter.WriteLine($"/// Attempts to extract the associated value(s) for the '{caseName}' case.");
@@ -292,6 +296,12 @@ namespace BindingsGeneration
             catch (SuppressedProxyReferenceException ex)
             {
                 csWriter.RollbackTo(__tryGetCp);
+                // Inject the SB0006 marker ahead of the (already-written) doc + signature so calling
+                // TryGet is a COMPILE error, not just a runtime throw; restore the captured doc +
+                // signature after it, then emit the throw-stub body as the runtime backstop.
+                var __tryGetDocSig = csWriter.RollbackToAndCapture(__tryGetSigCp);
+                WrapperEmitter.EmitSuppressedProxyReadPoison(csWriter);
+                csWriter.AppendCaptured(__tryGetDocSig);
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
                 csWriter.WriteLine($"throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
@@ -376,6 +386,9 @@ namespace BindingsGeneration
             var outParams = parameters.Select(p => $"[MaybeNullWhen(false)] out {p.publicType} {p.name}");
             var outParamString = string.Join(", ", outParams);
 
+            // Checkpoint before the doc + signature so a suppressed-proxy produce-throw can inject the
+            // compile-time-visible SB0006 marker ahead of them (see the single-value TryGet above).
+            var __tryGetTupleSigCp = csWriter.Checkpoint();
             // Emit the TryGet method
             csWriter.WriteLine("/// <summary>");
             csWriter.WriteLine($"/// Attempts to extract the associated value(s) for the '{caseName}' case.");
@@ -470,6 +483,11 @@ namespace BindingsGeneration
             catch (SuppressedProxyReferenceException ex)
             {
                 csWriter.RollbackTo(__tryGetTupleCp);
+                // Inject the SB0006 marker ahead of the doc + signature so calling TryGet is a compile
+                // error, not just a runtime throw; restore the doc + signature, then emit the throw stub.
+                var __tryGetTupleDocSig = csWriter.RollbackToAndCapture(__tryGetTupleSigCp);
+                WrapperEmitter.EmitSuppressedProxyReadPoison(csWriter);
+                csWriter.AppendCaptured(__tryGetTupleDocSig);
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
                 csWriter.WriteLine($"throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");

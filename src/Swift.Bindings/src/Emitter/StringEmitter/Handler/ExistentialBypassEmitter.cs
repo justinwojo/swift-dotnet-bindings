@@ -904,6 +904,14 @@ public static class ExistentialBypassEmitter
         // Emit public method (unsafe needed for stackalloc marshalling or resultPtr alloc).
         var unsafeModifier = needsUnsafe ? "unsafe " : "";
         var returnTypeKeyword = isExistentialReturn ? publicReturnType! : "void";
+        // Suppressed return-proxy: this member can only ever throw when called. Poison it at compile time
+        // (SB0006) ahead of the signature so callers fail to build, not just at runtime. A synthesized
+        // (private) accessor is NOT poisoned here — its delegating public getter carries the marker
+        // instead (recorded below), mirroring WrapperEmitter's accessor split.
+        if (isExistentialReturn && returnProxySuppressed && !env.MethodDecl.IsSynthesizedAccessor)
+        {
+            WrapperEmitter.EmitSuppressedProxyReadPoison(csWriter);
+        }
         csWriter.WriteLine($"{accessModifier} {unsafeModifier}{returnTypeKeyword} {methodName}({paramString})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
@@ -919,6 +927,12 @@ public static class ExistentialBypassEmitter
             // Persist the PRODUCE degrade: the existential-return bypass member throws because its
             // {Protocol}Proxy was suppressed. Mirrors WrapperEmitter's full-wrapper produce-throw gate.
             SuppressedProxyReporting.Record(methodDecl, SuppressedProxyReporting.Site.ProduceThrow, suppressedReturnProxyName);
+            // A synthesized (private) accessor delegates to from a public getter; flag it so that getter
+            // is poisoned (SB0006) rather than this private accessor, keeping the generated delegation valid.
+            if (env.MethodDecl.IsSynthesizedAccessor)
+            {
+                env.EmissionContext?.RecordAccessorProduceThrow(env.MethodDecl);
+            }
             return;
         }
 

@@ -3,6 +3,9 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
+using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices.Swift;
 using System.Threading.Tasks;
 using RuntimeTestsApp.Infrastructure;
@@ -38,6 +41,63 @@ namespace RuntimeTestsApp.Protocols;
 public class SuppressedProxyChannelTests : TestBase
 {
     public SuppressedProxyChannelTests(TestResults results) : base(results) { }
+
+    // ============================================================
+    // PRODUCE-surface policy assertions (throwing-getter surface policy).
+    //
+    // The throwing-getter surface policy compile-poisons every suppressed-proxy PRODUCE-throw member:
+    // the public read path (method return, property getter, subscript getter — sync AND async) carries
+    // [Obsolete("…", error: true, DiagnosticId = "SB0006")], so a consumer's read is a COMPILE error,
+    // not a silent runtime NotSupportedException trap. Because a direct read no longer compiles, these
+    // channels are asserted structurally via reflection over the member's ObsoleteAttribute rather than
+    // by AssertThrows. The [DynamicallyAccessedMembers] annotation roots the reflected members for
+    // NativeAOT so the device leg reads real attributes instead of trimmed nulls.
+    //
+    // Interface-typed and Swift-vended reads (IBoxableVending / IBoxableSink / … obtained from a factory)
+    // are NOT poisoned — an interface member cannot carry error:true without breaking its implementers,
+    // and those reads throw the pre-existing "Swift-backed existential container" forward-dispatch
+    // limitation, a distinct (out-of-scope) channel. Those tests keep their runtime AssertThrows.
+    // ============================================================
+
+    private void AssertObsoleteError(MemberInfo? member, string memberDesc, string context)
+    {
+        AssertNotNull(member, $"{memberDesc} must exist (the degraded member's surface is kept): {context}");
+        var obs = member!.GetCustomAttribute<ObsoleteAttribute>();
+        AssertNotNull(obs, $"{memberDesc} must carry an [Obsolete] poison so the read fails at compile time: {context}");
+        AssertTrue(obs!.IsError,
+            $"{memberDesc} [Obsolete] must be error:true — a compile-visible failure, never a silent runtime trap: {context}");
+        AssertEqual("SB0006", obs.DiagnosticId,
+            $"{memberDesc} poison DiagnosticId must be SB0006 (the suppressed-proxy read policy id): {context}");
+    }
+
+    private void AssertMethodPoisoned(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods)] Type type,
+        string methodName, string context)
+    {
+        var methods = type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance)
+            .Where(m => m.Name == methodName).ToArray();
+        AssertTrue(methods.Length > 0, $"Method '{methodName}' must exist on {type.Name}: {context}");
+        foreach (var m in methods)
+            AssertObsoleteError(m, $"{type.Name}.{methodName}", context);
+    }
+
+    private void AssertGetterPoisoned(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] Type type,
+        string propertyName, string context)
+    {
+        var p = type.GetProperty(propertyName);
+        AssertNotNull(p, $"Property '{propertyName}' must exist on {type.Name}: {context}");
+        AssertObsoleteError(p!.GetGetMethod(), $"{type.Name}.{propertyName}.get", context);
+    }
+
+    private void AssertIndexerGetterPoisoned(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] Type type,
+        string context)
+    {
+        var indexer = type.GetProperties().FirstOrDefault(p => p.GetIndexParameters().Length > 0);
+        AssertNotNull(indexer, $"{type.Name} must expose an indexer (the subscript surface is kept): {context}");
+        AssertObsoleteError(indexer!.GetGetMethod(), $"{type.Name}.this[].get", context);
+    }
 
     // ---- CONSUME: member stays, Swift-vended conformer round-trips ----
 
@@ -136,10 +196,9 @@ public class SuppressedProxyChannelTests : TestBase
     /// </summary>
     public void TestMakeBoxableReturnThrows()
     {
-        AssertThrows<NotSupportedException>(
-            () => TestLibFunctions.MakeBoxable(5),
-            "MakeBoxable returns `any Boxable`, which would need a suppressed BoxableProxy. " +
-            "The PRODUCE arm must re-emit the member as a NotSupportedException throw stub.");
+        AssertMethodPoisoned(typeof(TestLibFunctions), "MakeBoxable",
+            "MakeBoxable returns `any Boxable`, which would need a suppressed BoxableProxy. The PRODUCE " +
+            "arm keeps the member but poisons the read path with [Obsolete(error:true) SB0006].");
     }
 
     /// <summary>
@@ -147,10 +206,9 @@ public class SuppressedProxyChannelTests : TestBase
     /// </summary>
     public void TestMakeBoxablesArrayReturnThrows()
     {
-        AssertThrows<NotSupportedException>(
-            () => TestLibFunctions.MakeBoxables(new[] { 1, 2 }),
-            "MakeBoxables returns [any Boxable]; each element would wrap in a suppressed " +
-            "BoxableProxy, so the PRODUCE arm must re-emit the member as a throw stub.");
+        AssertMethodPoisoned(typeof(TestLibFunctions), "MakeBoxables",
+            "MakeBoxables returns [any Boxable]; each element would wrap in a suppressed BoxableProxy, " +
+            "so the PRODUCE arm keeps the member but poisons the read path (SB0006).");
     }
 
     /// <summary>
@@ -159,11 +217,9 @@ public class SuppressedProxyChannelTests : TestBase
     /// </summary>
     public void TestBoxableHolderGetterThrows()
     {
-        using var holder = new BoxableHolder();
-        AssertThrows<NotSupportedException>(
-            () => { var _ = holder.Boxable; },
-            "BoxableHolder.Boxable getter returns `any Boxable` (PRODUCE) and must be a throw " +
-            "stub even though the setter on the same property stays usable (CONSUME).");
+        AssertGetterPoisoned(typeof(BoxableHolder), "Boxable",
+            "BoxableHolder.Boxable getter returns `any Boxable` (PRODUCE) and must be compile-poisoned " +
+            "(SB0006) even though the setter on the same property stays usable (CONSUME).");
     }
 
     /// <summary>
@@ -173,12 +229,9 @@ public class SuppressedProxyChannelTests : TestBase
     /// </summary>
     public void TestBoxableCarrierTryGetThrows()
     {
-        using var cell = new BoxableIntCell(1);
-        using var carrier = BoxableCarrier.Boxed(cell);
-        AssertThrows<NotSupportedException>(
-            () => carrier.TryGetBoxed(out _),
-            "BoxableCarrier.TryGetBoxed reads the `any Boxable` payload, which would build a " +
-            "suppressed BoxableProxy; the whole TryGet body must be a NotSupportedException stub.");
+        AssertMethodPoisoned(typeof(BoxableCarrier), "TryGetBoxed",
+            "BoxableCarrier.TryGetBoxed reads the `any Boxable` payload, which would build a suppressed " +
+            "BoxableProxy; the whole TryGet read member must be compile-poisoned (SB0006).");
     }
 
     // ============================================================
@@ -197,19 +250,14 @@ public class SuppressedProxyChannelTests : TestBase
     /// suppressed arm throws inside the callback's try, which faults the awaiting Task (never
     /// unwinding into native Swift) — so the await observes a <c>NotSupportedException</c>, not a hang.
     /// </summary>
-    public async Task TestMakeBoxableAsyncReturnFaults()
+    public void TestMakeBoxableAsyncReturnFaults()
     {
-        try
-        {
-            await WithTimeout(TestLibFunctions.MakeBoxableAsync(5), DefaultAsyncTimeout);
-            throw new AssertionException(
-                "MakeBoxableAsync must fault the Task with NotSupportedException (the async completion " +
-                "callback cannot marshal `any Boxable` with BoxableProxy suppressed); no exception was thrown.");
-        }
-        catch (NotSupportedException ex)
-        {
-            TestLogger.Info($"MakeBoxableAsync(5) faulted with NotSupportedException: {ex.Message}");
-        }
+        AssertMethodPoisoned(typeof(TestLibFunctions), "MakeBoxableAsync",
+            "MakeBoxableAsync returns Task<any Boxable>; the completion callback cannot marshal the result " +
+            "with BoxableProxy suppressed. An always-faulting Task is a runtime-only trap for a failure the " +
+            "generator knows is total, so the async producer is compile-poisoned (SB0006) uniformly with the " +
+            "sync produce-throw members. The faulting Task body is retained as a leak-correct backstop and is " +
+            "exercised via reflection by SuppressedProxyAsyncCarrierLeakProbeTests.");
     }
 
     /// <summary>
@@ -217,19 +265,12 @@ public class SuppressedProxyChannelTests : TestBase
     /// async completion callback marshals the collection return per element via the suppressed
     /// proxy, faulting the Task. Distinct emit path from the scalar async return above.
     /// </summary>
-    public async Task TestMakeManyBoxablesAsyncReturnFaults()
+    public void TestMakeManyBoxablesAsyncReturnFaults()
     {
-        try
-        {
-            await WithTimeout(TestLibFunctions.MakeManyBoxablesAsync(5), DefaultAsyncTimeout);
-            throw new AssertionException(
-                "MakeManyBoxablesAsync must fault the Task with NotSupportedException (the async collection " +
-                "return projection per element needs the suppressed BoxableProxy); no exception was thrown.");
-        }
-        catch (NotSupportedException ex)
-        {
-            TestLogger.Info($"MakeManyBoxablesAsync(5) faulted with NotSupportedException: {ex.Message}");
-        }
+        AssertMethodPoisoned(typeof(TestLibFunctions), "MakeManyBoxablesAsync",
+            "MakeManyBoxablesAsync returns Task<[any Boxable]>; the async collection return projection needs " +
+            "the suppressed BoxableProxy per element, so the async producer is compile-poisoned (SB0006) " +
+            "uniformly with the scalar async arm. Distinct emit path from the scalar async return.");
     }
 
     // ---- CONSUME: bound-generic enum payload construction round-trips ----
@@ -291,19 +332,9 @@ public class SuppressedProxyChannelTests : TestBase
     /// </summary>
     public void TestBoxableBoundCarrierTryGetManyThrows()
     {
-        var cells = new List<BoxableIntCell> { new BoxableIntCell(1), new BoxableIntCell(2) };
-        try
-        {
-            using var carrier = BoxableBoundCarrier.Many(new List<IBoxable>(cells));
-            AssertThrows<NotSupportedException>(
-                () => carrier.TryGetMany(out _),
-                "BoxableBoundCarrier.TryGetMany reads [any Boxable], which would build a suppressed " +
-                "BoxableProxy per element; the whole reader must be a NotSupportedException stub.");
-        }
-        finally
-        {
-            foreach (var c in cells) c.Dispose();
-        }
+        AssertMethodPoisoned(typeof(BoxableBoundCarrier), "TryGetMany",
+            "BoxableBoundCarrier.TryGetMany reads [any Boxable], which would build a suppressed " +
+            "BoxableProxy per element; the whole reader must be compile-poisoned (SB0006).");
     }
 
     /// <summary>
@@ -312,12 +343,9 @@ public class SuppressedProxyChannelTests : TestBase
     /// </summary>
     public void TestBoxableBoundCarrierTryGetMaybeThrows()
     {
-        using var cell = new BoxableIntCell(9);
-        using var carrier = BoxableBoundCarrier.Maybe(cell);
-        AssertThrows<NotSupportedException>(
-            () => carrier.TryGetMaybe(out _),
+        AssertMethodPoisoned(typeof(BoxableBoundCarrier), "TryGetMaybe",
             "BoxableBoundCarrier.TryGetMaybe reads (any Boxable)?, which would build a suppressed " +
-            "BoxableProxy; the whole reader must be a NotSupportedException stub.");
+            "BoxableProxy; the whole reader must be compile-poisoned (SB0006).");
     }
 
     // ---- CONSUME (set) + PRODUCE (get) — container-wrapped Optional existential property ----
@@ -350,11 +378,9 @@ public class SuppressedProxyChannelTests : TestBase
     /// </summary>
     public void TestOptionalBoxableHolderGetterThrows()
     {
-        using var holder = new OptionalBoxableHolder();
-        AssertThrows<NotSupportedException>(
-            () => { var _ = holder.MaybeBoxable; },
-            "OptionalBoxableHolder.MaybeBoxable getter returns (any Boxable)? (PRODUCE) and must be a " +
-            "throw stub even though the setter on the same property stays usable (CONSUME).");
+        AssertGetterPoisoned(typeof(OptionalBoxableHolder), "MaybeBoxable",
+            "OptionalBoxableHolder.MaybeBoxable getter returns (any Boxable)? (PRODUCE) and must be " +
+            "compile-poisoned (SB0006) even though the setter on the same property stays usable (CONSUME).");
     }
 
     // ---- PRODUCE: closure ARG any Boxable (Swift→C# callback deserialization) ----
@@ -409,10 +435,9 @@ public class SuppressedProxyChannelTests : TestBase
     /// </summary>
     public void TestGetBoxableProducerThrows()
     {
-        AssertThrows<NotSupportedException>(
-            () => TestLibFunctions.GetBoxableProducer(),
+        AssertMethodPoisoned(typeof(TestLibFunctions), "GetBoxableProducer",
             "GetBoxableProducer returns a closure producing `any Boxable`; its invoke thunk would " +
-            "build a suppressed BoxableProxy, so the member must be a NotSupportedException stub.");
+            "build a suppressed BoxableProxy, so the member must be compile-poisoned (SB0006).");
     }
 
     /// <summary>
@@ -421,10 +446,9 @@ public class SuppressedProxyChannelTests : TestBase
     /// </summary>
     public void TestGetBoxableProducerWithParamThrows()
     {
-        AssertThrows<NotSupportedException>(
-            () => TestLibFunctions.GetBoxableProducerWithParam(),
+        AssertMethodPoisoned(typeof(TestLibFunctions), "GetBoxableProducerWithParam",
             "GetBoxableProducerWithParam returns a (BoxableTag) -> any Boxable closure; the struct-param " +
-            "invoke thunk would build a suppressed BoxableProxy, so the member must be a throw stub.");
+            "invoke thunk would build a suppressed BoxableProxy, so the member must be compile-poisoned (SB0006).");
     }
 
     /// <summary>
@@ -433,10 +457,9 @@ public class SuppressedProxyChannelTests : TestBase
     /// </summary>
     public void TestGetThrowingBoxableProducerThrows()
     {
-        AssertThrows<NotSupportedException>(
-            () => TestLibFunctions.GetThrowingBoxableProducer(),
+        AssertMethodPoisoned(typeof(TestLibFunctions), "GetThrowingBoxableProducer",
             "GetThrowingBoxableProducer returns a () throws -> any Boxable closure; the throwing invoke " +
-            "thunk's success-payload path would build a suppressed BoxableProxy, so the member must be a stub.");
+            "thunk's success-payload path would build a suppressed BoxableProxy, so the member must be poisoned (SB0006).");
     }
 
     // ---- PRODUCE: indirect-return closure ARG (Category A) — not invocation-tested ----
@@ -504,11 +527,9 @@ public class SuppressedProxyChannelTests : TestBase
     /// </summary>
     public void TestBoxableShelfSubscriptThrows()
     {
-        using var shelf = new BoxableShelf(3);
-        AssertThrows<NotSupportedException>(
-            () => { var _ = shelf[0]; },
+        AssertIndexerGetterPoisoned(typeof(BoxableShelf),
             "BoxableShelf's subscript returns [any Boxable]; the indexer getter would project each " +
-            "element via a suppressed BoxableProxy, so it must be a NotSupportedException stub.");
+            "element via a suppressed BoxableProxy, so it must be compile-poisoned (SB0006).");
     }
 
     /// <summary>
@@ -518,11 +539,9 @@ public class SuppressedProxyChannelTests : TestBase
     /// </summary>
     public void TestBoxableRackSubscriptThrows()
     {
-        using var rack = new BoxableRack(5);
-        AssertThrows<NotSupportedException>(
-            () => { var _ = rack[0]; },
-            "BoxableRack's subscript returns a scalar `any Boxable`; the indexer getter's wrapper " +
-            "accessor PRODUCE is gated, so it must be a NotSupportedException stub.");
+        AssertIndexerGetterPoisoned(typeof(BoxableRack),
+            "BoxableRack's subscript returns a scalar `any Boxable`; the indexer getter delegates to a " +
+            "wrapper accessor that restubs to a produce-throw, so the public getter must be compile-poisoned (SB0006).");
     }
 
     // ---- PRODUCE: existential-bypass adapter existential return (Category C) ----
@@ -535,16 +554,10 @@ public class SuppressedProxyChannelTests : TestBase
     /// </summary>
     public void TestBoxableBypassHostProduceThrows()
     {
-        using var host = new BoxableBypassHost();
-        using var tag = new BoxableIntCell(1);
-        AssertThrows<NotSupportedException>(
-            () => host.ProduceBoxable(tag),
-            "BoxableBypassHost.ProduceBoxable(any Boxable) returns `any Boxable` via the bypass adapter; " +
-            "its existential-return wrap would build a suppressed BoxableProxy, so it must throw.");
-        AssertThrows<NotSupportedException>(
-            () => host.ProduceBoxable(),
-            "BoxableBypassHost.ProduceBoxable() (defaulted-arg overload) routes through the same bypass " +
-            "adapter existential-return wrap and must also throw.");
+        AssertMethodPoisoned(typeof(BoxableBypassHost), "ProduceBoxable",
+            "Both BoxableBypassHost.ProduceBoxable overloads return `any Boxable` via the bypass adapter; " +
+            "the existential-return wrap would build a suppressed BoxableProxy, so every overload must be " +
+            "compile-poisoned (SB0006).");
     }
 
     // ============================================================
@@ -588,11 +601,9 @@ public class SuppressedProxyChannelTests : TestBase
     /// </summary>
     public void TestBoxableCollectionHolderGetterThrows()
     {
-        using var holder = new BoxableCollectionHolder();
-        AssertThrows<NotSupportedException>(
-            () => { var _ = holder.Boxables; },
-            "BoxableCollectionHolder.Boxables getter returns [any Boxable] (PRODUCE) and must be a throw " +
-            "stub even though the collection setter on the same property stays usable (CONSUME).");
+        AssertGetterPoisoned(typeof(BoxableCollectionHolder), "Boxables",
+            "BoxableCollectionHolder.Boxables getter returns [any Boxable] (PRODUCE) and must be " +
+            "compile-poisoned (SB0006) even though the collection setter on the same property stays usable (CONSUME).");
     }
 
     // ---- CONSUME (set) + PRODUCE (get) — collection-valued existential SUBSCRIPT ----
@@ -629,11 +640,9 @@ public class SuppressedProxyChannelTests : TestBase
     /// </summary>
     public void TestBoxableSettableRackSubscriptGetterThrows()
     {
-        using var rack = new BoxableSettableRack();
-        AssertThrows<NotSupportedException>(
-            () => { var _ = rack[0]; },
+        AssertIndexerGetterPoisoned(typeof(BoxableSettableRack),
             "BoxableSettableRack's subscript returns [any Boxable]; the indexer getter would project each " +
-            "element via a suppressed BoxableProxy, so it must be a NotSupportedException stub even though " +
+            "element via a suppressed BoxableProxy, so it must be compile-poisoned (SB0006) even though " +
             "the collection subscript setter stays usable.");
     }
 
@@ -647,20 +656,12 @@ public class SuppressedProxyChannelTests : TestBase
     /// callback faults the awaiting Task with <c>NotSupportedException</c> rather than referencing the
     /// absent proxy. Distinct emit path from the non-optional async collection return.
     /// </summary>
-    public async Task TestMakeManyBoxablesAsyncOptionalReturnFaults()
+    public void TestMakeManyBoxablesAsyncOptionalReturnFaults()
     {
-        try
-        {
-            await WithTimeout(TestLibFunctions.MakeManyBoxablesAsyncOptionalAsync(5), DefaultAsyncTimeout);
-            throw new AssertionException(
-                "MakeManyBoxablesAsyncOptional must fault the Task with NotSupportedException (the async " +
-                "optional-collection ProjectReturn path needs the suppressed BoxableProxy per element); " +
-                "no exception was thrown.");
-        }
-        catch (NotSupportedException ex)
-        {
-            TestLogger.Info($"MakeManyBoxablesAsyncOptional(5) faulted with NotSupportedException: {ex.Message}");
-        }
+        AssertMethodPoisoned(typeof(TestLibFunctions), "MakeManyBoxablesAsyncOptionalAsync",
+            "MakeManyBoxablesAsyncOptional returns Task<[any Boxable]?>; the async optional-collection " +
+            "ProjectReturn path needs the suppressed BoxableProxy per element, so the async producer is " +
+            "compile-poisoned (SB0006). Distinct emit path from the non-optional async collection return.");
     }
 
     // ---- PRODUCE: container closure ARG ([any Boxable]) -> Void ----
@@ -730,10 +731,9 @@ public class SuppressedProxyChannelTests : TestBase
             "GetCurrentValue() reads boxedValue() back Swift-side, proving the forward setter round-trip " +
             "survives even though the reverse-dispatch Receive_boxable_set receiver degraded.");
 
-        AssertThrows<NotSupportedException>(
-            () => { var _ = sink.Boxable; },
-            "BoxableSink.Boxable forward getter returns `any Boxable` (PRODUCE) and is a normal degraded " +
-            "throw stub; the settable property still emits a usable setter.");
+        AssertGetterPoisoned(typeof(BoxableSinkImpl), "Boxable",
+            "BoxableSinkImpl.Boxable forward getter returns `any Boxable` (PRODUCE) and is a normal degraded " +
+            "member, compile-poisoned (SB0006); the settable property still emits a usable setter.");
     }
 
     /// <summary>
@@ -844,10 +844,9 @@ public class SuppressedProxyChannelTests : TestBase
             "ValueAt(1) reads boxedValue() back Swift-side, proving the forward subscript setter round-trip " +
             "survives even though the reverse-dispatch Receive_subscript_*_set receiver degraded.");
 
-        AssertThrows<NotSupportedException>(
-            () => { var _ = sink[0]; },
-            "BoxableSubscriptSink subscript forward getter returns `any Boxable` (PRODUCE) and is a normal " +
-            "degraded throw stub; the settable subscript still emits a usable setter.");
+        AssertIndexerGetterPoisoned(typeof(BoxableSubscriptSinkImpl),
+            "BoxableSubscriptSinkImpl subscript forward getter returns `any Boxable` (PRODUCE) and is a normal " +
+            "degraded member, compile-poisoned (SB0006); the settable subscript still emits a usable setter.");
     }
 
     /// <summary>
@@ -880,5 +879,73 @@ public class SuppressedProxyChannelTests : TestBase
         {
             (sink as IDisposable)?.Dispose();
         }
+    }
+
+    /// <summary>
+    /// PRODUCE — CS0542-renamed explicit-interface bridge. <c>BoxableCollider</c>'s property
+    /// <c>boxableCollider</c> projects to the SAME C# name as its enclosing type, so the generator
+    /// CS0542-renames the public property to <c>BoxableColliderValue</c> and emits an explicit-interface
+    /// bridge <c>IBoxableColliderProtocol.BoxableCollider</c>. Because the property is <c>any Boxable</c>
+    /// (BoxableProxy suppressed) the public renamed getter is compile-poisoned (SB0006). The bridge getter
+    /// must NOT read the poisoned public property, which would be a CS0619 compile error that fails the whole
+    /// binding build — instead it emits a direct throw (routed on the property-level getter-poison flag, the
+    /// same uniform path as the collection twin below). That the fixture compiles at all is the primary gate;
+    /// this test additionally locks (a) the public renamed getter is poisoned, and (b) the interface-bridge
+    /// read stays a *runtime* throw (interface-contract reads stay runtime-throws, never compile-poisoned).
+    /// </summary>
+    public void TestBoxableColliderRenamedBridgeStaysCompileSafe()
+    {
+        using var collider = TestLibFunctions.MakeBoxableCollider(9);
+
+        // Forward-dispatch construction is observable without touching the suppressed-proxy read.
+        AssertEqual(9, collider.GetColliderValue(),
+            "MakeBoxableCollider(9).GetColliderValue() must round-trip the seed via forward dispatch — " +
+            "if this throws, the fixture didn't construct the collider (BoxableIntCell not boxed in).");
+
+        // (a) The CS0542-renamed PUBLIC getter is compile-poisoned. Read via reflection — a direct
+        // `collider.BoxableColliderValue` read would itself be a CS0619 compile error.
+        AssertGetterPoisoned(typeof(BoxableCollider), "BoxableColliderValue",
+            "BoxableCollider.BoxableColliderValue reads `any Boxable` with BoxableProxy suppressed, so its " +
+            "public getter must carry [Obsolete(error:true, DiagnosticId=SB0006)].");
+
+        // (b) The explicit-interface bridge is NOT poisoned (interface contracts stay runtime-throws), so
+        // reading it compiles and throws NotSupportedException at runtime via a direct throw — NOT by reading
+        // the poisoned public property.
+        var asProtocol = (IBoxableColliderProtocol)collider;
+        AssertThrows<NotSupportedException>(
+            () => { var _ = asProtocol.BoxableCollider; },
+            "The IBoxableColliderProtocol.BoxableCollider bridge read must throw NotSupportedException at " +
+            "runtime (a direct throw). If the bridge instead read the poisoned public property, the " +
+            "generated binding would have failed to compile (CS0619).");
+    }
+
+    /// <summary>
+    /// PRODUCE — CS0542-renamed explicit-interface bridge, COLLECTION-element poison twin of
+    /// <see cref="TestBoxableColliderRenamedBridgeStaysCompileSafe"/>. <c>BoxableColliderList</c>'s
+    /// <c>[any Boxable]</c> property collides with its type name → CS0542 rename → poisoned public getter +
+    /// explicit-interface bridge. Unlike the scalar twin, this getter is poisoned by the collection-element
+    /// projection catch (no accessor side-table entry; the private accessor returns the raw Swift array), so
+    /// the bridge must route on the property-level getter-poison flag and emit a DIRECT throw — it cannot
+    /// delegate to the raw accessor. Compilation is the primary gate; this test locks the poison + runtime
+    /// throw.
+    /// </summary>
+    public void TestBoxableColliderListRenamedBridgeStaysCompileSafe()
+    {
+        using var list = TestLibFunctions.MakeBoxableColliderList(4);
+
+        AssertEqual(2, list.GetListCount(),
+            "MakeBoxableColliderList(4).GetListCount() must be 2 (the fixture boxes two BoxableIntCells) — " +
+            "if this throws, forward-dispatch construction of the collection collider failed.");
+
+        AssertGetterPoisoned(typeof(BoxableColliderList), "BoxableColliderListValue",
+            "BoxableColliderList.BoxableColliderListValue reads `[any Boxable]` with BoxableProxy suppressed, " +
+            "so its public getter must carry [Obsolete(error:true, DiagnosticId=SB0006)].");
+
+        var asProtocol = (IBoxableColliderListProtocol)list;
+        AssertThrows<NotSupportedException>(
+            () => { var _ = asProtocol.BoxableColliderList; },
+            "The IBoxableColliderListProtocol.BoxableColliderList bridge read must throw NotSupportedException " +
+            "at runtime (direct throw). If the bridge read the poisoned public property, the generated binding " +
+            "would have failed to compile (CS0619) — the collection-element poison path.");
     }
 }

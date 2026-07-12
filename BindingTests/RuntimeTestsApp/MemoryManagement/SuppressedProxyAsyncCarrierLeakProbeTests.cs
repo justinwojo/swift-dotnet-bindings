@@ -2,7 +2,10 @@
 // Licensed under the MIT License.
 
 using System;
+using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
@@ -56,6 +59,35 @@ public class SuppressedProxyAsyncCarrierLeakProbeTests : TestBase
     }
 
     /// <summary>
+    /// Invokes a suppressed-proxy async existential producer through reflection and returns its Task.
+    /// The producer carries <c>[Obsolete(error: true, DiagnosticId = "SB0006")]</c> (the throwing-getter
+    /// surface policy compile-poisons every produce-throw member, async included), so a direct call would
+    /// be a compile error. The faulting Task body is retained as the leak-correct runtime backstop, and
+    /// this probe reflectively invokes exactly that backstop to observe carrier release on the fault path.
+    /// The <see cref="DynamicallyAccessedMembersAttribute"/> on <paramref name="type"/> roots the public
+    /// methods for NativeAOT so the device leg finds the producer instead of a trimmed null.
+    /// </summary>
+    private static Task InvokeFaultingProducer(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods)] Type type,
+        string methodName, int arg)
+    {
+        var m = type.GetMethod(methodName, BindingFlags.Public | BindingFlags.Static)
+            ?? throw new InvalidOperationException(
+                $"Suppressed-proxy async producer '{methodName}' not found on {type.Name} (trimmed?).");
+        var ps = m.GetParameters();
+        var args = new object?[ps.Length];
+        args[0] = arg;
+        for (int k = 1; k < ps.Length; k++)
+            args[k] = ps[k].ParameterType == typeof(CancellationToken)
+                ? CancellationToken.None
+                : Type.Missing;
+        // The producer returns a Task that faults inside the state machine (it does not throw
+        // synchronously), so Invoke returns the faulted Task normally and the awaiting caller observes
+        // the original NotSupportedException — not a TargetInvocationException wrapper.
+        return (Task)m.Invoke(null, args)!;
+    }
+
+    /// <summary>
     /// Scalar OPAQUE existential <c>async -&gt; any Boxable</c>: the faulting completion callback must
     /// value-witness-Destroy the <c>ExistentialContainer1</c> carrier so the embedded TrackedRef's +1
     /// is released. A leak pins one ref per faulted call.
@@ -81,7 +113,7 @@ public class SuppressedProxyAsyncCarrierLeakProbeTests : TestBase
         {
             try
             {
-                await WithTimeout(TestLibFunctions.FetchTrackedBoxableScalarAsync(i), DefaultAsyncTimeout);
+                await WithTimeout(InvokeFaultingProducer(typeof(TestLibFunctions), "FetchTrackedBoxableScalarAsync", i), DefaultAsyncTimeout);
                 throw new AssertionException(
                     "FetchTrackedBoxableScalar must fault the Task with NotSupportedException " +
                     "(BoxableProxy suppressed); no exception was thrown.");
@@ -121,7 +153,7 @@ public class SuppressedProxyAsyncCarrierLeakProbeTests : TestBase
         {
             try
             {
-                await WithTimeout(TestLibFunctions.FetchTrackedBoxableArrayAsync(elementsPerCall), DefaultAsyncTimeout);
+                await WithTimeout(InvokeFaultingProducer(typeof(TestLibFunctions), "FetchTrackedBoxableArrayAsync", elementsPerCall), DefaultAsyncTimeout);
                 throw new AssertionException(
                     "FetchTrackedBoxableArray must fault the Task with NotSupportedException " +
                     "(per-element BoxableProxy suppressed); no exception was thrown.");
@@ -163,7 +195,7 @@ public class SuppressedProxyAsyncCarrierLeakProbeTests : TestBase
         {
             try
             {
-                await WithTimeout(TestLibFunctions.FetchTrackedBoxableDictionaryAsync(entriesPerCall), DefaultAsyncTimeout);
+                await WithTimeout(InvokeFaultingProducer(typeof(TestLibFunctions), "FetchTrackedBoxableDictionaryAsync", entriesPerCall), DefaultAsyncTimeout);
                 throw new AssertionException(
                     "FetchTrackedBoxableDictionary must fault the Task with NotSupportedException " +
                     "(per-value BoxableProxy suppressed); no exception was thrown.");
@@ -202,7 +234,7 @@ public class SuppressedProxyAsyncCarrierLeakProbeTests : TestBase
         {
             try
             {
-                await WithTimeout(TestLibFunctions.FetchTrackedBoxableArrayOptionalAsync(elementsPerCall), DefaultAsyncTimeout);
+                await WithTimeout(InvokeFaultingProducer(typeof(TestLibFunctions), "FetchTrackedBoxableArrayOptionalAsync", elementsPerCall), DefaultAsyncTimeout);
                 throw new AssertionException(
                     "FetchTrackedBoxableArrayOptional must fault the Task with NotSupportedException " +
                     "(per-element BoxableProxy suppressed); no exception was thrown.");
@@ -243,7 +275,7 @@ public class SuppressedProxyAsyncCarrierLeakProbeTests : TestBase
         {
             try
             {
-                await WithTimeout(TestLibFunctions.FetchTrackedClassBoxableScalarAsync(i), DefaultAsyncTimeout);
+                await WithTimeout(InvokeFaultingProducer(typeof(TestLibFunctions), "FetchTrackedClassBoxableScalarAsync", i), DefaultAsyncTimeout);
                 throw new AssertionException(
                     "FetchTrackedClassBoxableScalar must fault the Task with NotSupportedException " +
                     "(class-bound proxy suppressed); no exception was thrown.");

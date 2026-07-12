@@ -69,6 +69,40 @@ namespace BindingsGeneration
             }
             Indent = checkpoint.Indent;
         }
+
+        /// <summary>
+        /// Truncates the buffer back to <paramref name="checkpoint"/> exactly like
+        /// <see cref="RollbackTo"/>, but first returns everything written since. A caller uses this
+        /// to inject a prefix ahead of an already-emitted member — e.g. a compile-time-visible
+        /// <c>[Obsolete(error: true)]</c> attribute in front of a member whose signature (and, for
+        /// async, whose faulting body) is already written and cannot be re-emitted without
+        /// duplicating its Swift side. Re-append the returned text verbatim with
+        /// <see cref="AppendCaptured"/> after emitting the prefix.
+        /// </summary>
+        public string RollbackToAndCapture(WriterCheckpoint checkpoint)
+        {
+            Flush();
+            var builder = _innerWriter.GetStringBuilder();
+            string captured = string.Empty;
+            if (builder.Length > checkpoint.Length)
+            {
+                captured = builder.ToString(checkpoint.Length, builder.Length - checkpoint.Length);
+                builder.Length = checkpoint.Length;
+            }
+            Indent = checkpoint.Indent;
+            return captured;
+        }
+
+        /// <summary>
+        /// Appends text captured by <see cref="RollbackToAndCapture"/> verbatim, bypassing indent
+        /// processing — the captured text already carries its own leading indentation, so re-running
+        /// it through the indenting writer would double-indent every line.
+        /// </summary>
+        public void AppendCaptured(string captured)
+        {
+            Flush();
+            _innerWriter.GetStringBuilder().Append(captured);
+        }
     }
 
     /// <summary>

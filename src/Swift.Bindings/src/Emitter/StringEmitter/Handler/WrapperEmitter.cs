@@ -684,6 +684,14 @@ namespace BindingsGeneration
             {
                 UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, _fallbackInfo.Value, _emissionContext);
             }
+            // Checkpoint BEFORE the member's attributes and signature. When a member produce-throws
+            // because its {Protocol}Proxy was suppressed, its read must fail at COMPILE time (SB0006
+            // [Obsolete(error:true)]), not silently at runtime — but that is only known after the body
+            // is (attempted to be) emitted, by which point the signature (and, for async, the faulting
+            // body) is already written and cannot be re-emitted without duplicating its Swift side. So
+            // we capture the emitted member text, roll back to here, emit the marker, and restore the
+            // text verbatim ahead of it.
+            var preSignatureCheckpoint = csWriter.Checkpoint();
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, _env.MethodDecl, _env.ParentDecl, emitObsolete: false);
             EmitSafetyObsolete(csWriter);
             if (!_env.MethodDecl.IsAccessor)
@@ -701,9 +709,15 @@ namespace BindingsGeneration
             // references never reach this catch: they drop their wrap fallback locally and the member
             // emits normally.
             var proxyBodyCheckpoint = csWriter.Checkpoint();
+            bool produceThrew = false;
             try
             {
                 EmitMethodBody(csWriter, swiftWriter);
+                // The async existential-return arm faults the awaiting Task in-body (preserving its
+                // carrier release + Task lifecycle) rather than throwing up here, so it signals via the
+                // env flag instead of the catch below.
+                if (_env.AsyncReturnProxySuppressed)
+                    produceThrew = true;
             }
             catch (SuppressedProxyReferenceException ex)
             {
@@ -713,7 +727,43 @@ namespace BindingsGeneration
                 // the sole boundary for method-path degraded members, including scalar property/subscript
                 // accessors that restub here rather than in their own handler.
                 SuppressedProxyReporting.Record(_env.MethodDecl, SuppressedProxyReporting.Site.ProduceThrow, ex.ProxyClassName);
+                produceThrew = true;
             }
+            if (produceThrew)
+            {
+                if (_env.MethodDecl.IsAccessor)
+                {
+                    // A synthesized property/subscript accessor (`{Name}_Get()`): do NOT poison it — the
+                    // public getter delegates to it via `get => Name_Get();` and an [Obsolete(error:true)]
+                    // accessor would fail that generated delegation to compile. Record it so the PUBLIC
+                    // getter (emitted later, in the property/subscript handler) carries the SB0006 marker.
+                    _emissionContext?.RecordAccessorProduceThrow(_env.MethodDecl);
+                }
+                else
+                {
+                    // Public method (including the async faulting-Task arm): inject the SB0006 marker
+                    // ahead of the already-written attributes + signature + body.
+                    var capturedMember = csWriter.RollbackToAndCapture(preSignatureCheckpoint);
+                    capturedMember = RemoveObsoleteAttributeLines(capturedMember);
+                    EmitSuppressedProxyReadPoison(csWriter);
+                    csWriter.AppendCaptured(capturedMember);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Drops any single-line <c>[Obsolete(…)]</c> attribute from an emitted member's captured text.
+        /// <c>[Obsolete]</c> is <c>AllowMultiple=false</c>, so the SB0006 error marker cannot coexist with
+        /// a warning-level one (SB0001/SB0002 or a deprecation) that <see cref="EmitSafetyObsolete"/> may
+        /// have written — and the error marker strictly subsumes it (the member cannot be used at all).
+        /// Each such attribute is emitted as one physical line, so line-level removal is exact.
+        /// </summary>
+        private static string RemoveObsoleteAttributeLines(string memberText)
+        {
+            var kept = memberText
+                .Split('\n')
+                .Where(line => !line.TrimStart().StartsWith("[Obsolete(", StringComparison.Ordinal));
+            return string.Join("\n", kept);
         }
 
         /// <summary>
@@ -791,6 +841,39 @@ namespace BindingsGeneration
         /// </summary>
         internal const string ProxySuppressedMessage =
             "Protocol proxy not available: EveryProtocol conformance was not emitted.";
+
+        /// <summary>
+        /// DiagnosticId for the compile-time-visible marker on a suppressed-proxy read/return. Distinct
+        /// from the warning-only SB0001 (JIT risk) / SB0002 (missing symbol): SB0006 is emitted with
+        /// <c>error: true</c>, so any consumer read is a build error, not a silent runtime throw.
+        /// </summary>
+        internal const string ProxySuppressedDiagnosticId = "SB0006";
+
+        /// <summary>
+        /// Consumer-facing text for the SB0006 marker. Explains the read has no value to return and that
+        /// a setter, where present, still works — steering the consumer to the assign-only surface.
+        /// </summary>
+        internal const string ProxySuppressedObsoleteMessage =
+            "This member is unavailable: its Swift protocol proxy (the EveryProtocol reverse-dispatch " +
+            "conformance) could not be generated, so any read or return can only throw. A setter, where " +
+            "the member has one, still works.";
+
+        /// <summary>
+        /// Emits the compile-time-visible <c>[Obsolete(..., error: true, DiagnosticId = "SB0006")]</c>
+        /// marker in front of a member — or a single accessor — whose read/return can only ever throw
+        /// because its <c>{Protocol}Proxy</c> was suppressed. <c>error: true</c> turns any consumer read
+        /// into a build error (the throw-stub body stays underneath as a defense-in-depth backstop),
+        /// satisfying the policy that "reads always throw" be visible at compile time, never a silent
+        /// runtime trap. Works at method level and accessor level alike, unlike
+        /// <see cref="EmitSafetyObsolete"/>, which defers accessors to property-level wiring.
+        /// </summary>
+        internal static void EmitSuppressedProxyReadPoison(CSharpWriter csWriter)
+        {
+            csWriter.WriteLine(
+                $"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(ProxySuppressedObsoleteMessage)}\", " +
+                $"true, DiagnosticId = \"{ProxySuppressedDiagnosticId}\", " +
+                "UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\")]");
+        }
 
         /// <summary>
         /// Body replacement for a member whose PRODUCE-path proxy construction was suppressed. The

@@ -516,6 +516,21 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Scalar existential subscript getter: the private `{Name}_Get()` wrapper accessor restubbed to a
+            // suppressed-proxy throw (recorded by WrapperEmitter, which cannot poison the accessor itself
+            // without breaking the `get => {Name}_Get(...)` delegation). Poison the PUBLIC indexer getter at
+            // compile time (SB0006) so a scalar `any P` read fails visibly, not just at runtime — the subscript
+            // twin of the PropertyHandler scalar-existential getter gate. The scalar projection does NOT throw
+            // during element conversion (only the collection/optional element path below does), so this side-
+            // table check is the only signal for it. The report row is already recorded at the accessor restub;
+            // the throwing body stays as the runtime backstop, and the setter (if any) remains usable.
+            if (emissionContext?.WasAccessorProduceThrow(getter.Method) == true)
+            {
+                WrapperEmitter.EmitSuppressedProxyReadPoison(csWriter);
+                csWriter.WriteLine($"get => throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
+                return;
+            }
+
             var retProjection = s_projectionFactory.Project(subscriptDecl.ReturnTypeSpec,
                 new ProjectionContext
                 {
@@ -543,6 +558,9 @@ namespace BindingsGeneration
                 }
                 catch (SuppressedProxyReferenceException ex)
                 {
+                    // Poison the indexer getter at compile time (SB0006) so reads fail visibly, not just
+                    // at runtime. Probe-first means nothing is written yet, so the marker leads cleanly.
+                    WrapperEmitter.EmitSuppressedProxyReadPoison(csWriter);
                     csWriter.WriteLine($"get => throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
                     SuppressedProxyReporting.Record(subscriptDecl, SuppressedProxyReporting.Site.ProduceThrow, ex.ProxyClassName, AccessorKind.SubscriptGetter);
                     return;

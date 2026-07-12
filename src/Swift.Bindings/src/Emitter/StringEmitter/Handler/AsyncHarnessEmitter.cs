@@ -252,8 +252,21 @@ namespace BindingsGeneration
             // (CS1503: SwiftArray<NSUrl> vs IntPtr).
             if (!voidReturn && TryGetCollectionAsyncInfo(returnType.SwiftTypeSpec,
                 out var runtimeType, out var conversionExpr, out var collectionUsesObjCBridge,
-                out var collectionProxySuppressed))
+                out var collectionProxySuppressed, out var collectionSuppressedProxyName))
             {
+                if (collectionProxySuppressed)
+                {
+                    // Signal WrapperEmitter to mark the public async method [Obsolete(error:true)]
+                    // (SB0006) so awaiting this always-faulting collection Task is a COMPILE error —
+                    // uniform with the scalar async existential arm above; the faulting completion
+                    // callback below stays as the defense-in-depth backstop. Record the degrade so the
+                    // poisoned member gains a visibly-degraded report row like every other
+                    // produce-throw surface (this arm previously left the faulting-Task member both
+                    // unreported and un-poisoned — a silent runtime trap).
+                    _env.AsyncReturnProxySuppressed = true;
+                    SuppressedProxyReporting.Record(_env.MethodDecl, SuppressedProxyReporting.Site.ProduceThrow,
+                        collectionSuppressedProxyName!);
+                }
                 EmitAsyncWrapperForCollection(callbackWriter, callbackFieldName, callbackMethodName,
                     errorCallbackFieldName, errorCallbackMethodName, runtimeType, conversionExpr,
                     collectionUsesObjCBridge, collectionProxySuppressed);
@@ -767,6 +780,14 @@ namespace BindingsGeneration
                     // freeing the carrier + GCHandle in finally. This preserves the async lifecycle,
                     // unlike a silent no-op callback that would leave the awaiting Task hanging.
                     asyncProxySuppressed = true;
+                    // Signal WrapperEmitter to mark the method [Obsolete(error:true)] (SB0006) so awaiting
+                    // it is a COMPILE error, not just a runtime Task fault — the faulting body below stays
+                    // as the defense-in-depth backstop. Record the degrade so the poisoned async member is
+                    // a classified visibly-degraded row like every other produce-throw surface (this arm
+                    // previously left the faulting-Task member unreported).
+                    _env.AsyncReturnProxySuppressed = true;
+                    SuppressedProxyReporting.Record(_env.MethodDecl, SuppressedProxyReporting.Site.ProduceThrow,
+                        _env.ExistentialHandler.GetQualifiedProxyClassName(asyncProtocolList));
                     asyncWrapExpr = "default";
                 }
                 else
@@ -855,10 +876,19 @@ namespace BindingsGeneration
             }
             else if (isClassType)
                 marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(_retainedObjPtr);";
-            else if (TryGetOptionalMarshalType(out var optionalMarshalType, out var objcBridgeConversion, out var containerBridgeConversion, out var valueContainerInnerConversion, out var optionalProxySuppressed))
+            else if (TryGetOptionalMarshalType(out var optionalMarshalType, out var objcBridgeConversion, out var containerBridgeConversion, out var valueContainerInnerConversion, out var optionalProxySuppressed, out var optionalSuppressedProxyName))
             {
                 if (optionalProxySuppressed)
                 {
+                    // Poison the public async method [Obsolete(error:true)] (SB0006) so awaiting this
+                    // always-faulting optional-collection Task is a COMPILE error — uniform with the
+                    // scalar and non-optional collection async arms; the faulting body below stays as
+                    // the defense-in-depth backstop. Record the degrade so the poisoned member gains a
+                    // visibly-degraded report row (parity); this arm previously left the faulting-Task
+                    // member both unreported and un-poisoned.
+                    _env.AsyncReturnProxySuppressed = true;
+                    SuppressedProxyReporting.Record(_env.MethodDecl, SuppressedProxyReporting.Site.ProduceThrow,
+                        optionalSuppressedProxyName!);
                     // Optional<container<existential>> whose element proxy was suppressed (EveryProtocol
                     // conformance unavailable). Fault the awaiting Task — same contract as the
                     // non-optional existential suppressed branch above: the throw fires inside the
@@ -1083,12 +1113,14 @@ namespace BindingsGeneration
             [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? runtimeType,
             [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? conversionExpr,
             out bool usesObjCContainerBridge,
-            out bool proxySuppressed)
+            out bool proxySuppressed,
+            out string? suppressedProxyName)
         {
             runtimeType = null;
             conversionExpr = null;
             usesObjCContainerBridge = false;
             proxySuppressed = false;
+            suppressedProxyName = null;
 
             // Thread EmissionContext so the element projection's proxy-suppression gate is armed:
             // an existential element (e.g. `[any Boxable]`) whose EveryProtocol conformance could
@@ -1116,9 +1148,10 @@ namespace BindingsGeneration
                         ? ap.GetReturnContainerConversion("_ptr")!
                         : ap.GetReturnContainerConversion("_collection")!;
                 }
-                catch (SuppressedProxyReferenceException)
+                catch (SuppressedProxyReferenceException ex)
                 {
                     proxySuppressed = true;
+                    suppressedProxyName = ex.ProxyClassName;
                     conversionExpr = string.Empty;
                 }
                 return true;
@@ -1133,9 +1166,10 @@ namespace BindingsGeneration
                         ? dp.GetReturnContainerConversion("_ptr")!
                         : dp.GetReturnContainerConversion("_collection")!;
                 }
-                catch (SuppressedProxyReferenceException)
+                catch (SuppressedProxyReferenceException ex)
                 {
                     proxySuppressed = true;
+                    suppressedProxyName = ex.ProxyClassName;
                     conversionExpr = string.Empty;
                 }
                 return true;
@@ -1152,9 +1186,10 @@ namespace BindingsGeneration
                         ? sp.GetReturnContainerConversion("_ptr")!
                         : (sp.GetReturnContainerConversion("_collection") ?? "_collection");
                 }
-                catch (SuppressedProxyReferenceException)
+                catch (SuppressedProxyReferenceException ex)
                 {
                     proxySuppressed = true;
+                    suppressedProxyName = ex.ProxyClassName;
                     conversionExpr = string.Empty;
                 }
                 return true;
@@ -1212,13 +1247,15 @@ namespace BindingsGeneration
             out string? objcBridgeConversion,
             out string? containerBridgeConversion,
             out string? valueContainerInnerConversion,
-            out bool proxySuppressed)
+            out bool proxySuppressed,
+            out string? suppressedProxyName)
         {
             marshalType = null;
             objcBridgeConversion = null;
             containerBridgeConversion = null;
             valueContainerInnerConversion = null;
             proxySuppressed = false;
+            suppressedProxyName = null;
             var returnSpec = _env.MethodDecl.CSSignature.First().SwiftTypeSpec;
             if (returnSpec is not NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 } optionalSpec)
                 return false;
@@ -1275,7 +1312,7 @@ namespace BindingsGeneration
                         valueContainerInnerConversion = op.InnerProjection.GetReturnContainerConversion("_rawCol");
                     }
                 }
-                catch (SuppressedProxyReferenceException)
+                catch (SuppressedProxyReferenceException ex)
                 {
                     // PRODUCE arm: the optional's inner container element is an existential whose
                     // EveryProtocol proxy was suppressed. Mirror the non-optional collection-return
@@ -1283,6 +1320,7 @@ namespace BindingsGeneration
                     // instead of constructing the absent `new {Proxy}(`. The throw fired during pure
                     // string projection, before any callback body was written (Hazard-D-safe).
                     proxySuppressed = true;
+                    suppressedProxyName = ex.ProxyClassName;
                     objcBridgeConversion = null;
                     containerBridgeConversion = null;
                     valueContainerInnerConversion = null;

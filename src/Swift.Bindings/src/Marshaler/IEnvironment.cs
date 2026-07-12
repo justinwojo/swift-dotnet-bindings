@@ -99,6 +99,16 @@ namespace BindingsGeneration
         public string EmissionSymbol { get; private set; } = methodDecl.MangledName;
 
         /// <summary>
+        /// Set by <c>AsyncHarnessEmitter</c> when it emits an async method whose existential return can
+        /// only fault the awaiting Task because its <c>{Protocol}Proxy</c> was suppressed. Unlike the
+        /// sync produce-throw sites, the async arm does not throw <c>SuppressedProxyReferenceException</c>
+        /// up to <c>WrapperEmitter</c> (it keeps a carefully carrier-releasing faulting-Task body), so
+        /// this flag is the post-body signal that lets <c>WrapperEmitter.EmitMethod</c> inject the
+        /// compile-time-visible SB0006 marker ahead of the already-written signature.
+        /// </summary>
+        public bool AsyncReturnProxySuppressed { get; set; }
+
+        /// <summary>
         /// Promotes the emission-time symbol to <paramref name="symbol"/> — the side-table analogue
         /// of the former <c>MethodDecl.MangledName = symbol</c> mutation. Returns the previous value
         /// so a caller that promotes optimistically and then falls back on a different emission path
