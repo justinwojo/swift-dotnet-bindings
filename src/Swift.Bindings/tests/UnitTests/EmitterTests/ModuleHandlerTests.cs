@@ -1790,6 +1790,84 @@ public class ModuleHandlerTests
 
     #endregion
 
+    #region Emission Indentation Regression
+
+    // A frozen struct projected as a C# class (Frozen | RequiresMemoryManagement) emits a nested
+    // `Buffer` struct. Closing that Buffer must pop exactly ONE indent level. A prior bug popped
+    // two levels (`Indent -= 2`) while writing a single closing brace, so the shared writer was
+    // left one level short — every following member, and through the module type loop every
+    // following top-level type, drifted toward column 0. This pins the cross-type cascade.
+    [Fact]
+    public void Emit_FrozenStructProjectedAsClass_KeepsFollowingTopLevelTypeIndented()
+    {
+        var (csOutput, _) = EmitModuleWithDependencies(
+            "TestModule",
+            new List<string>(),
+            customizeModule: moduleDecl =>
+            {
+                MakeIndentFixtureStruct(moduleDecl, "BufferHost");
+                MakeIndentFixtureStruct(moduleDecl, "PlainAfter");
+            },
+            registerExtraTypes: db =>
+            {
+                // The harness already registered the "TestModule" module database, so add these
+                // types to the existing DB rather than a second module of the same name.
+                db.AddOutOfModuleTypes(new[]
+                {
+                    IndentFixtureTypeRecord("BufferHost",
+                        TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement),
+                    IndentFixtureTypeRecord("PlainAfter", TypeRecordFlags.Frozen),
+                });
+            });
+
+        // The buffer-projected class and its nested Buffer struct both emitted (the buggy path).
+        Assert.Contains("public partial class BufferHost", csOutput);
+        Assert.Contains("public struct Buffer {", csOutput);
+
+        // The type declared AFTER the buffer-projected class must still sit one level inside the
+        // namespace (4 spaces), never drift to column 0.
+        Assert.Contains("    public unsafe partial struct PlainAfter", csOutput);
+        Assert.DoesNotContain("\npublic unsafe partial struct PlainAfter", csOutput);
+    }
+
+    private static StructDecl MakeIndentFixtureStruct(ModuleDecl moduleDecl, string name)
+    {
+        var structDecl = new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}VN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa"
+        };
+        moduleDecl.Types.Add(structDecl);
+        return structDecl;
+    }
+
+    private static (SwiftTypeName, TypeRecord) IndentFixtureTypeRecord(string name, TypeRecordFlags flags)
+    {
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}");
+        return (swiftTypeName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", name),
+            SwiftTypeName = swiftTypeName,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+            Flags = flags,
+            Kind = TypeRecordKind.Struct
+        });
+    }
+
+    #endregion
+
     #region Framework Resolver Emission Tests
 
     [Fact]

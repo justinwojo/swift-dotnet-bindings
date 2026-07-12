@@ -324,8 +324,13 @@ namespace BindingsGeneration
 
                 if (isProjectedAsClass)
                 {
-                    // Payload used for lowering at PInvoke boundary
-                    csWriter.Indent -= 2;
+                    // Payload used for lowering at PInvoke boundary.
+                    // Close ONLY the nested Buffer struct (opened above with a single Indent++);
+                    // the enclosing class body stays open for the members emitted below. A prior
+                    // `Indent -= 2` here popped both the Buffer and the class level while writing a
+                    // single `}`, leaving the shared writer one indent short — every later member and
+                    // top-level type drifted left, eventually landing at column 0.
+                    csWriter.Indent--;
                     csWriter.WriteLine("}");
                     csWriter.WriteLine();
                     csWriter.WriteLine($"public unsafe PayloadBuffer<{typeNameWithGenerics}.Buffer> PayloadBuffer => new PayloadBuffer<{typeNameWithGenerics}.Buffer>(_payload);");
