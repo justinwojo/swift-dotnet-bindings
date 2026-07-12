@@ -247,18 +247,50 @@ public static class NameProvider
 
     /// <summary>
     /// Converts SCREAMING_CASE to PascalCase by splitting on underscores and title-casing each segment.
+    /// <para>
+    /// Pure-letter word segments are title-cased and their underscore joins collapse
+    /// (<c>CAMERA_DIRECTION</c> → <c>CameraDirection</c>). A segment carrying a digit is treated as an
+    /// acronym/designator and preserved verbatim rather than lower-cased into an unreadable form
+    /// (<c>SHA3</c> stays <c>SHA3</c>, not <c>Sha3</c>; <c>MP3</c> stays <c>MP3</c>, not <c>Mp3</c>).
+    /// The underscore boundary between two adjacent digit-bearing designators is preserved so the
+    /// emitted identifier matches the original Swift name (<c>SHA3_256</c> → <c>SHA3_256</c>,
+    /// <c>X9_63</c> → <c>X9_63</c>); an underscore adjacent to a pure-letter word still collapses
+    /// (<c>MAX_SIZE_2</c> → <c>MaxSize2</c>).
+    /// </para>
     /// </summary>
     private static string ScreamingCaseToPascalCase(string s)
     {
         var parts = s.Split('_', StringSplitOptions.RemoveEmptyEntries);
         var sb = new System.Text.StringBuilder();
-        foreach (var part in parts)
+        for (int i = 0; i < parts.Length; i++)
         {
-            sb.Append(char.ToUpperInvariant(part[0]));
-            if (part.Length > 1)
-                sb.Append(part.Substring(1).ToLowerInvariant());
+            var part = parts[i];
+            bool partHasDigit = HasDigit(part);
+            // Keep the separating underscore only between two digit-bearing designator segments
+            // so digit-boundary names (SHA3_256) survive; drop it for ordinary word joins.
+            if (i > 0 && partHasDigit && HasDigit(parts[i - 1]))
+                sb.Append('_');
+            if (partHasDigit)
+            {
+                // Digit-bearing acronym/designator — preserve verbatim (SHA3, 256, MP3).
+                sb.Append(part);
+            }
+            else
+            {
+                sb.Append(char.ToUpperInvariant(part[0]));
+                if (part.Length > 1)
+                    sb.Append(part.Substring(1).ToLowerInvariant());
+            }
         }
         return sb.ToString();
+    }
+
+    /// <summary>Returns true if the string contains at least one decimal digit.</summary>
+    private static bool HasDigit(string s)
+    {
+        foreach (var c in s)
+            if (char.IsDigit(c)) return true;
+        return false;
     }
 
     /// <summary>

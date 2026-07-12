@@ -3977,9 +3977,10 @@ public class ConcreteSpecializationEngineTests
     }
 
     // === Issue A (2026-04-22) — CryptoKit emitter: only canonicalize bare SCREAMING_CASE
-    // identifiers (e.g. SHA3_256 → Sha3256). Non-identifier C# type expressions such as
-    // Byte[], Foundation.Data, Swift.Array<Byte> must pass through verbatim; a previous,
-    // too-eager canonicalisation mangled them to invalid identifiers like Byte__.
+    // identifiers (e.g. SHA3_256, which digit-boundary casing now preserves verbatim as SHA3_256).
+    // Non-identifier C# type expressions such as Byte[], Foundation.Data, Swift.Array<Byte> must
+    // pass through verbatim; a previous, too-eager canonicalisation mangled them to invalid
+    // identifiers like Byte__.
 
     [Theory]
     [InlineData("SHA3_256")]
@@ -4004,8 +4005,9 @@ public class ConcreteSpecializationEngineTests
     }
 
     [Theory]
-    [InlineData("SHA3_256", "Sha3256")]
-    [InlineData("SHA_384", "Sha384")]
+    [InlineData("SHA3_256", "SHA3_256")]  // SHA3 and 256 both carry a digit → verbatim + underscore kept
+    [InlineData("SHA256", "SHA256")]      // single digit-bearing designator → verbatim (was Sha256)
+    [InlineData("SHA_384", "Sha384")]     // SHA (pure-letter word) title-cases; only 384 is a designator
     public void CanonicalizeConformerCSharpType_BareScreamingCase_PascalCases(string input, string expected)
     {
         Assert.Equal(expected, ConcreteProtocolSpecializationEmitter.CanonicalizeConformerCSharpType(input));

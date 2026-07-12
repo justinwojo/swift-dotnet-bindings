@@ -496,12 +496,16 @@ public class NameProviderParameterTests
     [InlineData("CAMERA_DIRECTION", "CameraDirection")]
     [InlineData("EASING_MODE", "EasingMode")]
     [InlineData("MARKER_ANCHOR", "MarkerAnchor")]
-    [InlineData("MP3", "Mp3")]                        // all-caps with digit
+    [InlineData("MP3", "MP3")]                         // digit-bearing designator preserved verbatim
+    [InlineData("SHA256", "SHA256")]                   // digit-bearing designator preserved verbatim
+    [InlineData("SHA3_256", "SHA3_256")]               // digit-boundary underscore preserved
+    [InlineData("X9_63", "X9_63")]                     // both segments digit-bearing → underscore kept
+    [InlineData("MAX_SIZE_2", "MaxSize2")]             // trailing numeric counter: word joins collapse
     [InlineData("hidden", "Hidden")]                   // existing camelCase preserved
     [InlineData("CameraDirection", "CameraDirection")] // already PascalCase preserved
     [InlineData("A", "A")]                             // single char, not SCREAMING_CASE
     [InlineData("", "")]                               // empty preserved
-    [InlineData("URL", "Url")]                         // all-caps 2+ chars is SCREAMING_CASE
+    [InlineData("URL", "Url")]                         // all-letter acronym → title-cased (no digit)
     public void ToPascalCase_ScreamingCase_ConvertedCorrectly(string input, string expected)
     {
         Assert.Equal(expected, NameProvider.ToPascalCase(input));
@@ -518,10 +522,12 @@ public class NameProviderParameterTests
     [InlineData("F0_S1", "F0_S1")]                      // abbreviation pattern (single-letter segments) → unchanged
     [InlineData("F10_S4", "F10_S4")]                    // abbreviation pattern with multi-digit → unchanged
     [InlineData("F2_S2_S0_S0", "F2_S2_S0_S0")]         // deeply nested abbreviation → unchanged
-    [InlineData("NF3_S0", "Nf3S0")]                      // NF has 2 consecutive letters → converts
+    [InlineData("NF3_S0", "NF3_S0")]                     // digit-bearing segments preserved verbatim (abbreviation-stable)
     [InlineData("E1_S2", "E1_S2")]                      // enum test pattern → unchanged
     [InlineData("URL", "URL")]                          // all-caps no underscore → unchanged
     [InlineData("F9S1", "F9S1")]                        // all-caps abbreviation → unchanged
+    [InlineData("SHA256", "SHA256")]                     // digit designator, no underscore → unchanged
+    [InlineData("SHA3_256", "SHA3_256")]                // digit-boundary underscore preserved
     [InlineData("pixelFormat", "PixelFormat")]           // camelCase → PascalCase
     [InlineData("ImageRequest", "ImageRequest")]         // already PascalCase → unchanged
     [InlineData("", "")]                                 // empty → empty
