@@ -105,8 +105,28 @@ public partial class ProtocolProxyEmitter
             // walk so the index threaded into EmitMethodImplementation (and thus the SBW call
             // site) matches the symbol the wrapper actually exported. @objc-optional methods
             // consume no index; the interface satisfies them via a default no-op.
-            if (!WitnessDispatchEmitter.IsMethodWitnessDispatchEligible(method))
+            if (!WitnessDispatchEmitter.IsMethodWitnessDispatchEligible(method, protocolDecl))
+            {
+                // A mixed-generic protocol's witness dispatch is suppressed wholesale at the
+                // ModuleHandler level — no SBW_ accessor is exported for ANY member — so the
+                // producer walk never runs and there is no index to keep in lockstep here. But
+                // the C# interface still declares this instance method, so dropping it would
+                // leave the proxy unimplemented (CS0535). Degrade it to an SB0003 NotSupported
+                // stub, mirroring the property path's throwing-body fallthrough. Other
+                // ineligible members keep dropping through: @objc-optional methods are DIM
+                // no-ops on the interface, and static methods get their throwing stub from
+                // EmitStaticAbstractStubs below.
+                if (!method.IsConstructor
+                    && method.MethodType != MethodType.Static
+                    && !method.IsObjCOptional
+                    && EveryProtocolEmitter.IsMixedGenericProtocol(protocolDecl))
+                {
+                    var mixedGenericKey = ProtocolMethodDisambiguator.EffectiveProjectedKey(method, protocolDecl, _typeDatabase, emittedCSharpPropertyNames);
+                    if (emittedCSharpKeys.TryAdd(mixedGenericKey, method))
+                        EmitNotSupportedMethodStub(writer, method, protocolDecl, "this protocol mixes generic and non-generic requirements and cannot be dispatched through a protocol proxy", emittedCSharpPropertyNames);
+                }
                 continue;
+            }
             // @objc optional methods are no-op DIM defaults on the interface (ProtocolHandler),
             // so the proxy needn't implement them and they get no witness accessor. The producer
             // (WitnessDispatchEmitter) skips them BEFORE the index increment; mirror that here so
@@ -909,7 +929,7 @@ public partial class ProtocolProxyEmitter
         // dispatch path off here — after all the strategy re-evaluations above — so the accessor
         // bodies below fall through to the SB0003 NotSupportedException fallback (which still
         // satisfies the interface) instead of calling a symbol the binary never exported.
-        if (!WitnessDispatchEmitter.IsPropertyWitnessDispatchEligible(property))
+        if (!WitnessDispatchEmitter.IsPropertyWitnessDispatchEligible(property, protocolDecl))
         {
             isGetterDispatchable = false;
             isSetterDispatchable = false;

@@ -140,6 +140,25 @@ public enum SkipReason
     ActorIsolatedConstructor,
     MissingWrapperSymbol,
     /// <summary>
+    /// A method on a generic parent whose constrained-extension shape cannot be emitted as an
+    /// unconditional conformance wrapper: either an unconstrained extension method collides with a
+    /// same-name overload on the parent (the wrapper cannot disambiguate), or the method carries
+    /// generic constraints narrower than its parent declares (the wrapper extension is emitted
+    /// without a where-clause, so the constrained method is invisible at the call site). Decided at
+    /// planning time so no <c>@_cdecl</c> wrapper symbol is ever claimed — this replaces the
+    /// mis-classified <see cref="MissingWrapperSymbol"/> rollback the two arms formerly produced.
+    /// Conditional-conformance wrapper extensions are not yet supported (session 07 territory).
+    /// </summary>
+    ConstrainedExtensionWrapper,
+    /// <summary>
+    /// A generic enum's payload-carrying case constructor. The construction wrapper would need a
+    /// per-instantiation <c>@_cdecl</c> that the generator does not emit for open-generic enum
+    /// cases, so the case constructor is skipped honestly at planning time rather than claiming a
+    /// wrapper symbol. Truthful successor to a former <see cref="MissingWrapperSymbol"/> label on
+    /// this path.
+    /// </summary>
+    GenericEnumCaseConstructor,
+    /// <summary>
     /// <b>Retired.</b> Once produced by the generate-then-strip proxy co-gater to mark a method
     /// body removed because it constructed a suppressed <c>{Name}Proxy</c>. Proxy suppression is
     /// now decided at emission (the reference gate drops the wrap lambda or stubs the member in

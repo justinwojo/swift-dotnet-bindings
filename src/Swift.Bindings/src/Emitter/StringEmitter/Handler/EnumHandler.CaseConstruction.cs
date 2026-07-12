@@ -164,7 +164,7 @@ namespace BindingsGeneration
                     "Enum case '{Enum}.{Case}' belongs to a generic enum; its case constructor is not an exported function symbol and cannot be reached through a @_cdecl wrapper. Skipping the C# factory to avoid a dangling P/Invoke (EntryPointNotFoundException at runtime).",
                     enumDecl.Name, caseName);
                 UnsupportedCommentEmitter.EmitMemberSkipped(
-                    csWriter, capitalizedName, BindingItemKind.Method, SkipReason.MissingWrapperSymbol,
+                    csWriter, capitalizedName, BindingItemKind.Method, SkipReason.GenericEnumCaseConstructor,
                     "generic-enum payload-case constructor has no exported function symbol and no @_cdecl wrapper route; a direct mangled-symbol P/Invoke would throw EntryPointNotFoundException on first use.",
                     containingDecl: caseDecl.ParentDecl);
                 return false;

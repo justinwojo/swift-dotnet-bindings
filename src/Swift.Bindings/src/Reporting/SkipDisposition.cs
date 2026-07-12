@@ -100,6 +100,13 @@ public static class SkipDispositionClassifier
             [SkipReason.CovariantReturnNotRepresentable] = SkipDisposition.KnownLimitation,
             [SkipReason.NetUnavailableType] = SkipDisposition.KnownLimitation,
             [SkipReason.AbsentFrameworkType] = SkipDisposition.KnownLimitation,
+            // Constrained-extension wrapper (same-name extension collision or narrower-than-parent
+            // generic constraints) and generic-enum payload case constructors are decided, documented
+            // gaps — conditional-conformance wrapper extensions / open-generic enum case wrappers are
+            // not yet supported. Skipped honestly at planning time (no dangling SBW_ claim), so they
+            // are attributed KnownLimitation, not the Review-tier MissingWrapperSymbol they replaced.
+            [SkipReason.ConstrainedExtensionWrapper] = SkipDisposition.KnownLimitation,
+            [SkipReason.GenericEnumCaseConstructor] = SkipDisposition.KnownLimitation,
             // A degraded reverse-dispatch member (throwing PRODUCE stub / consume-only / fail-fast
             // receiver) is a decided, documented capability gap — the {Protocol}Proxy could not be
             // synthesized, so C#-authored conformance to that protocol isn't possible. Consumer-visible

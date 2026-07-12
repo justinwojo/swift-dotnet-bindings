@@ -796,7 +796,7 @@ public static class MethodWrapperEmitter
     /// before <see cref="ModuleEmissionContext.TryAddMethodWrapperSymbol"/> records the
     /// symbol as registered.
     /// </summary>
-    private static bool WouldGenericStaticDispatchSkipForExtensionCollision(
+    internal static bool WouldGenericStaticDispatchSkipForExtensionCollision(
         MethodEnvironment env, TypeDecl parentTypeDecl, out string swiftMethodName)
     {
         swiftMethodName = NameProvider.ParserNameToSwift(env.MethodDecl);
@@ -844,7 +844,7 @@ public static class MethodWrapperEmitter
     /// test pins this behavior.
     /// </para>
     /// </summary>
-    private static bool WouldGenericStaticDispatchSkipForNarrowerConstraint(
+    internal static bool WouldGenericStaticDispatchSkipForNarrowerConstraint(
         MethodEnvironment env, TypeDecl parentTypeDecl, out string swiftMethodName)
     {
         swiftMethodName = NameProvider.ParserNameToSwift(env.MethodDecl);

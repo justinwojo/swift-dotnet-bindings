@@ -666,6 +666,19 @@ namespace BindingsGeneration
                 // share (Finding 23). Replaces the old emitted-C# regex scrape.
                 SwiftTypeOwnershipManifestEmitter.Emit(decl, outputDirectory, logger);
 
+                // Fail-closed wrapper-symbol integrity net: reconcile every emitted C# P/Invoke
+                // wrapper-symbol reference against the wrapper functions actually emitted this
+                // generation. A dangling reference (a member planned against a wrapper symbol that
+                // was never emitted) is a generator defect that would throw
+                // EntryPointNotFoundException at runtime — turn it into a hard non-zero exit now.
+                // Runs after all emission and after the binding report is written (so the report
+                // survives), independent of the per-emit WrapperSymbolContractGate flag.
+                if (WrapperSymbolIntegrityGate.HasViolations(outputDirectory, logger))
+                {
+                    ReportCollector.Reset();
+                    return false;
+                }
+
                 logger.LogInformation("Bindings generation completed for {SwiftAbiPath}.", swiftAbiPath);
 
             }

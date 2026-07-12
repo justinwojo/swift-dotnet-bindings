@@ -38,6 +38,10 @@ public class SkipDispositionClassifierTests
     [InlineData(SkipReason.AnyTypeFallback, SkipDisposition.KnownLimitation)]
     [InlineData(SkipReason.NetUnavailableType, SkipDisposition.KnownLimitation)]
     [InlineData(SkipReason.AbsentFrameworkType, SkipDisposition.KnownLimitation)]
+    // Wrapper-symbol-integrity reasons: both are planning-time truthful skips (a member that
+    // could never own an @_cdecl wrapper symbol), documented consumer-visible gaps → KnownLimitation.
+    [InlineData(SkipReason.ConstrainedExtensionWrapper, SkipDisposition.KnownLimitation)]
+    [InlineData(SkipReason.GenericEnumCaseConstructor, SkipDisposition.KnownLimitation)]
     [InlineData(SkipReason.SuppressedProxyMemberDegraded, SkipDisposition.KnownLimitation)]
     [InlineData(SkipReason.DuplicateSignature, SkipDisposition.KnownLimitation)]
     // ObjC binding-path reasons: consumer-visible documented gaps are KnownLimitation, correct-by-design

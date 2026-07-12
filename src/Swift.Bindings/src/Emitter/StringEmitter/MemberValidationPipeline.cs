@@ -423,6 +423,45 @@ public class MemberValidationPipeline
                 $"Constrained-extension method '{methodDecl.Name}' on generic type '{methodConstrainedParent.Name}' is out of scope for ConstrainedExtensionEmitter (initial scope: zero-argument sync non-throwing public methods). Method has parameters, async/throws, or non-public visibility.");
         }
 
+        // Constrained-extension WRAPPER skip on a generic parent — the planning-time
+        // mirror of the two emit-time bails in MethodWrapperEmitter.EmitSwiftMethodWrapper.
+        // A method whose unconstrained conformance wrapper cannot be emitted must be skipped
+        // HERE, before MethodHandler Phase-1 promotes an SBW_ @_cdecl symbol the wrapper-emit
+        // never registers — otherwise the C# emit rolls back transactionally and the member
+        // surfaces as a mis-classified MissingWrapperSymbol row with a false "stripped during
+        // wrapper compilation" workaround. Two arms, distinguished by Details:
+        //   (a) an unconstrained extension method collides with a same-name overload on the
+        //       parent (the wrapper cannot disambiguate); or
+        //   (b) the method carries generic constraints narrower than its parent declares (the
+        //       wrapper conformance extension is emitted without a where-clause, so the
+        //       constrained method is invisible at the call site — the ObjectMapper
+        //       `Mapper where N: ImmutableMappable` shape, which the same-type gate above
+        //       misses because ExtractSameTypeConstraintForMethod only sees `where N == …`).
+        // The emit-time bails stay as defense-in-depth. Both predicates read only
+        // env.MethodDecl + the parent TypeDecl (no marshaled/promoted state), so a throwaway
+        // pre-Marshal MethodEnvironment yields the same decision the emitter would.
+        if (!methodDecl.IsConstructor &&
+            !methodDecl.IsAccessor &&
+            !methodDecl.IsSubscriptAccessor &&
+            methodDecl.ParentDecl is TypeDecl constrainedWrapperParent &&
+            constrainedWrapperParent.IsGeneric)
+        {
+            var wrapperProbeEnv = new MethodEnvironment(methodDecl, _typeDatabase);
+            if (MethodWrapperEmitter.WouldGenericStaticDispatchSkipForExtensionCollision(
+                    wrapperProbeEnv, constrainedWrapperParent, out var collisionSwiftName))
+            {
+                return ValidationResult.Skip(SkipReason.ConstrainedExtensionWrapper,
+                    $"Extension method '{collisionSwiftName}' on generic type '{constrainedWrapperParent.Name}' collides with a same-name overload on the parent; the unconstrained conformance wrapper cannot disambiguate (conditional-conformance wrapper not yet supported).");
+            }
+
+            if (MethodWrapperEmitter.WouldGenericStaticDispatchSkipForNarrowerConstraint(
+                    wrapperProbeEnv, constrainedWrapperParent, out var narrowerSwiftName))
+            {
+                return ValidationResult.Skip(SkipReason.ConstrainedExtensionWrapper,
+                    $"Method '{narrowerSwiftName}' on generic type '{constrainedWrapperParent.Name}' declares generic constraints narrower than its parent; the wrapper conformance extension is unconstrained, so the method is invisible at the call site (conditional-conformance wrapper not yet supported).");
+            }
+        }
+
         // ── Gate 5: Bound generic gates (non-accessor only) ──
         // Accessors skip these checks — MethodHandler wraps the accessor check in `if (!isAccessor)`.
         // Only checks that are pure skip gates; existential type arg checks stay in handlers

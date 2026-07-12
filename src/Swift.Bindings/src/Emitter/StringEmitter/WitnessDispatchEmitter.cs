@@ -200,7 +200,7 @@ public class WitnessDispatchEmitter
         {
             // Eligibility (static / @objc-optional / custom-actor) is the shared predicate so all
             // three witness-dispatch walks agree on which members get an SBW accessor and index.
-            if (!IsPropertyWitnessDispatchEligible(property))
+            if (!IsPropertyWitnessDispatchEligible(property, protocolDecl))
                 continue;
             if (!emittedPropertyNames.Add(property.Name + "_get"))
                 continue;
@@ -247,7 +247,7 @@ public class WitnessDispatchEmitter
         // Property setters (skip static properties - not part of witness table)
         foreach (var property in protocolDecl.Properties)
         {
-            if (!IsPropertyWitnessDispatchEligible(property))
+            if (!IsPropertyWitnessDispatchEligible(property, protocolDecl))
                 continue;
             if (!emittedPropertyNames.Add(property.Name + "_set"))
                 continue;
@@ -266,7 +266,7 @@ public class WitnessDispatchEmitter
         foreach (var method in protocolDecl.Methods)
         {
             // Shared eligibility predicate keeps this walk's index in lockstep with both C# walks.
-            if (!IsMethodWitnessDispatchEligible(method))
+            if (!IsMethodWitnessDispatchEligible(method, protocolDecl))
                 continue;
 
             // EffectiveWitnessSlotKey splits a disambiguated label-only pair into two forward slots (label-inclusive
@@ -1073,8 +1073,18 @@ public class WitnessDispatchEmitter
     /// methods are non-dispatchable (the existential call returns Optional and the witness is
     /// absent); they consume NO index and the interface satisfies them via a default no-op.
     /// </summary>
-    public static bool IsMethodWitnessDispatchEligible(MethodDecl method)
+    public static bool IsMethodWitnessDispatchEligible(MethodDecl method, ProtocolDecl? owningProtocol = null)
     {
+        // A mixed-generic protocol (a method-level generic requirement alongside non-generic
+        // members) is excluded from Swift-side witness dispatch wholesale by the protocol-wide
+        // IsMixedGenericProtocol gate in ModuleHandler — EmitWitnessDispatchFunctions is never
+        // called for it, so NO SBW_ accessor is exported for ANY of its members. The C# proxy
+        // pass, however, walks members per-decl with no protocol-wide gate, so without this arm
+        // it would emit a P/Invoke to an SBW_ symbol the wrapper never wrote — a dangling
+        // EntryPointNotFoundException the WrapperSymbolIntegrityGate now catches. Mirror the
+        // Swift-side suppression here so ineligible members degrade to the SB0003 stub instead.
+        if (owningProtocol != null && EveryProtocolEmitter.IsMixedGenericProtocol(owningProtocol))
+            return false;
         return !method.IsConstructor
             && method.MethodType != MethodType.Static
             && !method.IsObjCOptional;
@@ -1096,8 +1106,13 @@ public class WitnessDispatchEmitter
     /// EmitPropertyImplementation (an SB0003 NotSupportedException getter/setter that still
     /// satisfies the interface), so nothing references an unexported SBW symbol.
     /// </summary>
-    public static bool IsPropertyWitnessDispatchEligible(PropertyDecl property)
+    public static bool IsPropertyWitnessDispatchEligible(PropertyDecl property, ProtocolDecl? owningProtocol = null)
     {
+        // See IsMethodWitnessDispatchEligible: a mixed-generic protocol exports no SBW_ accessor
+        // on the Swift side, so its C# proxy accessors must degrade to the SB0003 stub rather
+        // than P/Invoke a symbol that was never written (dangling EntryPointNotFoundException).
+        if (owningProtocol != null && EveryProtocolEmitter.IsMixedGenericProtocol(owningProtocol))
+            return false;
         return !property.IsStatic
             && !property.IsObjCOptional
             && !(property.IsActorIsolated && !property.IsMainActorIsolated);

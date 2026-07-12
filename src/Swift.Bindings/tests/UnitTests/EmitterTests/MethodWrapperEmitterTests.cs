@@ -3752,6 +3752,76 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
+    public void GenericStaticDispatch_ConstrainedExtensionMethod_SkippedAtPlanningTime_NotLateMissingWrapperSymbol()
+    {
+        // Agreement seam: the SAME constrained-extension GSM method the wrapper-emit test above
+        // proves gets no wrapper must ALSO be rejected up front by the planning-time validation
+        // pipeline — with a truthful ConstrainedExtensionWrapper reason — rather than claiming an
+        // SBW_ symbol, emitting a P/Invoke, and unwinding LATE as a MissingWrapperSymbol skip with
+        // a false workaround. Plan and emission must agree: the member is dropped once, honestly,
+        // before any symbol is claimed.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Mapper");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Mapper", moduleDecl);
+        var baseMappable = SwiftTypeName.FromModuleQualifiedName("TestModule.BaseMappable");
+        var immutableMappable = SwiftTypeName.FromModuleQualifiedName("TestModule.ImmutableMappable");
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "N",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_0" }, baseMappable, ConformanceKind.Protocol)
+                },
+                new List<GenericParameterConformance>())
+        };
+
+        // Unconstrained sibling on parent: `map(JSONObject: Any?) -> N?`
+        var optionalAny = new NamedTypeSpec("Swift.Optional");
+        optionalAny.GenericParameters.Add(new NamedTypeSpec("Swift.Any"));
+        var optionalN = new NamedTypeSpec("Swift.Optional");
+        optionalN.GenericParameters.Add(new NamedTypeSpec("τ_0_0"));
+        var sibling = CreateMethodWithParam("map", optionalAny, "JSONObject", parentDecl, moduleDecl);
+        sibling.CSSignature[0] = new ArgumentDecl
+        {
+            SwiftTypeSpec = optionalN, Name = "", PrivateName = "", IsInOut = false,
+            IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl
+        };
+        sibling.IsExtensionMethod = false;
+        sibling.GenericParameters = new List<GenericArgumentDecl>(parentDecl.GenericParameters);
+        parentDecl.Methods.Add(sibling);
+
+        // Constrained-extension method: `map(JSONObject: Any) throws -> N` (N narrowed to ImmutableMappable)
+        var bareN = new NamedTypeSpec("τ_0_0");
+        var anyParam = new NamedTypeSpec("Swift.Any");
+        var constrained = CreateMethodWithParam("map", anyParam, "JSONObject", parentDecl, moduleDecl);
+        constrained.CSSignature[0] = new ArgumentDecl
+        {
+            SwiftTypeSpec = bareN, Name = "", PrivateName = "", IsInOut = false,
+            IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl
+        };
+        constrained.IsExtensionMethod = true;
+        constrained.Throws = true;
+        constrained.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "N",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_0" }, immutableMappable, ConformanceKind.Protocol)
+                },
+                new List<GenericParameterConformance>())
+        };
+        parentDecl.Methods.Add(constrained);
+
+        var pipeline = new MemberValidationPipeline(typeDb);
+        var result = pipeline.ValidateMethodEmission(constrained, null);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.ConstrainedExtensionWrapper, result.Reason);
+        Assert.NotEqual(SkipReason.MissingWrapperSymbol, result.Reason);
+    }
+
+    [Fact]
     public void GenericStaticDispatch_UnconstrainedOptionalGenericReturn_EmitsWrapper()
     {
         // Sanity check: an unconstrained extension method returning Optional<N> on a generic

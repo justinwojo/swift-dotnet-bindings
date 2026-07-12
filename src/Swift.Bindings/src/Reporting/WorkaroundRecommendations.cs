@@ -59,7 +59,11 @@ public static class WorkaroundRecommendations
         SkipReason.ActorIsolatedConstructor =>
             "Constructor is on a custom global-actor-isolated type. The synchronous @_cdecl wrapper cannot call into the actor's executor. Construct the type from a Swift wrapper that hops to the actor, or expose a nonisolated factory.",
         SkipReason.MissingWrapperSymbol =>
-            "The Swift @_cdecl wrapper symbol was stripped during wrapper compilation, so the corresponding C# P/Invoke was suppressed to avoid runtime DllNotFoundException. Inspect the wrapper post-processor output for the underlying cause.",
+            "A C# P/Invoke was planned against a Swift @_cdecl wrapper symbol that does not exist in the compiled wrapper, so it was suppressed to avoid a runtime DllNotFoundException/EntryPointNotFoundException. Two causes: (1) the symbol was stripped during wrapper compilation (inspect the wrapper post-processor / strip reconciler output); or (2) a wrapper-emit path bailed after the symbol was claimed and the in-band contract gate rolled the member back (a defense-in-depth backstop — the planning-time gates should now catch these before the claim). Inspect the recorded Details for which cause fired.",
+        SkipReason.ConstrainedExtensionWrapper =>
+            "A method on a generic type could not be exposed through an unconditional conformance wrapper: either an unconstrained extension method collides with a same-name overload on the parent, or the method carries generic constraints narrower than its parent declares (e.g. `extension Mapper where N: ImmutableMappable`). Conditional-conformance wrapper extensions are not yet supported. Call the method on a concrete generic instantiation from a Swift wrapper, or move it onto the parent type without the extra constraint.",
+        SkipReason.GenericEnumCaseConstructor =>
+            "A generic enum's payload-carrying case constructor needs a per-instantiation @_cdecl wrapper that the generator does not emit for open-generic enum cases. Construct the case from a Swift wrapper on a concrete instantiation, or expose a factory returning the concrete enum.",
         SkipReason.SuppressedProxyMethodBody =>
             "The method body referenced a proxy class whose EveryProtocol conformance was not emitted. Once the proxy can be emitted (add support for the missing requirements), the method body is restored.",
         SkipReason.Pattern2InternalTypeReach =>
