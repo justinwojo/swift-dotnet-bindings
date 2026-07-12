@@ -285,17 +285,24 @@ public static class ExistentialBypassEmitter
 
         // Prefer a hash-free `Create` factory when the name is provably free on this type;
         // fall back to the deterministic Create_{hash} only on a genuine collision. Two sources:
-        //  (a) a non-constructor member of the type already projects to `Create` (rare — e.g. a
-        //      Swift `static func create`); a real constructor projects to a C# constructor, never
-        //      `Create`, so ctors are naturally excluded. Be conservative and keep the hash.
+        //  (a) a non-constructor MEMBER of the type already projects to `Create` — a method (rare —
+        //      e.g. a Swift `static func create`), a property (`var create`), or a nested type
+        //      (`struct Create`). A real constructor projects to a C# constructor, never `Create`,
+        //      so ctors are naturally excluded; any of the three non-ctor member kinds would give
+        //      CS0102. Be conservative across all of them and keep the hash on any match.
         //  (b) another existential-bypass factory on the same type already reserved the same C#
         //      overload signature (identical parameter TYPES) — two bare `Create` would be CS0111.
         // Without an EmissionContext (isolated unit contexts) there is no reservation table to
         // prove (b), so keep the hash — the bare name is only ever taken when uniqueness is proven.
         var factoryName = $"Create_{mangledHash}";
-        bool createNameTakenByMember = structDecl.Methods.Any(m =>
-            !m.IsConstructor && !m.IsAccessor &&
-            NameProvider.ToPascalCase(m.Name) == "Create");
+        bool createNameTakenByMember =
+            structDecl.Methods.Any(m =>
+                !m.IsConstructor && !m.IsAccessor &&
+                NameProvider.ToPascalCase(m.Name) == "Create") ||
+            structDecl.Properties.Any(p =>
+                NameProvider.ToPascalCase(p.Name) == "Create") ||
+            structDecl.Types.Any(t =>
+                NameProvider.ToPascalCase(t.SwiftTypeName.Name) == "Create");
         if (!createNameTakenByMember && env.EmissionContext != null)
         {
             var paramTypeSig = string.Join(

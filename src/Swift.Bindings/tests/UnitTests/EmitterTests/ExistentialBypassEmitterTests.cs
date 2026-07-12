@@ -252,6 +252,85 @@ public class ExistentialBypassEmitterTests
     }
 
     [Fact]
+    public void TryEmit_CreateNameTakenByProperty_KeepsHash()
+    {
+        // Collision-safety fixture: the type already declares a member that projects to the C#
+        // property `Create` (Swift `var create`). A hash-free `Create` factory would be CS0102
+        // (member name shared by a property and a method). The reservation must see the property —
+        // not just methods — and keep the deterministic `Create_{hash}`.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateFrozenStructDecl("Config", moduleDecl, typeDatabase);
+        parentDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "create",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        });
+
+        var existentialArg = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+        var constructor = CreateConstructorDecl(
+            "init", parentDecl, moduleDecl,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("options", new NamedTypeSpec("Swift.Array", existentialArg), moduleDecl, hasDefault: true)
+            });
+
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+
+        Assert.NotEqual(string.Empty, csOutput);
+        Assert.Contains("Create_", csOutput);
+        Assert.DoesNotContain("static unsafe Config Create(", csOutput);
+    }
+
+    [Fact]
+    public void TryEmit_CreateNameTakenByNestedType_KeepsHash()
+    {
+        // Collision-safety fixture: the type already nests a type named `Create` (Swift
+        // `struct Create`), which projects to a C# nested type `Create`. A hash-free `Create`
+        // factory method would be CS0102 against that nested type. The reservation must scan
+        // nested Types too and keep the deterministic `Create_{hash}`.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateFrozenStructDecl("Config", moduleDecl, typeDatabase);
+        parentDecl.Types.Add(new StructDecl
+        {
+            Name = "Create",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Config.Create"),
+            MangledName = "$s10TestModule6ConfigV6CreateVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule6ConfigV6CreateVMa"
+        });
+
+        var existentialArg = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+        var constructor = CreateConstructorDecl(
+            "init", parentDecl, moduleDecl,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("options", new NamedTypeSpec("Swift.Array", existentialArg), moduleDecl, hasDefault: true)
+            });
+
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+
+        Assert.NotEqual(string.Empty, csOutput);
+        Assert.Contains("Create_", csOutput);
+        Assert.DoesNotContain("static unsafe Config Create(", csOutput);
+    }
+
+    [Fact]
     public void TryEmit_CSharpFactory_UsesTryFinallyCleanup()
     {
         var typeDatabase = CreateTypeDatabase();
