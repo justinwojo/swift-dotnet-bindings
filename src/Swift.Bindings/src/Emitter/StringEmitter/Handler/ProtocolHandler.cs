@@ -313,7 +313,30 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // Static methods: evaluate gates, emit as static abstract if passes
+                // Static methods: evaluate gates, emit as static abstract if passes.
+                //
+                // NOTE: unlike instance methods (below), static requirements are NOT run through
+                // ProtocolMethodDisambiguator — they intentionally keep the label-blind
+                // GetMethodSignatureKey, so two static requirements differing only by argument label
+                // collapse to one member (the second is dropped as DuplicateSignature). This is a
+                // deliberate scope boundary, not an oversight:
+                //   (1) Static requirements have NO reverse-dispatch path — they get no vtable slot,
+                //       no witness, and any protocol with even one static method requirement has its
+                //       ENTIRE EveryProtocol conformance skipped; the surviving interface member and
+                //       its proxy stub both throw NotSupportedException. So the label-only static that
+                //       collapses is dropped outright (skipped as DuplicateSignature — no member emitted
+                //       at all), and the requirement it collapses onto is itself a non-dispatchable
+                //       throwing stub. Either way there is no working dispatch to lose — no silent
+                //       MIS-dispatch of a live call, only a metadata-fidelity gap.
+                //   (2) A selector-style rename on the INTERFACE alone would REGRESS conformance: a
+                //       concrete conforming type disambiguates its own label-only statics via the
+                //       class path's NUMERIC suffix (Configure/Configure2), so the conformance
+                //       validator's static name-parity gate would see interface names that no longer
+                //       match the concrete member names and drop an otherwise-valid conformance. A
+                //       faithful fix must reconcile interface and concrete static naming under one
+                //       policy (naming-policy work), not a disambiguator one-liner. Revisit only when
+                //       a real library needs both label-only static requirements AND working static
+                //       dispatch.
                 if (methodDecl.MethodType == MethodType.Static)
                 {
                     var staticMethodKey = ProtocolSignatureHelper.GetMethodSignatureKey(methodDecl, env.TypeDatabase, protocolDecl);

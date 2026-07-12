@@ -74,6 +74,24 @@ public class DuplicateSignatureDisambiguationTests : TestBase
         AssertEqual("update", impl.LastTag, "didUpdate member fired for the update path");
         AssertEqual(120, updated, "didUpdate return value (value * 30) round-tripped through Swift");
     }
+
+    /// <summary>
+    /// Shared-seam contrast: the SAME label-only-collision shape on a PLAIN (non-protocol)
+    /// class must NOT collapse. A class method's primary dedup key is label-INCLUSIVE, so both
+    /// overloads survive primary dedup; their label-erased projected keys still collide, so the
+    /// second takes the class path's numeric-suffix name (<c>Configure2</c>) rather than being
+    /// dropped. Both call distinct native entry points and return distinct per-overload values —
+    /// so a regression to a label-blind class primary key would silently drop the second overload
+    /// and fail this test at runtime, not just at the compile gate.
+    /// </summary>
+    public void TestNonProtocolLabelOnlyOverloadsBothSurvive()
+    {
+        var host = new OverloadForwardHost();
+
+        // configure(_:withMode:) -> Configure (value * 2); configure(_:withPriority:) -> Configure2 (value * 3).
+        AssertEqual(10, host.Configure(1, 5), "configure(_:withMode:) survived as Configure and returned value * 2");
+        AssertEqual(15, host.Configure2(1, 5), "configure(_:withPriority:) survived as Configure2 and returned value * 3");
+    }
 }
 
 /// <summary>

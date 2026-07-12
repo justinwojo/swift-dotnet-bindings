@@ -2533,17 +2533,20 @@ public class WitnessDispatchEmitter
     /// is deliberate, not an oversight: the forward/SBW index is an internal symbol-naming
     /// convention shared only between this producer walk and the two C# consumer walks (all three
     /// key off THIS method), and the accessor body dispatches by Swift source-level call — it is
-    /// NOT pinned to Swift's ABI witness-table ordering. So a label-only overload pair
-    /// (`func move(to: Int32)` / `func move(from: Int32)`, identical name+types, differing only by
-    /// label) MUST collapse to one slot on all three walks identically, leaving a trailing method
-    /// at the collapsed index with no shift. Making this key label-sensitive would split the pair
-    /// into two indices on the producer while the (label-blind) consumers still expected one,
-    /// re-opening the exact SBW index-shift this key exists to prevent. The reverse/vtable axis is
-    /// the inverse case: that struct's field order must match Swift's label-distinguished slot
-    /// allocation, which is why EveryProtocolEmitter.GetMethodKey keeps labels (and leaves the
-    /// collapsed C# member's second slot null — the deferred protocol-collision-rename limitation
-    /// documented at ProtocolHandler.cs and ProtocolProxyEmitter.Receivers.cs). Pinned by
-    /// WitnessDispatchEmitterTests.OverloadDisambiguation_LabelOnlyOverloadPair_CollapsesToOneSlot_NoTrailingIndexShift.
+    /// NOT pinned to Swift's ABI witness-table ordering. This key is therefore the label-blind
+    /// FALLBACK: the three forward walks do not call it directly, they call
+    /// ProtocolMethodDisambiguator.EffectiveWitnessSlotKey, which returns THIS label-blind key for
+    /// an ordinary method but the label-INCLUSIVE EveryProtocolEmitter.GetMethodKey for a
+    /// disambiguated label-only pair. So a label-only overload pair (`func move(to: Int32)` /
+    /// `func move(from: Int32)`, identical name+types, differing only by label) that survives as two
+    /// distinct C# members SPLITS into two slots on all three walks in lockstep (and shifts any
+    /// trailing method's index by one) — while a pure type-erasure pair, which the disambiguator
+    /// leaves alone, still collapses here via this key exactly as before. Making THIS key
+    /// unconditionally label-sensitive would wrongly split type-erasure pairs too and re-open the SBW
+    /// index-shift it exists to prevent; the split is opted into per-pair by the disambiguator, not by
+    /// this key. The reverse/vtable axis matches Swift's label-distinguished slot allocation, which is
+    /// why EveryProtocolEmitter.GetMethodKey keeps labels. Pinned by
+    /// WitnessDispatchEmitterTests.OverloadDisambiguation_LabelOnlyOverloadPair_SplitsIntoTwoSlots_TrailingMethodShifts.
     /// </summary>
     internal static string GetMethodKey(MethodDecl method)
     {
