@@ -38,7 +38,9 @@ public class ExistentialBypassEmitterTests
         // Bypass should be emitted — both C# factory and Swift wrapper
         Assert.NotEqual(string.Empty, csOutput);
         Assert.NotEqual(string.Empty, swiftOutput);
-        Assert.Contains("Create_", csOutput);
+        // Single bypass factory on this type with a unique signature → hash-free `Create`.
+        Assert.Contains("static unsafe Config Create(", csOutput);
+        Assert.DoesNotContain("Create_", csOutput);
         Assert.Contains("SBSW_Config_init_", csOutput);
         Assert.Contains("@_silgen_name", swiftOutput);
         Assert.Contains("SBSW_Config_init_", swiftOutput);
@@ -160,13 +162,15 @@ public class ExistentialBypassEmitterTests
         // Bypass emitted with count as passthrough
         Assert.NotEqual(string.Empty, csOutput);
         Assert.NotEqual(string.Empty, swiftOutput);
-        Assert.Contains("Create_", csOutput);
+        // Unique signature → hash-free `Create(nint count)`.
+        Assert.Contains("static unsafe Config Create(", csOutput);
+        Assert.DoesNotContain("Create_", csOutput);
         Assert.Contains("count", csOutput);
         Assert.Contains("count", swiftOutput);
     }
 
     [Fact]
-    public void TryEmit_GeneratedSwiftWrapper_UsesMangledHashBasedName()
+    public void TryEmit_GeneratedSwiftWrapper_UsesMangledHashBasedName_ButCSharpFactoryIsHashFree()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -187,9 +191,64 @@ public class ExistentialBypassEmitterTests
 
         var (csOutput, swiftOutput) = EmitConstructor(constructor, typeDatabase);
 
+        // The Swift @_silgen_name wrapper symbols keep the mangled hash (ABI identity, must be
+        // globally unique). The C#-facing factory, being the sole unique-signature `Create` on
+        // this type, drops it for readability.
         Assert.Contains($"SBSW_Config_init_{mangledHash}", swiftOutput);
         Assert.Contains($"SBSW_Config_free_{mangledHash}", swiftOutput);
-        Assert.Contains($"Create_{mangledHash}", csOutput);
+        Assert.Contains("static unsafe Config Create(", csOutput);
+        Assert.DoesNotContain($"Create_{mangledHash}", csOutput);
+    }
+
+    [Fact]
+    public void TryEmit_TwoBypassConstructors_SameSignature_SecondKeepsHash_NoDuplicateCreate()
+    {
+        // Collision-safety fixture: two existential-bypass constructors on the SAME struct that
+        // reduce to the SAME C# overload signature — `Create(nint)` — differing only in the
+        // (irrelevant-to-overloading) parameter name. Emitting both bare would be CS0111. Sharing
+        // one ModuleEmissionContext (as a real module emit does), the first factory claims the
+        // hash-free `Create` and the second keeps its deterministic `Create_{hash}`. Assert exactly
+        // one hash-free `Create(` survives and the loser carries a hash — no duplicate, no CS0111.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateFrozenStructDecl("Config", moduleDecl, typeDatabase);
+        var existentialArg = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+
+        // Distinct init names → distinct mangled names → distinct Swift SBSW_ symbols (both claims
+        // win) → both factories emit. Distinct passthrough param names, identical param TYPE (nint).
+        var ctorA = CreateConstructorDecl("init", parentDecl, moduleDecl,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("count", new NamedTypeSpec("Swift.Int"), moduleDecl),
+                CreateArgument("options", new NamedTypeSpec("Swift.Array", existentialArg), moduleDecl, hasDefault: true)
+            });
+        var ctorB = CreateConstructorDecl("initAlt", parentDecl, moduleDecl,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("amount", new NamedTypeSpec("Swift.Int"), moduleDecl),
+                CreateArgument("extras", new NamedTypeSpec("Swift.Array", existentialArg), moduleDecl, hasDefault: true)
+            });
+
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+        var conductor = new Conductor(new NullLoggerFactory());
+        var context = TypeHandlerContext.Empty with { EmissionContext = new ModuleEmissionContext() };
+
+        foreach (var ctor in new[] { ctorA, ctorB })
+        {
+            var handler = new ConstructorHandler(new NullLogger<ConstructorHandler>(), new HashSet<string>());
+            var env = new MethodEnvironment(ctor, typeDatabase);
+            handler.Emit(csWriter, swiftWriter, env, conductor, context);
+        }
+
+        var cs = csOutput.ToString();
+        // Exactly one hash-free `Create(` (the substring cannot match `Create_<hash>(`).
+        var bareCreateCount = cs.Split("static unsafe Config Create(").Length - 1;
+        Assert.Equal(1, bareCreateCount);
+        // The second factory kept its deterministic hash disambiguator.
+        Assert.Contains("Create_", cs);
     }
 
     [Fact]

@@ -253,7 +253,6 @@ public static class ExistentialBypassEmitter
         // picker pairs them with CallConvSwift instead of the SBW_ → CallConvCdecl default.
         var wrapperSymbol = $"SBSW_{typeName}_init_{mangledHash}";
         var freeSymbol = $"SBSW_{typeName}_free_{mangledHash}";
-        var factoryName = $"Create_{mangledHash}";
 
         // Determine library path for the wrapper
         var moduleDecl = methodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(methodDecl.ModuleDecl));
@@ -283,6 +282,27 @@ public static class ExistentialBypassEmitter
         }
         env.EmissionContext?.TryClaimWrapperSymbol(swiftModuleQualifiedName, "free",
             $"existential-bypass-free::{env.MethodDecl.MangledName}", freeSymbol);
+
+        // Prefer a hash-free `Create` factory when the name is provably free on this type;
+        // fall back to the deterministic Create_{hash} only on a genuine collision. Two sources:
+        //  (a) a non-constructor member of the type already projects to `Create` (rare — e.g. a
+        //      Swift `static func create`); a real constructor projects to a C# constructor, never
+        //      `Create`, so ctors are naturally excluded. Be conservative and keep the hash.
+        //  (b) another existential-bypass factory on the same type already reserved the same C#
+        //      overload signature (identical parameter TYPES) — two bare `Create` would be CS0111.
+        // Without an EmissionContext (isolated unit contexts) there is no reservation table to
+        // prove (b), so keep the hash — the bare name is only ever taken when uniqueness is proven.
+        var factoryName = $"Create_{mangledHash}";
+        bool createNameTakenByMember = structDecl.Methods.Any(m =>
+            !m.IsConstructor && !m.IsAccessor &&
+            NameProvider.ToPascalCase(m.Name) == "Create");
+        if (!createNameTakenByMember && env.EmissionContext != null)
+        {
+            var paramTypeSig = string.Join(
+                ",", reducedWrapperSig!.Parameters.Select(p => p.modifier + "|" + p.Type));
+            if (env.EmissionContext.TryReserveExistentialBypassCreate(swiftModuleQualifiedName, paramTypeSig))
+                factoryName = "Create";
+        }
 
         // --- Emit Swift wrapper ---
         EmitSwiftWrapper(swiftWriter, wrapperSymbol, freeSymbol, swiftTypeName, passthroughArgs, existentialArgs, env);

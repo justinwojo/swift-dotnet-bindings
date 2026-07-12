@@ -1114,6 +1114,26 @@ public sealed class ModuleEmissionContext
     public bool TryAddMethodWrapperSymbol(string symbol) =>
         RegisterWrapperSymbolInternal(_methodWrapperSymbols, symbol);
 
+    // ============ Existential-bypass `Create` factory name reservation ============
+
+    // Keyed by "{typeKey}::{param-type signature}". The existential-bypass emitter prefers a
+    // hash-free `Create` factory but must never emit two `Create` overloads with the same C#
+    // parameter TYPES on one type (CS0111). The first bypass factory to reserve a given
+    // (type, param-types) slot gets the bare name; a later factory on the same type with the
+    // same overload signature loses the reservation and keeps its deterministic Create_{hash}.
+    private readonly HashSet<string> _existentialBypassCreateSignatures = new();
+
+    /// <summary>
+    /// Reserves the bare <c>Create</c> existential-bypass factory name for a type, keyed by the
+    /// factory's parameter-type signature. Returns true if the (type, param-types) slot was free
+    /// (caller emits a hash-free <c>Create</c>); false if a prior bypass factory on the same type
+    /// already claimed the same C# overload signature (caller keeps <c>Create_{hash}</c>). Keyed
+    /// on parameter TYPES, not names, so it mirrors C#'s own overload identity — two
+    /// <c>Create(sameTypes)</c> can never coexist.
+    /// </summary>
+    public bool TryReserveExistentialBypassCreate(string typeKey, string paramTypeSignature) =>
+        _existentialBypassCreateSignatures.Add(typeKey + "::" + paramTypeSignature);
+
     // ==================== Emission Symbol Side Table (AF13) ====================
 
     // Keyed by MethodDecl *reference identity* — MethodDecl is a record (value equality),
