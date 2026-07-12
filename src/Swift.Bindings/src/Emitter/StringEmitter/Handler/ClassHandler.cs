@@ -448,6 +448,15 @@ namespace BindingsGeneration
                     csWriter, swiftWriter, classDecl, moduleDecl,
                     env.TypeDatabase, context.GetEmissionContext(), _logger);
 
+                // Closed-instantiation closures: escaping-closure methods inside an
+                // inheritance-constrained extension on a generic class parent
+                // (`extension Wrapper where Base: Concrete`). Skipped inline with
+                // GenericTypeCallback (CS7042); surfaced here as concrete static extension
+                // methods + non-generic @_cdecl wrappers over the closed receiver.
+                ClosedConstrainedClosureEmitter.EmitClosedConstrainedClosures(
+                    csWriter, swiftWriter, classDecl, moduleDecl,
+                    env.TypeDatabase, context.GetEmissionContext(), _logger);
+
                 // Generic-parent CSM: per-parent-conformer static extension classes
                 // (e.g. HMAC<SHA256>.Update overloads). Must live outside the parent's
                 // body so the receiver can close over the generic.

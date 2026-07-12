@@ -234,6 +234,16 @@ public class MemberValidationPipeline
                         }
                         // Pure async with non-generic return — callbacks hoisted by EmitAsyncWrapper
                     }
+                    // A closure-bearing member of an inheritance-constrained extension on a
+                    // generic class has a natural closed receiver (e.g. `where Base: PixelHost`
+                    // → `HostWrapper<PixelHost>`). ClosedConstrainedClosureEmitter surfaces it as
+                    // a concrete static extension method + non-generic @_cdecl wrapper at namespace
+                    // scope (no CS7042). Route it out of the skip before the bridge check.
+                    else if (ClosedConstrainedClosureEmitter.IsEligible(methodDecl, _typeDatabase))
+                    {
+                        return ValidationResult.RoutedElsewhere(
+                            "Routed to closed-instantiation constrained-extension closure specialization.");
+                    }
                     // Allow MethodClosureBridge/NestedClosureBridge-eligible methods through —
                     // they hoist callbacks to the helper class like ProtocolExtensionClosureBridge.
                     else if (!MethodClosureBridge.IsEligible(methodDecl, closureHandler, _typeDatabase) &&
