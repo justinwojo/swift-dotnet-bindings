@@ -140,6 +140,144 @@ public class ExistentialBoxingTests : TestBase
 
     #endregion
 
+    #region Stateful Conformer — Direct Construction Controls (no existential boxing)
+
+    // Controls that isolate a RichMode/OpenMode/ClassMode construction+field-storage bug from
+    // an existential-boxing bug: these call the conformer's own methods directly (no `any P`
+    // parameter, no owns=true box). If these pass but the boxed variants below fail, the
+    // defect is purely in the existential payload marshalling. RichMode/OpenMode/ClassMode all
+    // use a parameterless init with defaulted non-trivial state — mirroring CryptoSwift's ECB
+    // (init(); options + customBlockSize: Int?) — so they never trip the parameterized-init
+    // wrapper path and pin the box marshalling in isolation.
+
+    public void TestRichModeDirectConstruction()
+    {
+        var mode = new RichMode();
+        AssertEqual("rich", mode.ModeName.ToString(), "RichMode.ModeName direct");
+        AssertTrue(mode.Validate(50), "RichMode.Validate(50) direct within [10,100]");
+        AssertFalse(mode.Validate(5), "RichMode.Validate(5) direct below threshold");
+        AssertFalse(mode.Validate(150), "RichMode.Validate(150) direct above ceiling");
+        TestLogger.Info("RichMode direct construction + validate passed");
+    }
+
+    public void TestOpenModeDirectConstruction()
+    {
+        var mode = new OpenMode();
+        AssertEqual("open", mode.ModeName.ToString(), "OpenMode.ModeName direct");
+        AssertTrue(mode.Validate(10), "OpenMode.Validate(10) direct at threshold");
+        AssertTrue(mode.Validate(9999), "OpenMode.Validate(9999) direct (nil ceiling)");
+        AssertFalse(mode.Validate(9), "OpenMode.Validate(9) direct below threshold");
+        TestLogger.Info("OpenMode direct construction + validate passed");
+    }
+
+    public void TestClassModeDirectConstruction()
+    {
+        var mode = new ClassMode();
+        AssertEqual("cls", mode.ModeName.ToString(), "ClassMode.ModeName direct");
+        AssertTrue(mode.Validate(5), "ClassMode.Validate(5) direct");
+        AssertFalse(mode.Validate(4), "ClassMode.Validate(4) direct");
+        TestLogger.Info("ClassMode direct construction + validate passed");
+    }
+
+    #endregion
+
+    #region ModeProcessor — Boxed Swift Struct/Class Conformer (owns=true existential box)
+
+    // These construct ModeProcessor with a *same-module Swift conformer* passed directly as
+    // `any ProcessingMode`, rather than a C#-side ProcessingModeProxy. A Swift value-type
+    // conformer marshals through the IExistentialBoxable owns=true path (BoxAsExistential1 →
+    // MarshalPayload → owns-gated VWT destroy on cleanup), which the proxy (owns=false borrow)
+    // tests never exercise. This is the exact shape that SIGKILLed a protocol-typed ctor
+    // argument on NativeAOT (CryptoSwift `new AES(key, new ECB(), ...)`).
+
+    public void TestModeProcessorBoxedSimpleModeCtor()
+    {
+        // Trivial resilient struct — inline existential payload (<= 24B), owns=true.
+        var processor = new ModeProcessor(new SimpleMode());
+        AssertTrue(processor.Process(42), "ModeProcessor(boxed SimpleMode).Process(42)");
+        AssertFalse(processor.Process(-1), "ModeProcessor(boxed SimpleMode).Process(-1)");
+        AssertEqual("simple", processor.GetModeName(), "ModeProcessor(boxed SimpleMode).GetModeName()");
+        TestLogger.Info("ModeProcessor with boxed SimpleMode struct passed");
+    }
+
+    public void TestModeProcessorBoxedRichModeCtor()
+    {
+        // Non-trivial resilient struct (String + Optional<Int32>) — forces the existential
+        // payload out of line via swift_allocBox, the arm CryptoSwift's ECB hits. This is the
+        // primary NativeAOT crash reproduction. RichMode's ceiling is 100.
+        var processor = new ModeProcessor(new RichMode());
+        AssertTrue(processor.Process(50), "ModeProcessor(boxed RichMode).Process(50) within [10,100]");
+        AssertFalse(processor.Process(5), "ModeProcessor(boxed RichMode).Process(5) below threshold");
+        AssertFalse(processor.Process(150), "ModeProcessor(boxed RichMode).Process(150) above ceiling");
+        AssertEqual("rich", processor.GetModeName(), "ModeProcessor(boxed RichMode).GetModeName()");
+        TestLogger.Info("ModeProcessor with boxed RichMode (non-inline allocBox) struct passed");
+    }
+
+    public void TestModeProcessorBoxedOpenModeCtor()
+    {
+        // Same non-inline struct shape, but the Optional<Int32> field is nil — exercises the
+        // other Optional-payload branch through the boxed existential.
+        var processor = new ModeProcessor(new OpenMode());
+        AssertTrue(processor.Process(10), "ModeProcessor(boxed OpenMode).Process(10)");
+        AssertTrue(processor.Process(9999), "ModeProcessor(boxed OpenMode).Process(9999) nil ceiling");
+        AssertFalse(processor.Process(9), "ModeProcessor(boxed OpenMode).Process(9)");
+        AssertEqual("open", processor.GetModeName(), "ModeProcessor(boxed OpenMode).GetModeName()");
+        TestLogger.Info("ModeProcessor with boxed OpenMode (nil ceiling) passed");
+    }
+
+    public void TestModeProcessorBoxedClassModeCtor()
+    {
+        // Reference-type conformer control — bridges through ARC, not an inline/allocBox copy.
+        var processor = new ModeProcessor(new ClassMode());
+        AssertTrue(processor.Process(5), "ModeProcessor(boxed ClassMode).Process(5)");
+        AssertFalse(processor.Process(4), "ModeProcessor(boxed ClassMode).Process(4)");
+        AssertEqual("cls", processor.GetModeName(), "ModeProcessor(boxed ClassMode).GetModeName()");
+        TestLogger.Info("ModeProcessor with boxed ClassMode reference conformer passed");
+    }
+
+    public void TestModeProcessorMatchesBoxedStructArg()
+    {
+        // Sibling *method* (not ctor) that boxes an existential argument — same owns=true
+        // packing path at a method call site. The processor itself is built from a boxed
+        // struct too, so both the ctor box and the method-arg box are live at once.
+        var processor = new ModeProcessor(new RichMode());
+        // RichMode[10,100].Validate(50)=true; SimpleMode.Validate(50)=true → agree.
+        AssertTrue(processor.Matches(new SimpleMode(), 50), "Matches(boxed SimpleMode, 50) agree");
+        // RichMode[10,100].Validate(150)=false; SimpleMode.Validate(150)=true → disagree.
+        AssertFalse(processor.Matches(new SimpleMode(), 150), "Matches(boxed SimpleMode, 150) disagree");
+        // Method-arg box of the non-inline OpenMode as well (nil-ceiling branch).
+        AssertTrue(processor.Matches(new OpenMode(), 50), "Matches(boxed OpenMode, 50) agree");
+        TestLogger.Info("ModeProcessor.Matches with boxed struct arguments passed");
+    }
+
+    #endregion
+
+    #region Pipeline — Boxed Swift Struct Conformer (owns=true, multi-param ctor)
+
+    public void TestPipelineBoxedRichModeCtor()
+    {
+        // Collection + boxed non-inline existential in one constructor (owns=true box coexists
+        // with an array-marshalling temporary).
+        var pipeline = new Pipeline(new[] { 1, 2, 3 }, new RichMode());
+        AssertEqual(3, pipeline.GetStepCount(), "Pipeline(boxed RichMode).GetStepCount()");
+        AssertEqual("rich", pipeline.GetModeName(), "Pipeline(boxed RichMode).GetModeName()");
+        TestLogger.Info("Pipeline with boxed RichMode struct passed");
+    }
+
+    #endregion
+
+    #region Free Functions — Boxed Swift Struct Conformer (owns=true)
+
+    public void TestRunWithModeBoxedRichMode()
+    {
+        // Free-function argument boxing of the non-inline struct.
+        AssertTrue(TestLibFunctions.RunWithMode(new RichMode(), 50), "RunWithMode(boxed RichMode, 50)");
+        AssertFalse(TestLibFunctions.RunWithMode(new RichMode(), 150), "RunWithMode(boxed RichMode, 150)");
+        TestLogger.Info("RunWithMode with boxed RichMode struct passed");
+    }
+
+    #endregion
+
     #region Pipeline — Array + Existential Constructor (Tier 3)
 
     // Fixed: EveryProtocol now uses real Swift objects + proper metadata
