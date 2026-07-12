@@ -43,7 +43,7 @@ public class ConstructorAdmissibilityTests : TestBase
     public void TestCsmIntValue_DesignatedInit_RoundTripsTag()
     {
         using var box = CtorAdmBoxSwiftBindingsTestLib_CtorAdmIntValueCsmExtensions
-            .FromSwiftBindingsTestLib_CtorAdmIntValue("csm-int", (nint)1);
+            .FromSwiftBindingsTestLibCtorAdmIntValue("csm-int", (nint)1);
         AssertEqual("csm-int", box.Tag, "CSM<CtorAdmIntValue> (tag:salt:) round-trips tag");
     }
 
@@ -52,14 +52,14 @@ public class ConstructorAdmissibilityTests : TestBase
         // `extension CtorAdmBox where Value.Element == Int { init(intMarker:) }` —
         // CtorAdmIntValue.Element == Int satisfies it; init stores tag "int".
         using var box = CtorAdmBoxSwiftBindingsTestLib_CtorAdmIntValueCsmExtensions
-            .FromSwiftBindingsTestLib_CtorAdmIntValue((nint)7);
+            .FromSwiftBindingsTestLibCtorAdmIntValue((nint)7);
         AssertEqual("int", box.Tag, "CSM<CtorAdmIntValue> (intMarker:) constrained init round-trips");
     }
 
     public void TestCsmRopeValue_DesignatedInit_RoundTripsTag()
     {
         using var box = CtorAdmBoxSwiftBindingsTestLib_CtorAdmRopeValueCsmExtensions
-            .FromSwiftBindingsTestLib_CtorAdmRopeValue("csm-rope", (nint)2);
+            .FromSwiftBindingsTestLibCtorAdmRopeValue("csm-rope", (nint)2);
         AssertEqual("csm-rope", box.Tag, "CSM<CtorAdmRopeValue> (tag:salt:) round-trips tag");
     }
 
@@ -68,7 +68,7 @@ public class ConstructorAdmissibilityTests : TestBase
         // `extension CtorAdmBox where Value.Element: CtorAdmCollectionish { init(ropeFlag:) }` —
         // CtorAdmRope: CtorAdmCollectionish satisfies it; init stores tag "rope".
         using var box = CtorAdmBoxSwiftBindingsTestLib_CtorAdmRopeValueCsmExtensions
-            .FromSwiftBindingsTestLib_CtorAdmRopeValue(true);
+            .FromSwiftBindingsTestLibCtorAdmRopeValue(true);
         AssertEqual("rope", box.Tag, "CSM<CtorAdmRopeValue> (ropeFlag:) constrained init round-trips");
     }
 
@@ -100,7 +100,7 @@ public class ConstructorAdmissibilityTests : TestBase
     public void TestCsmIntValue_EmitsOnlySatisfyingConstrainedForm()
     {
         var ext = typeof(CtorAdmBoxSwiftBindingsTestLib_CtorAdmIntValueCsmExtensions);
-        const string name = "FromSwiftBindingsTestLib_CtorAdmIntValue";
+        const string name = "FromSwiftBindingsTestLibCtorAdmIntValue";
 
         AssertNotNull(ext.GetMethod(name, new[] { typeof(string), typeof(nint) }),
             "CSM<CtorAdmIntValue> emits the (tag:salt:) designated form");
@@ -115,7 +115,7 @@ public class ConstructorAdmissibilityTests : TestBase
     public void TestCsmRopeValue_EmitsOnlySatisfyingConstrainedForm()
     {
         var ext = typeof(CtorAdmBoxSwiftBindingsTestLib_CtorAdmRopeValueCsmExtensions);
-        const string name = "FromSwiftBindingsTestLib_CtorAdmRopeValue";
+        const string name = "FromSwiftBindingsTestLibCtorAdmRopeValue";
 
         AssertNotNull(ext.GetMethod(name, new[] { typeof(string), typeof(nint) }),
             "CSM<CtorAdmRopeValue> emits the (tag:salt:) designated form");

@@ -82,7 +82,7 @@ public class CsmKeyPathParamTests : TestBase
 
     public void TestConformerA_Count_RoundTripsKeyPathThroughCsm()
     {
-        using var bag = CsmKp_BagSwiftBindingsTestLib_CsmKp_ConformerACsmExtensions.FromSwiftBindingsTestLib_CsmKp_ConformerA();
+        using var bag = CsmKp_BagSwiftBindingsTestLib_CsmKp_ConformerACsmExtensions.FromSwiftBindingsTestLibCsmKp_ConformerA();
         var kp = CsmKp_KeyPathFactory.MakeTitlePath();
         var count = bag.Count(keyPath: kp);
         // T.displayName = "CsmKp_ConformerA" → length 16.
@@ -91,7 +91,7 @@ public class CsmKeyPathParamTests : TestBase
 
     public void TestConformerB_Count_RoundTripsKeyPathThroughCsm()
     {
-        using var bag = CsmKp_BagSwiftBindingsTestLib_CsmKp_ConformerBCsmExtensions.FromSwiftBindingsTestLib_CsmKp_ConformerB();
+        using var bag = CsmKp_BagSwiftBindingsTestLib_CsmKp_ConformerBCsmExtensions.FromSwiftBindingsTestLibCsmKp_ConformerB();
         var kp = CsmKp_KeyPathFactory.MakeTitlePath();
         var count = bag.Count(keyPath: kp);
         // T.displayName = "CsmKp_ConformerB" → length 16.

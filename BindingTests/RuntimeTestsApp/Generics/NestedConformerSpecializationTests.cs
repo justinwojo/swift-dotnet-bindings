@@ -83,7 +83,7 @@ public class NestedConformerSpecializationTests : TestBase
     public void TestSealedKey_FromFlatConformer()
     {
         using var key = new FlatKeyMaterial(tag: "f");
-        using var sealed_ = SealedKey.FromSwiftBindingsTestLib_FlatKeyMaterial(key);
+        using var sealed_ = SealedKey.FromSwiftBindingsTestLibFlatKeyMaterial(key);
         AssertEqual("sealed[flat:f]", sealed_.Descriptor,
             "SealedKey.From(FlatKeyMaterial) factory");
     }
@@ -91,7 +91,7 @@ public class NestedConformerSpecializationTests : TestBase
     public void TestSealedKey_FromOneLevelNestedConformer()
     {
         using var key = new SwiftBindingsTestLib.KeyVault.VaultKey(tag: "v");
-        using var sealed_ = SealedKey.FromSwiftBindingsTestLib_KeyVault_VaultKey(key);
+        using var sealed_ = SealedKey.FromSwiftBindingsTestLibKeyVaultVaultKey(key);
         AssertEqual("sealed[vault:v]", sealed_.Descriptor,
             "SealedKey.From(KeyVault.VaultKey) factory");
     }
@@ -100,7 +100,7 @@ public class NestedConformerSpecializationTests : TestBase
     {
         // Regression witness: this factory only exists post-fix.
         using var key = new SwiftBindingsTestLib.KeyVault.Agreement.PublicKey(tag: "p");
-        using var sealed_ = SealedKey.FromSwiftBindingsTestLib_KeyVault_Agreement_PublicKey(key);
+        using var sealed_ = SealedKey.FromSwiftBindingsTestLibKeyVaultAgreementPublicKey(key);
         AssertEqual("sealed[agree-pub:p]", sealed_.Descriptor,
             "SealedKey.From(KeyVault.Agreement.PublicKey) factory");
     }
@@ -113,7 +113,7 @@ public class NestedConformerSpecializationTests : TestBase
     {
         using var seed = new FlatKeyMaterial(tag: "f");
         using var box = KeyVaultBoxSwiftBindingsTestLib_FlatKeyMaterialCsmExtensions
-            .FromSwiftBindingsTestLib_FlatKeyMaterial(seed);
+            .FromSwiftBindingsTestLibFlatKeyMaterial(seed);
         AssertEqual("box[flat:f]", box.Describe(),
             "KeyVaultBox<FlatKeyMaterial>.Describe extension");
     }
@@ -122,7 +122,7 @@ public class NestedConformerSpecializationTests : TestBase
     {
         using var seed = new SwiftBindingsTestLib.KeyVault.VaultKey(tag: "v");
         using var box = KeyVaultBoxSwiftBindingsTestLib_KeyVault_VaultKeyCsmExtensions
-            .FromSwiftBindingsTestLib_KeyVault_VaultKey(seed);
+            .FromSwiftBindingsTestLibKeyVaultVaultKey(seed);
         AssertEqual("box[vault:v]", box.Describe(),
             "KeyVaultBox<KeyVault.VaultKey>.Describe extension");
     }
@@ -132,7 +132,7 @@ public class NestedConformerSpecializationTests : TestBase
         // Regression witness: this factory + extension only exist post-fix.
         using var seed = new SwiftBindingsTestLib.KeyVault.Agreement.PublicKey(tag: "p");
         using var box = KeyVaultBoxSwiftBindingsTestLib_KeyVault_Agreement_PublicKeyCsmExtensions
-            .FromSwiftBindingsTestLib_KeyVault_Agreement_PublicKey(seed);
+            .FromSwiftBindingsTestLibKeyVaultAgreementPublicKey(seed);
         AssertEqual("box[agree-pub:p]", box.Describe(),
             "KeyVaultBox<KeyVault.Agreement.PublicKey>.Describe extension");
     }
@@ -144,7 +144,7 @@ public class NestedConformerSpecializationTests : TestBase
     {
         using var seed = new SwiftBindingsTestLib.KeyVault.Agreement.PublicKey(tag: "rt");
         using var box = KeyVaultBoxSwiftBindingsTestLib_KeyVault_Agreement_PublicKeyCsmExtensions
-            .FromSwiftBindingsTestLib_KeyVault_Agreement_PublicKey(seed);
+            .FromSwiftBindingsTestLibKeyVaultAgreementPublicKey(seed);
         using var recovered = box.Seed;
         AssertEqual("agree-pub:rt", recovered.Material,
             "KeyVaultBox<KeyVault.Agreement.PublicKey>.Seed payload round-trip");
@@ -176,7 +176,7 @@ public class NestedConformerSpecializationTests : TestBase
     public void TestSealedKey_FromCollisionConformer()
     {
         using var key = new SwiftBindingsTestLib.CollisionVault.EntryInfo(tag: "c");
-        using var sealed_ = SealedKey.FromSwiftBindingsTestLib_CollisionVault_Entry(key);
+        using var sealed_ = SealedKey.FromSwiftBindingsTestLibCollisionVaultEntry(key);
         AssertEqual("sealed[collision-entry:c]", sealed_.Descriptor,
             "SealedKey.From(CollisionVault.EntryInfo) factory");
     }
@@ -185,7 +185,7 @@ public class NestedConformerSpecializationTests : TestBase
     {
         using var seed = new SwiftBindingsTestLib.CollisionVault.EntryInfo(tag: "c");
         using var box = KeyVaultBoxSwiftBindingsTestLib_CollisionVault_EntryCsmExtensions
-            .FromSwiftBindingsTestLib_CollisionVault_Entry(seed);
+            .FromSwiftBindingsTestLibCollisionVaultEntry(seed);
         AssertEqual("box[collision-entry:c]", box.Describe(),
             "KeyVaultBox<CollisionVault.EntryInfo>.Describe extension");
     }
@@ -209,7 +209,7 @@ public class NestedConformerSpecializationTests : TestBase
     public void TestThrowingSealedBox_FromFlatConformer_Success()
     {
         using var key = new FlatKeyMaterial(tag: "f");
-        using var box = ThrowingSealedBox.FromSwiftBindingsTestLib_FlatKeyMaterial(key, new byte[] { 0xAB, 0xCD }, shouldSucceed: true);
+        using var box = ThrowingSealedBox.FromSwiftBindingsTestLibFlatKeyMaterial(key, new byte[] { 0xAB, 0xCD }, shouldSucceed: true);
         AssertEqual("throwing-sealed[flat:f|info:abcd]", box.Descriptor,
             "ThrowingSealedBox.From(FlatKeyMaterial) throwing factory — success round-trip carries concrete Data info");
     }
@@ -220,7 +220,7 @@ public class NestedConformerSpecializationTests : TestBase
         // is lifted, and at exactly HPKE's two-level nesting depth — now also carrying the
         // concrete Data `info` param that blocked HPKE construction.
         using var key = new SwiftBindingsTestLib.KeyVault.Agreement.PublicKey(tag: "p");
-        using var box = ThrowingSealedBox.FromSwiftBindingsTestLib_KeyVault_Agreement_PublicKey(key, new byte[] { 0x01, 0x02, 0x03 }, shouldSucceed: true);
+        using var box = ThrowingSealedBox.FromSwiftBindingsTestLibKeyVaultAgreementPublicKey(key, new byte[] { 0x01, 0x02, 0x03 }, shouldSucceed: true);
         AssertEqual("throwing-sealed[agree-pub:p|info:010203]", box.Descriptor,
             "ThrowingSealedBox.From(KeyVault.Agreement.PublicKey) throwing factory — success round-trip carries concrete Data info");
     }
@@ -228,7 +228,7 @@ public class NestedConformerSpecializationTests : TestBase
     public void TestThrowingSealedBox_FromCollisionConformer_Success()
     {
         using var key = new SwiftBindingsTestLib.CollisionVault.EntryInfo(tag: "c");
-        using var box = ThrowingSealedBox.FromSwiftBindingsTestLib_CollisionVault_Entry(key, new byte[] { 0xFF }, shouldSucceed: true);
+        using var box = ThrowingSealedBox.FromSwiftBindingsTestLibCollisionVaultEntry(key, new byte[] { 0xFF }, shouldSucceed: true);
         AssertEqual("throwing-sealed[collision-entry:c|info:ff]", box.Descriptor,
             "ThrowingSealedBox.From(CollisionVault.EntryInfo) throwing factory — success round-trip carries concrete Data info");
     }
@@ -237,7 +237,7 @@ public class NestedConformerSpecializationTests : TestBase
     {
         using var key = new FlatKeyMaterial(tag: "f");
         AssertThrows<SwiftException>(
-            () => ThrowingSealedBox.FromSwiftBindingsTestLib_FlatKeyMaterial(key, new byte[] { 0xAB, 0xCD }, shouldSucceed: false),
+            () => ThrowingSealedBox.FromSwiftBindingsTestLibFlatKeyMaterial(key, new byte[] { 0xAB, 0xCD }, shouldSucceed: false),
             "ThrowingSealedBox.From(FlatKeyMaterial) error path surfaces the Swift error as SwiftException");
     }
 
@@ -245,7 +245,7 @@ public class NestedConformerSpecializationTests : TestBase
     {
         using var key = new SwiftBindingsTestLib.KeyVault.Agreement.PublicKey(tag: "p");
         AssertThrows<SwiftException>(
-            () => ThrowingSealedBox.FromSwiftBindingsTestLib_KeyVault_Agreement_PublicKey(key, new byte[] { 0x01, 0x02, 0x03 }, shouldSucceed: false),
+            () => ThrowingSealedBox.FromSwiftBindingsTestLibKeyVaultAgreementPublicKey(key, new byte[] { 0x01, 0x02, 0x03 }, shouldSucceed: false),
             "ThrowingSealedBox.From(KeyVault.Agreement.PublicKey) error path surfaces the Swift error as SwiftException");
     }
 
@@ -259,7 +259,7 @@ public class NestedConformerSpecializationTests : TestBase
     public void TestThrowingSealedRef_FromFlatConformer_Success()
     {
         using var key = new FlatKeyMaterial(tag: "f");
-        using var box = ThrowingSealedRef.FromSwiftBindingsTestLib_FlatKeyMaterial(key, new byte[] { 0xDE, 0xAD }, shouldSucceed: true);
+        using var box = ThrowingSealedRef.FromSwiftBindingsTestLibFlatKeyMaterial(key, new byte[] { 0xDE, 0xAD }, shouldSucceed: true);
         AssertEqual("throwing-ref[flat:f|info:dead]", box.Descriptor,
             "ThrowingSealedRef.From(FlatKeyMaterial) throwing class factory — success round-trip carries concrete Data info");
     }
@@ -267,7 +267,7 @@ public class NestedConformerSpecializationTests : TestBase
     public void TestThrowingSealedRef_FromTwoLevelNestedConformer_Success()
     {
         using var key = new SwiftBindingsTestLib.KeyVault.Agreement.PublicKey(tag: "p");
-        using var box = ThrowingSealedRef.FromSwiftBindingsTestLib_KeyVault_Agreement_PublicKey(key, new byte[] { 0xBE, 0xEF }, shouldSucceed: true);
+        using var box = ThrowingSealedRef.FromSwiftBindingsTestLibKeyVaultAgreementPublicKey(key, new byte[] { 0xBE, 0xEF }, shouldSucceed: true);
         AssertEqual("throwing-ref[agree-pub:p|info:beef]", box.Descriptor,
             "ThrowingSealedRef.From(KeyVault.Agreement.PublicKey) throwing class factory — success round-trip carries concrete Data info");
     }
@@ -276,7 +276,7 @@ public class NestedConformerSpecializationTests : TestBase
     {
         using var key = new FlatKeyMaterial(tag: "f");
         AssertThrows<SwiftException>(
-            () => ThrowingSealedRef.FromSwiftBindingsTestLib_FlatKeyMaterial(key, new byte[] { 0xDE, 0xAD }, shouldSucceed: false),
+            () => ThrowingSealedRef.FromSwiftBindingsTestLibFlatKeyMaterial(key, new byte[] { 0xDE, 0xAD }, shouldSucceed: false),
             "ThrowingSealedRef.From(FlatKeyMaterial) error path surfaces the Swift error as SwiftException (sentinel not consumed)");
     }
 
@@ -284,7 +284,7 @@ public class NestedConformerSpecializationTests : TestBase
     {
         using var key = new SwiftBindingsTestLib.KeyVault.Agreement.PublicKey(tag: "p");
         AssertThrows<SwiftException>(
-            () => ThrowingSealedRef.FromSwiftBindingsTestLib_KeyVault_Agreement_PublicKey(key, new byte[] { 0xBE, 0xEF }, shouldSucceed: false),
+            () => ThrowingSealedRef.FromSwiftBindingsTestLibKeyVaultAgreementPublicKey(key, new byte[] { 0xBE, 0xEF }, shouldSucceed: false),
             "ThrowingSealedRef.From(KeyVault.Agreement.PublicKey) error path surfaces the Swift error as SwiftException (sentinel not consumed)");
     }
 }

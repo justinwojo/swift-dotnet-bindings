@@ -49,14 +49,14 @@ public class ConcreteSpecializationTests : TestBase
     public void TestProcessedItem_FromTextItem()
     {
         var source = new TextItem(text: "hello");
-        var processed = ProcessedItem.FromSwiftBindingsTestLib_TextItem(source);
+        var processed = ProcessedItem.FromSwiftBindingsTestLibTextItem(source);
         AssertEqual("text:hello", processed.Title.ToString(), "ProcessedItem.FromTextItem");
     }
 
     public void TestProcessedItem_FromNumberItem()
     {
         var source = new NumberItem(value: 99);
-        var processed = ProcessedItem.FromSwiftBindingsTestLib_NumberItem(source);
+        var processed = ProcessedItem.FromSwiftBindingsTestLibNumberItem(source);
         AssertEqual("number:99", processed.Title.ToString(), "ProcessedItem.FromNumberItem");
     }
 
