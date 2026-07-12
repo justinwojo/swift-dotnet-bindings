@@ -40,6 +40,45 @@ public class ConsumerSafetyAttributeTests
     }
 
     [Fact]
+    public void NoWrapperOrThunk_SB0001_AlsoEmitsEditorBrowsableNever()
+    {
+        // An SB0001 stub throws on the JIT runtimes (the common inner loop) and is only
+        // reachable under NativeAOT + SwiftBindingsInteropMode=Direct. It carries
+        // [EditorBrowsable(Never)] beside its [Obsolete] so it doesn't clutter IntelliSense
+        // for the majority case — the member stays callable and the [Obsolete] message is the
+        // discovery path.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethod("handle", classDecl, moduleDecl);
+        method.CSSignature.Add(CreateArg("loader", new NamedTypeSpec("TestModule.Loader"), moduleDecl));
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("DiagnosticId = \"SB0001\"", csOutput);
+        Assert.Contains("EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)", csOutput);
+    }
+
+    [Fact]
+    public void MissingSymbol_SB0002_DoesNotEmitEditorBrowsableNever()
+    {
+        // SB0002 (missing symbol / silent-tombstone return) is NOT runtime-dependent — the
+        // member is broken on every runtime, so it keeps its [Obsolete] visible in IntelliSense.
+        // Only the JIT-suppressible SB0001 stubs are hidden. This locks the SB0001-only scope.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethod("doWork", classDecl, moduleDecl, isStatic: true);
+        method.UsesCdeclMethodWrapper = true; // has wrapper → only the missing-symbol (SB0002) warning fires
+        moduleDecl.ExportedSymbols = new HashSet<string> { "$sOtherSymbol" };
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("DiagnosticId = \"SB0002\"", csOutput);
+        Assert.DoesNotContain("EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)", csOutput);
+    }
+
+    [Fact]
     public void NoWrapperOrThunk_SwiftStringParam_NoObsolete()
     {
         // Swift.String projects to FrozenBuffer (SwiftString.Buffer is a two-word blittable

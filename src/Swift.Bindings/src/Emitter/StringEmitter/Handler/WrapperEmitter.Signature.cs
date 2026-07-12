@@ -368,6 +368,15 @@ namespace BindingsGeneration
                     csWriter.WriteLine($"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\", " +
                         $"DiagnosticId = \"{diagnosticId}\", " +
                         $"UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\")]");
+                    // An SB0001 stub throws on the JIT runtimes (Mono/sim — the common inner loop)
+                    // and is only reachable under NativeAOT with SwiftBindingsInteropMode=Direct.
+                    // Hide it from IntelliSense so it doesn't clutter completion for the majority
+                    // case; it stays callable + compilable, and the [Obsolete] message + wiki URL
+                    // remain the discovery path for the NativeAOT-Direct consumers who want it.
+                    if (hasJitRisk)
+                    {
+                        csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
+                    }
                 }
                 else
                 {
