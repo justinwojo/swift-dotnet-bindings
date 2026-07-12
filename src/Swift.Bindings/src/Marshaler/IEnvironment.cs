@@ -331,11 +331,38 @@ namespace BindingsGeneration
             if (returnTypeSpec.IsDynamicSelf)
                 return true;
 
-            // Check for concrete type matching the parent type
             if (methodDecl.ParentDecl is TypeDecl parentTypeDecl &&
-                returnTypeSpec is NamedTypeSpec named &&
-                named.Name == parentTypeDecl.SwiftTypeName.ModuleQualifiedName)
-                return true;
+                returnTypeSpec is NamedTypeSpec named)
+            {
+                // Concrete type matching the parent type (exact self-return).
+                if (named.Name == parentTypeDecl.SwiftTypeName.ModuleQualifiedName)
+                    return true;
+
+                // Fluent/builder chain: the return type is a *sibling* nominal declared in the
+                // SAME module as the parent. SnapKit's `equalToSuperview()` on
+                // ConstraintMakerRelatable returns ConstraintMakerEditable — a different builder
+                // type in the same module — so exact-parent matching misses it and the noun→Get
+                // policy wrongly produces `GetEqualToSuperview`. Builder continuations like this
+                // are not getters. Restrict to NON-generic returns: a same-module *generic*
+                // return is a container/collection getter (`boxedHandler() -> Box<T>`), which
+                // should keep its Get prefix, not a builder continuation. A stdlib/foreign value
+                // return (`count() -> Swift.Int`) lives in a different module and correctly still
+                // gets Get. Method-generic (`-> T`) and other non-module-qualified returns make
+                // FromTypeSpec throw and are treated as non-fluent.
+                var parentModule = parentTypeDecl.SwiftTypeName.Module;
+                if (named.GenericParameters.Count == 0 && !string.IsNullOrEmpty(parentModule))
+                {
+                    try
+                    {
+                        if (SwiftTypeName.FromTypeSpec(named).Module == parentModule)
+                            return true;
+                    }
+                    catch (ArgumentException)
+                    {
+                        // Return type isn't a module-qualified nominal — not a fluent return.
+                    }
+                }
+            }
 
             return false;
         }

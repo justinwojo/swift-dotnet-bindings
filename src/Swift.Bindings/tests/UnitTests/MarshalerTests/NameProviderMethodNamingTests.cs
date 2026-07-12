@@ -287,6 +287,135 @@ public class NameProviderMethodNamingTests
 
     #endregion
 
+    #region IsSelfReturningMethod detection — fluent/builder chains (rule 2)
+
+    [Fact]
+    public void IsSelfReturningMethod_SameModuleSiblingReturn_IsFluent()
+    {
+        // SnapKit's `equalToSuperview()` on ConstraintMakerRelatable returns a *sibling* builder
+        // type in the same module (ConstraintMakerEditable). It's a builder continuation, not a
+        // getter — detected as self-returning so the noun→Get policy does not fire.
+        var method = BuildInstanceMethodReturning(
+            "SnapKit", "ConstraintMakerRelatable",
+            new NamedTypeSpec("SnapKit.ConstraintMakerEditable"));
+        Assert.True(MethodEnvironment.IsSelfReturningMethod(method));
+    }
+
+    [Fact]
+    public void IsSelfReturningMethod_ExactParentReturn_IsFluent()
+    {
+        // Regression: the pre-existing exact-parent self-return still counts as fluent.
+        var method = BuildInstanceMethodReturning(
+            "SnapKit", "ConstraintMaker",
+            new NamedTypeSpec("SnapKit.ConstraintMaker"));
+        Assert.True(MethodEnvironment.IsSelfReturningMethod(method));
+    }
+
+    [Fact]
+    public void IsSelfReturningMethod_ForeignModuleValueReturn_IsNotFluent()
+    {
+        // `count() -> Swift.Int` returns a foreign-module value type → still a getter (keeps Get).
+        var method = BuildInstanceMethodReturning(
+            "SnapKit", "ConstraintMakerRelatable",
+            new NamedTypeSpec("Swift.Int"));
+        Assert.False(MethodEnvironment.IsSelfReturningMethod(method));
+    }
+
+    [Fact]
+    public void IsSelfReturningMethod_UnqualifiedGenericParamReturn_IsNotFluent()
+    {
+        // A method returning its own generic parameter (`-> T`, unqualified) is not a
+        // module-qualified nominal — FromTypeSpec throws and it is treated as non-fluent.
+        var method = BuildInstanceMethodReturning(
+            "SnapKit", "Builder",
+            new NamedTypeSpec("T"));
+        Assert.False(MethodEnvironment.IsSelfReturningMethod(method));
+    }
+
+    [Fact]
+    public void IsSelfReturningMethod_SameModuleGenericContainerReturn_IsNotFluent()
+    {
+        // `boxedHandler() -> Box<Handler>` returns a same-module *generic* container — a
+        // value-producing getter, not a builder continuation. Generic returns are excluded so
+        // the noun→Get policy still fires (GetBoxedHandler), unlike SnapKit's non-generic sibling.
+        var box = new NamedTypeSpec("TestModule.Box");
+        box.GenericParameters.Add(new NamedTypeSpec("TestModule.Handler"));
+        var method = BuildInstanceMethodReturning("TestModule", "Loader", box);
+        Assert.False(MethodEnvironment.IsSelfReturningMethod(method));
+    }
+
+    [Fact]
+    public void GetPublicMethodName_FluentSiblingReturn_CollidingWithProperty_UsesWithPrefix()
+    {
+        // Collision-safety fixture: a fluent zero-arg method whose bare name (EqualToSuperview)
+        // collides with a same-type property of the same name. Self-returning routes the collision
+        // to the builder `With…` prefix — never a `Get…` prefix and never a CS0102/CS0111 dup.
+        var props = new HashSet<string> { "EqualToSuperview" };
+        var result = NameProvider.GetPublicMethodName(
+            "equalToSuperview", isAsync: false, hasReturnValue: true,
+            propertyNames: props, isSelfReturning: true, parameterCount: 0);
+        Assert.Equal("WithEqualToSuperview", result);
+    }
+
+    private static MethodDecl BuildInstanceMethodReturning(
+        string parentModule, string parentName, TypeSpec returnType)
+    {
+        var moduleDecl = new ModuleDecl
+        {
+            Name = parentModule,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+        var parentDecl = new StructDecl
+        {
+            Name = parentName,
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{parentModule}.{parentName}"),
+            MangledName = "$sN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            IsFrozen = true,
+            Conformances = new List<TypeConformance>(),
+            MetadataAccessor = "",
+        };
+        return new MethodDecl
+        {
+            Name = "equalToSuperview",
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            MangledName = "$sM",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    SwiftTypeSpec = returnType,
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = parentDecl,
+                    ModuleDecl = moduleDecl,
+                }
+            },
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            IsSynthesizedAccessor = false,
+        };
+    }
+
+    #endregion
+
     #region parameterCount-aware Get prefix
 
     [Fact]
