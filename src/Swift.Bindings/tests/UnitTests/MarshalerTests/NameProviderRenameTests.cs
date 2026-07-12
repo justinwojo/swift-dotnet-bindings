@@ -522,6 +522,96 @@ public class NameProviderRenameTests
         Assert.DoesNotContain("TypeType", offerTypeLeaf);
     }
 
+    [Fact]
+    public void ComputePropertyRenames_NestedEnumLeafAlreadyEndsInSuffix_DoesNotStutter()
+    {
+        // Anti-stutter guard: a nested enum whose Swift leaf already ends in the kind-aware
+        // suffix ("Kind") must not double into "KindKind". Here `Container.kind` (property) and
+        // `Container.Kind` (enum) collide; the enum's kind-aware suffix is itself "Kind", so the
+        // naive `leaf + suffix` would emit `KindKind`. The guard keeps the leaf and lets the
+        // numeric fallback disambiguate against the colliding property → `Kind2`.
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+
+        var parentSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.Container");
+        module.RegisterType(parentSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Container"),
+            SwiftTypeName = parentSwiftName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+
+        var kindSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.Container.Kind");
+        module.RegisterType(kindSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Container.Kind"),
+            SwiftTypeName = kindSwiftName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Enum
+        });
+
+        typeDatabase.AddModuleDatabase(module);
+
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var kindDecl = CreateEnumDecl("Kind", kindSwiftName, moduleDecl);
+        var parentDecl = new StructDecl
+        {
+            Name = "Container",
+            SwiftTypeName = parentSwiftName,
+            MangledName = "$sN",
+            Properties = new List<PropertyDecl>
+            {
+                new()
+                {
+                    Name = "kind",
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.Container")
+                    {
+                        InnerType = new NamedTypeSpec("Kind")
+                    },
+                    IsStatic = false,
+                    HasStorage = true,
+                    Accessors = new List<AccessorDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { kindDecl },
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$sMa"
+        };
+        kindDecl.ParentDecl = parentDecl;
+        moduleDecl.Types.Add(parentDecl);
+
+        NameProvider.PrecomputeNestedTypeRenames(moduleDecl, typeDatabase);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(kindSwiftName, out var kindRecord));
+        var kindLeaf = LeafName(kindRecord!.CSharpTypeName.Name);
+
+        Assert.DoesNotContain("KindKind", kindLeaf);
+        Assert.Equal("Kind2", kindLeaf);
+    }
+
     private static string LeafName(string fullName)
     {
         var lastDot = fullName.LastIndexOf('.');
