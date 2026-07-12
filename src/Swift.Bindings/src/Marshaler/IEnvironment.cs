@@ -339,22 +339,35 @@ namespace BindingsGeneration
                     return true;
 
                 // Fluent/builder chain: the return type is a *sibling* nominal declared in the
-                // SAME module as the parent. SnapKit's `equalToSuperview()` on
-                // ConstraintMakerRelatable returns ConstraintMakerEditable — a different builder
-                // type in the same module — so exact-parent matching misses it and the noun→Get
+                // SAME module as the parent AND that return type itself exposes a fluent member.
+                // SnapKit's `equalToSuperview()` on ConstraintMakerRelatable returns
+                // ConstraintMakerEditable — a different builder type in the same module that
+                // itself chains further — so exact-parent matching misses it and the noun→Get
                 // policy wrongly produces `GetEqualToSuperview`. Builder continuations like this
-                // are not getters. Restrict to NON-generic returns: a same-module *generic*
-                // return is a container/collection getter (`boxedHandler() -> Box<T>`), which
-                // should keep its Get prefix, not a builder continuation. A stdlib/foreign value
-                // return (`count() -> Swift.Int`) lives in a different module and correctly still
-                // gets Get. Method-generic (`-> T`) and other non-module-qualified returns make
-                // FromTypeSpec throw and are treated as non-fluent.
+                // are not getters.
+                //
+                // The same-module test alone is too broad: a plain vending/getter method whose
+                // return is a same-module *domain* object or existential (`currentCollidable()
+                // -> any BoundCollidable`, `vendBoxable() -> any Boxable`) is a getter and must
+                // keep its Get prefix. The distinguishing signal is whether the return type is
+                // itself part of a builder family — i.e. it has at least one instance method that
+                // returns another same-module nominal (a chain continuation). A domain object
+                // whose methods return primitives/foreign types (or which has no methods at all)
+                // is a getter target, not a builder.
+                //
+                // Restrict to NON-generic returns: a same-module *generic* return is a
+                // container/collection getter (`boxedHandler() -> Box<T>`), which should keep its
+                // Get prefix. A stdlib/foreign value return (`count() -> Swift.Int`) lives in a
+                // different module and correctly still gets Get. Method-generic (`-> T`) and other
+                // non-module-qualified returns make FromTypeSpec throw and are treated as non-fluent.
                 var parentModule = parentTypeDecl.SwiftTypeName.Module;
                 if (named.GenericParameters.Count == 0 && !string.IsNullOrEmpty(parentModule))
                 {
                     try
                     {
-                        if (SwiftTypeName.FromTypeSpec(named).Module == parentModule)
+                        var returnTypeName = SwiftTypeName.FromTypeSpec(named);
+                        if (returnTypeName.Module == parentModule &&
+                            ReturnTypeIsBuilderFamily(returnTypeName, parentModule, methodDecl))
                             return true;
                     }
                     catch (ArgumentException)
@@ -365,6 +378,75 @@ namespace BindingsGeneration
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Builder-family test for the self-returning (fluent) heuristic. A same-module nominal
+        /// return counts as a fluent continuation ONLY when the return type itself exposes a
+        /// fluent member — an instance method that returns another same-module nominal (the
+        /// builder-chain shape). This is a bounded, one-level check: it does NOT recurse into
+        /// whether *those* returns are builders, so there is no risk of infinite recursion on a
+        /// self-referential builder. Domain objects and protocol existentials whose methods only
+        /// return primitives/foreign types (or which have no methods) are getters, not builders,
+        /// and correctly fail this test so they keep their Get prefix.
+        /// </summary>
+        private static bool ReturnTypeIsBuilderFamily(SwiftTypeName returnTypeName, string module, MethodDecl methodDecl)
+        {
+            if (methodDecl.ModuleDecl is not ModuleDecl moduleDecl)
+                return false;
+
+            var returnDecl = FindModuleTypeByName(moduleDecl, returnTypeName);
+            if (returnDecl is null)
+                return false;
+
+            foreach (var member in returnDecl.Methods)
+            {
+                if (member.IsConstructor || member.IsAccessor || member.IsAsync)
+                    continue;
+                if (member.MethodType == MethodType.Static)
+                    continue;
+                if (member.CSSignature.Count == 0)
+                    continue;
+
+                var memberReturn = member.CSSignature[0].SwiftTypeSpec;
+                if (memberReturn.IsEmptyTuple)
+                    continue;
+                if (memberReturn.IsDynamicSelf)
+                    return true;
+                if (memberReturn is NamedTypeSpec memberNamed && memberNamed.GenericParameters.Count == 0)
+                {
+                    try
+                    {
+                        if (SwiftTypeName.FromTypeSpec(memberNamed).Module == module)
+                            return true;
+                    }
+                    catch (ArgumentException)
+                    {
+                        // Member return isn't a module-qualified nominal — not a chain continuation.
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Resolves a module-qualified type name to its declaration within the module, searching
+        /// both concrete types and protocols (a fluent return may be a protocol existential).
+        /// </summary>
+        private static TypeDecl? FindModuleTypeByName(ModuleDecl moduleDecl, SwiftTypeName typeName)
+        {
+            foreach (var type in moduleDecl.Types)
+            {
+                if (type.SwiftTypeName.ModuleQualifiedName == typeName.ModuleQualifiedName)
+                    return type;
+            }
+            foreach (var protocol in moduleDecl.Protocols)
+            {
+                if (protocol.SwiftTypeName.ModuleQualifiedName == typeName.ModuleQualifiedName)
+                    return protocol;
+            }
+            return null;
         }
 
         /// <summary>

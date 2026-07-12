@@ -290,15 +290,63 @@ public class NameProviderMethodNamingTests
     #region IsSelfReturningMethod detection — fluent/builder chains (rule 2)
 
     [Fact]
-    public void IsSelfReturningMethod_SameModuleSiblingReturn_IsFluent()
+    public void IsSelfReturningMethod_SameModuleSiblingReturn_WithFluentMember_IsFluent()
     {
         // SnapKit's `equalToSuperview()` on ConstraintMakerRelatable returns a *sibling* builder
-        // type in the same module (ConstraintMakerEditable). It's a builder continuation, not a
-        // getter — detected as self-returning so the noun→Get policy does not fire.
+        // type in the same module (ConstraintMakerEditable) that ITSELF chains further (its own
+        // methods return same-module builder types). It's a builder continuation, not a getter —
+        // detected as self-returning so the noun→Get policy does not fire.
+        var editable = BuildTypeWithMemberReturns(
+            "SnapKit", "ConstraintMakerEditable",
+            new NamedTypeSpec("SnapKit.ConstraintMakerRelatable")); // chains onward → builder family
         var method = BuildInstanceMethodReturning(
             "SnapKit", "ConstraintMakerRelatable",
-            new NamedTypeSpec("SnapKit.ConstraintMakerEditable"));
+            new NamedTypeSpec("SnapKit.ConstraintMakerEditable"),
+            registeredReturnTypes: new[] { editable });
         Assert.True(MethodEnvironment.IsSelfReturningMethod(method));
+    }
+
+    [Fact]
+    public void IsSelfReturningMethod_SameModuleDomainObjectReturn_NoFluentMember_IsNotFluent()
+    {
+        // Regression: `currentCollidable() -> BoundCollidable` and `vendBoxable() -> any Boxable`
+        // are vending/getter methods. Their return type is a same-module *domain object* whose
+        // own members return primitives (or it has no methods) — NOT a builder continuation. It
+        // must keep its Get prefix (GetCurrentCollidable / GetVendBoxable), not be treated as
+        // fluent. A same-module return alone is insufficient: the return type must itself be part
+        // of a builder family.
+        var domainObject = BuildTypeWithMemberReturns(
+            "AppMod", "Collidable",
+            new NamedTypeSpec("Swift.Int")); // member returns a primitive → not a chain
+        var method = BuildInstanceMethodReturning(
+            "AppMod", "RecognizerVendor",
+            new NamedTypeSpec("AppMod.Collidable"),
+            registeredReturnTypes: new[] { domainObject });
+        Assert.False(MethodEnvironment.IsSelfReturningMethod(method));
+    }
+
+    [Fact]
+    public void IsSelfReturningMethod_SameModuleReturn_TypeWithNoMethods_IsNotFluent()
+    {
+        // A same-module return whose type has no methods at all (a plain data protocol like
+        // BoundCollidable, only a `collisionLabel` property) is a getter target, not a builder.
+        var dataProtocol = BuildTypeWithMemberReturns("AppMod", "BoundCollidable");
+        var method = BuildInstanceMethodReturning(
+            "AppMod", "RecognizerVendor",
+            new NamedTypeSpec("AppMod.BoundCollidable"),
+            registeredReturnTypes: new[] { dataProtocol });
+        Assert.False(MethodEnvironment.IsSelfReturningMethod(method));
+    }
+
+    [Fact]
+    public void IsSelfReturningMethod_SameModuleReturn_UnresolvableType_IsNotFluent()
+    {
+        // If the same-module return type cannot be resolved to a declaration, the builder-family
+        // test cannot confirm a chain — default to NOT fluent (keep Get), the conservative choice.
+        var method = BuildInstanceMethodReturning(
+            "AppMod", "RecognizerVendor",
+            new NamedTypeSpec("AppMod.Unregistered"));
+        Assert.False(MethodEnvironment.IsSelfReturningMethod(method));
     }
 
     [Fact]
@@ -358,19 +406,27 @@ public class NameProviderMethodNamingTests
     }
 
     private static MethodDecl BuildInstanceMethodReturning(
-        string parentModule, string parentName, TypeSpec returnType)
+        string parentModule, string parentName, TypeSpec returnType,
+        IReadOnlyList<TypeDecl> registeredReturnTypes = null)
     {
         var moduleDecl = new ModuleDecl
         {
             Name = parentModule,
             Properties = new List<PropertyDecl>(),
             Methods = new List<MethodDecl>(),
-            Types = new List<TypeDecl>(),
+            Types = registeredReturnTypes is null ? new List<TypeDecl>() : new List<TypeDecl>(registeredReturnTypes),
             Dependencies = new List<string>(),
             Protocols = new List<ProtocolDecl>(),
             ParentDecl = null,
             ModuleDecl = null,
         };
+        if (registeredReturnTypes is not null)
+        {
+            foreach (var t in registeredReturnTypes)
+            {
+                t.ModuleDecl = moduleDecl;
+            }
+        }
         var parentDecl = new StructDecl
         {
             Name = parentName,
@@ -412,6 +468,63 @@ public class NameProviderMethodNamingTests
             GenericParameters = new List<GenericArgumentDecl>(),
             IsSynthesizedAccessor = false,
         };
+    }
+
+    /// <summary>
+    /// Builds a same-module type declaration whose instance methods return the given specs.
+    /// Register it via <see cref="BuildInstanceMethodReturning"/>'s <c>registeredReturnTypes</c>
+    /// to control whether the builder-family test sees a chain continuation. Passing no member
+    /// returns produces a type with no methods (a plain data type / getter target).
+    /// </summary>
+    private static TypeDecl BuildTypeWithMemberReturns(
+        string module, string typeName, params TypeSpec[] memberReturns)
+    {
+        var typeDecl = new StructDecl
+        {
+            Name = typeName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{module}.{typeName}"),
+            MangledName = $"$s{typeName}",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            IsFrozen = true,
+            Conformances = new List<TypeConformance>(),
+            MetadataAccessor = "",
+        };
+        int i = 0;
+        foreach (var memberReturn in memberReturns)
+        {
+            typeDecl.Methods.Add(new MethodDecl
+            {
+                Name = $"member{i++}",
+                ParentDecl = typeDecl,
+                ModuleDecl = null,
+                MangledName = $"$sMember{i}",
+                MethodType = MethodType.Instance,
+                IsConstructor = false,
+                CSSignature = new List<ArgumentDecl>
+                {
+                    new()
+                    {
+                        SwiftTypeSpec = memberReturn,
+                        Name = "",
+                        PrivateName = "",
+                        IsInOut = false,
+                        IsGeneric = false,
+                        ParentDecl = typeDecl,
+                        ModuleDecl = null,
+                    }
+                },
+                Throws = false,
+                IsAsync = false,
+                GenericParameters = new List<GenericArgumentDecl>(),
+                IsSynthesizedAccessor = false,
+            });
+        }
+        return typeDecl;
     }
 
     #endregion
