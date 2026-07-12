@@ -40,9 +40,12 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="../output/SwiftBindingsTestLib.cs" />
+    <!-- One file per top-level type (generator file-per-type split); prelude is the .cs above. -->
+    <Compile Include="../output/SwiftBindingsTestLib.Types.*.cs" />
     <Compile Include="../output/SwiftBindingsTestLib.SwiftUIBridge.cs"
              Condition="Exists('../output/SwiftBindingsTestLib.SwiftUIBridge.cs')" />
     <Compile Include="../output/SwiftBindingsTestLibDependency.cs"
              Condition="Exists('../output/SwiftBindingsTestLibDependency.cs')" />
+    <Compile Include="../output/SwiftBindingsTestLibDependency.Types.*.cs" />
   </ItemGroup>
 </Project>

@@ -23,6 +23,24 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// The current end-of-buffer character offset, flushed so pending output is
+        /// materialized. Recorded at namespace and top-level-type boundaries so
+        /// <see cref="ModuleEmitter"/> can slice the byte-identical combined output into
+        /// one file per top-level type without changing a single character of what each
+        /// handler emitted. Pending indentation for the next (not-yet-started) line is
+        /// not counted — the same convention <see cref="Checkpoint"/> relies on — so
+        /// boundaries captured at WriteLine points are exact.
+        /// </summary>
+        public int CurrentOffset
+        {
+            get
+            {
+                Flush();
+                return _innerWriter.GetStringBuilder().Length;
+            }
+        }
+
+        /// <summary>
         /// A position in the C# output buffer that <see cref="RollbackTo"/> can return to.
         /// Captures both the buffer length and the indent depth so a rolled-back writer
         /// resumes exactly where it was when the checkpoint was taken.

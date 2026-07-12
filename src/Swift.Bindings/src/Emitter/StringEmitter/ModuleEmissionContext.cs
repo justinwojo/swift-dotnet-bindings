@@ -35,6 +35,32 @@ public sealed class ModuleEmissionContext
     /// </summary>
     public string? ResolvedNamespace { get; set; }
 
+    // ==================== File-per-top-level-type split ====================
+    //
+    // These offsets/spans are recorded into the shared C# output buffer during
+    // ModuleHandler.Emit so ModuleEmitter can slice the byte-identical combined
+    // output into one file per top-level type. All are character offsets into the
+    // PRE-QualifyNamespaceReferences string (ModuleEmitter slices that string, then
+    // re-runs the namespace qualifier per file). Null offsets / an empty span list
+    // mean "no split data recorded" — ModuleEmitter falls back to a single file.
+
+    /// <summary>Offset just past <c>namespace X {</c> (the namespace body start).</summary>
+    public int? EmissionNamespaceBodyStart { get; set; }
+
+    /// <summary>Offset just before the namespace's closing <c>}</c>.</summary>
+    public int? EmissionNamespaceBodyEnd { get; set; }
+
+    /// <summary>Offset just past the namespace's closing <c>}</c> (start of the SwiftInterop trailer).</summary>
+    public int? EmissionNamespaceCloseEnd { get; set; }
+
+    /// <summary>
+    /// One entry per emitted top-level type, in deterministic emission (topo) order:
+    /// the C#-name-derived file leaf and the type's half-open character span in the
+    /// pre-qualify output. Recorded only at the outermost HandleBaseDecl walk; nested
+    /// types stay inside their parent's span.
+    /// </summary>
+    public List<(string TypeName, int Start, int End)> TopLevelTypeSpans { get; } = new();
+
     /// <summary>
     /// Load-time runtime-contract <em>epoch</em> to emit into this module's
     /// <c>RuntimeContract.AssertCompatible(...)</c> call, derived (<c>major*1000 + minor</c>) from

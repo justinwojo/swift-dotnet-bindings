@@ -48,16 +48,19 @@ public class Issue1SkipAttributionTests
     {
         var repoRoot = LocateRepoRoot();
         var runtimeTestsDir = Path.Combine(repoRoot, "BindingTests", "RuntimeTestsApp");
-        var generatedBindings = Path.Combine(repoRoot, "BindingTests", "output", "SwiftBindingsTestLib.cs");
+        var outputDir = Path.Combine(repoRoot, "BindingTests", "output");
+        var preludePath = Path.Combine(outputDir, $"{ModuleName}.cs");
 
         Assert.True(Directory.Exists(runtimeTestsDir), $"RuntimeTestsApp not found at {runtimeTestsDir}");
-        var generatedBindingsExist = File.Exists(generatedBindings);
+        // The module is emitted file-per-top-level-type: scan the prelude plus every
+        // {module}.Types.*.cs so a P/Invoke that moved into a type file still counts.
+        var generatedBindingsExist = SplitModuleSource.Exists(outputDir, ModuleName);
         if (RequireGeneratedBindingsOutput())
-            Assert.True(generatedBindingsExist, $"Generated bindings not found at {generatedBindings}");
+            Assert.True(generatedBindingsExist, $"Generated bindings not found at {preludePath}");
         Skip.IfNot(generatedBindingsExist,
-            $"Generated bindings not found at {generatedBindings}; run `nuke binding-tests --compile-only` first.");
+            $"Generated bindings not found at {preludePath}; run `nuke binding-tests --compile-only` first.");
 
-        HashSet<string> callConvSwiftSymbols = ExtractCallConvSwiftEntryPoints(File.ReadAllText(generatedBindings));
+        HashSet<string> callConvSwiftSymbols = ExtractCallConvSwiftEntryPoints(SplitModuleSource.ReadAll(outputDir, ModuleName));
 
         // Sanity: the extractor must find the library's known CallConvSwift surface, otherwise a
         // parser drift would silently make every check vacuously pass.

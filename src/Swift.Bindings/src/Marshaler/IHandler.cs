@@ -188,8 +188,19 @@ namespace BindingsGeneration
             return result;
         }
 
-        protected virtual void HandleBaseDecl(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnumerable<BaseDecl> decl, Conductor conductor, ITypeDatabase typeDatabase, TypeHandlerContext context, IReadOnlySet<string>? siblingPropertyNames = null)
+        protected virtual void HandleBaseDecl(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnumerable<BaseDecl> decl, Conductor conductor, ITypeDatabase typeDatabase, TypeHandlerContext context, IReadOnlySet<string>? siblingPropertyNames = null, List<(string TypeName, int Start, int End)>? topLevelSpanSink = null)
         {
+            // File-per-type split: record each emitted top-level type's character span in
+            // the shared buffer so ModuleEmitter can slice one file per type. Populated only
+            // for the outermost walk (ModuleHandler passes the sink); nested/facade recursion
+            // passes null, so nested types stay inside their parent's span.
+            void RecordTopLevelSpan(BaseDecl emitted, int start)
+            {
+                if (topLevelSpanSink == null)
+                    return;
+                topLevelSpanSink.Add((SplitFileNaming.LeafFor(emitted, typeDatabase), start, csWriter.CurrentOffset));
+            }
+
             // Track emitted method signatures to avoid duplicates
             var emittedMethodSignatures = new HashSet<string>();
             // B15: Secondary dedup based on projected C# public signature
@@ -223,6 +234,10 @@ namespace BindingsGeneration
 
             foreach (var baseDecl in sortedDecl)
             {
+                // Span start for the file-per-type split: skipped decls (which only emit an
+                // `// Unsupported:` comment and `continue`) never call RecordTopLevelSpan, so
+                // their bytes fall outside every type span and land in the prelude file.
+                var spanStart = topLevelSpanSink != null ? csWriter.CurrentOffset : 0;
                 if (baseDecl is TypeDecl typeDecl)
                 {
                     // Suppress underscore-prefixed types that are not structurally required
@@ -297,6 +312,7 @@ namespace BindingsGeneration
                         NamespaceFacadeEmitter.Emit(
                             csWriter, swiftWriter, structDecl, conductor, typeDatabase, context,
                             (decls, ctx) => HandleBaseDecl(csWriter, swiftWriter, decls, conductor, typeDatabase, ctx));
+                        RecordTopLevelSpan(structDecl, spanStart);
                         continue;
                     }
 
@@ -304,6 +320,7 @@ namespace BindingsGeneration
                     {
                         var env = handler.Marshal(structDecl, typeDatabase);
                         handler.Emit(csWriter, swiftWriter, env, conductor, context);
+                        RecordTopLevelSpan(structDecl, spanStart);
                     }
                     else
                     {
@@ -327,6 +344,7 @@ namespace BindingsGeneration
                     {
                         var env = handler.Marshal(classDecl, typeDatabase);
                         handler.Emit(csWriter, swiftWriter, env, conductor, context);
+                        RecordTopLevelSpan(classDecl, spanStart);
                     }
                     else
                     {
@@ -341,6 +359,7 @@ namespace BindingsGeneration
                     {
                         var env = handler.Marshal(protocolDecl, typeDatabase);
                         handler.Emit(csWriter, swiftWriter, env, conductor, context);
+                        RecordTopLevelSpan(protocolDecl, spanStart);
                     }
                     else
                     {
@@ -364,6 +383,7 @@ namespace BindingsGeneration
                         NamespaceFacadeEmitter.Emit(
                             csWriter, swiftWriter, enumDecl, conductor, typeDatabase, context,
                             (decls, ctx) => HandleBaseDecl(csWriter, swiftWriter, decls, conductor, typeDatabase, ctx));
+                        RecordTopLevelSpan(enumDecl, spanStart);
                         continue;
                     }
 
@@ -371,6 +391,7 @@ namespace BindingsGeneration
                     {
                         var env = handler.Marshal(enumDecl, typeDatabase);
                         handler.Emit(csWriter, swiftWriter, env, conductor, context);
+                        RecordTopLevelSpan(enumDecl, spanStart);
                     }
                     else
                     {

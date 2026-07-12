@@ -112,6 +112,25 @@ partial class Build
 
     // ---- Artifact resolution ------------------------------------------
 
+    // Reads a module's full generated C#: the {module}.cs prelude plus every
+    // {module}.Types.*.cs per-type file produced by the file-per-type split, concatenated
+    // in deterministic (ordinal) filename order. Parity checks the type bodies, which now
+    // live in the .Types.*.cs files rather than the single prelude.
+    static string ReadModuleCsSource(AbsolutePath dir, string module)
+    {
+        var parts = new List<string>();
+        var preludePath = dir / $"{module}.cs";
+        if (File.Exists(preludePath))
+            parts.Add(File.ReadAllText(preludePath));
+        foreach (var typeFile in Directory
+                     .EnumerateFiles(dir, $"{module}.Types.*.cs")
+                     .OrderBy(p => p, StringComparer.Ordinal))
+        {
+            parts.Add(File.ReadAllText(typeFile));
+        }
+        return string.Join("\n", parts);
+    }
+
     sealed record ParityInputs(
         string CsSource,
         string SwiftWrapperSource,
@@ -161,7 +180,7 @@ partial class Build
         if (depWrapperDylib != null)
             symbolsByLibrary[$"{DepModuleName}{WrapperModule}"] = ArtifactParityGate.ParseNmSymbols(RunNm(depWrapperDylib));
 
-        var csSource = File.ReadAllText(csPath);
+        var csSource = ReadModuleCsSource(BtOutputDir, ModuleName);
         var swiftSource = File.ReadAllText(swiftPath);
         var abiJson = File.ReadAllText(abiPath);
 
@@ -196,7 +215,7 @@ partial class Build
                     $"dependency wrapper dylib not found under {depWrapperXcf} but {depCsPath.Name} is present — " +
                     "its wrapper P/Invokes would be silently skipped instead of symbol-checked.");
 
-            csSource += "\n" + File.ReadAllText(depCsPath);
+            csSource += "\n" + ReadModuleCsSource(BtOutputDir, DepModuleName);
             swiftSource += "\n" + File.ReadAllText(depSwiftPath);
             // ParseAbiStoredInstanceProps accepts a JSON array of ABI documents; main first.
             abiJson = "[" + abiJson + "," + File.ReadAllText(depAbiPath) + "]";

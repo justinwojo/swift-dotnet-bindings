@@ -96,47 +96,51 @@ namespace BindingsGeneration
                     SwiftUIBridgeCollector.Reset();
                 }
 
-                var csOutput = csStringWriter.ToString();
+                var preQualifyOutput = csStringWriter.ToString();
 
                 // CX-1: When the namespace has a type with the same name (e.g., a module named "Foo"
                 // has a class also named "Foo"), C# resolves Foo.OtherType as a nested type lookup on the
-                // class instead of a namespace member. Fix by adding global:: qualifier.
+                // class instead of a namespace member. Fix by adding global:: qualifier. Hoisted out of
+                // the write so the file-per-type split can apply the same qualification to each file.
                 var collisionType = moduleDecl.Types.FirstOrDefault(t => t.Name == @namespace)
                     ?? (BaseDecl?)moduleDecl.Protocols.FirstOrDefault(p => p.Name == @namespace);
-                if (collisionType != null)
+                var nestedTypeNames = new HashSet<string>();
+                if (collisionType is TypeDecl td)
                 {
                     // Collect nested type C# names — Namespace.NestedType refers to the collision class's
                     // nested type, not a namespace member. These must NOT get global:: qualification.
                     // Use C# names (not Swift names) because nested type renames (e.g., Connection → ConnectionKind)
                     // mean the generated code uses the renamed name.
-                    var nestedTypeNames = new HashSet<string>();
-                    if (collisionType is TypeDecl td)
+                    foreach (var nested in td.Types)
                     {
-                        foreach (var nested in td.Types)
+                        var csLeafName = NameProvider.ToPascalCaseForTypeName(nested.Name);
+                        // Check TypeDatabase for rename (e.g., Connection → ConnectionKind)
+                        if (_typeDatabase.TryGetTypeRecord(nested.SwiftTypeName, out var nestedRecord))
                         {
-                            var csLeafName = NameProvider.ToPascalCaseForTypeName(nested.Name);
-                            // Check TypeDatabase for rename (e.g., Connection → ConnectionKind)
-                            if (_typeDatabase.TryGetTypeRecord(nested.SwiftTypeName, out var nestedRecord))
-                            {
-                                var csName = nestedRecord.CSharpTypeName.Name;
-                                var lastDot = csName.LastIndexOf('.');
-                                if (lastDot >= 0)
-                                    csLeafName = csName.Substring(lastDot + 1);
-                            }
-                            nestedTypeNames.Add(csLeafName);
+                            var csName = nestedRecord.CSharpTypeName.Name;
+                            var lastDot = csName.LastIndexOf('.');
+                            if (lastDot >= 0)
+                                csLeafName = csName.Substring(lastDot + 1);
                         }
+                        nestedTypeNames.Add(csLeafName);
                     }
-                    csOutput = QualifyNamespaceReferences(csOutput, @namespace, nestedTypeNames);
                 }
 
-                // Post-generation ABI contract validation
-                AbiContractChecker.Validate(csOutput, moduleDecl.Name, _logger);
+                // QualifyNamespaceReferences is position-independent (local lookahead only), so
+                // running it per output file is equivalent to running it once on the combined
+                // string and slicing. No-op unless the module name collides with a type name.
+                string Qualify(string source) =>
+                    collisionType != null ? QualifyNamespaceReferences(source, @namespace, nestedTypeNames) : source;
 
-                string csOutputPath = Path.Combine(_outputDirectory, $"{@namespace}.cs");
-                using (StreamWriter outputFile = new(csOutputPath))
-                {
-                    outputFile.Write(csOutput);
-                }
+                var wholeOutput = Qualify(preQualifyOutput);
+
+                // Post-generation ABI contract validation — over the whole module, exactly as before.
+                AbiContractChecker.Validate(wholeOutput, moduleDecl.Name, _logger);
+
+                // Split the combined output into one file per top-level type (prelude keeps the
+                // historical {namespace}.cs name). Byte-for-byte a repackaging of wholeOutput —
+                // zero public-API change; the union of all files is exactly wholeOutput.
+                WriteModuleFiles(preQualifyOutput, wholeOutput, @namespace, emissionContext, Qualify);
 
                 // Emit the API manifest ({namespace}.api-manifest.json) alongside the .cs.
                 // It records every emitted public member's post-collision C# signature → native
@@ -257,6 +261,53 @@ namespace BindingsGeneration
                 }
                 return $"global::{@namespace}.";
             });
+        }
+
+        /// <summary>
+        /// Writes the module output as one file per top-level type. The prelude keeps the
+        /// historical <c>{namespace}.cs</c> name and holds the shared header, free functions,
+        /// module-level trailers, namespace close, and the <c>SwiftInterop</c> companion;
+        /// each top-level type goes to <c>{namespace}.Types.{Leaf}.cs</c> with the same header
+        /// and namespace-closing brace replayed around its own byte-range. The union of the
+        /// distinct content across all files is exactly <paramref name="wholeOutput"/>, so the
+        /// split is a pure repackaging with zero public-API change. Falls back to a single
+        /// combined file when the emitter recorded no usable span data.
+        /// </summary>
+        private void WriteModuleFiles(
+            string preQualifyOutput, string wholeOutput, string @namespace,
+            ModuleEmissionContext emissionContext, Func<string, string> qualify)
+        {
+            var preludePath = Path.Combine(_outputDirectory, $"{@namespace}.cs");
+
+            // Remove stale per-type files from a prior regen so a since-removed type does not
+            // linger and get compiled by the {namespace}.Types.*.cs Compile glob.
+            if (Directory.Exists(_outputDirectory))
+            {
+                foreach (var stale in Directory.EnumerateFiles(
+                             _outputDirectory, SplitFileNaming.TypeFileGlob(@namespace)))
+                {
+                    File.Delete(stale);
+                }
+            }
+
+            var files = ModuleFileSplitter.BuildFileSet(
+                preQualifyOutput, @namespace,
+                emissionContext.EmissionNamespaceBodyStart,
+                emissionContext.EmissionNamespaceBodyEnd,
+                emissionContext.EmissionNamespaceCloseEnd,
+                emissionContext.TopLevelTypeSpans,
+                qualify);
+
+            if (files == null)
+            {
+                // No usable split data (e.g. a module with only free functions) — write the
+                // single combined file, identical to the pre-split behavior.
+                File.WriteAllText(preludePath, wholeOutput);
+                return;
+            }
+
+            foreach (var file in files)
+                File.WriteAllText(Path.Combine(_outputDirectory, file.FileName), file.Content);
         }
     }
 }

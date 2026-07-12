@@ -179,6 +179,12 @@ partial class Build
                 // Forward slashes for cross-platform-stable baseline keys.
                 var source = RootDirectory.GetRelativePathTo((AbsolutePath)path)
                     .ToString().Replace('\\', '/');
+                // File-per-type split: fold each module's per-type files
+                // ({Module}.Types.{Leaf}.cs) back onto the module source ({Module}.cs) so skip
+                // counts are path-stable across the split. The gate tracks per-module skip
+                // trends, not per-physical-file, so this keeps the baseline valid without a
+                // reseed — the same (marker, reason) totals, just re-homed to the module file.
+                source = Regex.Replace(source, @"\.Types\.[^/]+\.cs$", ".cs");
 
                 Tally(text, "Unsupported", UnsupportedComment, source, counts);
                 Tally(text, "Skipped", SkippedComment, source, counts);

@@ -439,12 +439,24 @@ partial class Build
                     throw new Exception($"Dependency bindings generator exited with code {depProcess.ExitCode} (strict mode)");
             }
 
-            // Move the dependency .cs file alongside the main bindings
+            // Move the dependency C# alongside the main bindings: the {DepModule}.cs prelude
+            // plus every {DepModule}.Types.*.cs per-type file from the file-per-type split.
+            // Clear any stale dep per-type files at the destination first so a removed type
+            // does not linger and get compiled.
+            foreach (var staleDepType in Directory.EnumerateFiles(BtOutputDir, $"{DepModuleName}.Types.*.cs"))
+                File.Delete(staleDepType);
+
             var depCsFile = depOutputDir / $"{DepModuleName}.cs";
             if (File.Exists(depCsFile))
             {
                 File.Move(depCsFile, BtOutputDir / $"{DepModuleName}.cs", overwrite: true);
                 Log.Information("Dependency bindings: {File}", BtOutputDir / $"{DepModuleName}.cs");
+            }
+            foreach (var depTypeFile in Directory.EnumerateFiles(depOutputDir, $"{DepModuleName}.Types.*.cs"))
+            {
+                var dest = BtOutputDir / Path.GetFileName(depTypeFile);
+                File.Move(depTypeFile, dest, overwrite: true);
+                Log.Information("Dependency bindings (type file): {File}", dest);
             }
 
             // Move the dependency API manifest alongside the main one so the api-manifest gate

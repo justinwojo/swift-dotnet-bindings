@@ -504,9 +504,13 @@ namespace BindingsGeneration
                 {runtimeReference}{dependencyRefs}{appleSupplementRef}
                   </ItemGroup>
 
-                  <!-- Generated C# bindings -->
+                  <!-- Generated C# bindings. The generator splits emission into one file per
+                       top-level type ({resolvedNamespace}.Types.*.cs); {resolvedNamespace}.cs is
+                       the module prelude. The wildcard expands at build time (default Compile
+                       items are disabled above). -->
                   <ItemGroup>
-                    <Compile Include="{resolvedNamespace}.cs" />{wrappersCompile}{bridgeCompile}
+                    <Compile Include="{resolvedNamespace}.cs" />
+                    <Compile Include="{resolvedNamespace}.Types.*.cs" />{wrappersCompile}{bridgeCompile}
                   </ItemGroup>
 
                   <!-- ILLink trimmer descriptor — only emitted when the generator produced at

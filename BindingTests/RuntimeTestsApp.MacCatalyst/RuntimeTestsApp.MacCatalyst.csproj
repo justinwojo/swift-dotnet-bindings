@@ -95,8 +95,10 @@
   <!-- Generated bindings (shared output/ dir — Catalyst clobbers other platforms, same as macOS/tvOS) -->
   <ItemGroup>
     <Compile Include="../output/SwiftBindingsTestLib.cs" Condition="Exists('../output/SwiftBindingsTestLib.cs')" />
+    <Compile Include="../output/SwiftBindingsTestLib.Types.*.cs" />
     <Compile Include="../output/SwiftBindingsTestLibDependency.cs"
              Condition="Exists('../output/SwiftBindingsTestLibDependency.cs')" />
+    <Compile Include="../output/SwiftBindingsTestLibDependency.Types.*.cs" />
   </ItemGroup>
 
   <ItemGroup Condition="Exists('../output/SwiftBindingsTestLibDependency.cs')">

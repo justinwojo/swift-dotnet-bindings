@@ -141,15 +141,19 @@ public class ExistentialUnionReturnProjectionParityTests
     private static string LoadGeneratedBindingsOrSkip()
     {
         var repoRoot = LocateRepoRoot();
-        var generatedBindings = Path.Combine(repoRoot, "BindingTests", "output", "SwiftBindingsTestLib.cs");
+        var outputDir = Path.Combine(repoRoot, "BindingTests", "output");
+        var preludePath = Path.Combine(outputDir, "SwiftBindingsTestLib.cs");
 
-        var exists = File.Exists(generatedBindings);
+        // The module is emitted file-per-top-level-type: read the prelude plus every
+        // {module}.Types.*.cs file so the projected members that moved into their own files
+        // are still visible to this parity scan.
+        var exists = SplitModuleSource.Exists(outputDir, "SwiftBindingsTestLib");
         if (RequireGeneratedBindingsOutput())
-            Assert.True(exists, $"Generated bindings not found at {generatedBindings}");
+            Assert.True(exists, $"Generated bindings not found at {preludePath}");
         Skip.IfNot(exists,
-            $"Generated bindings not found at {generatedBindings}; run `nuke binding-tests --compile-only` first.");
+            $"Generated bindings not found at {preludePath}; run `nuke binding-tests --compile-only` first.");
 
-        return File.ReadAllText(generatedBindings);
+        return SplitModuleSource.ReadAll(outputDir, "SwiftBindingsTestLib");
     }
 
     private static string LocateRepoRoot()

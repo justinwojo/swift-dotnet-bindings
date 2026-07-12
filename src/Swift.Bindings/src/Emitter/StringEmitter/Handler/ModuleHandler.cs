@@ -156,6 +156,11 @@ namespace BindingsGeneration
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
+            // File-per-type split: the namespace body starts here. Everything before this
+            // point (usings + `namespace X {`) is the shared header prepended to every
+            // per-type file. See ModuleEmitter.WriteModuleFiles.
+            context.GetEmissionContext().EmissionNamespaceBodyStart = csWriter.CurrentOffset;
+
             // Scope composition interface collection across BOTH top-level methods and types.
             // Free functions can reference composition existentials (e.g., any Describable & TestIdentifiable),
             // so the collector must be active before emitting top-level methods.
@@ -319,7 +324,8 @@ namespace BindingsGeneration
                     csWriter.WriteLine();
                 }
 
-                base.HandleBaseDecl(csWriter, swiftWriter, moduleDecl.Types, conductor, env.TypeDatabase, context);
+                base.HandleBaseDecl(csWriter, swiftWriter, moduleDecl.Types, conductor, env.TypeDatabase, context,
+                    topLevelSpanSink: context.GetEmissionContext().TopLevelTypeSpans);
 
                 // Emit protocol extension method Swift wrappers (accumulated during InjectExtensionMethods)
                 var emissionCtx = context.GetEmissionContext();
@@ -391,8 +397,15 @@ namespace BindingsGeneration
             // Emit DllImport framework resolver + NativeAOT factory registration with [ModuleInitializer]
             EmitFrameworkResolver(csWriter, moduleDecl.Name, context.GetEmissionContext());
 
+            // File-per-type split: everything from the namespace body start to here that is
+            // NOT inside a recorded top-level-type span (free functions, foreign-type
+            // extensions, composition interfaces, error registry, framework resolver) is
+            // module-level scaffolding that stays in the prelude file.
+            context.GetEmissionContext().EmissionNamespaceBodyEnd = csWriter.CurrentOffset;
             csWriter.Indent--;
             csWriter.WriteLine("}");
+            // The namespace-closing brace is replayed verbatim onto every per-type file.
+            context.GetEmissionContext().EmissionNamespaceCloseEnd = csWriter.CurrentOffset;
 
             // Emit SwiftInterop sub-namespace for protocol proxy classes.
             // Always emitted so the 'using' directive at the top resolves even when empty.
