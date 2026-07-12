@@ -783,6 +783,61 @@ public class ConstructorHandlerOutputTests
         Assert.DoesNotContain("// Unsupported: method 'init'", csOutput);
     }
 
+    [Fact]
+    public void Emit_TwoConstructorsCollidingOnProjectedKey_LoserRecordedAsDuplicateSignature_NoDuplicateCtor()
+    {
+        // Collision-safety pin for the non-failable constructor projected-key collision.
+        // The winner emits exactly one `public Widget(...)`; the loser is dropped WITHOUT
+        // producing a second `public Widget(long)` (which would be CS0111), and the drop is
+        // recorded in report.json as a DuplicateSignature skip so it is a documented,
+        // grep-able completeness limitation rather than a silent disappearance.
+        //
+        // Recovering the loser as a static factory (e.g. `static Widget CreateWithB(long)`)
+        // is a separate, device-gated design task: it is a new non-failable constructor →
+        // static-factory ABI emission path, distinct from the failable TryCreate/async
+        // CreateAsync paths, and constructor marshalling is where NativeAOT-only crashes
+        // surface — so it must land with a `--device` BindingTests leg, not sim-only.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Widget", moduleDecl, typeDatabase);
+
+        CreateConstructorDeclForClass("init", parentDecl, moduleDecl,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("a", new NamedTypeSpec("Swift.Int"), moduleDecl)
+            });
+        CreateConstructorDeclForClass("init", parentDecl, moduleDecl,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("b", new NamedTypeSpec("Swift.Int"), moduleDecl)
+            });
+
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        var csOutput = EmitClass(parentDecl, typeDatabase);
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+        Assert.NotNull(report);
+
+        // Exactly one constructor emits — the second is not a duplicate `public Widget(` (no CS0111).
+        Assert.Equal(1, CountOccurrences(csOutput, "public Widget("));
+
+        // The dropped overload is recorded as a DuplicateSignature skip (documented, not silent).
+        Assert.Contains(report.SkippedItems,
+            i => i.Name == "init" && i.Reason == SkipReason.DuplicateSignature);
+    }
+
+    private static int CountOccurrences(string text, string pattern)
+    {
+        int count = 0, index = 0;
+        while ((index = text.IndexOf(pattern, index, StringComparison.Ordinal)) != -1)
+        {
+            count++;
+            index += pattern.Length;
+        }
+        return count;
+    }
+
     #endregion
 
     private static TypeDatabase CreateTypeDatabase()
