@@ -2529,9 +2529,14 @@ public class EveryProtocolEmitterTests
     [Fact]
     public void EmitProtocolConformance_NSCodingInheritor_StillSkipsEmission()
     {
-        // NSCoding (and NSSecureCoding/NSCopying/NSMutableCopying)
-        // require encoding/copying surfaces the EveryObjCProtocol synthesis can't
-        // supply, so these remain on the skip path.
+        // An NSCoding requirement arriving ONLY via InheritedProtocols (no genericSig
+        // `<Self : NSCoding>` entry) routes to skip: this bare-conformance shape carries
+        // no witnessing carrier stub, so EmitProtocolConformance emits nothing. The
+        // real @objc-delegate rescue keys off ParsedGenericSignature.Requirements (where
+        // digested `@objc protocol X: NSCoding` actually lands) and is covered end-to-end
+        // by the RoomPlan / RenderProgressDelegate fixtures. NSSecureCoding / NSCopying /
+        // NSMutableCopying always skip — they need real encoding/copying surfaces the
+        // EveryObjCProtocol synthesis can't supply.
         var protocol = CreateProtocolWithMethod("EncodableThing", "doIt");
         protocol.InheritedProtocols.Add(new NamedTypeSpec("Foundation.NSCoding"));
 

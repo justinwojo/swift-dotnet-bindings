@@ -1525,6 +1525,147 @@ public class ModuleHandlerTests
         };
     }
 
+    [Fact]
+    public void Emit_HiddenRequirementForwardSafeProtocol_AdmittedAsReadOnlyProxy()
+    {
+        // RealityFoundation `Material` shape: a non-class, non-Self protocol whose reverse
+        // EveryProtocol conformance is blocked ONLY by a stripped `__`-prefixed hidden
+        // requirement. The existential is still a valid forward READ target through its own
+        // witness table, so ModuleHandler must admit it as a forward-only (read-only) proxy —
+        // NOT fully suppress it (full suppression turned every `any P` / `[any P]` / `(any P)?`
+        // getter into a throwing stub). Before the fix the protocol passed the purely-structural
+        // suitableProtocols chain, landed in `suitableNames`, and was then excluded from the
+        // read-only admission by its `!suitableNames` guard. Not reproducible in BindingTests —
+        // the digester strips `__` names but the test toolchain keeps them — so this full-pipeline
+        // unit test is the durable gate.
+        var protocolDecl = BuildForwardSafeHiddenRequirementProtocol("MaterialFunction");
+        var emissionCtx = EmitModuleWithProtocolReturningContext("TestModule", protocolDecl);
+
+        Assert.True(emissionCtx.IsReadOnlyProxy("MaterialFunction"),
+            "A hidden-requirement forward-safe protocol should be admitted as a forward-only (read-only) proxy.");
+    }
+
+    [Fact]
+    public void Emit_ForwardSafeProtocolWithoutHiddenRequirement_NotReadOnlyProxy()
+    {
+        // Discrimination guard: the SAME protocol WITHOUT the hidden-requirement flag has a
+        // synthesizable reverse conformance, so it is a normal (non-read-only) EveryProtocol
+        // proxy. This pins the read-only admission to the forward-safe reverse-impossible reason
+        // itself, not to the protocol's member shape — so the fix can't silently start marking
+        // ordinary protocols read-only.
+        var protocolDecl = BuildForwardSafeHiddenRequirementProtocol("MaterialFunction");
+        protocolDecl.HasUnsatisfiedHiddenRequirements = false;
+        var emissionCtx = EmitModuleWithProtocolReturningContext("TestModule", protocolDecl);
+
+        Assert.False(emissionCtx.IsReadOnlyProxy("MaterialFunction"),
+            "A protocol with a synthesizable reverse conformance must not be marked read-only.");
+    }
+
+    // A non-class, non-Self protocol with one forward-safe instance method, blocked from reverse
+    // conformance only by a stripped `__`-prefixed hidden requirement (HasUnsatisfiedHiddenRequirements).
+    // Mirrors CreateSimpleProtocol + CreateProtocolWithMethod from EveryProtocolEmitterTests so it
+    // passes the module-mangled-name gate for "TestModule".
+    private static ProtocolDecl BuildForwardSafeHiddenRequirementProtocol(string name)
+    {
+        var protocol = new ProtocolDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}P",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            HasSelfRequirement = false,
+            IsClassBound = false,
+            HasUnsatisfiedHiddenRequirements = true,
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        protocol.Methods.Add(new MethodDecl
+        {
+            Name = "activate",
+            MangledName = "$sactivate",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = "",
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        });
+
+        return protocol;
+    }
+
+    // Runs the actual ModuleHandler.Marshal + Emit pipeline over a single-protocol module with a
+    // fresh emission context, and returns that context so the read-only admission decision can be
+    // asserted directly.
+    private static ModuleEmissionContext EmitModuleWithProtocolReturningContext(string moduleName, ProtocolDecl protocolDecl)
+    {
+        var moduleDecl = new ModuleDecl
+        {
+            Name = moduleName,
+            Dependencies = new List<string>(),
+            Types = new List<TypeDecl>(),
+            Methods = new List<MethodDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Protocols = new List<ProtocolDecl> { protocolDecl },
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.NIntType,
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        typeDatabase.AddModuleDatabase(new ModuleTypeDatabase(moduleName, "/fake/path"));
+
+        var csStringWriter = new StringWriter();
+        var swiftStringWriter = new StringWriter();
+        var csWriter = new CSharpWriter(csStringWriter);
+        var swiftWriter = new SwiftWriter(swiftStringWriter);
+
+        var handler = new ModuleHandler(new Microsoft.Extensions.Logging.Abstractions.NullLogger<ModuleHandler>());
+        var env = handler.Marshal(moduleDecl, typeDatabase);
+
+        var loggerFactory = new Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory();
+        var conductor = new Conductor(loggerFactory);
+
+        var emissionCtx = new ModuleEmissionContext();
+        var context = new TypeHandlerContext(null, new(), null, EmissionContext: emissionCtx);
+        handler.Emit(csWriter, swiftWriter, env, conductor, context);
+
+        return emissionCtx;
+    }
+
     #endregion
 
     #region Helper Methods

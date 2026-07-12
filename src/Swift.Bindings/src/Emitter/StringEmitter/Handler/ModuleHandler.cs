@@ -1074,11 +1074,11 @@ namespace BindingsGeneration
                 // Skip protocols requiring NSObjectProtocol identity semantics —
                 // EveryProtocol can't provide NSObject methods (isEqual:, hash, etc.).
                 // Pure AnyObject class-bound protocols are allowed (EveryProtocol is a class).
-                // Protocols whose only ObjC-rooted requirement is NSObjectProtocol
-                // (no NSCoding / NSSecureCoding / NSCopying / NSMutableCopying) are routed
-                // through the NSObject-rooted EveryObjCProtocol helper class downstream,
-                // so they remain "suitable" here. NSCoding et al. still drop out because
-                // their encoding / copying surfaces cannot be synthesized.
+                // Protocols whose only ObjC-rooted requirement is NSObjectProtocol (or NSCoding,
+                // which implies it and is witnessed by a no-op carrier stub) are routed through
+                // the NSObject-rooted EveryObjCProtocol helper class downstream, so they remain
+                // "suitable" here. NSSecureCoding / NSCopying / NSMutableCopying still drop out
+                // because their encoding / copying surfaces cannot be synthesized.
                 .Where(p => !EveryProtocolEmitter.IsClassBoundProtocol(p, protocols)
                             || EveryProtocolEmitter.IsNSObjectProtocolOnly(p, protocols))
                 // Skip protocols whose inheritance names a concrete class (e.g.
@@ -1099,6 +1099,23 @@ namespace BindingsGeneration
                 // EveryProtocol can't satisfy (CustomStringConvertible, CodingKey, etc.).
                 // The vtable only includes the protocol's own members, not inherited ones.
                 .Where(p => !EveryProtocolEmitter.InheritsUnsatisfiedStdlibProtocol(p, protocols))
+                // Skip protocols that will instead be admitted as a FORWARD-ONLY (read-only)
+                // proxy for a forward-SAFE reverse-impossible reason. A protocol blocked only by
+                // a stripped `__`-prefixed hidden requirement (the RealityFoundation `Material`
+                // shape) is structurally suitable here — it has no Self/associated-type/class
+                // requirement — so absent this filter it lands in `suitableNames`, its reverse
+                // conformance is then skipped downstream (`WillSkipConformance` /
+                // `EmitProtocolConformance` fire on `HasUnsatisfiedHiddenRequirements`), and the
+                // read-only admission below excludes it via its `!suitableNames` guard — leaving
+                // the proxy fully suppressed and every `any P` / `[any P]` / `(any P)?` getter a
+                // throwing stub. Dropping it here (the same way the stdlib-inheritance arm is
+                // dropped by the filter above) lets it fall into the read-only admission, which
+                // emits a forward-only proxy so the existential reads through its own witness
+                // table. `HasForwardSafeReverseImpossibleReason` is the exact set the read-only
+                // admission accepts, so forward-UNSAFE hidden-requirement protocols (missing
+                // requirements, absent TBD descriptors, …) return false here and stay suitable —
+                // preserving their current full-suppression classification.
+                .Where(p => !EveryProtocolEmitter.HasForwardSafeReverseImpossibleReason(p, typeDatabase, protocols))
                 // Skip protocols whose member signatures reference types from this module
                 // that are not in the type database (module-internal types). EveryProtocol
                 // can't implement methods requiring internal types.
@@ -1419,6 +1436,12 @@ namespace BindingsGeneration
             // requires them. These stubs let EveryProtocol satisfy the inherited Codable/Error
             // requirements when conforming to protocols that inherit Decodable/Encodable/Error.
             emitter.EmitCodableStubsIfNeeded(swiftWriter, suitableProtocols, protocols, typeDatabase);
+
+            // Emit a no-op NSCoding stub on the ObjC-rooted carrier when a suitable protocol
+            // transitively inherits NSCoding (e.g. RoomPlan.RoomCaptureViewDelegate). Without it
+            // the synthesised `extension EveryObjCProtocol: X` can't satisfy X's inherited NSCoding
+            // requirement. The stub is no-op — the synthetic carrier never archives.
+            emitter.EmitObjCCodingStubIfNeeded(swiftWriter, suitableProtocols, protocols);
 
             // Pre-scan: identify protocols that will be skipped by structural gates.
             // This makes genericSig constraint checks order-independent. Pass the cross-module

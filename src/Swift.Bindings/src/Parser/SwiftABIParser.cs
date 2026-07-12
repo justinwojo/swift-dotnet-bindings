@@ -2266,9 +2266,10 @@ namespace BindingsGeneration
                     // ObjC protocol conformance entries (e.g., NSCoding) have no Swift
                     // mangled name — they carry a USR like `c:objc(pl)NSCoding`. Record
                     // these via the printedName-derived fallback so IsClassBoundProtocol
-                    // can detect NSObject-rooted protocols (NSCoding, NSCopying, etc.)
-                    // and suppress EveryProtocol conformance for delegates that require
-                    // them.
+                    // can detect NSObject-rooted protocols (NSCoding, NSCopying, etc.) and
+                    // route them to the correct carrier: NSObjectProtocol/NSCoding through
+                    // the EveryObjCProtocol helper; NSSecureCoding / NSCopying / NSMutableCopying
+                    // still suppress EveryProtocol conformance for delegates that require them.
                     if (string.IsNullOrEmpty(conformance.MangledName))
                     {
                         if (!string.IsNullOrEmpty(conformance.usr) &&

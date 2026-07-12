@@ -660,6 +660,83 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
+    /// Emits a no-op <c>NSCoding</c> stub conformance on the NSObject-rooted carrier
+    /// (<c>EveryObjCProtocol</c>) when any suitable protocol routes through that carrier
+    /// AND transitively inherits <c>NSCoding</c> (the <c>RoomPlan.RoomCaptureViewDelegate</c>
+    /// shape: <c>protocol X : NSCoding</c>). Without the stub, the synthesised
+    /// <c>extension EveryObjCProtocol: X</c> fails to type-check because X's inherited
+    /// NSCoding requirement is unsatisfied. Both requirements are witnessed no-op:
+    /// <c>encode(with:)</c> does nothing and <c>init?(coder:)</c> forwards to the carrier's
+    /// designated init — the carrier is a synthetic reverse-dispatch shim that never
+    /// participates in a real archiving round-trip, so there is no state to encode/decode.
+    /// Mirrors <see cref="EmitCodableStubsIfNeeded"/> but on the ObjC carrier and gated on
+    /// the ObjC route, so a module with no NSCoding-rooted protocols carries no stub and no
+    /// real NSCoder path is affected.
+    /// </summary>
+    public void EmitObjCCodingStubIfNeeded(SwiftWriter writer, IReadOnlyList<ProtocolDecl> suitableProtocols,
+        IReadOnlyList<ProtocolDecl> allProtocols)
+    {
+        bool needsNSCoding = suitableProtocols.Any(p =>
+            IsNSObjectProtocolOnly(p, allProtocols)
+            && TransitivelyInheritsNSCoding(p, allProtocols, new HashSet<string>(StringComparer.Ordinal)));
+
+        if (!needsNSCoding)
+            return;
+
+        writer.WriteLines("""
+            // Stub NSCoding conformance for the NSObject-rooted carrier. A protocol that
+            // inherits NSCoding (e.g. RoomPlan.RoomCaptureViewDelegate) routes its reverse
+            // conformance through EveryObjCProtocol; NSCoding's two requirements are witnessed
+            // no-op here because the synthetic carrier never archives — encoding/decoding of
+            // real state happens on the C# side via vtable dispatch. Lives ONLY on the carrier,
+            // so no real NSCoder path is affected.
+            extension EveryObjCProtocol: NSCoding {
+                public func encode(with coder: NSCoder) {
+                    // no-op — the synthetic carrier holds no archivable state
+                }
+                public convenience init?(coder: NSCoder) {
+                    self.init()
+                }
+            }
+
+            """);
+    }
+
+    /// <summary>
+    /// True when <paramref name="protocolDecl"/> transitively inherits Foundation's
+    /// <c>NSCoding</c> (directly or through an intra-module parent protocol). Used to
+    /// gate the no-op NSCoding stub on the ObjC carrier.
+    /// </summary>
+    private static bool TransitivelyInheritsNSCoding(ProtocolDecl protocolDecl,
+        IReadOnlyList<ProtocolDecl> allProtocols, HashSet<string> visited)
+    {
+        var qualifiedName = protocolDecl.SwiftTypeName?.ToString() ?? protocolDecl.Name;
+        if (!visited.Add(qualifiedName))
+            return false;
+
+        // NSCoding conformance is carried as a generic-signature requirement
+        // (`<Self : Foundation.NSCoding>`), not an InheritedProtocols entry — see
+        // CollectObjCRootKinds. NSSecureCoding refines NSCoding, so it counts too.
+        if (protocolDecl.ParsedGenericSignature.Requirements.Any(
+                r => r.TargetSimpleName is "NSCoding" or "NSSecureCoding"))
+            return true;
+
+        foreach (var inherited in protocolDecl.InheritedProtocols)
+        {
+            var simpleName = inherited.NameWithoutModule;
+            if (simpleName is "NSCoding" or "NSSecureCoding")
+                return true;
+
+            var inheritedDecl = allProtocols.FirstOrDefault(p =>
+                p.Name == simpleName || p.Name == inherited.Name ||
+                p.SwiftTypeName?.ToString() == inherited.Name);
+            if (inheritedDecl != null && TransitivelyInheritsNSCoding(inheritedDecl, allProtocols, visited))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Emits the vtable struct for a protocol.
     /// The vtable contains function pointers for each protocol requirement.
     /// </summary>
@@ -2118,8 +2195,11 @@ public class EveryProtocolEmitter
         {
             // NSObjectProtocol-only protocols (e.g. PaymentSdkAuthenticationContext) re-route
             // through the NSObject-rooted EveryObjCProtocol helper class instead of skipping.
-            // Protocols that ALSO require NSCoding / NSSecureCoding / NSCopying / NSMutableCopying
-            // still skip — those need encoding / copying surfaces a synthesised proxy can't supply.
+            // NSCoding is also admitted: it implies NSObjectProtocol and its two requirements
+            // (encode(with:) / init?(coder:)) are witnessed by a no-op stub on the synthetic
+            // carrier (EmitObjCCodingStubIfNeeded), which never archives. Protocols that require
+            // NSSecureCoding / NSCopying / NSMutableCopying still skip — those need real
+            // encoding / copying surfaces a synthesised proxy can't supply.
             if (!IsNSObjectProtocolOnly(protocolDecl, _allProtocols))
                 return true;
         }
@@ -6480,10 +6560,19 @@ public class EveryProtocolEmitter
         // EveryProtocol is a Swift class and trivially satisfies the AnyObject constraint.
         // Only NSObjectProtocol requires NSObject identity methods that EveryProtocol can't provide.
 
-        // Check GenericSignature for NSObjectProtocol constraints (Finding 19).
+        // Check GenericSignature for class-bound ObjC-rooted constraints (Finding 19).
         // ObjC protocols often declare constraints like "<τ_0_0 : ObjectiveC.NSObjectProtocol>"
-        // in genericSig instead of listing NSObjectProtocol in inheritedProtocols.
-        if (protocolDecl.ParsedGenericSignature.Requirements.Any(r => r.TargetSimpleName == "NSObjectProtocol"))
+        // or "<Self : Foundation.NSCoding>" in genericSig instead of listing them in
+        // inheritedProtocols. NSCoding / NSSecureCoding / NSCopying / NSMutableCopying all refine
+        // NSObjectProtocol and are equally class-bound (only an NSObject subclass can conform), so
+        // they must flip class-bound here too — matching the InheritedProtocols arm below. Without
+        // this, the RoomPlan.RoomCaptureViewDelegate shape (`@objc protocol X : NSCoding`, whose
+        // only ObjC root lives in genericSig) is misclassified non-class-bound, the EmitProtocol-
+        // Conformance _useObjCBase gate is skipped, and the reverse conformance emits on plain
+        // EveryProtocol — which is not an NSObject and cannot satisfy NSCoding.
+        if (protocolDecl.ParsedGenericSignature.Requirements.Any(
+                r => r.TargetSimpleName is "NSObjectProtocol" or "NSCoding"
+                    or "NSSecureCoding" or "NSCopying" or "NSMutableCopying"))
             return true;
 
         foreach (var inherited in protocolDecl.InheritedProtocols)
@@ -6514,18 +6603,20 @@ public class EveryProtocolEmitter
 
     /// <summary>
     /// Returns true if the protocol's inheritance chain (transitively) requires
-    /// <c>NSObjectProtocol</c> but does NOT also require NSCoding / NSSecureCoding /
-    /// NSCopying / NSMutableCopying. Such protocols can be satisfied by routing the
-    /// generated <c>extension</c> through an NSObject-rooted helper class
-    /// (<c>EveryObjCProtocol</c>) instead of the plain Swift <c>EveryProtocol</c>.
-    /// NSCoding et al. inherit from NSObjectProtocol but additionally require
-    /// encoding / copying implementations that a synthesised proxy cannot provide,
-    /// so they remain in the skip path.
+    /// <c>NSObjectProtocol</c> (optionally alongside <c>NSCoding</c>) but does NOT
+    /// require NSSecureCoding / NSCopying / NSMutableCopying. Such protocols can be
+    /// satisfied by routing the generated <c>extension</c> through an NSObject-rooted
+    /// helper class (<c>EveryObjCProtocol</c>) instead of the plain Swift
+    /// <c>EveryProtocol</c>. NSCoding is admitted because its two requirements are
+    /// witnessed by a no-op stub conformance emitted on the carrier
+    /// (<see cref="EmitObjCCodingStubIfNeeded"/>); NSSecureCoding / NSCopying /
+    /// NSMutableCopying still additionally require encoding / copying surfaces a
+    /// synthesised proxy cannot provide, so they remain in the skip path.
     /// </summary>
     internal static bool IsNSObjectProtocolOnly(ProtocolDecl protocolDecl, IReadOnlyList<ProtocolDecl>? allProtocols = null)
     {
         // Walk the inheritance chain collecting every transitive ObjC-rooted requirement.
-        // If any of the disqualifying super-protocols (NSCoding/NSSecureCoding/NSCopying/
+        // If any of the disqualifying super-protocols (NSSecureCoding/NSCopying/
         // NSMutableCopying) appear at any depth, fall back to the skip path.
         var visited = new HashSet<string>(StringComparer.Ordinal);
         bool sawNSObjectProtocol = false;
@@ -6545,9 +6636,22 @@ public class EveryProtocolEmitter
         if (!visited.Add(qualifiedName))
             return;
 
-        if (protocolDecl.ParsedGenericSignature.Requirements.Any(r => r.TargetSimpleName == "NSObjectProtocol"))
+        // ObjC-rooted requirements arrive in the generic signature, NOT InheritedProtocols:
+        // `@objc protocol P : NSObjectProtocol` parses to `<Self : ObjectiveC.NSObjectProtocol>`
+        // and `@objc protocol P : NSCoding` (the RoomPlan.RoomCaptureViewDelegate shape) to
+        // `<Self : Foundation.NSCoding>`. NSCoding is admitted (it implies NSObjectProtocol and its
+        // two requirements are witnessed by the no-op EmitObjCCodingStubIfNeeded stub on the
+        // carrier); NSSecureCoding / NSCopying / NSMutableCopying disqualify because they add
+        // encoding / copying surfaces a synthesised proxy cannot honestly provide.
+        foreach (var req in protocolDecl.ParsedGenericSignature.Requirements)
         {
-            sawNSObjectProtocol = true;
+            if (req.TargetSimpleName is "NSObjectProtocol" or "NSCoding")
+                sawNSObjectProtocol = true;
+            if (req.TargetSimpleName is "NSSecureCoding" or "NSCopying" or "NSMutableCopying")
+            {
+                sawDisqualifying = true;
+                sawNSObjectProtocol = true;
+            }
         }
 
         foreach (var inherited in protocolDecl.InheritedProtocols)
@@ -6558,10 +6662,24 @@ public class EveryProtocolEmitter
                 sawNSObjectProtocol = true;
                 continue;
             }
-            if (simpleName is "NSCoding" or "NSSecureCoding" or "NSCopying" or "NSMutableCopying")
+            // NSCoding is satisfiable on the synthetic carrier: its two requirements
+            // (encode(with:) / init?(coder:)) are witnessed by a no-op stub conformance
+            // emitted alongside EveryObjCProtocol (EmitObjCCodingStubIfNeeded), so a
+            // protocol whose only ObjC-rooted requirement is NSObjectProtocol + NSCoding
+            // (the RoomPlan.RoomCaptureViewDelegate shape) routes through EveryObjCProtocol
+            // rather than dropping. It still inherits NSObjectProtocol, so mark that.
+            if (simpleName == "NSCoding")
+            {
+                sawNSObjectProtocol = true;
+                continue;
+            }
+            // NSSecureCoding (adds `static var supportsSecureCoding`), NSCopying /
+            // NSMutableCopying (add copy(with:) returning a real copy) require surfaces a
+            // no-op synthesised proxy cannot honestly provide — keep them disqualified.
+            if (simpleName is "NSSecureCoding" or "NSCopying" or "NSMutableCopying")
             {
                 sawDisqualifying = true;
-                // NSCoding et al. inherit from NSObjectProtocol — we don't need to recurse
+                // These inherit from NSObjectProtocol — we don't need to recurse
                 // further to confirm the NSObjectProtocol requirement.
                 sawNSObjectProtocol = true;
                 continue;
@@ -6655,6 +6773,19 @@ public class EveryProtocolEmitter
 
                 if (constraintSimple is "AnyObject" or "Sendable" or "Escapable" or "Copyable"
                     or "SendableMetatype" or "Error")
+                    continue;
+
+                // Known @objc-rooted PROTOCOL constraints are never class superclasses. They
+                // arrive in the generic signature (`<Self : Foundation.NSCoding>`) and the type
+                // database can mis-resolve an out-of-module Foundation name like NSCoding to a
+                // spurious concrete-class fallback record (Kind == Class) below, which would
+                // misclassify the protocol as class-superclass-constrained and force it onto the
+                // read-only / skip path. NSObjectProtocol (ObjectiveC) resolves correctly and never
+                // reaches here, but NSCoding / NSSecureCoding / NSCopying / NSMutableCopying can — so
+                // treat them as the protocols they are and let CollectObjCRootKinds route them
+                // through the NSObject-rooted EveryObjCProtocol carrier instead.
+                if (constraintSimple is "NSObjectProtocol" or "NSCoding" or "NSSecureCoding"
+                    or "NSCopying" or "NSMutableCopying")
                     continue;
 
                 if (IsRealityFoundationEntityName(constraint, constraintSimple))
@@ -6950,6 +7081,16 @@ public class EveryProtocolEmitter
             // names the constraint as ObjectiveC.NSObjectProtocol, which the unqualified
             // trivial-set check at the top of the loop never sees.
             if (trivialProtocols.Contains(typeName))
+                continue;
+
+            // Foundation.NSCoding is satisfiable on the NSObject-rooted EveryObjCProtocol carrier
+            // via the no-op stub conformance (EmitObjCCodingStubIfNeeded), so a `Self : NSCoding`
+            // constraint is NOT unsatisfied when the protocol routes through that carrier (the
+            // RoomPlan.RoomCaptureViewDelegate shape). Gated on IsNSObjectProtocolOnly so the
+            // disqualifying refinements (NSSecureCoding / NSCopying / NSMutableCopying, which make
+            // that predicate false) still fall through to the Foundation skip below. Mirrors the
+            // NSObjectProtocol trivial-set allowance above.
+            if (typeName == "NSCoding" && IsNSObjectProtocolOnly(protocolDecl, _allProtocols))
                 continue;
 
             // Case 1: Known ObjC/Apple framework module

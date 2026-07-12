@@ -1,5 +1,29 @@
 # EveryProtocol fail-closed — public-surface impact
 
+> **RESCUE UPDATE (2026-07-12, session 02 — supersedes the counts below).** The proxy-rescue
+> pass recovered **12 of the 13** recorded degraded members. The per-library tables and the
+> cross-library summary further down are the **pre-rescue (session 01) baseline**, kept as the
+> historical "before"; the current state is:
+>
+> | Library | Degraded before | Degraded after | What changed |
+> |---|---|---|---|
+> | RealityFoundation | 10 | **0** | `MaterialProxy`, `MaterialFunctionProxy`, `SynchronizationServiceProxy`, `RealityCoordinateSpaceProxy` (all blocked only by digester-stripped `__`-prefixed hidden requirements → *forward-safe*) now emit as **forward-only** proxies via the read-only admission (`HasForwardSafeReverseImpossibleReason` wired into the `suitableProtocols` filter). SB0006 sites 2 → **0**; `EveryProtocolConformanceSkipped` proxies 15 → **11**; emitted members 2397 → **2403**, skipped 322 → **308**. |
+> | RoomPlan | 2 | **0** | `RoomCaptureViewDelegateProxy` (blocked by `: NSCoding` class identity) now emits with a **full reverse-dispatch** conformance: the ObjC-rooted carrier `EveryObjCProtocol` gains a no-op `NSCoding` stub (`encode(with:)`/`init?(coder:)`), so `extension EveryObjCProtocol: RoomCaptureViewDelegate` type-checks. SB0006 1 → **0**. A C#-authored `IRoomCaptureViewDelegate` now round-trips (runtime-proven: `NSCodingDelegateDispatchTests`, sim + device). |
+> | BlinkIDUX | 1 | **1** | Unchanged — `BlinkIDAnalyzer.events` getter stays a produce-throw (SB0006). Root proxy `EventStreamProxy` is blocked by a **PAT** (`associatedtype Event`), which is *not* forward-safe, so it correctly stays fail-closed (exit ramp; concrete `BlinkIDEventStream.Stream` `IAsyncEnumerable` already works). |
+> | **Total** | **13** | **1** | |
+>
+> **Forward-only vs full-reverse, precisely.** RoomCaptureViewDelegate is a **full** rescue
+> (reverse dispatch — a C#-authored delegate receives callbacks). The four RealityFoundation
+> proxies are **forward-only**: the produce/read side is fully recovered (a `[any P]` /
+> `(any P)?` getter now reads Swift-vended conformers through their own witness table — the hard
+> SB0006 compile-error is gone), and Swift-vended conformers round-trip through the
+> setter/initializer consume path. Authoring a **brand-new C#** `IMaterial` /
+> `ISynchronizationService` from scratch and packing it remains unsupported (the forward-only
+> proxy has no reverse-dispatch impl ctor) — a niche that stays a documented limitation, now
+> carried by a forward-only proxy rather than a throwing/degraded member. Rescue → full-property
+> restoration is automatic (the session-01 set-only/absent surface keys on suppression, and an
+> emitted or read-only-marked proxy is absent from `SuppressedProxyClassNames`).
+
 **Scope:** RealityFoundation, RoomPlan, BlinkIDUX. **Generated:** 2026-07-12, locally at HEAD
 `3df00117` **plus the consume-degrade reporting-completeness change and the produce-throw
 compile-poison change** (this session), iOS-simulator apple-framework / manual mode
@@ -212,7 +236,8 @@ public), `SwiftUIView` 4, `UnsupportedType` 3, `GenericTypeCallback` 2, `Unsuppo
 
 ## Cross-library summary & diff-size sanity check
 
-Recorded rows (what `binding-report.json` flags today):
+Recorded rows (this is the **session-01 pre-rescue baseline**; see the RESCUE UPDATE banner at
+the top for the current 13 → 1 state after the session-02 proxy rescue):
 
 | Library | Recorded degraded members | produce-throw | consume-degraded | receiver-failfast | Proxy classes skipped | `ReviewCount` |
 |---|---|---|---|---|---|---|
