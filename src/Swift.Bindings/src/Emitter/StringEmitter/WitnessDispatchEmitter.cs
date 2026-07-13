@@ -151,6 +151,13 @@ public class WitnessDispatchEmitter
         // existential's OWN witness table, which needs no EveryProtocol conformance.
         // Conformance marker is keyed on the module-qualified name (matching the recorder);
         // protocolName stays the simple name for IsReadOnlyProxy / logging below.
+        //
+        // Unlike the proxy-emission policy, carrier existence is deliberately NOT the signal here: a
+        // read-only proxy emits its witness-dispatch accessors WITHOUT any EveryProtocol carrier (they
+        // reconstruct `any P` and dispatch through the existential's own witness table), and on the
+        // empty-suitable-protocol path ModuleHandler only calls this method for read-only protocols —
+        // which the IsReadOnlyProxy arm keeps emitting. A non-read-only protocol never reaches here when
+        // the carrier is absent, so the count gate has no dangling-symbol hole to close.
         if (_emissionContext.ConformanceDecisions.Count > 0
             && !_emissionContext.WasConformanceEmitted(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolName)
             && !_emissionContext.IsReadOnlyProxy(protocolName))

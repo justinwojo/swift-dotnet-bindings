@@ -1384,14 +1384,17 @@ namespace BindingsGeneration
             // noise this pass eliminates). Record a `false` decision carrying the specific structural cause
             // so the persisted skip classifies ExpectedStructural.
             //
-            // Guarded on suitableProtocols.Count > 0 so this NEVER runs on the empty early-return path
-            // below: with no emitted conformance, ConformanceDecisions would be empty, and pushing its
-            // Count 0→>0 here would flip ProtocolProxyEmissionPolicy.Decide from Emit to
-            // SuppressedByConformance for protocols that today emit their proxy — a behavior change out of
-            // scope. When suitableProtocols is non-empty the emit loop below records ≥1 decision, so
-            // Count>0 already holds when the policy reads it; recording additional `false` entries for
-            // already-dropped protocols is inert (they would be SuppressedByConformance regardless).
-            if (emissionCtx != null && suitableProtocols.Count > 0)
+            // This runs on BOTH the non-empty and the empty early-return path below. When the module's
+            // suitable-protocol set is empty, no EveryProtocol carrier is emitted, so every non-read-only
+            // protocol's proxy is suppressed by the carrier check in ProtocolProxyEmissionPolicy.Decide —
+            // and those suppressed proxies would otherwise report "no decision recorded". Attributing them
+            // here gives an honest structural disposition. It no longer risks flipping Decide's answer:
+            // Decide keys suppression on the carrier flag (WasEveryProtocolCarrierEmitted), not on the
+            // ConformanceDecisions count, so pushing the count 0→>0 here is inert for emission — a
+            // carrier-less module suppresses every non-read-only proxy regardless of the count, and
+            // read-only protocols are excluded below and keep emitting. So this only enriches the report;
+            // the emitted C#/Swift is unchanged.
+            if (emissionCtx != null)
             {
                 var suitableNamesForDrop = new HashSet<string>(suitableProtocols.Select(p => p.Name), StringComparer.Ordinal);
                 var readOnlyNamesForDrop = new HashSet<string>(readOnlyProxyProtocols.Select(p => p.Name), StringComparer.Ordinal);

@@ -1670,6 +1670,28 @@ public sealed class ModuleEmissionContext
 
     private readonly Dictionary<string, ProtocolConformanceDecision> _conformanceDecisions = new();
     private readonly HashSet<string> _setVtableEmitted = new();
+    private bool _everyProtocolCarrierEmitted;
+
+    /// <summary>
+    /// Records that the synthetic <c>EveryProtocol</c> carrier class and its
+    /// <c>SBW_CreateEveryProtocol</c> / <c>SBW_GetMetadata_EveryProtocol</c> /
+    /// <c>SBW_SetEveryProtocolDeinitCallback</c> factory <c>@_cdecl</c> symbols were emitted into the
+    /// wrapper module (i.e. <c>EveryProtocolEmitter.EmitEveryProtocolClass</c> ran). A module whose
+    /// suitable-protocol set is empty never emits the carrier, yet a FULL (reverse-dispatch) proxy
+    /// calls those factories — so emitting one there would reference undefined wrapper symbols (the
+    /// dangling-entry-point defect the wrapper-symbol integrity gate catches). Read by
+    /// <see cref="ProtocolProxyEmissionPolicy.Decide"/> to suppress a full proxy when the carrier is
+    /// absent. Monotone: once the carrier is emitted this stays true for the rest of the module build.
+    /// </summary>
+    public void MarkEveryProtocolCarrierEmitted() => _everyProtocolCarrierEmitted = true;
+
+    /// <summary>
+    /// Returns true once the <c>EveryProtocol</c> carrier class was emitted for this module. See
+    /// <see cref="MarkEveryProtocolCarrierEmitted"/>. A full proxy calling the carrier factory is only
+    /// valid when this is true; when false, such a proxy must be suppressed (a read-only proxy, which
+    /// reads <c>any P</c> through the existential's own witness table, needs no carrier).
+    /// </summary>
+    public bool WasEveryProtocolCarrierEmitted => _everyProtocolCarrierEmitted;
 
     /// <summary>
     /// Records whether a protocol conformance was emitted or skipped. <paramref name="protocolKey"/>

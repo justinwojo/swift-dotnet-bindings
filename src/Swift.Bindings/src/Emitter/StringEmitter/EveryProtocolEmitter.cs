@@ -321,6 +321,12 @@ public class EveryProtocolEmitter
         _emissionContext?.TryAddMethodWrapperSymbol("SBW_ReleaseEveryProtocol");
         _emissionContext?.TryAddMethodWrapperSymbol("SBW_GetMetadata_EveryProtocol");
         _emissionContext?.TryAddMethodWrapperSymbol("SBW_SetEveryProtocolDeinitCallback");
+        // The carrier class and its factory @_cdecl symbols above are now defined in this wrapper.
+        // A full reverse-dispatch proxy calls SBW_CreateEveryProtocol; record that the carrier exists
+        // so the proxy-emission policy only emits full proxies in modules that actually carry it. A
+        // module with an empty suitable-protocol set never reaches here, so full proxies there are
+        // suppressed rather than left referencing an undefined symbol.
+        _emissionContext?.MarkEveryProtocolCarrierEmitted();
         // EveryObjCProtocol mirrors the above for NSObject-rooted @objc protocols:
         // the plain Swift EveryProtocol class cannot satisfy NSObjectProtocol
         // because that requirement transitively demands NSObject identity. The

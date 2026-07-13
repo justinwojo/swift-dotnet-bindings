@@ -518,7 +518,19 @@ public partial class ProtocolProxyEmitter
                 // Keyed on the module-qualified name (matching RecordConformanceDecision). The
                 // ancestor is always resolved from the LOCAL module here (cross-module ancestors
                 // are skipped above), so its qualified key matches what the recorder used.
-                if (_emissionContext.ConformanceDecisions.Count > 0 &&
+                //
+                // Mirror ProtocolProxyEmissionPolicy.Decide's non-read-only arm exactly so this cctor
+                // never references an ancestor proxy the policy suppressed: when no EveryProtocol carrier
+                // was emitted, every non-read-only proxy (including this ancestor's) is suppressed, so
+                // there is no `{Ancestor}Proxy` type to RunClassConstructor on; and even with a carrier,
+                // skip an ancestor whose own conformance was not emitted. Walk transitively. No
+                // ConformanceDecisions.Count term is needed — when the carrier IS emitted the count is
+                // always non-zero, so it was redundant, and dropping it keeps this predicate byte-for-byte
+                // identical to Decide's (the four decision sites share one signal). This guard is
+                // load-bearing, NOT pure defence-in-depth: a read-only proxy DOES emit its own static
+                // init with no carrier and still walks its ancestors here, so the `!carrier` arm is what
+                // stops it RunClassConstructor-ing an ancestor proxy that was suppressed.
+                if (!_emissionContext.WasEveryProtocolCarrierEmitted ||
                     !_emissionContext.WasConformanceEmitted(ancestorDecl.SwiftTypeName?.ModuleQualifiedName ?? ancestorDecl.Name))
                 {
                     queue.Enqueue(ancestorDecl);

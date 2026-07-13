@@ -49,13 +49,31 @@ internal static class ProtocolProxyEmissionPolicy
         if (ModuleHandler.HasMembersReferencingUnsupportedModule(protocolDecl, typeDatabase))
             return ProxyEmissionDecision.SkippedUnsupportedModule;
 
-        // Conformance marker is keyed on the module-qualified name (matching the recorder);
-        // IsReadOnlyProxy stays simple-name-keyed (its own family).
-        if (ctx != null &&
-            ctx.ConformanceDecisions.Count > 0 &&
-            !ctx.WasConformanceEmitted(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name) &&
-            !ctx.IsReadOnlyProxy(protocolDecl.Name))
-            return ProxyEmissionDecision.SuppressedByConformance;
+        // A read-only (Swift-vended-only) proxy reads `any P` through the existential's own witness
+        // table and never calls the EveryProtocol carrier, so it emits regardless of carrier state.
+        if (ctx != null && !ctx.IsReadOnlyProxy(protocolDecl.Name))
+        {
+            // Conformance marker is keyed on the module-qualified name (matching the recorder);
+            // IsReadOnlyProxy stays simple-name-keyed (its own family).
+            var qualifiedKey = protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name;
+
+            // A FULL (reverse-dispatch) proxy calls the EveryProtocol carrier factory
+            // (SBW_CreateEveryProtocol). When the module emitted no carrier — its suitable-protocol set
+            // was empty, so EmitEveryProtocolClass never ran — that symbol is undefined and a full proxy
+            // would dangle. Suppress it. This is the real "does the carrier exist" fact; the conformance
+            // count below is only a proxy for it in modules that DID emit the carrier (the carrier and
+            // the first RecordConformanceDecision both happen on the non-empty path), which is why the
+            // count alone missed the empty-suitable-protocol module.
+            if (!ctx.WasEveryProtocolCarrierEmitted)
+                return ProxyEmissionDecision.SuppressedByConformance;
+
+            // Carrier emitted: suppress a proxy whose own EveryProtocol conformance was not emitted
+            // (class-bound, genericSig constraint, constructor requirement, etc.). Behaviour here is
+            // unchanged from the historical `ConformanceDecisions.Count > 0` gate, since the carrier is
+            // only emitted on the path that records at least one conformance decision.
+            if (!ctx.WasConformanceEmitted(qualifiedKey))
+                return ProxyEmissionDecision.SuppressedByConformance;
+        }
 
         return ProxyEmissionDecision.Emit;
     }
