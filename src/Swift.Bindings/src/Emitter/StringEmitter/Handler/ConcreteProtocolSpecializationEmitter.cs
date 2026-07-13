@@ -650,6 +650,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 CopyTypeSpecProps(named, newNamed);
                 foreach (var gp in named.GenericParameters)
                     newNamed.GenericParameters.Add(SubstituteSelfInTypeSpec(gp, closedParentSpec));
+                // Preserve the self-qualified InnerType (e.g. `Parent<Self>.Assoc?`) so the
+                // subsequent pairing substitution can still resolve the associated-type member;
+                // dropping it here collapses the member to the bare parent generic before the
+                // pairing pass — and the C#/Swift renderers — ever see it.
+                if (named.InnerType is { } innerSelf)
+                    newNamed.InnerType = SubstituteSelfInTypeSpec(innerSelf, closedParentSpec) as NamedTypeSpec;
                 return newNamed;
 
             case TupleTypeSpec tuple:
@@ -2294,6 +2300,21 @@ public static partial class ConcreteProtocolSpecializationEmitter
             return false;
         }
 
+        // A member whose return resolves — through the conformer's associated-type witness or
+        // directly — to the uninhabited `Never` cannot be honestly projected: a bare `Never` value
+        // can never be produced, and `Optional<Never>`'s only inhabitant is `nil`. Omit the member
+        // rather than emit a wrapper that assigns the impossible payload where the closed parent
+        // type is expected (the observed uncompilable-wrapper shape). Keyed on `Never`
+        // (uninhabitedness), never on a type or module name. Placed before the general
+        // Optional-return gate so an `Optional<Never>` return is reported as uninhabited rather
+        // than as the broader unsupported-Optional case.
+        if (!isVoidReturn && !returnsGenericParam && !isStringReturn && !isConstructor &&
+            IsUninhabitedNeverReturn(effectiveReturnTypeSpec))
+        {
+            rejectReason = "return payload resolves to the uninhabited type `Never`";
+            return false;
+        }
+
         // Non-constructor Optional<T> return: CSM emitter lacks unwrap logic for this case.
         if (!isVoidReturn && !returnsGenericParam && !isStringReturn && !isConstructor &&
             IsOptionalReturn(effectiveReturnTypeSpec))
@@ -2890,6 +2911,26 @@ public static partial class ConcreteProtocolSpecializationEmitter
     {
         return returnTypeSpec is NamedTypeSpec named &&
                (named.Name == "Swift.Optional" || named.Name == "Optional");
+    }
+
+    /// <summary>
+    /// True when <paramref name="typeSpec"/> is Swift's uninhabited <c>Never</c>, or an
+    /// <c>Optional&lt;Never&gt;</c> (whose only inhabitant is <c>nil</c>) — the shapes an associated
+    /// type bound to <c>Never</c> produces once specialized. Deliberately precise: an inhabited
+    /// container of <c>Never</c> (e.g. an empty <c>Array&lt;Never&gt;</c>) or a <c>() -&gt; Never</c>
+    /// closure value is NOT uninhabited and is not matched, so this never over-suppresses a member
+    /// that can still carry a usable value.
+    /// </summary>
+    internal static bool IsUninhabitedNeverReturn(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec named)
+            return false;
+        if (named.Name == "Swift.Never" || named.Name == "Never")
+            return true;
+        if ((named.Name == "Swift.Optional" || named.Name == "Optional")
+            && named.GenericParameters.Count == 1)
+            return IsUninhabitedNeverReturn(named.GenericParameters[0]);
+        return false;
     }
 
     /// <summary>

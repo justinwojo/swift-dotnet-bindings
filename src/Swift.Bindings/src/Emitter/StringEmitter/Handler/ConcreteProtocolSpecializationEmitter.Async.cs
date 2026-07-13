@@ -254,6 +254,23 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 {
                     return CloneNamedTypeSpec(conformerTypeSpec);
                 }
+                // A member referenced through a member typealias on the parent generic prints as
+                // the self-qualified form `Parent<...>.Assoc` (or `Parent<...>.Assoc?`): the
+                // associated-type leaf — and any Optional wrapping it — live in InnerType, not in
+                // the outer generic arguments. When the parent's generic argument is the conformer
+                // being specialized AND the InnerType leaf names an associated type the conformer
+                // resolves, replace the WHOLE node with the concrete witness, lifting any Optional
+                // to the OUTER spec so the Optional-return gate and the Swift/C# renderers observe
+                // the true type. Keyed on the conformer's associated-type witness, never on a type
+                // or module name. Without this the InnerType is silently dropped below and the node
+                // collapses to the bare parent generic — the shape that emitted an uncompilable
+                // `let _result: (Parent<Conformer>) = __self.member` wrapper.
+                if (named.InnerType is { } innerLeaf
+                    && NodeReferencesGeneric(named, genericName, altGenericName)
+                    && TryResolveAssociatedInnerType(innerLeaf, conformer, out var resolvedFromInner))
+                {
+                    return resolvedFromInner;
+                }
                 if (named.GenericParameters.Count == 0)
                 {
                     return typeSpec;
@@ -324,6 +341,77 @@ public static partial class ConcreteProtocolSpecializationEmitter
         dest.IsVariadic = source.IsVariadic;
         foreach (var attr in source.Attributes)
             dest.Attributes.Add(attr);
+    }
+
+    /// <summary>
+    /// True when <paramref name="typeSpec"/>'s outer node (its own name or generic arguments)
+    /// references <paramref name="genericName"/> or its alternate-depth form — i.e. the node is a
+    /// parent generic currently being specialized over the conformer in hand. Guards the
+    /// associated-type InnerType resolution so a node is only resolved with the conformer that owns
+    /// the generic argument it mentions.
+    /// </summary>
+    private static bool NodeReferencesGeneric(TypeSpec typeSpec, string genericName, string? altGenericName)
+    {
+        if (typeSpec is not NamedTypeSpec named)
+            return false;
+        if (named.Name == genericName || named.Name == altGenericName)
+            return true;
+        var names = new HashSet<string> { genericName };
+        if (!string.IsNullOrEmpty(altGenericName))
+            names.Add(altGenericName!);
+        // Only the node's OWN name and direct generic arguments qualify it as a parent generic
+        // being specialized over the conformer (`Parent<Conformer>.Assoc`). The InnerType — the
+        // associated-type leaf — is deliberately NOT walked: a leaf that happens to share the
+        // pairing generic's name must not by itself trigger witness resolution, or an unrelated
+        // dotted member `Other<...>.Leaf` could be rewritten to the conformer's witness.
+        return named.GenericParameters.Any(gp => TypeSpecHelpers.ContainsAnyTypeName(gp, names));
+    }
+
+    /// <summary>
+    /// Resolves the InnerType of a self-qualified associated-type member reference
+    /// (<c>Parent&lt;...&gt;.Assoc</c> → InnerType <c>Assoc</c>, or <c>Parent&lt;...&gt;.Assoc?</c>
+    /// → InnerType <c>Optional&lt;Assoc&gt;</c>) to the conformer's concrete witness. Any Optional
+    /// wrapping the associated-type leaf is lifted onto the OUTER resolved spec so downstream gates
+    /// and renderers see e.g. <c>Optional&lt;Never&gt;</c> rather than a stripped parent generic.
+    /// Returns false — leaving substitution to fall through — unless the leaf is a BARE associated
+    /// type name the conformer's associated-type map resolves; a genuine nested nominal member is
+    /// not an associated type and is intentionally not matched. Keyed purely on the witness map,
+    /// never on a type or module name.
+    /// </summary>
+    private static bool TryResolveAssociatedInnerType(
+        NamedTypeSpec inner,
+        ConcreteSpecializationEngine.ConcreteConformer conformer,
+        out TypeSpec resolved)
+    {
+        resolved = null!;
+
+        bool optionalWrapped = false;
+        var leaf = inner;
+        if ((inner.Name == "Swift.Optional" || inner.Name == "Optional")
+            && inner.GenericParameters.Count == 1
+            && inner.GenericParameters[0] is NamedTypeSpec optionalLeaf)
+        {
+            optionalWrapped = true;
+            leaf = optionalLeaf;
+        }
+
+        // The leaf must be a bare associated-type name: no generic arguments and no further
+        // nesting. Anything else is a nested nominal type, not an associated type.
+        if (leaf.GenericParameters.Count != 0 || leaf.InnerType != null)
+            return false;
+
+        if (conformer.AssociatedTypes is not { } associatedTypes
+            || !associatedTypes.TryGetValue(leaf.NameWithoutModule, out var witnessName)
+            || string.IsNullOrWhiteSpace(witnessName))
+            return false;
+
+        if (!TryBuildNamedTypeSpecFromQualifiedName(witnessName, out var witnessSpec))
+            return false;
+
+        resolved = optionalWrapped
+            ? new NamedTypeSpec("Swift.Optional", witnessSpec)
+            : witnessSpec;
+        return true;
     }
 
     // ─── Conformer → NamedTypeSpec ──────────────────────────────────────
