@@ -776,6 +776,16 @@ namespace BindingsGeneration
                 // interface can be used as a type argument (avoids CS8920), while conforming
                 // types override with actual implementations. Our conformance validator
                 // ensures types have matching static members before emitting conformances.
+                //
+                // The throwing body is DELIBERATELY left bare — no [Obsolete] poison. This is
+                // a partial failure, not a total one: `T.Member` through a generic constraint
+                // dispatches to an overriding conformer's real static at runtime, and C# binds
+                // the reference against the interface member, so any [Obsolete] here (even a
+                // warning) would flag every legitimate override-dispatch call site. Poison is
+                // reserved for shapes that throw for EVERY receiver — the suppressed-proxy reads
+                // and the proxy's own static stub (a proxy can never dispatch a static, so that
+                // stub IS [Obsolete]-poisoned in ProtocolProxyEmitter). This overridable interface
+                // default is not one of them.
                 if (hasGetter && hasSetter)
                 {
                     csWriter.WriteLine($"static virtual {csharpTypeName} {propertyName}");
@@ -808,6 +818,13 @@ namespace BindingsGeneration
             {
                 // Emit as DIM (Default Interface Method) with NotSupportedException body.
                 // Matches method DIM pattern — types with direct implementation override the DIM.
+                //
+                // The throwing body is DELIBERATELY left bare — no [Obsolete] poison. An
+                // overriding conformer (including the Swift extension default the generator
+                // injects onto each conformer) succeeds at runtime through this same interface
+                // slot, so poisoning the member would flag every legitimate `x.Member`/`T.Member`
+                // dispatch that C# binds against the interface. Only suppressed-proxy reads —
+                // which throw for every receiver — earn the compile-visible poison.
                 if (hasGetter && hasSetter)
                 {
                     csWriter.WriteLine($"{csharpTypeName} {propertyName}");
@@ -1089,6 +1106,11 @@ namespace BindingsGeneration
             {
                 // Static virtual with throw body: provides interface-level default so the
                 // interface can be used as a type argument (avoids CS8920).
+                //
+                // Left bare by design — no [Obsolete] poison: `T.Method()` dispatches to an
+                // overriding conformer's real static at runtime, so poisoning the interface
+                // slot would break legitimate generic-constraint dispatch (unlike a
+                // suppressed-proxy read, which fails for every receiver).
                 csWriter.WriteLine($"static virtual {returnType} {methodName}({string.Join(", ", parameters)})");
                 csWriter.Indent++;
                 csWriter.WriteLine("=> throw new global::System.NotSupportedException(\"Static protocol members must be called on concrete types, not through the protocol interface.\");");
@@ -1099,6 +1121,11 @@ namespace BindingsGeneration
                 // Emit as DIM (Default Interface Method) with NotSupportedException body.
                 // Types that implement directly → their implementation overrides the DIM.
                 // Types relying on the default → inherit the DIM; generic constraints compile.
+                //
+                // Left bare by design — no [Obsolete] poison: an overriding conformer succeeds
+                // at runtime through this same interface slot, so a poison (even warning-level)
+                // would flag every legitimate override-dispatch call site. Only suppressed-proxy
+                // reads, which fail for every receiver, earn the compile-visible poison.
                 csWriter.WriteLine($"{returnType} {methodName}({string.Join(", ", parameters)})");
                 csWriter.Indent++;
                 csWriter.WriteLine($"=> throw new global::System.NotSupportedException(\"{ExtensionDefaultMethodMessage}\");");

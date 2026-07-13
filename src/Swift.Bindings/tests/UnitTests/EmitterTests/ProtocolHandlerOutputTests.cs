@@ -3397,6 +3397,281 @@ public class ProtocolHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_MethodDIMDefault_ThrowingBodyCarriesNoObsoletePoison()
+    {
+        // A protocol-extension DIM default is a PARTIAL failure: a conformer that overrides
+        // the member (including the Swift extension default the generator injects onto every
+        // conformer) succeeds at runtime through this same interface slot. C# binds `x.Member()`
+        // against the interface member, so an [Obsolete] here would flag every legitimate
+        // override-dispatch call site — the opposite of a suppressed-proxy always-throw read.
+        // The throwing DIM body must therefore stay bare. This locks that decision.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Configurable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Configurable"),
+            MangledName = "$s10TestModule12ConfigurableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                CreateMethodDecl("configure", moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["TestModule.Configurable"] = new()
+            {
+                new ProtocolExtensionMethodDecl
+                {
+                    ProtocolQualifiedName = "TestModule.Configurable",
+                    MethodName = "configure",
+                    PrintedName = "configure()",
+                    RawSignature = "func configure()",
+                    ReturnsSelf = false,
+                    IsMainActorIsolated = false,
+                    IsStatic = false,
+                    IsProperty = false,
+                    HasSetter = false,
+                    IsDeprecated = false,
+                    IsMutating = false,
+                    WhereConstraints = new List<string>()
+                }
+            }
+        };
+        var index = new ProtocolExtensionDefaultsIndex(extensionMethods, new List<ProtocolDecl>());
+        var emissionContext = new ModuleEmissionContext();
+        emissionContext.ExtensionDefaultsIndex = index;
+        var context = TypeHandlerContext.Empty with { EmissionContext = emissionContext };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase, context);
+
+        // The bare throw is present…
+        Assert.Contains("=> throw new global::System.NotSupportedException(", csOutput);
+        // …and it is NOT poisoned with any Obsolete/diagnostic attribute.
+        Assert.DoesNotContain("[Obsolete", csOutput);
+        Assert.DoesNotContain("DiagnosticId", csOutput);
+        Assert.DoesNotContain("SB0007", csOutput);
+    }
+
+    [Fact]
+    public void Emit_PropertyDIMDefault_ThrowingBodyCarriesNoObsoletePoison()
+    {
+        // Same partial-failure reasoning as the method DIM case, for a property default.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Themed",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Themed"),
+            MangledName = "$s10TestModule6ThemedP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>
+            {
+                new()
+                {
+                    Name = "defaultColor",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsStatic = false,
+                    HasStorage = false,
+                    Accessors = new List<AccessorDecl>
+                    {
+                        new GetAccessorDecl
+                        {
+                            Method = new MethodDecl
+                            {
+                                Name = "defaultColor_Get",
+                                MangledName = "$sGet",
+                                MethodType = MethodType.Instance,
+                                IsConstructor = false,
+                                CSSignature = new List<ArgumentDecl>
+                                {
+                                    CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl)
+                                },
+                                GenericParameters = new List<GenericArgumentDecl>(),
+                                ParentDecl = null,
+                                ModuleDecl = moduleDecl,
+                                Throws = false,
+                                IsAsync = false,
+                                IsSynthesizedAccessor = false
+                            }
+                        }
+                    },
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["TestModule.Themed"] = new()
+            {
+                new ProtocolExtensionMethodDecl
+                {
+                    ProtocolQualifiedName = "TestModule.Themed",
+                    MethodName = "defaultColor",
+                    PrintedName = "defaultColor",
+                    RawSignature = "var defaultColor: Int { get }",
+                    ReturnsSelf = false,
+                    IsMainActorIsolated = false,
+                    IsStatic = false,
+                    IsProperty = true,
+                    HasSetter = false,
+                    IsDeprecated = false,
+                    IsMutating = false,
+                    WhereConstraints = new List<string>()
+                }
+            }
+        };
+        var index = new ProtocolExtensionDefaultsIndex(extensionMethods, new List<ProtocolDecl>());
+        var emissionContext = new ModuleEmissionContext();
+        emissionContext.ExtensionDefaultsIndex = index;
+        var context = TypeHandlerContext.Empty with { EmissionContext = emissionContext };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase, context);
+
+        Assert.Contains("=> throw new global::System.NotSupportedException(", csOutput);
+        Assert.DoesNotContain("[Obsolete", csOutput);
+        Assert.DoesNotContain("DiagnosticId", csOutput);
+        Assert.DoesNotContain("SB0007", csOutput);
+    }
+
+    [Fact]
+    public void Emit_StaticVirtualInterfaceMember_ThrowingBodyCarriesNoObsoletePoison()
+    {
+        // The static-protocol-member shape emits a `static virtual` interface default whose
+        // throwing body avoids CS8920 (so the interface can be a type argument) and is
+        // overridden by every concrete conformer. `T.Member` through a generic constraint
+        // dispatches to the conformer's real static; C# binds the reference against the
+        // interface member, so poisoning it would flag legitimate generic-dispatch sites.
+        // The static default therefore stays bare too — the decision is uniform with the DIM case.
+        var typeDatabase = CreateTypeDatabase();
+        RegisterSwiftInt32(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "StaticProto",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.StaticProto"),
+            MangledName = "$s10TestModule11StaticProtoP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>
+            {
+                CreateStaticPropertyDecl("parentCategory", new NamedTypeSpec("Swift.Int32"), moduleDecl, hasGetter: true, hasSetter: false)
+            },
+            Methods = new List<MethodDecl>
+            {
+                // An instance method so the proxy has own members and gets emitted too.
+                CreateMethodDecl("doWork", moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Isolate the INTERFACE block. The proxy class (which follows) emits its own always-throwing
+        // static stub that IS correctly [Obsolete]-poisoned — a proxy can never dispatch a static
+        // requirement, so that stub is a total failure, unlike the interface's overridable default.
+        // The policy under test is exactly the interface `static virtual` default: it must stay bare.
+        var proxyStart = csOutput.IndexOf("Proxy class that enables", System.StringComparison.Ordinal);
+        Assert.True(proxyStart >= 0, "proxy class marker present");
+        var interfaceBlock = csOutput.Substring(0, proxyStart);
+
+        // The interface emits the static virtual default with its bare throw…
+        Assert.Contains("static virtual", interfaceBlock);
+        Assert.Contains("Static protocol members must be accessed on concrete types", interfaceBlock);
+        // …and the interface member is NOT poisoned.
+        Assert.DoesNotContain("[Obsolete", interfaceBlock);
+        Assert.DoesNotContain("DiagnosticId", interfaceBlock);
+        Assert.DoesNotContain("SB0007", interfaceBlock);
+    }
+
+    [Fact]
+    public void Emit_StaticVirtualInterfaceMethod_ThrowingBodyCarriesNoObsoletePoison()
+    {
+        // The static-METHOD sibling of the static-property branch: a static protocol method also
+        // lowers to a throwing `static virtual` interface default (same CS8920-avoidance +
+        // overridden-by-every-conformer partial-failure story). It must stay bare too, so the
+        // "no poison on all four throw branches" policy is genuinely locked, not just the property.
+        var typeDatabase = CreateTypeDatabase();
+        RegisterSwiftInt32(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "StaticMethodProto",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.StaticMethodProto"),
+            MangledName = "$s10TestModule17StaticMethodProtoP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                // An instance method so the proxy has own members and gets emitted too.
+                CreateMethodDecl("doWork", moduleDecl),
+                CreateStaticVoidMethodDecl("reset", moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Isolate the INTERFACE block — the proxy's own static-method stub that follows IS correctly
+        // [Obsolete]-poisoned (a proxy can never dispatch a static, a total failure), so a whole-output
+        // assertion would be about that stub, not the overridable interface default under test.
+        var proxyStart = csOutput.IndexOf("Proxy class that enables", System.StringComparison.Ordinal);
+        Assert.True(proxyStart >= 0, "proxy class marker present");
+        var interfaceBlock = csOutput.Substring(0, proxyStart);
+
+        // The interface emits the static virtual method default with its bare throw…
+        Assert.Contains("static virtual", interfaceBlock);
+        Assert.Contains("Static protocol members must be called on concrete types", interfaceBlock);
+        // …and the interface member is NOT poisoned.
+        Assert.DoesNotContain("[Obsolete", interfaceBlock);
+        Assert.DoesNotContain("DiagnosticId", interfaceBlock);
+        Assert.DoesNotContain("SB0007", interfaceBlock);
+    }
+
+    [Fact]
     public void Emit_MethodWithoutExtensionDefault_EmitsAsAbstract()
     {
         // Protocol with a method that has NO extension default → normal abstract interface member

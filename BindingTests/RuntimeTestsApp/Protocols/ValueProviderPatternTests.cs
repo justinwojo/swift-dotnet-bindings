@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Reflection;
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
 
@@ -202,6 +203,48 @@ public class ValueProviderPatternTests : TestBase
         AssertFalse(Functions.CheckProviderUpdate(cp, frame: 30.0),
             "checkProviderUpdate(ColorProvider) should be false");
         TestLogger.Info("checkProviderUpdate dispatches correctly");
+    }
+
+    #endregion
+
+    #region DIM-Default Poison Policy (bare throw, no [Obsolete])
+
+    // HasUpdate is a Swift protocol-extension default: IValueProviding emits it as a throwing
+    // default interface method. That throw is a PARTIAL failure — every conformer overrides the
+    // slot (FloatProvider with a real impl, ColorProvider/GradientProvider via the injected
+    // extension default), so through-interface dispatch never actually reaches the throw. Poisoning
+    // the member with [Obsolete] would therefore flag legitimate interface dispatch, which is why
+    // the throwing body is deliberately left bare. These tests lock that policy end-to-end.
+
+    public void TestHasUpdateDIMDefaultCarriesNoObsoletePoison()
+    {
+        var method = typeof(IValueProviding).GetMethod("HasUpdate");
+        AssertTrue(method is not null, "IValueProviding.HasUpdate resolves");
+        var obsolete = method!.GetCustomAttribute<System.ObsoleteAttribute>();
+        AssertTrue(obsolete is null, "HasUpdate DIM default carries no [Obsolete] poison");
+        // A default interface method has a body, so it is virtual but NOT abstract.
+        AssertFalse(method!.IsAbstract, "HasUpdate is a DIM default (has a body), not an abstract requirement");
+        TestLogger.Info("IValueProviding.HasUpdate is a bare, unpoisoned DIM default");
+    }
+
+    public void TestHasUpdateThroughInterfaceUsesDefaultForNonOverrider()
+    {
+        using var provider = new ColorProvider(r: 1.0, g: 0.5, b: 0.25, a: 1.0);
+        var iface = (IValueProviding)provider;
+        // ColorProvider does not override hasUpdate; the injected extension default (false)
+        // dispatches through the interface — it does NOT throw. This is precisely why the DIM
+        // throw must not be poisoned: a poisoned member would flag this legitimate call.
+        AssertFalse(iface.HasUpdate(frame: 0.0), "((IValueProviding)ColorProvider).HasUpdate == false (default)");
+        TestLogger.Info("Non-overriding conformer dispatches to the injected default, no throw");
+    }
+
+    public void TestHasUpdateThroughInterfaceUsesOverrideForOverrider()
+    {
+        using var provider = new FloatProvider(floatValue: 1.0);
+        var iface = (IValueProviding)provider;
+        // FloatProvider overrides hasUpdate; its real implementation dispatches through the interface.
+        AssertTrue(iface.HasUpdate(frame: 0.0), "((IValueProviding)FloatProvider).HasUpdate == true (override)");
+        TestLogger.Info("Overriding conformer dispatches to its real implementation through the interface");
     }
 
     #endregion
