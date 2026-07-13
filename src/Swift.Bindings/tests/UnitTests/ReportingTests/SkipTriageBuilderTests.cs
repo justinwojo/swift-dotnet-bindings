@@ -89,6 +89,32 @@ public class SkipTriageBuilderTests
     }
 
     [Fact]
+    public void Build_RecoveredRows_CountedAsRecovered_AndExcludedFromPublicSurfaceLost()
+    {
+        // A CSM-recovered AnyType skip (RecoveredBy populated) must roll up under the Recovered
+        // disposition and be subtracted from PublicSurfaceLost alongside ExpectedNonPublic — its typed
+        // surface IS callable, so it isn't lost consumer surface.
+        var recovered = Item(SkipReason.AnyTypeFallback, "items", kind: BindingItemKind.Property,
+            containingType: "Demo.MusicItemCollection");
+        recovered.RecoveredBy = new List<string> { "MusicItemCollection<Song>.Items" };
+
+        var list = new List<SkippedItem>
+        {
+            Item(SkipReason.ModuleInternal, "a"),            // expected-nonpublic
+            Item(SkipReason.UnsupportedExistential, "b"),    // known-limitation (public surface lost)
+            recovered,                                       // recovered (NOT lost)
+        };
+
+        var summary = SkipTriageBuilder.Build(list);
+
+        Assert.Equal(1, summary.ByDisposition["Recovered"]);
+        // 3 total - 1 expected-nonpublic - 1 recovered = 1 genuinely-lost surface.
+        Assert.Equal(1, summary.PublicSurfaceLost);
+        // Recovered rows are never in the review set.
+        Assert.DoesNotContain(summary.ReviewItems, i => i.Name == "items");
+    }
+
+    [Fact]
     public void Build_ByReason_CountsRawReasons()
     {
         var summary = SkipTriageBuilder.Build(MixedList());

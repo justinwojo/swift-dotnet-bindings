@@ -433,6 +433,181 @@ public class ProtocolHandlerOutputTests
         Assert.Contains("ConversationManagerDidDeactivate", interfacePart);
     }
 
+    [Fact]
+    public void Emit_ProtocolWithMixedRenamedAndTypeDistinctSiblings_FoldsLabelsUniformly()
+    {
+        // A base-name family that MIXES a label-only collision with a type-distinct sibling:
+        //   func room(_:didAdd:)        // (Int, Int)      \_ collide on the erased projection,
+        //   func room(_:didRemove:)     // (Int, Int)      /  renamed to RoomDidAdd / RoomDidRemove
+        //   func room(_:didFinishWith:error:)  // (Int, Int, Int) — DISTINCT overload, never collided
+        // Left alone the third emits bare as `Room(...)`, reading inconsistently next to its renamed
+        // siblings. The family-fold rule folds its labels too, so the whole `room` family reads uniformly
+        // as RoomDidFinishWithError. The fold only re-labels the C# member — it moves no slot.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        MethodDecl RoomPair(string secondLabel, string mangled) => new()
+        {
+            Name = "room",
+            MangledName = mangled,
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),           // return: Void
+                CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl), // _ area: Int
+                CreateArgument(secondLabel, new NamedTypeSpec("Swift.Int"), moduleDecl),  // <label> value: Int
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+
+        var typeDistinct = new MethodDecl
+        {
+            Name = "room",
+            MangledName = "$s10TestModule17RoomActivityObserverP4room_12didFinishWith5errorySi_S2itF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),            // return: Void
+                CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl),  // _ area: Int
+                CreateArgument("didFinishWith", new NamedTypeSpec("Swift.Int"), moduleDecl), // didFinishWith value: Int
+                CreateArgument("error", new NamedTypeSpec("Swift.Int"), moduleDecl),         // error code: Int
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "RoomActivityObserver",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.RoomActivityObserver"),
+            MangledName = "$s10TestModule20RoomActivityObserverP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = true,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                RoomPair("didAdd", "$s10TestModule20RoomActivityObserverP4room_5didAddySi_SitF"),
+                RoomPair("didRemove", "$s10TestModule20RoomActivityObserverP4room_8didRemoveySi_SitF"),
+                typeDistinct,
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // The colliding pair is renamed (existing behavior) AND the type-distinct sibling is folded.
+        Assert.Contains("RoomDidAdd", csOutput);
+        Assert.Contains("RoomDidRemove", csOutput);
+        Assert.Contains("RoomDidFinishWithError", csOutput);
+        // The type-distinct sibling must NOT read as a bare `Room(...)` overload — it was folded.
+        Assert.DoesNotContain(" Room(", csOutput);
+
+        // The interface (not merely the proxy) must declare all three under the folded names.
+        var interfacePart = csOutput.Substring(0, csOutput.IndexOf("Proxy"));
+        Assert.Contains("RoomDidAdd", interfacePart);
+        Assert.Contains("RoomDidRemove", interfacePart);
+        Assert.Contains("RoomDidFinishWithError", interfacePart);
+    }
+
+    [Fact]
+    public void Emit_ProtocolWithTypeDistinctSiblingsOnly_DoesNotFoldLabels()
+    {
+        // Trigger boundary: a `room` family whose members are type-distinct but DON'T collide —
+        //   func room(_:didAdd:)               // (Int, Int)
+        //   func room(_:didFinishWith:error:)  // (Int, Int, Int)
+        // These project to two legal C# overloads (`Room(nint, nint)` / `Room(nint, nint, nint)`), so
+        // NEITHER is renamed. With no already-disambiguated sibling to fold toward, the family-fold rule
+        // must stay inert — both emit bare as `Room`, no label-derived names appear.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var twoArg = new MethodDecl
+        {
+            Name = "room",
+            MangledName = "$s10TestModule12RoomReporterP4room_5didAddySi_SitF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl),
+                CreateArgument("didAdd", new NamedTypeSpec("Swift.Int"), moduleDecl),
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+
+        var threeArg = new MethodDecl
+        {
+            Name = "room",
+            MangledName = "$s10TestModule12RoomReporterP4room_12didFinishWith5errorySi_S2itF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl),
+                CreateArgument("didFinishWith", new NamedTypeSpec("Swift.Int"), moduleDecl),
+                CreateArgument("error", new NamedTypeSpec("Swift.Int"), moduleDecl),
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "RoomReporter",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.RoomReporter"),
+            MangledName = "$s10TestModule12RoomReporterP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = true,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl> { twoArg, threeArg },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // No collision anywhere in the family → the fold must not fire → no label-derived names.
+        Assert.DoesNotContain("RoomDidAdd", csOutput);
+        Assert.DoesNotContain("RoomDidFinishWithError", csOutput);
+        // Both survive as bare `Room` overloads (distinct arities are legal C# overloads).
+        Assert.Contains("Room(", csOutput);
+    }
+
     private static TypeDatabase CreateTypeDatabase()
     {
         var typeDatabase = new TypeDatabase();

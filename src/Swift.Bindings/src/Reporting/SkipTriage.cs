@@ -25,8 +25,9 @@ public sealed class SkipTriageSummary
 
     /// <summary>
     /// Skips that removed something a consumer could theoretically have seen — every item whose
-    /// disposition is not <see cref="SkipDisposition.ExpectedNonPublic"/>. Not all are generator bugs;
-    /// this is the consumer-visible surface area, expected or not.
+    /// disposition is neither <see cref="SkipDisposition.ExpectedNonPublic"/> (never public) nor
+    /// <see cref="SkipDisposition.Recovered"/> (typed surface recovered via CSM projection). Not all
+    /// are generator bugs; this is the consumer-visible surface area, expected or not.
     /// </summary>
     public int PublicSurfaceLost { get; set; }
 
@@ -99,7 +100,12 @@ public static class SkipTriageBuilder
             summary.ByReason[pair.Key.ToString()] = pair.Value;
 
         summary.ReviewCount = byDisposition.GetValueOrDefault(SkipDisposition.Review);
-        summary.PublicSurfaceLost = summary.Total - byDisposition.GetValueOrDefault(SkipDisposition.ExpectedNonPublic);
+        // Public surface a consumer could theoretically have seen but didn't get: everything except
+        // never-public members AND CSM-recovered rows (whose typed surface IS callable — the skip is
+        // only the open-generic base member being accounted for).
+        summary.PublicSurfaceLost = summary.Total
+            - byDisposition.GetValueOrDefault(SkipDisposition.ExpectedNonPublic)
+            - byDisposition.GetValueOrDefault(SkipDisposition.Recovered);
         return summary;
     }
 }

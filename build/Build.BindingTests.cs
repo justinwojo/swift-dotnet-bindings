@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using Nuke.Common;
 using Nuke.Common.IO;
 using Nuke.Common.Tooling;
@@ -531,6 +532,58 @@ partial class Build
         // --skip-regen) is rejected instead of silently reusing mismatched
         // bindings.
         StampTargetPlatformSidecar(BtOutputDir, platformOverride ?? ApplePlatform.IOS);
+
+        // Report-artifact gate for the CSM "recovered" disposition: the skipped open-shell property
+        // must carry the RecoveredBy linkage its closed projections produced (see method).
+        AssertTypedCollectionRecoveryAnnotated(BtOutputDir);
+    }
+
+    /// <summary>
+    /// End-to-end gate for the CSM "recovered" report disposition. The TypedCollectionProjection fixture
+    /// skips <c>LibraryResponse&lt;Item&gt;.items</c> as AnyTypeFallback on the open generic shell, then
+    /// recovers the surface with per-conformer closed <c>Items()</c> getters. That skip row in
+    /// <c>binding-report.json</c> MUST carry a non-empty <c>RecoveredBy</c> annotation naming the closed
+    /// projections — the reader-facing invariant is "a row that says skipped with no annotation really is
+    /// unreachable." A regression that stops recording the emission-fact linkage leaves the row a bare
+    /// skip and fails here at the compile gate, not silently in a shipped report.
+    /// </summary>
+    void AssertTypedCollectionRecoveryAnnotated(AbsolutePath outputDir)
+    {
+        var reportPath = outputDir / "binding-report.json";
+        if (!File.Exists(reportPath))
+            throw new Exception($"binding-report.json missing at {reportPath} — cannot verify CSM recovery annotation.");
+
+        using var doc = JsonDocument.Parse(File.ReadAllText(reportPath));
+        if (!doc.RootElement.TryGetProperty("SkippedItems", out var skipped) || skipped.ValueKind != JsonValueKind.Array)
+            throw new Exception("binding-report.json has no SkippedItems array — cannot verify CSM recovery annotation.");
+
+        JsonElement? itemsRow = null;
+        foreach (var row in skipped.EnumerateArray())
+        {
+            if (row.TryGetProperty("Name", out var n) && n.GetString() == "items" &&
+                row.TryGetProperty("ContainingType", out var ct) && (ct.GetString() ?? "").Contains("LibraryResponse"))
+            {
+                itemsRow = row;
+                break;
+            }
+        }
+
+        if (itemsRow is null)
+            throw new Exception(
+                "Expected a skipped `LibraryResponse.items` row in binding-report.json (TypedCollectionProjection fixture) — not found. " +
+                "Either the open-shell skip regressed or the fixture changed.");
+
+        if (!itemsRow.Value.TryGetProperty("RecoveredBy", out var recoveredBy) ||
+            recoveredBy.ValueKind != JsonValueKind.Array ||
+            recoveredBy.GetArrayLength() == 0)
+        {
+            throw new Exception(
+                "`LibraryResponse.items` is skipped but carries NO RecoveredBy annotation — the CSM recovery linkage " +
+                "regressed (Part B). The row must name the closed `Items()` projections that recover the surface.");
+        }
+
+        Log.Information("CSM recovery gate: LibraryResponse.items annotated with {Count} recovering projection(s).",
+            recoveredBy.GetArrayLength());
     }
 
     void EnsureGeneratorBuilt(bool ensureSwiftInterfaceParser = true)

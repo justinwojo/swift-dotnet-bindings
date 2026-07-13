@@ -68,6 +68,40 @@ public class CaptureSessionHarness {
     }
 }
 
+// MARK: - Mixed renamed/bare family (family-fold: label-derived naming across a whole base-name group)
+//
+// A delegate whose `room(...)` requirements are a MIX: two collide on the label-erased C# projection
+// (the didAdd/didRemove pair, both `(Int32, Int32)`) and are renamed by the projected-key pass, while a
+// third shares the same base name but projects to a DISTINCT C# overload (an extra argument makes it
+// `(Int32, Int32, Int32)`) so it never joined the collision group. Left alone it would emit as a bare
+// `Room(int, int, int)` overload, reading inconsistently next to its renamed `RoomDidAdd` / `RoomDidRemove`
+// siblings. The family-fold rule folds the labels into the type-distinct sibling too, so the whole family
+// reads uniformly (`RoomDidFinishWithError`). Slot identity must be preserved: the folded member has its
+// OWN reverse-dispatch slot, so a fold that mis-routed it would return the wrong value at runtime here.
+public protocol RoomActivityObserver: AnyObject {
+    func room(_ room: Int32, didAdd value: Int32) -> Int32
+    func room(_ room: Int32, didRemove value: Int32) -> Int32
+    func room(_ room: Int32, didFinishWith value: Int32, error code: Int32) -> Int32
+}
+
+/// Drives each requirement — including the folded type-distinct sibling — and returns the delegate's
+/// result, so the C# test proves each member routes to its own slot after the fold.
+public class RoomActivityHarness {
+    public init() {}
+
+    public func add(_ observer: RoomActivityObserver, room: Int32, value: Int32) -> Int32 {
+        return observer.room(room, didAdd: value)
+    }
+
+    public func remove(_ observer: RoomActivityObserver, room: Int32, value: Int32) -> Int32 {
+        return observer.room(room, didRemove: value)
+    }
+
+    public func finish(_ observer: RoomActivityObserver, room: Int32, value: Int32, code: Int32) -> Int32 {
+        return observer.room(room, didFinishWith: value, error: code)
+    }
+}
+
 // MARK: - Same-shape NON-protocol overload pair (shared-seam regression lock)
 //
 // The identical label-only-collision shape on a PLAIN class must NOT hit the protocol

@@ -42,6 +42,14 @@ public static class ReportCollector
     // observability only (binding-report.json) and never surfaced as a loud warning.
     private static readonly HashSet<string> ObjCPrefixBridgeEntries = new(StringComparer.Ordinal);
 
+    // CSM "recovered" facts: a skipped open-generic member (keyed by its containing-type + name, the
+    // same identity the skip row carries) whose consumer surface a closed CSM projection actually
+    // emitted. Accumulated during emission — the property skip is recorded in-body while the CSM
+    // projection is a post-body hook — then joined onto the matching SkippedItem in Complete(). This
+    // is an emission fact (a projection was emitted), not a name-pattern guess, so a skip row without
+    // a RecoveredBy annotation genuinely is unreachable.
+    private static readonly Dictionary<(string? ContainingType, string Name), List<string>> RecoveredMembers = new();
+
     public static bool IsActive => SessionActive.Value && _report != null;
 
     /// <summary>
@@ -111,6 +119,20 @@ public static class ReportCollector
             // survive Reset() and round-trip into binding-report.json via the manifest.
             _report.ObjCPrefixBridges.AddRange(
                 ObjCPrefixBridgeEntries.OrderBy(x => x, StringComparer.Ordinal));
+
+            // Join the accumulated CSM-recovery facts onto their skip rows: a member skipped on the open
+            // shell whose typed surface a closed projection actually emitted is annotated (and reclassified
+            // to SkipDisposition.Recovered by the item-aware classifier) instead of reading as a plain,
+            // unreachable skip. Match on (ContainingType, Name) — the same identity the skip row carries —
+            // so the linkage is exact, not a name-pattern guess.
+            if (RecoveredMembers.Count > 0)
+            {
+                foreach (var item in _report.SkippedItems)
+                {
+                    if (RecoveredMembers.TryGetValue((item.ContainingType, item.Name), out var recoverers))
+                        item.RecoveredBy = recoverers.OrderBy(x => x, StringComparer.Ordinal).ToList();
+                }
+            }
 
             // Per-kind breakdown: read directly from each identity's Kind field.
             ComputePerKindCounts(_report);
@@ -512,6 +534,39 @@ public static class ReportCollector
         }
     }
 
+    /// <summary>
+    /// Records that a skipped member's consumer surface was recovered by a closed CSM projection.
+    /// <paramref name="baseMember"/> is the ORIGINAL open-generic decl that PropertyHandler skipped (so
+    /// its containing-type + name key matches the recorded skip row exactly); <paramref name="projection"/>
+    /// names the closed typed projection that recovers it (e.g. <c>MusicLibraryResponse&lt;Album&gt;.items</c>).
+    /// Called once per emitted projection; the annotations accumulate and are joined onto the skip row in
+    /// <see cref="Complete"/>. No-op outside an active session. Never call this from a name heuristic — only
+    /// from the emission site that actually produced the projection.
+    /// </summary>
+    public static void RecordMemberRecovered(PropertyDecl baseMember, string projection)
+    {
+        ArgumentNullException.ThrowIfNull(baseMember);
+        ArgumentException.ThrowIfNullOrWhiteSpace(projection);
+
+        if (!SessionActive.Value || _report == null)
+            return;
+
+        var key = (GetContainingTypeName(baseMember.ParentDecl), baseMember.Name);
+        lock (Sync)
+        {
+            if (_report == null)
+                return;
+
+            if (!RecoveredMembers.TryGetValue(key, out var list))
+            {
+                list = new List<string>();
+                RecoveredMembers[key] = list;
+            }
+            if (!list.Contains(projection, StringComparer.Ordinal))
+                list.Add(projection);
+        }
+    }
+
     private static void RecordMemberSynthesizedInternal(MemberDiagnosticIdentity identity)
     {
         if (!SessionActive.Value || _report == null)
@@ -601,6 +656,7 @@ public static class ReportCollector
         UnsupportedCommentDropEntries.Clear();
         ObjectDegradationEntries.Clear();
         ObjCPrefixBridgeEntries.Clear();
+        RecoveredMembers.Clear();
     }
 
     private static (int totalTypes, int totalMembers) CalculateTotals(ModuleDecl moduleDecl)

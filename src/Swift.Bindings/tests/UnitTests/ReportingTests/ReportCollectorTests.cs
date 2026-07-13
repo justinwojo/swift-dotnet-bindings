@@ -709,6 +709,80 @@ public class ReportCollectorTests
         ReportCollector.Reset();
     }
 
+    [Fact]
+    public void Complete_RecoveredMember_StampsRecoveredByAndClassifiesRecovered()
+    {
+        // A skipped open-generic property whose typed surface was recovered by CSM concrete
+        // specializations: RecordMemberRecovered accumulates the closed projections, and Complete()
+        // joins them onto the matching skip row by (ContainingType, Name). The row keeps its skip
+        // reason but carries RecoveredBy (sorted, deduped) and reclassifies to Recovered.
+        var moduleDecl = TestModelFactory.CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var items = TestModelFactory.CreateProperty("items", parent: classDecl);
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberSkipped(items, SkipReason.AnyTypeFallback, "open-generic collection projected to AnyType");
+        ReportCollector.RecordMemberRecovered(items, "Loader<Song>.Items");
+        ReportCollector.RecordMemberRecovered(items, "Loader<Album>.Items");
+        ReportCollector.RecordMemberRecovered(items, "Loader<Song>.Items"); // dedup
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+        var row = Assert.Single(report!.SkippedItems);
+        Assert.NotNull(row.RecoveredBy);
+        Assert.Equal(new[] { "Loader<Album>.Items", "Loader<Song>.Items" }, row.RecoveredBy);
+        // Reason is unchanged (the base member really was AnyType-skipped) but disposition softens.
+        Assert.Equal(SkipReason.AnyTypeFallback, row.Reason);
+        Assert.Equal(SkipDisposition.Recovered, SkipDispositionClassifier.Classify(row));
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void Complete_SkippedMemberWithNoProjection_StaysPlainSkip()
+    {
+        // The control: an AnyType skip with NO recorded recovery keeps RecoveredBy null and stays a
+        // plain KnownLimitation. This preserves the reader-facing invariant — "a row that says skipped
+        // with no annotation really is unreachable" — so only genuinely-recovered rows soften.
+        var moduleDecl = TestModelFactory.CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var items = TestModelFactory.CreateProperty("items", parent: classDecl);
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberSkipped(items, SkipReason.AnyTypeFallback, "open-generic collection projected to AnyType");
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+        var row = Assert.Single(report!.SkippedItems);
+        Assert.Null(row.RecoveredBy);
+        Assert.Equal(SkipDisposition.KnownLimitation, SkipDispositionClassifier.Classify(row));
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void RecordMemberRecovered_OutsideSession_IsNoOp()
+    {
+        // No active session: the recovery record is silently dropped, and a subsequent clean session
+        // must not inherit it (mirrors the other ambient recorders).
+        ReportCollector.Reset();
+        var strayModule = TestModelFactory.CreateModuleDecl();
+        var strayClass = (ClassDecl)strayModule.Types[0];
+        ReportCollector.RecordMemberRecovered(TestModelFactory.CreateProperty("items", parent: strayClass), "Loader<Song>.Items");
+
+        var moduleDecl = TestModelFactory.CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var items = TestModelFactory.CreateProperty("items", parent: classDecl);
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberSkipped(items, SkipReason.AnyTypeFallback, "open-generic");
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+        Assert.Null(Assert.Single(report!.SkippedItems).RecoveredBy);
+
+        ReportCollector.Reset();
+    }
+
     private static ModuleDecl CreateModuleDecl()
     {
         var moduleDecl = new ModuleDecl

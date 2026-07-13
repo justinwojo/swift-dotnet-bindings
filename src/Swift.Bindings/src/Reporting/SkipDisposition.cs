@@ -16,6 +16,16 @@ namespace BindingsGeneration;
 public enum SkipDisposition
 {
     /// <summary>
+    /// The skipped member is not actually lost: closed CSM projections recover its consumer surface
+    /// (e.g. an open-generic <c>items : MusicItemCollection&lt;AnyType&gt;</c> property whose typed
+    /// <c>Items()</c> getters are projected per conformer). Least actionable of all — the row exists
+    /// only so the base open-generic member is accounted for, and its
+    /// <see cref="SkippedItem.RecoveredBy"/> annotation names the recovering projections. Determined
+    /// from emission facts, never a name guess.
+    /// </summary>
+    Recovered,
+
+    /// <summary>
     /// The declaration was never part of the module's public surface, so the consumer never had it
     /// and nothing was lost (module-internal / underscore-internal / on an internal parent type).
     /// </summary>
@@ -165,6 +175,10 @@ public static class SkipDispositionClassifier
     public static SkipDisposition Classify(SkippedItem item)
     {
         ArgumentNullException.ThrowIfNull(item);
+        // A row the CSM projected a closed typed surface for is not a loss, regardless of the raw skip
+        // reason — the annotation is an emission fact, so it overrides the reason-only tier.
+        if (item.RecoveredBy is { Count: > 0 })
+            return SkipDisposition.Recovered;
         return item.Reason == SkipReason.EveryProtocolConformanceSkipped
             ? EveryProtocolSkipCause.ClassifyDisposition(item.Details)
             : Classify(item.Reason);

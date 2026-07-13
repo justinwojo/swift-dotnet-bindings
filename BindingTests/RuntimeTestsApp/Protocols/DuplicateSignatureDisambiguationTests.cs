@@ -76,6 +76,34 @@ public class DuplicateSignatureDisambiguationTests : TestBase
     }
 
     /// <summary>
+    /// Mixed renamed/bare family (family-fold): the <c>room(...)</c> requirements are a MIX — the
+    /// didAdd/didRemove pair collide on the label-erased projection and are renamed
+    /// (<c>RoomDidAdd</c> / <c>RoomDidRemove</c>), while the three-argument
+    /// <c>room(_:didFinishWith:error:)</c> projects to a DISTINCT C# overload and would otherwise emit
+    /// bare as <c>Room(int, int, int)</c>. The family-fold rule folds its labels too, so the impl
+    /// implements <c>RoomDidFinishWithError</c> — this class fails to compile if the fold didn't fire.
+    /// Driving all three proves the folded member keeps its OWN reverse-dispatch slot: a fold that
+    /// re-routed it would surface here as the wrong tag/return value, not just a compile error.
+    /// </summary>
+    public void TestRoomFamilyFoldRoundTrips()
+    {
+        var impl = new RoomActivityObserverImpl();
+        var harness = new RoomActivityHarness();
+
+        int added = harness.Add(impl, room: 2, value: 3);
+        AssertEqual("add", impl.LastTag, "RoomDidAdd (renamed sibling) fired for the add path");
+        AssertEqual(30, added, "RoomDidAdd return value (value * 10) round-tripped through Swift");
+
+        int removed = harness.Remove(impl, room: 2, value: 3);
+        AssertEqual("remove", impl.LastTag, "RoomDidRemove (renamed sibling) fired for the remove path");
+        AssertEqual(60, removed, "RoomDidRemove return value (value * 20) round-tripped through Swift");
+
+        int finished = harness.Finish(impl, room: 2, value: 3, code: 4);
+        AssertEqual("finish", impl.LastTag, "RoomDidFinishWithError (folded type-distinct sibling) fired for the finish path");
+        AssertEqual(7, finished, "RoomDidFinishWithError return value (value + code) round-tripped through Swift");
+    }
+
+    /// <summary>
     /// Shared-seam contrast: the SAME label-only-collision shape on a PLAIN (non-protocol)
     /// class must NOT collapse. A class method's primary dedup key is label-INCLUSIVE, so both
     /// overloads survive primary dedup; their label-erased projected keys still collide, so the
@@ -151,5 +179,34 @@ internal sealed class CaptureSessionObserverImpl : ICaptureSessionObserver
         LastTag = "update";
         LastValue = value;
         return value * 30;
+    }
+}
+
+/// <summary>
+/// C# conformance to the mixed renamed/bare family. Two members are renamed by the collision pass
+/// (<c>RoomDidAdd</c> / <c>RoomDidRemove</c>); the type-distinct three-argument sibling must be folded
+/// to <c>RoomDidFinishWithError</c> by the family-fold rule — a bare <c>Room(int, int, int)</c> here
+/// would leave <c>RoomDidFinishWithError</c> unimplemented and fail compilation.
+/// </summary>
+internal sealed class RoomActivityObserverImpl : IRoomActivityObserver
+{
+    public string LastTag { get; private set; } = "";
+
+    public int RoomDidAdd(int room, int value)
+    {
+        LastTag = "add";
+        return value * 10;
+    }
+
+    public int RoomDidRemove(int room, int value)
+    {
+        LastTag = "remove";
+        return value * 20;
+    }
+
+    public int RoomDidFinishWithError(int room, int value, int code)
+    {
+        LastTag = "finish";
+        return value + code;
     }
 }

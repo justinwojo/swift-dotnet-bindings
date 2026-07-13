@@ -278,6 +278,20 @@ public sealed class SkippedItem
     public string? RecommendedWorkaround { get; init; }
 
     /// <summary>
+    /// The closed CSM projections that recover this member's consumer surface, when the skipped
+    /// open-generic member is not actually unreachable. A generic-container property such as
+    /// <c>MusicLibraryResponse&lt;T&gt;.items : MusicItemCollection&lt;T&gt;</c> resolves to
+    /// <c>MusicItemCollection&lt;Swift.AnyType&gt;</c> on the open shell and is skipped
+    /// <see cref="SkipReason.AnyTypeFallback"/> — but the concrete-specialization emitter projects a
+    /// typed closed getter per conformer (<c>MusicLibraryResponse&lt;Album&gt;.Items()</c>, …), so the
+    /// surface IS callable. Each entry names one such projection. Populated purely from emission facts
+    /// (a CSM projection actually emitted for this base member — never a name-pattern guess), so a
+    /// skip row with no <see cref="RecoveredBy"/> annotation really is unreachable. Null/empty when the
+    /// skip is a genuine, unrecovered loss.
+    /// </summary>
+    public List<string>? RecoveredBy { get; set; }
+
+    /// <summary>
     /// Best-effort source position tying the skip back to the swiftinterface line/column
     /// the parser saw. Null when the fact came from ABI JSON, a synthesized decl, or a
     /// dependency module without a swiftinterface input — the parser does not fabricate

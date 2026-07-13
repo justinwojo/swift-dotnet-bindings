@@ -107,6 +107,40 @@ public class SkipDispositionClassifierTests
     }
 
     [Fact]
+    public void Classify_ItemWithRecoveredBy_IsRecovered_OverridingReason()
+    {
+        // An AnyTypeFallback skip (normally KnownLimitation) whose typed surface was recovered by CSM
+        // concrete-specialization projections must classify as Recovered — the least-actionable tier.
+        var item = new SkippedItem
+        {
+            Kind = BindingItemKind.Property,
+            Name = "items",
+            ContainingType = "MusicItemCollection",
+            Reason = SkipReason.AnyTypeFallback,
+            RecoveredBy = new System.Collections.Generic.List<string> { "MusicItemCollection<Song>.Items" },
+        };
+
+        Assert.Equal(SkipDisposition.Recovered, SkipDispositionClassifier.Classify(item));
+    }
+
+    [Fact]
+    public void Classify_ItemWithEmptyRecoveredBy_FallsBackToReason()
+    {
+        // An empty (or absent) recovery list is NOT a recovery — the row stays a plain skip so the
+        // reader-facing invariant holds: "a row that says skipped with no annotation really is unreachable."
+        var item = new SkippedItem
+        {
+            Kind = BindingItemKind.Property,
+            Name = "items",
+            ContainingType = "MusicItemCollection",
+            Reason = SkipReason.AnyTypeFallback,
+            RecoveredBy = new System.Collections.Generic.List<string>(),
+        };
+
+        Assert.Equal(SkipDisposition.KnownLimitation, SkipDispositionClassifier.Classify(item));
+    }
+
+    [Fact]
     public void Classify_EveryProtocolItem_NullDetails_IsReview()
     {
         var item = new SkippedItem

@@ -188,6 +188,44 @@ internal static class ProtocolMethodDisambiguator
         if (pending.Count == 0)
             return EmptyMap;
 
+        // FAMILY FOLD — uniform label-derived naming across a mixed renamed/bare family.
+        //
+        // The projected-key pass above renames ONLY the members that collide on the label-erased C# overload
+        // (the delegate-callback pair/triple). A sibling requirement that shares the SAME Swift base name but
+        // projects to a DISTINCT C# overload — a different parameter type or arity, e.g. RoomPlan's
+        // captureSession(_:didProvide: Instruction) alongside the renamed captureSession(_:didAdd:/didChange:/
+        // didUpdate:) triple — never entered a collision group, so it stays a bare `CaptureSession(...)` overload
+        // and reads inconsistently next to its renamed siblings. Once at least one member of a base-name family is
+        // label-derived, fold the labels into the whole family so it reads uniformly. The trigger is deliberately
+        // narrow (a MIXED family — at least one already-renamed member), so a protocol whose base-name overloads
+        // are ALL type-distinct with none colliding is untouched (byte-identical output). A sibling with no
+        // foldable label (its label-derived name equals its bare name — e.g. a single unlabeled argument) is left
+        // bare: that is the honest name, and folding it would only re-alias it onto its own natural key.
+        //
+        // Slot identity is unaffected: the reverse-dispatch vtable slot keys off the label-inclusive
+        // EveryProtocolEmitter.GetMethodKey independently of this map, and a type-distinct sibling is already
+        // raw/projected/witness-distinct, so adding it to the map only re-labels the C# member NAME every
+        // Effective* site reads — it does not move, add, or drop a slot.
+        var disambiguatedBaseNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var m in candidates)
+        {
+            if (disambiguatedSlotKeys.Contains(EveryProtocolEmitter.GetMethodKey(m)))
+                disambiguatedBaseNames.Add(m.Name);
+        }
+        foreach (var m in candidates)
+        {
+            var slotKey = EveryProtocolEmitter.GetMethodKey(m);
+            if (disambiguatedSlotKeys.Contains(slotKey))
+                continue; // already label-derived by the projected-key pass
+            if (!disambiguatedBaseNames.Contains(m.Name))
+                continue; // not part of a mixed renamed/bare family
+            var nameInput = BuildLabelDerivedNameInput(m);
+            if (string.Equals(nameInput, m.Name, StringComparison.Ordinal))
+                continue; // no label to fold — honest bare name, leave it
+            if (disambiguatedSlotKeys.Add(slotKey))
+                pending.Add((slotKey, nameInput));
+        }
+
         // Reserve the natural projected keys of every candidate that is NOT being disambiguated, so a derived
         // name can never silently collide with a sibling that emits under its natural name.
         //

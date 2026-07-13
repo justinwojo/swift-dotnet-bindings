@@ -3592,10 +3592,21 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 if (!engine.ParentTupleSatisfiesMethodConstraints(specProp.Getter, typeDecl, parentTuple))
                     continue;
 
-                TryEmitConcreteOverload(
+                var emitted = TryEmitConcreteOverload(
                     csWriter, swiftWriter, specProp.Getter, typeDecl, parentTuple,
                     moduleName, wrapperLibPath, typeDatabase, emissionContext,
                     emittedSignatures, logger, isExtension: true);
+
+                // Emission fact: this closed getter recovers the open-generic property that
+                // PropertyHandler skipped (AnyTypeFallback) on the shell. Annotate the skip row so the
+                // report stops calling a recovered surface unreachable — only when the projection
+                // actually emitted, keyed on the ORIGINAL property decl so the containing-type + name
+                // matches the recorded skip.
+                if (emitted)
+                {
+                    var closedReceiver = $"{typeDecl.Name}<{string.Join(", ", parentTuple.Select(p => p.Conformer.CSharpType))}>";
+                    ReportCollector.RecordMemberRecovered(specProp.Property, $"{closedReceiver}.{specProp.Property.Name}");
+                }
             }
 
             csWriter.Indent--;
