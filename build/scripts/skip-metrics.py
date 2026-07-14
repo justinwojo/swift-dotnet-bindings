@@ -136,55 +136,85 @@ def aggregate_reports(reports):
 
 
 def compare_baseline(metrics, baseline_path):
-    """Compare current metrics against a baseline file. Returns list of warnings."""
+    """Compare current metrics against a baseline file.
+
+    Returns (regressions, improvements). A ratchet, matching the house pattern
+    used by the parity / skip-surface / api-manifest gates: ANY growth above the
+    baseline is a hard regression (the caller fails on a non-empty regressions
+    list) — total skip count up, emitted count down, or any single skip reason
+    above its recorded baseline count. There is deliberately NO slack margin:
+    skip classification is generator-deterministic (it reads binding-report.json,
+    not build/environment state), so a per-reason increase is a real change to
+    lock down, not noise. A brand-new skip reason (absent from the baseline)
+    starts at an implicit baseline of 0, so its first appearance is a regression
+    that must be acknowledged by reseeding the baseline in the same commit.
+    Improvements never fail; they are reported so the baseline can be tightened.
+    """
     if not os.path.isfile(baseline_path):
-        return ["No baseline file found at: " + baseline_path]
+        # Missing baseline is advisory only — a manual run may legitimately have
+        # no baseline yet. It never hard-fails (the gate cannot ratchet without a
+        # reference), so it is surfaced as an improvement-channel note.
+        return ([], ["No baseline file found at: " + baseline_path])
 
     with open(baseline_path) as f:
         baseline = json.load(f)
 
-    warnings = []
+    regressions = []
+    improvements = []
     base_summary = baseline.get("summary", {})
     curr_summary = metrics["summary"]
 
-    # Check skip count regression
+    # Total skip count
     base_skipped = base_summary.get("skipped_members", 0)
     curr_skipped = curr_summary["skipped_members"]
     if curr_skipped > base_skipped:
-        warnings.append(
+        regressions.append(
             f"Skip count increased: {base_skipped} -> {curr_skipped} "
             f"(+{curr_skipped - base_skipped})"
         )
     elif curr_skipped < base_skipped:
-        warnings.append(
+        improvements.append(
             f"Skip count improved: {base_skipped} -> {curr_skipped} "
             f"(-{base_skipped - curr_skipped})"
         )
 
-    # Check emitted count regression
+    # Emitted count (a drop means members stopped binding)
     base_emitted = base_summary.get("emitted_members", 0)
     curr_emitted = curr_summary["emitted_members"]
     if curr_emitted < base_emitted:
-        warnings.append(
+        regressions.append(
             f"Emitted count decreased: {base_emitted} -> {curr_emitted} "
             f"(-{base_emitted - curr_emitted})"
         )
+    elif curr_emitted > base_emitted:
+        improvements.append(
+            f"Emitted count increased: {base_emitted} -> {curr_emitted} "
+            f"(+{curr_emitted - base_emitted})"
+        )
 
-    # Check per-reason regressions
+    # Per-reason ratchet (strict — no slack). Growth above baseline for any
+    # reason (e.g. MissingWrapperSymbol) is a regression.
     base_reasons = baseline.get("skip_reasons", {})
     curr_reasons = metrics["skip_reasons"]
     for reason, curr_count in curr_reasons.items():
         base_count = base_reasons.get(reason, 0)
-        if curr_count > base_count + 5:  # Allow small noise margin
-            warnings.append(
+        if curr_count > base_count:
+            regressions.append(
                 f"Skip reason '{reason}' increased: {base_count} -> {curr_count} "
                 f"(+{curr_count - base_count})"
             )
+    for reason, base_count in base_reasons.items():
+        curr_count = curr_reasons.get(reason, 0)
+        if curr_count < base_count:
+            improvements.append(
+                f"Skip reason '{reason}' improved: {base_count} -> {curr_count} "
+                f"(-{base_count - curr_count})"
+            )
 
-    return warnings
+    return regressions, improvements
 
 
-def print_report(metrics, baseline_warnings=None):
+def print_report(metrics, regressions=None, improvements=None):
     """Print a human-readable summary to stderr."""
     s = metrics["summary"]
     print(f"\n=== Skip Metrics Report ===", file=sys.stderr)
@@ -206,11 +236,12 @@ def print_report(metrics, baseline_warnings=None):
         print(f"  {lib}: {data['emitted_members']} emitted, "
               f"{data['skipped_members']} skipped ({data['skip_rate_pct']}%)", file=sys.stderr)
 
-    if baseline_warnings:
+    if regressions or improvements:
         print(f"\n--- Baseline Comparison ---", file=sys.stderr)
-        for w in baseline_warnings:
-            print(f"  {'WARNING' if 'increased' in w or 'decreased' in w else 'INFO'}: {w}",
-                  file=sys.stderr)
+        for w in (regressions or []):
+            print(f"  REGRESSION: {w}", file=sys.stderr)
+        for w in (improvements or []):
+            print(f"  INFO: {w}", file=sys.stderr)
 
     print("", file=sys.stderr)
 
@@ -241,15 +272,15 @@ def main():
     metrics = aggregate_reports(reports)
 
     # Baseline comparison
-    baseline_warnings = None
+    regressions, improvements = [], []
     if args.baseline:
-        baseline_warnings = compare_baseline(metrics, args.baseline)
+        regressions, improvements = compare_baseline(metrics, args.baseline)
 
     # Output
     if args.json:
         print(json.dumps(metrics, indent=2))
     else:
-        print_report(metrics, baseline_warnings)
+        print_report(metrics, regressions, improvements)
         if args.output:
             print(json.dumps(metrics, indent=2))
 
@@ -260,9 +291,12 @@ def main():
         if not args.json:
             print(f"Written to: {args.output}", file=sys.stderr)
 
-    # Exit with warning code if baseline regressions found
-    if baseline_warnings and any("increased" in w or "decreased" in w for w in baseline_warnings):
-        sys.exit(2)
+    # Ratchet: fail hard on any regression above baseline.
+    if regressions:
+        print(f"\nERROR: {len(regressions)} skip-metric regression(s) above baseline. "
+              f"Fix the underlying skip(s) OR — if intentional — reseed the baseline "
+              f"in the same commit.", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

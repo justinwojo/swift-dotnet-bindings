@@ -910,21 +910,33 @@ partial class Build
             // gate, while each opt-in leg builds + consumes/publishes a real app and returns early.
             // The --compile-only early return below would otherwise silently swallow the requested
             // leg. Fail loud rather than skip it.
-            if ((MixedPack || MixedDirect || AppstoreHygiene) && CompileOnly)
+            if ((MixedPack || MixedDirect || AppstoreHygiene || PartialSuccessKitchen) && CompileOnly)
                 throw new Exception(
-                    "--mixed-pack/--mixed-direct/--appstore-hygiene and --compile-only cannot be combined: --compile-only is a "
-                    + "compile-check gate with no app build or test run, while the opt-in legs build a real app and run/inspect "
-                    + "it. Pass exactly one.");
+                    "--mixed-pack/--mixed-direct/--appstore-hygiene/--partial-success-kitchen and --compile-only cannot be "
+                    + "combined: --compile-only is the whole-test-lib compile-check gate, while each opt-in leg builds and "
+                    + "asserts its own focused fixture and returns early. Pass exactly one.");
 
             // The opt-in legs each exercise a DIFFERENT consumption/packaging mode (--mixed-pack: a
             // single packed PackageReference; --mixed-direct: SDK-direct, the app IS the binding;
             // --appstore-hygiene: a device IPA's TN2435 App Store hygiene) and each is a focused,
             // exclusive run that returns early. Combining them would silently run only the first.
             // Fail loud rather than skip one.
-            if (new[] { MixedPack, MixedDirect, AppstoreHygiene }.Count(x => x) > 1)
+            if (new[] { MixedPack, MixedDirect, AppstoreHygiene, PartialSuccessKitchen }.Count(x => x) > 1)
                 throw new Exception(
-                    "--mixed-pack, --mixed-direct, and --appstore-hygiene cannot be combined: each is a focused, exclusive leg "
-                    + "that builds its own app and returns. Pass exactly one.");
+                    "--mixed-pack, --mixed-direct, --appstore-hygiene, and --partial-success-kitchen cannot be combined: each "
+                    + "is a focused, exclusive leg that builds its own fixture and returns. Pass exactly one.");
+
+            // --partial-success-kitchen: the opt-in host-only product gate. Builds the tiny
+            // PartialSuccessKitchen fixture (deliberately-unsupported shapes + must-emit controls),
+            // generates + compile-checks it, and asserts the skip report is honest. No app build, no
+            // sim/device run. Focused + exclusive: returns without running the RuntimeTestsApp suite.
+            if (PartialSuccessKitchen)
+            {
+                if (Sim || Device || Macos || Catalyst || Tvos)
+                    Log.Warning("--partial-success-kitchen is a host-only gate; platform flags are ignored.");
+                RunPartialSuccessKitchenGate();
+                return;
+            }
 
             // --compile-only: run the binding pipeline + compile-check only (no app build,
             // no test execution). This is the CI gate — "does the generator emit valid C#?"

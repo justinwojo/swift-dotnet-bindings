@@ -1,0 +1,44 @@
+{
+  "git_sha": "ffef70d8",
+  "review_count": 0,
+  "by_reason": [
+    {
+      "key": "EveryProtocolConformanceSkipped",
+      "count": 2
+    },
+    {
+      "key": "ParentModuleInternalNoFallback",
+      "count": 2
+    },
+    {
+      "key": "Pattern2InternalTypeReach",
+      "count": 1
+    },
+    {
+      "key": "SwiftUIView",
+      "count": 1
+    },
+    {
+      "key": "SynthesizedCodable",
+      "count": 2
+    },
+    {
+      "key": "UnsupportedSignature",
+      "count": 3
+    }
+  ],
+  "by_disposition": [
+    {
+      "key": "ExpectedNonPublic",
+      "count": 2
+    },
+    {
+      "key": "ExpectedStructural",
+      "count": 6
+    },
+    {
+      "key": "KnownLimitation",
+      "count": 3
+    }
+  ]
+}

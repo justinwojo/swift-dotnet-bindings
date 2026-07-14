@@ -70,6 +70,12 @@
          (ReleaseGatesManifestJsonContext) + #nullable enable, so it compiles AOT-clean under this
          project's IsAotCompatible + warnings-as-errors + Nullable=disable. -->
     <Compile Include="../../../../build/Models/ReleaseGatesManifest.cs" Link="Models/ReleaseGatesManifest.cs" />
+    <!-- Link-compile the PartialSuccessKitchen skip-budget model so its pure report parsing
+         (KitchenReportProjection.ParseReport), design-floor evaluation (CheckFloors), and exact
+         drift diff (Compare) are unit-tested here without a project reference to _build. BCL-only
+         with source-generated JSON (PartialSuccessKitchenBaselineJsonContext), so it compiles
+         AOT-clean under this project's IsAotCompatible + warnings-as-errors. -->
+    <Compile Include="../../../../build/Models/PartialSuccessKitchenBaseline.cs" Link="Models/PartialSuccessKitchenBaseline.cs" />
   </ItemGroup>
 
   <ItemGroup>

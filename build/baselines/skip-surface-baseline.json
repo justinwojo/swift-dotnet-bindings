@@ -1,431 +1,1127 @@
 {
-  "git_sha": "54c147b4",
+  "git_sha": "ffef70d8",
   "entries": [
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "ObsoleteSB0001",
       "reason": "No @_cdecl wrapper or native thunk available. P/Invoke calling convention may not match Swift ABI",
-      "count": 79
+      "count": 80
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'SBW_GenericAbi_filter' — parameter or return type not yet supported (unsupported placeholder type)",
+      "reason": "method \u0027AppleHolder.Verified\u0027 \u2014 GenericEnumCaseConstructor (generic-enum payload-case constructor has no exported function symbol and no @_cdecl wrapper route; a direct mangled-symbol P/Invoke would throw EntryPointNotFoundException on first use.)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'SBW_GenericAbi_filterThrows' — parameter or return type not yet supported (unsupported placeholder type)",
+      "reason": "method \u0027AppleShapedForecast.init\u0027 \u2014 NonBlittableCallConvSwift (generic container parameters require @_cdecl wrapper (ABI mismatch))",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'SBW_GenericAbi_identity' — parameter or return type not yet supported (unsupported placeholder type)",
+      "reason": "method \u0027AssetLoader.describe\u0027 \u2014 generic constraint could not be satisfied (Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'SBW_GenericAbi_map' — parameter or return type not yet supported (unsupported placeholder type)",
+      "reason": "method \u0027AsyncGenericContainer.fetchOrThrow\u0027 \u2014 closure or async in generic type member (Async method on a generic parent: the wrapper needs the parent\u0027s type metadata and self in Swift\u0027s implicit registers, which a direct CallConvSwift P/Invoke cannot supply (ABI mismatch -\u003E crash).)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'SBW_GenericAbi_sizeOfT' — parameter or return type not yet supported (unsupported placeholder type)",
+      "reason": "method \u0027AsyncGenericContainer.fetchPair\u0027 \u2014 closure or async in generic type member (Async callback references parent generic type parameters in return type.)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'SBW_GenericAbi_strideOfT' — parameter or return type not yet supported (unsupported placeholder type)",
+      "reason": "method \u0027AsyncGenericContainer.processAsync\u0027 \u2014 closure or async in generic type member (Async method on a generic parent: the wrapper needs the parent\u0027s type metadata and self in Swift\u0027s implicit registers, which a direct CallConvSwift P/Invoke cannot supply (ABI mismatch -\u003E crash).)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'createInstance' — parameter or return type not yet supported (unsupported placeholder type)",
+      "reason": "method \u0027AsyncSkipPolicyClosure.runAsync\u0027 \u2014 parameter or return type not yet supported (wrapper not emitted; direct call would be ABI-unsafe)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'describeClassBound' — protocol-typed parameter/return not yet projected (Method has an unsupported direct existential on 'arg0' (class-bounded composition or unsupported protocol count).)",
+      "reason": "method \u0027AsyncSkipPolicyMethodGeneric.purchaseAsync\u0027 \u2014 parameter or return type not yet supported (wrapper not emitted; direct call would be ABI-unsafe)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'encode' — synthesized Codable member pruned by design (Synthesized Codable member (Encoder/Decoder are unresolvable existential protocols).)",
-      "count": 2
+      "reason": "method \u0027BagSession4.count\u0027 \u2014 protocol with associated types used as constraint (Method has constraints on protocols with associated types or self requirements.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027BagSession4.optionalCount\u0027 \u2014 protocol with associated types used as constraint (Method has constraints on protocols with associated types or self requirements.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027BitwiseCtorBox.init\u0027 \u2014 NonBlittableCallConvSwift (generic-type constructor inadmissible for open dispatch (CSM emits concrete forms))",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027CRTPropertyImpl.makeColumn\u0027 \u2014 C# signature collides with another member",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027CRTRefinedShapeImpl.makeShape\u0027 \u2014 C# signature collides with another member",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027CacheWriteOutcome.init\u0027 \u2014 generic constraint could not be satisfied (Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027CodableProfile.encode\u0027 \u2014 synthesized Codable member pruned by design (Synthesized Codable member (Encoder/Decoder are unresolvable existential protocols).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027CodableProfile.init\u0027 \u2014 synthesized Codable member pruned by design (Synthesized Codable member (Encoder/Decoder are unresolvable existential protocols).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027ConventionCDebugParamLoader.init\u0027 \u2014 parameter or return type not yet supported (@convention(c) closure parameter cannot be ABI-correctly bound in a constructor)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027ConventionCMultiClosureLoader.init\u0027 \u2014 parameter or return type not yet supported (@convention(c) closure parameter cannot be ABI-correctly bound in a constructor)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027ConventionCValidatedLoader.init\u0027 \u2014 parameter or return type not yet supported (@convention(c) closure parameter cannot be ABI-correctly bound in a constructor)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027CtorAdmBox.init\u0027 \u2014 NonBlittableCallConvSwift (generic-type constructor inadmissible for open dispatch (CSM emits concrete forms))",
+      "count": 3
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027CtorAdmVoidPin.init\u0027 \u2014 NonBlittableCallConvSwift (generic-type constructor inadmissible for open dispatch (CSM emits concrete forms))",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027CurrentlyGatedPayloadBox.Filled\u0027 \u2014 GenericEnumCaseConstructor (generic-enum payload-case constructor has no exported function symbol and no @_cdecl wrapper route; a direct mangled-symbol P/Invoke would throw EntryPointNotFoundException on first use.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027DescribableBox.Wrap\u0027 \u2014 GenericEnumCaseConstructor (generic-enum payload-case constructor has no exported function symbol and no @_cdecl wrapper route; a direct mangled-symbol P/Invoke would throw EntryPointNotFoundException on first use.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027EquatableTicket.encode\u0027 \u2014 synthesized Codable member pruned by design (Synthesized Codable member (Encoder/Decoder are unresolvable existential protocols).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027EquatableTicket.init\u0027 \u2014 synthesized Codable member pruned by design (Synthesized Codable member (Encoder/Decoder are unresolvable existential protocols).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027GatedKernel.advance\u0027 \u2014 protocol with associated types used as constraint (Method has constraints on protocols with associated types or self requirements.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027GatedKernel.reset\u0027 \u2014 protocol with associated types used as constraint (Method has constraints on protocols with associated types or self requirements.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027GatedKernel.tickCount\u0027 \u2014 protocol with associated types used as constraint (Method has constraints on protocols with associated types or self requirements.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027GenericAbiBox.transform\u0027 \u2014 closure signature not yet supported (Parameter \u0027arg0\u0027 has unsupported closure type that cannot be marshalled.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027GenericBridgeReturns.describe\u0027 \u2014 parameter or return type not yet supported (wrapper not emitted; direct call would be ABI-unsafe)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027GenericCascadeOuter.NestedError.ValidationFailed\u0027 \u2014 GenericEnumCaseConstructor (generic-enum payload-case constructor has no exported function symbol and no @_cdecl wrapper route; a direct mangled-symbol P/Invoke would throw EntryPointNotFoundException on first use.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027GenericConstrainedExtensionMapper.map\u0027 \u2014 ConstrainedExtensionWrapper (Method \u0027map\u0027 on generic type \u0027GenericConstrainedExtensionMapper\u0027 declares generic constraints narrower than its parent; the wrapper conformance extension is unconstrained, so the method is invisible at the call site (conditional-conformance wrapper not yet supported).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027GenericExtensionOptionalReturnMapper.mapAsyncThrowing\u0027 \u2014 closure or async in generic type member (Async callback references parent generic type parameters in return type.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027GenericResult.Failure\u0027 \u2014 GenericEnumCaseConstructor (generic-enum payload-case constructor has no exported function symbol and no @_cdecl wrapper route; a direct mangled-symbol P/Invoke would throw EntryPointNotFoundException on first use.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027GenericResult.Success\u0027 \u2014 GenericEnumCaseConstructor (generic-enum payload-case constructor has no exported function symbol and no @_cdecl wrapper route; a direct mangled-symbol P/Invoke would throw EntryPointNotFoundException on first use.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027GenericTagBox.currentTag\u0027 \u2014 closure or async in generic type member (Async method on a generic parent: the wrapper needs the parent\u0027s type metadata and self in Swift\u0027s implicit registers, which a direct CallConvSwift P/Invoke cannot supply (ABI mismatch -\u003E crash).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027Holder.Wrapped\u0027 \u2014 GenericEnumCaseConstructor (generic-enum payload-case constructor has no exported function symbol and no @_cdecl wrapper route; a direct mangled-symbol P/Invoke would throw EntryPointNotFoundException on first use.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027IAPTransactionLike.init\u0027 \u2014 framework type has no .NET binding available (Method signature references framework type \u0027StoreKit.Transaction\u0027 which has no .NET binding, in \u0027StoreKit.Transaction\u0027.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027IAPTransactionLike.refresh\u0027 \u2014 framework type has no .NET binding available (Method signature references framework type \u0027StoreKit.Transaction\u0027 which has no .NET binding, in \u0027StoreKit.Transaction\u0027.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027IdentifiableCoin.encode\u0027 \u2014 synthesized Codable member pruned by design (Synthesized Codable member (Encoder/Decoder are unresolvable existential protocols).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027IdentifiableCoin.init\u0027 \u2014 synthesized Codable member pruned by design (Synthesized Codable member (Encoder/Decoder are unresolvable existential protocols).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027InternalCarrier.init\u0027 \u2014 member signature reaches an @usableFromInline internal (or otherwise-suppressed) type (Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027InternalContractConformer.init\u0027 \u2014 member signature reaches an @usableFromInline internal (or otherwise-suppressed) type (Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027InternalFrozenOperand.init\u0027 \u2014 member signature reaches an @usableFromInline internal (or otherwise-suppressed) type (Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027InternalHolder.describeAsync\u0027 \u2014 public async/closure/operator member on a @usableFromInline internal parent type with no direct CallConvSwift fallback (Async member on a @usableFromInline internal parent type: its bridge wrapper must name the internal parent and has no direct CallConvSwift fallback.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027InternalHolder.init\u0027 \u2014 member signature reaches an @usableFromInline internal (or otherwise-suppressed) type (Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027InternalHolder.makeAdder\u0027 \u2014 public async/closure/operator member on a @usableFromInline internal parent type with no direct CallConvSwift fallback (Closure-bearing member (closure parameter or return) on a @usableFromInline internal parent type: its closure wrapper must name the internal parent and has no direct CallConvSwift fallback.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027InternalHolder.transform\u0027 \u2014 public async/closure/operator member on a @usableFromInline internal parent type with no direct CallConvSwift fallback (Closure-bearing member (closure parameter or return) on a @usableFromInline internal parent type: its closure wrapper must name the internal parent and has no direct CallConvSwift fallback.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027MemberBitwiseCtorBox.init\u0027 \u2014 NonBlittableCallConvSwift (generic-type constructor inadmissible for open dispatch (CSM emits concrete forms))",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027MixedEmittability.transform\u0027 \u2014 closure signature not yet supported (Parameter \u0027_using\u0027 has unsupported closure type that cannot be marshalled.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027PaymentOutcome.Paid\u0027 \u2014 GenericEnumCaseConstructor (generic-enum payload-case constructor has no exported function symbol and no @_cdecl wrapper route; a direct mangled-symbol P/Invoke would throw EntryPointNotFoundException on first use.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027PaymentOutcome.Unpaid\u0027 \u2014 GenericEnumCaseConstructor (generic-enum payload-case constructor has no exported function symbol and no @_cdecl wrapper route; a direct mangled-symbol P/Invoke would throw EntryPointNotFoundException on first use.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027ProcessedItem.init\u0027 \u2014 parameter or return type not yet supported (C# does not support generic constructors with method-own type parameters.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027ProtocolBag_Request.count\u0027 \u2014 protocol with associated types used as constraint (Method has constraints on protocols with associated types or self requirements.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027ProtocolBag_Request.countMatchingOptional\u0027 \u2014 protocol with associated types used as constraint (Method has constraints on protocols with associated types or self requirements.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027PublicHostWithInternalMembers.makeCarrier\u0027 \u2014 member signature reaches an @usableFromInline internal (or otherwise-suppressed) type (Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027PublicHostWithInternalMembers.registerCarrier\u0027 \u2014 member signature reaches an @usableFromInline internal (or otherwise-suppressed) type (Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027ResultParameterConsumer.consume\u0027 \u2014 generic constraint could not be satisfied (Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027ReturnTypeOnlyOverloadHost.selectExpression\u0027 \u2014 C# signature collides with another member",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027SBSW_GenericAbi_filter\u0027 \u2014 parameter or return type not yet supported (unsupported placeholder type)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027SBSW_GenericAbi_filterThrows\u0027 \u2014 parameter or return type not yet supported (unsupported placeholder type)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027SBSW_GenericAbi_identity\u0027 \u2014 parameter or return type not yet supported (unsupported placeholder type)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027SBSW_GenericAbi_map\u0027 \u2014 parameter or return type not yet supported (unsupported placeholder type)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027SBSW_GenericAbi_sizeOfT\u0027 \u2014 parameter or return type not yet supported (unsupported placeholder type)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027SBSW_GenericAbi_strideOfT\u0027 \u2014 parameter or return type not yet supported (unsupported placeholder type)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027SealedKey.init\u0027 \u2014 parameter or return type not yet supported (C# does not support generic constructors with method-own type parameters.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027ShortNameCollisionFixture.Data.init\u0027 \u2014 member signature reaches an @usableFromInline internal (or otherwise-suppressed) type (Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027StatPayloadA.encode\u0027 \u2014 synthesized Codable member pruned by design (Synthesized Codable member (Encoder/Decoder are unresolvable existential protocols).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027StatPayloadA.init\u0027 \u2014 synthesized Codable member pruned by design (Synthesized Codable member (Encoder/Decoder are unresolvable existential protocols).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027StatPayloadB.encode\u0027 \u2014 synthesized Codable member pruned by design (Synthesized Codable member (Encoder/Decoder are unresolvable existential protocols).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027StatPayloadB.init\u0027 \u2014 synthesized Codable member pruned by design (Synthesized Codable member (Encoder/Decoder are unresolvable existential protocols).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027ThrowingSealedBox.init\u0027 \u2014 parameter or return type not yet supported (C# does not support generic constructors with method-own type parameters.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027ThrowingSealedRef.init\u0027 \u2014 parameter or return type not yet supported (C# does not support generic constructors with method-own type parameters.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027TombstoneOverloadCollision.handle\u0027 \u2014 C# signature collides with another member",
+      "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'fetchPair' — closure or async in generic type member (Async callback references parent generic type parameters in return type.)",
+      "reason": "method \u0027TupleOfClassParamHost.init\u0027 \u2014 parameter or return type not yet supported (Tuple parameter \u0027maxSize\u0027 has elements whose P/Invoke type differs from the C# type \u2014 per-element marshalling for convertible-element tuple parameters is not yet implemented.)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'getType' — parameter or return type not yet supported (unsupported placeholder type)",
+      "reason": "method \u0027TypeFactory.init\u0027 \u2014 parameter or return type not yet supported (unsupported placeholder type in constructor)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'index' — protocol with associated types used as constraint (Method has constraints on protocols with associated types or self requirements.)",
+      "reason": "method \u0027UnsupportedClosureAsyncThrowingParam.runRequest\u0027 \u2014 parameter or return type not yet supported (unbridgeable async-throwing closure)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'init' — NonBlittableCallConvSwift (generic container parameters require @_cdecl wrapper (ABI mismatch))",
+      "reason": "method \u0027UnsupportedClosureAsyncVoidReturn.init\u0027 \u2014 closure signature not yet supported (Parameter \u0027handler\u0027 has unsupported closure type that cannot be marshalled.)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'init' — generic constraint could not be satisfied (Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.)",
+      "reason": "method \u0027VariadicHolder.init\u0027 \u2014 parameter or return type not yet supported (variadic parameter cannot be wrapped (Swift rejects Array for T...))",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'init' — member signature reaches an @usableFromInline internal (or otherwise-suppressed) type (Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.)",
-      "count": 2
+      "reason": "method \u0027VerificationOutcome.Unverified\u0027 \u2014 GenericEnumCaseConstructor (generic-enum payload-case constructor has no exported function symbol and no @_cdecl wrapper route; a direct mangled-symbol P/Invoke would throw EntryPointNotFoundException on first use.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027VerificationOutcome.Verified\u0027 \u2014 GenericEnumCaseConstructor (generic-enum payload-case constructor has no exported function symbol and no @_cdecl wrapper route; a direct mangled-symbol P/Invoke would throw EntryPointNotFoundException on first use.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027WitnessIndexConformer.consume\u0027 \u2014 C# signature collides with another member",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027createInstance\u0027 \u2014 parameter or return type not yet supported (unsupported placeholder type)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027describeClassBound\u0027 \u2014 protocol-typed parameter/return not yet projected (Method has an unsupported direct existential on \u0027arg0\u0027 (class-bounded composition or unsupported protocol count).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027describeRangeHolder\u0027 \u2014 generic constraint on SwiftUI View type (Method signature references unsupported module (SwiftUI/Combine) in \u0027SwiftBindingsTestLib.RangeHolder\u0027.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027getType\u0027 \u2014 parameter or return type not yet supported (unsupported placeholder type)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027makeCarrier\u0027 \u2014 ModuleInternal (Internal module-level function suppressed from bindings.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027opaqueEncodedByteCount\u0027 \u2014 protocol with associated types used as constraint (Method has constraints on protocols with associated types or self requirements.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027optionalLocalizedResource\u0027 \u2014 Foundation type not yet available in .NET (Method signature references .NET-unavailable type \u0027Foundation.LocalizedStringResource\u0027 in \u0027Swift.Optional\u003CFoundation.LocalizedStringResource\u003E\u0027.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027outOfScopeArrayObjC\u0027 \u2014 protocol-typed parameter/return not yet projected (Method has an @objc protocol existential in an unsupported nested position on \u0027\u0027 (container/tuple/closure); only bare \u0060any P\u0060 / \u0060Optional\u003Cany P\u003E\u0060 are supported.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027outOfScopeAsyncReturnObjC\u0027 \u2014 protocol-typed parameter/return not yet projected (Async method references an @objc protocol existential on \u0027\u0027; @objc existentials are only supported in synchronous param/return position.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027outOfScopeClosureParamObjC\u0027 \u2014 protocol-typed parameter/return not yet projected (Method has an @objc protocol existential in an unsupported nested position on \u0027arg0\u0027 (container/tuple/closure); only bare \u0060any P\u0060 / \u0060Optional\u003Cany P\u003E\u0060 are supported.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027outOfScopeDictionaryObjC\u0027 \u2014 protocol-typed parameter/return not yet projected (Method has an @objc protocol existential in an unsupported nested position on \u0027\u0027 (container/tuple/closure); only bare \u0060any P\u0060 / \u0060Optional\u003Cany P\u003E\u0060 are supported.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027outOfScopeTupleReturnObjC\u0027 \u2014 protocol-typed parameter/return not yet projected (Method has an @objc protocol existential in an unsupported nested position on \u0027\u0027 (container/tuple/closure); only bare \u0060any P\u0060 / \u0060Optional\u003Cany P\u003E\u0060 are supported.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027readCarrier\u0027 \u2014 ModuleInternal (Internal module-level function suppressed from bindings.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027typeName\u0027 \u2014 parameter or return type not yet supported (unsupported placeholder type)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027AsyncClosurePropertySetterHolder.confirmHandler\u0027 \u2014 closure signature not yet supported (Async closure-typed properties cannot be stored via a sync accessor: Swift cannot synthesize a (Args...) async (throws) -\u003E T closure from a C# (funcPtr, context) pair.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027AsyncClosurePropertySetterHolder.factory\u0027 \u2014 closure signature not yet supported (Async closure-typed properties cannot be stored via a sync accessor: Swift cannot synthesize a (Args...) async (throws) -\u003E T closure from a C# (funcPtr, context) pair.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027AsyncClosurePropertySetterHolder.primitiveHandler\u0027 \u2014 closure signature not yet supported (Async closure-typed properties cannot be stored via a sync accessor: Swift cannot synthesize a (Args...) async (throws) -\u003E T closure from a C# (funcPtr, context) pair.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027AsyncClosurePropertySetterOuter.IntentConfigurationNested.asyncNonThrowingFactory\u0027 \u2014 closure signature not yet supported (Async closure-typed properties cannot be stored via a sync accessor: Swift cannot synthesize a (Args...) async (throws) -\u003E T closure from a C# (funcPtr, context) pair.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027AsyncClosurePropertySetterOuter.IntentConfigurationNested.confirmHandler\u0027 \u2014 closure signature not yet supported (Async closure-typed properties cannot be stored via a sync accessor: Swift cannot synthesize a (Args...) async (throws) -\u003E T closure from a C# (funcPtr, context) pair.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027AsyncClosurePropertySetterOuter.IntentConfigurationNested.setterOnlyHandler\u0027 \u2014 closure signature not yet supported (Async closure-typed properties cannot be stored via a sync accessor: Swift cannot synthesize a (Args...) async (throws) -\u003E T closure from a C# (funcPtr, context) pair.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027Bag.selectedFilter\u0027 \u2014 type could not be resolved to a concrete projection (Property type resolved to AnyType (Swift.SwiftOptional\u003CSwift.AnyType\u003E).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027BoundGenericOfParentHost.box\u0027 \u2014 type could not be resolved to a concrete projection (Property type resolved to AnyType (SwiftBindingsTestLib.BoxedGenericPayload\u003CSwift.AnyType\u003E).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027Bundle05Container.alphaDescriptor\u0027 \u2014 type not exported in the module\u0027s public ABI (Single-specialization constrained-extension property \u0027alphaDescriptor\u0027 on generic type \u0027Bundle05Container\u0027 is suppressed at the open-generic class level; emitted as a closed-generic extension method via ConstrainedExtensionEmitter.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027Bundle05Container.alphaDeviceVerificationNonce\u0027 \u2014 type not exported in the module\u0027s public ABI (Single-specialization constrained-extension property \u0027alphaDeviceVerificationNonce\u0027 on generic type \u0027Bundle05Container\u0027 is suppressed at the open-generic class level; emitted as a closed-generic extension method via ConstrainedExtensionEmitter.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027Bundle05Container.alphaHeaderData\u0027 \u2014 type not exported in the module\u0027s public ABI (Single-specialization constrained-extension property \u0027alphaHeaderData\u0027 on generic type \u0027Bundle05Container\u0027 is suppressed at the open-generic class level; emitted as a closed-generic extension method via ConstrainedExtensionEmitter.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027Bundle05Container.alphaSignedDate\u0027 \u2014 type not exported in the module\u0027s public ABI (Single-specialization constrained-extension property \u0027alphaSignedDate\u0027 on generic type \u0027Bundle05Container\u0027 is suppressed at the open-generic class level; emitted as a closed-generic extension method via ConstrainedExtensionEmitter.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027Bundle05Container.alphaTag\u0027 \u2014 type not exported in the module\u0027s public ABI (Single-specialization constrained-extension property \u0027alphaTag\u0027 on generic type \u0027Bundle05Container\u0027 is suppressed at the open-generic class level; emitted as a closed-generic extension method via ConstrainedExtensionEmitter.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027Bundle05Container.betaTag\u0027 \u2014 type not exported in the module\u0027s public ABI (Single-specialization constrained-extension property \u0027betaTag\u0027 on generic type \u0027Bundle05Container\u0027 is suppressed at the open-generic class level; emitted as a closed-generic extension method via ConstrainedExtensionEmitter.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027Bundle05PayloadCarrier.anchorTag\u0027 \u2014 type not exported in the module\u0027s public ABI (Single-specialization constrained-extension property \u0027anchorTag\u0027 on generic type \u0027Bundle05PayloadCarrier\u0027 is suppressed at the open-generic class level; emitted as a closed-generic extension method via ConstrainedExtensionEmitter.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027ConstrainedExtensionWitness.markerLabel\u0027 \u2014 type not exported in the module\u0027s public ABI (Multi-specialization constrained-extension property \u0027markerLabel\u0027 on generic type \u0027ConstrainedExtensionWitness\u0027 is suppressed at the open-generic class level; each specialization is emitted as a closed-generic extension method via ConstrainedExtensionEmitter.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027CrossHostSiblingClass.payload\u0027 \u2014 type could not be resolved to a concrete projection (Property type resolved to AnyType (SwiftBindingsTestLib.CrossHostOuter\u003CSwift.AnyType\u003E.Body).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027CrossHostSiblingStruct.payload\u0027 \u2014 type could not be resolved to a concrete projection (Property type resolved to AnyType (SwiftBindingsTestLib.CrossHostOuter\u003CSwift.AnyType\u003E.Body).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027DependentMemberHost.displayName\u0027 \u2014 type not exported in the module\u0027s public ABI (Constrained-extension property \u0027displayName\u0027 on generic type \u0027DependentMemberHost\u0027 requires a dependent-member same-type constraint on a parent associated type (e.g. \u0060where Value.ValueType == Concrete\u0060); not re-surfaceable as a closed-generic extension method and would emit an unsatisfiable protocol-group conformance at the open-generic level.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027IAPTransactionLike.pendingTransaction\u0027 \u2014 framework type has no .NET binding available (Property type references framework type \u0027StoreKit.Transaction\u0027 which has no .NET binding.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027IAPTransactionLike.transaction\u0027 \u2014 framework type has no .NET binding available (Property type references framework type \u0027StoreKit.Transaction\u0027 which has no .NET binding.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027InternalCarrier.value\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027InternalContractConformer.seed\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027InternalFrozenOperand.value\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027InternalHolder.label\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027LibraryResponse.items\u0027 \u2014 type could not be resolved to a concrete projection (Property type resolved to AnyType (SwiftBindingsTestLib.TypedBag\u003CSwift.AnyType\u003E).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027MockBook.displayRepresentation\u0027 \u2014 type not exported in the module\u0027s public ABI (Type resolution failed for property type \u0027AppIntents.DisplayRepresentation\u0027.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027MockBook.typeDisplayRepresentation\u0027 \u2014 type not exported in the module\u0027s public ABI (Type resolution failed for property type \u0027AppIntents.TypeDisplayRepresentation\u0027.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027NestedHostClass.tag\u0027 \u2014 type could not be resolved to a concrete projection (Property type resolved to AnyType (SwiftBindingsTestLib.NestedHostClass\u003CSwift.AnyType\u003E.Tag).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027NestedHostStruct.caption\u0027 \u2014 type could not be resolved to a concrete projection (Property type resolved to AnyType (SwiftBindingsTestLib.NestedHostStruct\u003CSwift.AnyType\u003E.Caption).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027ObjCExistentialOutOfScopeGateBox.arrayProp\u0027 \u2014 protocol-typed parameter/return not yet projected (Property has an @objc protocol existential in an unsupported nested position (container/tuple/closure).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027ObjCExistentialOutOfScopeGateBox.dictProp\u0027 \u2014 protocol-typed parameter/return not yet projected (Property has an @objc protocol existential in an unsupported nested position (container/tuple/closure).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027PublicHostWithInternalMembers.freshCarrier\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027PublicWithInternalStored.carrier\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027SearchableTypeRegistry.types\u0027 \u2014 protocol-typed parameter/return not yet projected (Bound generic contains existential type argument \u0027any SwiftBindingsTestLib.SearchableItem.Type\u0027.)",
+      "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'init' — parameter or return type not yet supported (C# does not support generic constructors with method-own type parameters.)",
+      "reason": "property \u0027SelfReqHost.box\u0027 \u2014 type could not be resolved to a concrete projection (Property type resolved to AnyType (SwiftBindingsTestLib.SelfReqBox\u003CSwift.AnyType\u003E).)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'init' — parameter or return type not yet supported (Tuple parameter 'maxSize' has elements whose P/Invoke type (IntPtr) differs from the C# type — per-element marshalling is not yet implemented for tuple-of-class/struct.)",
+      "reason": "property \u0027SettableResultBox.value\u0027 \u2014 parameter or return type not yet supported (Accessor \u0027value_Set\u0027 has a Result-typed parameter; Result is unsupported in the write-in direction.)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'init' — parameter or return type not yet supported (unsupported placeholder type in constructor)",
+      "reason": "property \u0027SetterTighterThanGetter._storage\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'init' — parameter or return type not yet supported (variadic parameter cannot be wrapped (Swift rejects Array for T...))",
+      "reason": "property \u0027ShortNameCollisionFixture.Data.marker\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'init' — synthesized Codable member pruned by design (Synthesized Codable member (Encoder/Decoder are unresolvable existential protocols).)",
-      "count": 2
+      "reason": "property \u0027TypeFactory.storedType\u0027 \u2014 type could not be resolved to a concrete projection (Property type resolved to AnyType (Swift.AnyType).)",
+      "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'makeCarrier' — ModuleInternal (Internal module-level function suppressed from bindings.)",
+      "reason": "type \u0027ArrayEnumView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'makeCarrier' — member signature reaches an @usableFromInline internal (or otherwise-suppressed) type (Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.)",
+      "reason": "type \u0027AsyncServiceView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'makeColumn' — C# signature collides with another member",
+      "reason": "type \u0027BindingToggleView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'makeShape' — C# signature collides with another member",
+      "reason": "type \u0027ClassClosureView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'handle' — C# signature collides with another member",
+      "reason": "type \u0027ClassParamView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'matches' — protocol with associated types used as constraint (Method has constraints on protocols with associated types or self requirements.)",
+      "reason": "type \u0027ClassReturnClosureView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'opaqueEncodedByteCount' — protocol with associated types used as constraint (Method has constraints on protocols with associated types or self requirements.)",
+      "reason": "type \u0027CodableProfileEditorView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'readCarrier' — ModuleInternal (Internal module-level function suppressed from bindings.)",
+      "reason": "type \u0027DeepChainView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'registerCarrier' — member signature reaches an @usableFromInline internal (or otherwise-suppressed) type (Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.)",
+      "reason": "type \u0027EnumModifierView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'transform' — closure signature not yet supported (Parameter '_using' has unsupported closure type that cannot be marshalled.)",
+      "reason": "type \u0027EnumParamView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'transform' — closure signature not yet supported (Parameter 'arg0' has unsupported closure type that cannot be marshalled.)",
+      "reason": "type \u0027FormatActionView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'UnsupportedClosureAsyncVoidReturn.init' — closure signature not yet supported (Parameter 'handler' has unsupported closure type that cannot be marshalled.)",
+      "reason": "type \u0027FormatMenuView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'typeName' — parameter or return type not yet supported (unsupported placeholder type)",
+      "reason": "type \u0027FrozenRefClosureView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'AsyncServiceView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027GenericPlaceholderView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'BindingToggleView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027HandleParamView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'ClassClosureView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027KeywordAsyncParamView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'ClassParamView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027KeywordClosureParamView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'ClassReturnClosureView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027KeywordParamView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'DeepChainView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027KeywordResultClosureParamView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'EnumParamView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027LifecycleTestView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'FormatActionView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027MixedAsyncView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'FormatMenuView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027MixedParamView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'GenericPlaceholderView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027MixedStringView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'LifecycleTestView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027ModifiableView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'MixedAsyncView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027MultiArgClosureView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'MixedParamView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027NoParamBlurView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'MixedStringView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027NumberListView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'ModifiableView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027OptionalClassView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'MultiArgClosureView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027OptionalClosureView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'NoParamBlurView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027OptionalEnumView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'NumberListView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027OptionalStringView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'OptionalClassView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027OptionalUrlParamView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'OptionalClosureView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027PlaceholderOnlyView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'OptionalEnumView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027PlayerStyleView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'OptionalStringView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027RangeHolder\u0027 \u2014 frozen struct stored field has an indeterminate cross-compile Buffer layout (generic value-type instantiation) (stored property has a generic value-type layout whose per-instantiation size is not derivable cross-compile (e.g. ClosedRange\u003CBound\u003E, Result\u003CSuccess,Failure\u003E); a blitted Buffer would mis-size the field.)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'PlaceholderOnlyView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027ResultCompletionView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'PlayerStyleView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027ResultWithStructView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'ResultCompletionView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027RichToolbarView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'ResultWithStructView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027StringClosureView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'RichToolbarView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027StringReturnClosureView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'StringClosureView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027SymbolIconView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'StringReturnClosureView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027TypedClosureView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'SymbolIconView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027UpdatableCounterView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'TypedClosureView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027UpdatableMixedView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'UpdatableCounterView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027UrlClosureView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type 'UpdatableMixedView' — SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027UrlParamView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'purchaseAsync' — parameter or return type not yet supported (wrapper not emitted; direct call would be ABI-unsafe)",
+      "reason": "type \u0027UrlResultView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'runAsync' — parameter or return type not yet supported (wrapper not emitted; direct call would be ABI-unsafe)",
+      "reason": "type \u0027UserDataAsyncView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method 'runRequest' — parameter or return type not yet supported (unbridgeable async-throwing closure)",
+      "reason": "type \u0027VariadicSpec\u0027 \u2014 parameter or return type not yet supported (variadic generic parameter pack \u0027each R\u0027 (Swift \u0060each R\u0060 / \u0060repeat each R\u0060) has no C# equivalent.)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "UnsupportedSwiftType",
       "reason": "Existential type fallback",
-      "count": 6
+      "count": 14
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -438,6 +1134,12 @@
       "marker": "ObsoleteSB0001",
       "reason": "No @_cdecl wrapper or native thunk available. P/Invoke calling convention may not match Swift ABI",
       "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLibDependency.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027MiniEntityProperty.init\u0027 \u2014 parameter or return type not yet supported (C# does not support generic constructors with method-own type parameters.)",
+      "count": 2
     }
   ]
 }

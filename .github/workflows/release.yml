@@ -189,7 +189,11 @@ jobs:
           echo "Boot started in background"
 
       - name: Build and test bindings (strict + coverage + baselines)
-        run: dotnet nuke binding-tests --strict --compile-only
+        # --skip-surface runs the Layer B skip-surface trend gate against
+        # build/baselines/skip-surface-baseline.json in the same compile-only
+        # pass (the gate reads the freshly-generated .cs, so it needs the regen
+        # this step already does). Fails on any upward skip-marker delta.
+        run: dotnet nuke binding-tests --strict --compile-only --skip-surface
 
       - name: Validate Issue 1 skip attribution
         env:

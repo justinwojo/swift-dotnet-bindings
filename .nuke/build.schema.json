@@ -280,6 +280,10 @@
           "type": "string",
           "description": "NuGet output directory"
         },
+        "PartialSuccessKitchen": {
+          "type": "boolean",
+          "description": "Opt-in: build the PartialSuccessKitchen fixture, generate + compile it, and assert the skip report against build/baselines/partial-success-kitchen-baseline.json. Host-only; never part of the default run or --compile-only"
+        },
         "Permissive": {
           "type": "boolean",
           "description": "Allow non-fatal failures in --compile-only (generator exit, dep-gen, wrapper give-up)"

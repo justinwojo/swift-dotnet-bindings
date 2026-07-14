@@ -189,7 +189,11 @@ Confirmed upstream catalog (`src/docs/Future/upstream-issues-README.md`): Issues
 
 ### Compile-only vs runtime twin
 
-M0-D seed holds: many Swift fixtures exist primarily to keep **compile-only** green after intentional skips. Coverage-matrix `runtime_tested` / `passing_untested` would quantify this — **but that script is manual and not in CI** (see T4).
+M0-D seed holds: many Swift fixtures exist primarily to keep **compile-only** green after intentional skips. Coverage-matrix `runtime_tested` / `passing_untested` would quantify this — **but that script's fail criterion is weak** (see T4).
+
+> **[Verification 2026-07-16: "not in CI" is REFUTED — see [`../00-AUDIT-VERIFICATION.md`](../00-AUDIT-VERIFICATION.md) §4.4]** `coverage-report.py` **does** run in CI: a named step in both `ci.yml:110–115` and `release.yml:205–210`, no `continue-on-error`, and its `sys.exit(1)` fails the build. It is simply not wired into the `nuke binding-tests` local target. The accurate defect — which `data-pack/03` states correctly (`03:106`) — is that its **only** hard-fail condition is a must-pass feature with *no test file at all*; degraded/untested/known-unsupported counts print as warnings and never compare against `baselines.json`. The remediation is a baseline comparison + promoted failures, **not** wiring a CI step that already exists. (T4-004 — skip-surface gate never run in CI — is confirmed as filed.)
+>
+> **[Fix program 2026-07-16: both remediations have since landed.]** `coverage-report.py` now ratchets degraded/compiled-out/passing-untested/known-unsupported against `BindingTests/baselines.json` and exits 1 on growth (G2), and `--skip-surface` is wired into the compile-only leg of both `ci.yml` and `release.yml` with a reseeded baseline (G3). The claims below describe the pre-fix state.
 
 ### Findings
 
@@ -243,14 +247,16 @@ Evidence: `Build.BindingTests.cs:25–34`, `:931–968`, `:609–627`; `Build.Wr
 
 ### What is fail-open / theater
 
+*(Table records the state at audit time; the G1/G2 fixes of 2026-07-16 made the budget keys live ratchets and reseeded them from a fresh run.)*
+
 | Claim | Reality |
 |-------|---------|
 | `baselines.json` `must_pass_degraded: 0` | **Not read by nuke** — only documented + coverage-report *computes* degraded counts; **does not compare to baselines.json** |
 | `must_pass_compiled_out: 25` | Same — dead budget key |
 | `known_unsupported_total: 62` | Same — dead budget key |
 | `generator_exit_code: 0` | Not enforced via this file; real enforcement is `Strict \|\| failClosed` on regen exit |
-| Coverage matrix in CI | **Manual** `coverage-report.py`; exits 1 only on missing *test file*, not on degraded/untested budgets vs baseline |
-| Skip-surface trend gate | **Opt-in** `--skip-surface` only (`Build.BindingTests.cs:976–977`) |
+| Coverage matrix in CI | **Runs in CI** (`ci.yml:110–115`, `release.yml:205–210`, `sys.exit(1)` fails; not wired into `nuke binding-tests`). Weak criterion (pre-fix): exited 1 only on a must-pass feature with *no test file*, not on degraded/untested budgets vs baseline — see §4.4. **Fixed 2026-07-16 (G2): budgets now ratchet against `baselines.json` and fail on growth.** |
+| Skip-surface trend gate | **Opt-in** `--skip-surface` only (`Build.BindingTests.cs:976–977`) at audit time. **Fixed 2026-07-16 (G3): wired into the CI compile-only leg in `ci.yml` + `release.yml`.** |
 | `ReportBindingTestResults` | **Logs only** — no pass-count floor vs baseline in this method |
 | Stale generator (historical) | **Fixed** via fingerprint (constraints.md / M0-D text may still say “missing only” — docs drift) |
 

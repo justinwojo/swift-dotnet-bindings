@@ -1374,12 +1374,13 @@ public static class BindingsGeneratorCommand
                 m => m.ObjC = ObjCSection.From(mixedParse.Diagnostics),
                 logger);
             // Fail closed: the framework HAS an ObjC surface (mixedObjcResolution != null), so a
-            // non-zero pipeline exit means we tried to bind a known ObjC surface and failed. Do
-            // NOT silently degrade to a Swift-only package — that drops the ObjC types with no
-            // diagnostic AND bypasses SWIFTBIND039 (which only fires when metadata still says
-            // "Mixed"). Propagate the exit code (mirroring the pure-ObjC path's
-            // `context.ExitCode = objcResult.ExitCode` in the SwiftModuleNotFound/StaticLibrary
-            // catch above) so the Nuke gate's --strict/--permissive layer decides severity.
+            // non-zero pipeline exit OR a null module means we tried to bind a known ObjC
+            // surface and failed. Do NOT silently degrade to a Swift-only package — that drops
+            // the ObjC types with no diagnostic AND bypasses SWIFTBIND039 (which only fires when
+            // metadata still says "Mixed"). Propagate a non-zero exit (mirroring the pure-ObjC
+            // path's `context.ExitCode = objcResult.ExitCode` in the SwiftModuleNotFound/
+            // StaticLibrary catch above) so the Nuke gate's --strict/--permissive layer decides
+            // severity.
             if (ShouldAbortForFailedMixedObjC(mixedObjcResult))
             {
                 logger.LogError(

@@ -17,6 +17,48 @@ import os
 from datetime import datetime, timezone
 
 
+# Coverage ratchet keys: maps a baselines.json key -> (summary group, metric).
+# Each is an upper bound — the derived count must stay at or below the committed
+# baseline. These are the counts that print as warnings today (degraded,
+# passing_untested) plus the compiled-out / known-unsupported budgets, promoted
+# from advisory text into an enforced ratchet. generator_exit_code is
+# intentionally NOT here: a non-zero generator exit already fails the compile-only
+# gate (regen exit under --strict / fail-closed), so a second copy would be a dead
+# duplicate — the key is dropped from baselines.json rather than re-enforced here.
+COVERAGE_RATCHET_KEYS = {
+    "must_pass_degraded": ("must_pass", "degraded"),
+    "must_pass_compiled_out": ("must_pass", "compiled_out"),
+    "must_pass_passing_untested": ("must_pass", "passing_untested"),
+    "known_unsupported_total": ("known_unsupported", "total"),
+}
+
+
+def compare_coverage_baseline(summary, baseline):
+    """Ratchet the derived coverage summary against committed baseline budgets.
+
+    Returns (regressions, improvements) as lists of human-readable strings.
+    A regression is any ratcheted count that grew ABOVE its baseline (more
+    degraded / compiled-out / untested / known-unsupported features than the
+    committed budget allows). The caller fails the run on a non-empty
+    regressions list. Improvements (counts below baseline) never fail; they are
+    reported so the baseline can be tightened by reseeding in the same commit.
+    A key missing from the baseline is skipped (not treated as 0) so a partial
+    baseline can't spuriously fail; the coverage keys ship together.
+    """
+    regressions = []
+    improvements = []
+    for key, (group, metric) in COVERAGE_RATCHET_KEYS.items():
+        if key not in baseline:
+            continue
+        base = baseline[key]
+        curr = summary.get(group, {}).get(metric, 0)
+        if curr > base:
+            regressions.append(f"{key}: {base} -> {curr} (+{curr - base})")
+        elif curr < base:
+            improvements.append(f"{key}: {base} -> {curr} (-{base - curr})")
+    return regressions, improvements
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Generate coverage report from ABI JSON and binding report"
@@ -24,11 +66,16 @@ def main():
     parser.add_argument("--abi-json", help="Path to ABI JSON file")
     parser.add_argument("--binding-report", help="Path to binding-report.json")
     parser.add_argument("--output-dir", default="output", help="Output directory (default: output)")
+    parser.add_argument("--baseline", default="baselines.json",
+                        help="Path to BindingTests/baselines.json for the coverage ratchet "
+                             "(default: baselines.json in the working directory). Pass an empty "
+                             "string to skip the baseline comparison.")
     args = parser.parse_args()
 
     abi_json_path = args.abi_json
     binding_report_path = args.binding_report
     output_dir = args.output_dir
+    baseline_path = args.baseline
 
     # Load ABI JSON
     abi_data = None
@@ -1262,9 +1309,35 @@ def main():
             print(f"  - {f['name']} ({f['category']}): {f['test_file']}")
     
     print(f"\nOutput: {output_path}")
-    
-    # Fail if any features are truly missing (no test file exists at all)
-    if mp_missing > 0:
+
+    # --- Coverage ratchet against baselines.json ---
+    # Promote the degraded / passing-untested warnings (and the compiled-out /
+    # known-unsupported budgets) from advisory text into an enforced ratchet:
+    # any count above its committed baseline fails the run. Empty --baseline
+    # opts out (ad-hoc local runs); a missing file is reported, not failed.
+    baseline_regressions = []
+    if baseline_path:
+        if os.path.isfile(baseline_path):
+            with open(baseline_path) as f:
+                baseline = json.load(f)
+            baseline_regressions, baseline_improvements = compare_coverage_baseline(summary, baseline)
+            if baseline_improvements:
+                print(f"\n=== Coverage ratchet: improvements below baseline "
+                      f"(reseed {baseline_path} to lock in) ===")
+                for line in baseline_improvements:
+                    print(f"  IMPROVED: {line}")
+            if baseline_regressions:
+                print(f"\n*** ERROR: {len(baseline_regressions)} coverage count(s) grew above "
+                      f"baseline ({baseline_path}) ***")
+                for line in baseline_regressions:
+                    print(f"  REGRESSION: {line}")
+                print("  Fix the underlying skip/coverage gap OR — if intentional — "
+                      "reseed the baseline in the same commit.")
+        else:
+            print(f"\nWARNING: coverage baseline not found at {baseline_path} — ratchet skipped")
+
+    # Fail on truly-missing test files (no test at all) OR any coverage regression.
+    if mp_missing > 0 or baseline_regressions:
         sys.exit(1)
 
 
