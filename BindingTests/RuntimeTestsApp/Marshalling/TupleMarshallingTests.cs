@@ -33,6 +33,37 @@ public class TupleMarshallingTests : TestBase
         TestLogger.Info($"MakeNamedPair() = (x: {named.x}, y: {named.y})");
     }
 
+    // A named tuple RETURN whose leading element is a 16-byte buffer-backed String. The whole
+    // tuple is written into the indirect-result buffer; the String slot is read as the address of
+    // its inline value and materialized via SwiftMarshal.MarshalFromSwiftObject<SwiftString>. The
+    // named labels only shape the public field names — the buffer read is positional — so this is
+    // the named analog of the positional (Int32, String) return already covered by PairMaker. The
+    // String content (not just a pointer or a prefix) must round-trip intact.
+    public void TestNamedMixed_StringElementReturn()
+    {
+        var mixed = TestLibFunctions.MakeNamedMixed();
+        AssertEqual("Test", mixed.name, "MakeNamedMixed name (16-byte String slot)");
+        AssertEqual(25, mixed.age, "MakeNamedMixed age");
+        AssertTrue(mixed.active, "MakeNamedMixed active");
+        TestLogger.Info($"MakeNamedMixed() = (name: {mixed.name}, age: {mixed.age}, active: {mixed.active})");
+    }
+
+    // Sibling buffer-backed element family: a named tuple RETURN with BOTH a 16-byte String and a
+    // 16-byte Foundation.Data element (surfaced as byte[]), each read address-of from its ABI
+    // offset. Confirms the return-path handling is general across buffer-backed element types, not
+    // a String special case.
+    public void TestNamedWithData_StringAndDataElementReturn()
+    {
+        var result = TestLibFunctions.MakeNamedWithData();
+        AssertEqual("blob", result.label, "MakeNamedWithData label (String slot)");
+        AssertEqual(4, result.count, "MakeNamedWithData count");
+        AssertNotNull(result.payload, "MakeNamedWithData payload not null");
+        AssertEqual(4, result.payload.Length, "MakeNamedWithData payload length (Data slot)");
+        AssertEqual((byte)0x01, result.payload[0], "MakeNamedWithData payload[0]");
+        AssertEqual((byte)0x04, result.payload[3], "MakeNamedWithData payload[3]");
+        TestLogger.Info($"MakeNamedWithData() = (label: {result.label}, payload: {result.payload.Length} bytes, count: {result.count})");
+    }
+
     public void TestTriple()
     {
         var triple = TestLibFunctions.MakeTriple(1, 2, 3);

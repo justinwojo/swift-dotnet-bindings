@@ -1445,6 +1445,23 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Mixed generic tuple return gate: a tuple return mixing bare generic parameters with
+            // concrete or bound-generic elements (e.g. (T, Int), (Array<T>, T), (T, T?)) lowers
+            // element-wise in Swift's ABI — each address-only element gets its own leading
+            // indirect-result pointer while loadable elements return direct in result registers.
+            // The direct-symbol P/Invoke this path would emit models neither that split nor the
+            // uniform all-bare multi-@out shape, so the call would mis-bind registers (arguments
+            // clobbered, result read from an unwritten buffer). Skip the member rather than emit
+            // a binding with a wrong ABI. Uniform all-bare tuples (T, U) stay emitted via the
+            // multi-@out branch; async mixed tuples flatten through the async callback path.
+            if (!isAccessor && MarshallingHelpers.IsUnmodeledMixedGenericTupleReturn(methodEnv))
+            {
+                ReportCollector.RecordMemberSkipped(methodEnv.MethodDecl, SkipReason.UnsupportedSignature,
+                    "Generic tuple return mixes bare generic parameters with concrete/bound-generic elements — Swift lowers each address-only element to its own indirect-result register while loadable elements return direct, a split the direct-call P/Invoke cannot express.");
+                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "mixed generic tuple return has a per-element indirect/direct ABI the P/Invoke cannot express", containingDecl: methodEnv.MethodDecl.ParentDecl);
+                return;
+            }
+
             var signatureHandler = new SignatureHandler(methodEnv);
 
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)

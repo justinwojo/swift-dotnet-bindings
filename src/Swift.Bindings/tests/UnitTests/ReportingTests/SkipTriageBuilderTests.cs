@@ -145,5 +145,53 @@ public class SkipTriageBuilderTests
         Assert.Equal(0, summary.ReviewCount);
         Assert.Equal(0, summary.PublicSurfaceLost);
         Assert.Empty(summary.ReviewItems);
+        Assert.Equal(0, summary.DegradedConsumeCount);
+        Assert.Empty(summary.DegradedConsumeItems);
+    }
+
+    [Fact]
+    public void Build_ConsumeDegraded_SurfacedAdditively_WithoutFlippingReviewOrDisposition()
+    {
+        // A consume-degraded row is a KnownLimitation (attributed, not a bug) — it must NOT inflate
+        // ReviewCount. But it also must not be invisible on a ReviewCount==0 report: the additive
+        // DegradedConsume callout names it. Details carry the greppable "consume-degraded" site token.
+        var consume = Item(SkipReason.SuppressedProxyMemberDegraded, "setThing",
+            details: SuppressedProxyReporting.Details(SuppressedProxyReporting.Site.ConsumeDegraded, "Demo.WidgetProxy"),
+            containingType: "Demo.Host");
+        var list = new List<SkippedItem>
+        {
+            Item(SkipReason.ModuleInternal, "a"),  // expected-nonpublic
+            consume,                               // known-limitation + consume-degraded callout
+        };
+
+        var summary = SkipTriageBuilder.Build(list);
+
+        // Disposition unchanged: still KnownLimitation, ReviewCount stays 0.
+        Assert.Equal(1, summary.ByDisposition["KnownLimitation"]);
+        Assert.Equal(0, summary.ReviewCount);
+        Assert.Empty(summary.ReviewItems);
+        // Surfaced additively.
+        Assert.Equal(1, summary.DegradedConsumeCount);
+        Assert.Contains(summary.DegradedConsumeItems, i => i.Name == "setThing" && i.ContainingType == "Demo.Host");
+    }
+
+    [Fact]
+    public void Build_ProduceThrowAndReceiverFailfast_NotCountedAsConsumeDegraded()
+    {
+        // The produce-throw arm carries its own SB0006 compile error and the receiver-failfast arm its
+        // own fail-fast body — neither is a silent consume position, so the consume callout must exclude
+        // them (it keys on the consume-degraded site token, not the shared reason).
+        var list = new List<SkippedItem>
+        {
+            Item(SkipReason.SuppressedProxyMemberDegraded, "getThing",
+                details: SuppressedProxyReporting.Details(SuppressedProxyReporting.Site.ProduceThrow, "Demo.WidgetProxy")),
+            Item(SkipReason.SuppressedProxyMemberDegraded, "receiveThing",
+                details: SuppressedProxyReporting.Details(SuppressedProxyReporting.Site.ReceiverFailFast, "Demo.WidgetProxy")),
+        };
+
+        var summary = SkipTriageBuilder.Build(list);
+
+        Assert.Equal(0, summary.DegradedConsumeCount);
+        Assert.Empty(summary.DegradedConsumeItems);
     }
 }

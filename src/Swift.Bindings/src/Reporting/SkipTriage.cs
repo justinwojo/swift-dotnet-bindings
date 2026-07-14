@@ -39,6 +39,25 @@ public sealed class SkipTriageSummary
     /// short actionable list directly. Ordered as they appear in <see cref="BindingReport.SkippedItems"/>.
     /// </summary>
     public List<SkipTriageItem> ReviewItems { get; } = new();
+
+    /// <summary>
+    /// Count of CONSUME-degraded reverse-dispatch members — a setter/parameter/enum-payload position that
+    /// accepts an existential whose <c>{Protocol}Proxy</c> was suppressed, so a C#-authored conformer passed
+    /// there silently never fires from Swift. These roll up under <see cref="SkipDisposition.KnownLimitation"/>
+    /// (they are attributed, not a generator bug, so reclassifying them to <see cref="SkipDisposition.Review"/>
+    /// would be dishonest and would perturb the ReviewCount==0 invariant). But a degrade that is invisible in
+    /// source (a dropped C# wrap-fallback lambda) has no compile signal at every position — so it is surfaced
+    /// here as an additive callout, visible even when <see cref="ReviewCount"/> is zero, without touching
+    /// <see cref="ByDisposition"/> or <see cref="ReviewCount"/>.
+    /// </summary>
+    public int DegradedConsumeCount { get; set; }
+
+    /// <summary>
+    /// The CONSUME-degraded items themselves, inlined so a clean (ReviewCount==0) report still names the
+    /// silent arms a consumer needs to know about. Ordered as they appear in
+    /// <see cref="BindingReport.SkippedItems"/>.
+    /// </summary>
+    public List<SkipTriageItem> DegradedConsumeItems { get; } = new();
 }
 
 /// <summary>
@@ -86,6 +105,25 @@ public static class SkipTriageBuilder
                     Details = item.Details,
                 });
             }
+
+            // Additive CONSUME-degrade callout — surfaced regardless of disposition (the row stays
+            // KnownLimitation). Matched on the greppable site token stamped by SuppressedProxyReporting so
+            // the produce-throw / receiver-failfast siblings, which carry their own signal (SB0006 compile
+            // error / fail-fast body), are NOT swept in here.
+            if (item.Reason == SkipReason.SuppressedProxyMemberDegraded && item.Details is { } degradeDetails &&
+                degradeDetails.Contains(
+                    SuppressedProxyReporting.Token(SuppressedProxyReporting.Site.ConsumeDegraded),
+                    StringComparison.Ordinal))
+            {
+                summary.DegradedConsumeItems.Add(new SkipTriageItem
+                {
+                    Kind = item.Kind,
+                    Name = item.Name,
+                    ContainingType = item.ContainingType,
+                    Reason = item.Reason,
+                    Details = item.Details,
+                });
+            }
         }
 
         // ByDisposition in enum order (nothing-to-do → review) for stable output.
@@ -100,6 +138,7 @@ public static class SkipTriageBuilder
             summary.ByReason[pair.Key.ToString()] = pair.Value;
 
         summary.ReviewCount = byDisposition.GetValueOrDefault(SkipDisposition.Review);
+        summary.DegradedConsumeCount = summary.DegradedConsumeItems.Count;
         // Public surface a consumer could theoretically have seen but didn't get: everything except
         // never-public members AND CSM-recovered rows (whose typed surface IS callable — the skip is
         // only the open-generic base member being accounted for).

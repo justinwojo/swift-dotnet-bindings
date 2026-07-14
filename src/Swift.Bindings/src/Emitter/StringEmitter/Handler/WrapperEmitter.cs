@@ -749,7 +749,35 @@ namespace BindingsGeneration
                     csWriter.AppendCaptured(capturedMember);
                 }
             }
+            else if (!_env.MethodDecl.IsAccessor &&
+                     _emissionContext?.WasConsumeDegradedMember(_env.MethodDecl) == true)
+            {
+                // A public method with a CONSUME-degraded parameter (an existential param whose
+                // {Protocol}Proxy was suppressed, so a C#-authored conformer silently no-fires) — but whose
+                // return did NOT produce-throw (that path took the SB0006 error branch above, which subsumes
+                // this warning). Inject the warning-level SB0008 marker ahead of the already-written
+                // signature + body via the same capture/re-append the SB0006 path uses. Warning-level does
+                // NOT need the RemoveObsoleteAttributeLines dance (a build warning cannot break generated
+                // delegation), but [Obsolete] is AllowMultiple=false: if EmitSafetyObsolete already wrote a
+                // warning-level marker (SB0001/SB0002/deprecation), leave it — adding a second [Obsolete]
+                // would not compile, and the existing one already forces consumer attention. The report row
+                // is recorded independently at each consume site, so skipping the marker here loses only the
+                // in-source signal, never the persisted diagnostic.
+                var capturedMember = csWriter.RollbackToAndCapture(preSignatureCheckpoint);
+                if (!ContainsObsoleteAttributeLine(capturedMember))
+                    EmitConsumeDegradedWarning(csWriter);
+                csWriter.AppendCaptured(capturedMember);
+            }
         }
+
+        /// <summary>
+        /// True if <paramref name="memberText"/> already carries a single-line <c>[Obsolete(…)]</c> attribute.
+        /// A warning-level consume-degrade marker must not be added on top of one (<c>[Obsolete]</c> is
+        /// <c>AllowMultiple=false</c>), so this gates the SB0008 injection the way
+        /// <see cref="RemoveObsoleteAttributeLines"/> resolves the same collision for the error-level path.
+        /// </summary>
+        private static bool ContainsObsoleteAttributeLine(string memberText) =>
+            memberText.Split('\n').Any(line => line.TrimStart().StartsWith("[Obsolete(", StringComparison.Ordinal));
 
         /// <summary>
         /// Drops any single-line <c>[Obsolete(…)]</c> attribute from an emitted member's captured text.
@@ -872,6 +900,42 @@ namespace BindingsGeneration
             csWriter.WriteLine(
                 $"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(ProxySuppressedObsoleteMessage)}\", " +
                 $"true, DiagnosticId = \"{ProxySuppressedDiagnosticId}\", " +
+                "UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\")]");
+        }
+
+        /// <summary>
+        /// DiagnosticId for the compile-time-visible marker on a CONSUME-degraded position (a setter or
+        /// parameter that accepts an existential whose <c>{Protocol}Proxy</c> reverse-dispatch conformance
+        /// was suppressed). Distinct from SB0006 (produce-throw): the surrounding member still works for a
+        /// Swift-vended conformer, so this marker is emitted at WARNING level (<c>error: false</c>) — a build
+        /// warning steering the consumer, not a build error. SB0007 is reserved, so SB0008 is the next id.
+        /// </summary>
+        internal const string ProxyConsumeDegradedDiagnosticId = "SB0008";
+
+        /// <summary>
+        /// Consumer-facing text for the SB0008 marker. Explains that a C#-authored conformer passed into this
+        /// position silently never fires (there is no proxy to marshal it into Swift's reverse-dispatch), while
+        /// a value that originated in Swift round-trips correctly — the honest guidance a warning-level
+        /// <c>[Obsolete]</c> gives, since C# cannot mark a single parameter position.
+        /// </summary>
+        internal const string ProxyConsumeDegradedObsoleteMessage =
+            "A C#-authored conformer passed here will never be invoked from Swift: this parameter/setter " +
+            "accepts an existential whose reverse-dispatch proxy (its EveryProtocol conformance) could not " +
+            "be generated, so only a value that originated in Swift round-trips. The member otherwise works.";
+
+        /// <summary>
+        /// Emits the warning-level <c>[Obsolete(..., false, DiagnosticId = "SB0008")]</c> marker in front of a
+        /// member (or accessor) that has a CONSUME-degraded position. Warning-level (not <c>error: true</c>
+        /// like <see cref="EmitSuppressedProxyReadPoison"/>) because the member itself remains callable for a
+        /// Swift-vended conformer — the marker is a visible signal that a C#-authored conformer silently
+        /// no-fires, not a hard prohibition on the member. Mirrors the SB0006 emit shape so a future refactor
+        /// cannot quietly change the id the wiki/troubleshooting docs point to.
+        /// </summary>
+        internal static void EmitConsumeDegradedWarning(CSharpWriter csWriter)
+        {
+            csWriter.WriteLine(
+                $"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(ProxyConsumeDegradedObsoleteMessage)}\", " +
+                $"false, DiagnosticId = \"{ProxyConsumeDegradedDiagnosticId}\", " +
                 "UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\")]");
         }
 

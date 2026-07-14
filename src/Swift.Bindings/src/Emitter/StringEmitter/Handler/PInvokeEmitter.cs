@@ -631,10 +631,14 @@ namespace BindingsGeneration
                                 if (!_env.ExistentialHandler.IsProxyNameSuppressed(filteredProxy, qualifiedProxy, _env.EmissionContext))
                                     proxyClassName = qualifiedProxy;
                                 else
+                                {
                                     // Persist the CONSUME degrade: the suppressed proxy leaves the wrap
                                     // fallback off, so this parameter accepts only Swift-vended conformers.
                                     // Sibling of WrapperEmitter.Marshalling's gate; dedups to one method row.
                                     SuppressedProxyReporting.Record(_env.MethodDecl, SuppressedProxyReporting.Site.ConsumeDegraded, qualifiedProxy);
+                                    // Flag the owning method so EmitMethod injects the warning-level SB0008 marker.
+                                    _env.EmissionContext?.RecordConsumeDegradedMember(_env.MethodDecl);
+                                }
                             }
                             AddParameter(
                                 new MarshalledType.Existential(containerType, publicType) { ProxyClassName = proxyClassName },

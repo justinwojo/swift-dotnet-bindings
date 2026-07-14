@@ -326,6 +326,14 @@ def main():
             "name": "tuple_returns",
             "features": ["method_returning_tuple"]
         },
+        "Generics/MixedTupleReturns.swift": {
+            "name": "mixed_generic_tuple_returns",
+            "features": ["mixed_generic_tuple_return"]
+        },
+        "Generics/MixedTupleReturns.swift+bare_control": {
+            "name": "bare_generic_tuple_control",
+            "features": ["bare_generic_tuple_return"]
+        },
         "Initializers/BasicInit.swift": {
             "name": "basic_initializers",
             "features": ["standard_initializer"]
@@ -548,6 +556,10 @@ def main():
     # async closures now emit successfully and have been promoted to must_pass.
     # Updated for Phase 7 (v1.9): Swift 6.0-6.2 language features added.
     KNOWN_UNSUPPORTED_FEATURES = {
+        # Mixed generic tuple returns fail closed: Swift lowers each address-only
+        # element to its own indirect-result register while loadable elements
+        # return direct — a split the direct-symbol P/Invoke cannot express.
+        "mixed_generic_tuple_return",
         "typed_throws",
         "typed_async_throws",
         "typed_throws_on_struct",
@@ -772,6 +784,14 @@ def main():
         "opaque_return_property": {"OpaqueProvider"},
         "opaque_composition_return": {"makeOpaqueComposition"},
     
+        # Generics/MixedTupleReturns.swift — mixed skip matrix vs bare-only control
+        "mixed_generic_tuple_return": {
+            "mixedReturnPairTI", "mixedReturnPairIT", "mixedReturnPairTArray",
+            "mixedReturnPairArrayT", "mixedReturnPairTOptional", "mixedReturnTriple",
+            "mixedReturnThrowing", "MixedTupleHost",
+        },
+        "bare_generic_tuple_return": {"mixedControlBarePair"},
+
         # Generics/Functions.swift — unconstrained vs constrained
         "generic_function": {"identity", "pair"},
         "generic_function_with_constraint": {

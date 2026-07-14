@@ -189,6 +189,25 @@ namespace BindingsGeneration
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(
                 csWriter, caseDecl, parentDecl: enumDecl, emitObsolete: true);
 
+            // Side-effect-free handler for BOTH the compile-marker pre-scan here and the per-payload
+            // report walk below. Built with a null composition collector and CurrentModuleName so it
+            // resolves cross-module proxy qualification (matching the projection sites) without recording
+            // any dependency or composition.
+            var consumeDegradeHandler = new ExistentialHandler(typeDatabase) { CurrentModuleName = moduleDecl.Name };
+            // Compile-time signal for a CONSUME-degraded enum payload: if any associated value carries an
+            // existential whose {Protocol}Proxy (its EveryProtocol reverse-dispatch conformance) was
+            // suppressed, a C#-authored conformer handed to this factory silently never fires from Swift.
+            // Mark the factory with the warning-level SB0008 [Obsolete] so the decline is visible in-source,
+            // not only in the skip report. Warning, not error: the factory still round-trips a Swift-vended
+            // payload. Skipped when the case is already unconditionally deprecated ([Obsolete] is
+            // AllowMultiple=false and the deprecation attribute subsumes the signal) — the per-payload report
+            // rows below still record the degrade in either case. Emitted after the availability attributes
+            // so the attribute list stays grouped ahead of the signature.
+            bool anyConsumeDegraded = parameters.Any(p =>
+                SuppressedProxyTypeSpecWalk.CollectSuppressedProxyNames(p.typeSpec, consumeDegradeHandler, emissionCtx).Any());
+            if (anyConsumeDegraded && AvailabilityAttributeEmitter.GetDeprecationMessage(caseDecl) == null)
+                WrapperEmitter.EmitConsumeDegradedWarning(csWriter);
+
             var parameterString = string.Join(", ", parameters.Select(p => $"{p.publicType} {p.name}"));
             // C10: Use unique local variable name to avoid CS0136 if a parameter is also named "result"
             var resultVarName = parameters.Any(p => p.name == "result") ? "__enumResult" : "result";
@@ -208,10 +227,6 @@ namespace BindingsGeneration
             var projectedArgs = new Dictionary<int, MarshalPlan>();
             // Track tuple params with per-element conversion (maps param index → converted tuple expression)
             var tuplePInvokeExprs = new Dictionary<int, string>();
-            // Side-effect-free handler for the per-payload CONSUME-degrade walk below. Built with a null
-            // composition collector and CurrentModuleName so it resolves cross-module proxy qualification
-            // (matching the projection sites) without recording any dependency or composition.
-            var consumeDegradeHandler = new ExistentialHandler(typeDatabase) { CurrentModuleName = moduleDecl.Name };
             for (int i = 0; i < parameters.Count; i++)
             {
                 var (type, publicType, name, typeSpec) = parameters[i];

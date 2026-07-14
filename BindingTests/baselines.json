@@ -4,6 +4,6 @@
   "must_pass_degraded": 1,
   "must_pass_compiled_out": 9,
   "must_pass_passing_untested": 33,
-  "known_unsupported_total": 62,
+  "known_unsupported_total": 63,
   "wrapper_stripped_count": 0
 }

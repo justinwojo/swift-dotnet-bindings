@@ -96,9 +96,13 @@ public class TupleHandler
     ///
     /// Bound generics like Array&lt;T&gt;, UnsafePointer&lt;T&gt;, and similar are returned direct
     /// (refcounted reference, pointer) even though they contain a generic parameter; mixing
-    /// them with bare T would produce a mixed indirect/direct ABI that this branch does not
-    /// model. Optional&lt;T&gt; is also address-only when T is generic but is excluded here for
-    /// safety — the legacy path handles it.
+    /// them with bare T produces a mixed indirect/direct ABI (per-element @out pointers in
+    /// leading argument registers plus direct results in return registers) that this branch
+    /// does not model. Optional&lt;T&gt; is also address-only when T is generic but is excluded
+    /// here for safety. Members with such mixed shapes are skipped fail-closed at emission
+    /// (MarshallingHelpers.IsUnmodeledMixedGenericTupleReturn) — the legacy single-buffer
+    /// SwiftIndirectResult fallback must never be used for them, its register assignment is
+    /// wrong for every mixed shape.
     /// </summary>
     public bool AllElementsAreBareGenericTypeParameter(TupleTypeSpec tupleTypeSpec) =>
         tupleTypeSpec.Elements.Count > 0

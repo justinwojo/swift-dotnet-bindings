@@ -310,31 +310,28 @@ namespace BindingsGeneration
                 if ((propertyRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0 || propertyRecord.Kind == TypeRecordKind.Class)
                     flags |= TypeRecordFlags.RequiresMemoryManagement;
 
-                // Detect float/double fields for CallConvSwift ABI safety classification.
-                // Direct float/double primitives (Swift.Float, Swift.Double, CGFloat) and nested
-                // non-system structs that themselves contain float fields. CGFloat's two
-                // module-qualified spellings come from AppleFrameworkRegistry (the SSOT) rather
-                // than being re-listed here. System structs (CGRect, etc.) are NOT flagged — they
-                // have special runtime handling.
-                if (!flags.HasFlag(TypeRecordFlags.HasFloatFields))
-                {
-                    if (namedPropertyType.Name is "Swift.Float" or "Swift.Double" ||
-                        AppleFrameworkRegistry.IsCGFloat(namedPropertyType.Name))
-                        flags |= TypeRecordFlags.HasFloatFields;
-                    else if (propertyRecord.Kind == TypeRecordKind.Struct &&
-                             propertyRecord.Flags.HasFlag(TypeRecordFlags.HasFloatFields))
-                        flags |= TypeRecordFlags.HasFloatFields;
-                }
+                // Detect float/double and Bool fields for CallConvSwift ABI safety classification.
+                // Both are derived from the SAME field classifier that computes the ABI layout
+                // string (ClassifyFieldType), so the flag and the layout can never disagree. The
+                // classifier is the one place that unwraps Optional: a `Float?`/`Double?`/`CGFloat?`
+                // carries a real float in a floating-point register ("f4,i1"/"f8,i1"), which a
+                // by-name scalar match on the Optional wrapper would miss — silently passing a
+                // float-bearing struct through the SwiftSelf<T> by-value path where the Swift/.NET
+                // register assignment diverges. A nested frozen struct whose OWN layout string is
+                // null (it carries an unclassifiable field) yields no fragment, so its
+                // recursively-accumulated float/bool flag is unioned in as well — a float or bool
+                // buried under such a struct is not lost. System structs (CGRect, etc.) resolve
+                // through the classifier's own rules and are not flagged here.
+                var fieldLayout = ClassifyFieldType(namedPropertyType);
+                bool nestedStruct = propertyRecord.Kind == TypeRecordKind.Struct;
 
-                // Detect Bool fields — non-blittable in .NET CallConvSwift.
-                if (!flags.HasFlag(TypeRecordFlags.HasBoolFields))
-                {
-                    if (namedPropertyType.Name is "Swift.Bool")
-                        flags |= TypeRecordFlags.HasBoolFields;
-                    else if (propertyRecord.Kind == TypeRecordKind.Struct &&
-                             propertyRecord.Flags.HasFlag(TypeRecordFlags.HasBoolFields))
-                        flags |= TypeRecordFlags.HasBoolFields;
-                }
+                if ((fieldLayout != null && fieldLayout.Contains('f')) ||
+                    (nestedStruct && propertyRecord.Flags.HasFlag(TypeRecordFlags.HasFloatFields)))
+                    flags |= TypeRecordFlags.HasFloatFields;
+
+                if ((fieldLayout != null && fieldLayout.Contains('b')) ||
+                    (nestedStruct && propertyRecord.Flags.HasFlag(TypeRecordFlags.HasBoolFields)))
+                    flags |= TypeRecordFlags.HasBoolFields;
             }
 
             return flags;

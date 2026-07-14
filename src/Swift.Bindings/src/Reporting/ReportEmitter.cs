@@ -134,6 +134,21 @@ public static class ReportEmitter
                 logger.LogInformation("    {Kind} {Where} — {Reason}", item.Kind, where, item.Reason);
             }
         }
+
+        // Consume-degraded members are a documented KnownLimitation, so they never reach the "to review"
+        // list — but a C#-authored conformer handed to one silently no-fires from Swift, and the position
+        // may carry no compile signal. Call them out explicitly so a ReviewCount==0 report still names them.
+        if (triage.DegradedConsumeCount > 0)
+        {
+            logger.LogInformation(
+                "  Consume-degraded ({Count}) — a C#-authored conformer passed here silently never fires (proxy suppressed):",
+                triage.DegradedConsumeCount);
+            foreach (var item in triage.DegradedConsumeItems)
+            {
+                var where = item.ContainingType != null ? $"{item.ContainingType}.{item.Name}" : item.Name;
+                logger.LogInformation("    {Kind} {Where}", item.Kind, where);
+            }
+        }
     }
 
     private static double GetCoverage(int emitted, int total) =>

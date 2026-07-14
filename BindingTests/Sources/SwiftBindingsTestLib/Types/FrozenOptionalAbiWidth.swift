@@ -65,3 +65,34 @@ public struct FrozenOptionalBoolHolder {
 public func roundTripFrozenOptionalBoolHolder(_ v: FrozenOptionalBoolHolder) -> FrozenOptionalBoolHolder {
     return v
 }
+
+// MARK: Self-by-value path (Optional-float self must decline the direct SwiftSelf<T> stub)
+
+/// SMALL (≤ 8 byte) `@frozen` struct with a SINGLE tag-adding scalar-Optional field — `Float?` is
+/// 5 bytes ("f4,i1"), so it stays under the by-value self-size limit and has one stored property.
+/// Neither the size nor the property-count guard fires, so the ONLY thing that can route an instance
+/// method's `self` off the direct SwiftSelf<T> by-value stub is the struct's float-fields flag. A
+/// by-name field classifier that never unwraps Optional leaves that flag clear and passes this struct
+/// through the direct stub, where the Optional's float payload lands in a floating-point register in
+/// Swift but the .NET CallConvSwift stub assigns it as integer — silent corruption. The primitive
+/// instance methods below carry `self` by value, so a mis-assigned self register shows up as a wrong
+/// result or a crash.
+@frozen
+public struct FrozenOptionalFloatSelf {
+    public var value: Float?
+
+    public init(value: Float?) {
+        self.value = value
+    }
+
+    /// Primitive-signature instance method: reads the Optional-float `self`, returns a primitive.
+    public func scaled(by factor: Float) -> Float {
+        guard let v = value else { return -1 }
+        return v * factor
+    }
+
+    /// Primitive-signature instance method with no parameters — the barest self-by-value shape.
+    public func rawOrSentinel() -> Float {
+        return value ?? -999
+    }
+}

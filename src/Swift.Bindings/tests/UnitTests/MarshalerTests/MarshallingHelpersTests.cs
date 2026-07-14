@@ -571,6 +571,107 @@ public class MarshallingHelpersTests
 
     #endregion
 
+    #region IsUnmodeledMixedGenericTupleReturn Tests
+
+    private static TupleTypeSpec Tuple(params TypeSpec[] elements) =>
+        new TupleTypeSpec(elements.ToList());
+
+    private static NamedTypeSpec BoundGeneric(string baseName, params TypeSpec[] args)
+    {
+        var spec = new NamedTypeSpec(baseName);
+        foreach (var arg in args)
+            spec.GenericParameters.Add(arg);
+        return spec;
+    }
+
+    public static TheoryData<TupleTypeSpec> MixedGenericTupleShapes() => new()
+    {
+        // (T, Int): trailing loadable element returns direct while T is @out
+        Tuple(new NamedTypeSpec("τ_0_0"), new NamedTypeSpec("Swift.Int")),
+        // (Int, T): element order must not matter
+        Tuple(new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("τ_0_0")),
+        // (Array<T>, T): bound generic returns direct as a single reference
+        Tuple(BoundGeneric("Swift.Array", new NamedTypeSpec("τ_0_0")), new NamedTypeSpec("τ_0_0")),
+        // (T, Optional<T>): both address-only but not uniformly bare
+        Tuple(new NamedTypeSpec("τ_0_0"), BoundGeneric("Swift.Optional", new NamedTypeSpec("τ_0_0"))),
+        // (T, Array<T>, Int): three-element mix with two direct results
+        Tuple(new NamedTypeSpec("τ_0_0"), BoundGeneric("Swift.Array", new NamedTypeSpec("τ_0_0")), new NamedTypeSpec("Swift.Int")),
+        // (Array<T>, Array<T>): generic-containing but fully loadable — still not the modeled all-bare shape
+        Tuple(BoundGeneric("Swift.Array", new NamedTypeSpec("τ_0_0")), BoundGeneric("Swift.Array", new NamedTypeSpec("τ_0_0"))),
+    };
+
+    [Theory]
+    [MemberData(nameof(MixedGenericTupleShapes))]
+    public void IsUnmodeledMixedGenericTupleReturn_MixedShapes_ReturnsTrue(TupleTypeSpec tupleReturn)
+    {
+        var env = CreateMethodEnv(returnType: tupleReturn);
+        Assert.True(MarshallingHelpers.IsUnmodeledMixedGenericTupleReturn(env));
+        // The mixed shape must never overlap the modeled uniform multi-@out branch.
+        Assert.False(MarshallingHelpers.IsMultiElementGenericTupleIndirectReturn(env));
+    }
+
+    [Fact]
+    public void IsUnmodeledMixedGenericTupleReturn_AllBareTuple_ReturnsFalse()
+    {
+        // (T, U) is the modeled uniform multi-@out shape — must stay emitted.
+        var env = CreateMethodEnv(returnType: Tuple(new NamedTypeSpec("τ_0_0"), new NamedTypeSpec("τ_0_1")));
+        Assert.False(MarshallingHelpers.IsUnmodeledMixedGenericTupleReturn(env));
+        Assert.True(MarshallingHelpers.IsMultiElementGenericTupleIndirectReturn(env));
+    }
+
+    [Fact]
+    public void IsUnmodeledMixedGenericTupleReturn_NonGenericTuple_ReturnsFalse()
+    {
+        // (Int, Bool) carries no generic parameters — handled by the concrete tuple path.
+        var env = CreateMethodEnv(returnType: Tuple(new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("Swift.Bool")));
+        Assert.False(MarshallingHelpers.IsUnmodeledMixedGenericTupleReturn(env));
+    }
+
+    [Fact]
+    public void IsUnmodeledMixedGenericTupleReturn_SingleElementTuple_ReturnsFalse()
+    {
+        // Swift collapses a single-element tuple to its bare element type.
+        var env = CreateMethodEnv(returnType: Tuple(new NamedTypeSpec("τ_0_0")));
+        Assert.False(MarshallingHelpers.IsUnmodeledMixedGenericTupleReturn(env));
+    }
+
+    [Fact]
+    public void IsUnmodeledMixedGenericTupleReturn_AsyncMethod_ReturnsFalse()
+    {
+        // Async methods flatten results through a callback — no direct-symbol tuple return.
+        var env = CreateMethodEnv(
+            returnType: Tuple(new NamedTypeSpec("τ_0_0"), new NamedTypeSpec("Swift.Int")),
+            isAsync: true);
+        Assert.False(MarshallingHelpers.IsUnmodeledMixedGenericTupleReturn(env));
+    }
+
+    [Fact]
+    public void IsUnmodeledMixedGenericTupleReturn_CdeclMethodWrapper_ReturnsFalse()
+    {
+        // @_cdecl wrappers marshal the tuple through a wrapper-owned buffer — safe path.
+        var env = CreateMethodEnv(returnType: Tuple(new NamedTypeSpec("τ_0_0"), new NamedTypeSpec("Swift.Int")));
+        env.MethodDecl.UsesCdeclMethodWrapper = true;
+        Assert.False(MarshallingHelpers.IsUnmodeledMixedGenericTupleReturn(env));
+    }
+
+    [Fact]
+    public void IsUnmodeledMixedGenericTupleReturn_WrapperLibrary_ReturnsFalse()
+    {
+        // Wrapper-library shapes declare their own explicit lowering.
+        var env = CreateMethodEnv(returnType: Tuple(new NamedTypeSpec("τ_0_0"), new NamedTypeSpec("Swift.Int")));
+        env.MethodDecl.UsesWrapperLibrary = true;
+        Assert.False(MarshallingHelpers.IsUnmodeledMixedGenericTupleReturn(env));
+    }
+
+    [Fact]
+    public void IsUnmodeledMixedGenericTupleReturn_NonTupleReturn_ReturnsFalse()
+    {
+        var env = CreateMethodEnv(returnType: new NamedTypeSpec("τ_0_0"), isGenericReturn: true);
+        Assert.False(MarshallingHelpers.IsUnmodeledMixedGenericTupleReturn(env));
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static MethodDecl CreateMethodDecl(string name)

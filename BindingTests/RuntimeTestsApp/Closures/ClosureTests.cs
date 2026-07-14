@@ -573,11 +573,10 @@ public class ClosureTests : TestBase
     #region Setter-Only Closure Properties (network-client ClosureEventMonitor pattern)
     // Tests for closure properties where the parameter type (existential) prevents C# invocation
     // via getter, but the setter path works. The generator emits these as set-only properties.
-    // The binding compilation test is the main validation (C# compiles with setter-only property).
-    // Runtime: setter P/Invoke calls raw Swift Tj dispatch (no @_cdecl wrapper generated for
-    // existential-param closures), which crashes on Mono with non-blittable SwiftClosureData.
+    // Runtime: the setter routes through the @_cdecl property wrapper (funcPtr + context,
+    // CallConvCdecl); the Swift adapter heap-allocates the existential per invocation and the
+    // C# callback rewraps it in the protocol proxy — same bridge as existential closure params.
 
-    [Skip("Setter-only closure: no @_cdecl wrapper for existential-param closure setter, Tj dispatch SIGSEGV on Mono")]
     public void TestSetterOnlyCallbackHolder_SetAndTrigger()
     {
         var called = false;
@@ -588,7 +587,6 @@ public class ClosureTests : TestBase
         TestLogger.Info("SetterOnlyCallbackHolder set+trigger passed");
     }
 
-    [Skip("Setter-only closure: no @_cdecl wrapper for existential-param closure setter, Tj dispatch SIGSEGV on Mono")]
     public void TestSetterOnlyCallbackHolder_SetToNull()
     {
         using var holder = new SetterOnlyCallbackHolder();

@@ -513,9 +513,12 @@ namespace BindingsGeneration
         ///
         /// Mixed tuples (e.g., (T, Int) → (@out T, Int)) and tuples whose elements are bound
         /// generics returned direct (Array&lt;T&gt;, UnsafePointer&lt;T&gt;, etc.) use a different
-        /// lowering and are NOT handled by this branch. They fall through to the legacy
-        /// SwiftIndirectResult fallback. The narrow gate trades coverage for safety: only the
-        /// fully bare-generic shape is provably uniform-@out across Swift's ABI rules.
+        /// lowering and are NOT handled by this branch — see
+        /// <see cref="IsUnmodeledMixedGenericTupleReturn"/>, which fails those shapes closed
+        /// (member skipped) instead of letting them fall through to the single-x8
+        /// SwiftIndirectResult fallback, whose register assignment does not match theirs.
+        /// The narrow gate trades coverage for safety: only the fully bare-generic shape is
+        /// provably uniform-@out across Swift's ABI rules.
         ///
         /// Excluded paths:
         ///   - @_cdecl wrappers (use a single resultPtr buffer the wrapper writes into).
@@ -540,6 +543,40 @@ namespace BindingsGeneration
             if (tupleSpec.Elements.Count < 2) return false;
 
             return env.TupleHandler.AllElementsAreBareGenericTypeParameter(tupleSpec);
+        }
+
+        /// <summary>
+        /// True for non-cdecl sync returns of multi-element tuples that contain generic type
+        /// parameters but are NOT uniformly bare (e.g. (T, Int), (Array&lt;T&gt;, T), (T, T?)).
+        /// Swift lowers such a tuple result element-wise: each address-only element becomes its
+        /// own leading indirect-result pointer argument (x0, x1, …) while loadable elements
+        /// (Int, Array's ref, String's two words, …) return direct in result registers —
+        /// verified against SIL (`(@out T, Int)`) and LLVM IR (`i64 f(ptr, …)`). Neither the
+        /// single-x8 SwiftIndirectResult fallback nor the uniform multi-@out branch
+        /// (<see cref="IsMultiElementGenericTupleIndirectReturn"/>) matches that register
+        /// assignment, so emitting either produces a call that reads garbage or corrupts
+        /// arguments. Callers must skip the member (fail closed) rather than emit.
+        ///
+        /// Excluded paths mirror <see cref="IsMultiElementGenericTupleIndirectReturn"/>:
+        /// @_cdecl wrappers marshal the tuple through a wrapper-owned buffer, native thunks and
+        /// wrapper-library shapes declare their own explicit lowering, async methods flatten
+        /// results through a callback, and constructors cannot return tuples.
+        /// </summary>
+        public static bool IsUnmodeledMixedGenericTupleReturn(MethodEnvironment env)
+        {
+            if (env.MethodDecl.IsConstructor) return false;
+            if (env.MethodDecl.IsAsync) return false;
+            if (env.MethodDecl.UsesCdeclWrapper) return false;
+            if (env.MethodDecl.UsesNativeThunk) return false;
+            if (env.MethodDecl.UsesWrapperLibrary) return false;
+
+            var returnType = env.MethodDecl.CSSignature.First();
+            if (returnType.SwiftTypeSpec is not TupleTypeSpec tupleSpec) return false;
+            if (tupleSpec.IsEmptyTuple) return false;
+            if (tupleSpec.Elements.Count < 2) return false;
+
+            return env.TupleHandler.HasGenericTypeParameterElements(tupleSpec) &&
+                   !env.TupleHandler.AllElementsAreBareGenericTypeParameter(tupleSpec);
         }
 
         public static bool IsTypeFrozen(TypeRecord typeRecord)

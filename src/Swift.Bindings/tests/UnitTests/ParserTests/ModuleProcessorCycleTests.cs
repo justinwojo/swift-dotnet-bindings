@@ -289,6 +289,38 @@ public class ModuleProcessorCycleTests
     }
 
     [Fact]
+    public void FinalizeTypeProcessing_FrozenStructWithOptionalFloatField_SetsHasFloatFields()
+    {
+        // CacluateFlags classified field types by name and never unwrapped Optional, so a `Float?`
+        // (Optional<Swift.Float>) stored property left HasFloatFields UNSET even though
+        // ClassifyFieldType (the layout oracle in the same file) correctly lowers it to "f4,i1" — a
+        // real float that occupies a floating-point register. The two oracles disagreed: the
+        // struct's layout says "float present" while its ABI-safety flag said "no floats", so a
+        // primitive-signature instance method on this small frozen struct skipped the @_cdecl
+        // SwiftSelf<T> by-value guard and the Swift/.NET CallConvSwift stubs mis-assigned the float
+        // register. Deriving the flag from ClassifyFieldType closes the gap.
+        var typeSpecS = new NamedTypeSpec("TestModule.OptFloatHolder");
+        var optionalFloat = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Float"));
+        var structS = CreateStructDecl("OptFloatHolder", typeSpecS, ("value", optionalFloat));
+
+        var typeDecls = new Dictionary<NamedTypeSpec, TypeDecl> { { typeSpecS, structS } };
+        var typeDatabase = new TypeDatabase();
+        RegisterSwiftOptional(typeDatabase);
+        var processor = new ModuleProcessor(
+            "TestModule", "/tmp/TestModule.dylib", "TestModule", typeDecls, typeDatabase, NullLogger.Instance);
+
+        var result = processor.FinalizeTypeProcessingAndCreateModuleDatabase();
+        typeDatabase.AddModuleDatabase(result.ModuleDatabase);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.OptFloatHolder"), out var record));
+        // The layout oracle sees the float — Optional<Float> gains a real tag byte ("f4,i1").
+        Assert.Equal("f4,i1", record!.AbiFieldLayout);
+        // ...and the ABI-safety flag must agree with it, so the by-value self path is declined.
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.HasFloatFields));
+    }
+
+    [Fact]
     public void FinalizeTypeProcessing_FrozenStructWithUnknownSizeEnumField_DeclinesLayout()
     {
         // Finding 44: a simple-enum field whose own InlineSize is unknown (null — e.g. a

@@ -567,10 +567,14 @@ namespace BindingsGeneration
                         if (!_env.ExistentialHandler.IsProxyNameSuppressed(filteredProxy, qualifiedProxy, _emissionContext))
                             proxyClassName = qualifiedProxy;
                         else
+                        {
                             // Persist the CONSUME degrade: this parameter accepts only Swift-vended
                             // conformers (no proxy to wrap a C#-authored one). Multiple degraded params
                             // on one method dedup to a single method-level row (FromMethod identity).
                             SuppressedProxyReporting.Record(_env.MethodDecl, SuppressedProxyReporting.Site.ConsumeDegraded, qualifiedProxy);
+                            // Flag the owning method so EmitMethod injects the warning-level SB0008 marker.
+                            _emissionContext?.RecordConsumeDegradedMember(_env.MethodDecl);
+                        }
                     }
                     // Thread the runtime owns-bit out of GetOrCreate (declared before the try
                     // by EmitExistentialHeapDeclarations) so the finally / async holder destroys ONLY
@@ -650,7 +654,11 @@ namespace BindingsGeneration
             // their owning handlers (PropertyHandler / SubscriptHandler); skip them to avoid a duplicate row.
             if (!_env.MethodDecl.IsAccessor && !_env.MethodDecl.IsSubscriptAccessor)
                 foreach (var proxyName in SuppressedProxyProjectionWalk.CollectSuppressedProxyNames(projection))
+                {
                     SuppressedProxyReporting.Record(_env.MethodDecl, SuppressedProxyReporting.Site.ConsumeDegraded, proxyName);
+                    // Flag the owning method so EmitMethod injects the warning-level SB0008 marker.
+                    _emissionContext?.RecordConsumeDegradedMember(_env.MethodDecl);
+                }
 
             var csName = NameProvider.GetCSharpParameterName(argumentDecl);
 
@@ -970,7 +978,11 @@ namespace BindingsGeneration
                 // qualified and matched against the dependency's cross-module set (not the local one).
                 foreach (var proxyName in SuppressedProxyTypeSpecWalk.CollectSuppressedProxyNames(
                     consumeType, _env.ExistentialHandler, _emissionContext))
+                {
                     SuppressedProxyReporting.Record(_env.MethodDecl, SuppressedProxyReporting.Site.ConsumeDegraded, proxyName);
+                    // Flag the owning method so EmitMethod injects the warning-level SB0008 marker.
+                    _emissionContext?.RecordConsumeDegradedMember(_env.MethodDecl);
+                }
             }
         }
 

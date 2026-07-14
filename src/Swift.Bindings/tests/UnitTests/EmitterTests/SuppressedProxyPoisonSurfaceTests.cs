@@ -78,4 +78,64 @@ public class SuppressedProxyPoisonSurfaceTests
         Assert.DoesNotContain("\n\"", poison.TrimEnd());
         Assert.EndsWith(")]", poison.TrimEnd());
     }
+
+    private static string EmitConsumeDegrade()
+    {
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+        WrapperEmitter.EmitConsumeDegradedWarning(csWriter);
+        return output.ToString();
+    }
+
+    [Fact]
+    public void EmitConsumeDegradedWarning_EmitsObsoleteWarningMarker()
+    {
+        var warning = EmitConsumeDegrade();
+
+        Assert.Contains("[Obsolete(", warning);
+        // error: FALSE is load-bearing here — the CONSUME arm still round-trips a Swift-vended
+        // conformer, so the member remains callable. A warning steers the consumer; an error would
+        // wrongly forbid a legitimate use. Distinct from SB0006's ", true,".
+        Assert.Contains(", false, DiagnosticId =", warning);
+        Assert.DoesNotContain(", true, DiagnosticId =", warning);
+    }
+
+    [Fact]
+    public void EmitConsumeDegradedWarning_CarriesSb0008DiagnosticId()
+    {
+        var warning = EmitConsumeDegrade();
+
+        Assert.Contains("DiagnosticId = \"SB0008\"", warning);
+        Assert.Equal("SB0008", WrapperEmitter.ProxyConsumeDegradedDiagnosticId);
+        // SB0008 must not collide with the produce-throw id — the two arms are distinct diagnostics.
+        Assert.NotEqual(WrapperEmitter.ProxySuppressedDiagnosticId, WrapperEmitter.ProxyConsumeDegradedDiagnosticId);
+    }
+
+    [Fact]
+    public void EmitConsumeDegradedWarning_LinksTroubleshootingUrl()
+    {
+        var warning = EmitConsumeDegrade();
+
+        Assert.Contains("UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\"", warning);
+    }
+
+    [Fact]
+    public void EmitConsumeDegradedWarning_MessageExplainsCSharpConformerNeverFires()
+    {
+        var warning = EmitConsumeDegrade();
+
+        // The guidance a warning gives (C# has no per-parameter [Obsolete]): a C#-authored conformer
+        // handed here silently no-fires, while a Swift-vended value round-trips.
+        Assert.Contains("C#-authored conformer", WrapperEmitter.ProxyConsumeDegradedObsoleteMessage);
+        Assert.Contains(WrapperEmitter.ProxyConsumeDegradedObsoleteMessage.Substring(0, 20), warning);
+    }
+
+    [Fact]
+    public void EmitConsumeDegradedWarning_EscapesMessageAsStringLiteral()
+    {
+        var warning = EmitConsumeDegrade();
+
+        Assert.DoesNotContain("\n\"", warning.TrimEnd());
+        Assert.EndsWith(")]", warning.TrimEnd());
+    }
 }

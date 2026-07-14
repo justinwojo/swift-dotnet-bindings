@@ -1411,6 +1411,50 @@ public class PropertyHandlerTests
     }
 
     [Fact]
+    public void Emit_OptionalClosureWithExistentialParam_SetterUsesCdeclFuncPtrPath()
+    {
+        // A settable Optional<(any P) -> Void> property must route its setter through the
+        // @_cdecl property wrapper (funcPtr + context P/Invoke, CallConvCdecl) with the
+        // existential closure arg bridged via the heap-allocated container. The alternative
+        // is the legacy path: a direct CallConvSwift P/Invoke to the Swift setter dispatch
+        // thunk passing SwiftClosureData by value, which crashes at runtime on Mono and
+        // NativeAOT. The property projects as set-only in C# (the getter direction cannot
+        // invoke a closure with an existential parameter), so only the setter is emitted.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings"; // Enable xcframework mode
+        RegisterProtocol(typeDatabase, "TestModule.DataCaching");
+
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Monitor", moduleDecl);
+
+        var existentialParam = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.DataCaching") });
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { existentialParam }),
+            TupleTypeSpec.Empty);
+        var propertyType = new NamedTypeSpec("Swift.Optional", closureType);
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "onCacheChanged", propertyType, hasGetter: true, hasSetter: true);
+
+        var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
+
+        // Swift side: a @_cdecl setter wrapper that accepts funcPtr + context and adapts
+        // them into a stored Swift closure (heap-allocating the existential per invocation).
+        Assert.Contains("SBW_Set_TestModule_Monitor_onCacheChanged", swiftOutput);
+        Assert.Contains("newValueFuncPtr", swiftOutput);
+        Assert.Contains("newValueContext", swiftOutput);
+
+        // C# side: setter P/Invoke is CallConvCdecl with separate funcPtr + context args,
+        // and the callback trampoline is CallConvCdecl receiving the existential by pointer.
+        Assert.Contains("CallConvCdecl", csOutput);
+        Assert.Contains("FuncPtr", csOutput);
+        Assert.DoesNotContain("SwiftClosureData", csOutput);
+        Assert.DoesNotContain("CallConvSwift", csOutput);
+
+        // Set-only projection: the getter direction can't invoke an existential-param closure.
+        Assert.Contains("set => OnCacheChanged_Set(value);", csOutput);
+        Assert.DoesNotContain("get => OnCacheChanged_Get", csOutput);
+    }
+
+    [Fact]
     public void Emit_OptionalCompositionExistentialProperty_SetterPinsValueAcrossNativeCall()
     {
         // EC2+ sibling of Emit_OptionalExistentialProperty_SetterGetsCdeclWrapper.

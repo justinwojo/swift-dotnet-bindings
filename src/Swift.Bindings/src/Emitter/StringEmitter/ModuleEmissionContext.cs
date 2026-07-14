@@ -1242,6 +1242,31 @@ public sealed class ModuleEmissionContext
     public bool WasGetterProduceThrow(PropertyDecl propertyDecl) =>
         _produceThrowGetters.Contains(propertyDecl);
 
+    // A member (method / property / subscript) that CONSUME-degraded: a setter/parameter position where
+    // a C#-authored conformer of an existential can no longer be marshalled in, because the referenced
+    // {Protocol}Proxy's EveryProtocol reverse-dispatch conformance was suppressed. The member still works
+    // for Swift-vended conformers, so — unlike the produce-throw arm (SB0006, error:true) — the read/return
+    // is fine; only a C# conformer passed into the degraded position silently no-fires. The unmarked arm
+    // was invisible at compile time; this side table lets the owning emitter mark the member with a
+    // warning-level [Obsolete(...SB0008)] AFTER emission (the degrade is discovered while the signature is
+    // already written). Keyed by reference identity, like the emission-symbol table: a record is value-equal,
+    // so a `with`-cloned or structurally-equal sibling would otherwise steal the flag.
+    private readonly HashSet<BaseDecl> _consumeDegradedMembers = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// Records that <paramref name="member"/> has a CONSUME-degraded position (a setter/parameter that
+    /// drops its C#-conformer wrap fallback for a suppressed <c>{Protocol}Proxy</c>). Idempotent — a
+    /// member with several degraded positions is marked once. Read by the owning emitter to inject the
+    /// warning-level <c>[Obsolete(..., DiagnosticId = "SB0008")]</c> marker.
+    /// </summary>
+    public void RecordConsumeDegradedMember(BaseDecl member) => _consumeDegradedMembers.Add(member);
+
+    /// <summary>
+    /// Returns true if <paramref name="member"/> was recorded as CONSUME-degraded, so its emitter should
+    /// carry the warning-level consume-degrade marker (a C#-authored conformer set/passed here never fires).
+    /// </summary>
+    public bool WasConsumeDegradedMember(BaseDecl member) => _consumeDegradedMembers.Contains(member);
+
     // ==================== API Manifest (retarget gate) ====================
 
     // Accumulates the consumer-visible binding contract: each emitted, overload-

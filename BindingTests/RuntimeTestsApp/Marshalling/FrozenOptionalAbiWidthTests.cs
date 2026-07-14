@@ -79,4 +79,29 @@ public class FrozenOptionalAbiWidthTests : TestBase
         AssertEqual(flag, output.Flag, $"FrozenOptionalBoolHolder.Flag ({flag?.ToString() ?? "nil"})");
         AssertEqual(marker, output.Marker, $"FrozenOptionalBoolHolder.Marker ({flag?.ToString() ?? "nil"})");
     }
+
+    /// <summary>
+    /// Self-by-value fence: a small single-<c>Float?</c>-field frozen struct calls primitive-signature
+    /// instance methods, carrying <c>self</c> by value. The struct is under the by-value self-size limit
+    /// with one stored property, so ONLY the struct's float-fields classification can decline the direct
+    /// SwiftSelf&lt;T&gt; stub. If the Optional-float field is not recognised as a float, <c>self</c>
+    /// rides the direct stub and its floating-point payload is mis-assigned to an integer register — a
+    /// wrong computed result or a crash. Drives Some and None so the Optional's float payload is both
+    /// live and absent.
+    /// </summary>
+    public void TestFrozenOptionalFloatSelfInstanceMethodsRoundTrip()
+    {
+        AssertOptionalFloatSelf(2.5f, 4.0f, 10.0f);
+        AssertOptionalFloatSelf(-3.0f, 2.0f, -6.0f);
+        AssertOptionalFloatSelf(float.MaxValue, 1.0f, float.MaxValue);
+        AssertOptionalFloatSelf(null, 4.0f, -1.0f); // None -> scaled returns sentinel -1
+        TestLogger.Info("FrozenOptionalFloatSelf: Optional-float self passed by value through primitive instance methods");
+    }
+
+    private void AssertOptionalFloatSelf(float? value, float factor, float expectedScaled)
+    {
+        using var holder = new FrozenOptionalFloatSelf(value);
+        AssertEqual(expectedScaled, holder.Scaled(factor), $"FrozenOptionalFloatSelf.Scaled ({value?.ToString() ?? "nil"} * {factor})");
+        AssertEqual(value ?? -999f, holder.GetRawOrSentinel(), $"FrozenOptionalFloatSelf.GetRawOrSentinel ({value?.ToString() ?? "nil"})");
+    }
 }
