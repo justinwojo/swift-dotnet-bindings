@@ -582,28 +582,61 @@ public class ShouldFailClosedOnDegradedInputsTests
 /// <c>ShouldAbortForFailedMixedObjC</c> is the fail-closed gate behind the generator's
 /// "refuse to emit a Swift-only binding when a known ObjC surface failed to bind" contract
 /// (the round-1 correctness hole). The pipeline only runs when an ObjC surface was detected,
-/// so a non-zero exit MUST abort the whole generation (propagating the exit code) rather than
-/// degrade to a Swift-only package that silently drops the ObjC types and never reaches the
-/// <c>SWIFTBIND039</c> pack-time guard. A null result means the pipeline never ran (not a mixed
-/// framework) and must never abort. These tests pin that decision at the generator layer so a
-/// future refactor of <c>Execute</c> can't quietly reinstate warn-and-continue.
+/// so a non-zero exit OR a null module MUST abort the whole generation (propagating a non-zero
+/// exit code) rather than degrade to a Swift-only package that silently drops the ObjC types
+/// and never reaches the <c>SWIFTBIND039</c> pack-time guard. A null result means the pipeline
+/// never ran (not a mixed framework) and must never abort. These tests pin the LIVE oracle used
+/// by both the pre-Swift parse gate (<see cref="ObjCParseResult"/>) and the post-Swift
+/// FilterAndEmit gate (<see cref="ObjCPipelineResult"/>) so a future refactor of <c>Execute</c>
+/// can't quietly reinstate warn-and-continue or re-diverge the two call sites.
 /// </summary>
 public class ShouldAbortForFailedMixedObjCTests
 {
-    private static ObjCPipelineResult Result(int exitCode, ObjCModule? module = null) =>
+    private static ObjCModule EmptyModule() => new() { ModuleName = "M" };
+
+    private static ObjCPipelineResult PipelineResult(int exitCode, ObjCModule? module = null) =>
         new(exitCode, module, exitCode == 0 ? null : "synthetic failure");
 
+    private static ObjCParseResult ParseResult(int exitCode, ObjCModule? module = null) =>
+        new(
+            exitCode,
+            module,
+            exitCode == 0 ? null : "synthetic failure",
+            ResolvedNamespace: "M",
+            PlatformInfo: PlatformInfoFactory.Create(ApplePlatform.iOS),
+            Diagnostics: new ObjCBindingDiagnostics());
+
     [Fact]
-    public void NullResult_DoesNotAbort()
+    public void NullPipelineResult_DoesNotAbort()
     {
         // Pipeline never ran (Swift-only framework) → nothing to fail closed on.
-        Assert.False(BindingsGeneratorCommand.ShouldAbortForFailedMixedObjC(null));
+        Assert.False(BindingsGeneratorCommand.ShouldAbortForFailedMixedObjC((ObjCPipelineResult?)null));
     }
 
     [Fact]
-    public void ZeroExit_DoesNotAbort()
+    public void NullParseResult_DoesNotAbort()
     {
-        Assert.False(BindingsGeneratorCommand.ShouldAbortForFailedMixedObjC(Result(0)));
+        // Pre-Swift parse never ran → nothing to fail closed on.
+        Assert.False(BindingsGeneratorCommand.ShouldAbortForFailedMixedObjC((ObjCParseResult?)null));
+    }
+
+    [Fact]
+    public void ZeroExit_WithModule_DoesNotAbort()
+    {
+        // Successful bind of a known ObjC surface — generation continues.
+        Assert.False(BindingsGeneratorCommand.ShouldAbortForFailedMixedObjC(PipelineResult(0, EmptyModule())));
+        Assert.False(BindingsGeneratorCommand.ShouldAbortForFailedMixedObjC(ParseResult(0, EmptyModule())));
+    }
+
+    [Fact]
+    public void ZeroExit_NullModule_Aborts()
+    {
+        // Exit 0 with a null module is still a failed ObjC surface (e.g. eligibility filters
+        // emptied the module without elevating the exit code). The live pre-Swift gate aborts
+        // on this shape; the shared oracle must match.
+        Assert.True(BindingsGeneratorCommand.ShouldAbortForFailedMixedObjC(PipelineResult(0, module: null)));
+        Assert.True(BindingsGeneratorCommand.ShouldAbortForFailedMixedObjC(ParseResult(0, module: null)));
+        Assert.True(BindingsGeneratorCommand.ShouldAbortForFailedMixedObjC(exitCode: 0, module: null));
     }
 
     [Theory]
@@ -613,7 +646,12 @@ public class ShouldAbortForFailedMixedObjCTests
     public void NonZeroExit_Aborts(int exitCode)
     {
         // A detected ObjC surface that failed to bind must abort generation, NOT degrade.
-        Assert.True(BindingsGeneratorCommand.ShouldAbortForFailedMixedObjC(Result(exitCode)));
+        Assert.True(BindingsGeneratorCommand.ShouldAbortForFailedMixedObjC(PipelineResult(exitCode)));
+        Assert.True(BindingsGeneratorCommand.ShouldAbortForFailedMixedObjC(ParseResult(exitCode)));
+        Assert.True(BindingsGeneratorCommand.ShouldAbortForFailedMixedObjC(exitCode, module: null));
+        // Non-zero exit aborts even when a partial module is attached.
+        Assert.True(BindingsGeneratorCommand.ShouldAbortForFailedMixedObjC(PipelineResult(exitCode, EmptyModule())));
+        Assert.True(BindingsGeneratorCommand.ShouldAbortForFailedMixedObjC(ParseResult(exitCode, EmptyModule())));
     }
 }
 

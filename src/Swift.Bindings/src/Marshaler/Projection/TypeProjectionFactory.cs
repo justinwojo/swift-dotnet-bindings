@@ -213,31 +213,16 @@ public class TypeProjectionFactory
                     return new OptionalProjection(objcBridged, isExistentialInner);
                 }
 
-                // Concrete-class fallback for modules that ship Swift-native classes whose
-                // names don't always match an ObjC class prefix (RealityFoundation.Entity,
-                // RealityKit.AnchorEntity). Mirrors WrapperValidation.IsOptionalWithReferenceInner
-                // Path 3 so the C# projection stays in sync with the Swift @_cdecl wrapper's
-                // UnsafeMutableRawPointer? signature. Path 2 above already claimed
-                // ObjC-prefixed names (SCN*, RE*) with ObjCBridgedProjection; anything reaching
-                // here is a non-ObjC Swift class whose C# binding follows the standard
-                // ISwiftObject/.Payload SafeHandle shape — so ClassProjection is the matching
-                // C# side (`.Payload.DangerousGetHandle()` parameter / MarshalFromSwiftObject
-                // return), not ObjCBridgedProjection (which would emit `.Handle` and
-                // `GetNSObject<T>` — the NSObject path).
+                // Concrete-class fallback for modules that ship Swift-native classes whose names
+                // don't always match an ObjC class prefix (RealityFoundation.Entity,
+                // RealityKit.AnchorEntity). Path 2 above already claimed ObjC-prefixed names (SCN*,
+                // RE*) with ObjCBridgedProjection; anything reaching here is a non-ObjC Swift class.
+                // See TryProjectConcreteClassFallback for the guard chain and why ClassProjection is
+                // the matching C# side (shared with the collection-element fallback below).
                 if (inner is NamedTypeSpec innerConcrete &&
-                    innerConcrete.HasModule() &&
-                    !innerConcrete.ContainsGenericParameters &&
-                    !IsStdlibContainer(innerConcrete.Name) &&
-                    !AppleFrameworkRegistry.IsPointerType(innerConcrete.Name) &&
-                    !AppleFrameworkRegistry.IsNestedType(innerConcrete.Name) &&
-                    !TypeDatabaseExtensions.IsKnownAppleValueType(innerConcrete) &&
-                    AppleFrameworkRegistry.IsConcreteClassFallbackModule(innerConcrete.Module))
+                    TryProjectConcreteClassFallback(innerConcrete) is { } concreteBridged)
                 {
-                    var bridgedName = AppleFrameworkRegistry.TryGetNetTypeName(innerConcrete.Name, out var remappedConcreteName)
-                        ? remappedConcreteName
-                        : innerConcrete.Name;
-                    return new OptionalProjection(
-                        new ClassProjection(bridgedName), isExistentialInner);
+                    return new OptionalProjection(concreteBridged, isExistentialInner);
                 }
 
                 return null;
@@ -647,6 +632,39 @@ public class TypeProjectionFactory
     }
 
     /// <summary>
+    /// Fallback projection for an unresolved concrete Swift reference class from a
+    /// concrete-class-fallback Apple module (e.g. RealityFoundation.Entity, RealityKit.AnchorEntity).
+    /// These ship Swift-native classes whose names don't carry an ObjC class prefix, so
+    /// <see cref="TryProjectObjCPrefixBridged"/> misses them. Their C# binding follows the standard
+    /// ISwiftObject/.Payload SafeHandle shape, so <see cref="ClassProjection"/> is the matching C#
+    /// side (<c>.Payload.DangerousGetHandle()</c> parameter / MarshalFromSwiftObject return), NOT
+    /// ObjCBridgedProjection (which would emit the NSObject <c>.Handle</c> / <c>GetNSObject&lt;T&gt;</c>
+    /// path). This mirrors <c>WrapperValidation.IsOptionalWithReferenceInner</c> Path 3 so the C#
+    /// projection stays in sync with the Swift <c>@_cdecl</c> wrapper's <c>UnsafeMutableRawPointer?</c>
+    /// signature. Single source for the Optional-inner (Path 3) and collection-element callers so the
+    /// two guard chains can no longer drift. Applies the same Swift→.NET name remap the projection
+    /// sites carry. Returns null when the type is not a concrete-class-fallback candidate.
+    /// </summary>
+    private static ClassProjection? TryProjectConcreteClassFallback(NamedTypeSpec named)
+    {
+        if (!named.HasModule() ||
+            named.ContainsGenericParameters ||
+            IsStdlibContainer(named.Name) ||
+            AppleFrameworkRegistry.IsPointerType(named.Name) ||
+            AppleFrameworkRegistry.IsNestedType(named.Name) ||
+            TypeDatabaseExtensions.IsKnownAppleValueType(named) ||
+            !AppleFrameworkRegistry.IsConcreteClassFallbackModule(named.Module))
+        {
+            return null;
+        }
+
+        var bridgedName = AppleFrameworkRegistry.TryGetNetTypeName(named.Name, out var remappedConcreteName)
+            ? remappedConcreteName
+            : named.Name;
+        return new ClassProjection(bridgedName);
+    }
+
+    /// <summary>
     /// Fallback projection for collection element types that are unresolved Apple framework
     /// reference classes — both ObjC-bridged classes and non-ObjC concrete-class-fallback Swift
     /// classes. Mirrors the two-branch Optional fallback above so a collection element projects
@@ -677,23 +695,12 @@ public class TypeProjectionFactory
         // module ships Swift-native classes whose names don't carry an ObjC class prefix
         // (RealityFoundation.Entity, RealityKit.AnchorEntity), so the ObjC branch above misses
         // them. Without this, Optional<Entity> projected fine but [Entity] / Set<Entity> /
-        // [K: Entity] returned null and the whole member was silently dropped. These are
-        // non-ObjC Swift classes whose C# binding follows the standard ISwiftObject/.Payload
-        // SafeHandle shape, so ClassProjection is the matching element projection — the same
-        // shape already used (and runtime-proven) for any local Swift-class element ([Animal]).
+        // [K: Entity] returned null and the whole member was silently dropped. Shares the single
+        // guard chain in TryProjectConcreteClassFallback with the Optional Path-3 caller.
         if (elementTypeSpec is NamedTypeSpec elemConcrete &&
-            elemConcrete.HasModule() &&
-            !elemConcrete.ContainsGenericParameters &&
-            !IsStdlibContainer(elemConcrete.Name) &&
-            !AppleFrameworkRegistry.IsPointerType(elemConcrete.Name) &&
-            !AppleFrameworkRegistry.IsNestedType(elemConcrete.Name) &&
-            !TypeDatabaseExtensions.IsKnownAppleValueType(elemConcrete) &&
-            AppleFrameworkRegistry.IsConcreteClassFallbackModule(elemConcrete.Module))
+            TryProjectConcreteClassFallback(elemConcrete) is { } concreteBridged)
         {
-            var bridgedName = AppleFrameworkRegistry.TryGetNetTypeName(elemConcrete.Name, out var remappedConcreteName)
-                ? remappedConcreteName
-                : elemConcrete.Name;
-            return new ClassProjection(bridgedName);
+            return concreteBridged;
         }
         return null;
     }

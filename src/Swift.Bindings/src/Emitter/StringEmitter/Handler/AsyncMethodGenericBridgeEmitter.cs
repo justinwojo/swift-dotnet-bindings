@@ -1014,7 +1014,10 @@ public static class AsyncMethodGenericBridgeEmitter
     private static void EmitErrorCallbackBody(
         CSharpWriter csWriter, string csReturnType, string moduleName, ModuleEmissionContext ctx)
     {
-        var helperClass = ErrorRegistryHelperEmitter.GetCSharpHelperClassName(moduleName);
+        // Helper-class cross-reference shares the central resolver with AsyncHarnessEmitter
+        // and WrapperEmitter.Async so the sites cannot diverge on NamespacePattern remaps.
+        var helperClass = ErrorRegistryHelperEmitter.GetFullyQualifiedHelperReference(
+            moduleName, ctx.ResolvedNamespace);
         bool hasRegistry = ctx.ErrorTypeOrder.Count > 0;
         var tcsTypeParam = csReturnType == "void" ? "" : $"<{csReturnType}>";
 

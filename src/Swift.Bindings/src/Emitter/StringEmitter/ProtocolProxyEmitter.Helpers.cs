@@ -173,9 +173,4 @@ public partial class ProtocolProxyEmitter
         // The format is: $s<module><type>AA<protocol>WT
         return $"EveryProtocol_{protocolDecl.Name}_WT";
     }
-
-    internal static string GetMethodKey(MethodDecl method)
-    {
-        return method.Name + "(" + string.Join(",", method.CSSignature.Skip(1).Select(p => p.SwiftTypeSpec?.ToString() ?? "")) + ")";
-    }
 }

@@ -677,6 +677,45 @@ public class AsyncMethodGenericBridgeEmitterTests
     }
 
     [Fact]
+    public void TryEmit_AsyncThrows_RemappedNamespace_ErrorCallbackUsesFullyQualifiedHelperReference()
+    {
+        // AMGBE's error-callback path must route through the shared helper-name resolver
+        // (same as AsyncHarnessEmitter) so a NamespacePattern remap cannot diverge the
+        // helper-class cross-reference from the namespace the registry is emitted into.
+        // StoreKit → StoreKit2 is the production remap shape.
+        var (csWriter, swiftWriter, csOutput, _) = CreateWritersWithBuffers();
+        var method = CreateMethodDeclWithGenericParam();
+        method.IsAsync = true;
+        method.Throws = true;
+        var parent = CreateClassDecl("Processor");
+        method.ParentDecl = parent;
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestBindings";
+        var env = new MethodEnvironment(method, typeDatabase);
+        var ctx = new ModuleEmissionContext
+        {
+            ResolvedNamespace = "StoreKit2",
+        };
+        // Register at least one Error-conforming type so the cascade helper path is taken
+        // (empty ErrorTypeOrder falls back to plain SwiftException and never names the helper).
+        ctx.RegisterErrorTypeId("TestModule.SomeError");
+
+        Assert.True(AsyncMethodGenericBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parent, ctx));
+
+        var csResult = csOutput.ToString();
+        var expectedHelperRef = ErrorRegistryHelperEmitter.GetFullyQualifiedHelperReference(
+            moduleName: "TestModule", resolvedNamespace: "StoreKit2");
+        Assert.Equal("global::StoreKit2._SbwModuleErrorRegistry_TestModule", expectedHelperRef);
+        Assert.Contains($"{expectedHelperRef}.CreateException(", csResult);
+        // Identity-namespace path (pre-remap) must not appear — that is the bypass shape.
+        Assert.DoesNotContain("global::TestModule._SbwModuleErrorRegistry_TestModule", csResult);
+        // Un-qualified bare helper name would bind against the enclosing type's namespace,
+        // not the remapped registry namespace (the pre-fix production form).
+        Assert.DoesNotContain(
+            "var exception = _SbwModuleErrorRegistry_TestModule.CreateException", csResult);
+    }
+
+    [Fact]
     public void TryEmit_AsyncNoThrows_DoesNotEmitErrorCallback()
     {
         var (csWriter, swiftWriter, csOutput, swiftOutput) = CreateWritersWithBuffers();

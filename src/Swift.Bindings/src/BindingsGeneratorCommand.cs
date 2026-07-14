@@ -841,12 +841,12 @@ public static class BindingsGeneratorCommand
         // ShouldAbortForFailedMixedObjC has no permissive escape, so this always aborts; doing it
         // here avoids emitting partial Swift artifacts we would only throw away. Mirrors the pure-ObjC
         // path's context.ExitCode = objcResult.ExitCode propagation.
-        if (mixedParse != null && (mixedParse.ExitCode != 0 || mixedParse.Module == null))
+        if (ShouldAbortForFailedMixedObjC(mixedParse))
         {
             logger.LogError(
                 "ObjC pipeline for mixed framework failed (exit {Code}); refusing to emit a " +
                 "Swift-only binding that would silently drop the ObjC surface. {Msg}",
-                mixedParse.ExitCode, mixedParse.ErrorMessage ?? "(no detail)");
+                mixedParse!.ExitCode, mixedParse.ErrorMessage ?? "(no detail)");
             context.ExitCode = mixedParse.ExitCode != 0 ? mixedParse.ExitCode : 1;
             return;
         }
@@ -1385,8 +1385,10 @@ public static class BindingsGeneratorCommand
                 logger.LogError(
                     "ObjC pipeline for mixed framework failed (exit {Code}); refusing to emit a " +
                     "Swift-only binding that would silently drop the ObjC surface. {Msg}",
-                    mixedObjcResult.ExitCode, mixedObjcResult.ErrorMessage ?? "(no detail)");
-                context.ExitCode = mixedObjcResult.ExitCode;
+                    mixedObjcResult!.ExitCode, mixedObjcResult.ErrorMessage ?? "(no detail)");
+                // Exit 0 + null Module is still a failed ObjC surface — force non-zero so the
+                // Nuke --strict/--permissive layer sees a real failure (matches the pre-Swift gate).
+                context.ExitCode = mixedObjcResult.ExitCode != 0 ? mixedObjcResult.ExitCode : 1;
                 return;
             }
         }
@@ -1816,15 +1818,30 @@ public static class BindingsGeneratorCommand
 
     /// <summary>
     /// Fail-closed gate for the mixed-framework ObjC pipeline. The caller only runs the pipeline
-    /// when the framework HAS a detected ObjC surface, so a non-zero pipeline exit means we tried
-    /// to bind a known ObjC surface and failed. When this returns true, <c>Execute</c> propagates
-    /// the pipeline's exit code and refuses to emit a binding at all — silently degrading to a
-    /// Swift-only package would drop the ObjC types with no diagnostic AND bypass
-    /// <c>SWIFTBIND039</c> (which only fires when the emitted metadata still says "Mixed").
-    /// A null result means the pipeline never ran (not a mixed framework) → never abort.
+    /// when the framework HAS a detected ObjC surface, so a non-zero pipeline exit OR a null
+    /// module means we tried to bind a known ObjC surface and failed. When this returns true,
+    /// <c>Execute</c> propagates a non-zero exit code and refuses to emit a binding at all —
+    /// silently degrading to a Swift-only package would drop the ObjC types with no diagnostic
+    /// AND bypass <c>SWIFTBIND039</c> (which only fires when the emitted metadata still says
+    /// "Mixed"). A null result means the pipeline never ran (not a mixed framework) → never abort.
     /// </summary>
+    /// <remarks>
+    /// Single oracle shared by the pre-Swift parse gate (<see cref="ObjCParseResult"/>) and the
+    /// post-Swift FilterAndEmit gate (<see cref="ObjCPipelineResult"/>). Both result types carry
+    /// the same exit-code + module shape; the overloads unwrap and delegate to the shared core.
+    /// </remarks>
+    internal static bool ShouldAbortForFailedMixedObjC(int exitCode, ObjCModule? module)
+        => exitCode != 0 || module == null;
+
+    /// <inheritdoc cref="ShouldAbortForFailedMixedObjC(int, ObjCModule?)"/>
     internal static bool ShouldAbortForFailedMixedObjC(ObjCPipelineResult? mixedObjcResult)
-        => mixedObjcResult != null && mixedObjcResult.ExitCode != 0;
+        => mixedObjcResult is not null
+           && ShouldAbortForFailedMixedObjC(mixedObjcResult.ExitCode, mixedObjcResult.Module);
+
+    /// <inheritdoc cref="ShouldAbortForFailedMixedObjC(int, ObjCModule?)"/>
+    internal static bool ShouldAbortForFailedMixedObjC(ObjCParseResult? mixedParse)
+        => mixedParse is not null
+           && ShouldAbortForFailedMixedObjC(mixedParse.ExitCode, mixedParse.Module);
 
     /// <summary>
     /// A1: persist a pure-ObjC binding's dropped-symbol diagnostics into the output directory's
