@@ -633,8 +633,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
             : "_ completion: @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void");
         if (throws)
         {
+            // The error pointer is optional: a nil error pointer is the cancellation
+            // sentinel (a real boxed Swift error is never nil), letting the catch below
+            // signal CancellationError through the existing two-argument callback without
+            // widening the wire. ABI-identical to a non-optional pointer.
             swiftParams.Add(
-                "_ errorCallback: @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void");
+                "_ errorCallback: @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer) -> Void");
         }
         swiftParams.Add("_ context: UnsafeMutableRawPointer");
         swiftParams.Add("_ cancelKey: Int64");
@@ -700,6 +704,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     $"            resultPtr.initializeMemory(as: ({returnSwiftType}).self, repeating: _result, count: 1)");
                 swiftWriter.WriteLine("            completion(resultPtr, context)");
             }
+            // A cancelled Swift task throws CancellationError; surface it as a cancelled
+            // Task on the C# side, not a faulted one. Signal cancellation with a nil error
+            // pointer (the sentinel the C# callback maps to TrySetCanceled); every other
+            // error boxes and flows through the normal fault path.
+            swiftWriter.WriteLine("        } catch is CancellationError {");
+            swiftWriter.WriteLine("            errorCallback(nil, context)");
             swiftWriter.WriteLine("        } catch {");
             swiftWriter.WriteLine(
                 "            let errorPtr = Unmanaged.passRetained(error as AnyObject).toOpaque()");
@@ -949,6 +959,22 @@ public static partial class ConcreteProtocolSpecializationEmitter
             // the error branch). Void path: holder[1] is IntPtr.Zero, so the conditional
             // free below is a no-op — no buffer was ever allocated.
             csWriter.WriteLine("resultPtr = (IntPtr)(nint)holder[1]!;");
+            // A nil error pointer is the cancellation sentinel: the Swift wrapper caught a
+            // CancellationError. Surface it as a cancelled Task (not a fault), attaching the
+            // token registered by this call — matching the non-CSM async paths, which pull
+            // the same token from the holder; no token registered → default.
+            csWriter.WriteLine("if (errorPtr == IntPtr.Zero)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("global::System.Threading.CancellationToken cancelToken = default;");
+            csWriter.WriteLine(
+                "if (holder.Length > 2 && holder[2] is global::System.Threading.CancellationTokenRegistration cancelReg) cancelToken = cancelReg.Token;");
+            csWriter.WriteLine("tcs.TrySetCanceled(cancelToken);");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine("else");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
             // Build a SwiftException via the standard ThrowSwiftError helper. Wrap in
             // try/catch so we capture the constructed exception without unwinding past
             // the UnmanagedCallersOnly boundary (which would crash the process).
@@ -965,6 +991,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
             csWriter.WriteLine("tcs.TrySetException(ex);");
             csWriter.Indent--;
             csWriter.WriteLine("}");
+            csWriter.Indent--;
+            csWriter.WriteLine("}"); // close `else` (non-cancellation fault branch)
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.Indent--;

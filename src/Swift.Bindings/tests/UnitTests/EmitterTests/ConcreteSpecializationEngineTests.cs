@@ -578,6 +578,42 @@ public class ConcreteSpecializationEngineTests
     }
 
     [Fact]
+    public void FindSpecializableMethods_AssociatedTypeSugarVsCanonical_StillSpecializes()
+    {
+        // The conformer's associated-type value can carry the canonical spelling
+        // (`Swift.Array<Swift.UInt8>` — the conformance-graph witness merge stores
+        // `resolved.ToString(true)`), while the method's same-type constraint target
+        // is the sugared ABI printing (`[Swift.UInt8]`). Both denote the same type,
+        // so the conformer satisfies the constraint and the method must specialize;
+        // a raw ordinal compare falsely rejects it and the method silently loses
+        // the conformer.
+        var db = new ResolvingTypeDatabase();
+        var conformerTypeName = SwiftTypeName.FromModuleQualifiedName("TestLib.ByteChunk");
+        db.Register(conformerTypeName, "TestLib", "ByteChunk");
+
+        var engine = new ConcreteSpecializationEngine(db);
+
+        var moduleDecl = CreateModuleWithConformer("TestLib", "TestLib.ByteChunk", "TestLib.Chunkable");
+        ((StructDecl)moduleDecl.Types[0]).Typealiases["Element"] = "Swift.Array<Swift.UInt8>";
+        engine.IndexModuleConformances(moduleDecl);
+
+        var typeDecl = CreateStructWithProtocolConstrainedMethod("Processor", "process", "TestLib.Chunkable");
+        // Same-type constraint: τ_1_0.Element == [Swift.UInt8]
+        typeDecl.Methods[0].GenericParameters[0].AssosiatedTypeConformances.Add(
+            new GenericParameterConformance(
+                new[] { "τ_1_0", "Element" },
+                SwiftTypeName.FromModuleQualifiedName("[Swift.UInt8]"),
+                ConformanceKind.ConcreteType));
+
+        var result = engine.FindSpecializableMethods(typeDecl);
+
+        Assert.Single(result);
+        Assert.Single(result[0].SpecializableParams);
+        var conformer = Assert.Single(result[0].SpecializableParams[0].Conformers);
+        Assert.Equal("TestLib.ByteChunk", conformer.SwiftQualifiedName);
+    }
+
+    [Fact]
     public void IndexModuleConformances_PropagatesAvailabilityToConformers()
     {
         // Regression test: specialized methods for a conformer like CryptoKit.SHA3_256Digest
@@ -1213,7 +1249,10 @@ public class ConcreteSpecializationEngineTests
         // wrapper must install BOTH the 1-arg success completion AND the 2-arg errorCallback
         // inside a do/catch, route the thrown error through errorCallback(errorPtr, context),
         // and still allocate NO result buffer. The C# error path faults the non-generic Task
-        // via TrySetException — there is no result slot to read.
+        // via TrySetException — there is no result slot to read. A caught CancellationError
+        // must instead surface as a *cancelled* Task: the Swift catch reports it with a nil
+        // error-pointer sentinel and the C# error callback maps that to TrySetCanceled,
+        // without widening the two-argument error callback ABI.
         var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
 
         var engine = new ConcreteSpecializationEngine(db);
@@ -1236,17 +1275,24 @@ public class ConcreteSpecializationEngineTests
 
         // Swift: both callbacks present, do/catch routing, context-only success completion.
         Assert.Contains("_ completion: @convention(c) (UnsafeMutableRawPointer) -> Void", swift);
-        Assert.Contains("_ errorCallback: @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void", swift);
+        // The error pointer is optional so cancellation can travel as a nil sentinel.
+        Assert.Contains("_ errorCallback: @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer) -> Void", swift);
         Assert.Contains("try await __self.donate(", swift);
         Assert.Contains("completion(context)", swift);
+        // Cancellation reported as a nil sentinel; every other error boxes and flows normally.
+        Assert.Contains("} catch is CancellationError {", swift);
+        Assert.Contains("errorCallback(nil, context)", swift);
         Assert.Contains("errorCallback(errorPtr, context)", swift);
         // No result buffer on the throwing void path either.
         Assert.DoesNotContain("_ resultPtr:", swift);
 
-        // C#: still a non-generic Task; the error path faults via TrySetException.
+        // C#: still a non-generic Task; the error path faults via TrySetException, but a
+        // nil error-pointer sentinel is classified as cancellation and mapped to TrySetCanceled.
         Assert.DoesNotContain("TaskCompletionSource<", cs);
         Assert.Contains("global::System.Threading.Tasks.Task DonateAsync(", cs);
         Assert.Contains("TrySetException", cs);
+        Assert.Contains("if (errorPtr == IntPtr.Zero)", cs);
+        Assert.Contains("TrySetCanceled(", cs);
     }
 
     [Fact]
@@ -1591,6 +1637,76 @@ public class ConcreteSpecializationEngineTests
     // These tests are construction-only (no full engine wiring): they exercise
     // ParentTupleSatisfiesMethodConstraints directly with a parent-tuple list and a
     // MethodDecl whose RawGenericSig carries each clause shape.
+
+    [Fact]
+    public void ParentTupleSatisfiesMethodConstraints_SameType_SugaredConcreteTarget_Admits()
+    {
+        // Direct-arm SameType match: `<τ_0_0 where τ_0_0 == Swift.Optional<Swift.Int>>`.
+        // The chosen parent conformer names the SAME type in sugared form — its
+        // SwiftQualifiedName is "Swift.Int?" while the generic-sig target prints the
+        // desugared "Swift.Optional<Swift.Int>". These are the same Swift type, so the
+        // clause IS satisfied and the tuple must admit. An ordinal string compare on the
+        // direct arm false-rejects the sugar mismatch and silently skips a legal member
+        // (undercount); canonicalizing both sides through the type-spec parser admits it.
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+        var method = CreateMethodWithSig(
+            "pinOptional",
+            "<τ_0_0 where τ_0_0 == Swift.Optional<Swift.Int>>");
+        var parent = CreateGenericStructDecl("Box", "τ_0_0");
+
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: "Swift.Int?",
+            CSharpType: "SwiftOptional<nint>");
+        var specParam = new ConcreteSpecializationEngine.SpecializableParam(
+            GenericParam: parent.GenericParameters[0],
+            ConstraintProtocol: SwiftTypeName.FromModuleQualifiedName("TestLib.Permitted"),
+            Conformers: new List<ConcreteSpecializationEngine.ConcreteConformer> { conformer },
+            CouplingConstraints: null,
+            IsParentGeneric: true);
+
+        var parentTuple = new List<(ConcreteSpecializationEngine.SpecializableParam, ConcreteSpecializationEngine.ConcreteConformer)>
+        {
+            (specParam, conformer)
+        };
+
+        Assert.True(
+            engine.ParentTupleSatisfiesMethodConstraints(method, parent, parentTuple),
+            "a sugared/desugared spelling of the same SameType concrete target must be admitted, not false-rejected");
+    }
+
+    [Fact]
+    public void ParentTupleSatisfiesMethodConstraints_Conformance_CompositeTarget_DeclinesWithoutThrowing()
+    {
+        // A method-level DIRECT conformance constraint whose target is an unqualified
+        // protocol-composition (`τ_0_0 : A & B`). ParseSignature keeps such targets
+        // verbatim (it is the lossless reader), so `target` reaches the conformance-arm's
+        // SwiftTypeName.FromModuleQualifiedName(target) call — which throws on an
+        // unqualified/`&`-containing string (no module dot). Building the type name must
+        // not crash the generator: an unparseable constraint target is unprovable, so the
+        // tuple fails-closed (declines) rather than throwing.
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+        var method = CreateMethodWithSig("compose", "<τ_0_0 where τ_0_0 : A & B>");
+        var parent = CreateGenericStructDecl("Box", "τ_0_0");
+
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: "TestLib.SongItem",
+            CSharpType: "SongItem");
+        var specParam = new ConcreteSpecializationEngine.SpecializableParam(
+            GenericParam: parent.GenericParameters[0],
+            ConstraintProtocol: SwiftTypeName.FromModuleQualifiedName("TestLib.Permitted"),
+            Conformers: new List<ConcreteSpecializationEngine.ConcreteConformer> { conformer },
+            CouplingConstraints: null,
+            IsParentGeneric: true);
+
+        var parentTuple = new List<(ConcreteSpecializationEngine.SpecializableParam, ConcreteSpecializationEngine.ConcreteConformer)>
+        {
+            (specParam, conformer)
+        };
+
+        Assert.False(
+            engine.ParentTupleSatisfiesMethodConstraints(method, parent, parentTuple),
+            "an unparseable composite/unqualified conformance target must fail-closed (decline), not throw");
+    }
 
     [Fact]
     public void ParentTupleSatisfiesMethodConstraints_SameType_TauRootedRhs_Admits()

@@ -89,6 +89,17 @@ public struct AsyncBag<Item: AsyncBagItem>: Sendable where Item.Response: Sendab
     public func tryRespond() async throws -> Item.Response {
         return Item.makeResponse()
     }
+
+    /// Throwing parent-only async method that reports cancellation by throwing
+    /// `CancellationError` from inside the async body — WITHOUT depending on a
+    /// caller-supplied cancellation token. Returning `Item.Response` keeps it on
+    /// the CSM parent-only async path (associated-type return can only emit per
+    /// closed conformer). Exercises the error-callback's cancellation
+    /// classification: a Swift `CancellationError` must surface as a cancelled
+    /// Task, not a faulted one.
+    public func cancelRespond() async throws -> Item.Response {
+        throw CancellationError()
+    }
 }
 
 // MARK: - Closed-conformer factories

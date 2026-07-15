@@ -105,4 +105,55 @@ public class PatParentAsyncMethodsTests : TestBase
         AssertNotNull(response, "TryRespondAsync result is not null");
         AssertEqual((nint)42, response.N, "Throwing-variant IntResponse.n round-trips");
     }
+
+    public async Task TestAsyncBagMockStringItem_CancelRespondAsyncSurfacesCancellation()
+    {
+        // Cancellation classification on the CSM parent-only async ERROR path.
+        // The Swift member throws CancellationError from inside its async body
+        // WITHOUT the caller passing a cancellation token, so the cancellation
+        // must travel through the error callback (not the token-registration
+        // path, which is not even wired here). A Swift CancellationError must
+        // surface as a *cancelled* Task — an awaiter sees OperationCanceledException
+        // and Task.IsCanceled is true. The faulted-Task behaviour (an awaiter
+        // seeing a SwiftException) is the bug this pins against.
+        using var bag = Functions.MakeAsyncBagMockStringItem();
+        var task = bag.CancelRespondAsync();
+
+        bool observedCancellation = false;
+        try
+        {
+            await WithTimeout(task, DefaultAsyncTimeout);
+        }
+        catch (global::System.OperationCanceledException)
+        {
+            observedCancellation = true;
+        }
+
+        AssertTrue(observedCancellation,
+            "CancelRespondAsync awaiter observes OperationCanceledException, not a SwiftException");
+        AssertTrue(task.IsCanceled, "CancelRespondAsync Task ends in the Canceled state");
+    }
+
+    public async Task TestAsyncBagMockIntItem_CancelRespondAsyncSurfacesCancellation()
+    {
+        // Same cancellation-classification assertion on the second closed
+        // conformer, confirming the error-path cancellation mapping emits
+        // independently per pairing.
+        using var bag = Functions.MakeAsyncBagMockIntItem();
+        var task = bag.CancelRespondAsync();
+
+        bool observedCancellation = false;
+        try
+        {
+            await WithTimeout(task, DefaultAsyncTimeout);
+        }
+        catch (global::System.OperationCanceledException)
+        {
+            observedCancellation = true;
+        }
+
+        AssertTrue(observedCancellation,
+            "CancelRespondAsync awaiter observes OperationCanceledException, not a SwiftException");
+        AssertTrue(task.IsCanceled, "CancelRespondAsync Task ends in the Canceled state");
+    }
 }

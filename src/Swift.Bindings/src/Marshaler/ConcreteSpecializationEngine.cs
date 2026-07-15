@@ -1156,7 +1156,16 @@ public class ConcreteSpecializationEngine
         {
             if (!conformer.AssociatedTypes.TryGetValue(name, out var conformerTarget))
                 return false;
-            if (!string.Equals(conformerTarget, target, StringComparison.Ordinal))
+            // The two sides come from different printings of the same type: the
+            // conformer value is a typealias PrintedName or a canonical conformance
+            // witness (`Swift.Array<Swift.UInt8>`), while the constraint target is
+            // the ABI's sugared printing (`[Swift.UInt8]`). Normalize both through
+            // the type-spec parser so equal types compare equal; an ordinal compare
+            // falsely rejects the conformer and silently drops the specialization.
+            if (!string.Equals(
+                    NormalizeTypeForComparison(conformerTarget),
+                    NormalizeTypeForComparison(target),
+                    StringComparison.Ordinal))
                 return false;
         }
         return true;
@@ -1374,6 +1383,25 @@ public class ConcreteSpecializationEngine
                 if (kind == MethodConstraintKind.Conformance)
                 {
                     if (parentLevelNames.Contains(target)) continue;
+                    // The generic-sig reader is lossless — it keeps a conformance target
+                    // verbatim even when it is a protocol composition (`A & B`), an
+                    // unqualified marker (`AnyObject`/`Sendable`/`Any`), or a constructed
+                    // generic. FromModuleQualifiedName throws on all of those (no module
+                    // dot, or an angle bracket). An unbuildable target is one this gate
+                    // cannot prove the conformer satisfies, so fail-closed: decline the
+                    // tuple rather than let the throw crash the generator.
+                    SwiftTypeName constraintTypeName;
+                    try
+                    {
+                        constraintTypeName = SwiftTypeName.FromModuleQualifiedName(target);
+                    }
+                    catch (ArgumentException)
+                    {
+                        RecordMethodWhereRejection(
+                            parentTypeDecl, method, entry.Param.GenericParam,
+                            entry.Param.ConstraintProtocol, entry.Conformer, target);
+                        return false;
+                    }
                     // Fail-closed (F20): same shape as ConformerSatisfiesAllConstraints. A
                     // method-level conformance constraint stricter than the parent's
                     // declaration is satisfied only when the chosen parent conformer is a
@@ -1383,7 +1411,7 @@ public class ConcreteSpecializationEngine
                     // `where` clause the conformer fails to satisfy.
                     if (IsKnownConformerOfConstraint(
                             entry.Conformer.SwiftQualifiedName,
-                            SwiftTypeName.FromModuleQualifiedName(target)))
+                            constraintTypeName))
                         continue;
                     RecordMethodWhereRejection(
                         parentTypeDecl, method, entry.Param.GenericParam,
@@ -1421,12 +1449,25 @@ public class ConcreteSpecializationEngine
                     //     not a generic-parameter placeholder.
                     if (IsCouplingDeferredSameTypeTarget(target, parentTuple)) continue;
 
-                    if (string.Equals(entry.Conformer.SwiftQualifiedName, target, StringComparison.Ordinal)) continue;
-                    // Also accept matches against the conformer's literal Swift expression
-                    // (covers nested types and Optional/Array/Dictionary printed forms used
-                    // by Swift's ABI sig — e.g. "Data?" vs "Swift.Optional<Foundation.Data>").
+                    // Compare the conformer's Swift name (and its literal expression, when
+                    // present) against the target by canonicalizing both through the
+                    // type-spec parser. The conformer name and the raw generic-sig target
+                    // can spell the SAME Swift type in different printed forms — sugar vs
+                    // desugared (`Data?` vs `Swift.Optional<Foundation.Data>`), nested-type
+                    // qualification, etc. An ordinal compare false-rejects those spellings
+                    // and silently skips a legal member (undercount). Normalization is
+                    // strictly more-admitting; a genuine type mismatch still fails the
+                    // canonical compare and rejects (fail-closed direction preserved).
+                    var normalizedTarget = NormalizeTypeForComparison(target);
+                    if (string.Equals(
+                            NormalizeTypeForComparison(entry.Conformer.SwiftQualifiedName),
+                            normalizedTarget,
+                            StringComparison.Ordinal)) continue;
                     if (!string.IsNullOrEmpty(entry.Conformer.SwiftLiteral) &&
-                        string.Equals(entry.Conformer.SwiftLiteral, target, StringComparison.Ordinal)) continue;
+                        string.Equals(
+                            NormalizeTypeForComparison(entry.Conformer.SwiftLiteral!),
+                            normalizedTarget,
+                            StringComparison.Ordinal)) continue;
                     RecordMethodWhereRejection(
                         parentTypeDecl, method, entry.Param.GenericParam,
                         entry.Param.ConstraintProtocol, entry.Conformer,
