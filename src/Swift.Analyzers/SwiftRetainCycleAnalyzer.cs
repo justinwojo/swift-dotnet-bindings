@@ -153,6 +153,10 @@ public sealed class SwiftRetainCycleAnalyzer : DiagnosticAnalyzer
             ILocalSymbol local => local.Type,
             IParameterSymbol param => param.Type,
             IFieldSymbol field => field.Type,
+            // An instance property backs the receiver just as a field does (`owner.Service.Handler = …`).
+            // A static property has no per-instance `self` to close the cycle on, so it is excluded —
+            // matching the static-store exclusion applied to the assigned member below.
+            IPropertySymbol prop when !prop.IsStatic => prop.Type,
             _ => null
         };
         if (receiverSymbol == null || receiverType == null)

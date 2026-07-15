@@ -50,6 +50,12 @@ public class RegularClass
     public void SetCallback(Action callback) { }
     public void DoWork() { }
 }
+
+public class Owner
+{
+    public FooProxy Service { get; set; }
+    public static FooProxy Shared { get; set; }
+}
 ";
 
     [Fact]
@@ -260,6 +266,46 @@ public class TestClass
     {
         var obj = new RegularClass();
         obj.SetCallback(() => obj.DoWork());
+    }
+}
+";
+
+        var test = new AnalyzerTest { TestCode = testCode };
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task SelfCapturingCallback_PropertyReceiver_ReportsDiagnostic()
+    {
+        // The Swift-backed object is reached through an instance property (`owner.Service`), not a
+        // local. The cycle is identical: the stored callback captures the same property-backed object
+        // it is attached to. The analyzer must resolve a property receiver just as it does a local.
+        var testCode = MockTypes + @"
+public class TestClass
+{
+    public void Method()
+    {
+        var owner = new Owner();
+        owner.Service.Handler = {|SB1002:() => owner.Service.DoWork()|};
+    }
+}
+";
+
+        var test = new AnalyzerTest { TestCode = testCode };
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task SelfCapturingCallback_StaticPropertyReceiver_NoDiagnostic()
+    {
+        // A static property is not an instance receiver — there is no per-instance `self` to close the
+        // cycle on, so the analyzer stays silent (mirrors the static-field/local exclusion).
+        var testCode = MockTypes + @"
+public class TestClass
+{
+    public void Method()
+    {
+        Owner.Shared.Handler = () => Owner.Shared.DoWork();
     }
 }
 ";

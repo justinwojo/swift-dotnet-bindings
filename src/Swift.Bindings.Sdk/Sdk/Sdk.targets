@@ -704,11 +704,11 @@ done; true"
           Condition="'$(_SwiftNewFingerprint)' == '@(_SwiftOldFingerprintLines)'">true</_SwiftBindingUpToDate>
     </PropertyGroup>
 
-    <!-- Update stamp if fingerprint changed -->
-    <WriteLinesToFile File="$(_SwiftStampFile)"
-                      Lines="$(_SwiftNewFingerprint)"
-                      Overwrite="true"
-                      Condition="'$(_SwiftBindingUpToDate)' != 'true'" />
+    <!-- Deliberately does NOT write the stamp here. Writing the fingerprint before
+         generation runs is fail-open: a failed generate would leave a fresh stamp, so
+         the next build with unchanged inputs sees it as current and skips regeneration,
+         certifying partial/failed output. The stamp is written only after a successful
+         generate (see _GenerateSwiftBindings / _GenerateSwiftBindingsAppleFramework). -->
   </Target>
 
   <!--
@@ -1007,6 +1007,14 @@ done; true"
                       File="$(_SwiftBindingIntermediateDir)binding-metadata.props"
                       Lines="@(_AFW_MetadataLines)"
                       Overwrite="true" />
+
+    <!-- Stamp the fingerprint only AFTER a successful Apple-framework generate. The
+         generator Exec above has no ContinueOnError, so a failed generate aborts before
+         this write and the next build re-runs generation instead of skipping it. -->
+    <WriteLinesToFile File="$(_SwiftStampFile)"
+                      Lines="$(_SwiftNewFingerprint)"
+                      Overwrite="true"
+                      Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftBindingUpToDate)' != 'true' AND '$(_SwiftStampFile)' != ''" />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -1779,6 +1787,14 @@ done; true"
           EnvironmentVariables="$(_SwiftGeneratorEnv)"
           StandardOutputImportance="low" StandardErrorImportance="high"
           IgnoreStandardErrorWarningFormat="true" />
+
+    <!-- Stamp the fingerprint only AFTER a successful generate. The Exec above has no
+         ContinueOnError, so a failed generate aborts the build before this write and the
+         next build (unchanged inputs, no stamp) re-runs the generator. -->
+    <WriteLinesToFile File="$(_SwiftStampFile)"
+                      Lines="$(_SwiftNewFingerprint)"
+                      Overwrite="true"
+                      Condition="'@(SwiftFramework)' != '' AND '$(_SwiftBindingUpToDate)' != 'true' AND '$(_SwiftStampFile)' != ''" />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->

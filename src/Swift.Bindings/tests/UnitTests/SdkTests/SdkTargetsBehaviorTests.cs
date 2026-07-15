@@ -501,6 +501,92 @@ namespace BindingsGeneration.Tests
             Assert.Contains("CoreDatabase.xml", output);
         }
 
+        // ── Fingerprint stamp discipline: written only after a successful generate ──
+        // A failed generate must NOT leave a fresh fingerprint stamp behind, or the
+        // next build with unchanged inputs sees the stamp as current and skips
+        // regeneration — certifying the partial/failed output as up to date.
+
+        private static string? FindStamp(string projectDir)
+        {
+            var objDir = Path.Combine(projectDir, "obj");
+            if (!Directory.Exists(objDir)) return null;
+            return Directory.GetFiles(objDir, "swift-binding.stamp", SearchOption.AllDirectories)
+                .FirstOrDefault();
+        }
+
+        // Builds a temp project that imports the real SDK and runs the REAL
+        // _ComputeSwiftFingerprint + _GenerateSwiftBindings targets against a stubbed
+        // SwiftFramework. Discovery/validation are stubbed so the explicit item survives,
+        // but the fingerprint target is left REAL (it is what used to write the stamp early).
+        private void WriteFingerprintStampProbeProject(string generatorDir)
+        {
+            var fakeXcfw = Path.Combine(_tempDir, "Fake.xcframework");
+            Directory.CreateDirectory(fakeXcfw);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <_SwiftBindingGeneratorDir>{generatorDir}</_SwiftBindingGeneratorDir>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <SwiftFramework Include="{fakeXcfw}" />
+                  </ItemGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ValidateSwiftPackageItems" />
+                </Project>
+                """;
+            WriteTestProject(project);
+        }
+
+        [Fact]
+        public void FailedGenerate_DoesNotWriteFingerprintStamp()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // Generator dir with NO Swift.Bindings.dll -> `dotnet exec` fails, so the
+            // generate Exec returns non-zero and the build fails.
+            var brokenGenDir = Path.Combine(_tempDir, "no-generator") + "/";
+            Directory.CreateDirectory(brokenGenDir);
+            WriteFingerprintStampProbeProject(brokenGenDir);
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:_GenerateSwiftBindings -nologo -v:n");
+
+            // The generate must fail...
+            Assert.True(result.ExitCode != 0,
+                $"Expected a failing generate.\nStdOut: {result.StdOut}\nStdErr: {result.StdErr}");
+            // ...and it must NOT have left a stamp, so the next build regenerates.
+            var stamp = FindStamp(_tempDir);
+            Assert.True(stamp == null,
+                $"A failed generate wrote a fingerprint stamp ({stamp}); the next build would skip regeneration.");
+        }
+
+        [Fact]
+        public void SuccessfulGenerate_WritesFingerprintStamp()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var stubDir = StubGeneratorDir.Value;
+            SkipUnless(stubDir != null, "Could not build stub generator DLL");
+
+            WriteFingerprintStampProbeProject(stubDir!);
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:_GenerateSwiftBindings -nologo -v:n");
+
+            Assert.True(result.ExitCode == 0,
+                $"Generate with passing stub failed.\nStdOut: {result.StdOut}\nStdErr: {result.StdErr}");
+            var stamp = FindStamp(_tempDir);
+            Assert.True(stamp != null,
+                "A successful generate did not write the fingerprint stamp; incremental builds would always regenerate.");
+        }
+
         // ── SWIFTBIND005: the empty-DLL trap (issue #43) ──
         // A project that carries an @(ObjcBindingApiDefinition) item but omits
         // <IsBindingProject>true</IsBindingProject> ships an empty (0-type) binding
