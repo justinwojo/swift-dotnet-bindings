@@ -430,6 +430,64 @@ public class CrossModuleTests : TestBase
         }
     }
 
+    public void TestDependencyServiceComputeAfterDelayCompletes()
+    {
+        using var active = new DependencyService("Worker", true);
+        // 50ms delay, no cancellation — the default CancellationToken overload must
+        // behave exactly like the pre-cancellation-support binding.
+        var result = active.ComputeAfterDelayAsync(9, 50_000_000).GetAwaiter().GetResult();
+        AssertEqual(9, result,
+            "async throws extension with a delay completes normally when the token is never cancelled");
+    }
+
+    public void TestDependencyServiceComputeAfterDelayPreCancelled()
+    {
+        using var active = new DependencyService("Worker", true);
+        using var cts = new System.Threading.CancellationTokenSource();
+        cts.Cancel();
+        var task = active.ComputeAfterDelayAsync(9, 30_000_000_000, cts.Token);
+        AssertTrue(task.IsCanceled,
+            "pre-cancelled token short-circuits to an already-canceled Task without invoking Swift");
+        try
+        {
+            _ = task.GetAwaiter().GetResult();
+            AssertTrue(false, "awaiting a pre-cancelled call should throw OperationCanceledException");
+        }
+        catch (System.OperationCanceledException ex)
+        {
+            AssertEqual(cts.Token, ex.CancellationToken,
+                "pre-cancel OperationCanceledException carries the caller's token");
+        }
+    }
+
+    public void TestDependencyServiceComputeAfterDelayCancelInFlight()
+    {
+        using var active = new DependencyService("Worker", true);
+        using var cts = new System.Threading.CancellationTokenSource();
+        // 30s deadline: only Swift-side task cancellation (CancellationError from
+        // Task.sleep) can finish this task quickly. Cancel after launch and require
+        // a canceled — not faulted — Task well before the deadline.
+        var task = active.ComputeAfterDelayAsync(9, 30_000_000_000, cts.Token);
+        AssertTrue(!task.IsCompleted, "in-flight call is still pending before cancellation");
+        cts.Cancel();
+        var finished = System.Threading.Tasks.Task.WhenAny(
+            task, System.Threading.Tasks.Task.Delay(10_000)).GetAwaiter().GetResult();
+        AssertTrue(ReferenceEquals(finished, task),
+            "cancelled in-flight call completes long before the 30s Swift-side deadline");
+        AssertTrue(task.IsCanceled,
+            "Swift CancellationError surfaces as a canceled (not faulted) Task");
+        try
+        {
+            _ = task.GetAwaiter().GetResult();
+            AssertTrue(false, "awaiting a cancelled in-flight call should throw OperationCanceledException");
+        }
+        catch (System.OperationCanceledException ex)
+        {
+            AssertEqual(cts.Token, ex.CancellationToken,
+                "in-flight cancellation OperationCanceledException carries the caller's token");
+        }
+    }
+
     public void TestDependencyServiceMakeWithSeed()
     {
         using var positive = DependencyServiceSwiftBindingsTestLibExtensions.MakeWithSeed(7);

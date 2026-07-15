@@ -223,8 +223,12 @@ public class AsyncProjection : ITypeProjection
 
                 errorBody.Add(new MarshalStatement.Line(
                     "var errorMessage = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(msg) ?? \"Unknown Swift error\";"));
+                // A Swift CancellationError must land the Task in Canceled (await still
+                // throws OperationCanceledException, but Task.IsCanceled is true) —
+                // wrapping it in TrySetException would mark the Task Faulted and break
+                // IsCanceled checks and cancellation-aware continuations.
                 errorBody.Add(new MarshalStatement.Line(
-                    "tcs.TrySetException(isCancelled == 1 ? new OperationCanceledException(errorMessage) : new SwiftException(errorMessage));"));
+                    "if (isCancelled == 1) { tcs.TrySetCanceled(); } else { tcs.TrySetException(new SwiftException(errorMessage)); }"));
                 errorBody.Add(new MarshalStatement.Line("handle.Free();"));
 
                 declarations.Add(new CallbackDeclaration(

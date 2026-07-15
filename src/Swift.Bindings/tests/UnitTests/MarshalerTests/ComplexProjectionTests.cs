@@ -1527,9 +1527,15 @@ public class ComplexProjectionTests
         var errorCallback = proj.CallbackDeclarations[1];
 
         var bodyCode = string.Join("\n", errorCallback.Body.OfType<MarshalStatement.Line>().Select(l => l.Code));
+        // A Swift CancellationError must surface as a CANCELED Task (await throws
+        // OperationCanceledException, Task.IsCanceled == true), not a faulted one —
+        // TrySetException(new OperationCanceledException(...)) lands the Task in
+        // Faulted and breaks Task.IsCanceled / when-any cancellation filtering.
+        Assert.Contains("TrySetCanceled", bodyCode);
+        Assert.DoesNotContain("TrySetException(isCancelled", bodyCode);
+        Assert.DoesNotContain("new OperationCanceledException", bodyCode);
+        // Non-cancel errors still fault the Task with the marshalled message.
         Assert.Contains("TrySetException", bodyCode);
-        Assert.Contains("OperationCanceledException", bodyCode);
-        // Should marshal the error message pointer to string first
         Assert.Contains("PtrToStringUTF8", bodyCode);
         Assert.Contains("SwiftException(errorMessage)", bodyCode);
     }

@@ -21,7 +21,7 @@
     <!-- Same warning suppressions as RuntimeTestsApp. CA1418: 'visionos' is
          missing from the .NET 10.0.107 analyzer's KnownPlatforms list on this
          TFM, so the generated [SupportedOSPlatform("visionos1.0")] trips it. -->
-    <NoWarn>CS0169;CS0649;SB0001;SB0002;CA1418;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
+    <NoWarn>CS0169;CS0649;SB0001;SB0002;SB0008;CA1418;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
     <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
     <!-- Source generator output persisted to obj/ for manifest extraction -->
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>

@@ -299,6 +299,76 @@ public class CrossModuleExtensionEmitterTests
 
     #endregion
 
+    #region Emit: async trampoline cancellation support
+
+    [Fact]
+    public void Emit_AsyncMethod_AppendsCancellationTokenWithPreCancelShortCircuit()
+    {
+        var (csWriter, swiftWriter, csOutput, _, moduleDecl, classDecl, conductor, env) = CreateSetupWithSwiftCapture();
+
+        var method = CreateMethodDecl("doWork", "TestModule", classDecl);
+        method.IsAsync = true;
+        classDecl.Methods.Add(method);
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
+            ThreadContext(new ModuleEmissionContext()));
+
+        var result = csOutput.ToString();
+        // The async surface takes a trailing defaulted CancellationToken like every
+        // other async marshaller, short-circuits a pre-cancelled token without
+        // crossing the native boundary, and can task-cancel the Swift producer.
+        Assert.Contains("System.Threading.CancellationToken cancellationToken = default", result);
+        Assert.Contains("Task.FromCanceled", result);
+        Assert.Contains("SBW_CancelTask", result);
+        Assert.Contains("TrySetCanceled", result);
+    }
+
+    [Fact]
+    public void Emit_AsyncThrowsMethod_MapsSwiftCancellationToCanceledTask()
+    {
+        var (csWriter, swiftWriter, csOutput, swiftOutput, moduleDecl, classDecl, conductor, env) = CreateSetupWithSwiftCapture();
+
+        var method = CreateMethodDecl("doWork", "TestModule", classDecl);
+        method.IsAsync = true;
+        method.Throws = true;
+        classDecl.Methods.Add(method);
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
+            ThreadContext(new ModuleEmissionContext()));
+
+        var swiftResult = swiftOutput.ToString();
+        // The Swift trampoline registers the launched Task with the producer-cancel
+        // registry and reports a caught CancellationError distinctly from an ordinary
+        // error so the C# side can cancel (not fault) the Task.
+        Assert.Contains("_sbwRegisterTask", swiftResult);
+        Assert.Contains("CancellationError", swiftResult);
+        Assert.Contains("TrySetCanceled", csOutput.ToString());
+    }
+
+    [Fact]
+    public void Emit_SyncThrowsMethod_HasNoCancellationToken()
+    {
+        var (csWriter, swiftWriter, csOutput, swiftOutput, moduleDecl, classDecl, conductor, env) = CreateSetupWithSwiftCapture();
+
+        var method = CreateMethodDecl("doWork", "TestModule", classDecl);
+        method.Throws = true;
+        classDecl.Methods.Add(method);
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
+            ThreadContext(new ModuleEmissionContext()));
+
+        var result = csOutput.ToString();
+        // Sync-throws blocks on the synchronously-fired completion — there is no
+        // suspended Swift Task to cancel, so no CancellationToken parameter and no
+        // cancel-registry wiring is emitted.
+        Assert.Contains("DoWork(this", result);
+        Assert.DoesNotContain("CancellationToken", result);
+        Assert.DoesNotContain("SBW_CancelTask", result);
+        Assert.DoesNotContain("_sbwRegisterTask", swiftOutput.ToString());
+    }
+
+    #endregion
+
     #region Struct receiver: @_cdecl trampoline path
 
     [Fact]
@@ -543,6 +613,13 @@ public class CrossModuleExtensionEmitterTests
     private static (CSharpWriter csWriter, SwiftWriter swiftWriter, StringWriter csOutput,
         ModuleDecl moduleDecl, ClassDecl classDecl, Conductor conductor, MethodEnvironment env) CreateSetup()
     {
+        var (csWriter, swiftWriter, csOutput, _, moduleDecl, classDecl, conductor, env) = CreateSetupWithSwiftCapture();
+        return (csWriter, swiftWriter, csOutput, moduleDecl, classDecl, conductor, env);
+    }
+
+    private static (CSharpWriter csWriter, SwiftWriter swiftWriter, StringWriter csOutput, StringWriter swiftOutput,
+        ModuleDecl moduleDecl, ClassDecl classDecl, Conductor conductor, MethodEnvironment env) CreateSetupWithSwiftCapture()
+    {
         var csOutput = new StringWriter();
         var csWriter = new CSharpWriter(csOutput);
         var swiftOutput = new StringWriter();
@@ -573,7 +650,7 @@ public class CrossModuleExtensionEmitterTests
         var dummyMethod = CreateMethodDecl("_dummy", "TestModule", classDecl);
         var env = new MethodEnvironment(dummyMethod, typeDatabase);
 
-        return (csWriter, swiftWriter, csOutput, moduleDecl, classDecl, conductor, env);
+        return (csWriter, swiftWriter, csOutput, swiftOutput, moduleDecl, classDecl, conductor, env);
     }
 
     private static ModuleDecl CreateModuleDecl()

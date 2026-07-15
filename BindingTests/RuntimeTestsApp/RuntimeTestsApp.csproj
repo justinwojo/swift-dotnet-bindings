@@ -19,7 +19,7 @@
     <!-- CS0649: protocol proxy vtable entries for closure-skipped methods (never assigned) -->
     <!-- CA1418: 'visionos' missing from the .NET 10.0.107 analyzer's KnownPlatforms list
          on the plain net10.0-ios TFM. See the matching note in CompileCheck.csproj. -->
-    <NoWarn>CS0169;CS0649;SB0001;SB0002;CA1418;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
+    <NoWarn>CS0169;CS0649;SB0001;SB0002;SB0008;CA1418;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
     <!-- Source generator output persisted to obj/ for manifest extraction -->
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
     <!-- Avoid InstallNameTool failure with libSwiftBindingsRuntime.dylib.tmp -->

@@ -286,6 +286,16 @@ extension DependencyService {
         return value * 3
     }
 
+    /// Cancellation-aware async-throws extension member. `Task.sleep` throws
+    /// `CancellationError` when the launched Swift Task is cancelled, so a C#
+    /// CancellationToken cancel must surface as a *canceled* (not faulted)
+    /// Task well before the deliberately long deadline elapses. Uncancelled
+    /// calls with a short deadline complete normally with the echoed value.
+    public func computeAfterDelay(value: Int32, nanoseconds: Int64) async throws -> Int32 {
+        try await Task.sleep(nanoseconds: UInt64(nanoseconds))
+        return value
+    }
+
     /// Static class func on a class receiver with a primitive arg and primitive return.
     public class func makeWithSeed(_ seed: Int32) -> DependencyService {
         return DependencyService(name: "seed-\(seed)", isActive: seed > 0)

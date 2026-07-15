@@ -918,11 +918,20 @@ public static partial class CrossModuleExtensionEmitter
     //     (Args..., completionFn, completionCtx, self_) -> Void
     //
     // The trampoline spawns a Task that awaits the original method, then calls
-    // completionFn with either (result, nil) on success or (default, NSError*)
-    // on failure. The C# side stages a TaskCompletionSource in a GCHandle and
-    // unpacks it from the completion callback, raising SwiftException for the
-    // failure leg. The GCHandle is freed inside the C# completion callback
-    // (one-shot lifetime — completion always fires from the Swift do/catch).
+    // completionFn with (result, nil, 0) on success, (default, NSError*, 0)
+    // on failure, or (default, nil, 1) when the awaited call threw
+    // CancellationError. The C# side stages a holder (TaskCompletionSource +
+    // cancel registration) in a GCHandle and unpacks it from the completion
+    // callback, raising SwiftException for the failure leg and cancelling the
+    // Task for the cancellation leg. The GCHandle is freed inside the C#
+    // completion callback (one-shot lifetime — completion always fires from
+    // the Swift do/catch).
+    //
+    // Async shapes take a trailing defaulted CancellationToken: a pre-cancelled
+    // token short-circuits without crossing the native boundary; a later cancel
+    // task-cancels the suspended Swift producer through the shared per-module
+    // cancel registry (a process-monotonic Int64 key, never the recyclable
+    // GCHandle cookie) and sets the TCS canceled first-writer-wins.
     //
     // Supported shapes in this drop:
     //  - Instance method on a pure Swift class OR an ObjC-rooted class.
@@ -1026,23 +1035,77 @@ public static partial class CrossModuleExtensionEmitter
             publicWrapperReturn = publicReturnType;
 
         // ---------- C# public extension method ----------
+        // Async shapes take a trailing defaulted CancellationToken (matching every other
+        // async marshaller). Reserve the synthetic name against the user param identifiers
+        // so a Swift param literally named `cancellationToken` can't shadow it (CS0136).
+        var syntheticScope = new SyntheticNameScope(
+            new[] { "self" }.Concat(parameters.Select(p => p.Name)));
+        string ctParamName = syntheticScope.Reserve("cancellationToken");
+
         csWriter.WriteLine();
         var publicParams = new List<string> { $"this {origCSharpType} self" };
         foreach (var p in parameters)
             publicParams.Add($"{p.PublicCSharpType} {p.Name}");
+        if (isAsync)
+            publicParams.Add($"global::System.Threading.CancellationToken {ctParamName} = default");
         csWriter.WriteLine($"public static unsafe {publicWrapperReturn} {publicMethodName}({string.Join(", ", publicParams)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
+        // Pre-cancel short-circuit: an already-cancelled token never crosses the
+        // native boundary — no TCS, no GCHandle, no Swift Task.
+        string taskTypeParam = returnCategory.Value == ReturnKind.Void ? "" : $"<{publicReturnType}>";
+        if (isAsync)
+        {
+            csWriter.WriteLine($"if ({ctParamName}.IsCancellationRequested)");
+            csWriter.Indent++;
+            csWriter.WriteLine($"return global::System.Threading.Tasks.Task.FromCanceled{taskTypeParam}({ctParamName});");
+            csWriter.Indent--;
+        }
+
         // TaskCompletionSource (or its non-generic form for void async) is what
-        // the completion callback unpacks. The GCHandle pins it for the native
-        // boundary; ownership transfers to Swift on a successful P/Invoke and
-        // the C# completion callback frees it after the TCS is resolved.
+        // the completion callback unpacks. It rides slot 0 of an object[] holder
+        // (slot 1: the cancel registration, async only) pinned by the GCHandle for
+        // the native boundary; ownership transfers to Swift on a successful
+        // P/Invoke and the C# completion callback frees it after the TCS is resolved.
         string tcsType = returnCategory.Value == ReturnKind.Void
             ? "global::System.Threading.Tasks.TaskCompletionSource"
             : $"global::System.Threading.Tasks.TaskCompletionSource<{publicReturnType}>";
         csWriter.WriteLine($"var __tcs = new {tcsType}(global::System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);");
-        csWriter.WriteLine("var __ctxHandle = global::System.Runtime.InteropServices.GCHandle.Alloc(__tcs);");
+        if (isAsync)
+        {
+            // Producer-cancel registry key (distinct from the GCHandle cookie — handles
+            // recycle, the monotonic key never does). A cancellable token registers a
+            // callback that task-cancels the suspended Swift producer and sets the TCS
+            // canceled; first-writer-wins means a later terminal callback no-ops on the
+            // TCS but still frees the native resources.
+            csWriter.WriteLine("long __sbwCancelKey = global::Swift.Runtime.SwiftAsyncCancellation.NextCancelKey();");
+            csWriter.WriteLine("global::System.Threading.CancellationTokenRegistration __cancelRegistration = default;");
+            csWriter.WriteLine($"if ({ctParamName}.CanBeCanceled)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine($"__cancelRegistration = {ctParamName}.Register(");
+            csWriter.Indent++;
+            csWriter.WriteLine("static state =>");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine($"var (__t, __tok, __id) = (({tcsType}, global::System.Threading.CancellationToken, long))state!;");
+            csWriter.WriteLine("NativeMethods.SBW_CancelTask(__id);");
+            csWriter.WriteLine("__t.TrySetCanceled(__tok);");
+            csWriter.Indent--;
+            csWriter.WriteLine("},");
+            csWriter.WriteLine($"(__tcs, {ctParamName}, __sbwCancelKey));");
+            csWriter.Indent--;
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine("var __ctxHolder = new object[] { __tcs, __cancelRegistration };");
+        }
+        else
+        {
+            // Sync-throws: same holder layout, no cancel registration slot.
+            csWriter.WriteLine("var __ctxHolder = new object[] { __tcs };");
+        }
+        csWriter.WriteLine("var __ctxHandle = global::System.Runtime.InteropServices.GCHandle.Alloc(__ctxHolder);");
         csWriter.WriteLine("bool __ctxTransferred = false;");
         csWriter.WriteLine("try");
         csWriter.WriteLine("{");
@@ -1056,6 +1119,8 @@ public static partial class CrossModuleExtensionEmitter
         nativeArgs.Add($"&{completionCallbackName}");
         nativeArgs.Add("global::System.Runtime.InteropServices.GCHandle.ToIntPtr(__ctxHandle)");
         nativeArgs.Add(selfExpr);
+        if (isAsync)
+            nativeArgs.Add("__sbwCancelKey");
 
         if (!classDecl.IsObjCRooted)
         {
@@ -1092,7 +1157,21 @@ public static partial class CrossModuleExtensionEmitter
         csWriter.WriteLine("finally");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        csWriter.WriteLine("if (!__ctxTransferred && __ctxHandle.IsAllocated) __ctxHandle.Free();");
+        csWriter.WriteLine("if (!__ctxTransferred && __ctxHandle.IsAllocated)");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        if (isAsync)
+        {
+            // The P/Invoke threw before Swift could launch: no callback will ever fire,
+            // so dispose the cancel registration here and reclaim any cancellation
+            // tombstone a token that fired in the synchronous window left in the
+            // Swift-side registry (no-op when none).
+            csWriter.WriteLine("__cancelRegistration.Dispose();");
+            csWriter.WriteLine("NativeMethods.SBW_UnregisterTask(__sbwCancelKey);");
+        }
+        csWriter.WriteLine("__ctxHandle.Free();");
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
         csWriter.Indent--;
         csWriter.WriteLine("}");
 
@@ -1127,19 +1206,40 @@ public static partial class CrossModuleExtensionEmitter
 
         csWriter.WriteLine();
         csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
-        // For non-throwing async, the errorPtr parameter is still emitted by
-        // the Swift trampoline (always nil) to keep the cdecl signature stable
-        // across the throws/non-throws shapes — a single completion shape lets
-        // the runtime route both paths through the same callback type.
-        csWriter.WriteLine($"private static void {completionCallbackName}({resultCdeclType} result, IntPtr errorPtr, IntPtr ctx)");
+        // For non-throwing shapes, the errorPtr/isCancellation parameters are
+        // still emitted by the Swift trampoline (always nil/0) to keep the cdecl
+        // signature stable across the throws/non-throws shapes — a single
+        // completion shape lets the runtime route all paths through the same
+        // callback type.
+        csWriter.WriteLine($"private static void {completionCallbackName}({resultCdeclType} result, IntPtr errorPtr, int isCancellation, IntPtr ctx)");
         csWriter.WriteLine("{");
         csWriter.Indent++;
         csWriter.WriteLine("var __h = global::System.Runtime.InteropServices.GCHandle.FromIntPtr(ctx);");
         csWriter.WriteLine("try");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        csWriter.WriteLine($"var __tcs = ({tcsType})__h.Target!;");
-        csWriter.WriteLine("if (errorPtr != IntPtr.Zero)");
+        csWriter.WriteLine($"var __holder = (object[])__h.Target!;");
+        csWriter.WriteLine($"var __tcs = ({tcsType})__holder[0];");
+        if (isAsync)
+        {
+            csWriter.WriteLine("if (isCancellation != 0)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            // Swift reported CancellationError: cancel (not fault) the Task, attaching the
+            // token this call registered (default when none was registered).
+            csWriter.WriteLine("global::System.Threading.CancellationToken __token = default;");
+            csWriter.WriteLine("if (__holder.Length > 1 && __holder[1] is global::System.Threading.CancellationTokenRegistration __regT) __token = __regT.Token;");
+            csWriter.WriteLine("__tcs.TrySetCanceled(__token);");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine("else if (errorPtr != IntPtr.Zero)");
+        }
+        else
+        {
+            // Sync-throws trampolines always pass isCancellation = 0 — no cancel branch.
+            csWriter.WriteLine("_ = isCancellation;");
+            csWriter.WriteLine("if (errorPtr != IntPtr.Zero)");
+        }
         csWriter.WriteLine("{");
         csWriter.Indent++;
         csWriter.WriteLine("var __err = ObjCRuntime.Runtime.GetINativeObject<global::Foundation.NSError>(errorPtr, true);");
@@ -1171,9 +1271,29 @@ public static partial class CrossModuleExtensionEmitter
         csWriter.WriteLine("}");
         csWriter.Indent--;
         csWriter.WriteLine("}");
+        // [UnmanagedCallersOnly] callbacks must not let exceptions escape — the runtime
+        // fail-fasts the process on an unhandled managed exception at the native
+        // boundary. Route any unexpected throw (e.g. a bridge failure) into the TCS so
+        // the awaiting caller sees a faulted Task instead of a crash.
+        csWriter.WriteLine("catch (global::System.Exception __ex)");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        csWriter.WriteLine("try");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        csWriter.WriteLine($"if (__h.IsAllocated && __h.Target is object[] __holder2 && __holder2[0] is {tcsType} __tcs2) __tcs2.TrySetException(__ex);");
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
+        csWriter.WriteLine("catch { /* cannot escape UnmanagedCallersOnly */ }");
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
         csWriter.WriteLine("finally");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+        // Dispose the cancel registration before freeing the handle — the token would
+        // otherwise keep a reference to the (already-completed) TCS alive.
+        if (isAsync)
+            csWriter.WriteLine("if (__h.IsAllocated && __h.Target is object[] __holderR && __holderR.Length > 1 && __holderR[1] is global::System.Threading.CancellationTokenRegistration __reg) __reg.Dispose();");
         csWriter.WriteLine("if (__h.IsAllocated) __h.Free();");
         csWriter.Indent--;
         csWriter.WriteLine("}");
@@ -1184,9 +1304,11 @@ public static partial class CrossModuleExtensionEmitter
         var pinvokeParams = new List<string>();
         foreach (var p in parameters)
             pinvokeParams.Add($"{ResolvePInvokeParamType(p.TypeSpec, p.Kind, typeDatabase)} {p.Name}");
-        pinvokeParams.Add($"delegate* unmanaged[Cdecl]<{resultCdeclType}, IntPtr, IntPtr, void> completionFn");
+        pinvokeParams.Add($"delegate* unmanaged[Cdecl]<{resultCdeclType}, IntPtr, int, IntPtr, void> completionFn");
         pinvokeParams.Add("IntPtr completionCtx");
         pinvokeParams.Add("IntPtr __self");
+        if (isAsync)
+            pinvokeParams.Add("long cancelKey");
 
         pinvokeDecls.Add(new ClassTrampolinePInvokeInfo(
             EntryPoint: symbolName,
@@ -1194,7 +1316,29 @@ public static partial class CrossModuleExtensionEmitter
             ReturnType: "void",
             Parameters: pinvokeParams));
 
+        // Cancel-registry P/Invokes — one pair per extension class (the emitted list is
+        // per-class, so a simple membership check dedups across its async members).
+        if (isAsync && !pinvokeDecls.Any(d => d.MethodName == "SBW_CancelTask"))
+        {
+            pinvokeDecls.Add(new ClassTrampolinePInvokeInfo(
+                EntryPoint: CancellationTaskEmitter.GetCancelSymbolName(currentModule),
+                MethodName: "SBW_CancelTask",
+                ReturnType: "void",
+                Parameters: new List<string> { "long taskId" }));
+            pinvokeDecls.Add(new ClassTrampolinePInvokeInfo(
+                EntryPoint: CancellationTaskEmitter.GetUnregisterSymbolName(currentModule),
+                MethodName: "SBW_UnregisterTask",
+                ReturnType: "void",
+                Parameters: new List<string> { "long taskId" }));
+        }
+
         // ---------- Swift @_cdecl trampoline ----------
+        // Async shapes register the launched Task with the shared per-module producer-cancel
+        // registry; emit that infrastructure once per module first (no-op when a regular
+        // async method already emitted it — same writer, same Swift file, so the private
+        // file-scope helpers are visible here).
+        if (isAsync)
+            CancellationTaskEmitter.EmitIfNeeded(swiftWriter, currentModule, context?.GetEmissionContext());
         EmitSwiftAsyncOrThrowsTrampoline(
             swiftWriter, method, classDecl, origSwiftTypeQualified,
             symbolName, parameters, returnTypeSpec, returnCategory.Value,
@@ -1243,9 +1387,11 @@ public static partial class CrossModuleExtensionEmitter
             ReturnKind.SwiftClass => "UnsafeMutableRawPointer",
             _ => "UInt8",
         };
-        swiftParams.Add($"_ completionFn: @convention(c) ({completionResultType}, UnsafeMutableRawPointer?, UnsafeRawPointer) -> Void");
+        swiftParams.Add($"_ completionFn: @convention(c) ({completionResultType}, UnsafeMutableRawPointer?, Int32, UnsafeRawPointer) -> Void");
         swiftParams.Add("_ completionCtx: UnsafeRawPointer");
         swiftParams.Add("_ self_: UnsafeRawPointer");
+        if (isAsync)
+            swiftParams.Add("_ cancelKey: Int64");
 
         var swiftFuncName = $"_sbw_clsextAT_{symbolName.Substring("SBW_".Length)}";
         swiftWriter.WriteLine($"public func {swiftFuncName}({string.Join(", ", swiftParams)}) {{");
@@ -1278,10 +1424,11 @@ public static partial class CrossModuleExtensionEmitter
         }
         var callArgsString = string.Join(", ", callArgs);
 
-        // Build the success/failure marshalling for completionFn args.
-        // - Void success → completionFn(0, nil, completionCtx)
-        // - Primitive success → completionFn(scalar, nil, completionCtx)
-        // - ObjC/Swift class → completionFn(passRetained(result).toOpaque(), nil, completionCtx)
+        // Build the success/failure marshalling for completionFn args. The third arg is the
+        // isCancellation flag (0 = normal completion, 1 = CancellationError swallowed here).
+        // - Void success → completionFn(0, nil, 0, completionCtx)
+        // - Primitive success → completionFn(scalar, nil, 0, completionCtx)
+        // - ObjC/Swift class → completionFn(passRetained(result).toOpaque(), nil, 0, completionCtx)
         // Bool primitive: Swift result is `Bool` but the cdecl boundary uses `UInt8`
         // (see MapResolvedToSwiftScalar), so widen on the way out.
         bool returnIsBool = returnCategory == ReturnKind.Primitive
@@ -1289,11 +1436,11 @@ public static partial class CrossModuleExtensionEmitter
         string primitiveSuccessArg = returnIsBool ? "__r ? 1 : 0" : "__r";
         string successCompletionCall = returnCategory switch
         {
-            ReturnKind.Void => "completionFn(0, nil, completionCtx)",
-            ReturnKind.Primitive => $"completionFn({primitiveSuccessArg}, nil, completionCtx)",
-            ReturnKind.ObjCClass => "completionFn(Unmanaged.passRetained(__r as AnyObject).toOpaque(), nil, completionCtx)",
-            ReturnKind.SwiftClass => "completionFn(Unmanaged.passRetained(__r).toOpaque(), nil, completionCtx)",
-            _ => "completionFn(0, nil, completionCtx)",
+            ReturnKind.Void => "completionFn(0, nil, 0, completionCtx)",
+            ReturnKind.Primitive => $"completionFn({primitiveSuccessArg}, nil, 0, completionCtx)",
+            ReturnKind.ObjCClass => "completionFn(Unmanaged.passRetained(__r as AnyObject).toOpaque(), nil, 0, completionCtx)",
+            ReturnKind.SwiftClass => "completionFn(Unmanaged.passRetained(__r).toOpaque(), nil, 0, completionCtx)",
+            _ => "completionFn(0, nil, 0, completionCtx)",
         };
         // Failure default for the value slot — we want a benign value, the C# side ignores it when errorPtr != nil.
         string failureDefaultArg = returnCategory switch
@@ -1309,8 +1456,14 @@ public static partial class CrossModuleExtensionEmitter
 
         if (isAsync && isThrowing)
         {
-            swiftWriter.WriteLine("Task {");
+            // Register with the producer-cancel registry so a C# CancellationToken can task-cancel
+            // the launched Task; the `defer` unregisters on every exit, and `_sbwAssignTask` reports
+            // a cancel that raced ahead of assignment so it can be replayed onto the launched task.
+            swiftWriter.WriteLine("let _entry = _SBWTaskEntry()");
+            swiftWriter.WriteLine("_sbwRegisterTask(cancelKey, _entry)");
+            swiftWriter.WriteLine("let _sbwLaunchedTask = Task {");
             swiftWriter.Indent++;
+            swiftWriter.WriteLine("defer { _sbwUnregisterTask(cancelKey) }");
             swiftWriter.WriteLine("do {");
             swiftWriter.Indent++;
             if (returnCategory == ReturnKind.Void)
@@ -1319,18 +1472,32 @@ public static partial class CrossModuleExtensionEmitter
                 swiftWriter.WriteLine($"let __r = try await {callExpr}");
             swiftWriter.WriteLine(successCompletionCall);
             swiftWriter.Indent--;
+            // A cancelled Swift task throws CancellationError; surface it as a cancelled Task on
+            // the C# side (isCancellation = 1), not a faulted one. Every other error boxes and
+            // flows through the normal fault path.
+            swiftWriter.WriteLine("} catch is CancellationError {");
+            swiftWriter.Indent++;
+            swiftWriter.WriteLine($"completionFn({failureDefaultArg}, nil, 1, completionCtx)");
+            swiftWriter.Indent--;
             swiftWriter.WriteLine("} catch {");
             swiftWriter.Indent++;
-            swiftWriter.WriteLine($"completionFn({failureDefaultArg}, Unmanaged.passRetained(error as AnyObject).toOpaque(), completionCtx)");
+            swiftWriter.WriteLine($"completionFn({failureDefaultArg}, Unmanaged.passRetained(error as AnyObject).toOpaque(), 0, completionCtx)");
             swiftWriter.Indent--;
             swiftWriter.WriteLine("}");
             swiftWriter.Indent--;
             swiftWriter.WriteLine("}");
+            swiftWriter.WriteLine("if _sbwAssignTask(_entry, _sbwLaunchedTask) { _sbwLaunchedTask.cancel() }");
         }
         else if (isAsync)
         {
-            swiftWriter.WriteLine("Task {");
+            // Non-throwing async can still be task-cancelled, but the method itself cannot throw
+            // CancellationError — cancellation only takes effect if the body cooperatively checks
+            // it. Register anyway so cancel reaches the Task; completion always reports success.
+            swiftWriter.WriteLine("let _entry = _SBWTaskEntry()");
+            swiftWriter.WriteLine("_sbwRegisterTask(cancelKey, _entry)");
+            swiftWriter.WriteLine("let _sbwLaunchedTask = Task {");
             swiftWriter.Indent++;
+            swiftWriter.WriteLine("defer { _sbwUnregisterTask(cancelKey) }");
             if (returnCategory == ReturnKind.Void)
                 swiftWriter.WriteLine($"_ = await {callExpr}");
             else
@@ -1338,6 +1505,7 @@ public static partial class CrossModuleExtensionEmitter
             swiftWriter.WriteLine(successCompletionCall);
             swiftWriter.Indent--;
             swiftWriter.WriteLine("}");
+            swiftWriter.WriteLine("if _sbwAssignTask(_entry, _sbwLaunchedTask) { _sbwLaunchedTask.cancel() }");
         }
         else if (isThrowing)
         {
@@ -1352,7 +1520,7 @@ public static partial class CrossModuleExtensionEmitter
             swiftWriter.Indent--;
             swiftWriter.WriteLine("} catch {");
             swiftWriter.Indent++;
-            swiftWriter.WriteLine($"completionFn({failureDefaultArg}, Unmanaged.passRetained(error as AnyObject).toOpaque(), completionCtx)");
+            swiftWriter.WriteLine($"completionFn({failureDefaultArg}, Unmanaged.passRetained(error as AnyObject).toOpaque(), 0, completionCtx)");
             swiftWriter.Indent--;
             swiftWriter.WriteLine("}");
         }
