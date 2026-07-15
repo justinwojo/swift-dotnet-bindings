@@ -739,8 +739,10 @@ public class NestedClosureBridgeTests
     public void TryEmit_DoesNotReleaseEscapingInnerBox()
     {
         // An @escaping inner closure may be invoked after the outer call returns, so releasing
-        // its box on the synchronous path would be a use-after-free. The box stays leaked (the
-        // only safe option here), so no release of __innerBox is emitted.
+        // its box on the synchronous Swift path would be a use-after-free. The Swift side never
+        // releases __innerBox for escaping inners — the +1 ownership transfers to the C# side,
+        // whose generated box owner releases it when the managed delegate is collected (see
+        // TryEmit_EscapingInner_CallbackAdoptsBoxViaFinalizableOwner).
         var (method, typeDatabase) = CreateMethodWithEscapingInnerClosure();
         var env = new MethodEnvironment(method, typeDatabase);
         var csWriter = new CSharpWriter(new StringWriter());
@@ -750,9 +752,118 @@ public class NestedClosureBridgeTests
         NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
 
         var swift = swiftOutput.ToString();
-        // Box is still minted (passRetained), but never released on this path.
+        // Box is still minted (passRetained), but never synchronously released on this path.
         Assert.Contains("Unmanaged.passRetained", swift);
         Assert.DoesNotContain("Unmanaged<AnyObject>.fromOpaque(__innerBox", swift);
+    }
+
+    [Fact]
+    public void TryEmit_EscapingInner_CallbackAdoptsBoxViaFinalizableOwner()
+    {
+        // The Swift adapter mints a +1 AnyObject box (passRetained) per escaping inner closure
+        // and cannot release it on the synchronous path. The C# callback is the last owner that
+        // knows the inner delegate's lifetime, so it must adopt the +1: a finalizable owner
+        // object captured by the inner delegate releases the box (via the wrapper's own
+        // release symbol, single Cdecl boundary — finalizer-thread safe) once the delegate
+        // becomes unreachable. Without this the box leaks per outer-closure invocation.
+        var (method, typeDatabase) = CreateMethodWithEscapingInnerClosure();
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        // Fresh per-test context: the release helper is emitted once per module context, so
+        // sharing the static Default with other escaping-inner tests would swallow it here.
+        NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl, new ModuleEmissionContext());
+
+        var cs = csOutput.ToString();
+        // Owner adopts the box pointer and is kept alive across every native invocation.
+        Assert.Contains("__innerBoxOwner", cs);
+        Assert.Contains("GC.KeepAlive(__innerBoxOwner", cs);
+        // The release routes through the wrapper's per-module @_cdecl release helper.
+        Assert.Contains("SBW_NCB_ReleaseInnerBox_TestModule", cs);
+
+        var swift = swiftOutput.ToString();
+        Assert.Contains("@_cdecl(\"SBW_NCB_ReleaseInnerBox_TestModule\")", swift);
+        Assert.Contains("Unmanaged<AnyObject>.fromOpaque(box).release()", swift);
+    }
+
+    [Fact]
+    public void TryEmit_NonEscapingInner_CallbackDoesNotAdoptBox()
+    {
+        // Non-escaping inner closures are balanced Swift-side (release after cdecl returns).
+        // A C# owner here would double-release the box.
+        var (method, typeDatabase) = CreateMethodWithNestedClosure();
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        var cs = csOutput.ToString();
+        Assert.DoesNotContain("__innerBoxOwner", cs);
+        Assert.DoesNotContain("SBW_NCB_ReleaseInnerBox", cs);
+
+        var swift = swiftOutput.ToString();
+        Assert.DoesNotContain("SBW_NCB_ReleaseInnerBox", swift);
+    }
+
+    [Fact]
+    public void TryEmit_EscapingInner_SwiftReleaseHelperEmittedOncePerModule()
+    {
+        // Two NCB methods sharing one ModuleEmissionContext must not redeclare the
+        // per-module release helper (duplicate @_cdecl symbol = Swift compile error).
+        var (method1, typeDatabase) = CreateMethodWithEscapingInnerClosure();
+        var (method2, _) = CreateMethodWithEscapingInnerClosure();
+        var ctx = new ModuleEmissionContext();
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var env1 = new MethodEnvironment(method1, typeDatabase);
+        NestedClosureBridge.TryEmit(new CSharpWriter(new StringWriter()), swiftWriter, env1, env1.ParentDecl as TypeDecl, ctx);
+        var env2 = new MethodEnvironment(method2, typeDatabase);
+        NestedClosureBridge.TryEmit(new CSharpWriter(new StringWriter()), swiftWriter, env2, env2.ParentDecl as TypeDecl, ctx);
+
+        var swift = swiftOutput.ToString();
+        var occurrences = swift.Split("@_cdecl(\"SBW_NCB_ReleaseInnerBox_TestModule\")").Length - 1;
+        Assert.Equal(1, occurrences);
+    }
+
+    [Fact]
+    public void TryEmit_EscapingInner_DistinctParentModules_EachGetReleaseHelper()
+    {
+        // The release symbol is namespaced by the PARENT decl's module, so two cross-module
+        // extension methods with parents in different foreign modules need TWO helpers in one
+        // emission context. A coarser once-per-context gate leaves the second module's C#
+        // DllImport pointing at a symbol the wrapper never defines — the finalizer's catch
+        // swallows the EntryPointNotFoundException and the box silently leaks.
+        var (methodA, typeDatabase) = CreateMethodWithEscapingInnerClosure("ModuleA");
+        var (methodB, _) = CreateMethodWithEscapingInnerClosure("ModuleB");
+        var ctx = new ModuleEmissionContext();
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var envA = new MethodEnvironment(methodA, typeDatabase);
+        var csA = new StringWriter();
+        NestedClosureBridge.TryEmit(new CSharpWriter(csA), swiftWriter, envA, envA.ParentDecl as TypeDecl, ctx);
+        var envB = new MethodEnvironment(methodB, typeDatabase);
+        var csB = new StringWriter();
+        NestedClosureBridge.TryEmit(new CSharpWriter(csB), swiftWriter, envB, envB.ParentDecl as TypeDecl, ctx);
+
+        var swift = swiftOutput.ToString();
+        // Every EntryPoint the C# side imports must be defined in the wrapper.
+        Assert.Contains("@_cdecl(\"SBW_NCB_ReleaseInnerBox_ModuleA\")", swift);
+        Assert.Contains("@_cdecl(\"SBW_NCB_ReleaseInnerBox_ModuleB\")", swift);
+        Assert.Contains("SBW_NCB_ReleaseInnerBox_ModuleA", csA.ToString());
+        Assert.Contains("SBW_NCB_ReleaseInnerBox_ModuleB", csB.ToString());
+        // The two helpers must not collide as same-named Swift declarations either.
+        var funcNames = swift.Split('\n')
+            .Where(l => l.Contains("public func SBW_NCB_ReleaseInnerBox"))
+            .Select(l => l.Trim()).Distinct().Count();
+        Assert.Equal(2, funcNames);
     }
 
     [Fact]
@@ -1070,11 +1181,15 @@ public class NestedClosureBridgeTests
     /// marked @escaping. An escaping inner closure may be stored and called after the outer
     /// invocation returns, so the box must outlive the call — the adapter must NOT release it.
     /// </summary>
-    private static (MethodDecl method, TypeDatabase typeDatabase) CreateMethodWithEscapingInnerClosure()
+    private static (MethodDecl method, TypeDatabase typeDatabase) CreateMethodWithEscapingInnerClosure(
+        string parentModuleName = "TestModule")
     {
         var typeDatabase = CreateTypeDatabaseWithEnumTypes();
         var moduleDecl = CreateModuleDecl("TestModule");
-        var parentDecl = CreateClassDecl("DataRequest", moduleDecl);
+        // A cross-module extension shape puts the PARENT in a foreign module while the
+        // method itself belongs to the emitted module — the release symbol keys off the parent.
+        var parentModuleDecl = parentModuleName == "TestModule" ? moduleDecl : CreateModuleDecl(parentModuleName);
+        var parentDecl = CreateClassDecl("DataRequest", parentModuleDecl);
 
         // Inner closure: @escaping (ResponseDisposition) -> Void
         var innerClosure = new ClosureTypeSpec(

@@ -103,9 +103,10 @@ public partial class ProtocolProxyEmitter
     /// 3. Nested invoker class with <c>InvokeAsync()</c> returning <c>Task&lt;int&gt;</c> —
     ///    creates the TCS, pins it via <see cref="System.Runtime.InteropServices.GCHandle"/>,
     ///    calls the @_cdecl thunk, and returns <c>tcs.Task</c>. The completion thunk frees
-    ///    the GCHandle once the result is published.
+    ///    the GCHandle once the result is published, on every path, and is wrapped in the
+    ///    shared UCO fail-fast envelope so no managed exception can unwind into Swift.
     /// </summary>
-    private static void EmitAsyncClosureInvokeThunkHelper(
+    internal static void EmitAsyncClosureInvokeThunkHelper(
         CSharpWriter writer,
         ClosureTypeSpec closureTypeSpec,
         ClosureHandler closureHandler,
@@ -128,18 +129,40 @@ public partial class ProtocolProxyEmitter
         // Kept at file scope (outside the invoker class) so it has a stable function-pointer
         // address irrespective of generic instantiation. Mono JIT compiles this as a
         // direct cdecl entry point — no display class, no delegate allocation.
+        //
+        // Swift calls this directly, so the body carries the standard UCO envelope: a managed
+        // exception unwinding back across the native boundary is undefined behaviour, and this
+        // callback has no Swift error channel to route a fault into (the TCS is the very thing
+        // that may have failed, and on the Target-mismatch path there is no TCS at all), so a
+        // controlled FailFast is the only safe outcome. The inner finally keeps the handle free
+        // on every path — including a throwing TrySetResult, which would otherwise leak the
+        // pinned TCS on top of aborting the process.
         writer.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         writer.WriteLine($"private static void {completionThunkName}(nint tcsHandle, int result)");
         writer.WriteLine("{");
         writer.Indent++;
+        EmitUcoGuardOpen(writer);
         writer.WriteLine("if (tcsHandle == 0) return;");
+        // GCHandle.FromIntPtr throws on a corrupt (non-zero, non-handle) value — inside the
+        // envelope, so it fail-fasts loudly instead of unwinding into Swift.
         writer.WriteLine("var _gch = global::System.Runtime.InteropServices.GCHandle.FromIntPtr(tcsHandle);");
         writer.WriteLine("if (!_gch.IsAllocated) return;");
+        writer.WriteLine("try");
+        writer.WriteLine("{");
+        writer.Indent++;
         writer.WriteLine("if (_gch.Target is global::System.Threading.Tasks.TaskCompletionSource<int> _tcs)");
         writer.Indent++;
         writer.WriteLine("_tcs.TrySetResult(result);");
         writer.Indent--;
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine("finally");
+        writer.WriteLine("{");
+        writer.Indent++;
         writer.WriteLine("_gch.Free();");
+        writer.Indent--;
+        writer.WriteLine("}");
+        EmitUcoGuardCloseFailFast(writer);
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();

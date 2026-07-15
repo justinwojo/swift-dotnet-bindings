@@ -521,6 +521,16 @@ public sealed class ModuleEmissionContext
     /// <summary>Marks a Utf8Slice free P/Invoke as emitted. Returns true if newly added.</summary>
     public bool TryAddUtf8SliceFreePInvoke(string typeKey) => _utf8SliceFreePInvokeTypes.Add(typeKey);
 
+    // ==================== Nested closure bridge ====================
+
+    // The release symbol is namespaced by the PARENT decl's module (a cross-module extension
+    // names a foreign module), so one emission context can need several distinct helpers —
+    // the gate must be per symbol, not a single per-context bool.
+    private readonly HashSet<string> _ncbInnerBoxReleaseSymbolsEmitted = new(StringComparer.Ordinal);
+
+    /// <summary>Marks the escaping inner-closure box release helper for a symbol as emitted. Returns true if newly added.</summary>
+    public bool TryAddNcbInnerBoxReleaseSymbol(string symbol) => _ncbInnerBoxReleaseSymbolsEmitted.Add(symbol);
+
     // ==================== SwiftUI Bridge Collection ====================
     //
     // Accumulates SwiftUI View types skipped during HandleBaseDecl so SwiftUIBridgeEmitter

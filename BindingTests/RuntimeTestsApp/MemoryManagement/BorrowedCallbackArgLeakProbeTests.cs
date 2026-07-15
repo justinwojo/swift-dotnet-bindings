@@ -1,7 +1,9 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
 
@@ -87,5 +89,116 @@ public class BorrowedCallbackArgLeakProbeTests : TestBase
     private static void InvokeBorrowedArrays(int count)
     {
         TestLibFunctions.InvokeWithBorrowedTrackedArray(count, arr => { _ = arr; });
+    }
+
+    /// <summary>
+    /// The MOVE-wrapper direction of the same borrow: a heap-form Swift <c>String</c> passed BY
+    /// VALUE into the callback. The SwiftString from-handle ctor bitwise-copies the borrowed
+    /// two-word value into a 16-byte container the wrapper allocates itself — so per invocation
+    /// the marshal seam must (a) never value-witness-destroy the borrowed String that Swift's
+    /// loop still owns, and (b) still free the wrapper's OWN container (the old blanket
+    /// finalizer suppression leaked it per call). (a) is observed as content fidelity across
+    /// many invocations WITH finalizer drains interleaved — an over-release corrupts or crashes
+    /// once the drains run the payload cleanup while Swift keeps reusing the same String — and
+    /// (b) as a native-footprint bound: the measured batch after a same-sized warmup must not
+    /// grow the process footprint by anything near the container-leak magnitude.
+    /// </summary>
+    [Slow]
+    public void TestBorrowedStringCallbackArgFreesContainerWithoutDestroyingString()
+    {
+        const int WarmupCount = 200_000;
+        const int MeasuredCount = 400_000;
+        // Red-world leak: ≥16 bytes of wrapper container per invocation → ≥6.4 MB over the
+        // measured batch. Green-world steady-state growth after the warmup is ~0.
+        const long GrowthBoundBytes = 4 * 1024 * 1024;
+
+        string expected = string.Concat(Enumerable.Repeat("borrowed-string-move-arm/", 4));
+
+        // Warmup: reach malloc/GC steady state (heap segments sized, arenas populated).
+        long warmupMismatches = InvokeBorrowedStrings(WarmupCount, expected);
+        DrainFinalizers();
+        AssertEqual(0L, warmupMismatches, "warmup: borrowed String content must round-trip on every invocation");
+
+        long baseline = NativeFootprint.TryGetPhysFootprintBytes();
+        long measuredMismatches = InvokeBorrowedStrings(MeasuredCount, expected);
+        DrainFinalizers();
+        long after = NativeFootprint.TryGetPhysFootprintBytes();
+
+        // Content fidelity across drains = the borrowed String was never over-released.
+        AssertEqual(0L, measuredMismatches, "borrowed String content must survive payload-finalizer drains (no over-release of Swift-owned storage)");
+
+        if (baseline > 0 && after > 0)
+        {
+            long growth = after - baseline;
+            TestLogger.Info($"borrowed String callback arg: footprint growth {growth / 1024} KiB over {MeasuredCount} invocations");
+            AssertTrue(growth < GrowthBoundBytes,
+                $"per-invocation container must be freed: footprint grew {growth / 1024} KiB over {MeasuredCount} borrowed-String callbacks (bound {GrowthBoundBytes / 1024} KiB)");
+        }
+        else
+        {
+            TestLogger.Info("borrowed String callback arg: phys_footprint unavailable; leak bound skipped (content/no-crash assertions still ran)");
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static long InvokeBorrowedStrings(int count, string expected)
+    {
+        long mismatches = 0;
+        // Read-and-discard without disposing — the wrapper's payload cleanup (finalizer) must
+        // free its own 16-byte container while never destroying the borrowed String.
+        TestLibFunctions.InvokeWithBorrowedString(count, s =>
+        {
+            if (s != expected)
+                mismatches++;
+        });
+        return mismatches;
+    }
+
+    /// <summary>
+    /// Reads the process physical footprint via <c>proc_pid_rusage</c> (RUSAGE_INFO_V0) — the
+    /// same accounting Xcode's memory gauge uses; counts dirty/native pages, which is where the
+    /// leaked NativeMemory containers land. Returns a non-positive value when unavailable.
+    /// </summary>
+    private static class NativeFootprint
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RUsageInfoV0
+        {
+            public ulong Uuid0;
+            public ulong Uuid1;
+            public ulong UserTime;
+            public ulong SystemTime;
+            public ulong PkgIdleWkups;
+            public ulong InterruptWkups;
+            public ulong Pageins;
+            public ulong WiredSize;
+            public ulong ResidentSize;
+            public ulong PhysFootprint;
+            public ulong ProcStartAbstime;
+            public ulong ProcExitAbstime;
+        }
+
+        [DllImport("/usr/lib/libSystem.dylib", EntryPoint = "proc_pid_rusage")]
+        private static unsafe extern int ProcPidRusage(int pid, int flavor, RUsageInfoV0* buffer);
+
+        [DllImport("/usr/lib/libSystem.dylib", EntryPoint = "getpid")]
+        private static extern int GetPid();
+
+        internal static unsafe long TryGetPhysFootprintBytes()
+        {
+            try
+            {
+                var info = default(RUsageInfoV0);
+                const int RusageInfoV0 = 0;
+                if (ProcPidRusage(GetPid(), RusageInfoV0, &info) != 0)
+                    return -1;
+                return (long)info.PhysFootprint;
+            }
+            catch (Exception)
+            {
+                // DllImport resolution failure — fall back to the content/no-crash assertions.
+                return -1;
+            }
+        }
     }
 }

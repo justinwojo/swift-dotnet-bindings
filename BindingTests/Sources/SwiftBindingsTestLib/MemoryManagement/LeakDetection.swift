@@ -465,6 +465,16 @@ public func invokeWithBorrowedTrackedArray(count: Int32, _ body: ([TrackedRef]) 
     for i in 0..<count { body([TrackedRef(tag: i)]) }
 }
 
+/// Move-wrapper shape: passes a heap-form (non-small, >15 UTF-8 bytes) `String` BY VALUE into a
+/// callback `count` times. The C# wrapper bitwise-copies the borrowed two-word String into a
+/// container buffer it allocates itself, so per invocation it must (a) never value-witness-destroy
+/// the borrowed String this loop still owns (over-release → corruption/crash) and (b) still free
+/// its OWN container (the old blanket finalizer suppression leaked it per invocation).
+public func invokeWithBorrowedString(count: Int32, _ body: (String) -> Void) {
+    let payload = String(repeating: "borrowed-string-move-arm/", count: 4)
+    for _ in 0..<count { body(payload) }
+}
+
 // MARK: - Extraction-Side Retain Probe (Optional `.Some` / Result `.Success` copy-out)
 
 /// Strong global holding the SAME `TrackedRef` embedded in the struct handed back through the

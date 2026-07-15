@@ -1198,10 +1198,14 @@ public static class SwiftMarshal
     /// <item><b>Copy</b>: construct OWNING (<b>no</b> suppress). The ctor's <c>InitializeWithCopy</c> takes
     /// an independent <c>+1</c>; the borrowed <c>+1</c> stays with Swift; the wrapper's SafeHandle Destroys
     /// its own copy. This is the leak fix.</item>
-    /// <item><b>Adopt</b> (borrowed pointer adopted by the SafeHandle) / <b>Move</b> (borrowed <c>+0</c>
-    /// bitwise-transferred): suppress the payload finalizer — the wrapper does not own the reference and
-    /// must not free/over-release a buffer Swift still owns (the read-and-discard contract). This matches
-    /// the old behavior exactly for these two shapes.</item>
+    /// <item><b>Adopt</b> (borrowed pointer adopted by the SafeHandle): suppress the payload finalizer —
+    /// the adopted memory is Swift's outright, so neither the free nor the Destroy may run (the
+    /// read-and-discard contract).</item>
+    /// <item><b>Move</b> (borrowed <c>+0</c> bitwise-transferred into a wrapper-allocated container):
+    /// call <see cref="ISwiftObject.ConsumePayloadBuffer"/> — cleanup frees the wrapper's OWN container
+    /// but never value-witness-destroys the borrowed value. The former blanket suppression foreclosed
+    /// the container free too, leaking the wrapper's allocation (e.g. <c>SwiftString</c>'s 16-byte
+    /// buffer) on every callback invocation.</item>
     /// <item><b>Inline</b>: read by value (<c>*(T*)ptr</c> / existential container words) — self-contained,
     /// nothing to suppress.</item>
     /// </list>
@@ -1227,14 +1231,28 @@ public static class SwiftMarshal
         }
 
         var obj = MarshalFromSwift<T>(swiftSource);
-        if ((sem == PayloadConstructionSemantics.Adopt || sem == PayloadConstructionSemantics.Move) && obj != null)
+        if (obj is ISwiftObject swiftObj)
         {
-            // Wrapper does not own the borrowed reference — suppress its payload finalizer so it does not
-            // free (Adopt) or over-release (Move) a buffer Swift still owns. SuppressPayloadFinalizer is a
-            // non-reflective DIM; its default is a no-op for types with no separately-finalizable payload.
-            GC.SuppressFinalize(obj);
-            if (obj is ISwiftObject swiftObj)
+            if (sem == PayloadConstructionSemantics.Move)
+            {
+                // Move wrapper: it bitwise-transferred the borrowed +0 words into a container buffer
+                // the WRAPPER itself allocated, so it owns that container but not the value inside it.
+                // ConsumePayloadBuffer keeps the container free alive (Dispose/finalizer reclaim the
+                // wrapper's own allocation) while dropping only the value-witness Destroy — the old
+                // blanket finalizer suppression foreclosed the free too and leaked the container per
+                // callback invocation. The DIM default falls back to suppress for Move types with no
+                // separable container.
+                swiftObj.ConsumePayloadBuffer();
+            }
+            else if (sem == PayloadConstructionSemantics.Adopt)
+            {
+                // Adopt wrapper: its SafeHandle adopted the borrowed pointer itself — that memory is
+                // Swift's outright, so both the free and the Destroy must be suppressed.
+                // SuppressPayloadFinalizer is a non-reflective DIM; its default is a no-op for types
+                // with no separately-finalizable payload.
+                GC.SuppressFinalize(obj);
                 swiftObj.SuppressPayloadFinalizer();
+            }
         }
         return obj;
     }

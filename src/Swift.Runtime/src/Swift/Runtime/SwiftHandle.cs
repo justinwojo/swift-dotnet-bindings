@@ -81,6 +81,15 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     private volatile bool _consumed;
 
     /// <summary>
+    /// Set by <see cref="MarkContentsBorrowed"/> when the buffer holds a bitwise copy of a value
+    /// some other owner (typically Swift, across a borrowed +0 callback argument) still owns. When
+    /// true, <see cref="ReleaseHandle"/> frees the .NET-allocated buffer but skips the value-witness
+    /// Destroy — running it would over-release the borrowed value, while skipping the free would
+    /// leak the wrapper's own container allocation.
+    /// </summary>
+    private volatile bool _contentsBorrowed;
+
+    /// <summary>
     /// Cached type metadata handle for the Swift type T. Populated eagerly during
     /// construction on a user thread so that the finalizer path can call VWT Destroy
     /// via the Cdecl trampoline without any JIT compilation or generic resolution.
@@ -172,6 +181,21 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     public bool IsConsumed => _consumed;
 
     /// <summary>
+    /// Marks the buffer's CONTENTS as borrowed: the .NET side owns the buffer allocation itself
+    /// (and must free it exactly once), but the value bitwise-copied into it is still owned by
+    /// someone else — typically Swift, for a borrowed (+0) callback argument a Move-semantics
+    /// wrapper transferred into its own container. After this call, Dispose and the finalizer
+    /// free the buffer WITHOUT running the value-witness Destroy. Idempotent. Unlike
+    /// <see cref="MarkConsumed"/>, this does not flag the value as moved-out
+    /// (<see cref="IsConsumed"/> stays false), so use-after-move guards do not trip: the borrowed
+    /// value remains readable through the buffer for the wrapper's lifetime.
+    /// </summary>
+    public void MarkContentsBorrowed()
+    {
+        _contentsBorrowed = true;
+    }
+
+    /// <summary>
     /// Releases the handle to the Swift object.
     /// This method must not throw exceptions per the SafeHandle contract.
     /// </summary>
@@ -206,6 +230,12 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
         if (_consumed)
             return FreeBufferOnly();
 
+        // Buffer contents are a bitwise copy of a value another owner (Swift) still owns:
+        // free the wrapper's own container, never Destroy the borrowed value. Checked on both
+        // Dispose and finalizer.
+        if (_contentsBorrowed)
+            return FreeBufferOnly();
+
         // Process exit finalizer → free buffer only (Swift runtime may be torn down)
         if (IsProcessExiting && !_explicitDispose)
             return FreeBufferOnly();
@@ -219,10 +249,12 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     }
 
     /// <summary>
-    /// Frees the .NET-allocated buffer WITHOUT running the value-witness Destroy. Shared by two
-    /// paths: process-exit finalizer cleanup (Swift deinit may reference torn-down runtime state)
-    /// and consumed-value cleanup (Swift's <c>consuming</c> parameter already ran deinit exactly
-    /// once — see <see cref="MarkConsumed"/>). NativeMemory.Free is always safe.
+    /// Frees the .NET-allocated buffer WITHOUT running the value-witness Destroy. Shared by three
+    /// paths: process-exit finalizer cleanup (Swift deinit may reference torn-down runtime state),
+    /// consumed-value cleanup (Swift's <c>consuming</c> parameter already ran deinit exactly
+    /// once — see <see cref="MarkConsumed"/>), and borrowed-contents cleanup (the buffer holds a
+    /// bitwise copy of a value Swift still owns — see <see cref="MarkContentsBorrowed"/>).
+    /// NativeMemory.Free is always safe.
     /// </summary>
     private unsafe bool FreeBufferOnly()
     {

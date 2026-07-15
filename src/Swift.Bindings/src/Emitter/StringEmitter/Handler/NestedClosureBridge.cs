@@ -203,6 +203,9 @@ public static class NestedClosureBridge
             return false;
 
         var asyncLibName = env.TypeDatabase.AsyncLibraryName ?? "SwiftBindings";
+        // Namespaces the escaping inner-box release symbol per module — several modules can
+        // link into one wrapper library, so a bare symbol would collide at link time.
+        var bridgeModuleName = parentDecl?.SwiftTypeName?.Module ?? method.ModuleDecl?.Name ?? "Module";
 
         // Determine which non-closure method params to pass through
         var closureArgSet = nestedClosures.Select(nc => nc.Arg).ToHashSet();
@@ -248,7 +251,7 @@ public static class NestedClosureBridge
 
             foreach (var nc in nestedClosures)
             {
-                EmitCallback(helperCsWriter, nc.OuterArgs, nc.InnerClosures, nc.CallbackBaseName, env);
+                EmitCallback(helperCsWriter, nc.OuterArgs, nc.InnerClosures, nc.CallbackBaseName, env, asyncLibName, bridgeModuleName);
                 EmitFunctionPointerField(helperCsWriter, nc.OuterArgs, nc.InnerClosures, nc.CallbackBaseName, env);
             }
             EmitPInvoke(helperCsWriter, method, asyncLibName, nestedClosures, passableNonClosureParams, env);
@@ -260,7 +263,7 @@ public static class NestedClosureBridge
         {
             foreach (var nc in nestedClosures)
             {
-                EmitCallback(csWriter, nc.OuterArgs, nc.InnerClosures, nc.CallbackBaseName, env);
+                EmitCallback(csWriter, nc.OuterArgs, nc.InnerClosures, nc.CallbackBaseName, env, asyncLibName, bridgeModuleName);
                 EmitFunctionPointerField(csWriter, nc.OuterArgs, nc.InnerClosures, nc.CallbackBaseName, env);
             }
             EmitPInvoke(csWriter, method, asyncLibName, nestedClosures, passableNonClosureParams, env);
@@ -345,6 +348,14 @@ public static class NestedClosureBridge
         // deinit, freeing the GCHandle exactly once when Swift releases the closure.
         if (nestedClosures.Any(nc => nc.IsEffectivelyEscaping))
             ClosureContextHelperEmitter.EmitIfNeeded(swiftWriter, ctx);
+
+        // Escaping inner closures hand their +1 AnyObject-box retain to a finalizable owner on
+        // the C# side; this per-module @_cdecl helper is the release entry that owner calls.
+        if (nestedClosures.Any(nc => nc.InnerClosures.Any(ic => ic.Spec.IsEscaping)))
+        {
+            var moduleName = parentDecl?.SwiftTypeName?.Module ?? method.ModuleDecl?.Name ?? "Module";
+            EmitInnerBoxReleaseHelperIfNeeded(swiftWriter, moduleName, ctx);
+        }
 
         bool isInstance = method.MethodType != MethodType.Static && parentDecl != null;
         var typeName = parentDecl?.SwiftTypeName?.ModuleQualifiedName ?? parentDecl?.Name ?? "";
@@ -739,8 +750,10 @@ public static class NestedClosureBridge
                 // returns. The inner trampoline borrows the box via takeUnretainedValue, so the box
                 // stays alive across however many times the inner closure is called during the outer
                 // call; we only drop our +1 after.
-                // Escaping inner closures must outlive the call, so their box intentionally stays
-                // leaked — there is no safe release point on this synchronous path.
+                // An escaping inner closure must outlive the call, so its +1 transfers to the
+                // managed side: the C# callback wraps the box in a finalizable owner captured by
+                // the inner delegate, and the owner balances the retain through the wrapper's
+                // per-module release helper once the delegate becomes unreachable.
                 if (!nc.InnerClosures[innerMatch].Spec.IsEscaping)
                     innerBoxesToRelease.Add($"__innerBox{suffix}");
             }
@@ -770,6 +783,54 @@ public static class NestedClosureBridge
         return multiInner ? $"{innerIndex}" : "";
     }
 
+    // ─── Escaping inner-box release helper ─────────────────────────────
+
+    /// <summary>
+    /// The per-module @_cdecl symbol that balances the +1 retain minted on an escaping
+    /// inner closure's AnyObject box once the managed inner delegate is collected.
+    /// </summary>
+    internal static string GetInnerBoxReleaseSymbolName(string moduleName)
+        => $"SBW_NCB_ReleaseInnerBox_{moduleName}";
+
+    /// <summary>
+    /// Emits the escaping inner-box release helper into the Swift wrapper, once per release
+    /// symbol. The symbol is namespaced by the PARENT decl's module — a cross-module extension
+    /// names a foreign module — so a single emitted module can require several distinct helpers;
+    /// gating on anything coarser (e.g. once per context) would leave a later parent module's
+    /// DllImport pointing at a symbol the wrapper never defines, and the finalizer's
+    /// swallow-everything catch would turn that into a silent per-box leak.
+    /// The helper lives in the wrapper library (not the shared runtime native) because every
+    /// nested-closure P/Invoke already targets it, so the symbol is guaranteed loadable even
+    /// in hosts that run without the runtime's native companion.
+    /// </summary>
+    private static void EmitInnerBoxReleaseHelperIfNeeded(
+        SwiftWriter swiftWriter, string moduleName, ModuleEmissionContext? ctx)
+    {
+        ctx ??= ModuleEmissionContext.Default;
+        var symbol = GetInnerBoxReleaseSymbolName(moduleName);
+        if (!ctx.TryAddNcbInnerBoxReleaseSymbol(symbol))
+            return;
+
+        // The matching C# DllImport (the box owner's finalizer) targets this EntryPoint;
+        // register it with the wrapper-symbol contract like the bridge P/Invoke above.
+        ctx.TryAddMethodWrapperSymbol(symbol);
+        // The Swift function name reuses the symbol so two helpers in one wrapper file
+        // (distinct parent modules) don't collide as same-named Swift declarations.
+        swiftWriter.WriteLines($$"""
+            // Balances the +1 retain (Unmanaged.passRetained) an outer-closure adapter mints on
+            // an escaping inner closure's AnyObject box. Ownership of that retain transfers to a
+            // generated C# owner captured by the managed inner delegate; the owner's finalizer
+            // calls this once the delegate is unreachable. Keeping the release inside the wrapper
+            // gives the GC finalizer thread a single Cdecl boundary into our own dylib instead of
+            // a direct libswiftCore call, which is unsafe on that thread under Mono.
+            @_cdecl("{{symbol}}")
+            public func {{symbol}}(_ box: UnsafeMutableRawPointer) {
+                Unmanaged<AnyObject>.fromOpaque(box).release()
+            }
+
+            """);
+    }
+
     // ─── C# Callback ───────────────────────────────────────────────────
 
     private static void EmitCallback(
@@ -777,10 +838,17 @@ public static class NestedClosureBridge
         List<TypeSpec> outerArgs,
         List<InnerClosureInfo> innerClosures,
         string callbackBaseName,
-        MethodEnvironment env)
+        MethodEnvironment env,
+        string asyncLibName,
+        string moduleName)
     {
         bool multiInner = innerClosures.Count > 1;
         var innerIndices = innerClosures.Select(ic => ic.OuterArgIndex).ToHashSet();
+
+        // Escaping inner closures transfer their Swift-side +1 box retain to a finalizable
+        // owner captured by the managed inner delegate; emit the owner type once per callback.
+        if (innerClosures.Any(ic => ic.Spec.IsEscaping))
+            EmitInnerBoxOwnerClass(csWriter, callbackBaseName, asyncLibName, moduleName);
 
         // Build callback params: outer non-closure args + inner funcPtr/context pairs + outerCtx
         var paramParts = new List<string>();
@@ -869,6 +937,14 @@ public static class NestedClosureBridge
                 var innerDelegatePtrType = $"delegate* unmanaged[Cdecl]<{string.Join(", ", innerFuncPtrTypes)}>";
 
                 var actionName = multiInner ? $"__innerAction{innerIdx}" : "__innerAction";
+
+                // For an escaping inner closure, adopt the +1 retain the Swift adapter minted
+                // on its box: the owner is captured by the delegate below and its finalizer
+                // releases the box once the delegate becomes unreachable.
+                bool adoptsInnerBox = ic.Spec.IsEscaping;
+                if (adoptsInnerBox)
+                    csWriter.WriteLine($"var __innerBoxOwner{suffix} = new {callbackBaseName}_InnerBoxOwner(innerContext{suffix});");
+
                 csWriter.WriteLine($"{innerDelegateType} {actionName} = ({string.Join(", ", innerDelegateParams)}) =>");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
@@ -884,6 +960,8 @@ public static class NestedClosureBridge
                 {
                     var innerReturnCSharpType = GetCSharpTypeForOuterArg(innerClosureSpec.ReturnType, env);
                     csWriter.WriteLine($"var __innerRet = (({innerDelegatePtrType})innerFuncPtr{suffix})({string.Join(", ", innerCallArgs)});");
+                    if (adoptsInnerBox)
+                        EmitInnerBoxKeepAlive(csWriter, suffix);
                     if (innerClosureSpec.ReturnType is NamedTypeSpec innerRetNamed && innerRetNamed.Name == "Swift.Bool")
                         csWriter.WriteLine($"return __innerRet != 0;");
                     else
@@ -892,6 +970,8 @@ public static class NestedClosureBridge
                 else
                 {
                     csWriter.WriteLine($"(({innerDelegatePtrType})innerFuncPtr{suffix})({string.Join(", ", innerCallArgs)});");
+                    if (adoptsInnerBox)
+                        EmitInnerBoxKeepAlive(csWriter, suffix);
                 }
 
                 csWriter.Indent--;
@@ -914,6 +994,55 @@ public static class NestedClosureBridge
         csWriter.WriteLine("}");
         ClosureEmitter.EmitNonThrowingFailFastCatch(csWriter);
 
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
+        csWriter.WriteLine();
+    }
+
+    /// <summary>
+    /// Emits the keep-alive that pins the inner-box owner (and thus the box's +1 retain)
+    /// across the native trampoline call, so a GC during the call cannot finalize the owner
+    /// while Swift is still executing against the box.
+    /// </summary>
+    private static void EmitInnerBoxKeepAlive(CSharpWriter csWriter, string suffix)
+    {
+        csWriter.WriteLine($"GC.KeepAlive(__innerBoxOwner{suffix});");
+    }
+
+    /// <summary>
+    /// Emits the finalizable owner that adopts the +1 retain the Swift adapter minted on an
+    /// escaping inner closure's AnyObject box. The inner delegate captures one owner per box;
+    /// the delegate is the only path that can ever reach the box again, so once it becomes
+    /// unreachable the box is provably dead and the finalizer releases it through the
+    /// wrapper's own @_cdecl helper — a single Cdecl boundary, safe on the finalizer thread.
+    /// </summary>
+    private static void EmitInnerBoxOwnerClass(
+        CSharpWriter csWriter, string callbackBaseName, string asyncLibName, string moduleName)
+    {
+        var ownerName = $"{callbackBaseName}_InnerBoxOwner";
+        var releaseSymbol = GetInnerBoxReleaseSymbolName(moduleName);
+
+        csWriter.WriteLine($"private sealed class {ownerName}");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        csWriter.WriteLine("private readonly IntPtr _box;");
+        csWriter.WriteLine($"internal {ownerName}(IntPtr box) => _box = box;");
+        csWriter.WriteLine();
+        csWriter.WriteLine($"[DllImport(\"{asyncLibName}\", EntryPoint = \"{releaseSymbol}\", CallingConvention = CallingConvention.Cdecl)]");
+        csWriter.WriteLine("private static extern void ReleaseInnerBox(IntPtr box);");
+        csWriter.WriteLine();
+        csWriter.WriteLine($"~{ownerName}()");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        csWriter.WriteLine("// Never throw from a finalizer. Skipping at shutdown (or on a native fault)");
+        csWriter.WriteLine("// degrades to leaking one closure box, which the OS reclaims with the process.");
+        csWriter.WriteLine("if (_box == IntPtr.Zero || global::System.Environment.HasShutdownStarted)");
+        csWriter.Indent++;
+        csWriter.WriteLine("return;");
+        csWriter.Indent--;
+        csWriter.WriteLine("try { ReleaseInnerBox(_box); } catch { }");
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
         csWriter.Indent--;
         csWriter.WriteLine("}");
         csWriter.WriteLine();

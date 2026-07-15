@@ -55,8 +55,9 @@ public interface ISwiftObject : IDisposable
 
     /// <summary>
     /// Suppresses the finalizer of this object's backing payload, if it owns one.
-    /// Called by <see cref="InteropServices.SwiftMarshal.MarshalCallbackArg{T}"/> for the Adopt/Move
-    /// borrow arms (and the String/Data read-and-discard sites) when a
+    /// Called by <see cref="InteropServices.SwiftMarshal.MarshalCallbackArg{T}"/> for the Adopt
+    /// borrow arm (and, via the <see cref="ConsumePayloadBuffer"/> default, for Move-semantics
+    /// types with no separable container) when a
     /// borrowed (+0) native reference is wrapped: the wrapper must not release a handle it does
     /// not own, so its payload <see cref="System.Runtime.InteropServices.SafeHandle"/> finalizer
     /// (which would call <c>ReleaseHandle</c> → <c>Arc.Release</c> / VWT destroy) must be suppressed.
@@ -69,6 +70,26 @@ public interface ISwiftObject : IDisposable
     /// call <c>GC.SuppressFinalize</c> on that field.
     /// </summary>
     void SuppressPayloadFinalizer() { }
+
+    /// <summary>
+    /// Consumes this wrapper's separable payload container for the borrowed (+0) Move marshal
+    /// shape. Called by <see cref="InteropServices.SwiftMarshal.MarshalCallbackArg{T}"/> for the
+    /// Move arm: a Move-semantics wrapper bitwise-transfers the borrowed value's words into a
+    /// container buffer the WRAPPER itself allocated, so it owns the container allocation but not
+    /// the value inside it. A type with that two-part shape (e.g. <c>SwiftString</c>) overrides
+    /// this to arrange cleanup that frees its own container without value-witness-destroying the
+    /// borrowed value — blanket-suppressing the payload finalizer instead would leak the container
+    /// on every callback invocation.
+    /// The default falls back to the conservative borrowed-wrapper treatment
+    /// (suppress the payload finalizer): for a Move-semantics type whose container is NOT
+    /// separable from the value, that trades a bounded leak for the alternative — a finalizer
+    /// value-witness Destroy over-releasing a value Swift still owns.
+    /// </summary>
+    void ConsumePayloadBuffer()
+    {
+        GC.SuppressFinalize(this);
+        SuppressPayloadFinalizer();
+    }
 }
 
 /// <summary>

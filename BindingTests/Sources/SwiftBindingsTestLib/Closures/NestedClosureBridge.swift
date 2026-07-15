@@ -7,6 +7,29 @@ import Foundation
 // take an inner closure. These exercise the multi-outer path — a single Swift wrapper must
 // cover all outer closures (not one wrapper per outer).
 
+// Lock-guarded live count for the escaping inner-box ownership canary. The canary is
+// captured by an inner Swift closure whose only post-call retain is the +1 AnyObject box
+// minted in the generated outer adapter, so a deinit here fires exactly when that box's
+// last retain is dropped.
+private final class NCBInnerCanaryCount {
+    static let lock = NSLock()
+    static var live: Int32 = 0
+}
+
+private final class NCBInnerCanary {
+    init() {
+        NCBInnerCanaryCount.lock.lock()
+        NCBInnerCanaryCount.live += 1
+        NCBInnerCanaryCount.lock.unlock()
+    }
+
+    deinit {
+        NCBInnerCanaryCount.lock.lock()
+        NCBInnerCanaryCount.live -= 1
+        NCBInnerCanaryCount.lock.unlock()
+    }
+}
+
 public class NestedClosureHost {
     public init() {}
 
@@ -41,6 +64,28 @@ public class NestedClosureHost {
         }
         second(20) { secondInner in
             _ = secondInner
+        }
+    }
+
+    // Number of inner-closure deinit canaries currently alive (see NCBInnerCanary below).
+    public static func countLiveInnerCanaries() -> Int32 {
+        NCBInnerCanaryCount.lock.lock()
+        defer { NCBInnerCanaryCount.lock.unlock() }
+        return NCBInnerCanaryCount.live
+    }
+
+    // Same shape as runOne, but the ESCAPING inner completion captures a deinit canary.
+    // After this method returns, the only retain keeping the inner Swift closure — and
+    // therefore the canary — alive is the +1 AnyObject box the generated outer adapter
+    // minted (Unmanaged.passRetained). The managed side adopts that +1 in a finalizable
+    // owner captured by the inner delegate, so countLiveInnerCanaries() dropping back to
+    // baseline after the delegate is collected is the observable proof the ownership
+    // transfer released the box instead of leaking it.
+    public func runEscapingInnerCanary(handler: @escaping (Int32, @escaping (Int32) -> Void) -> Void) {
+        let canary = NCBInnerCanary()
+        handler(7) { inner in
+            _ = inner
+            _ = canary
         }
     }
 
