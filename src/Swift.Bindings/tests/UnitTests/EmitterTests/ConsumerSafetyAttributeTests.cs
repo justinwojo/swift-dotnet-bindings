@@ -194,7 +194,7 @@ public class ConsumerSafetyAttributeTests
         var classDecl = CreateClassDecl("Loader", moduleDecl);
         var method = CreateMethod("doWork", classDecl, moduleDecl, isStatic: true);
 
-        var (entryPoint, needsWrapper) = PInvokeEmitter.ComputeEntryPoint(method);
+        var (entryPoint, needsWrapper) = PInvokeEmitter.ComputeEntryPoint(method, method.MangledName);
 
         Assert.Equal(method.MangledName, entryPoint);
         Assert.False(needsWrapper);
@@ -209,7 +209,7 @@ public class ConsumerSafetyAttributeTests
         var method = CreateMethod("doWork", classDecl, moduleDecl);
         method.IsFinal = false;
 
-        var (entryPoint, needsWrapper) = PInvokeEmitter.ComputeEntryPoint(method);
+        var (entryPoint, needsWrapper) = PInvokeEmitter.ComputeEntryPoint(method, method.MangledName);
 
         Assert.EndsWith("Tj", entryPoint);
         Assert.False(needsWrapper);
@@ -223,7 +223,7 @@ public class ConsumerSafetyAttributeTests
         var method = CreateMethod("fetch", classDecl, moduleDecl, isStatic: true);
         method.IsAsync = true;
 
-        var (_, needsWrapper) = PInvokeEmitter.ComputeEntryPoint(method);
+        var (_, needsWrapper) = PInvokeEmitter.ComputeEntryPoint(method, method.MangledName);
 
         Assert.True(needsWrapper);
     }

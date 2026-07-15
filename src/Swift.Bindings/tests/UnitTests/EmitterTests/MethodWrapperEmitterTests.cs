@@ -1971,6 +1971,125 @@ public class MethodWrapperEmitterTests
         Assert.DoesNotContain("unsafeBitCast(_metadata0, to: Any.Type.self)", output);
     }
 
+    // Pins the @_cdecl parameter phase order for generic static dispatch wrappers:
+    // [result pointer] [arguments] [metadata] [self] [error-out]. This is the ABI ordering
+    // the shared parameter-order contract defines; the generic-static-dispatch emitter must
+    // keep producing exactly this sequence. Asserted semantically (relative parameter
+    // positions in the emitted @_cdecl signature), not via a brittle full-string match.
+    [Fact]
+    public void EmitSwiftMethodWrapper_GenericStaticDispatch_CdeclPhaseOrder_AllPhases()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        // Instance method `transform(value: T) throws -> T` on a generic class parent —
+        // exercises every phase: T return (result ptr), a T-referencing argument, generic
+        // metadata, self, and the throwing error-out.
+        var method = CreateMethodWithReturn("transform", new NamedTypeSpec("τ_0_0"), parentDecl, moduleDecl);
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            SwiftTypeSpec = new NamedTypeSpec("τ_0_0"),
+            Name = "value",
+            PrivateName = "value",
+            IsInOut = false,
+            IsGeneric = true,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        });
+        method.Throws = true;
+        method.UsesCdeclMethodWrapper = true;
+        method.UsesWrapperLibrary = true;
+        method.UsesFreeFunctionWrapper = true;
+        var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol("SBW_TestModule_GenericBox_transform");
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+        var cdeclParams = ExtractCdeclMethodParamList(sw.ToString());
+
+        int resultPtr = cdeclParams.IndexOf("_ resultPtr:");
+        int argument = cdeclParams.IndexOf("_ value:");
+        int metadata = cdeclParams.IndexOf("_ _metadata0:");
+        int self = cdeclParams.IndexOf("_ self_:");
+        int errorOut = cdeclParams.IndexOf("_ errorOut:");
+
+        Assert.True(resultPtr >= 0, $"result pointer missing: {cdeclParams}");
+        Assert.True(argument >= 0, $"argument missing: {cdeclParams}");
+        Assert.True(metadata >= 0, $"metadata missing: {cdeclParams}");
+        Assert.True(self >= 0, $"self missing: {cdeclParams}");
+        Assert.True(errorOut >= 0, $"error-out missing: {cdeclParams}");
+
+        // [ResultPtr] [Arguments] [Metadata] [Self] [ErrorOut]
+        Assert.True(resultPtr < argument, $"result ptr must precede argument: {cdeclParams}");
+        Assert.True(argument < metadata, $"argument must precede metadata: {cdeclParams}");
+        Assert.True(metadata < self, $"metadata must precede self: {cdeclParams}");
+        Assert.True(self < errorOut, $"self must precede error-out: {cdeclParams}");
+    }
+
+    [Fact]
+    public void EmitSwiftMethodWrapper_GenericStaticDispatch_CdeclPhaseOrder_ResultMetadataSelf()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        // Generic struct parent, non-throwing `getValue() -> T` with no arguments —
+        // pins that metadata sits between the (absent) arguments and self even when only
+        // the result pointer, metadata, and self phases are present.
+        var parentDecl = CreateStructDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var method = CreateMethodWithReturn("getValue", new NamedTypeSpec("τ_0_0"), parentDecl, moduleDecl);
+        method.UsesCdeclMethodWrapper = true;
+        method.UsesWrapperLibrary = true;
+        method.UsesFreeFunctionWrapper = true;
+        var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol("SBW_TestModule_GenericBox_getValue");
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+        var cdeclParams = ExtractCdeclMethodParamList(sw.ToString());
+
+        int resultPtr = cdeclParams.IndexOf("_ resultPtr:");
+        int metadata = cdeclParams.IndexOf("_ _metadata0:");
+        int self = cdeclParams.IndexOf("_ self_:");
+
+        Assert.True(resultPtr >= 0, $"result pointer missing: {cdeclParams}");
+        Assert.True(metadata >= 0, $"metadata missing: {cdeclParams}");
+        Assert.True(self >= 0, $"self missing: {cdeclParams}");
+
+        Assert.True(resultPtr < metadata, $"result ptr must precede metadata: {cdeclParams}");
+        Assert.True(metadata < self, $"metadata must precede self: {cdeclParams}");
+        Assert.DoesNotContain("_ errorOut:", cdeclParams);
+    }
+
+    /// <summary>
+    /// Extracts the parameter list of the emitted generic-static-dispatch @_cdecl wrapper
+    /// (<c>public func _sbw_method_&lt;hash&gt;(...)</c>) so parameter ordering can be asserted
+    /// independently of the protocol/extension signatures, which use labeled (order-independent)
+    /// parameters and omit the metadata phase.
+    /// </summary>
+    private static string ExtractCdeclMethodParamList(string output)
+    {
+        const string marker = "public func _sbw_method_";
+        int start = output.IndexOf(marker, System.StringComparison.Ordinal);
+        Assert.True(start >= 0, "no generic-static-dispatch @_cdecl wrapper emitted");
+        int open = output.IndexOf('(', start);
+        int close = output.IndexOf(')', open);
+        Assert.True(open >= 0 && close > open, "malformed @_cdecl signature");
+        return output.Substring(open + 1, close - open - 1);
+    }
+
     #endregion
 
     #region UsesCdeclWrapper Computed Property

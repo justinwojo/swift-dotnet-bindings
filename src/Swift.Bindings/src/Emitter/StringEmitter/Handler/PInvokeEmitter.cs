@@ -1136,40 +1136,23 @@ namespace BindingsGeneration
     internal static class PInvokeEmitter
     {
         /// <summary>
-        /// Computes the P/Invoke entry point symbol and whether the method needs the wrapper library.
-        /// Used by both EmitPInvoke (for emission) and MethodHandler (for symbol cross-referencing).
+        /// Computes the P/Invoke entry point symbol and whether the method needs the wrapper library,
+        /// over an explicit <paramref name="emissionSymbol"/> base. The wrapper/thunk entry point is
+        /// reconstructed from the caller-supplied promoted emission symbol (plus the wrapper-kind
+        /// suffix the decl's flags select); the direct-Swift path resolves from the immutable silgen
+        /// symbol via <see cref="SwiftCallTargetResolver"/>. <c>needsWrapperLib</c> (which selects the
+        /// library path) stays derived from the decl's routing flags.
+        ///
+        /// The base symbol is required, never re-derived implicitly from
+        /// <see cref="MethodDecl.MangledName"/>: emission-time symbol promotion lives off the decl (on
+        /// <see cref="MethodEnvironment.EmissionSymbol"/> for env-scoped callers, or the per-method
+        /// <see cref="ModuleEmissionContext"/> side table for env-less emitters), so reading the decl's
+        /// pre-promotion silgen symbol here would emit a P/Invoke against a symbol the wrapper never
+        /// exported. Callers with an environment use the <see cref="MethodEnvironment"/> overload;
+        /// env-less callers pass <c>ModuleEmissionContext.GetMethodEmissionSymbolOrMangled(method)</c>.
         /// </summary>
-        /// <param name="methodDecl">The method declaration.</param>
-        /// <returns>A tuple of (entryPoint symbol, needsWrapperLib flag).</returns>
-        internal static (string entryPoint, bool needsWrapperLib) ComputeEntryPoint(MethodDecl methodDecl)
+        internal static (string entryPoint, bool needsWrapperLib) ComputeEntryPoint(MethodDecl methodDecl, string emissionSymbol)
         {
-            var needsWrapperLib = NeedsWrapperLib(methodDecl);
-
-            // Native thunks and @_cdecl wrappers: entry point is the thunk/wrapper symbol
-            // (already set in MangledName by MethodHandler/PropertyHandler/SubscriptHandler).
-            // The wrapper library hosts both thunk .o files and @_cdecl Swift functions.
-            if (needsWrapperLib)
-            {
-                return (NameProvider.GetMangledName(methodDecl), needsWrapperLib);
-            }
-
-            // Direct Swift call: use SwiftCallTargetResolver for Tj dispatch thunk logic.
-            var entryPoint = SwiftCallTargetResolver.Resolve(methodDecl, methodDecl.ParentDecl);
-
-            return (entryPoint, needsWrapperLib);
-        }
-
-        /// <summary>
-        /// AF13 (Finding 13): environment-scoped entry-point resolution. The wrapper/thunk entry
-        /// point is reconstructed from the emission-scoped promoted symbol
-        /// (<see cref="MethodEnvironment.EmissionSymbol"/>) — not a mutated decl field — plus the
-        /// wrapper-kind suffix the decl's flags select. The direct-Swift path resolves from the
-        /// immutable silgen symbol via <see cref="SwiftCallTargetResolver"/>. <c>needsWrapperLib</c>
-        /// (which selects the library path) stays derived from the decl's routing flags.
-        /// </summary>
-        internal static (string entryPoint, bool needsWrapperLib) ComputeEntryPoint(MethodEnvironment env)
-        {
-            var methodDecl = env.MethodDecl;
             var needsWrapperLib = NeedsWrapperLib(methodDecl);
 
             // Native thunks and @_cdecl wrappers: entry point is the promoted thunk/wrapper symbol
@@ -1177,13 +1160,20 @@ namespace BindingsGeneration
             // wrapper-kind suffix (_async/_opaque/_optbuf/_cdecl/_XC) reapplied.
             if (needsWrapperLib)
             {
-                return (NameProvider.GetMangledName(GetPromotedSymbol(env), methodDecl), needsWrapperLib);
+                return (NameProvider.GetMangledName(emissionSymbol, methodDecl), needsWrapperLib);
             }
 
             // Direct Swift call: resolve from the immutable silgen symbol for Tj dispatch thunk logic.
             var entryPoint = SwiftCallTargetResolver.Resolve(methodDecl, methodDecl.ParentDecl);
             return (entryPoint, needsWrapperLib);
         }
+
+        /// <summary>
+        /// Environment-scoped entry-point resolution: sources the promoted base symbol from
+        /// <see cref="MethodEnvironment.EmissionSymbol"/> and delegates to the explicit-base overload.
+        /// </summary>
+        internal static (string entryPoint, bool needsWrapperLib) ComputeEntryPoint(MethodEnvironment env)
+            => ComputeEntryPoint(env.MethodDecl, GetPromotedSymbol(env));
 
         /// <summary>
         /// AF13 (Finding 13): the promoted emission symbol for this method's P/Invoke. Sourced from

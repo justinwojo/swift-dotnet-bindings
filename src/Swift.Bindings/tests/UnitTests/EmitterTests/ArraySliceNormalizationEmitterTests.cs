@@ -852,6 +852,58 @@ public class ArraySliceNormalizationEmitterTests
             $"resultPtr (pos {resultPtrIdx}) must appear before data param (pos {dataIdx}) per CdeclSignatureContract");
     }
 
+    [Fact]
+    public void TryEmitNormalized_CdeclThrowingInstance_FullContractParameterOrder()
+    {
+        // Pins the COMPLETE @_cdecl phase sequence for the regular-method branch of
+        // CdeclSignatureContract — [ResultPtr] [Arguments] [Self] [ErrorOut] — on a
+        // throwing instance method with an indirect (String) return. Every phase is
+        // present, so any re-sequencing of the wrapper's parameter assembly changes
+        // the relative positions asserted here.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "SwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Transformer", moduleDecl, typeDatabase);
+
+        var arraySliceUInt8 = new NamedTypeSpec("Swift.ArraySlice", new NamedTypeSpec("Swift.UInt8"));
+        var returnType = new NamedTypeSpec("Swift.String");
+
+        var method = new MethodDecl
+        {
+            Name = "describe",
+            MangledName = "$s10TestModule11TransformerC8describeSSSays5UInt8VGKF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, returnType, moduleDecl),
+                CreateArgument("data", arraySliceUInt8, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = true,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+
+        var (_, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.NotEmpty(swiftOutput);
+        Assert.Contains("@_cdecl", swiftOutput);
+        var resultPtrIdx = swiftOutput.IndexOf("resultPtr: UnsafeMutableRawPointer");
+        var dataIdx = swiftOutput.IndexOf("data:");
+        var selfIdx = swiftOutput.IndexOf("self_:");
+        var errorOutIdx = swiftOutput.IndexOf("errorOut:");
+        Assert.True(resultPtrIdx >= 0, "resultPtr not found in wrapper output");
+        Assert.True(dataIdx >= 0, "data param not found in wrapper output");
+        Assert.True(selfIdx >= 0, "self_ param not found in wrapper output");
+        Assert.True(errorOutIdx >= 0, "errorOut param not found in wrapper output");
+        Assert.True(resultPtrIdx < dataIdx && dataIdx < selfIdx && selfIdx < errorOutIdx,
+            $"@_cdecl parameter order must be [ResultPtr][Arguments][Self][ErrorOut]; " +
+            $"positions were resultPtr={resultPtrIdx}, data={dataIdx}, self_={selfIdx}, errorOut={errorOutIdx}:\n{swiftOutput}");
+    }
+
     #endregion
 
     #region Helper Methods

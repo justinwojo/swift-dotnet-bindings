@@ -213,9 +213,15 @@ public static partial class CrossModuleExtensionEmitter
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
 
+                // The promoted emission symbol for a wrapper-lib member lives off the decl (on the
+                // per-method ModuleEmissionContext side table), so the native-method P/Invokes read
+                // their entry-point base from there rather than the decl's pre-promotion silgen
+                // symbol. Falls back to MangledName when unrecorded (the common no-promotion case).
+                var emissionContext = context?.GetEmissionContext();
+
                 foreach (var property in properties)
                 {
-                    EmitPropertyNativeMethods(csWriter, property, classDecl, moduleLibPath, wrapperLibPath, typeDatabase, logger);
+                    EmitPropertyNativeMethods(csWriter, property, classDecl, moduleLibPath, wrapperLibPath, typeDatabase, emissionContext, logger);
                 }
 
                 foreach (var method in methods)
@@ -224,7 +230,7 @@ public static partial class CrossModuleExtensionEmitter
                         continue;
                     if (methodsRoutedToTrampoline.Contains(method))
                         continue;
-                    EmitMethodNativeMethod(csWriter, method, classDecl, moduleLibPath, wrapperLibPath, typeDatabase, logger);
+                    EmitMethodNativeMethod(csWriter, method, classDecl, moduleLibPath, wrapperLibPath, typeDatabase, emissionContext, logger);
                 }
 
                 foreach (var info in trampolinePinvokes)
@@ -590,6 +596,7 @@ public static partial class CrossModuleExtensionEmitter
         string moduleLibPath,
         string wrapperLibPath,
         ITypeDatabase typeDatabase,
+        ModuleEmissionContext? emissionContext,
         ILogger logger)
     {
         if (method.IsGeneric || method.IsAsync || method.Throws || method.IsMutating || method.IsAccessor)
@@ -630,7 +637,8 @@ public static partial class CrossModuleExtensionEmitter
         if (!isStatic)
             pinvokeParams.Add("SwiftSelf self_");
 
-        var (entryPoint, needsWrapperLib) = PInvokeEmitter.ComputeEntryPoint(method);
+        var (entryPoint, needsWrapperLib) = PInvokeEmitter.ComputeEntryPoint(
+            method, emissionContext?.GetMethodEmissionSymbolOrMangled(method) ?? method.MangledName);
         var libPath = needsWrapperLib && typeDatabase.AsyncLibraryName != null
             ? typeDatabase.AsyncLibraryName
             : moduleLibPath;
@@ -665,6 +673,7 @@ public static partial class CrossModuleExtensionEmitter
         string moduleLibPath,
         string wrapperLibPath,
         ITypeDatabase typeDatabase,
+        ModuleEmissionContext? emissionContext,
         ILogger logger)
     {
         if (property.IsStatic)
@@ -691,7 +700,8 @@ public static partial class CrossModuleExtensionEmitter
 
             pinvokeParams.Add("SwiftSelf self_");
 
-            var (entryPoint, needsWrapperLib) = PInvokeEmitter.ComputeEntryPoint(method);
+            var (entryPoint, needsWrapperLib) = PInvokeEmitter.ComputeEntryPoint(
+                method, emissionContext?.GetMethodEmissionSymbolOrMangled(method) ?? method.MangledName);
             var libPath = needsWrapperLib && typeDatabase.AsyncLibraryName != null
                 ? typeDatabase.AsyncLibraryName
                 : moduleLibPath;
@@ -731,7 +741,8 @@ public static partial class CrossModuleExtensionEmitter
 
             pinvokeParams.Add("SwiftSelf self_");
 
-            var (entryPoint, needsWrapperLib) = PInvokeEmitter.ComputeEntryPoint(method);
+            var (entryPoint, needsWrapperLib) = PInvokeEmitter.ComputeEntryPoint(
+                method, emissionContext?.GetMethodEmissionSymbolOrMangled(method) ?? method.MangledName);
             var libPath = needsWrapperLib && typeDatabase.AsyncLibraryName != null
                 ? typeDatabase.AsyncLibraryName
                 : moduleLibPath;

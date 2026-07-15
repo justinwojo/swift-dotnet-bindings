@@ -751,7 +751,7 @@ public class PInvokeEmitterTests
         var method = CreateMethod("doWork", classDecl, moduleDecl);
         method.IsFinal = false;
 
-        var (entryPoint, _) = PInvokeEmitter.ComputeEntryPoint(method);
+        var (entryPoint, _) = PInvokeEmitter.ComputeEntryPoint(method, method.MangledName);
 
         Assert.EndsWith("Tj", entryPoint);
     }
@@ -766,7 +766,7 @@ public class PInvokeEmitterTests
         method.IsFinal = false;
         method.IsExtensionMethod = true;
 
-        var (entryPoint, _) = PInvokeEmitter.ComputeEntryPoint(method);
+        var (entryPoint, _) = PInvokeEmitter.ComputeEntryPoint(method, method.MangledName);
 
         Assert.DoesNotContain("Tj", entryPoint);
     }
@@ -779,7 +779,7 @@ public class PInvokeEmitterTests
         classDecl.IsFinal = true;
         var method = CreateMethod("doWork", classDecl, moduleDecl);
 
-        var (entryPoint, _) = PInvokeEmitter.ComputeEntryPoint(method);
+        var (entryPoint, _) = PInvokeEmitter.ComputeEntryPoint(method, method.MangledName);
 
         Assert.DoesNotContain("Tj", entryPoint);
     }
@@ -792,7 +792,7 @@ public class PInvokeEmitterTests
         classDecl.IsFinal = false;
         var method = CreateMethod("doWork", classDecl, moduleDecl, isStatic: true);
 
-        var (entryPoint, _) = PInvokeEmitter.ComputeEntryPoint(method);
+        var (entryPoint, _) = PInvokeEmitter.ComputeEntryPoint(method, method.MangledName);
 
         Assert.DoesNotContain("Tj", entryPoint);
     }
@@ -805,7 +805,7 @@ public class PInvokeEmitterTests
         classDecl.IsFinal = false;
         var method = CreateMethod("init", classDecl, moduleDecl, isConstructor: true);
 
-        var (entryPoint, _) = PInvokeEmitter.ComputeEntryPoint(method);
+        var (entryPoint, _) = PInvokeEmitter.ComputeEntryPoint(method, method.MangledName);
 
         Assert.DoesNotContain("Tj", entryPoint);
     }
@@ -822,7 +822,7 @@ public class PInvokeEmitterTests
         method.IsFinal = false;
         method.IsExtensionMethod = true;
 
-        var (entryPoint, _) = PInvokeEmitter.ComputeEntryPoint(method);
+        var (entryPoint, _) = PInvokeEmitter.ComputeEntryPoint(method, method.MangledName);
 
         Assert.DoesNotContain("Tj", entryPoint);
     }

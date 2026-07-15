@@ -493,8 +493,10 @@ public static class ArraySliceNormalizationEmitter
         var parentTypeDecl = originalMethodDecl.ParentDecl as TypeDecl;
         bool isFreeFunction = parentTypeDecl == null;
 
-        // Build parameter list for the wrapper function
-        var swiftParams = new List<string>();
+        // Build the Arguments-phase parameter list. The full wrapper signature is assembled
+        // below — in @_cdecl mode by iterating the shared parameter-order contract's phase
+        // loop, in @_silgen_name mode in the original ABI order.
+        var argParams = new List<string>();
         var derefLines = new List<string>();
         var originalArgs = originalMethodDecl.CSSignature.Skip(1).ToList();
         var normalizedArgs = normalizedMethodDecl.CSSignature.Skip(1).ToList();
@@ -516,7 +518,7 @@ public static class ArraySliceNormalizationEmitter
             // Large Optional params: accept UnsafeRawPointer, dereference in body
             if (OptionalPointerWrapperEmitter.ShouldWidenParam(arg, normalizedEnv.BoundGenericsHandler))
             {
-                swiftParams.Add($"_ {label}: UnsafeRawPointer");
+                argParams.Add($"_ {label}: UnsafeRawPointer");
                 derefLines.Add(OptionalPointerWrapperEmitter.GetDerefCode(arg, label, label, normalizedEnv.TypeDatabase));
             }
             else if (useCdecl)
@@ -525,41 +527,27 @@ public static class ArraySliceNormalizationEmitter
                 // passing siblings keeps Map's internal re-escape sibling-aware (idempotent here).
                 var (cdeclParam, reconstruction, _) =
                     CdeclParamMapper.Map(arg, label, normalizedEnv, omitLabels: true, reservedSiblings: sliceSiblings);
-                swiftParams.Add(cdeclParam);
+                argParams.Add(cdeclParam);
                 if (reconstruction != null) derefLines.Add(reconstruction);
             }
             else
             {
                 // Render param as native Swift type — @_silgen_name forces original function type
                 var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
-                swiftParams.Add($"_ {label}: {swiftType}");
+                argParams.Add($"_ {label}: {swiftType}");
             }
         }
 
         // Check if the return type is a large Optional that needs an out-buffer
         bool hasLargeOptionalReturn = normalizedEnv.BoundGenericsHandler.IsLargeOptionalReturn(normalizedMethodDecl);
-        if (hasLargeOptionalReturn)
-        {
-            swiftParams.Add("_ _resultBuf: UnsafeMutableRawPointer");
-        }
 
-        // For @_cdecl instance methods, add explicit self param (can't use extension)
+        // For @_cdecl instance methods, self is passed explicitly (can't use extension)
         bool isInstance = !isFreeFunction && originalMethodDecl.MethodType != MethodType.Static;
-        if (useCdecl && isInstance)
-        {
-            bool isClass = parentTypeDecl is ClassDecl;
-            swiftParams.Add(isClass
-                ? "_ self_: UnsafeMutableRawPointer"
-                : "_ self_: UnsafeRawPointer");
-        }
 
-        // @_cdecl error handling: add errorOut param
-        if (useCdecl && originalMethodDecl.Throws)
-        {
-            swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
-        }
-
-        var swiftParamString = string.Join(", ", swiftParams);
+        // Assembled below, once the @_cdecl return mapping has decided whether a leading
+        // resultPtr is needed — that decision drives the contract's first phase.
+        var swiftParams = new List<string>();
+        string swiftParamString;
 
         // Build call arguments with ArraySlice conversion
         var callArgs = new List<string>();
@@ -619,21 +607,66 @@ public static class ArraySliceNormalizationEmitter
             if (cdeclIsStringReturn) needsResultPtr = true;
             cdeclNeedsResultPtr = needsResultPtr;
             returnClause = needsResultPtr ? "" : $" -> {returnMapping.CdeclReturnType}";
-            if (needsResultPtr)
-            {
-                // ResultPtr must be FIRST per CdeclSignatureContract:
-                // [ResultPtr?] [Arguments?] [Metadata] [Self?] [ErrorOut?]
-                swiftParams.Insert(0, "_ resultPtr: UnsafeMutableRawPointer");
-                if (cdeclIsStringReturn)
-                    Utf8SliceEmitter.EmitIfNeeded(swiftWriter, emissionContext);
-                // Rebuild swiftParamString with resultPtr
-                swiftParamString = string.Join(", ", swiftParams);
-            }
+            if (needsResultPtr && cdeclIsStringReturn)
+                Utf8SliceEmitter.EmitIfNeeded(swiftWriter, emissionContext);
         }
         else
         {
             returnClause = (isVoid || hasLargeOptionalReturn) ? "" : $" -> {returnType}";
         }
+
+        // Assemble the wrapper's full parameter list. In @_cdecl mode the sequence is driven
+        // by the shared parameter-order contract (regular-method branch:
+        // [ResultPtr?] [Arguments?] [Metadata] [Self?] [ErrorOut?]) so the ordering has a
+        // single source and cannot drift from the C# P/Invoke side, which iterates the same
+        // phase loop. Notes on the phases here:
+        //   - Metadata contributes nothing: normalization is skipped for generic methods, so
+        //     this path never has generic metadata or PWTs to pass.
+        //   - The large-Optional out-buffer is NOT the contract's ResultPtr (the return is
+        //     delivered through _resultBuf instead of resultPtr) and rides at the tail of the
+        //     Arguments phase — the slot the C# side gives it too.
+        // In @_silgen_name mode the wrapper keeps the original ABI order — native Swift types,
+        // a native throws, and no explicit self (it is emitted as an extension member).
+        if (useCdecl)
+        {
+            var cdeclOrder = CdeclSignatureContract.DetermineParameterOrder(
+                normalizedEnv,
+                overrideNeedsResultPtr: cdeclNeedsResultPtr,
+                overrideHasArguments: argParams.Count > 0 || hasLargeOptionalReturn,
+                overrideNeedsSelf: isInstance);
+            foreach (var phase in cdeclOrder.Phases)
+            {
+                switch (phase)
+                {
+                    case CdeclPhase.ResultPtr:
+                        swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+                        break;
+                    case CdeclPhase.Arguments:
+                        swiftParams.AddRange(argParams);
+                        if (hasLargeOptionalReturn)
+                            swiftParams.Add("_ _resultBuf: UnsafeMutableRawPointer");
+                        break;
+                    case CdeclPhase.Metadata:
+                        break;
+                    case CdeclPhase.Self:
+                        swiftParams.Add(parentTypeDecl is ClassDecl
+                            ? "_ self_: UnsafeMutableRawPointer"
+                            : "_ self_: UnsafeRawPointer");
+                        break;
+                    case CdeclPhase.ErrorOut:
+                        swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
+                        break;
+                }
+            }
+        }
+        else
+        {
+            swiftParams.AddRange(argParams);
+            if (hasLargeOptionalReturn)
+                swiftParams.Add("_ _resultBuf: UnsafeMutableRawPointer");
+        }
+
+        swiftParamString = string.Join(", ", swiftParams);
 
         var originalMethodName = NameProvider.ParserNameToSwift(originalMethodDecl);
         var throwsClause = (useCdecl && throws) ? "" : (throws ? " throws" : "");

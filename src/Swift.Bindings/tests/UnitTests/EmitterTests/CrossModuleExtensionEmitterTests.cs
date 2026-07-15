@@ -608,6 +608,121 @@ public class CrossModuleExtensionEmitterTests
 
     #endregion
 
+    #region Entry-point promoted-symbol funnel (wrapper-lib members read the emission symbol, not raw MangledName)
+
+    // A cross-module extension member that routes to the wrapper library (UsesWrapperLibrary) must
+    // build its P/Invoke EntryPoint from the emission-scoped promoted symbol recorded on the
+    // ModuleEmissionContext side table — not the decl's immutable pre-promotion silgen MangledName.
+    // These three tests pin that funnel at each native-method call-site shape: instance method,
+    // property getter, property setter. Before the migration these sites called the decl-only
+    // ComputeEntryPoint overload, which read MangledName directly and ignored a promoted symbol.
+
+    private const string PromotedSymbol = "$s10TestModule17promotedWrapperSymyyF";
+
+    [Fact]
+    public void Emit_WrapperLibMethod_EntryPointUsesPromotedEmissionSymbol()
+    {
+        var (csWriter, swiftWriter, csOutput, moduleDecl, classDecl, conductor, env) = CreateSetup();
+
+        var method = CreateMethodDecl("customAction", "TestModule", classDecl,
+            mangledName: "$s10TestModule12customActionyyF");
+        method.UsesWrapperLibrary = true; // forces the wrapper-lib entry-point branch
+        classDecl.Methods.Add(method);
+
+        var emissionContext = new ModuleEmissionContext();
+        emissionContext.RecordMethodEmissionSymbol(method, PromotedSymbol);
+        var context = ThreadContext(emissionContext);
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger, context);
+
+        var result = csOutput.ToString();
+        Assert.Contains($"EntryPoint = \"{PromotedSymbol}\"", result);
+        Assert.DoesNotContain("EntryPoint = \"$s10TestModule12customActionyyF\"", result);
+    }
+
+    [Fact]
+    public void Emit_WrapperLibPropertyGetter_EntryPointUsesPromotedEmissionSymbol()
+    {
+        var (csWriter, swiftWriter, csOutput, moduleDecl, classDecl, conductor, env) = CreateSetup();
+
+        var ownerModuleDecl = CreateFullModuleDecl("TestModule");
+        var getterMethod = CreateMethodDecl("get_count", "TestModule", classDecl,
+            mangledName: "$s10TestModule5count_getter");
+        getterMethod.IsAccessor = true;
+        getterMethod.UsesWrapperLibrary = true;
+
+        var property = new PropertyDecl
+        {
+            Name = "count",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getterMethod } },
+            ParentDecl = classDecl,
+            ModuleDecl = ownerModuleDecl
+        };
+        classDecl.Properties.Add(property);
+
+        var emissionContext = new ModuleEmissionContext();
+        emissionContext.RecordMethodEmissionSymbol(getterMethod, PromotedSymbol);
+        var context = ThreadContext(emissionContext);
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger, context);
+
+        var result = csOutput.ToString();
+        Assert.Contains($"EntryPoint = \"{PromotedSymbol}\"", result);
+        Assert.DoesNotContain("EntryPoint = \"$s10TestModule5count_getter\"", result);
+    }
+
+    [Fact]
+    public void Emit_WrapperLibPropertySetter_EntryPointUsesPromotedEmissionSymbol()
+    {
+        var (csWriter, swiftWriter, csOutput, moduleDecl, classDecl, conductor, env) = CreateSetup();
+
+        var ownerModuleDecl = CreateFullModuleDecl("TestModule");
+        var getterMethod = CreateMethodDecl("get_count", "TestModule", classDecl,
+            mangledName: "$s10TestModule5count_getter");
+        getterMethod.IsAccessor = true;
+        var setterMethod = CreateMethodDecl("set_count", "TestModule", classDecl,
+            mangledName: "$s10TestModule5count_setter");
+        setterMethod.IsAccessor = true;
+        setterMethod.UsesWrapperLibrary = true;
+
+        var property = new PropertyDecl
+        {
+            Name = "count",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"), // Primitive → setter native method emitted
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = getterMethod },
+                new SetAccessorDecl { Method = setterMethod }
+            },
+            ParentDecl = classDecl,
+            ModuleDecl = ownerModuleDecl
+        };
+        classDecl.Properties.Add(property);
+
+        var emissionContext = new ModuleEmissionContext();
+        emissionContext.RecordMethodEmissionSymbol(setterMethod, PromotedSymbol);
+        var context = ThreadContext(emissionContext);
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger, context);
+
+        var result = csOutput.ToString();
+        Assert.Contains($"EntryPoint = \"{PromotedSymbol}\"", result);
+        Assert.DoesNotContain("EntryPoint = \"$s10TestModule5count_setter\"", result);
+    }
+
+    private static TypeHandlerContext ThreadContext(ModuleEmissionContext emissionContext) =>
+        new(PInvokeHelperContext: null,
+            DeferredPInvokeHelperContexts: new List<PInvokeHelperContext>(),
+            PropertyRenames: null,
+            EmissionContext: emissionContext);
+
+    #endregion
+
     #region Helpers
 
     private static (CSharpWriter csWriter, SwiftWriter swiftWriter, StringWriter csOutput,

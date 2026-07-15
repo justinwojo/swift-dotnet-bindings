@@ -1517,6 +1517,90 @@ public class OptionalPointerWrapperTests
             $"nOpt must be declared and forwarded; output was:\n{swift}");
     }
 
+    [Fact]
+    public void EmitClosureCdeclSwiftWrapper_Cdecl_ThrowingInstance_FullContractParameterOrder()
+    {
+        // Pins the COMPLETE @_cdecl phase sequence for the regular-method branch of
+        // CdeclSignatureContract — [ResultPtr] [Arguments] [Self] [ErrorOut] — on a
+        // throwing instance method with an indirect (String) return and a closure
+        // param (split into FuncPtr + Context inside the Arguments phase). Every
+        // phase is present, so any re-sequencing of the wrapper's parameter assembly
+        // changes the relative positions asserted here.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Foo", moduleDecl);
+
+        var closureType = new ClosureTypeSpec(new NamedTypeSpec("Swift.Int32"), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("renderWithClosure", parentDecl, moduleDecl,
+            returnType: new NamedTypeSpec("Swift.String"), isAsync: false, throws: true,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("onDone", closureType, moduleDecl));
+
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+        ClosureEmitter.EmitClosureCdeclSwiftWrapper(
+            swiftWriter, new MethodEnvironment(method, typeDatabase), parentDecl, useCdecl: true);
+
+        var swift = swiftOutput.ToString();
+
+        var resultPtrIdx = swift.IndexOf("resultPtr: UnsafeMutableRawPointer");
+        var funcPtrIdx = swift.IndexOf("onDoneFuncPtr:");
+        var contextIdx = swift.IndexOf("onDoneContext:");
+        var selfIdx = swift.IndexOf("_self:");
+        var errorOutIdx = swift.IndexOf("errorOut:");
+        Assert.True(resultPtrIdx >= 0, $"resultPtr not found:\n{swift}");
+        Assert.True(funcPtrIdx >= 0, $"onDoneFuncPtr not found:\n{swift}");
+        Assert.True(contextIdx >= 0, $"onDoneContext not found:\n{swift}");
+        Assert.True(selfIdx >= 0, $"_self not found:\n{swift}");
+        Assert.True(errorOutIdx >= 0, $"errorOut not found:\n{swift}");
+        Assert.True(resultPtrIdx < funcPtrIdx && funcPtrIdx < contextIdx
+                && contextIdx < selfIdx && selfIdx < errorOutIdx,
+            $"@_cdecl parameter order must be [ResultPtr][Arguments][Self][ErrorOut]; " +
+            $"positions were resultPtr={resultPtrIdx}, funcPtr={funcPtrIdx}, context={contextIdx}, " +
+            $"self={selfIdx}, errorOut={errorOutIdx}:\n{swift}");
+    }
+
+    [Fact]
+    public void EmitClosureCdeclSwiftWrapper_Cdecl_LargeOptionalReturn_ResultBufAfterArgsBeforeSelf()
+    {
+        // Pins the large-Optional out-buffer's slot: it is NOT the contract's ResultPtr
+        // phase (the return is delivered through _resultBuf instead of resultPtr), and it
+        // rides at the TAIL of the Arguments phase — after the user params, before Self.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Foo", moduleDecl);
+
+        var optStringType = new NamedTypeSpec("Swift.Optional");
+        optStringType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var closureType = new ClosureTypeSpec(new NamedTypeSpec("Swift.Int32"), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("maybeRender", parentDecl, moduleDecl,
+            returnType: optStringType, isAsync: false, throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("onDone", closureType, moduleDecl));
+
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+        ClosureEmitter.EmitClosureCdeclSwiftWrapper(
+            swiftWriter, new MethodEnvironment(method, typeDatabase), parentDecl, useCdecl: true);
+
+        var swift = swiftOutput.ToString();
+
+        var contextIdx = swift.IndexOf("onDoneContext:");
+        var resultBufIdx = swift.IndexOf("_resultBuf:");
+        var selfIdx = swift.IndexOf("_self:");
+        Assert.True(contextIdx >= 0, $"onDoneContext not found:\n{swift}");
+        Assert.True(resultBufIdx >= 0, $"_resultBuf not found:\n{swift}");
+        Assert.True(selfIdx >= 0, $"_self not found:\n{swift}");
+        Assert.DoesNotContain("resultPtr:", swift);
+        Assert.True(contextIdx < resultBufIdx && resultBufIdx < selfIdx,
+            $"_resultBuf must sit after the user params and before self; positions were " +
+            $"context={contextIdx}, resultBuf={resultBufIdx}, self={selfIdx}:\n{swift}");
+    }
+
     #endregion
 
     #region Test Helpers
