@@ -40,7 +40,9 @@ Hunt axes: CallConv mismatch, missing/extra params, SwiftSelf, sret/error-regist
 | `BindingTests/output-macos/SwiftBindingsTestLib.Wrapper.swift` | Full `@_cdecl` wrapper source (macOS regen; Swift side of pairs) |
 | `BindingTests/output-macos/SwiftBindingsTestLib.cs` | Monolithic macOS C# — **partially stale** vs iOS (see notes) |
 
-iOS `BindingTests/output/` does **not** retain `SwiftBindingsTestLib.Wrapper.swift` (wrapper is compiled into the xcframework). Swift text for pairing was taken from `output-macos/…Wrapper.swift` and thunk `.s` files.
+> **[Verification 2026-07-16: caveat DROPPED — see [`../00-AUDIT-VERIFICATION.md`](../00-AUDIT-VERIFICATION.md) §6.6]** The original claim below is a **factual error**. iOS `BindingTests/output/` **does** retain `SwiftBindingsTestLib.Wrapper.swift` (~4.3 MB, present after an iOS regen; it is a gitignored run artifact, so it is only absent in a tree that hasn't run binding-tests). The parity gate reads it there (`build/Build.Parity.cs:144`). The pairing table's "stale macOS evidence" caveat can be dropped — the confidence here was, if anything, conservative.
+
+~~iOS `BindingTests/output/` does **not** retain `SwiftBindingsTestLib.Wrapper.swift` (wrapper is compiled into the xcframework). Swift text for pairing was taken from `output-macos/…Wrapper.swift` and thunk `.s` files.~~ (Superseded — see verification note above. The `output-macos/…Wrapper.swift` text remains a valid cross-check, but is no longer the *only* available Swift wrapper source.)
 
 ---
 

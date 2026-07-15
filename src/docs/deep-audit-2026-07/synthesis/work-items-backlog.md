@@ -1,5 +1,7 @@
 # Work Items Backlog — Deep Audit 2026-07
 
+> **⚠️ SUPERSEDED by [`../00-AUDIT-VERIFICATION.md`](../00-AUDIT-VERIFICATION.md) §3.** That worklist is the single source of truth for the fix program. This backlog's ranking was written pre-verification; several of its top items were refuted or re-scoped (e.g. DA-W5-A8-002 refuted, G1-003's SB0006 arm already ships, S1-37 has live callers). Read any row here only through the verification's §3/§4 corrections and §9 discount rules. Per-row `[Verification 2026-07-16]` notes flag the ones that moved.
+
 **Status**: Ranked for owner promotion. **Not implemented.**  
 **Scoring**: severity × reachability × consumer impact × fixture/effort cost  
 **Sources**: All tracks under `../tracks/` + G1/M2/T/W10 rollups.
@@ -14,7 +16,7 @@ Legend: **P** = product/policy · **B** = bug/correctness · **G** = gate/test �
 |---|-----|------|------|-----|--------|----------|
 | 1 | **G1-001 / M2-001** | P | **Partial-success packaging policy** when wrapper fails | Day-1 cliff: soft 050 then default 051 kills package | M (policy + docs + optional default) | Track-G1, Track-M2, graceful-degradation-map |
 | 2 | **G1-004 + T** | G | **PartialSuccessKitchen** fixture/gate | Proves unsupported shapes → exit 0 + clean compile + report | S–M | Track-T, G1-004 |
-| 3 | **DA-W5-A8-002** | B | Fix **`public nonisolated` visibility** false-internal → property drop | P1 candidate; drops public surface | S–M | Track-A8 |
+| 3 | **DA-W5-A8-002** | B | **[Verification 2026-07-16: REFUTED — see 00-AUDIT-VERIFICATION §4.1]** ~~Fix `public nonisolated` visibility false-internal → property drop~~ — unreachable: swiftc canonicalizes to `nonisolated public` in generated `.swiftinterface`, the only form the walker consumes; 0 corpus hits for the failing order. Do not implement. | ~~P1 candidate~~ Refuted | — | Track-A8, §4.1 |
 | 4 | **D1/D2** | D | Patch **constraints.md** legacy async CT “incomplete” (fixed) | Agents re-open fixed work | XS | W2 A5b, W10 |
 | 5 | **Short-term G1** | P/D | Document ritual: `SwiftWrapperRequired=false` for exploration | Unblocks users without code default change | XS | M2 |
 
@@ -24,7 +26,7 @@ Legend: **P** = product/policy · **B** = bug/correctness · **G** = gate/test �
 
 | # | ID | Type | Item | Why | Effort |
 |---|-----|------|------|-----|--------|
-| 6 | **G1-003** | P/B | Omit/hide **produce-throw** reverse-dispatch public APIs | Compile-but-dead → bug reports | M |
+| 6 | **G1-003** | P/B | **[Verification 2026-07-16: re-scoped — see 00-AUDIT-VERIFICATION §4.2]** Produce-throw already compile-errors via `[Obsolete(error:true)]` SB0006 (ships today, stronger than the proposed `EditorBrowsable`). Only the **consume-degraded** arm survives: silent at compile time, mapped to `KnownLimitation` (`SkipDisposition.cs:124`, `ReviewCount=0`). Scope to that arm. | Compile-but-dead → bug reports | M |
 | 7 | **G1-002** | P | Opt-in **Swift-only continue** on mixed ObjC systemic fail | Total abort today | M |
 | 8 | **DA-W8-T4-001** | G | Enforce or delete **dead baselines.json keys** | Theater baselines | S |
 | 9 | **DA-W1-A2-001** | B | `HasFloatFields`/`HasBoolFields` unwrap **Optional** | CallConvSwift self under-fire | S + fixture |

@@ -396,6 +396,18 @@ final class MemberCollectionWalker: SyntaxVisitor {
         return current == nil
     }
 
+    // Why `nonisolated` (and the other actor-isolation keywords) is deliberately absent from every
+    // BroadPublic allow-set below, and why that omission is safe: the allow-set is consulted ONLY
+    // for modifiers that appear AFTER the access keyword — `advanceToAccess` tolerates any modifiers
+    // before it (unanchored scan). So the only shape a missing `nonisolated` could mis-reject as
+    // non-public is the order `public nonisolated var` (with `nonisolated` TRAILING the access
+    // keyword). That order never reaches this walker: swiftc canonicalizes modifier order when it
+    // prints a generated `.swiftinterface`, always emitting `nonisolated` (and the other isolation
+    // modifiers) BEFORE `public`, i.e. `nonisolated public var` — which sails through
+    // `advanceToAccess` untouched and is matched fine. This walker only ever parses `.swiftinterface`
+    // text, never hand-written `.swift` source, so the failing order is unreachable and adding
+    // `nonisolated` to the allow-sets would be a no-op on every real input.
+
     /// `BroadPublicFuncRegex` shape: `(public|open)\s+(?:(final|static|class|mutating|nonmutating|consuming|borrowing|override)\s+)*func`.
     /// SET-based: any of {final, static, class, mutating, nonmutating, consuming, borrowing, override} in any order/quantity.
     /// Disallows `nonisolated`, `dynamic`, `weak`, `lazy`, `convenience`, etc.

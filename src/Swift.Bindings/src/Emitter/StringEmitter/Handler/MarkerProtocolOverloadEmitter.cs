@@ -142,7 +142,13 @@ namespace BindingsGeneration
                 if (paramName == "_" || string.IsNullOrEmpty(paramName))
                     paramName = string.IsNullOrEmpty(markerParam.PrivateName) ? "value" : markerParam.PrivateName;
 
-                // Wrapper names
+                // Wrapper names. The raw MangledName is used here only as a unique-name
+                // SEED: this emitter writes its own @_silgen_name Swift wrapper under
+                // wrapperMangledName and points the P/Invoke EntryPoint at that same
+                // string, so producer and consumer are self-paired by construction. The
+                // P/Invoke never targets the original symbol, so a promoted emission
+                // symbol (carried on the method environment, not on MethodDecl) is
+                // irrelevant to this pairing.
                 var swiftTypeShort = swiftType.Contains('.') ? swiftType.Substring(swiftType.LastIndexOf('.') + 1) : swiftType;
                 var wrapperSuffix = $"_MP_{swiftTypeShort}";
                 var wrapperMangledName = NameProvider.GetMangledName(methodDecl) + wrapperSuffix;

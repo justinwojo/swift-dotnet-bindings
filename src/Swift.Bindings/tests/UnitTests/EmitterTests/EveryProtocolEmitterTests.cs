@@ -949,6 +949,9 @@ public class EveryProtocolEmitterTests
         yield return Row(Mutate(RealAsyncEligible(), m => m.CSSignature[1].SwiftTypeSpec = new NamedTypeSpec("TestModule.Widget")),
             false, "non-primitive value param");
         yield return Row(RealAsyncWithClosureParam(), false, "closure param (dedicated closure emit path)");
+        yield return Row(Mutate(RealAsyncEligible(), m => m.CSSignature[1].SwiftTypeSpec =
+                new ProtocolListTypeSpec(new[] { new NamedTypeSpec("ObjectiveC.NSObjectProtocol") })),
+            false, "protocol existential param — no @objc-existential arm needed; the primitive whitelist subsumes it");
     }
 
     [Theory]

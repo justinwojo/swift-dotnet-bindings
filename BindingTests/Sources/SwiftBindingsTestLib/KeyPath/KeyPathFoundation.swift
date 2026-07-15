@@ -70,12 +70,13 @@ public class KeyPathConsumer {
 
     // IN — WritableKeyPath assigns into a value-type field through the KP subscript.
     //
-    // Returns the mutated copy rather than using `inout`. The `inout`-of-blittable-struct
-    // path round-trips correctly on the Swift side (SBW wrapper does load+defer write-back),
-    // but the generated C# call site marshals the struct *into* a stack buffer and never
-    // reads back. That's a generator gap (inout-write-back missing on the C# side) that's
-    // out of KeyPath-foundation scope; the returning-mutated-copy shape proves the
-    // WritableKeyPath contract (assignment through KP subscript) without depending on it.
+    // Returns the mutated copy rather than using `inout`. This is a fixture-scope choice,
+    // not a generator gap: the `inout`-of-blittable-frozen-struct path now round-trips
+    // end-to-end on the cdecl boundary — the generated C# call site emits a `ref` param and
+    // reads the mutation back after the P/Invoke (proven by `ParameterTests.TestIncrementPoint`
+    // against `incrementPoint(_:)`). The returning-mutated-copy shape keeps this KeyPath fixture
+    // focused on the WritableKeyPath contract (assignment through the KP subscript) without
+    // also re-exercising inout writeback, which has its own dedicated coverage.
     public class func writeInt(into p: PointKP, by kp: WritableKeyPath<PointKP, Int>, value: Int) -> PointKP {
         var copy = p
         copy[keyPath: kp] = value

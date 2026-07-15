@@ -6447,6 +6447,11 @@ public class EveryProtocolEmitter
         // Shapes that take a dedicated, non-vtable-value emit path — exactly the predicates
         // ClassifyMethod uses to exclude or specially route a slot. A real-async witness is the
         // plain value-marshalled reverse-dispatch shape, so it must reject all of them.
+        // ClassifyMethod's remaining arms (@objc-existential positions, mixed-generic protocols)
+        // are deliberately absent here: they can only appear in a signature that already fails
+        // the blittable-primitive-scalar whitelist below (an existential or generic-dependent
+        // type is never a blittable primitive), so this predicate rejects those methods without
+        // naming the arms — and a rejection here just keeps the legacy blocking witness.
         if (HasClosureInMethodSignature(method))
             return false;
         if (HasOnlyMethodLevelGenerics(method) || HasMethodLevelGenericInSignature(method))

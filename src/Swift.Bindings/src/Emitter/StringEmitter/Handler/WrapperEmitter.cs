@@ -904,9 +904,13 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// DiagnosticId for the compile-time-visible marker on a CONSUME-degraded position (a setter or
-        /// parameter that accepts an existential whose <c>{Protocol}Proxy</c> reverse-dispatch conformance
-        /// was suppressed). Distinct from SB0006 (produce-throw): the surrounding member still works for a
+        /// DiagnosticId for the compile-time-visible marker on a CONSUME-degraded position (a method
+        /// parameter or enum-case payload that accepts an existential whose <c>{Protocol}Proxy</c>
+        /// reverse-dispatch conformance was suppressed). Property/subscript setters with the same degrade
+        /// deliberately get no SB0008: Swift guarantees a getter alongside every setter, that getter's
+        /// produce path already carries the SB0006 error marker for the same suppressed type, and
+        /// <c>[Obsolete]</c> is AllowMultiple=false — so the member is never silent and cannot carry both.
+        /// Distinct from SB0006 (produce-throw): the surrounding member still works for a
         /// Swift-vended conformer, so this marker is emitted at WARNING level (<c>error: false</c>) — a build
         /// warning steering the consumer, not a build error. SB0007 is reserved, so SB0008 is the next id.
         /// </summary>

@@ -66,9 +66,10 @@ partial class Build
             scratch.CreateDirectory();
 
             // Force a Debug rebuild of the generator so the gate exercises the
-            // current generator source. The gate invokes the Debug dll directly;
-            // EnsureGeneratorBuilt only builds when the dll is *missing*, which
-            // would let a stale binary silently certify old output.
+            // current generator source. The gate invokes the Debug dll directly
+            // rather than routing through EnsureGeneratorBuilt, so it does its own
+            // unconditional rebuild here to guarantee a stale binary can't silently
+            // certify old output.
             Log.Information("=== X64ThunkGate: rebuilding generator (Debug) ===");
             DotNetBuild(s => s
                 .SetProjectFile(GeneratorProject)

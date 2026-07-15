@@ -255,7 +255,9 @@ Paths that still risk **broken compile** or **claim then renege**, ordered by re
 
 ### DA-W7-G1-003: Compile-but-dead reverse-dispatch (produce-throw / consume / fail-fast)
 
-- **Severity**: P1  
+> **[Verification 2026-07-16: headline substantially already implemented — see [`../00-AUDIT-VERIFICATION.md`](../00-AUDIT-VERIFICATION.md) §4.2]** Produce-throw members are NOT silently compile-but-dead: `EmitSuppressedProxyReadPoison` (`WrapperEmitter.cs:870–876`) emits `[Obsolete(…, error: true, DiagnosticId = "SB0006", …)]` on the public member, so **calling one is a compile error today** — strictly stronger than the recommended `EditorBrowsable(Never)`. (The audit's own `data-pack/02-emit-then-break-inventory.md:38–58` documents SB0006 correctly; this track narrative just never mentioned it.) Only two things survive: the **consume-degraded arm is genuinely silent** at compile time, and `SkipDisposition.cs:124` maps it to `KnownLimitation` so `ReviewCount=0` hides it. Scope any action to that narrower arm.
+
+- **Severity**: P1 *(headline; see verification note — mostly shipped)*  
 - **Status**: already-known  
 - **Confidence**: high  
 - **Lenses**: L3  

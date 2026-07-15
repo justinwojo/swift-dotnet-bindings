@@ -167,7 +167,9 @@ Any **new** consumer of `IsModuleInternal` on protocol requirements will re-brea
 
 ### DA-W5-A8-002: After-access modifiers (`public nonisolated` / etc.) excluded from `PublicMemberNames`
 
-- **Severity**: P1 (property undercount on actor / MainActor-heavy APIs) / P2 for method-only shapes that still emit via CallConvSwift  
+> **[Verification 2026-07-16: REFUTED — see [`../00-AUDIT-VERIFICATION.md`](../00-AUDIT-VERIFICATION.md) §4.1]** The mechanism is real but **unreachable**. The failing shape is only `public nonisolated var` (isolation modifier *trailing* the access keyword); swiftc canonicalizes modifier order in generated `.swiftinterface` and always emits `nonisolated public`, which `advanceToAccess` matches fine. The walker consumes only `.swiftinterface`, never `.swift` source. Corpus sweep: 0 hits for the failing order across the iOS 26.2 SDK + all 1,675 repo `.swiftinterface` files. Do NOT widen the allow-lists (mild precision loss, no real-input gain). A code comment recording this now lives at `MemberCollectionWalker.swift` (the BroadPublic matchers).
+
+- **Severity**: ~~P1~~ **REFUTED** (property undercount on actor / MainActor-heavy APIs) / P2 for method-only shapes that still emit via CallConvSwift  
 - **Status**: **candidate** (mechanism confirmed in walker + consumers; corpus volume not re-swept this pass)  
 - **Confidence**: medium–high on mechanism; medium on emission-live frequency  
 - **Lenses**: L1, L3, L5  

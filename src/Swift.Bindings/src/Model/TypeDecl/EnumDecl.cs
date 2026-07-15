@@ -29,6 +29,13 @@ namespace BindingsGeneration
         /// Whether this enum case is marked @_spi (System Programming Interface).
         /// @_spi enum cases are only visible to SPI consumers and should not appear
         /// in generated bindings or Swift wrapper switch statements.
+        ///
+        /// There is deliberately no per-case module-internal flag to go with this:
+        /// Swift forbids access-control modifiers on enum cases (a case always has
+        /// its enum's access level), so a module-internal case can only exist inside
+        /// a module-internal enum — which the enum-level IsModuleInternal gate skips
+        /// before any case is considered. @_spi is the one per-case visibility
+        /// attribute Swift allows, hence the one flag carried here.
         /// </summary>
         public bool IsSpiProtected { get; set; } = false;
 

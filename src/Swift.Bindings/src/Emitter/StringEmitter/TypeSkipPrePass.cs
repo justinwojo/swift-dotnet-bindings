@@ -13,12 +13,20 @@ namespace BindingsGeneration;
 /// <c>MusicRelationshipProperty&lt;Source, Target&gt;</c> slip through and produce
 /// CS0234 at C# compile time.
 ///
-/// The predicates duplicated here MUST match the handler-time decisions exactly:
+/// The four predicates duplicated here MUST match the handler-time decisions exactly
+/// (see <see cref="TryRecordSkip"/>):
 ///
 ///   - <see cref="GenericTypeEmitter.TryGetUnsupportedConstraint"/>: generic type with
 ///     a constraint on an unsupported framework protocol (SwiftUI, Combine).
 ///   - <see cref="PInvokeHelperContext.HasIndeterminatePwtShape"/>: generic type whose
 ///     ABI declares conformances the emitter cannot lower into PWT arguments.
+///   - <see cref="FrozenStructHandler.HasIndeterminateBufferLayout"/>: frozen
+///     value-with-memory struct (Buffer-projected class) whose blitted Buffer size is
+///     not derivable cross-compile because a stored field is a generic value-type
+///     instantiation.
+///   - <see cref="FrozenStructHandler.HasSubWordOptionalLayoutMismatch"/>: frozen
+///     by-value struct whose sub-word Optional&lt;primitive&gt; fields emit as whole
+///     8-byte IntPtr words, diverging from the Swift packed field offsets.
 ///
 /// If a handler introduces a new skip condition it MUST be mirrored here, otherwise
 /// members referencing the newly-skipped type will start leaking through again.
