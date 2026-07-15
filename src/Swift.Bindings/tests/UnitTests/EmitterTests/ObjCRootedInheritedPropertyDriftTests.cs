@@ -25,7 +25,6 @@ namespace BindingsGeneration.Tests;
 /// fails loudly here rather than silently regressing the rename. The tests skip when the ref assembly
 /// is not installed (e.g. CI without the iOS workload).
 /// </summary>
-[Collection("ReportCollector")]
 public class ObjCRootedInheritedPropertyDriftTests
 {
     [SkippableFact]

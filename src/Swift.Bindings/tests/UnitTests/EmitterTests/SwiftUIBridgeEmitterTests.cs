@@ -10,7 +10,6 @@ namespace BindingsGeneration.Tests;
 /// <summary>
 /// Tests for SwiftUIBridgeEmitter template and functional bridge generation.
 /// </summary>
-[Collection("ReportCollector")]
 public class SwiftUIBridgeEmitterTests : IDisposable
 {
     private readonly string _tempDir;
@@ -2531,50 +2530,43 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     [Fact]
     public void Collect_DuplicateViewNames_OnlyFirstIsCollected()
     {
-        SwiftUIBridgeCollector.Reset();
+        var ctx = new ModuleEmissionContext();
 
         var view1 = CreateSimpleViewStruct("DuplicateView");
         var view2 = CreateSimpleViewStruct("DuplicateView");
         view2.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OtherModule.DuplicateView");
 
-        SwiftUIBridgeCollector.Collect(view1);
-        SwiftUIBridgeCollector.Collect(view2);
+        SwiftUIBridgeCollector.Collect(view1, ctx);
+        SwiftUIBridgeCollector.Collect(view2, ctx);
 
-        var collected = SwiftUIBridgeCollector.GetCollectedViews();
+        var collected = SwiftUIBridgeCollector.GetCollectedViews(ctx);
         Assert.Single(collected);
         Assert.Same(view1, collected[0]);
-
-        SwiftUIBridgeCollector.Reset();
     }
 
     [Fact]
     public void Collect_DifferentNames_BothCollected()
     {
-        SwiftUIBridgeCollector.Reset();
+        var ctx = new ModuleEmissionContext();
 
-        SwiftUIBridgeCollector.Collect(CreateSimpleViewStruct("ViewA"));
-        SwiftUIBridgeCollector.Collect(CreateSimpleViewStruct("ViewB"));
+        SwiftUIBridgeCollector.Collect(CreateSimpleViewStruct("ViewA"), ctx);
+        SwiftUIBridgeCollector.Collect(CreateSimpleViewStruct("ViewB"), ctx);
 
-        var collected = SwiftUIBridgeCollector.GetCollectedViews();
+        var collected = SwiftUIBridgeCollector.GetCollectedViews(ctx);
         Assert.Equal(2, collected.Count);
-
-        SwiftUIBridgeCollector.Reset();
     }
 
     [Fact]
-    public void Reset_ClearsDedupState()
+    public void FreshContext_ClearsDedupState()
     {
-        SwiftUIBridgeCollector.Reset();
+        var ctx1 = new ModuleEmissionContext();
+        SwiftUIBridgeCollector.Collect(CreateSimpleViewStruct("ResetView"), ctx1);
 
-        SwiftUIBridgeCollector.Collect(CreateSimpleViewStruct("ResetView"));
-        SwiftUIBridgeCollector.Reset();
-
-        // After reset, same name should be re-collected
-        SwiftUIBridgeCollector.Collect(CreateSimpleViewStruct("ResetView"));
-        var collected = SwiftUIBridgeCollector.GetCollectedViews();
+        // A fresh context has independent dedup state — same name is collected again.
+        var ctx2 = new ModuleEmissionContext();
+        SwiftUIBridgeCollector.Collect(CreateSimpleViewStruct("ResetView"), ctx2);
+        var collected = SwiftUIBridgeCollector.GetCollectedViews(ctx2);
         Assert.Single(collected);
-
-        SwiftUIBridgeCollector.Reset();
     }
 
     #endregion

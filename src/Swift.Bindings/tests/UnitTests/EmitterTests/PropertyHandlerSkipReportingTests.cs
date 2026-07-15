@@ -20,7 +20,6 @@ namespace BindingsGeneration.Tests;
 /// reason" so downstream skip-metrics tooling and coverage dashboards stay
 /// honest.
 /// </summary>
-[Collection("ReportCollector")]
 public class PropertyHandlerSkipReportingTests
 {
     [Fact]

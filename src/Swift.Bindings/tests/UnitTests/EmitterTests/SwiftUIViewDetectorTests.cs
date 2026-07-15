@@ -130,55 +130,47 @@ public class SwiftUIViewDetectorTests
     [Fact]
     public void BridgeCollector_CollectsViews()
     {
-        SwiftUIBridgeCollector.Reset();
+        var ctx = new ModuleEmissionContext();
 
         var view1 = CreateStructWithConformances("View1", new[] { "SwiftUI.View" });
         var view2 = CreateStructWithConformances("View2", new[] { "SwiftUI.View" });
-        SwiftUIBridgeCollector.Collect(view1);
-        SwiftUIBridgeCollector.Collect(view2);
+        SwiftUIBridgeCollector.Collect(view1, ctx);
+        SwiftUIBridgeCollector.Collect(view2, ctx);
 
-        var collected = SwiftUIBridgeCollector.GetCollectedViews();
+        var collected = SwiftUIBridgeCollector.GetCollectedViews(ctx);
         Assert.Equal(2, collected.Count);
         Assert.Equal("View1", collected[0].Name);
         Assert.Equal("View2", collected[1].Name);
-
-        SwiftUIBridgeCollector.Reset();
     }
 
     [Fact]
-    public void BridgeCollector_ResetClearsViews()
+    public void BridgeCollector_FreshContextStartsEmpty()
     {
-        SwiftUIBridgeCollector.Reset();
+        var ctx = new ModuleEmissionContext();
 
         var view = CreateStructWithConformances("View1", new[] { "SwiftUI.View" });
-        SwiftUIBridgeCollector.Collect(view);
-        Assert.Single(SwiftUIBridgeCollector.GetCollectedViews());
+        SwiftUIBridgeCollector.Collect(view, ctx);
+        Assert.Single(SwiftUIBridgeCollector.GetCollectedViews(ctx));
 
-        SwiftUIBridgeCollector.Reset();
-        Assert.Empty(SwiftUIBridgeCollector.GetCollectedViews());
+        // A new context has its own independent state — no cross-run bleed.
+        Assert.Empty(SwiftUIBridgeCollector.GetCollectedViews(new ModuleEmissionContext()));
     }
 
     [Fact]
-    public void BridgeCollector_CollectsViews_ResetsPerModule()
+    public void BridgeCollector_CollectsViews_IsolatedPerContext()
     {
-        SwiftUIBridgeCollector.Reset();
-
         // Module 1
+        var ctx1 = new ModuleEmissionContext();
         var view1 = CreateStructWithConformances("ViewA", new[] { "SwiftUI.View" });
-        SwiftUIBridgeCollector.Collect(view1);
-        Assert.Single(SwiftUIBridgeCollector.GetCollectedViews());
+        SwiftUIBridgeCollector.Collect(view1, ctx1);
+        Assert.Single(SwiftUIBridgeCollector.GetCollectedViews(ctx1));
 
-        // Simulate module boundary reset
-        SwiftUIBridgeCollector.Reset();
-        Assert.Empty(SwiftUIBridgeCollector.GetCollectedViews());
-
-        // Module 2
+        // Module 2 — a separate context does not see module 1's views.
+        var ctx2 = new ModuleEmissionContext();
         var view2 = CreateStructWithConformances("ViewB", new[] { "SwiftUI.View" });
-        SwiftUIBridgeCollector.Collect(view2);
-        Assert.Single(SwiftUIBridgeCollector.GetCollectedViews());
-        Assert.Equal("ViewB", SwiftUIBridgeCollector.GetCollectedViews()[0].Name);
-
-        SwiftUIBridgeCollector.Reset();
+        SwiftUIBridgeCollector.Collect(view2, ctx2);
+        Assert.Single(SwiftUIBridgeCollector.GetCollectedViews(ctx2));
+        Assert.Equal("ViewB", SwiftUIBridgeCollector.GetCollectedViews(ctx2)[0].Name);
     }
 
     #endregion

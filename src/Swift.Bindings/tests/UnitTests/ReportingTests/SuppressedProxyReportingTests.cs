@@ -23,7 +23,6 @@ namespace BindingsGeneration.Tests;
 /// and reads back as <see cref="SkipDisposition.KnownLimitation"/> — the honest fixture that a
 /// decline is now a durable diagnostic, not a log line.
 /// </summary>
-[Collection("ReportCollector")]
 public class SuppressedProxyReportingTests
 {
     [Theory]

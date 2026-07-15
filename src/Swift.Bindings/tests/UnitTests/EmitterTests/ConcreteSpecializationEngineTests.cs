@@ -16,7 +16,6 @@ namespace BindingsGeneration.Tests;
 /// </summary>
 // Collection-serialized: one test drives the process-global ReportCollector skipped-type set
 // to exercise the value-struct predicate's skip-set consultation.
-[Collection("ReportCollector")]
 public class ConcreteSpecializationEngineTests
 {
     private static ITypeDatabase CreateEmptyTypeDatabase() => new EmptyTypeDatabase();

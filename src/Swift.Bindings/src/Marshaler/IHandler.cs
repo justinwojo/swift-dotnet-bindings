@@ -295,7 +295,7 @@ namespace BindingsGeneration
                         ReportCollector.RecordTypeSkipped(structDecl, SkipReason.SwiftUIView,
                             "Type conforms to SwiftUI.View. Bridge generation available.");
                         UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, structDecl.Name, SkipReason.SwiftUIView);
-                        SwiftUIBridgeCollector.Collect(structDecl);
+                        SwiftUIBridgeCollector.Collect(structDecl, context.GetEmissionContext());
                         continue;
                     }
 
@@ -336,7 +336,7 @@ namespace BindingsGeneration
                         ReportCollector.RecordTypeSkipped(classDecl, SkipReason.SwiftUIView,
                             "Type conforms to SwiftUI.View. Bridge generation available.");
                         UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, classDecl.Name, SkipReason.SwiftUIView);
-                        SwiftUIBridgeCollector.Collect(classDecl);
+                        SwiftUIBridgeCollector.Collect(classDecl, context.GetEmissionContext());
                         continue;
                     }
 

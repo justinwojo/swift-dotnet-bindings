@@ -34,7 +34,6 @@ namespace BindingsGeneration.Tests;
 ///      <c>material?.Handle</c>-style emission for plain Swift classes whose
 ///      ABI <c>printedName</c> uses an umbrella re-export module.
 /// </summary>
-[Collection("ReportCollector")]
 public class RealityFrameworkRemapFixTests
 {
     // --- Fix A: ValidationRuleSet umbrella source-module probe -----------------

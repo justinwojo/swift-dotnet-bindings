@@ -521,6 +521,38 @@ public sealed class ModuleEmissionContext
     /// <summary>Marks a Utf8Slice free P/Invoke as emitted. Returns true if newly added.</summary>
     public bool TryAddUtf8SliceFreePInvoke(string typeKey) => _utf8SliceFreePInvokeTypes.Add(typeKey);
 
+    // ==================== SwiftUI Bridge Collection ====================
+    //
+    // Accumulates SwiftUI View types skipped during HandleBaseDecl so SwiftUIBridgeEmitter
+    // can consume them after the main module body is emitted. Previously process-global static
+    // state on SwiftUIBridgeCollector that depended on a Reset() before/after every module
+    // emission; scoping it to the per-module context removes the cross-module bleed risk.
+    // The lock is retained so a future parallel per-type emission walk stays safe.
+
+    private readonly object _swiftUIViewsSync = new();
+    private readonly List<TypeDecl> _collectedSwiftUIViews = new();
+    private readonly HashSet<string> _collectedSwiftUIViewNames = new();
+
+    /// <summary>Records a SwiftUI View type for bridge generation (deduped by name).</summary>
+    public void CollectSwiftUIView(TypeDecl viewType)
+    {
+        ArgumentNullException.ThrowIfNull(viewType);
+        lock (_swiftUIViewsSync)
+        {
+            if (_collectedSwiftUIViewNames.Add(viewType.Name))
+                _collectedSwiftUIViews.Add(viewType);
+        }
+    }
+
+    /// <summary>Returns all SwiftUI View types collected for this module.</summary>
+    public IReadOnlyList<TypeDecl> GetCollectedSwiftUIViews()
+    {
+        lock (_swiftUIViewsSync)
+        {
+            return _collectedSwiftUIViews.ToList();
+        }
+    }
+
     // ==================== Cancellation Task ====================
 
     private readonly HashSet<string> _cancellationPInvokeTypes = new();

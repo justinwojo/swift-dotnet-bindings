@@ -175,7 +175,9 @@ public static class OptionalMarshalClassifier
     /// The mapping corresponds to the runtime's GetBlittablePrimitiveTagOffset() in SwiftOptional.cs,
     /// but operates on Swift type names (compile-time) rather than CLR types (runtime).
     ///
-    /// Both mappings MUST stay in sync. See OptionalTagOffsetConsistencyTests for enforcement.
+    /// Both mappings MUST stay in sync: the runtime reads the tag byte at this exact offset, so a
+    /// disagreement corrupts every Optional&lt;primitive&gt; decode. The EmitterAndRuntime_TagOffsets_AreConsistent
+    /// theory invokes the runtime oracle for each corresponding CLR type and asserts it equals this value.
     /// </summary>
     public static int? GetSwiftTagByteOffset(string swiftTypeName) => swiftTypeName switch
     {

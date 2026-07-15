@@ -18,7 +18,6 @@ namespace BindingsGeneration.Tests;
 /// The producer-level "positions are emitted for MainActor / availability / convention(c)"
 /// coverage lives in <c>SwiftSyntaxInterfaceFactsProducerTests</c>.
 /// </summary>
-[Collection("ReportCollector")]
 public class SourceProvenanceTests
 {
     #region SourcePosition formatting

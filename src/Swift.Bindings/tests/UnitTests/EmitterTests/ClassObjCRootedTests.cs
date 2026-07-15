@@ -14,7 +14,6 @@ namespace BindingsGeneration.Tests;
 /// emission (interface list, payload gating, constructors, NewFromPayload,
 /// MarshalToSwift, self-parameter), TypeRecord serialization, and hierarchy resolution.
 /// </summary>
-[Collection("ReportCollector")]
 public class ClassObjCRootedTests
 {
     #region Model — ClassDecl.HasObjCSuperclass + IsObjCRooted

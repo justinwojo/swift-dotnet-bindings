@@ -4,9 +4,11 @@
 using System.IO;
 using Xunit;
 
-// Utf8SliceEmitter state is now on ModuleEmissionContext, so tests use fresh contexts.
-// Parallelization remains disabled for compatibility with other handler tests.
-[assembly: CollectionBehavior(DisableTestParallelization = true)]
+// Utf8SliceEmitter, SwiftUIBridgeCollector, and ReportCollector state is now scoped
+// (per-module ModuleEmissionContext, and a per-async-flow ReportCollector session), so
+// collection-level test parallelization is enabled. The remaining [Collection(...)] groupings
+// serialize tests that still share genuinely process-global state — Console output capture and
+// the TypeOwnerRegistry — among themselves.
 
 namespace BindingsGeneration.Tests;
 

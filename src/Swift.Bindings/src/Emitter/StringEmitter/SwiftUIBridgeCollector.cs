@@ -4,50 +4,28 @@
 namespace BindingsGeneration;
 
 /// <summary>
-/// Static collector that accumulates SwiftUI View types during emission.
+/// Collector that accumulates SwiftUI View types during emission.
 /// Collected views are consumed by SwiftUIBridgeEmitter in later phases.
+///
+/// State lives on <see cref="ModuleEmissionContext"/> (a per-module instance), so it can no
+/// longer bleed across emission runs the way the former process-global static collections did.
+/// This class is a thin facade over that context, mirroring <see cref="Utf8SliceEmitter"/>.
 /// </summary>
 public static class SwiftUIBridgeCollector
 {
-    private static readonly object Sync = new();
-    private static readonly List<TypeDecl> CollectedViews = new();
-    private static readonly HashSet<string> CollectedViewNames = new();
-
     /// <summary>
-    /// Records a View type for bridge generation.
+    /// Records a View type for bridge generation on the given emission context.
     /// </summary>
-    public static void Collect(TypeDecl viewType)
+    public static void Collect(TypeDecl viewType, ModuleEmissionContext? ctx = null)
     {
-        ArgumentNullException.ThrowIfNull(viewType);
-
-        lock (Sync)
-        {
-            if (CollectedViewNames.Add(viewType.Name))
-                CollectedViews.Add(viewType);
-        }
+        (ctx ?? ModuleEmissionContext.Default).CollectSwiftUIView(viewType);
     }
 
     /// <summary>
-    /// Returns all collected View types.
+    /// Returns all collected View types for the given emission context.
     /// </summary>
-    public static IReadOnlyList<TypeDecl> GetCollectedViews()
+    public static IReadOnlyList<TypeDecl> GetCollectedViews(ModuleEmissionContext? ctx = null)
     {
-        lock (Sync)
-        {
-            return CollectedViews.ToList();
-        }
-    }
-
-    /// <summary>
-    /// Clears collected views. Called before and after module emission
-    /// to avoid stale state from previous modules or exceptions.
-    /// </summary>
-    public static void Reset()
-    {
-        lock (Sync)
-        {
-            CollectedViews.Clear();
-            CollectedViewNames.Clear();
-        }
+        return (ctx ?? ModuleEmissionContext.Default).GetCollectedSwiftUIViews();
     }
 }

@@ -61,8 +61,6 @@ namespace BindingsGeneration
                 var @namespace = _namespacePatternResolver.ResolveNamespace(moduleDecl.Name);
 
                 IReadOnlyList<TypeDecl> collectedViews;
-                SwiftUIBridgeCollector.Reset();
-                try
                 {
                     var env = moduleHandler.Marshal(moduleDecl, _typeDatabase);
                     // Pre-pass: apply CSharpTypeName renames for nested type collisions BEFORE
@@ -89,11 +87,7 @@ namespace BindingsGeneration
                     ErrorEnumRegistryEmitter.Precompute(moduleDecl, emissionContext);
                     var initialContext = new TypeHandlerContext(null, new(), null, MarkerProtocolConformances: _markerProtocolConformances, EmissionContext: emissionContext);
                     moduleHandler.Emit(csWriter, swiftWriter, env, _conductor, initialContext);
-                    collectedViews = SwiftUIBridgeCollector.GetCollectedViews();
-                }
-                finally
-                {
-                    SwiftUIBridgeCollector.Reset();
+                    collectedViews = SwiftUIBridgeCollector.GetCollectedViews(emissionContext);
                 }
 
                 var preQualifyOutput = csStringWriter.ToString();

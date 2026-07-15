@@ -7,6 +7,21 @@ namespace BindingsGeneration;
 /// In-process collector for binding generation report data.
 /// </summary>
 /// <remarks>
+/// <para>
+/// A report "session" is scoped to the current async control flow (<see cref="AsyncLocal{T}"/>).
+/// <see cref="Start"/> installs a fresh <see cref="ReportSession"/> that owns ALL report state —
+/// the <see cref="BindingReport"/>, every dedup collection, and the lock — and <see cref="Reset"/>
+/// clears it. Previously only an <c>AsyncLocal&lt;bool&gt;</c> "is active" flag flowed with the
+/// async context while the report and its collections were process-global static fields, so two
+/// concurrent emission runs (or two parallel unit tests) each saw <c>IsActive == true</c> yet shared
+/// one report — and either run's <c>Start()</c> silently wiped the other's data. Moving the whole
+/// session onto the AsyncLocal gives each control flow its own isolated report, and a sequential run
+/// in the same flow is cleanly superseded by the next <see cref="Start"/>. The static surface is a
+/// deliberate facade over that flow-scoped state so ambient call sites that carry no emission context
+/// (e.g. the class-ancestor skip walk reaching <see cref="IsTypeSkipped(string)"/>) keep working
+/// without threading a context through every site.
+/// </para>
+/// <para>
 /// Member dedup is keyed on <see cref="MemberDiagnosticIdentity"/>, which is
 /// overload-stable: two distinct overloads (e.g. <c>foo(_:Int)</c> vs
 /// <c>foo(_:String)</c>) skipped for different reasons each record their own
@@ -14,43 +29,59 @@ namespace BindingsGeneration;
 /// <c>(kind, name, containingDecl)</c> still produce a valid identity, but
 /// without parameter labels/types — overloads collapse on those paths until
 /// the call site is migrated to a decl-aware overload.
+/// </para>
 /// </remarks>
 public static class ReportCollector
 {
-    private static readonly object Sync = new();
-    private static readonly AsyncLocal<bool> SessionActive = new();
-    private static BindingReport? _report;
+    /// <summary>
+    /// The report state for the current async control flow. Null when no session is active.
+    /// </summary>
+    private static readonly AsyncLocal<ReportSession?> Session = new();
 
-    private static readonly HashSet<string> EmittedTypeKeys = new(StringComparer.Ordinal);
-    private static readonly HashSet<string> SkippedTypeKeys = new(StringComparer.Ordinal);
-    private static readonly HashSet<MemberDiagnosticIdentity> EmittedMemberIdentities = new();
-    private static readonly HashSet<MemberDiagnosticIdentity> SkippedMemberIdentities = new();
-    private static readonly HashSet<MemberDiagnosticIdentity> SynthesizedMemberIdentities = new();
+    private static ReportSession? Current => Session.Value;
 
-    // Finding 53: ambient accumulators for the two previously-silent degradation mechanisms.
-    // They live here (not on ModuleEmissionContext like SWIFTBIND023) because their emission sites
-    // — the `// Unsupported:` comment chokepoint and the scattered closure `?? "object"` fallbacks —
-    // have no ModuleEmissionContext in scope, but ReportCollector is already the ambient
-    // (AsyncLocal-session) sink they all reach without threading. Dedup keeps the loud diagnostic to
-    // one warning per distinct drop / degraded type.
-    private static readonly HashSet<string> UnsupportedCommentDropEntries = new(StringComparer.Ordinal);
-    private static readonly HashSet<string> ObjectDegradationEntries = new(StringComparer.Ordinal);
+    /// <summary>
+    /// All per-session report state. Owned by a single async control flow at a time so nothing
+    /// bleeds across concurrent or sequential emission runs.
+    /// </summary>
+    private sealed class ReportSession
+    {
+        internal readonly object Sync = new();
+        internal readonly BindingReport Report;
 
-    // F10 Stage 20: Apple-framework reference types bridged to their ObjC class purely by the
-    // naming-convention heuristic (no database record) — see MarshallingHelpers.IsObjCPrefixBridgeCandidate.
-    // Unlike the two degradation sets above, this is a SUCCESSFUL bridge, so it is recorded for
-    // observability only (binding-report.json) and never surfaced as a loud warning.
-    private static readonly HashSet<string> ObjCPrefixBridgeEntries = new(StringComparer.Ordinal);
+        internal readonly HashSet<string> EmittedTypeKeys = new(StringComparer.Ordinal);
+        internal readonly HashSet<string> SkippedTypeKeys = new(StringComparer.Ordinal);
+        internal readonly HashSet<MemberDiagnosticIdentity> EmittedMemberIdentities = new();
+        internal readonly HashSet<MemberDiagnosticIdentity> SkippedMemberIdentities = new();
+        internal readonly HashSet<MemberDiagnosticIdentity> SynthesizedMemberIdentities = new();
 
-    // CSM "recovered" facts: a skipped open-generic member (keyed by its containing-type + name, the
-    // same identity the skip row carries) whose consumer surface a closed CSM projection actually
-    // emitted. Accumulated during emission — the property skip is recorded in-body while the CSM
-    // projection is a post-body hook — then joined onto the matching SkippedItem in Complete(). This
-    // is an emission fact (a projection was emitted), not a name-pattern guess, so a skip row without
-    // a RecoveredBy annotation genuinely is unreachable.
-    private static readonly Dictionary<(string? ContainingType, string Name), List<string>> RecoveredMembers = new();
+        // Finding 53: ambient accumulators for the two previously-silent degradation mechanisms.
+        // They live on the session (not on ModuleEmissionContext like SWIFTBIND023) because their
+        // emission sites — the `// Unsupported:` comment chokepoint and the scattered closure
+        // `?? "object"` fallbacks — have no ModuleEmissionContext in scope, but the flow-scoped
+        // ReportCollector session is the ambient sink they all reach without threading. Dedup keeps
+        // the loud diagnostic to one warning per distinct drop / degraded type.
+        internal readonly HashSet<string> UnsupportedCommentDropEntries = new(StringComparer.Ordinal);
+        internal readonly HashSet<string> ObjectDegradationEntries = new(StringComparer.Ordinal);
 
-    public static bool IsActive => SessionActive.Value && _report != null;
+        // F10 Stage 20: Apple-framework reference types bridged to their ObjC class purely by the
+        // naming-convention heuristic (no database record) — see MarshallingHelpers.IsObjCPrefixBridgeCandidate.
+        // Unlike the two degradation sets above, this is a SUCCESSFUL bridge, so it is recorded for
+        // observability only (binding-report.json) and never surfaced as a loud warning.
+        internal readonly HashSet<string> ObjCPrefixBridgeEntries = new(StringComparer.Ordinal);
+
+        // CSM "recovered" facts: a skipped open-generic member (keyed by its containing-type + name, the
+        // same identity the skip row carries) whose consumer surface a closed CSM projection actually
+        // emitted. Accumulated during emission — the property skip is recorded in-body while the CSM
+        // projection is a post-body hook — then joined onto the matching SkippedItem in Complete(). This
+        // is an emission fact (a projection was emitted), not a name-pattern guess, so a skip row without
+        // a RecoveredBy annotation genuinely is unreachable.
+        internal readonly Dictionary<(string? ContainingType, string Name), List<string>> RecoveredMembers = new();
+
+        internal ReportSession(BindingReport report) => Report = report;
+    }
+
+    public static bool IsActive => Current != null;
 
     /// <summary>
     /// Query whether a type is known to be skipped. Populated by <see cref="RecordTypeSkipped"/>
@@ -61,10 +92,11 @@ public static class ReportCollector
     /// </summary>
     public static bool IsTypeSkipped(string moduleQualifiedTypeName)
     {
-        if (!SessionActive.Value || _report == null)
+        var session = Current;
+        if (session == null)
             return false;
-        lock (Sync)
-            return SkippedTypeKeys.Contains(moduleQualifiedTypeName);
+        lock (session.Sync)
+            return session.SkippedTypeKeys.Contains(moduleQualifiedTypeName);
     }
 
     /// <summary>
@@ -78,97 +110,89 @@ public static class ReportCollector
     {
         ArgumentNullException.ThrowIfNull(moduleDecl);
 
-        lock (Sync)
+        var report = new BindingReport
         {
-            ResetUnsafe();
+            ModuleName = moduleDecl.Name,
+        };
+        (report.TotalTypes, report.TotalMembers) = CalculateTotals(moduleDecl);
 
-            _report = new BindingReport
-            {
-                ModuleName = moduleDecl.Name,
-            };
-            SessionActive.Value = true;
-
-            (_report.TotalTypes, _report.TotalMembers) = CalculateTotals(moduleDecl);
-        }
+        // Installing a fresh session supersedes any prior one on this flow without touching
+        // another flow's session — the old cross-run wipe is gone.
+        Session.Value = new ReportSession(report);
     }
 
     public static BindingReport? Complete()
     {
-        if (!SessionActive.Value)
+        var session = Current;
+        if (session == null)
             return null;
 
-        lock (Sync)
+        lock (session.Sync)
         {
-            if (_report == null)
-                return null;
+            var report = session.Report;
 
-            _report.EmittedTypes = EmittedTypeKeys.Count;
-            _report.SkippedTypes = SkippedTypeKeys.Count;
-            _report.EmittedMembers = EmittedMemberIdentities.Count;
-            _report.SkippedMembers = SkippedMemberIdentities.Count;
-            _report.SynthesizedMembers = SynthesizedMemberIdentities.Count;
+            report.EmittedTypes = session.EmittedTypeKeys.Count;
+            report.SkippedTypes = session.SkippedTypeKeys.Count;
+            report.EmittedMembers = session.EmittedMemberIdentities.Count;
+            report.SkippedMembers = session.SkippedMemberIdentities.Count;
+            report.SynthesizedMembers = session.SynthesizedMemberIdentities.Count;
 
             // Finding 53: flow the ambient degradation accumulators onto the report (sorted for
             // deterministic output) so they survive Reset() and drive the loud SWIFTBIND025/026
             // diagnostics emitted from the report block.
-            _report.UnsupportedCommentDrops.AddRange(
-                UnsupportedCommentDropEntries.OrderBy(x => x, StringComparer.Ordinal));
-            _report.ObjectDegradations.AddRange(
-                ObjectDegradationEntries.OrderBy(x => x, StringComparer.Ordinal));
+            report.UnsupportedCommentDrops.AddRange(
+                session.UnsupportedCommentDropEntries.OrderBy(x => x, StringComparer.Ordinal));
+            report.ObjectDegradations.AddRange(
+                session.ObjectDegradationEntries.OrderBy(x => x, StringComparer.Ordinal));
             // F10 Stage 20: flow the ObjC-prefix bridge guesses onto the report (sorted) so they
             // survive Reset() and round-trip into binding-report.json via the manifest.
-            _report.ObjCPrefixBridges.AddRange(
-                ObjCPrefixBridgeEntries.OrderBy(x => x, StringComparer.Ordinal));
+            report.ObjCPrefixBridges.AddRange(
+                session.ObjCPrefixBridgeEntries.OrderBy(x => x, StringComparer.Ordinal));
 
             // Join the accumulated CSM-recovery facts onto their skip rows: a member skipped on the open
             // shell whose typed surface a closed projection actually emitted is annotated (and reclassified
             // to SkipDisposition.Recovered by the item-aware classifier) instead of reading as a plain,
             // unreachable skip. Match on (ContainingType, Name) — the same identity the skip row carries —
             // so the linkage is exact, not a name-pattern guess.
-            if (RecoveredMembers.Count > 0)
+            if (session.RecoveredMembers.Count > 0)
             {
-                foreach (var item in _report.SkippedItems)
+                foreach (var item in report.SkippedItems)
                 {
-                    if (RecoveredMembers.TryGetValue((item.ContainingType, item.Name), out var recoverers))
+                    if (session.RecoveredMembers.TryGetValue((item.ContainingType, item.Name), out var recoverers))
                         item.RecoveredBy = recoverers.OrderBy(x => x, StringComparer.Ordinal).ToList();
                 }
             }
 
             // Per-kind breakdown: read directly from each identity's Kind field.
-            ComputePerKindCounts(_report);
+            ComputePerKindCounts(session, report);
 
             // Compute BridgeSummary if there are bridged views
-            if (_report.BridgedViews.Count > 0)
-                _report.BridgeSummary = ComputeBridgeSummary(_report);
+            if (report.BridgedViews.Count > 0)
+                report.BridgeSummary = ComputeBridgeSummary(report);
 
-            return _report;
+            return report;
         }
     }
 
     public static void Reset()
     {
-        lock (Sync)
-        {
-            ResetUnsafe();
-        }
-        SessionActive.Value = false;
+        // Discarding the session is a full clear for this flow; another flow's session is untouched.
+        Session.Value = null;
     }
 
     public static void RecordTypeEmitted(TypeDecl typeDecl)
     {
-        if (!SessionActive.Value || _report == null)
+        var session = Current;
+        if (session == null)
             return;
 
-        lock (Sync)
+        lock (session.Sync)
         {
-            if (_report == null)
-                return;
-
             var key = GetTypeKey(typeDecl);
-            if (SkippedTypeKeys.Contains(key))
+            if (session.SkippedTypeKeys.Contains(key))
                 return;
 
-            EmittedTypeKeys.Add(key);
+            session.EmittedTypeKeys.Add(key);
         }
     }
 
@@ -178,23 +202,21 @@ public static class ReportCollector
         string? details = null,
         SourcePosition? position = null)
     {
-        if (!SessionActive.Value || _report == null)
+        var session = Current;
+        if (session == null)
             return;
 
         // Best-effort: when the caller did not supply an explicit override, fall back to
         // whatever swiftinterface position the parser stamped on the decl.
         position ??= typeDecl.Position;
 
-        lock (Sync)
+        lock (session.Sync)
         {
-            if (_report == null)
-                return;
-
             var key = GetTypeKey(typeDecl);
-            if (EmittedTypeKeys.Contains(key) || !SkippedTypeKeys.Add(key))
+            if (session.EmittedTypeKeys.Contains(key) || !session.SkippedTypeKeys.Add(key))
                 return;
 
-            _report.SkippedItems.Add(new SkippedItem
+            session.Report.SkippedItems.Add(new SkippedItem
             {
                 Kind = BindingItemKind.Type,
                 Name = typeDecl.Name,
@@ -380,23 +402,21 @@ public static class ReportCollector
         BindingItemKind kind, string name, string? mangledName,
         BaseDecl? containingDecl, string wrapperKind, string? details = null)
     {
-        if (!SessionActive.Value || _report == null)
+        var session = Current;
+        if (session == null)
             return;
 
-        lock (Sync)
+        lock (session.Sync)
         {
-            if (_report == null)
-                return;
-
             // RecordMemberWrapped intentionally uses the legacy coarse identity
             // (no parameter info) so overloaded wrapped inits dedup to one
             // emitted entry — matching the distinct-name counting in
             // CalculateTotals. The WrappedItems list itself records each
             // overload distinctly via the mangled name.
             var identity = MemberDiagnosticIdentity.FromMember(kind, name, containingDecl);
-            EmittedMemberIdentities.Add(identity);
+            session.EmittedMemberIdentities.Add(identity);
 
-            _report.WrappedItems.Add(new WrappedItem
+            session.Report.WrappedItems.Add(new WrappedItem
             {
                 Kind = kind,
                 Name = name,
@@ -410,15 +430,13 @@ public static class ReportCollector
 
     public static void RecordBridgedView(string viewName, string moduleName, string initClassification, string bridgeStatus)
     {
-        if (!SessionActive.Value || _report == null)
+        var session = Current;
+        if (session == null)
             return;
 
-        lock (Sync)
+        lock (session.Sync)
         {
-            if (_report == null)
-                return;
-
-            _report.BridgedViews.Add(new BridgedViewItem
+            session.Report.BridgedViews.Add(new BridgedViewItem
             {
                 ViewName = viewName,
                 ModuleName = moduleName,
@@ -430,15 +448,13 @@ public static class ReportCollector
 
     public static void RecordThemeBridged(string className, string propertyName, string propertyType)
     {
-        if (!SessionActive.Value || _report == null)
+        var session = Current;
+        if (session == null)
             return;
 
-        lock (Sync)
+        lock (session.Sync)
         {
-            if (_report == null)
-                return;
-
-            _report.ThemeBridgedProperties.Add(new ThemeBridgedItem
+            session.Report.ThemeBridgedProperties.Add(new ThemeBridgedItem
             {
                 ClassName = className,
                 PropertyName = propertyName,
@@ -487,18 +503,16 @@ public static class ReportCollector
 
     private static void RecordMemberEmittedInternal(MemberDiagnosticIdentity identity)
     {
-        if (!SessionActive.Value || _report == null)
+        var session = Current;
+        if (session == null)
             return;
 
-        lock (Sync)
+        lock (session.Sync)
         {
-            if (_report == null)
+            if (session.SkippedMemberIdentities.Contains(identity))
                 return;
 
-            if (SkippedMemberIdentities.Contains(identity))
-                return;
-
-            EmittedMemberIdentities.Add(identity);
+            session.EmittedMemberIdentities.Add(identity);
         }
     }
 
@@ -510,18 +524,16 @@ public static class ReportCollector
         string? details,
         SourcePosition? position = null)
     {
-        if (!SessionActive.Value || _report == null)
+        var session = Current;
+        if (session == null)
             return;
 
-        lock (Sync)
+        lock (session.Sync)
         {
-            if (_report == null)
+            if (session.EmittedMemberIdentities.Contains(identity) || !session.SkippedMemberIdentities.Add(identity))
                 return;
 
-            if (EmittedMemberIdentities.Contains(identity) || !SkippedMemberIdentities.Add(identity))
-                return;
-
-            _report.SkippedItems.Add(new SkippedItem
+            session.Report.SkippedItems.Add(new SkippedItem
             {
                 Kind = identity.Kind,
                 Name = displayName,
@@ -548,19 +560,17 @@ public static class ReportCollector
         ArgumentNullException.ThrowIfNull(baseMember);
         ArgumentException.ThrowIfNullOrWhiteSpace(projection);
 
-        if (!SessionActive.Value || _report == null)
+        var session = Current;
+        if (session == null)
             return;
 
         var key = (GetContainingTypeName(baseMember.ParentDecl), baseMember.Name);
-        lock (Sync)
+        lock (session.Sync)
         {
-            if (_report == null)
-                return;
-
-            if (!RecoveredMembers.TryGetValue(key, out var list))
+            if (!session.RecoveredMembers.TryGetValue(key, out var list))
             {
                 list = new List<string>();
-                RecoveredMembers[key] = list;
+                session.RecoveredMembers[key] = list;
             }
             if (!list.Contains(projection, StringComparer.Ordinal))
                 list.Add(projection);
@@ -569,18 +579,16 @@ public static class ReportCollector
 
     private static void RecordMemberSynthesizedInternal(MemberDiagnosticIdentity identity)
     {
-        if (!SessionActive.Value || _report == null)
+        var session = Current;
+        if (session == null)
             return;
 
-        lock (Sync)
+        lock (session.Sync)
         {
-            if (_report == null)
+            if (session.SkippedMemberIdentities.Contains(identity))
                 return;
 
-            if (SkippedMemberIdentities.Contains(identity))
-                return;
-
-            SynthesizedMemberIdentities.Add(identity);
+            session.SynthesizedMemberIdentities.Add(identity);
         }
     }
 
@@ -592,14 +600,13 @@ public static class ReportCollector
     /// </summary>
     public static void RecordUnsupportedCommentDrop(string description)
     {
-        if (!SessionActive.Value || _report == null || string.IsNullOrEmpty(description))
+        var session = Current;
+        if (session == null || string.IsNullOrEmpty(description))
             return;
 
-        lock (Sync)
+        lock (session.Sync)
         {
-            if (_report == null)
-                return;
-            UnsupportedCommentDropEntries.Add(description);
+            session.UnsupportedCommentDropEntries.Add(description);
         }
     }
 
@@ -611,14 +618,13 @@ public static class ReportCollector
     /// </summary>
     public static void RecordObjectDegradation(string swiftType)
     {
-        if (!SessionActive.Value || _report == null || string.IsNullOrEmpty(swiftType))
+        var session = Current;
+        if (session == null || string.IsNullOrEmpty(swiftType))
             return;
 
-        lock (Sync)
+        lock (session.Sync)
         {
-            if (_report == null)
-                return;
-            ObjectDegradationEntries.Add(swiftType);
+            session.ObjectDegradationEntries.Add(swiftType);
         }
     }
 
@@ -634,29 +640,14 @@ public static class ReportCollector
     /// </summary>
     public static void RecordObjCPrefixBridge(string swiftType)
     {
-        if (!SessionActive.Value || _report == null || string.IsNullOrEmpty(swiftType))
+        var session = Current;
+        if (session == null || string.IsNullOrEmpty(swiftType))
             return;
 
-        lock (Sync)
+        lock (session.Sync)
         {
-            if (_report == null)
-                return;
-            ObjCPrefixBridgeEntries.Add(swiftType);
+            session.ObjCPrefixBridgeEntries.Add(swiftType);
         }
-    }
-
-    private static void ResetUnsafe()
-    {
-        _report = null;
-        EmittedTypeKeys.Clear();
-        SkippedTypeKeys.Clear();
-        EmittedMemberIdentities.Clear();
-        SkippedMemberIdentities.Clear();
-        SynthesizedMemberIdentities.Clear();
-        UnsupportedCommentDropEntries.Clear();
-        ObjectDegradationEntries.Clear();
-        ObjCPrefixBridgeEntries.Clear();
-        RecoveredMembers.Clear();
     }
 
     private static (int totalTypes, int totalMembers) CalculateTotals(ModuleDecl moduleDecl)
@@ -703,13 +694,13 @@ public static class ReportCollector
     private static string GetTypeKey(TypeDecl typeDecl) =>
         typeDecl.SwiftTypeName.ModuleQualifiedName;
 
-    private static void ComputePerKindCounts(BindingReport report)
+    private static void ComputePerKindCounts(ReportSession session, BindingReport report)
     {
-        foreach (var identity in EmittedMemberIdentities)
+        foreach (var identity in session.EmittedMemberIdentities)
         {
             report.EmittedMembersByKind[identity.Kind] = report.EmittedMembersByKind.GetValueOrDefault(identity.Kind) + 1;
         }
-        foreach (var identity in SkippedMemberIdentities)
+        foreach (var identity in session.SkippedMemberIdentities)
         {
             report.SkippedMembersByKind[identity.Kind] = report.SkippedMembersByKind.GetValueOrDefault(identity.Kind) + 1;
         }

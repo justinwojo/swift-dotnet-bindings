@@ -3,6 +3,7 @@
 
 #nullable enable
 
+using System.Reflection;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -463,24 +464,39 @@ public class OptionalMarshalStrategyTests
     ///   CLR nint/nuint (8 on arm64) ↔ Swift Int/UInt (8) / CGFloat (8)
     /// </summary>
     [Theory]
-    [InlineData("Swift.Int8", 1)]     // CLR byte/sbyte → 1
-    [InlineData("Swift.UInt8", 1)]
-    [InlineData("Swift.Int16", 2)]    // CLR short/ushort → 2
-    [InlineData("Swift.UInt16", 2)]
-    [InlineData("Swift.Int32", 4)]    // CLR int/uint → 4
-    [InlineData("Swift.UInt32", 4)]
-    [InlineData("Swift.Float", 4)]    // CLR float → 4
-    [InlineData("Swift.Int64", 8)]    // CLR long/ulong → 8
-    [InlineData("Swift.UInt64", 8)]
-    [InlineData("Swift.Double", 8)]   // CLR double → 8
-    [InlineData("Swift.Int", 8)]      // CLR nint → IntPtr.Size (8 on arm64)
-    [InlineData("Swift.UInt", 8)]     // CLR nuint → IntPtr.Size (8 on arm64)
-    public void EmitterAndRuntime_TagOffsets_AreConsistent(string swiftType, int expectedOffset)
+    [InlineData("Swift.Int8", typeof(sbyte))]   // CLR sbyte → 1
+    [InlineData("Swift.UInt8", typeof(byte))]   // CLR byte → 1
+    [InlineData("Swift.Int16", typeof(short))]  // CLR short → 2
+    [InlineData("Swift.UInt16", typeof(ushort))]
+    [InlineData("Swift.Int32", typeof(int))]    // CLR int → 4
+    [InlineData("Swift.UInt32", typeof(uint))]
+    [InlineData("Swift.Float", typeof(float))]  // CLR float → 4
+    [InlineData("Swift.Int64", typeof(long))]   // CLR long → 8
+    [InlineData("Swift.UInt64", typeof(ulong))]
+    [InlineData("Swift.Double", typeof(double))] // CLR double → 8
+    [InlineData("Swift.Int", typeof(nint))]     // CLR nint → IntPtr.Size
+    [InlineData("Swift.UInt", typeof(nuint))]   // CLR nuint → IntPtr.Size
+    public void EmitterAndRuntime_TagOffsets_AreConsistent(string swiftType, Type clrType)
     {
-        // Emitter side: GetSwiftTagByteOffset
+        // Emitter side (compile-time, keyed on the Swift type name).
         var emitterOffset = OptionalMarshalClassifier.GetSwiftTagByteOffset(swiftType);
         Assert.NotNull(emitterOffset);
-        Assert.Equal(expectedOffset, emitterOffset.Value);
+
+        // Runtime side (keyed on typeof(T)): invoke the actual oracle the emitter mirrors, closed over
+        // the corresponding CLR type. Comparing the two live values — rather than pinning both to a
+        // literal — is what makes this a genuine emitter↔runtime consistency check: if either mapping
+        // drifts, the offsets disagree and this fails.
+        // Reflection over a closed generic (IL3050/IL2xxx) is fine here: this is a host unit test, never
+        // AOT-compiled or trimmed.
+#pragma warning disable IL2060, IL2070, IL3050
+        var oracle = typeof(Swift.SwiftOptional<>)
+            .MakeGenericType(clrType)
+            .GetMethod("GetBlittablePrimitiveTagOffset", BindingFlags.NonPublic | BindingFlags.Static);
+#pragma warning restore IL2060, IL2070, IL3050
+        Assert.NotNull(oracle);
+        var runtimeOffset = (int)oracle!.Invoke(null, null)!;
+
+        Assert.Equal(runtimeOffset, emitterOffset.Value);
     }
 
     /// <summary>

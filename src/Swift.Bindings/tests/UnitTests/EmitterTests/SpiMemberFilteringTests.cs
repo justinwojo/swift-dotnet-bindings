@@ -9,7 +9,6 @@ namespace BindingsGeneration.Tests;
 /// Tests for @_spi member filtering — IsSpiProtected defaults, CanEmitProperty rejection,
 /// and InheritsCodable protocol detection.
 /// </summary>
-[Collection("ReportCollector")]
 public class SpiMemberFilteringTests
 {
     #region IsSpiProtected Default Tests

@@ -10,7 +10,6 @@ namespace BindingsGeneration.Tests;
 /// Tests for class inheritance emission: topological sort, declaration syntax,
 /// payload sharing, ISwiftObject handling, and fallback behavior.
 /// </summary>
-[Collection("ReportCollector")]
 public class ClassInheritanceEmissionTests
 {
     #region Topological Sort Tests

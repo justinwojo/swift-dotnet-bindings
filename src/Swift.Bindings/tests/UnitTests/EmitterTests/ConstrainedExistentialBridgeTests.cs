@@ -11,7 +11,6 @@ namespace BindingsGeneration.Tests;
 /// Tests for IsConstrainedExistential, ConstrainedExistentialBridge,
 /// ClassBound flag serialization, and demangling resilience.
 /// </summary>
-[Collection("ReportCollector")]
 public class ConstrainedExistentialBridgeTests
 {
     private readonly ILogger _logger = NullLogger.Instance;

@@ -10,7 +10,6 @@ using Xunit;
 
 namespace BindingsGeneration.Tests;
 
-[Collection("ReportCollector")]
 public class ArraySliceNormalizationEmitterTests
 {
     #region IsArraySlice Tests

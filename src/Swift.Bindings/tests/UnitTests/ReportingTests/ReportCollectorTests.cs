@@ -9,7 +9,6 @@ using Xunit;
 
 namespace BindingsGeneration.Tests;
 
-[Collection("ReportCollector")]
 public class ReportCollectorTests
 {
     [Fact]
