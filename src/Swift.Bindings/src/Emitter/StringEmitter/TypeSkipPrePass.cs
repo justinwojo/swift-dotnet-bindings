@@ -13,23 +13,11 @@ namespace BindingsGeneration;
 /// <c>MusicRelationshipProperty&lt;Source, Target&gt;</c> slip through and produce
 /// CS0234 at C# compile time.
 ///
-/// The four predicates duplicated here MUST match the handler-time decisions exactly
-/// (see <see cref="TryRecordSkip"/>):
-///
-///   - <see cref="GenericTypeEmitter.TryGetUnsupportedConstraint"/>: generic type with
-///     a constraint on an unsupported framework protocol (SwiftUI, Combine).
-///   - <see cref="PInvokeHelperContext.HasIndeterminatePwtShape"/>: generic type whose
-///     ABI declares conformances the emitter cannot lower into PWT arguments.
-///   - <see cref="FrozenStructHandler.HasIndeterminateBufferLayout"/>: frozen
-///     value-with-memory struct (Buffer-projected class) whose blitted Buffer size is
-///     not derivable cross-compile because a stored field is a generic value-type
-///     instantiation.
-///   - <see cref="FrozenStructHandler.HasSubWordOptionalLayoutMismatch"/>: frozen
-///     by-value struct whose sub-word Optional&lt;primitive&gt; fields emit as whole
-///     8-byte IntPtr words, diverging from the Swift packed field offsets.
-///
-/// If a handler introduces a new skip condition it MUST be mirrored here, otherwise
-/// members referencing the newly-skipped type will start leaking through again.
+/// The prediction evaluates the same shared condition list the handlers use
+/// (<see cref="TypeSkipConditions.FirstMatch"/>), so a new handler skip condition is
+/// picked up here automatically instead of needing a hand-kept mirror — the historical
+/// failure mode was a condition added on the handler side only, leaving members
+/// referencing the newly-skipped type to leak through again.
 /// </summary>
 public static class TypeSkipPrePass
 {
@@ -82,66 +70,44 @@ public static class TypeSkipPrePass
 
     private static bool TryRecordSkip(TypeDecl typeDecl, ITypeDatabase typeDatabase)
     {
-        // Condition 1: unsupported generic constraint (SwiftUI, Combine).
-        if (GenericTypeEmitter.TryGetUnsupportedConstraint(typeDecl, out var unsupportedConstraint))
+        var match = TypeSkipConditions.FirstMatch(typeDecl, typeDatabase, out _);
+        if (match is null)
+            return false;
+
+        // Pre-pass wording is intentionally compact (the handler-side comment carries the
+        // long-form rationale); RecordTypeSkipped dedups per type key, so because this
+        // pre-pass runs first ITS reason/details are what the binding report carries.
+        var (reason, details) = match.Kind switch
         {
-            var reason = AppleFrameworkRegistry.GetUnsupportedConstraintSkipReason(unsupportedConstraint.Module);
+            TypeSkipConditionKind.UnsupportedGenericConstraint => (
+                AppleFrameworkRegistry.GetUnsupportedConstraintSkipReason(match.UnsupportedConstraint!.Module),
+                $"Unsupported generic constraint: {match.UnsupportedConstraint.ModuleQualifiedName}"),
 
-            ReportCollector.RecordTypeSkipped(
-                typeDecl,
-                reason,
-                $"Unsupported generic constraint: {unsupportedConstraint.ModuleQualifiedName}");
-            return true;
-        }
+            TypeSkipConditionKind.VariadicGenericParameterPack => (
+                SkipReason.UnsupportedSignature,
+                $"Variadic generic parameter pack '{match.VariadicParameter}' has no C# equivalent."),
 
-        // Condition 2: generic type whose metadata-accessor ABI cannot be lowered.
-        // Only generic types produce a non-null helper context — non-generics are never
-        // skipped by this gate.
-        var ctx = PInvokeHelperContext.CreateIfGeneric(typeDecl, typeDatabase);
-        if (ctx != null && ctx.HasIndeterminatePwtShape)
-        {
-            var details = string.Join(
-                "; ",
-                ctx.UnresolvedPwtConstraints.Select(c =>
-                    $"{c.GenericParamCsName}: {c.ProtocolModuleQualifiedName} ({c.Reason})"));
+            TypeSkipConditionKind.IndeterminateBufferLayout => (
+                SkipReason.IndeterminateStructLayout,
+                "Frozen struct has a stored field whose blitted Buffer size is not derivable cross-compile (generic value-type instantiation)."),
 
-            ReportCollector.RecordTypeSkipped(
-                typeDecl,
+            TypeSkipConditionKind.SubWordOptionalLayoutMismatch => (
+                SkipReason.IndeterminateStructLayout,
+                "Frozen value struct mixes sub-word Optional<primitive> fields whose 8-byte IntPtr-word emission diverges from the Swift packed field offsets; a by-value pass would corrupt the field."),
+
+            TypeSkipConditionKind.IndeterminatePwtShape => (
                 SkipReason.IndeterminatePwtShape,
-                details);
-            return true;
-        }
+                string.Join(
+                    "; ",
+                    match.PInvokeContext!.UnresolvedPwtConstraints.Select(c =>
+                        $"{c.GenericParamCsName}: {c.ProtocolModuleQualifiedName} ({c.Reason})"))),
 
-        // Condition 3: frozen value-with-memory struct (projected as a blitted-Buffer class)
-        // whose Buffer layout cannot be sized cross-compile because a stored field is a generic
-        // value-type instantiation (e.g. ClosedRange<Int>, Result<T,E>). Mirrors
-        // FrozenStructHandler's early skip — without it, members passing or returning the struct
-        // by value would reference a {Type}.Buffer that is never emitted.
-        if (typeDecl is StructDecl structDecl &&
-            FrozenStructHandler.HasIndeterminateBufferLayout(structDecl, typeDatabase))
-        {
-            ReportCollector.RecordTypeSkipped(
-                typeDecl,
-                SkipReason.IndeterminateStructLayout,
-                "Frozen struct has a stored field whose blitted Buffer size is not derivable cross-compile (generic value-type instantiation).");
-            return true;
-        }
+            _ => throw new InvalidOperationException(
+                $"Unhandled type-skip condition '{match.Kind}' for type '{typeDecl.Name}'. " +
+                "A new condition added to TypeSkipConditions.FirstMatch needs a formatting arm here."),
+        };
 
-        // Condition 4: frozen value struct (by-value, not Buffer-projected) whose sub-word
-        // Optional<primitive> fields are emitted as whole 8-byte IntPtr words, placing a stored field
-        // at a different byte offset than the Swift packed layout. Mirrors FrozenStructHandler's
-        // early skip — without it, members passing or returning the struct by value would reference a
-        // type that is never emitted (and a by-value pass would corrupt the field).
-        if (typeDecl is StructDecl byValueStructDecl &&
-            FrozenStructHandler.HasSubWordOptionalLayoutMismatch(byValueStructDecl, typeDatabase))
-        {
-            ReportCollector.RecordTypeSkipped(
-                typeDecl,
-                SkipReason.IndeterminateStructLayout,
-                "Frozen value struct mixes sub-word Optional<primitive> fields whose 8-byte IntPtr-word emission diverges from the Swift packed field offsets; a by-value pass would corrupt the field.");
-            return true;
-        }
-
-        return false;
+        ReportCollector.RecordTypeSkipped(typeDecl, reason, details);
+        return true;
     }
 }

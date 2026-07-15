@@ -84,15 +84,14 @@ internal static class SilentTombstoneRegistrar
             && SwiftUIViewDetector.IsSwiftUIView(typeDecl))
             return false;
 
-        // All handlers: unsupported generic constraint → type is not emitted.
-        if (GenericTypeEmitter.TryGetUnsupportedConstraint(typeDecl, out _))
-            return false;
-
-        // All handlers: generic type whose metadata-accessor ABI cannot be lowered
-        // (TypeMetadataAccessorSkipGate) → type is not emitted. Only generic types
-        // produce a non-null helper context.
-        var pinvokeContext = PInvokeHelperContext.CreateIfGeneric(typeDecl, typeDatabase);
-        if (pinvokeContext is not null && pinvokeContext.HasIndeterminatePwtShape)
+        // All handlers: any type-level skip condition (unsupported generic constraint,
+        // variadic parameter pack, indeterminate struct layout, unlowerable PWT shape)
+        // means the type is never emitted AT ALL — opaque branch included — so it can
+        // never be a silent tombstone. Evaluating the shared condition list keeps this
+        // mirror from drifting when a new skip condition lands: this registrar once
+        // hand-mirrored only two of the conditions, so a fully-skipped type matching a
+        // later-added one was registered here and tripped AssertSilentTombstoneInvariant.
+        if (TypeSkipConditions.FirstMatch(typeDecl, typeDatabase, out _) is not null)
             return false;
 
         // ClassHandler: cross-module extension emits as a static extension class,

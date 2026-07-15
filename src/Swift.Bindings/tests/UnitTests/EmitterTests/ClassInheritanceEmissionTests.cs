@@ -504,6 +504,68 @@ public class ClassInheritanceEmissionTests
     }
 
     [Fact]
+    public void VariadicPackBaseClass_FallsBackToFlatEmission()
+    {
+        // A base class with a variadic generic parameter pack (`each T`) is skipped
+        // entirely by ClassHandler (no C# equivalent), so a subclass must NOT be
+        // emitted as `: GenericPackBase<...>` — that would reference a type that is
+        // never declared and fail the binding compile with CS0246. The derived class
+        // must fall back to flat emission, exactly like the unsupported-constraint
+        // skipped-base case above.
+        var baseClass = CreateClassDecl("GenericPackBase");
+        baseClass.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl(
+                TypeName: "each T",
+                SugaredTypeName: "each T",
+                GenericConformances: new List<GenericParameterConformance>(),
+                AssosiatedTypeConformances: new List<GenericParameterConformance>())
+        };
+
+        var derived = CreateClassDecl("PackChild");
+        derived.ResolvedSuperclass = baseClass;
+        derived.SuperclassNames = new List<string> { "GenericPackBase" };
+
+        Assert.False(ClassHandler.IsEffectivelyDerived(derived));
+
+        var output = EmitSingleClass(derived);
+        var body = GetClassBody(output, "PackChild");
+
+        // Flat emission: own handle typing, no reference to the never-emitted base.
+        Assert.Contains("protected SwiftClassHandle<PackChild> _handle", body);
+        Assert.DoesNotContain("GenericPackBase", output);
+    }
+
+    [Fact]
+    public void PrePassSkippedBaseClass_FallsBackToFlatEmission()
+    {
+        // A base class can be skipped for a reason the decl-only ancestor predicates
+        // cannot see (e.g. an indeterminate PWT shape, which needs the type database).
+        // TypeSkipPrePass records every such type into ReportCollector before handlers
+        // run; the ancestor gate must consult that record so the subclass falls back
+        // to flat emission instead of referencing a never-emitted base (CS0246).
+        var baseClass = CreateClassDecl("PrePassSkippedBase");
+        var derived = CreateClassDecl("PrePassChild");
+        derived.ResolvedSuperclass = baseClass;
+        derived.SuperclassNames = new List<string> { "PrePassSkippedBase" };
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+        baseClass.ModuleDecl = moduleDecl;
+        ReportCollector.Start(moduleDecl);
+        try
+        {
+            ReportCollector.RecordTypeSkipped(
+                baseClass, SkipReason.IndeterminatePwtShape, "test-recorded skip");
+
+            Assert.False(ClassHandler.IsEffectivelyDerived(derived));
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+    }
+
+    [Fact]
     public void UnresolvedSuperclass_NoNewModifier_AvoidsCS0109()
     {
         // Same root cause as the skipped-base case: when ResolvedSuperclass is null

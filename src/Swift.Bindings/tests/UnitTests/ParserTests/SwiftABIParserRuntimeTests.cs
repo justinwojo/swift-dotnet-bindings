@@ -442,6 +442,72 @@ public class SwiftABIParserRuntimeTests
     }
 
     [Fact]
+    public void ParseModule_UsableFromInlineInternalSubscript_SetsIsModuleInternalTrue()
+    {
+        // A @usableFromInline internal subscript with an all-public signature must be
+        // classified IsModuleInternal so the member-level emission gate can suppress it —
+        // otherwise it emits a C# indexer whose Swift wrapper references an unexported symbol.
+        var subscriptNode = BuildIntSubscriptNode(new[] { "Final", "UsableFromInline" });
+        var structNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Struct",
+            name: "SubscriptHost",
+            mangledName: "$s10TestModule13SubscriptHostVN",
+            children: new[] { subscriptNode });
+
+        using var fixture = CreateParserWithNodes(structNode);
+        var result = fixture.Parser.ParseModule();
+
+        var type = Assert.Single(result.ModuleDecl.Types);
+        var subscriptDecl = Assert.Single(type.Subscripts);
+        Assert.True(subscriptDecl.IsModuleInternal, "@usableFromInline internal subscript should be module internal");
+        Assert.False(subscriptDecl.IsSpiProtected);
+    }
+
+    [Fact]
+    public void ParseModule_PublicSubscript_SetsIsModuleInternalFalse()
+    {
+        // A plain public subscript must NOT be classified internal (no over-suppression).
+        var subscriptNode = BuildIntSubscriptNode(declAttributes: []);
+        var structNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Struct",
+            name: "PublicSubscriptHost",
+            mangledName: "$s10TestModule19PublicSubscriptHostVN",
+            children: new[] { subscriptNode });
+
+        using var fixture = CreateParserWithNodes(structNode);
+        var result = fixture.Parser.ParseModule();
+
+        var type = Assert.Single(result.ModuleDecl.Types);
+        var subscriptDecl = Assert.Single(type.Subscripts);
+        Assert.False(subscriptDecl.IsModuleInternal, "Public subscript should not be classified internal");
+        Assert.False(subscriptDecl.IsSpiProtected);
+    }
+
+    /// <summary>
+    /// Builds an ABI subscript node with an all-public <c>(Int) -&gt; Int</c> signature:
+    /// child[0] is the return type, child[1] is the single index parameter.
+    /// </summary>
+    private static Node BuildIntSubscriptNode(string[] declAttributes)
+    {
+        var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Int", mangledName: "$sSi");
+        returnTypeNode.PrintedName = "Swift.Int";
+        var indexTypeNode = CreateNode(kind: "TypeNominal", name: "Int", mangledName: "$sSi");
+        indexTypeNode.PrintedName = "Swift.Int";
+
+        var subscriptNode = CreateNode(
+            kind: "Subscript",
+            declKind: "Subscript",
+            name: "subscript",
+            mangledName: "$s10TestModule13SubscriptHostVyS2icig",
+            children: new[] { returnTypeNode, indexTypeNode },
+            declAttributes: declAttributes);
+        subscriptNode.PrintedName = "subscript(i:)";
+        return subscriptNode;
+    }
+
+    [Fact]
     public void ParseModule_ProtocolComposition_ParsesFromPrintedName()
     {
         // ProtocolComposition nodes in ABI JSON have no children — protocols are in printedName

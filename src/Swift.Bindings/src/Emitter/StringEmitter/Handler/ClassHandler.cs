@@ -65,43 +65,21 @@ namespace BindingsGeneration
             var classDecl = (ClassDecl)classEnv.TypeDecl;
             var moduleDecl = classDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(classDecl.ModuleDecl));
 
-            if (GenericTypeEmitter.TryGetUnsupportedConstraint(classDecl, out var unsupportedConstraint))
+            // Type-level skip conditions — evaluated via the shared list so this decision
+            // can never drift from TypeSkipPrePass / SilentTombstoneRegistrar. Must happen
+            // BEFORE RecordTypeEmitted: ReportCollector suppresses RecordTypeSkipped if the
+            // type key is already in EmittedTypeKeys, so a skipped type would be silently
+            // miscounted as emitted; the cross-module extension branch below also depends
+            // on this ordering since cross-module extensions of skipped types should not be
+            // emitted either. The returned P/Invoke helper context (pre-flattened
+            // conformances for generic types, to avoid CS7042) is reused below when the
+            // type emits.
+            var skipMatch = TypeSkipConditions.FirstMatch(classDecl, env.TypeDatabase, out var ownPInvokeContext);
+            if (skipMatch is not null)
             {
-                var reason = AppleFrameworkRegistry.GetUnsupportedConstraintSkipReason(unsupportedConstraint.Module);
-                ReportCollector.RecordTypeSkipped(classDecl, reason, $"Unsupported generic constraint: {unsupportedConstraint.ModuleQualifiedName}");
-                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, classDecl.Name, reason, $"generic constraint: {unsupportedConstraint.ModuleQualifiedName}");
-                _logger.LogWarning(
-                    "Skipping type '{TypeName}' - generic constraint references unsupported protocol '{Protocol}' from module '{Module}'.",
-                    classDecl.Name,
-                    unsupportedConstraint.Name,
-                    unsupportedConstraint.Module);
+                TypeSkipConditions.EmitHandlerTypeSkip(csWriter, classDecl, skipMatch, _logger);
                 return;
             }
-
-            if (GenericTypeEmitter.TryGetVariadicGenericParameter(classDecl, out var variadicParam))
-            {
-                ReportCollector.RecordTypeSkipped(classDecl, SkipReason.UnsupportedSignature, $"Variadic generic parameter pack '{variadicParam}' has no C# equivalent.");
-                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, classDecl.Name, SkipReason.UnsupportedSignature, $"variadic generic parameter pack '{variadicParam}' (Swift `{variadicParam}` / `repeat {variadicParam}`) has no C# equivalent.");
-                _logger.LogWarning(
-                    "Skipping type '{TypeName}' - variadic generic parameter pack '{Variadic}' has no C# equivalent.",
-                    classDecl.Name,
-                    variadicParam);
-                return;
-            }
-
-            // Create P/Invoke helper context for generic types (to avoid CS7042).
-            // Pre-flatten conformances against the type database so the metadata-accessor
-            // emitter can render the correct PWT plumbing.
-            //
-            // The ShouldSkip check MUST happen BEFORE RecordTypeEmitted: ReportCollector
-            // suppresses RecordTypeSkipped if the type key is already in EmittedTypeKeys
-            // (ReportCollector.cs:106), so a skipped type would be silently miscounted as
-            // emitted. The cross-module extension branch below also depends on this ordering
-            // since cross-module extensions of skipped types should not be emitted either.
-            var ownPInvokeContext = PInvokeHelperContext.CreateIfGeneric(classDecl, env.TypeDatabase);
-            if (ownPInvokeContext != null && TypeMetadataAccessorSkipGate.ShouldSkip(
-                    classDecl, ownPInvokeContext, csWriter, _logger))
-                return;
 
             ReportCollector.RecordTypeEmitted(classDecl);
 
@@ -154,7 +132,7 @@ namespace BindingsGeneration
                 // fall back to flat emission to avoid referencing a non-emitted base type.
                 bool isDerived = IsEffectivelyDerived(classDecl);
                 bool isSameModuleDerived = classDecl.HasResolvedSuperclass
-                    && !GenericTypeEmitter.TryGetUnsupportedConstraint(classDecl.ResolvedSuperclass!, out _);
+                    && !TypeSkipConditions.ClassAncestorWillBeSkipped(classDecl.ResolvedSuperclass!);
                 bool isCrossModuleDerived = isDerived && !isSameModuleDerived;
                 bool isObjCRooted = classDecl.IsObjCRooted;
                 // An ObjC-rooted boundary class directly inherits an ObjC type (e.g., CALayer)
@@ -519,7 +497,7 @@ namespace BindingsGeneration
         internal static bool IsEffectivelyDerived(ClassDecl classDecl)
         {
             if (classDecl.HasResolvedSuperclass &&
-                !GenericTypeEmitter.TryGetUnsupportedConstraint(classDecl.ResolvedSuperclass!, out _))
+                !TypeSkipConditions.ClassAncestorWillBeSkipped(classDecl.ResolvedSuperclass!))
                 return true;
             return classDecl.HasCrossModuleSwiftSuperclass;
         }
@@ -686,7 +664,7 @@ namespace BindingsGeneration
         {
             var current = classDecl;
             while (current.HasResolvedSuperclass
-                   && !GenericTypeEmitter.TryGetUnsupportedConstraint(current.ResolvedSuperclass!, out _))
+                   && !TypeSkipConditions.ClassAncestorWillBeSkipped(current.ResolvedSuperclass!))
                 current = current.ResolvedSuperclass!;
 
             // Cross-module fallthrough: if the current class derives from a Swift parent in
@@ -1246,7 +1224,7 @@ namespace BindingsGeneration
             while (current.HasResolvedSuperclass)
             {
                 var ancestor = current.ResolvedSuperclass!;
-                if (GenericTypeEmitter.TryGetUnsupportedConstraint(ancestor, out _))
+                if (TypeSkipConditions.ClassAncestorWillBeSkipped(ancestor))
                     break; // Stop at non-emittable ancestor
 
                 foreach (var conformance in ancestor.Conformances)
@@ -1269,7 +1247,7 @@ namespace BindingsGeneration
             while (current.HasResolvedSuperclass)
             {
                 var ancestor = current.ResolvedSuperclass!;
-                if (GenericTypeEmitter.TryGetUnsupportedConstraint(ancestor, out _))
+                if (TypeSkipConditions.ClassAncestorWillBeSkipped(ancestor))
                     break;
 
                 var match = ancestor.Conformances.FirstOrDefault(c =>

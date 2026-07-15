@@ -305,13 +305,29 @@ public class InternalTypeReachTests : TestBase
             hostType.GetProperty("FreshCarrier", BindingFlags.Public | BindingFlags.Instance),
             "FreshCarrier must be suppressed (pre-existing CanEmitProperty filter)");
 
-        // Subscript surfaces as a default indexer in C#; check both forms.
-        var indexer = hostType.GetProperty("Item", BindingFlags.Public | BindingFlags.Instance);
-        AssertNull(indexer, "Subscript over InternalCarrier must be suppressed (new walker gate, subscript-index branch)");
-        var subscriptByName = hostType.GetMethod("get_Item", BindingFlags.Public | BindingFlags.Instance);
-        AssertNull(subscriptByName, "Subscript getter over InternalCarrier must be suppressed (new walker gate, subscript-index branch)");
+        // Subscripts surface as default indexers in C#. The fixture declares three:
+        // the internal carrier-indexed one (suppressed by the walker gate,
+        // subscript-index branch), the internal all-public-signature Int one
+        // (suppressed by visibility classification), and a PUBLIC String-keyed
+        // sibling that MUST emit (guards against over-suppression). So exactly
+        // one indexer may exist, and it must be the String-keyed public one.
+        var indexers = hostType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(p => p.GetIndexParameters().Length > 0)
+            .ToArray();
+        AssertEqual(1, indexers.Length,
+            "Exactly one indexer must survive: internal subscripts suppressed, public String subscript emitted");
+        var indexParams = indexers[0].GetIndexParameters();
+        AssertEqual(1, indexParams.Length, "Public subscript takes a single index parameter");
+        AssertEqual(typeof(string), indexParams[0].ParameterType,
+            "Surviving indexer must be the public String-keyed subscript, not an internal one");
 
-        TestLogger.Info("PublicHostWithInternalMembers internal members absent.");
+        // Behavioral check on the public subscript (Int32(k.count) &* 3).
+        using (var host = new PublicHostWithInternalMembers())
+        {
+            AssertEqual(9, host["abc"], "Public String subscript must round-trip (over-suppression guard)");
+        }
+
+        TestLogger.Info("PublicHostWithInternalMembers internal members absent; public subscript emits and round-trips.");
     }
 
     #endregion

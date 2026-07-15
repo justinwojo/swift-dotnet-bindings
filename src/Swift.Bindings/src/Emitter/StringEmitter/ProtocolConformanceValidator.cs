@@ -863,7 +863,7 @@ public class ProtocolConformanceValidator
         while (current.HasResolvedSuperclass)
         {
             var ancestor = current.ResolvedSuperclass!;
-            if (GenericTypeEmitter.TryGetUnsupportedConstraint(ancestor, out _))
+            if (TypeSkipConditions.ClassAncestorWillBeSkipped(ancestor))
                 yield break; // Stop — can't see past a non-emittable ancestor
             yield return ancestor;
             current = ancestor;

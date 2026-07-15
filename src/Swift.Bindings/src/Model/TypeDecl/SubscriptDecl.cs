@@ -36,6 +36,21 @@ public record SubscriptDecl : BaseDecl
     public required string MangledName { get; set; }
 
     /// <summary>
+    /// Whether this subscript is <c>@usableFromInline internal</c> (or otherwise not part
+    /// of the module's public surface). Classified from the ABI JSON the same way methods
+    /// and properties are: such a subscript would emit a C# indexer whose Swift-side
+    /// <c>@_cdecl</c> wrapper references a symbol the module doesn't export, so it must be
+    /// suppressed. See <c>MethodDecl.IsModuleInternal</c> / <c>PropertyDecl.IsModuleInternal</c>.
+    /// </summary>
+    public bool IsModuleInternal { get; set; } = false;
+
+    /// <summary>
+    /// Whether this subscript is <c>@_spi</c>-protected (visible only to SPI consumers).
+    /// Suppressed from bindings, mirroring the method/property paths.
+    /// </summary>
+    public bool IsSpiProtected { get; set; } = false;
+
+    /// <summary>
     /// Whether this subscript has a getter.
     /// </summary>
     public bool HasGetter => Accessors.Any(a => a is GetAccessorDecl);

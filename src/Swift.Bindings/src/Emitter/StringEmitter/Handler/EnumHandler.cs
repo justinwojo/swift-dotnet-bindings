@@ -78,42 +78,19 @@ namespace BindingsGeneration
             if (enumDecl.IsModuleInternal)
                 swiftWriter = new SwiftWriter(new System.IO.StringWriter());
 
-            if (GenericTypeEmitter.TryGetUnsupportedConstraint(enumDecl, out var unsupportedConstraint))
+            // Type-level skip conditions — evaluated via the shared list so this decision
+            // can never drift from TypeSkipPrePass / SilentTombstoneRegistrar. Must happen
+            // BEFORE RecordTypeEmitted: ReportCollector suppresses RecordTypeSkipped if the
+            // type key is already in EmittedTypeKeys, so a skipped generic enum would
+            // otherwise be silently miscounted as emitted. The returned P/Invoke helper
+            // context (pre-flattened conformances for generic enums, to avoid CS7042) is
+            // reused below when the type emits.
+            var skipMatch = TypeSkipConditions.FirstMatch(enumDecl, env.TypeDatabase, out var ownPInvokeContext);
+            if (skipMatch is not null)
             {
-                var reason = AppleFrameworkRegistry.GetUnsupportedConstraintSkipReason(unsupportedConstraint.Module);
-                ReportCollector.RecordTypeSkipped(enumDecl, reason, $"Unsupported generic constraint: {unsupportedConstraint.ModuleQualifiedName}");
-                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, enumDecl.Name, reason, $"generic constraint: {unsupportedConstraint.ModuleQualifiedName}");
-                _logger.LogWarning(
-                    "Skipping type '{TypeName}' - generic constraint references unsupported protocol '{Protocol}' from module '{Module}'.",
-                    enumDecl.Name,
-                    unsupportedConstraint.Name,
-                    unsupportedConstraint.Module);
+                TypeSkipConditions.EmitHandlerTypeSkip(csWriter, enumDecl, skipMatch, _logger);
                 return;
             }
-
-            if (GenericTypeEmitter.TryGetVariadicGenericParameter(enumDecl, out var variadicParam))
-            {
-                ReportCollector.RecordTypeSkipped(enumDecl, SkipReason.UnsupportedSignature, $"Variadic generic parameter pack '{variadicParam}' has no C# equivalent.");
-                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, enumDecl.Name, SkipReason.UnsupportedSignature, $"variadic generic parameter pack '{variadicParam}' (Swift `{variadicParam}` / `repeat {variadicParam}`) has no C# equivalent.");
-                _logger.LogWarning(
-                    "Skipping type '{TypeName}' - variadic generic parameter pack '{Variadic}' has no C# equivalent.",
-                    enumDecl.Name,
-                    variadicParam);
-                return;
-            }
-
-            // Create P/Invoke helper context for generic enums (to avoid CS7042).
-            // Pre-flatten conformances against the type database so the metadata-accessor
-            // emitter can render the correct PWT plumbing.
-            //
-            // The ShouldSkip check MUST happen BEFORE RecordTypeEmitted: ReportCollector
-            // suppresses RecordTypeSkipped if the type key is already in EmittedTypeKeys
-            // (ReportCollector.cs:106), so a skipped generic enum would otherwise be
-            // silently miscounted as emitted.
-            var ownPInvokeContext = PInvokeHelperContext.CreateIfGeneric(enumDecl, env.TypeDatabase);
-            if (ownPInvokeContext != null && TypeMetadataAccessorSkipGate.ShouldSkip(
-                    enumDecl, ownPInvokeContext, csWriter, _logger))
-                return;
 
             ReportCollector.RecordTypeEmitted(enumDecl);
 

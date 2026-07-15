@@ -684,6 +684,16 @@ public class MemberValidationPipeline
     /// </summary>
     public ValidationResult ValidateSubscriptEmission(SubscriptDecl subscriptDecl, ValidationContext? context)
     {
+        // Member-level visibility gate (mirrors the method/property paths). A
+        // @usableFromInline internal or @_spi subscript with an all-public signature would
+        // otherwise emit a C# indexer whose Swift-side @_cdecl wrapper references a symbol
+        // the module doesn't export, which fails wrapper compilation.
+        if (subscriptDecl.IsSpiProtected)
+            return ValidationResult.Skip(SkipReason.ModuleInternal, "@_spi subscript suppressed from bindings.");
+
+        if (subscriptDecl.IsModuleInternal)
+            return ValidationResult.Skip(SkipReason.ModuleInternal, "Internal subscript suppressed from bindings.");
+
         if (TryCheckInternalTypeReach(subscriptDecl, out var subscriptSkip))
             return subscriptSkip!;
 

@@ -243,6 +243,81 @@ public class SilentTombstoneRegistrarTests
     }
 
     [Fact]
+    public void Precompute_VariadicGenericStructWithAllMembersSkipped_NotRegistered()
+    {
+        // All four type handlers skip a type whose own generic parameters include a
+        // Swift parameter pack (`each T`) — there is no C# equivalent, so the type is
+        // never emitted at all, opaque branch included. Registering it here would
+        // leave a tombstone with no matching [OpaqueSwiftType] emission and trip
+        // AssertSilentTombstoneInvariant at generation time.
+        var moduleDecl = BuildModule();
+        var structDecl = BuildStruct(moduleDecl, "Packy", withSkippedMember: true);
+        structDecl.GenericParameters.Add(new GenericArgumentDecl(
+            TypeName: "each T",
+            SugaredTypeName: "each T",
+            GenericConformances: new List<GenericParameterConformance>(),
+            AssosiatedTypeConformances: new List<GenericParameterConformance>()));
+        moduleDecl.Types.Add(structDecl);
+
+        var ctx = new ModuleEmissionContext();
+        SilentTombstoneRegistrar.Precompute(moduleDecl, new StubTypeDatabase(), ctx);
+
+        Assert.False(ctx.IsSilentTombstone("TestModule.Packy"));
+    }
+
+    [Fact]
+    public void Precompute_BufferIndeterminateFrozenStructWithAllMembersSkipped_NotRegistered()
+    {
+        // A frozen Buffer-projected struct with a stored field whose inline size is not
+        // derivable cross-compile (a generic value-type instantiation) is skipped
+        // entirely by FrozenStructHandler — emitting a guessed Buffer would corrupt the
+        // heap. Like every total-type skip, it must never be registered as a silent
+        // tombstone: no handler will ever emit it via the opaque branch, so a
+        // registration here trips AssertSilentTombstoneInvariant.
+        var moduleDecl = BuildModule();
+        var structDecl = BuildStruct(moduleDecl, "Indet", withSkippedMember: true);
+        structDecl.IsFrozen = true;
+        structDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "range",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.ClosedRange", new NamedTypeSpec("Swift.Int")),
+            IsStatic = false,
+            HasStorage = true,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = structDecl,
+            ModuleDecl = moduleDecl,
+        });
+        moduleDecl.Types.Add(structDecl);
+
+        var db = new TypeDatabase();
+        db.AddOutOfModuleTypes(new[]
+        {
+            (structDecl.SwiftTypeName, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Indet"),
+                SwiftTypeName = structDecl.SwiftTypeName,
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct,
+            }),
+            (SwiftTypeName.FromModuleQualifiedName("Swift.ClosedRange"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Runtime", "ClosedRange"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.ClosedRange"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = null, // per-instantiation size unknown cross-compile → indeterminate
+            }),
+        });
+
+        var ctx = new ModuleEmissionContext();
+        SilentTombstoneRegistrar.Precompute(moduleDecl, db, ctx);
+
+        Assert.False(ctx.IsSilentTombstone("TestModule.Indet"));
+    }
+
+    [Fact]
     public void Precompute_StructWithAllMembersSkipped_RegisteredWithModuleQualifiedName()
     {
         // Positive baseline: a struct with no emittable members and at least one

@@ -68,6 +68,41 @@ public class TypeSkipPrePassTests
     }
 
     [Fact]
+    public void Run_VariadicGenericParameterPack_MarksSelfAndNestedAsSkipped()
+    {
+        // Every type handler skips a type whose own generic parameters include a Swift
+        // parameter pack (`each T`) — there is no C# equivalent. The pre-pass must
+        // predict that skip like any other type-level skip condition; otherwise
+        // pruning of members referencing the pack type depends on declaration order
+        // (only members validated AFTER the pack type's handler ran would see it in
+        // the skipped set), leaking CS0234 references into the generated source.
+        var moduleDecl = BuildModuleWithPlainParentAndNested();
+        var parentStruct = (StructDecl)moduleDecl.Types[0];
+        parentStruct.GenericParameters.Add(new GenericArgumentDecl(
+            TypeName: "each T",
+            SugaredTypeName: "each T",
+            GenericConformances: new List<GenericParameterConformance>(),
+            AssosiatedTypeConformances: new List<GenericParameterConformance>()));
+
+        ReportCollector.Start(moduleDecl);
+        try
+        {
+            TypeSkipPrePass.Run(moduleDecl, new EmptyTypeDatabase());
+
+            Assert.True(
+                ReportCollector.IsTypeSkipped("TestModule.Parent"),
+                "Variadic-pack generic type must be predicted as skipped");
+            Assert.True(
+                ReportCollector.IsTypeSkipped("TestModule.Parent.Nested"),
+                "Nested type must be marked skipped because its ancestor is skipped");
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+    }
+
+    [Fact]
     public void Run_NoUnsupportedConstraints_LeavesDescendantsUnmarked()
     {
         // Negative case: when the parent passes all skip predicates, no propagation

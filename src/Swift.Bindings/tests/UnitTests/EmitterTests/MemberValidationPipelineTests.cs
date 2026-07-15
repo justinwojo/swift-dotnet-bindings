@@ -861,6 +861,37 @@ public class MemberValidationPipelineTests
         Assert.True(result.ShouldEmit);
     }
 
+    [Fact]
+    public void ValidateSubscriptEmission_ModuleInternal_ReturnsSkip()
+    {
+        // A @usableFromInline internal subscript with an all-public signature must be
+        // suppressed at the member level, exactly like an internal method/property —
+        // otherwise its @_cdecl wrapper references a symbol the module never exports.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var subscript = CreateSubscript(new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("Swift.Int"));
+        subscript.IsModuleInternal = true;
+
+        var result = pipeline.ValidateSubscriptEmission(subscript, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.ModuleInternal, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateSubscriptEmission_SpiProtected_ReturnsSkip()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var subscript = CreateSubscript(new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("Swift.Int"));
+        subscript.IsSpiProtected = true;
+
+        var result = pipeline.ValidateSubscriptEmission(subscript, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.ModuleInternal, result.Reason);
+    }
+
     #endregion
 
     #region Gate Ordering Tests

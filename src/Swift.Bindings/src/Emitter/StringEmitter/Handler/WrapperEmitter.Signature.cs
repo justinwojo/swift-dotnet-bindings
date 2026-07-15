@@ -510,8 +510,8 @@ namespace BindingsGeneration
             var paramTypes = GetParameterTypeStrings(method);
             while (ancestor != null)
             {
-                if (GenericTypeEmitter.TryGetUnsupportedConstraint(ancestor, out _))
-                    return false; // ancestor has unsupported constraints, won't be emitted as base
+                if (TypeSkipConditions.ClassAncestorWillBeSkipped(ancestor))
+                    return false; // ancestor won't be emitted, so it can't serve as a C# base
                 if (ancestor.Methods.Any(m =>
                     m.WasEmitted
                     && m.Name == method.Name
@@ -716,7 +716,7 @@ namespace BindingsGeneration
             var ancestor = classDecl.ResolvedSuperclass;
             while (ancestor != null)
             {
-                if (GenericTypeEmitter.TryGetUnsupportedConstraint(ancestor, out _))
+                if (TypeSkipConditions.ClassAncestorWillBeSkipped(ancestor))
                     return false;
                 if (ancestor.Properties.Any(p => p.WasEmitted && p.Name == propertyName))
                     return true;

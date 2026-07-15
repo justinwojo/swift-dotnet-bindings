@@ -336,6 +336,25 @@ public struct PublicHostWithInternalMembers {
     internal subscript(carrier c: InternalCarrier) -> Int32 {
         return c.value
     }
+
+    /// Internal subscript with an ALL-PUBLIC signature (Int -> Int). Nothing in
+    /// the signature reaches an internal type, so the type-reach gate does NOT
+    /// catch it — the ONLY reason to suppress it is its own `@usableFromInline
+    /// internal` visibility. Before subscripts were visibility-classified this
+    /// emitted a C# indexer whose Swift `@_cdecl` wrapper referenced a symbol
+    /// the module never exports, breaking wrapper compilation. Must be suppressed.
+    @usableFromInline
+    internal subscript(internalIndex i: Int) -> Int {
+        return i &* 2
+    }
+
+    /// Public sibling subscript with an all-public signature and a DISTINCT
+    /// parameter type (String, so it cannot dedup-collide with the internal
+    /// Int-indexed subscript above and mask the visibility gate). Guards against
+    /// the gate over-suppressing a genuinely public subscript. Must emit.
+    public subscript(publicKey k: String) -> Int32 {
+        return Int32(k.count) &* 3
+    }
 }
 
 // MARK: Negative — public surface that does NOT reach the internal types.

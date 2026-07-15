@@ -72,80 +72,19 @@ namespace BindingsGeneration
             var parentDecl = structDecl.ParentDecl ?? throw new ArgumentNullException(nameof(structDecl.ParentDecl));
             var moduleDecl = structDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(structDecl.ModuleDecl));
 
-            if (GenericTypeEmitter.TryGetUnsupportedConstraint(structDecl, out var unsupportedConstraint))
+            // Type-level skip conditions — evaluated via the shared list so this decision
+            // can never drift from TypeSkipPrePass / SilentTombstoneRegistrar. Must happen
+            // BEFORE RecordTypeEmitted: ReportCollector suppresses RecordTypeSkipped if the
+            // type key is already in EmittedTypeKeys, so a skipped frozen struct would
+            // otherwise be silently miscounted as emitted. The returned P/Invoke helper
+            // context (pre-flattened conformances for generic types, to avoid CS7042) is
+            // reused below when the type emits.
+            var skipMatch = TypeSkipConditions.FirstMatch(structDecl, env.TypeDatabase, out var ownPInvokeContext);
+            if (skipMatch is not null)
             {
-                var reason = AppleFrameworkRegistry.GetUnsupportedConstraintSkipReason(unsupportedConstraint.Module);
-                ReportCollector.RecordTypeSkipped(structDecl, reason, $"Unsupported generic constraint: {unsupportedConstraint.ModuleQualifiedName}");
-                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, structDecl.Name, reason, $"generic constraint: {unsupportedConstraint.ModuleQualifiedName}");
-                _logger.LogWarning(
-                    "Skipping type '{TypeName}' - generic constraint references unsupported protocol '{Protocol}' from module '{Module}'.",
-                    structDecl.Name,
-                    unsupportedConstraint.Name,
-                    unsupportedConstraint.Module);
+                TypeSkipConditions.EmitHandlerTypeSkip(csWriter, structDecl, skipMatch, _logger);
                 return;
             }
-
-            if (GenericTypeEmitter.TryGetVariadicGenericParameter(structDecl, out var variadicParam))
-            {
-                ReportCollector.RecordTypeSkipped(structDecl, SkipReason.UnsupportedSignature, $"Variadic generic parameter pack '{variadicParam}' has no C# equivalent.");
-                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, structDecl.Name, SkipReason.UnsupportedSignature, $"variadic generic parameter pack '{variadicParam}' (Swift `{variadicParam}` / `repeat {variadicParam}`) has no C# equivalent.");
-                _logger.LogWarning(
-                    "Skipping type '{TypeName}' - variadic generic parameter pack '{Variadic}' has no C# equivalent.",
-                    structDecl.Name,
-                    variadicParam);
-                return;
-            }
-
-            // Frozen value-with-memory struct (ClassWithBufferStruct) whose blitted Buffer layout
-            // cannot be sized cross-compile because a stored field is a generic value-type
-            // instantiation (e.g. ClosedRange<Int>, Result<T,E>) — its size depends on the type
-            // arguments, which SwiftTypeName strips, so there is no persisted InlineSize and the
-            // iOS/device slice exposes no live metadata. Emitting a guessed Buffer would mis-size
-            // the field and corrupt the heap, so fail closed and skip. Mirrored in TypeSkipPrePass
-            // so members passing/returning the struct by value are pruned in the same pass.
-            if (HasIndeterminateBufferLayout(structDecl, env.TypeDatabase))
-            {
-                const string detail = "stored property has a generic value-type layout whose per-instantiation size is not derivable cross-compile (e.g. ClosedRange<Bound>, Result<Success,Failure>); a blitted Buffer would mis-size the field.";
-                ReportCollector.RecordTypeSkipped(structDecl, SkipReason.IndeterminateStructLayout, detail);
-                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, structDecl.Name, SkipReason.IndeterminateStructLayout, detail);
-                _logger.LogWarning(
-                    "Skipping frozen struct '{TypeName}' - indeterminate Buffer layout (unsizeable generic value-type stored field).",
-                    structDecl.Name);
-                return;
-            }
-
-            // Frozen value struct (by-value, NOT Buffer-projected) whose emitted IntPtr-word optional
-            // fields place a stored field at a different byte offset than the true Swift packed layout.
-            // Optional<primitive> backing is rounded up to whole 8-byte words, but Swift packs sub-word
-            // optionals tighter (Bool?=1B align1, Int32?=5B align4, …); when such an optional precedes
-            // another field the next field's Swift offset (packed) and C# offset (8-aligned word)
-            // diverge, so a by-value cdecl pass reads that field's bytes from the wrong slot and
-            // corrupts the value. Fail closed and skip rather than emit a corrupting binding (a precise
-            // sub-word Buffer emitter is future work). Mirrored in TypeSkipPrePass so members passing or
-            // returning the struct by value are pruned in the same pass.
-            if (HasSubWordOptionalLayoutMismatch(structDecl, env.TypeDatabase))
-            {
-                const string detail = "frozen value struct mixes sub-word Optional<primitive> fields whose 8-byte IntPtr-word emission places a stored field at a different byte offset than the Swift packed layout; a by-value pass would read the field from the wrong slot and corrupt it.";
-                ReportCollector.RecordTypeSkipped(structDecl, SkipReason.IndeterminateStructLayout, detail);
-                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, structDecl.Name, SkipReason.IndeterminateStructLayout, detail);
-                _logger.LogWarning(
-                    "Skipping frozen struct '{TypeName}' - sub-word Optional field packing makes the by-value C# layout diverge from Swift.",
-                    structDecl.Name);
-                return;
-            }
-
-            // Create P/Invoke helper context for generic types (to avoid CS7042).
-            // Pre-flatten conformances against the type database so the metadata-accessor
-            // emitter can render the correct PWT plumbing.
-            //
-            // The ShouldSkip check MUST happen BEFORE RecordTypeEmitted: ReportCollector
-            // suppresses RecordTypeSkipped if the type key is already in EmittedTypeKeys
-            // (ReportCollector.cs:106), so a skipped frozen struct would otherwise be
-            // silently miscounted as emitted.
-            var ownPInvokeContext = PInvokeHelperContext.CreateIfGeneric(structDecl, env.TypeDatabase);
-            if (ownPInvokeContext != null && TypeMetadataAccessorSkipGate.ShouldSkip(
-                    structDecl, ownPInvokeContext, csWriter, _logger))
-                return;
 
             ReportCollector.RecordTypeEmitted(structDecl);
 
@@ -309,8 +248,8 @@ namespace BindingsGeneration
                             break;
                         case FrozenFieldLayoutKind.Indeterminate:
                             // Unreachable in normal flow: a struct carrying an indeterminate-size stored
-                            // field is skipped before emission (HasIndeterminateBufferLayout, mirrored in
-                            // TypeSkipPrePass). Guess-sizing the Buffer here would silently corrupt the
+                            // field is skipped before emission (HasIndeterminateBufferLayout, a shared
+                            // TypeSkipConditions entry). Guess-sizing the Buffer here would silently corrupt the
                             // heap, so assert the invariant loudly rather than emit a wrong-sized field.
                             throw new InvalidOperationException(
                                 $"Frozen struct '{structDecl.Name}' stored field '{propertyDecl.Name}' has an " +
@@ -580,8 +519,8 @@ namespace BindingsGeneration
         /// (<see cref="MarshallingHelpers.IsFrozenStructProjectedAsClass"/>) and at least one of its
         /// stored fields has an inline size that cannot be derived cross-compile. Such a struct must
         /// be skipped — emitting a guessed Buffer layout mis-sizes the blit and corrupts the heap.
-        /// Mirrored as a skip condition in <see cref="TypeSkipPrePass"/> so members that pass or
-        /// return the struct by value are pruned in the same pass.
+        /// A <see cref="TypeSkipConditions"/> entry, so the handler skip, the member-pruning
+        /// pre-pass, and the tombstone registrar all see the same decision.
         /// </summary>
         internal static bool HasIndeterminateBufferLayout(StructDecl structDecl, ITypeDatabase typeDatabase)
         {
@@ -631,7 +570,7 @@ namespace BindingsGeneration
         /// such as <c>Int64?</c> that pushes a following field is caught; only reference-width optionals
         /// (<c>String?</c>/<c>class?</c> — exactly one 8-byte word, no tag byte, <c>csSize == swiftSize</c>)
         /// and typed-only structs are unaffected. Bails (no skip) on any field whose layout is not precisely
-        /// derivable, preserving existing behavior. Mirrored in <see cref="TypeSkipPrePass"/>. (Method name
+        /// derivable, preserving existing behavior. A <see cref="TypeSkipConditions"/> entry. (Method name
         /// retains the historical "SubWord" label; it now covers every over-padded optional.)</para>
         /// </summary>
         internal static bool HasSubWordOptionalLayoutMismatch(StructDecl structDecl, ITypeDatabase typeDatabase)

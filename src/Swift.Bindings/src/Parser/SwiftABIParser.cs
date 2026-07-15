@@ -3246,8 +3246,19 @@ namespace BindingsGeneration
                 IsStatic = node.@static ?? false,
                 Accessors = HandleSubscriptAccessors(node.Accessors, indexParameters, returnTypeSpec, parentDecl, moduleDecl),
                 ParentDecl = parentDecl,
-                ModuleDecl = moduleDecl
+                ModuleDecl = moduleDecl,
+                IsModuleInternal = IsNodeModuleInternal(node),
+                IsSpiProtected = IsNodeSpiProtected(node)
             };
+            // Classify visibility from the ABI JSON attributes, exactly as methods and
+            // properties do. An ABI-visible internal subscript is always @usableFromInline
+            // or @inlinable (a plain `internal subscript` never reaches the ABI), so
+            // IsNodeModuleInternal captures the full suppressible surface here. The
+            // swiftinterface negative-space gate that CreatePropertyDecl also runs is
+            // deliberately NOT mirrored: the public swiftinterface keys subscripts by
+            // argument label (`subscript(i:)`) while the ABI printedName is frequently
+            // label-erased (`subscript(_:)`), so a name-mismatch would over-suppress a
+            // genuinely public subscript.
             if (parentDecl is TypeDecl subscriptParentType)
             {
                 ApplyMemberAvailability(decl, subscriptParentType, node.PrintedName, node);
