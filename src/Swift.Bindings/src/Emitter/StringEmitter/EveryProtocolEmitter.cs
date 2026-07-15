@@ -784,7 +784,7 @@ public class EveryProtocolEmitter
                     EmitSubscriptVtableFields(writer, slot.AsSubscript!, protocolDecl, slot.SlotIndex, emittedFields);
                     break;
                 case VtableMemberKind.Method:
-                    EmitMethodVtableField(writer, slot.AsMethod!, protocolDecl, slot.SlotIndex, emittedFields, closureHandler);
+                    EmitMethodVtableField(writer, slot.AsMethod!, protocolDecl, slot.SlotIndex, slot.Width, emittedFields, closureHandler);
                     break;
             }
         }
@@ -1315,12 +1315,15 @@ public class EveryProtocolEmitter
 
         // A sibling only contributes a fan-out BRANCH if its protocol actually emits a per-protocol
         // vtable FUNC field for this method — a branch reads `branchVtable.func_{name}_{idx}`, which
-        // exists only when the field was emitted. Gate on the SAME MethodEmitsVtableField predicate
-        // that EmitProtocolVtableStruct uses for field emission, so a branch never references a
-        // non-existent member (Swift compile failure) and the two walks cannot drift.
+        // exists only when the field was emitted. The vtable layout is the single source of truth for
+        // slot existence, so ask it directly (ProtocolVtableMembers.IncludesMethod == the layout's
+        // ClassifyMethod == Included) rather than re-deriving membership here; a branch can then never
+        // reference a member the layout omitted (e.g. a nested @objc-protocol existential requirement,
+        // which the layout drops fail-closed but a divergent local predicate would keep → Swift
+        // wrapper compile failure).
         var closureHandler = new ClosureHandler(_typeDatabase);
         bool EntryEmitsVtableField(ProtocolDecl proto, MethodDecl method)
-            => MethodEmitsVtableField(method, IsMixedGenericProtocol(proto), closureHandler);
+            => ProtocolVtableMembers.IncludesMethod(method, proto, closureHandler);
 
         var plans = new Dictionary<(string, string), MethodEmissionPlan>();
         foreach (var (groupKey, entries) in groups.Select(kv => (kv.Key, kv.Value)))
@@ -1730,6 +1733,9 @@ public class EveryProtocolEmitter
         // (Bug #21). methodIndices stays the local "first-seen" set that drives isNewMethod (one body
         // per raw-distinct requirement); only the index VALUE is now model-sourced.
         var methodSlotIndices = new VtableLayoutBuilder(_typeDatabase).Build(protocolDecl).MethodSlotIndexByKey;
+        // Slots the layout KEEPS a Swift field for but the C# fillability walk leaves NULL — the
+        // collapsed existential overloads. Their witness must trap, not force-unwrap the nil field.
+        var collapsedUnfilledSlotKeys = ComputeCollapsedUnfilledMethodSlotKeys(protocolDecl, closureHandler);
         var methodIndices = new Dictionary<string, int>();
         // Tracks emitted EveryProtocol witness-body signatures (witnessGroupKey — async-included only
         // for a real-async witness) so each rendered Swift `func` body appears at most once per
@@ -1896,6 +1902,18 @@ public class EveryProtocolEmitter
                 else if (MethodHasInOutObjCBridgeableParam(method))
                 {
                     EmitInOutObjCBridgeableMethodStub(writer, method);
+                }
+                // Collapsed existential overload: this method KEEPS its own vtable slot (raw-distinct
+                // GetMethodKey) but the C# fillability walk (proxy receiver + static-init) leaves that
+                // slot NULL, because two raw-distinct existential overloads collapse onto ONE C#
+                // interface method — the first (declaration-order) overload fills the slot, this later
+                // one has no C# member to reverse-dispatch into. The real dispatch body below would
+                // force-unwrap the nil slot and trap at the point of dispatch; emit a branded fatalError
+                // stub instead so the Swift requirement is satisfied and the failure mode is explicit.
+                // ComputeCollapsedUnfilledMethodSlotKeys mirrors the receiver loop's fillability filters.
+                else if (collapsedUnfilledSlotKeys.Contains(methodKey))
+                {
+                    EmitCollapsedOverloadMethodStub(writer, method);
                 }
                 // Real-async reverse-dispatch witness (S13 Pillar C): emit a genuine
                 // `func m(...) async throws -> T` that suspends on withCheckedThrowingContinuation and
@@ -2826,7 +2844,7 @@ public class EveryProtocolEmitter
         }
     }
 
-    private void EmitMethodVtableField(SwiftWriter writer, MethodDecl method, ProtocolDecl protocolDecl, int index, HashSet<string> emittedFields, ClosureHandler closureHandler)
+    private void EmitMethodVtableField(SwiftWriter writer, MethodDecl method, ProtocolDecl protocolDecl, int index, int expectedWidth, HashSet<string> emittedFields, ClosureHandler closureHandler)
     {
         var fieldName = GetMethodVtableFieldName(method, index);
         if (!emittedFields.Add(fieldName))
@@ -2839,9 +2857,17 @@ public class EveryProtocolEmitter
         // uses `UnsafeRawPointer?` so nil round-trips as `0` to the C# trampoline.
         // Async closure params share the 2-pointer-slot layout — identical Swift-side
         // extraction, async-specific bridging on the C# side.
+        //
+        // Param skip + per-param slot count MUST mirror VtableLayout.GetWidth: debug and empty-tuple
+        // params contribute no ABI slot, and each remaining param widens by CountVtableSlots (1, or 2
+        // for a dispatchable/async closure). The trailing parity check pins this field's slot count to
+        // the layout oracle's width, so a hand-count drift here can never silently shrink the Swift
+        // struct below its C# mirror (the slot-corruption that only SIGSEGVs on the NativeAOT device).
         var slotTypes = new List<string> { "OpaquePointer?", "UnsafeRawPointer" };
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(method.CSSignature[i]) || method.CSSignature[i].SwiftTypeSpec.IsEmptyTuple)
+                continue;
             var p = method.CSSignature[i].SwiftTypeSpec;
             if (TryGetDispatchableClosureParam(p, closureHandler, out _, out var isOpt))
             {
@@ -2876,6 +2902,16 @@ public class EveryProtocolEmitter
             slotTypes.Add("UnsafeRawPointer"); // success FP
             slotTypes.Add("UnsafeRawPointer"); // error FP
         }
+
+        // Fail closed on any drift from the layout oracle: the two fixed leading slots (vtable handle +
+        // self) are not part of the method's ABI width, so everything after them must total exactly
+        // expectedWidth (VtableLayout.GetWidth). A mismatch would shift every later field in the C#
+        // mirror and corrupt reverse dispatch, so refuse to emit rather than ship a divergent struct.
+        int producedWidth = slotTypes.Count - 2;
+        if (producedWidth != expectedWidth)
+            throw new InvalidOperationException(
+                $"EveryProtocol vtable field '{fieldName}' produced {producedWidth} ABI slots but the layout oracle expects {expectedWidth}.");
+
         var paramList = string.Join(", ", slotTypes);
 
         var returnTypeStr = (hasReturn && !realAsync) ? "UnsafeRawPointer" : "Void";
@@ -4013,6 +4049,136 @@ public class EveryProtocolEmitter
         writer.WriteLine();
     }
 
+    // ---- Collapsed existential overload (fillability-null slot) -----------------------------------
+    //
+    // Two raw-DISTINCT existential overloads of the same method name can collapse onto a SINGLE C#
+    // interface method — either because their raw signature keys erase to the same Swift.AnyType
+    // (add(any Expression)/add(any Sendable), the FirebaseFirestore shape) or because their projected
+    // C# param types coincide (consume(any A)/consume(any B) → Consume(object)). The reverse-dispatch
+    // LAYOUT still gives each overload its OWN vtable slot (GetMethodKey keys off the raw Swift type,
+    // so the struct is sized correctly and never shrinks below Swift's — see EmitProtocolVtableStruct),
+    // but the C# FILLABILITY walk (ProtocolProxyEmitter's receiver + static-init loops) fills only the
+    // FIRST overload's slot: the collapsed interface has exactly one method to reverse-dispatch into.
+    // The later overload's slot is therefore left null. Its Swift witness must NOT emit the real
+    // dispatch body — that force-unwraps the nil slot and traps at the point of dispatch — so it gets a
+    // branded fatalError stub instead. The first overload's witness is untouched (real dispatch body).
+
+    /// <summary>
+    /// Computes the set of vtable slot keys (<see cref="GetMethodKey"/>) that the reverse-dispatch
+    /// layout keeps a field for but the C# fillability walk leaves NULL — the collapsed existential
+    /// overloads whose witness must trap rather than force-unwrap a nil slot. Mirrors the
+    /// declaration-order, first-wins fillability filters in
+    /// <c>ProtocolProxyEmitter.EmitMethodReceivers</c> / <c>EmitVtableStaticInit</c>: the same
+    /// ctor/static/@objc-optional pre-skip, the same <see cref="ProtocolVtableMembers.IncludesMethod"/>
+    /// layout gate, then the same first-wins dedup on
+    /// <see cref="ProtocolMethodDisambiguator.EffectiveRawKey"/> (raw-signature collapse) and
+    /// <see cref="ProtocolMethodDisambiguator.EffectiveProjectedKey"/> (projected-C# collapse).
+    /// </summary>
+    /// <remarks>
+    /// The receiver loop additionally checks <c>_skippedMethodKeys</c> BEFORE the raw/projected dedup —
+    /// that set (populated in <c>ProtocolHandler</c>) is not visible here, so its two Included=true
+    /// members are reproduced directly instead: the projected-C#-collision subset is caught by the
+    /// EffectiveProjectedKey dedup below (identical decision), and the member-gate skip subset
+    /// (AnyType / unsupported-module parameters — a member kept in the layout but dropped from the C#
+    /// interface) is reproduced by re-running <see cref="MemberGateEvaluator.EvaluateMethod"/>, which is
+    /// exactly what populated <c>_skippedMethodKeys</c> there. The one residual it does not reproduce is
+    /// the emitted-C#-signature collision (a member whose projected KEY is unique but whose fully
+    /// rendered C# signature collides): that requires ProtocolHandler's private emitted-signature
+    /// builder and is vanishingly narrow (distinct projected keys, identical rendered signatures). If it
+    /// ever fires it fails closed exactly as before this change — the witness force-unwraps the nil slot
+    /// — so no regression is introduced; it is simply not additionally covered.
+    /// </remarks>
+    private HashSet<string> ComputeCollapsedUnfilledMethodSlotKeys(ProtocolDecl protocolDecl, ClosureHandler closureHandler)
+    {
+        var unfilled = new HashSet<string>();
+        var seenSlotKeys = new HashSet<string>();
+        var emittedRawKeys = new HashSet<string>();
+        var emittedCSharpKeys = new HashSet<string>();
+        var gateEvaluator = new MemberGateEvaluator(_typeDatabase);
+        foreach (var method in protocolDecl.Methods)
+        {
+            // Ctor/static/@objc-optional consume no slot — pre-skipped by the layout and the receiver
+            // loop alike, BEFORE the index lookup (mirrors the receiver loop's leading continues).
+            if (method.IsConstructor || method.MethodType == MethodType.Static)
+                continue;
+            if (method.IsObjCOptional)
+                continue;
+
+            var slotKey = GetMethodKey(method);
+            // First occurrence of each raw slot only: a true GetMethodKey duplicate reuses the earlier
+            // slot and the witness loop's isNewMethod guard already suppresses its body.
+            if (!seenSlotKeys.Add(slotKey))
+                continue;
+            // No Swift vtable field (skip-but-consume: non-dispatchable closure / method-generic /
+            // Self-typed / mixed-generic / nested @objc existential). Not a null-filled slot; the
+            // witness loop's structural stub branches already cover these before this one runs.
+            if (!ProtocolVtableMembers.IncludesMethod(method, protocolDecl, closureHandler))
+                continue;
+            // Member-gate skip (AnyType / unsupported-module parameter): kept in the layout, dropped
+            // from the C# interface → no receiver → null slot. Reproduces the _skippedMethodKeys subset
+            // the receiver loop consults; must run BEFORE claiming the raw/projected keys so a surviving
+            // later sibling can still fill this slot's raw/projected identity.
+            if (gateEvaluator.EvaluateMethod(method, protocolDecl.ModuleDecl, protocolDecl).IsSkipped)
+            {
+                unfilled.Add(slotKey);
+                continue;
+            }
+            var collapsingKey = ProtocolMethodDisambiguator.EffectiveRawKey(method, protocolDecl, _typeDatabase);
+            if (!emittedRawKeys.Add(collapsingKey))
+            {
+                unfilled.Add(slotKey);
+                continue;
+            }
+            var projectedKey = ProtocolMethodDisambiguator.EffectiveProjectedKey(method, protocolDecl, _typeDatabase, propertyNames: null);
+            if (!emittedCSharpKeys.Add(projectedKey))
+            {
+                unfilled.Add(slotKey);
+                continue;
+            }
+        }
+        return unfilled;
+    }
+
+    /// <summary>
+    /// Emits a fatalError() stub for a collapsed existential overload whose vtable slot the C#
+    /// fillability walk leaves null. Satisfies the Swift protocol requirement; never dispatched (only
+    /// the first, surviving overload has a filled slot and a C# interface member).
+    /// </summary>
+    private void EmitCollapsedOverloadMethodStub(SwiftWriter writer, MethodDecl method)
+    {
+        var parameters = new List<string>();
+        for (int i = 1; i < method.CSSignature.Count; i++)
+        {
+            var param = method.CSSignature[i];
+            var paramTypeName = RenderTypeSpecWithSelfSubstitution(param.SwiftTypeSpec);
+            var externalLabel = GetSwiftParameterLabel(param, i);
+            var internalName = GetSwiftParameterName(param, i);
+            var inoutPrefix = param.IsInOut ? "inout " : "";
+            if (externalLabel == "_")
+                parameters.Add($"_ {internalName}: {inoutPrefix}{paramTypeName}");
+            else if (externalLabel == internalName)
+                parameters.Add($"{internalName}: {inoutPrefix}{paramTypeName}");
+            else
+                parameters.Add($"{externalLabel} {internalName}: {inoutPrefix}{paramTypeName}");
+        }
+
+        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        var hasReturn = returnType != null && !returnType.IsEmptyTuple;
+        var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitution(returnType!) : "Void";
+        // Keep the requirement's own effects — a stub satisfies its protocol either way (see
+        // EmitSelfTypedMethodStub for the effect-mismatch fan-out rationale).
+        var asyncDecl = method.IsAsync ? " async" : "";
+        var throwsDecl = method.Throws ? " throws" : "";
+        var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
+
+        writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl} {{");
+        writer.Indent++;
+        writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: collapsed existential overload '{method.Name}' is not representable in C# — only the first overload dispatches\")");
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
+    }
+
     // ---- @objc protocol existential in an unsupported nested position (fail-closed drop) ----------
     //
     // An @objc protocol's existential marshals as a single 8-byte ObjC object pointer (no witness-table
@@ -4636,9 +4802,10 @@ public class EveryProtocolEmitter
         else
         {
             // Sibling fan-out: dispatch through the first sibling whose widened slot is non-nil. Each
-            // branch reads func_{name}_{Index} off that sibling's per-protocol global vtable (the SAME
-            // MethodEmitsVtableField gate that emitted the field, so no branch references a missing
-            // member). A box retained but never handed off (no branch fires) leaks, but fatalError
+            // branch reads func_{name}_{Index} off that sibling's per-protocol global vtable. The
+            // branch list was filtered to layout-included slots (ProtocolVtableMembers.IncludesMethod)
+            // when the plan was built, so no branch references a missing member. A box retained but
+            // never handed off (no branch fires) leaks, but fatalError
             // terminates — matching EmitMethodFanOutBody's unrecoverable-invariant fallback.
             for (int i = 0; i < branches.Count; i++)
             {
@@ -5279,46 +5446,11 @@ public class EveryProtocolEmitter
         return ContainsClosureType(property.SwiftTypeSpec);
     }
 
-    /// <summary>
-    /// Returns true for closure-receiving protocol methods that have a real
-    /// Swift→C# proxy dispatch implementation (rather than the `fatalError` / `NotSupportedException`
-    /// stub). Accepts methods with exactly one dispatchable closure-bearing parameter — a bare
-    /// closure (`ClosureTypeSpec`) or an `Optional<Closure>` whose closure passes
-    /// <see cref="IsDispatchableClosureShape"/> — plus zero or more non-closure value-shape
-    /// parameters. Any other reachable closure in a value param (including nested closures
-    /// inside tuples, arrays, dictionaries, or optionals) disqualifies the method, because
-    /// the dispatch path can only marshal one (fnPtr, ctx) pair per method.
-    /// </summary>
-    /// <summary>
-    /// Single source of truth for "does this protocol method emit a per-protocol vtable FUNC field?"
-    /// A method gets a <c>func_{name}_{idx}</c> slot UNLESS it is one of the four non-dispatchable
-    /// categories that emit a fatalError stub instead: a closure-bearing method off the dispatch
-    /// surface (async/throwing/otherwise non-dispatchable closure param or return), a method-level
-    /// generic, a Self-typed method, or any member of a mixed-generic protocol. A method with an
-    /// inout ObjC-bridgeable param also traps via a stub but deliberately KEEPS its slot
-    /// (dead-but-harmless, see EmitProtocolVtableStruct), so it is NOT excluded here.
-    ///
-    /// <para>BOTH the vtable-struct field walk (<see cref="EmitProtocolVtableStruct"/>) and the
-    /// same-signature fan-out branch filter (<c>ComputeMethodEmissionPlans</c>) gate on this
-    /// predicate. Keeping it in one place prevents the two from drifting: a divergence would either
-    /// emit a fan-out branch referencing a missing <c>func_...</c> member (Swift compile failure) or
-    /// leave a dead slot the fan-out never reads.</para>
-    /// </summary>
-    internal static bool MethodEmitsVtableField(MethodDecl method, bool isMixedGenericProtocol, ClosureHandler closureHandler)
-    {
-        if (HasClosureInMethodSignature(method)
-            && !IsDispatchableClosureMethod(method, closureHandler)
-            && !IsDispatchableClosureReturningMethod(method, closureHandler)
-            && !IsDispatchableAsyncClosureMethod(method, closureHandler))
-            return false;
-        if (HasOnlyMethodLevelGenerics(method))
-            return false;
-        if (HasSelfTypeParamInSignature(method))
-            return false;
-        if (isMixedGenericProtocol)
-            return false;
-        return true;
-    }
+    // Vtable-slot membership is NOT re-derived here: the VtableLayout model (via
+    // ProtocolVtableMembers.IncludesMethod / ClassifyMethod == Included) is the single source of truth
+    // for whether a protocol method occupies a func_{name}_{idx} slot. Every walk that lays out, fills,
+    // or fans out over that slot asks the layout, so no local predicate can drift from the struct that
+    // actually emits the field.
 
     internal static bool IsDispatchableClosureMethod(MethodDecl method, ClosureHandler closureHandler)
     {

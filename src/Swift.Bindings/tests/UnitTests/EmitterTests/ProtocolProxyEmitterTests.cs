@@ -5415,9 +5415,9 @@ public class ProtocolProxyEmitterTests
         //
         // Swift's EveryProtocolEmitter emits a `fatalError` stub (and NO vtable field) for a method
         // whose signature carries a closure off the dispatch surface — a throwing/async method, or
-        // any closure shape other than the dispatchable `() -> Void` family. The producer's
-        // MethodEmitsVtableField (== ProtocolVtableMembers.IncludesMethod after the ctor/static/objc
-        // pre-skip) returns false for it, so EmitProtocolVtableStruct CONSUMES the slot index then
+        // any closure shape other than the dispatchable `() -> Void` family. The layout membership
+        // oracle (ProtocolVtableMembers.IncludesMethod, applied after the ctor/static/objc pre-skip)
+        // returns false for it, so EmitProtocolVtableStruct CONSUMES the slot index then
         // drops the field. The C# proxy MUST mirror that exactly: omit the Swift-vtable field, the
         // local-vtable delegate, AND the Receive_ trampoline — while a following dispatchable method
         // still lands at the index Swift assigned it (skip-but-consume). A C# field for the skipped

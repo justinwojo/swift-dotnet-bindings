@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -531,6 +532,66 @@ public class ObjCExistentialFailClosedTests
         var supported = layout.Slots.Single(s => s.AsMethod!.Name == "count");
         Assert.True(supported.Included);
         Assert.Equal(1, supported.SlotIndex); // pushed past the hole, not sitting on the dropped index
+    }
+
+    #endregion
+
+    #region Fan-out branch filter — same layout oracle as the vtable struct
+
+    // The same-signature owner/peer fan-out (ComputeMethodEmissionPlans) filters its branch list to
+    // siblings that actually emit a vtable FUNC field, then emits a branch reading
+    // `branchVtable.func_{name}_{idx}` for each surviving sibling. That field is emitted ONLY for a
+    // layout-included slot (EmitProtocolVtableStruct walks VtableLayout.IncludedSlots). If the fan-out
+    // filter re-derived membership with a predicate that disagreed with the layout on a nested @objc
+    // protocol existential — keeping the sibling the layout dropped — it would emit a branch over a
+    // `func_...` member the struct never declared, failing Swift wrapper compilation for the whole
+    // package. This pins the two on one oracle: a nested-@objc method is dropped from the fan-out
+    // branch list exactly as it is dropped from the layout slot.
+
+    [Fact]
+    public void FanOut_NestedObjCMethodSharedAcrossProtocols_ExcludedFromBranchList()
+    {
+        var db = BuildDatabase();
+        var emitter = new EveryProtocolEmitter(db, NullLogger.Instance, "TestModule");
+
+        // Two plain protocols (same carrier) declaring one IDENTICAL nested-@objc-existential method,
+        // so they form a single same-signature fan-out group.
+        var first = Protocol("FirstCollector");
+        first.Methods.Add(Method("absorb", isAsync: false,
+            Arg(string.Empty, Void()), Arg("xs", Array(Any(ObjCProto)))));
+        var second = Protocol("SecondCollector");
+        second.Methods.Add(Method("absorb", isAsync: false,
+            Arg(string.Empty, Void()), Arg("xs", Array(Any(ObjCProto)))));
+
+        var plans = emitter.ComputeMethodEmissionPlans(new[] { first, second });
+        var plan = Assert.Single(new HashSet<EveryProtocolEmitter.MethodEmissionPlan>(plans.Values));
+
+        // The layout drops the nested-@objc slot for BOTH protocols, so no branch may reference a
+        // `func_absorb_*` field: the branch list is empty and the drop forces the guarded fan-out.
+        Assert.Empty(plan.Siblings);
+        Assert.True(plan.HasFilteredPeers);
+    }
+
+    [Fact]
+    public void FanOut_SupportedMethodSharedAcrossProtocols_KeepsBothBranches()
+    {
+        // Regression guard: a SUPPORTED method (bare `any P`) still occupies a slot on both protocols,
+        // so the fan-out keeps both branches — the filter is surgical, only the nested form drops.
+        var db = BuildDatabase();
+        var emitter = new EveryProtocolEmitter(db, NullLogger.Instance, "TestModule");
+
+        var first = Protocol("FirstCollector");
+        first.Methods.Add(Method("absorb", isAsync: false,
+            Arg(string.Empty, Void()), Arg("x", Any(ObjCProto))));
+        var second = Protocol("SecondCollector");
+        second.Methods.Add(Method("absorb", isAsync: false,
+            Arg(string.Empty, Void()), Arg("x", Any(ObjCProto))));
+
+        var plans = emitter.ComputeMethodEmissionPlans(new[] { first, second });
+        var plan = Assert.Single(new HashSet<EveryProtocolEmitter.MethodEmissionPlan>(plans.Values));
+
+        Assert.Equal(2, plan.Siblings.Count);
+        Assert.False(plan.HasFilteredPeers);
     }
 
     #endregion

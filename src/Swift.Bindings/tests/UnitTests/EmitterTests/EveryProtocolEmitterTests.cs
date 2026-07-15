@@ -107,6 +107,51 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
+    public void EmitProtocolVtableStruct_MethodField_SlotCountMatchesLayoutWidth()
+    {
+        // The Swift `_vtable` method field's @convention(c) parameter arity is driven by the SAME
+        // width oracle (VtableLayout.GetWidth) that sizes the C# LocalVTable mirror. A debug or
+        // empty-tuple param contributes NO ABI slot, so hand-counting CSSignature (which the field
+        // once did) over-produces a slot the mirror never allocates — shifting every later field and
+        // corrupting reverse dispatch. This pins the emitted field arity to 2 fixed leading slots
+        // (vtable handle + self) plus the oracle width.
+        var protocol = CreateSimpleProtocol("TestProtocol");
+        var method = CreateMethodDecl("doWork");
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "value",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            PrivateName = "value",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "unit",
+            SwiftTypeSpec = TupleTypeSpec.Empty, // empty tuple → no ABI slot (skipped by GetWidth)
+            PrivateName = "unit",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        protocol.Methods.Add(method);
+
+        var width = Assert.Single(new VtableLayoutBuilder(_typeDatabase).Build(protocol).IncludedMethods).Width;
+        var output = EmitVtableStruct(protocol);
+
+        var fieldLine = output.Split('\n').Single(l => l.Contains("func_doWork_0:"));
+        int open = fieldLine.IndexOf("@convention(c)(", StringComparison.Ordinal) + "@convention(c)(".Length;
+        int close = fieldLine.IndexOf(") ->", open, StringComparison.Ordinal);
+        var slots = fieldLine.Substring(open, close - open).Split(',');
+
+        Assert.Equal(1, width);                  // one Int param; the empty tuple adds nothing
+        Assert.Equal(2 + width, slots.Length);   // vtable handle + self + oracle width
+    }
+
+    [Fact]
     public void EmitProtocolVtableStruct_GeneratesVtableInstance()
     {
         var protocolDecl = CreateSimpleProtocol("TestProtocol");
@@ -154,6 +199,31 @@ public class EveryProtocolEmitterTests
         var output = EmitProtocolExtension(protocolDecl);
 
         Assert.Contains("public func doSomething()", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_CollapsedExistentialOverload_SecondWitnessTrapsInsteadOfNilForceUnwrap()
+    {
+        // Two raw-DISTINCT existential overloads of the same method name whose raw signature keys both
+        // erase to Swift.AnyType (the FirebaseFirestore add(any Expression)/add(any Sendable) shape)
+        // collapse onto ONE C# interface method. The reverse-dispatch layout still gives each its own
+        // vtable slot (GetMethodKey keys off the raw Swift type), but the C# fillability walk fills only
+        // the FIRST overload's slot — the second's is left null. The second's Swift witness must trap
+        // rather than force-unwrap the nil slot at the point of dispatch (the G8 crash). The first
+        // overload's real reverse-dispatch body must be untouched.
+        var protocolDecl = CreateSimpleProtocol("OverloadCollapse");
+        // Unregistered existential-ish params: their raw signature key erases to Swift.AnyType and
+        // collapses, while GetMethodKey (raw type string) keeps them in distinct slots.
+        protocolDecl.Methods.Add(CreateMethodDeclWithParam("record", "value", "TestModule.CollapsePrimary"));
+        protocolDecl.Methods.Add(CreateMethodDeclWithParam("record", "value", "TestModule.CollapseSecondary"));
+
+        var output = EmitProtocolExtension(protocolDecl);
+
+        // First (surviving) overload keeps its real reverse-dispatch body: force-unwraps slot 0.
+        Assert.Contains("func_record_0!", output);
+        // Second overload is a branded fatalError stub; it must NOT reference/force-unwrap its null slot.
+        Assert.DoesNotContain("func_record_1", output);
+        Assert.Contains("[SwiftBindings] EveryProtocol: collapsed existential overload 'record'", output);
     }
 
     [Fact]

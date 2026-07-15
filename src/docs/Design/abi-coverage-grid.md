@@ -303,8 +303,9 @@ fan-out filter (not a grid red — a review find on this session's diff): when t
 filter drops a same-signature peer down to a single surviving branch, the fan-out body took the
 bare force-unwrap path instead of the guarded nil-check, so dispatch through the dropped peer's
 existential would `SIGSEGV` rather than `fatalError`. Root-caused and fixed (force safe fan-out
-when `siblings.Count < entries.Count`), with the field-emission gate extracted to a single
-`MethodEmitsVtableField` predicate both walks share (closing the duplicate-gate drift hazard).
+when `siblings.Count < entries.Count`), with the field-emission gate sourced from the single
+vtable-layout membership oracle (`ProtocolVtableMembers.IncludesMethod`) both walks share
+(closing the duplicate-gate drift hazard).
 Covered by two new `EveryProtocolEmitterTests`; proven byte-identical generated output for the
 whole BindingTests corpus.
 
