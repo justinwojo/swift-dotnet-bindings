@@ -390,14 +390,16 @@ public static partial class SwiftUIBridgeEmitter
                 bp.Name, AsyncFlatParamKind.Primitive, bp.SwiftAbiType, bp.CSharpPInvokeType, null, null),
             BridgeParameterKind.BoundType => new AsyncFlatParam(
                 bp.Name, AsyncFlatParamKind.BoundType, "UnsafeMutableRawPointer", "IntPtr",
-                null, null, BridgeTypeName: bp.BridgeTypeName),
+                null, null, BridgeTypeName: bp.BridgeTypeName, CSharpTypeName: bp.CSharpTypeName,
+                IsObjCBridgeable: bp.IsObjCBridgeable),
             BridgeParameterKind.BoundStruct => new AsyncFlatParam(
                 bp.Name, AsyncFlatParamKind.BoundStruct, "UnsafeMutableRawPointer", "IntPtr",
                 null, null, BridgeTypeName: bp.BridgeTypeName, CSharpTypeName: bp.CSharpTypeName,
                 IsObjCBridgeable: bp.IsObjCBridgeable),
             BridgeParameterKind.BoundEnum => new AsyncFlatParam(
                 bp.Name, AsyncFlatParamKind.BoundEnum, bp.SwiftAbiType, bp.CSharpPInvokeType,
-                null, null, BridgeTypeName: bp.BridgeTypeName, CSharpTypeName: bp.CSharpTypeName),
+                null, null, BridgeTypeName: bp.BridgeTypeName, CSharpTypeName: bp.CSharpTypeName,
+                IsSimpleEnum: bp.IsSimpleEnum),
             _ => null, // Closures, etc. not supported in async flattening yet
         };
     }
@@ -1281,7 +1283,12 @@ public static partial class SwiftUIBridgeEmitter
             }
             else if (param.Kind == AsyncFlatParamKind.BoundEnum)
             {
-                nativeArgs.Add($"({param.CSharpPInvokeType}){param.CSharpName}");
+                // Simple enums are C# enum value types — cast to the underlying int.
+                // Complex enums are C# classes exposing a .RawValue property; casting the
+                // class to int is CS0030 and breaks the generated binding's compile.
+                nativeArgs.Add(param.IsSimpleEnum
+                    ? $"({param.CSharpPInvokeType}){param.CSharpName}"
+                    : $"{param.CSharpName}.RawValue");
             }
             else
             {
@@ -1399,7 +1406,8 @@ public record AsyncFlatParam(
     string? BridgeTypeName = null,
     string? CSharpTypeName = null,
     string? SourceModule = null,
-    bool IsObjCBridgeable = false)
+    bool IsObjCBridgeable = false,
+    bool IsSimpleEnum = false)
 {
     /// <summary><see cref="Name"/> escaped as a BARE C# identifier (`@`-prefixed for a C# keyword).
     /// Use at bare C# identifier sites; compound names like {Name}Ptr stay raw.</summary>

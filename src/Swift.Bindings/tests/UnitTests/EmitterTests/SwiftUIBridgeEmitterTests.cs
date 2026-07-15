@@ -3298,6 +3298,42 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     [Fact]
+    public void EmitAsyncCSharpBridge_ComplexBoundEnumLeaf_UsesRawValueNotIntCast()
+    {
+        // An async View whose init takes an async same-module dependency plus a
+        // complex (class-backed) raw-value enum leaf. A complex enum is a C# class
+        // exposing a .RawValue property — so the native call arg must read .RawValue.
+        // Casting the enum class to (int) is CS0030 and breaks the binding's compile.
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+        var asyncService = CreateClassTypeDecl("AsyncService", "TestModule");
+        asyncService.Methods.Add(CreateAsyncThrowsCtor("key", "Swift.String"));
+        moduleDecl.Types.Add(asyncService);
+
+        var view = CreateViewStructWithNoConstructor("AlertView");
+        view.Methods.Add(CreateCtorWithTwoParams(
+            "service", "TestModule.AsyncService",
+            "style", "TestModule.AlertStyle"));
+        moduleDecl.Types.Add(view);
+
+        // AlertStyle: Frozen, no SimpleEnum flag -> a complex (class-backed) raw-value enum.
+        var context = new BridgeContext(TypeDatabase: CreateEnumTypeDatabase(), ModuleDecl: moduleDecl);
+        var info = new ViewBridgeInfo("AlertView", "TestModule",
+            ViewInitClassification.AsyncDependency, null, view.Methods.Where(m => m.IsConstructor).ToList());
+
+        var pattern = SwiftUIBridgeEmitter.InferAsyncPattern(info, context);
+        Assert.NotNull(pattern);
+        var enumParam = Assert.Single(pattern!.FlattenedParams, p => p.Kind == AsyncFlatParamKind.BoundEnum);
+        Assert.False(enumParam.IsSimpleEnum);
+
+        var sb = new System.Text.StringBuilder();
+        SwiftUIBridgeEmitter.EmitAsyncCSharpBridge(sb, "TestModule", info, pattern, null);
+        var cs = sb.ToString();
+
+        Assert.Contains("style.RawValue", cs);
+        Assert.DoesNotContain("(int)style", cs);
+    }
+
+    [Fact]
     public void InferAsyncPattern_ReturnsPattern_ThreeLevelChain()
     {
         // View → Processor(service: AsyncService, mode: Int32) → AsyncService(key: String) async throws
