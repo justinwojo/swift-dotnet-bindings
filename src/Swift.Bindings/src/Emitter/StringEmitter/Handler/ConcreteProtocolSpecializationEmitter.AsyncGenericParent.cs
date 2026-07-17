@@ -682,7 +682,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // cancel that raced ahead of assignment so it can be replayed onto the launched task.
         swiftWriter.WriteLine("    let _entry = _SBWTaskEntry()");
         swiftWriter.WriteLine("    _sbwRegisterTask(cancelKey, _entry)");
-        swiftWriter.WriteLine("    let _sbwLaunchedTask = Task {");
+        swiftWriter.WriteLine($"    let _sbwLaunchedTask = {SwiftConcurrencyNames.Task} {{");
         swiftWriter.WriteLine("        defer { _sbwUnregisterTask(cancelKey) }");
 
         if (throws)

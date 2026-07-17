@@ -122,8 +122,14 @@ public sealed class ModuleEmissionContext
         _nestedTypesInCollidingClass = nestedTypesInCollidingClass != null
             ? new HashSet<string>(nestedTypesInCollidingClass, StringComparer.Ordinal)
             : null;
+        // The lookbehind exempts the wrapper's own scoped imports. `import class Foo.Bar` is the
+        // one place a "Foo." prefix must survive: it is not a type reference to rewrite but the
+        // declaration that makes the *stripped* references resolve, and stripping it to
+        // `import class Bar` is a syntax error that fails the whole wrapper.
         _collisionPattern = !string.IsNullOrEmpty(moduleNameForCollision)
-            ? new Regex(@"\b" + Regex.Escape(moduleNameForCollision) + @"\.(\w+(?:\.\w+)*)", RegexOptions.Compiled)
+            ? new Regex(@"(?<!\bimport (?:class|struct|enum|protocol|typealias) )\b"
+                    + Regex.Escape(moduleNameForCollision) + @"\.(\w+(?:\.\w+)*)",
+                RegexOptions.Compiled)
             : null;
     }
 

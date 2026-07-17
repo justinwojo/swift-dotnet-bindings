@@ -783,6 +783,21 @@ namespace BindingsGeneration
                 swiftWriter.WriteLine($"import {import}");
             }
 
+            // A module whose own name is shadowed by a type of that name can't be qualified
+            // through — every `Module.X` reads as member lookup into the shadowing type — so the
+            // wrapper strips those qualifiers and names the module's types bare. Bare names then
+            // resolve against every wildcard import at once, which is ambiguous for any name an
+            // imported module also declares. Scoped imports bind each of the bound module's own
+            // names to its own declaration and outrank the wildcards, restoring the unambiguous
+            // reference the stripped qualifier can no longer provide.
+            if (emissionCtx?.ModuleNameForCollision == moduleDecl.Name)
+            {
+                foreach (var scopedImport in CollisionScopedImportPlanner.Plan(moduleDecl, compileImport))
+                {
+                    swiftWriter.WriteLine(scopedImport);
+                }
+            }
+
             swiftWriter.WriteLine();
 
             // Emit SBW_Utf8Slice and SBW_Free at module level (before any functions)

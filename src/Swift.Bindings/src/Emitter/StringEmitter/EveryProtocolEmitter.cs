@@ -4776,7 +4776,7 @@ public class EveryProtocolEmitter
         // fine; everything inside it is synchronous and local. The C# receiver reads word 0 of
         // `&selfProto` (the class reference) to look the proxy up — identical to the sync witness — and
         // returns immediately after spawning the impl's Task; the box resumes `__cont` exactly once.
-        writer.WriteLine($"{awaitExpr} {continuationFn} {{ (__cont: CheckedContinuation<{returnTypeName}, {continuationErr}>) in");
+        writer.WriteLine($"{awaitExpr} {continuationFn} {{ (__cont: {SwiftConcurrencyNames.CheckedContinuation}<{returnTypeName}, {continuationErr}>) in");
         writer.Indent++;
         writer.WriteLine($"var selfProto: {protocolName} = self");
         foreach (var line in argCopyLines)
@@ -5990,7 +5990,7 @@ public class EveryProtocolEmitter
         writer.WriteLine("_buf.storeBytes(of: _context, toByteOffset: MemoryLayout<Int>.size, as: Int.self)");
         writer.WriteLine("let _closure = _buf.assumingMemoryBound(to: (() async -> Int32).self).pointee");
         writer.WriteLine("_buf.deallocate()");
-        writer.WriteLine("Task {");
+        writer.WriteLine($"{SwiftConcurrencyNames.Task} {{");
         writer.Indent++;
         writer.WriteLine("let result = await _closure()");
         writer.WriteLine("_completion(_tcsHandle, result)");

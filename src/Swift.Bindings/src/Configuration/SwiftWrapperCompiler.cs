@@ -2682,7 +2682,7 @@ namespace BindingsGeneration
                 {
                     foreach (var ifaceFile in Directory.GetFiles(sourceModuleDir, "*.swiftinterface"))
                     {
-                        if (ifaceFile.EndsWith(".private.swiftinterface", StringComparison.OrdinalIgnoreCase))
+                        if (!SwiftInterfaceVariant.IsPublic(ifaceFile))
                             continue;
                         File.Copy(ifaceFile, Path.Combine(fwDir, Path.GetFileName(ifaceFile)), overwrite: true);
                     }
@@ -2866,14 +2866,15 @@ namespace BindingsGeneration
             PatchSwiftInterface(swiftInterfacePath, patchedInterfacePath, collisionPattern, nestedByModule);
 
             // Copy and patch every other public swiftinterface from the source .swiftmodule
-            // dir into the shadow. Private interfaces are skipped: the binary .swiftmodule is
-            // self-contained for public API resolution, and private interfaces can contain
-            // types from colliding modules that fail to resolve even after patching.
+            // dir into the shadow. Access-level-qualified interfaces (.private/.package) are
+            // skipped: the binary .swiftmodule is self-contained for public API resolution,
+            // and those variants can contain types from colliding modules that fail to
+            // resolve even after patching.
             if (sourceModuleDir != null)
             {
                 foreach (var ifaceFile in Directory.GetFiles(sourceModuleDir, "*.swiftinterface"))
                 {
-                    if (ifaceFile.EndsWith(".private.swiftinterface", StringComparison.OrdinalIgnoreCase))
+                    if (!SwiftInterfaceVariant.IsPublic(ifaceFile))
                         continue;
                     var destPath = Path.Combine(fwDir, Path.GetFileName(ifaceFile));
                     PatchSwiftInterface(ifaceFile, destPath, collisionPattern, nestedByModule);

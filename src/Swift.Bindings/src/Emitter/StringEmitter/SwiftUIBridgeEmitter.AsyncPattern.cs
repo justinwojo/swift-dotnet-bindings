@@ -539,7 +539,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"    let hostingController: UIHostingController<{info.ViewName}>");
         if (pattern.ResultCallback != null)
         {
-            sb.AppendLine($"    private var resultTask: Task<Void, Never>?");
+            sb.AppendLine($"    private var resultTask: {SwiftConcurrencyNames.Task}<Void, Never>?");
         }
         sb.AppendLine();
 
@@ -639,9 +639,9 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"        let cb = resultCallback");
         sb.AppendLine($"        let ud = userData");
         sb.AppendLine($"        let sessionHandle = handle");
-        sb.AppendLine($"        self.resultTask = Task {{ @MainActor in");
+        sb.AppendLine($"        self.resultTask = {SwiftConcurrencyNames.Task} {{ @MainActor in");
         sb.AppendLine($"            let result = await monitorSourceRef.{config.AwaitMethodName}()");
-        sb.AppendLine($"            guard !Task.isCancelled else {{ return }}");
+        sb.AppendLine($"            guard !{SwiftConcurrencyNames.Task}.isCancelled else {{ return }}");
         sb.AppendLine($"            guard {handlesVar}.contains(sessionHandle) else {{ return }}");
         sb.AppendLine($"            let code: Int32");
         sb.AppendLine($"            switch result {{");
@@ -805,7 +805,7 @@ public static partial class SwiftUIBridgeEmitter
 
         // Async Task — build each chain step, then the session + view
         bool hasThrows = chain.Any(s => s.Throws);
-        sb.AppendLine("    Task { @MainActor in");
+        sb.AppendLine($"    {SwiftConcurrencyNames.Task} {{ @MainActor in");
         if (hasThrows)
             sb.AppendLine("        do {");
 

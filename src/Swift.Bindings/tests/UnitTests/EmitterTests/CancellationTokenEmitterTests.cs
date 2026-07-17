@@ -56,7 +56,7 @@ public class CancellationTokenEmitterTests
         var output = sw.ToString();
 
         Assert.Contains("private final class _SBWTaskEntry", output);
-        Assert.Contains("var task: Task<Void, Never>?", output);
+        Assert.Contains($"var task: {SwiftConcurrencyNames.Task}<Void, Never>?", output);
     }
 
     [Fact]
@@ -123,7 +123,7 @@ public class CancellationTokenEmitterTests
         var output = sw.ToString();
 
         Assert.Contains(
-            "private func _sbwAssignTask(_ entry: _SBWTaskEntry, _ task: Task<Void, Never>) -> Bool",
+            $"private func _sbwAssignTask(_ entry: _SBWTaskEntry, _ task: {SwiftConcurrencyNames.Task}<Void, Never>) -> Bool",
             output);
     }
 
@@ -308,7 +308,7 @@ public class CancellationTokenEmitterTests
         var (_, swiftOutput) = GenerateAsyncMethod();
 
         int entryIdx = swiftOutput.IndexOf("let _entry = _SBWTaskEntry()");
-        int taskIdx = swiftOutput.IndexOf("let _sbwLaunchedTask = Task {");
+        int taskIdx = swiftOutput.IndexOf($"let _sbwLaunchedTask = {SwiftConcurrencyNames.Task} {{");
         Assert.True(entryIdx >= 0, "Should create _SBWTaskEntry");
         Assert.True(taskIdx >= 0, "Should launch the task into a local before assigning");
         Assert.True(entryIdx < taskIdx, "_SBWTaskEntry should be created before the task is launched");
@@ -324,7 +324,7 @@ public class CancellationTokenEmitterTests
         Assert.Contains(
             "if _sbwAssignTask(_entry, _sbwLaunchedTask) { _sbwLaunchedTask.cancel() }",
             swiftOutput);
-        Assert.DoesNotContain("_entry.task = Task {", swiftOutput);
+        Assert.DoesNotContain($"_entry.task = {SwiftConcurrencyNames.Task} {{", swiftOutput);
     }
 
     [Fact]

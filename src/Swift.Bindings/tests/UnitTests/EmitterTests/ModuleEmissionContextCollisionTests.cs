@@ -98,4 +98,64 @@ public class ModuleEmissionContextCollisionTests
         ctx.SetCollisionContext(null, nestedTypesInCollidingClass: null);
         Assert.Equal("NetworkMonitor.Connection", ctx.QualifyForWrapperSource("NetworkMonitor.Connection"));
     }
+
+    [Fact]
+    public void Collision_ScopedImportSurvivesWhileTopLevelReferenceIsStripped()
+    {
+        // Scoped imports (`import class Foo.Bar`) are the one place a "Foo." prefix must
+        // survive: they are not type references to rewrite but the declarations that make
+        // the stripped bare names resolve. Stripping them to `import class Bar` is a
+        // syntax error that fails the whole wrapper.
+        var ctx = new ModuleEmissionContext();
+        ctx.SetCollisionContext("Foo", nestedTypesInCollidingClass: null);
+
+        Assert.Equal("import class Foo.Bar", ctx.QualifyForWrapperSource("import class Foo.Bar"));
+        Assert.Equal("Baz", ctx.QualifyForWrapperSource("Foo.Baz"));
+    }
+
+    [Fact]
+    public void Collision_ScopedImportSurvivesForAllKindKeywords()
+    {
+        var ctx = new ModuleEmissionContext();
+        ctx.SetCollisionContext("Foo", nestedTypesInCollidingClass: null);
+
+        Assert.Equal("import class Foo.Bar", ctx.QualifyForWrapperSource("import class Foo.Bar"));
+        Assert.Equal("import struct Foo.S", ctx.QualifyForWrapperSource("import struct Foo.S"));
+        Assert.Equal("import enum Foo.E", ctx.QualifyForWrapperSource("import enum Foo.E"));
+        Assert.Equal("import protocol Foo.P", ctx.QualifyForWrapperSource("import protocol Foo.P"));
+        Assert.Equal("import typealias Foo.T", ctx.QualifyForWrapperSource("import typealias Foo.T"));
+    }
+
+    [Fact]
+    public void Collision_NestedCarveOutStaysQualifiedAlongsideScopedImport()
+    {
+        // Nested members of the shadowing type keep the Module.Nested spelling (carve-out),
+        // while a top-level sibling still strips and a scoped import is left alone.
+        var ctx = new ModuleEmissionContext();
+        var nested = new HashSet<string>(StringComparer.Ordinal) { "Nested" };
+        ctx.SetCollisionContext("Foo", nested);
+
+        Assert.Equal("import class Foo.Bar", ctx.QualifyForWrapperSource("import class Foo.Bar"));
+        Assert.Equal("Foo.Nested", ctx.QualifyForWrapperSource("Foo.Nested"));
+        Assert.Equal("Foo.Nested.inner", ctx.QualifyForWrapperSource("Foo.Nested.inner"));
+        Assert.Equal("Sibling", ctx.QualifyForWrapperSource("Foo.Sibling"));
+    }
+
+    [Fact]
+    public void Collision_ScopedImportSurvivesInsideMultiLineWrapperSnippet()
+    {
+        // QualifyForWrapperSource runs over the whole wrapper source string, so scoped
+        // imports and stripped type references co-exist in one pass.
+        var ctx = new ModuleEmissionContext();
+        ctx.SetCollisionContext("Foo", nestedTypesInCollidingClass: null);
+
+        var input =
+            "import class Foo.Bar\n" +
+            "func f() -> Foo.Baz { Foo.Baz() }\n";
+        var output = ctx.QualifyForWrapperSource(input);
+
+        Assert.Contains("import class Foo.Bar", output);
+        Assert.Contains("func f() -> Baz { Baz() }", output);
+        Assert.DoesNotContain("Foo.Baz", output);
+    }
 }

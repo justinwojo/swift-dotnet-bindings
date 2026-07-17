@@ -26,7 +26,7 @@ namespace BindingsGeneration;
 /// <list type="bullet">
 ///   <item><description>
 ///     <b>Swift dep with swiftinterface</b>: regex over the <c>.private.swiftinterface</c>
-///     (or <c>.swiftinterface</c>) for <c>public class|struct|enum|actor|protocol &lt;ModuleName&gt;</c>.
+///     (or <c>.swiftinterface</c>) for <c>public class|struct|enum|actor|protocol|typealias &lt;ModuleName&gt;</c>.
 ///   </description></item>
 ///   <item><description>
 ///     <b>ObjC-only dep</b>: regex over the umbrella header <c>&lt;ModuleName&gt;.h</c>
@@ -58,9 +58,17 @@ public static class DepModuleCollisionDetector
     // module name with a trailing word-boundary — `public class FooBar` must not match
     // for module `Foo`. (`dynamic` is a member-only modifier swiftc rejects on a type
     // declaration, so it can never appear here — see Regression-R6 finding 5.)
+    //
+    // `typealias` is in the alternation because an alias shadows the module name exactly as a
+    // nominal type does: it introduces the name into type scope, so Swift resolves the leading
+    // identifier of `<Name>.X` to the alias and looks for X inside the aliased type instead of
+    // the module. A module-level `public typealias Foo = SomeOtherType` in module `Foo` is a
+    // real shape (a deprecated shorthand kept for source compatibility is the usual reason).
+    // The modifier runs are shared with the nominal kinds and simply never match an alias —
+    // swiftc rejects `final`/`indirect`/`nonisolated` on a typealias — so the union is safe.
     private const string TypeDeclModifiers = @"(?:(?:final|indirect|nonisolated)(?:\s*\([^)]*\))?\s+)*";
     private static readonly Regex SwiftPublicTypeRegex = new(
-        @"^\s*(?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s+)*" + TypeDeclModifiers + @"(?:public|open)\s+" + TypeDeclModifiers + @"(?:class|struct|enum|actor|protocol)\s+([A-Za-z_][A-Za-z0-9_]*)\b",
+        @"^\s*(?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s+)*" + TypeDeclModifiers + @"(?:public|open)\s+" + TypeDeclModifiers + @"(?:class|struct|enum|actor|protocol|typealias)\s+([A-Za-z_][A-Za-z0-9_]*)\b",
         RegexOptions.Compiled | RegexOptions.Multiline);
 
     // ^\s* anchors at line start. Match `@interface Foo` and `@interface Foo (Cat)`,
@@ -209,8 +217,9 @@ public static class DepModuleCollisionDetector
     }
 
     /// <summary>
-    /// Returns true when <paramref name="swiftInterfaceText"/> contains a
-    /// <c>public class|struct|enum|actor|protocol &lt;moduleName&gt;</c> declaration.
+    /// Returns true when <paramref name="swiftInterfaceText"/> declares a public type — nominal
+    /// or <c>typealias</c> — named <paramref name="moduleName"/>, i.e. the module shadows its own
+    /// name in type scope. Used both for dependency modules and for the bound module itself.
     /// </summary>
     public static bool HasSwiftPublicTypeWithName(string swiftInterfaceText, string moduleName)
     {

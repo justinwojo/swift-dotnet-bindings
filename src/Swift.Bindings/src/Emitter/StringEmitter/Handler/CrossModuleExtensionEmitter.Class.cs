@@ -1461,7 +1461,7 @@ public static partial class CrossModuleExtensionEmitter
             // a cancel that raced ahead of assignment so it can be replayed onto the launched task.
             swiftWriter.WriteLine("let _entry = _SBWTaskEntry()");
             swiftWriter.WriteLine("_sbwRegisterTask(cancelKey, _entry)");
-            swiftWriter.WriteLine("let _sbwLaunchedTask = Task {");
+            swiftWriter.WriteLine($"let _sbwLaunchedTask = {SwiftConcurrencyNames.Task} {{");
             swiftWriter.Indent++;
             swiftWriter.WriteLine("defer { _sbwUnregisterTask(cancelKey) }");
             swiftWriter.WriteLine("do {");
@@ -1495,7 +1495,7 @@ public static partial class CrossModuleExtensionEmitter
             // it. Register anyway so cancel reaches the Task; completion always reports success.
             swiftWriter.WriteLine("let _entry = _SBWTaskEntry()");
             swiftWriter.WriteLine("_sbwRegisterTask(cancelKey, _entry)");
-            swiftWriter.WriteLine("let _sbwLaunchedTask = Task {");
+            swiftWriter.WriteLine($"let _sbwLaunchedTask = {SwiftConcurrencyNames.Task} {{");
             swiftWriter.Indent++;
             swiftWriter.WriteLine("defer { _sbwUnregisterTask(cancelKey) }");
             if (returnCategory == ReturnKind.Void)

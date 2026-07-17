@@ -1032,3 +1032,111 @@ public class ExistentialBypassEmitterTests
         Assert.False(needsResultPtr);
     }
 }
+
+/// <summary>
+/// Unit tests for wrapper-signature TypeSpec rendering that qualifies only the bound module's
+/// types (leaving stdlib/dependency names bare so @_cdecl lowering keeps matching bare primitives).
+/// </summary>
+public class ExistentialBypassEmitterRenderWrapperSignatureTests
+{
+    [Fact]
+    public void RenderForWrapperSignature_BoundModuleType_KeepsQualifiedName()
+    {
+        var spec = new NamedTypeSpec("MyMod.Thing");
+        var rendered = ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(spec, "MyMod");
+        Assert.Equal("MyMod.Thing", rendered);
+    }
+
+    [Fact]
+    public void RenderForWrapperSignature_DifferentBoundModule_RendersBare()
+    {
+        var spec = new NamedTypeSpec("MyMod.Thing");
+        var rendered = ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(spec, "Other");
+        Assert.Equal("Thing", rendered);
+    }
+
+    [Fact]
+    public void RenderForWrapperSignature_SwiftBool_RendersBareBool()
+    {
+        // Downstream @_cdecl lowering string-compares the render to "Bool", so regressing
+        // it to "Swift.Bool" silently breaks the Bool ABI (wrong Int8 arm / layout).
+        var spec = new NamedTypeSpec("Swift.Bool");
+        var rendered = ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(spec, "MyMod");
+        Assert.Equal("Bool", rendered);
+        Assert.DoesNotContain("Swift.Bool", rendered);
+    }
+
+    [Fact]
+    public void RenderForWrapperSignature_SwiftInt_RendersBareInt()
+    {
+        var spec = new NamedTypeSpec("Swift.Int");
+        var rendered = ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(spec, "MyMod");
+        Assert.Equal("Int", rendered);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void RenderForWrapperSignature_NullOrEmptyBoundModule_RendersEverythingBare(string? boundModuleName)
+    {
+        var boundType = new NamedTypeSpec("MyMod.Thing");
+        var swiftBool = new NamedTypeSpec("Swift.Bool");
+
+        Assert.Equal(
+            ExistentialBypassEmitter.RenderSwiftTypeSpec(boundType),
+            ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(boundType, boundModuleName));
+        Assert.Equal(
+            ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftBool),
+            ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(swiftBool, boundModuleName));
+
+        Assert.Equal("Thing", ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(boundType, boundModuleName));
+        Assert.Equal("Bool", ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(swiftBool, boundModuleName));
+    }
+
+    [Fact]
+    public void RenderForWrapperSignature_GenericArgs_QualifyBoundModuleOnly()
+    {
+        // Array head is Swift (always bare under bound-module policy); element keeps MyMod.Thing.
+        var element = new NamedTypeSpec("MyMod.Thing");
+        var array = new NamedTypeSpec("Swift.Array", element);
+
+        var rendered = ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(array, "MyMod");
+
+        Assert.Equal("Array<MyMod.Thing>", rendered);
+        Assert.StartsWith("Array<", rendered);
+        Assert.Contains("MyMod.Thing", rendered);
+        Assert.DoesNotContain("Swift.Array", rendered);
+    }
+
+    [Fact]
+    public void RenderForWrapperReturnType_StripsEscapingAttribute()
+    {
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Int"));
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var signature = ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(closure, "MyMod");
+        var returnType = ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperReturnType(closure, "MyMod");
+
+        Assert.Contains("@escaping", signature);
+        Assert.DoesNotContain("@escaping", returnType);
+        Assert.Equal(signature.Replace("@escaping ", ""), returnType);
+    }
+
+    [Fact]
+    public void RenderForWrapperSignature_NestedType_KeepsOuterModulePrefixInnerBare()
+    {
+        // Outer carries the module; each InnerType segment is always unqualified.
+        var outer = new NamedTypeSpec("MyMod.Outer")
+        {
+            InnerType = new NamedTypeSpec("Inner"),
+        };
+
+        var rendered = ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(outer, "MyMod");
+        Assert.Equal("MyMod.Outer.Inner", rendered);
+
+        // When the outer module is not the bound module, the whole chain is bare.
+        var bare = ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(outer, "Other");
+        Assert.Equal("Outer.Inner", bare);
+    }
+}
+

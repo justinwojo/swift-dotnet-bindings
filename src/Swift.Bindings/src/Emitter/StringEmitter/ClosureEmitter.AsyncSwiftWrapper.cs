@@ -112,8 +112,8 @@ public static partial class ClosureEmitter
                 // The C# helper pins a byte[] and invokes the success callback with
                 // (boxPtr, bytesPtr, length); Swift copies the bytes into a new Data.
                 private final class {{boxClassName}} {
-                    let cont: CheckedContinuation<Foundation.Data, Error>
-                    init(_ cont: CheckedContinuation<Foundation.Data, Error>) { self.cont = cont }
+                    let cont: {{SwiftConcurrencyNames.CheckedContinuation}}<Foundation.Data, Error>
+                    init(_ cont: {{SwiftConcurrencyNames.CheckedContinuation}}<Foundation.Data, Error>) { self.cont = cont }
                 }
 
                 @_cdecl("{{symbolRoot}}_success")
@@ -149,8 +149,8 @@ public static partial class ClosureEmitter
                 // The C# helper pins a UTF-8 byte array and invokes the success callback
                 // with (boxPtr, bytesPtr, length); Swift decodes to String before resuming.
                 private final class {{boxClassName}} {
-                    let cont: CheckedContinuation<Swift.String, Error>
-                    init(_ cont: CheckedContinuation<Swift.String, Error>) { self.cont = cont }
+                    let cont: {{SwiftConcurrencyNames.CheckedContinuation}}<Swift.String, Error>
+                    init(_ cont: {{SwiftConcurrencyNames.CheckedContinuation}}<Swift.String, Error>) { self.cont = cont }
                 }
 
                 @_cdecl("{{symbolRoot}}_success")
@@ -182,8 +182,8 @@ public static partial class ClosureEmitter
                 // Continuation box retained across the C# start-thunk call. The C#
                 // helper resumes exactly once via the paired success/error symbols.
                 private final class {{boxClassName}} {
-                    let cont: CheckedContinuation<{{swiftReturnType}}, Error>
-                    init(_ cont: CheckedContinuation<{{swiftReturnType}}, Error>) { self.cont = cont }
+                    let cont: {{SwiftConcurrencyNames.CheckedContinuation}}<{{swiftReturnType}}, Error>
+                    init(_ cont: {{SwiftConcurrencyNames.CheckedContinuation}}<{{swiftReturnType}}, Error>) { self.cont = cont }
                 }
 
                 @_cdecl("{{symbolRoot}}_success")
@@ -217,8 +217,8 @@ public static partial class ClosureEmitter
                 // closures use CheckedContinuation<T, Never> — the C# helper
                 // Environment.FailFasts on exceptions, so no error resume symbol exists.
                 private final class {{boxClassName}} {
-                    let cont: CheckedContinuation<{{swiftReturnType}}, Never>
-                    init(_ cont: CheckedContinuation<{{swiftReturnType}}, Never>) { self.cont = cont }
+                    let cont: {{SwiftConcurrencyNames.CheckedContinuation}}<{{swiftReturnType}}, Never>
+                    init(_ cont: {{SwiftConcurrencyNames.CheckedContinuation}}<{{swiftReturnType}}, Never>) { self.cont = cont }
                 }
 
                 @_cdecl("{{symbolRoot}}_success")
@@ -413,7 +413,7 @@ public static partial class ClosureEmitter
                 {{indent}}// Bridges Swift's `{{closureParamList}} async throws -> {{swiftReturnType}}` back into
                 {{indent}}// the C# start thunk via a CheckedContinuation owned by the per-T box class.
                 {{indent}}let {{adaptedVar}}: @Sendable {{closureParamList}} async throws -> {{swiftReturnType}} = { {{closureParamBindings}}
-                {{indent}}    return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<{{swiftReturnType}}, Error>) in
+                {{indent}}    return try await withCheckedThrowingContinuation { (cont: {{SwiftConcurrencyNames.CheckedContinuation}}<{{swiftReturnType}}, Error>) in
                 {{indent}}        let box = {{boxClassName}}(cont)
                 {{indent}}        let boxPtr = Unmanaged.passRetained(box).toOpaque()
                 {{indent}}        let successFP = unsafeBitCast(
@@ -441,7 +441,7 @@ public static partial class ClosureEmitter
             {{indent}}// start thunk via a CheckedContinuation<_, Never>. No error channel — the C#
             {{indent}}// helper Environment.FailFasts if the user delegate throws.
             {{indent}}let {{adaptedVar}}: @Sendable {{closureParamList}} async -> {{swiftReturnType}} = { {{closureParamBindings}}
-            {{indent}}    return await withCheckedContinuation { (cont: CheckedContinuation<{{swiftReturnType}}, Never>) in
+            {{indent}}    return await withCheckedContinuation { (cont: {{SwiftConcurrencyNames.CheckedContinuation}}<{{swiftReturnType}}, Never>) in
             {{indent}}        let box = {{boxClassName}}(cont)
             {{indent}}        let boxPtr = Unmanaged.passRetained(box).toOpaque()
             {{indent}}        let successFP = unsafeBitCast(

@@ -614,7 +614,9 @@ public static class AsyncMethodGenericBridgeEmitter
 
         swiftWriter.WriteLine($"    let _entry = _SBWTaskEntry()");
         swiftWriter.WriteLine($"    _sbwRegisterTask(_sbwCancelKey, _entry)");
-        var taskOpen = needsMainActor ? "Task { @MainActor in" : "Task {";
+        var taskOpen = needsMainActor
+            ? $"{SwiftConcurrencyNames.Task} {{ @MainActor in"
+            : $"{SwiftConcurrencyNames.Task} {{";
         swiftWriter.WriteLine($"    let _sbwLaunchedTask = {taskOpen}");
         swiftWriter.WriteLine($"        defer {{");
         swiftWriter.WriteLine($"            _sbwUnregisterTask(_sbwCancelKey)");

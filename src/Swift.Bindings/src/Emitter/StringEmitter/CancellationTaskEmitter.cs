@@ -39,7 +39,7 @@ public static class CancellationTaskEmitter
         swiftWriter.WriteLines($$"""
             // Task cancellation infrastructure for async method cancellation support
             private final class _SBWTaskEntry {
-                var task: Task<Void, Never>?
+                var task: {{SwiftConcurrencyNames.Task}}<Void, Never>?
                 // Replay flag: a cancel that arrives before the launching site assigns `task`
                 // would otherwise be lost (nil?.cancel()). The cancel path records the intent
                 // here under the lock; the launching site replays it via _sbwAssignTask.
@@ -75,7 +75,7 @@ public static class CancellationTaskEmitter
             // whether a cancel already arrived in the register→assign window. The single lock
             // gives a happens-before with _sbw_cancelTask in both directions, closing the
             // lost-cancel race that a bare unlocked `_entry.task =` would leave open.
-            private func _sbwAssignTask(_ entry: _SBWTaskEntry, _ task: Task<Void, Never>) -> Bool {
+            private func _sbwAssignTask(_ entry: _SBWTaskEntry, _ task: {{SwiftConcurrencyNames.Task}}<Void, Never>) -> Bool {
                 _sbwTaskLock.lock()
                 entry.task = task
                 let cancelledEarly = entry.wasCancelled

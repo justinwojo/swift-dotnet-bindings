@@ -1505,7 +1505,9 @@ namespace BindingsGeneration
             var mainActorLine = needsMainActor ? $"{i}@MainActor\n" : "";
             // @MainActor functions: Task { } doesn't inherit actor context, so we need
             // Task { @MainActor in } to access actor-isolated members within the task body.
-            var taskOpen = needsMainActor ? "Task { @MainActor in" : "Task {";
+            var taskOpen = needsMainActor
+                ? $"{SwiftConcurrencyNames.Task} {{ @MainActor in"
+                : $"{SwiftConcurrencyNames.Task} {{";
             var annotation = _env.MethodDecl.UsesCdeclMethodWrapper ? "@_cdecl" : "@_silgen_name";
 
             // Async @_cdecl wrappers don't inherit the enclosing type's availability,

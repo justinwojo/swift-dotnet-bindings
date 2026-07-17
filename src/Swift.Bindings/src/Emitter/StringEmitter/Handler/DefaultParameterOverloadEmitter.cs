@@ -554,6 +554,13 @@ public static class DefaultParameterOverloadEmitter
         var swiftParams = new List<string>();
         var derefLines = new List<string>();
         var keptArgs = overloadDecl.CSSignature.Skip(1).ToList();
+        // This shim's signature is written into the wrapper, where a bare name resolves against
+        // every import — so a bound-module type sharing a name with an imported module's type is
+        // ambiguous to swiftc. Qualify the bound module's own types; everything else stays bare.
+        // QualificationPolicy compares against NamedTypeSpec.Module, the raw ABI spelling —
+        // never backtick-escaped (see the sibling derivation in ExistentialBypassEmitter for
+        // why UnescapeModuleName is the wrong transform for this comparison key).
+        var boundModuleName = originalMethodDecl.ModuleDecl?.Name ?? "";
         // Sibling bindings so a reserved-name escape also dodges a sibling user param.
         // The call-value loop below recomputes the identical set, keeping decls and values in sync.
         var siblings = CdeclParamMapper.CollectSiblingBindingNames(keptArgs);
@@ -575,7 +582,8 @@ public static class DefaultParameterOverloadEmitter
             else
             {
                 // Render param as native Swift type — @_silgen_name forces original function type
-                var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
+                var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(
+                    arg.SwiftTypeSpec, boundModuleName);
                 // Wrapper functions always need @escaping on closure parameters because
                 // the closure is passed to the original method which may require it.
                 // Also add @Sendable for async closures (required in Swift 5.5+ concurrency).
@@ -656,7 +664,8 @@ public static class DefaultParameterOverloadEmitter
 
         // Render return type from original method
         var returnTypeSpec = originalMethodDecl.CSSignature.First().SwiftTypeSpec;
-        var returnType = ExistentialBypassEmitter.RenderSwiftTypeSpecForReturnType(returnTypeSpec);
+        var returnType = ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperReturnType(
+            returnTypeSpec, boundModuleName);
         bool isVoid = returnTypeSpec is TupleTypeSpec tupleTypeSpec && tupleTypeSpec.IsEmptyTuple;
         bool throws = originalMethodDecl.Throws;
 
@@ -893,6 +902,12 @@ public static class DefaultParameterOverloadEmitter
         // Build Swift parameter list for the wrapper
         var swiftParams = new List<string>();
         var derefLines = new List<string>();
+        // Bare names in this shim's signature resolve against every wrapper import, so a
+        // bound-module type sharing a name with an imported module's type is ambiguous.
+        // QualificationPolicy compares against NamedTypeSpec.Module, the raw ABI spelling —
+        // never backtick-escaped (see the sibling derivation in ExistentialBypassEmitter for
+        // why UnescapeModuleName is the wrong transform for this comparison key).
+        var boundModuleName = methodDecl.ModuleDecl?.Name ?? "";
         // Sibling bindings so a reserved-name escape also dodges a sibling user param.
         // The call-arg loop below recomputes the identical set, keeping decls and values in sync.
         var siblings = CdeclParamMapper.CollectSiblingBindingNames(keptArgs);
@@ -910,7 +925,8 @@ public static class DefaultParameterOverloadEmitter
             }
             else
             {
-                var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
+                var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(
+                    arg.SwiftTypeSpec, boundModuleName);
                 if (arg.SwiftTypeSpec is ClosureTypeSpec closureSpec)
                 {
                     if (!swiftType.StartsWith("@escaping"))
@@ -962,7 +978,8 @@ public static class DefaultParameterOverloadEmitter
 
         // Return type
         var returnTypeSpec = methodDecl.CSSignature.First().SwiftTypeSpec;
-        var returnType = ExistentialBypassEmitter.RenderSwiftTypeSpecForReturnType(returnTypeSpec);
+        var returnType = ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperReturnType(
+            returnTypeSpec, boundModuleName);
         bool isVoid = returnTypeSpec is TupleTypeSpec tupleTypeSpec && tupleTypeSpec.IsEmptyTuple;
         bool throws = methodDecl.Throws;
         var asyncKeyword = methodDecl.IsAsync ? " async" : "";

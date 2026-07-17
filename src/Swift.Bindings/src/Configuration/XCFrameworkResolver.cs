@@ -1211,19 +1211,25 @@ namespace BindingsGeneration
 
         internal static string? FindSwiftInterface(string swiftModuleDir, string selectedArch)
         {
-            // Search for any arch-specific swiftinterface (works across platforms: ios, macos, tvos, etc.)
+            // Search for any arch-specific swiftinterface (works across platforms: ios, macos, tvos, etc.).
+            // Only the public variant is a valid binding input: the `.package.`/`.private.`
+            // interfaces expose declarations that aren't part of the bound surface, and their
+            // extra dot segment poisons any sibling path derived from the file name (a shadow
+            // module compiled from `<triple>.package.swiftinterface` lands at
+            // `<triple>.package.swiftmodule`, which swiftc never looks for — the shadow is then
+            // silently bypassed in favour of the real, unpatched interface).
             var archPattern = $"{selectedArch}-apple-*.swiftinterface";
             var candidates = Directory.GetFiles(swiftModuleDir, archPattern)
-                .Where(f => !f.EndsWith(".private.swiftinterface", StringComparison.OrdinalIgnoreCase))
+                .Where(SwiftInterfaceVariant.IsPublic)
                 .OrderBy(f => f, StringComparer.Ordinal)
                 .ToList();
 
             if (candidates.Count > 0)
                 return candidates[0];
 
-            // Fallback: any non-private swiftinterface
+            // Fallback: any public swiftinterface
             var allInterfaces = Directory.GetFiles(swiftModuleDir, "*.swiftinterface")
-                .Where(f => !f.EndsWith(".private.swiftinterface", StringComparison.OrdinalIgnoreCase))
+                .Where(SwiftInterfaceVariant.IsPublic)
                 .OrderBy(f => f, StringComparer.Ordinal)
                 .ToList();
 

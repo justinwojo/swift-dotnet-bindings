@@ -340,12 +340,56 @@ namespace BindingsGeneration
                     {
                         nestedNames.Add(innerType.Name);
                     }
+                    // A nested `typealias` is reached through the class exactly like a nested
+                    // nominal type, but it isn't one of its Types, so it needs collecting
+                    // separately or the strip drops the qualifier it depends on. The alias is not
+                    // a module-level name, so the bare form it would be stripped to resolves to
+                    // nothing at all ("cannot find type X in scope") — and unlike a nominal type
+                    // it can't be recovered by a scoped import, which only reaches top-level
+                    // declarations. Preserving the qualifier is the only way to name it.
+                    foreach (var aliasName in collidingType.Typealiases.Keys)
+                    {
+                        nestedNames.Add(aliasName);
+                    }
                     if (nestedNames.Count > 0)
                     {
                         nestedTypesInCollidingClass = nestedNames;
                         logger.LogInformation("Found {Count} nested type(s) in colliding class '{Module}': {Types}",
                             nestedNames.Count, moduleName, string.Join(", ", nestedNames));
                     }
+                }
+                else if (TryDetectModuleSelfAliasCollision(decl, moduleName, logger))
+                {
+                    // A module-level `public typealias <ModuleName> = SomeType` shadows the module
+                    // name just as a nominal type does, but an alias is not a member of decl.Types
+                    // — the ABI surface records it against the type it names, so the check above
+                    // cannot see it. The interface text is the only place it is observable.
+                    //
+                    // No nested-type carve-out applies here: the carve-out exists so that
+                    // `Module.Inner` reaching a type nested inside the colliding *class* keeps its
+                    // prefix, and an alias has no members of its own. Every `<ModuleName>.` prefix
+                    // the emitter writes is therefore a module qualifier and must be stripped.
+                    moduleNameForCollision = moduleName;
+                    logger.LogInformation(
+                        "Detected module/type name collision: module '{Module}' declares a public typealias with the same name. Will strip module prefixes in Swift wrapper.",
+                        moduleName);
+                }
+                else if (platform != null &&
+                         ModuleNameShadowProbe.IsModuleNameShadowedBySdk(
+                             moduleName, PlatformInfoFactory.Create(platform.Value), new SystemCommandRunner(), logger))
+                {
+                    // The shadowing type belongs to the SDK rather than the bound module, but the
+                    // consequence and the escape are identical: `<ModuleName>.` resolves into that
+                    // type instead of the module, so the prefix has to go. Bare names then resolve
+                    // through the wrapper's own `import <ModuleName>`.
+                    //
+                    // Nothing is carved out. The carve-out above keeps prefixes that reach a type
+                    // nested in the *bound module's* colliding class; here the shadowing type is
+                    // foreign and shares nothing with the module but its spelling.
+                    moduleNameForCollision = moduleName;
+                    logger.LogInformation(
+                        "Detected module/SDK-type name collision: module '{Module}' is shadowed by an SDK type with the same name. Will strip module prefixes in Swift wrapper.",
+                        moduleName);
                 }
 
                 // Detect dep-module/type name collisions: a --framework-dependency whose
@@ -1759,6 +1803,38 @@ namespace BindingsGeneration
         /// Returns both short names and module-qualified names for word-boundary matching.
         /// Short names that collide with public type names are removed to avoid over-stripping.
         /// </summary>
+        /// <summary>
+        /// Detects a module-level <c>public typealias &lt;ModuleName&gt; = …</c> in the bound
+        /// module's own textual interface — the one module-self shadowing shape the parsed ABI
+        /// surface cannot report, because an alias is recorded against the type it names rather
+        /// than as a declaration of its own.
+        ///
+        /// Fails open: with no readable interface the caller keeps the pre-existing
+        /// nominal-type-only answer, which is what every module without an alias needs anyway.
+        /// </summary>
+        private static bool TryDetectModuleSelfAliasCollision(ModuleDecl decl, string moduleName, ILogger logger)
+        {
+            if (string.IsNullOrEmpty(decl.SwiftInterfacePath) || !File.Exists(decl.SwiftInterfacePath))
+                return false;
+
+            try
+            {
+                return DepModuleCollisionDetector.HasSwiftPublicTypeWithName(
+                    File.ReadAllText(decl.SwiftInterfacePath), moduleName);
+            }
+            // Same fail-open asymmetry as ModuleNameShadowProbe: a file this helper can't read is
+            // "don't know," and "don't know" must answer "not aliased" rather than abort
+            // generation — UnauthorizedAccessException (permission denied) is exactly as
+            // unreadable as an IOException here, just a different reason.
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                logger.LogWarning(
+                    "Could not read swiftinterface at '{Path}' to check for a module-self typealias collision: {Message}",
+                    decl.SwiftInterfacePath, ex.Message);
+                return false;
+            }
+        }
+
         internal static HashSet<string> CollectInternalTypeNames(ModuleDecl module)
         {
             var internalNames = new HashSet<string>();

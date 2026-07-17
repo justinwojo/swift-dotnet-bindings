@@ -226,7 +226,9 @@ public static class AsyncStreamEmitter
         // both in lockstep if the isolation rules change.
         bool needsActorAwait = (isOnCustomActor && !propertyDecl.IsNonisolated) || needsMainActor;
         var awaitPrefix = needsActorAwait ? "await " : "";
-        var taskOpen = needsMainActor ? "Task { @MainActor in" : "Task {";
+        var taskOpen = needsMainActor
+            ? $"{SwiftConcurrencyNames.Task} {{ @MainActor in"
+            : $"{SwiftConcurrencyNames.Task} {{";
         var propAccess = NameProvider.EscapeSwiftKeyword(propertyDecl.Name);
 
         // Emit availability annotations from the member and ancestor chain.

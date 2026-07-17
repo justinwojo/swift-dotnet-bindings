@@ -244,9 +244,13 @@ public static class ExistentialBypassEmitter
 
         var typeName = structDecl.Name;
         var swiftModuleQualifiedName = structDecl.SwiftTypeName.ModuleQualifiedName;
-        var swiftTypeName = swiftModuleQualifiedName.Contains('.')
-            ? swiftModuleQualifiedName.Substring(swiftModuleQualifiedName.IndexOf('.') + 1)
-            : swiftModuleQualifiedName;
+        // Emit module-qualified: structDecl always belongs to the bound module, whose import the
+        // wrapper always carries, so the qualifier is safe even outside a collision. The single
+        // whole-file ModuleEmissionContext.QualifyForWrapperSource pass at the wrapper boundary
+        // strips it back down (or preserves it via the nested carve-out) exactly like every other
+        // qualified reference in the wrapper — stripping it locally here would bypass that pass
+        // and leave a bare self/return type ambiguous against an imported same-named SDK type.
+        var swiftTypeName = swiftModuleQualifiedName;
 
         var mangledHash = EmitterUtility.DeterministicHash8(methodDecl.MangledName);
         // SBSW_ prefix marks Swift-CC wrappers (@_silgen_name) so the P/Invoke calling-convention
@@ -602,9 +606,9 @@ public static class ExistentialBypassEmitter
 
         var typeName = parentTypeDecl.Name;
         var swiftModuleQualifiedName = parentTypeDecl.SwiftTypeName.ModuleQualifiedName;
-        var swiftTypeName = swiftModuleQualifiedName.Contains('.')
-            ? swiftModuleQualifiedName.Substring(swiftModuleQualifiedName.IndexOf('.') + 1)
-            : swiftModuleQualifiedName;
+        // Emit module-qualified: see the constructor-bypass twin of this derivation above for why
+        // this must not strip locally — the central QualifyForWrapperSource pass owns that.
+        var swiftTypeName = swiftModuleQualifiedName;
 
         var mangledHash = EmitterUtility.DeterministicHash8(methodDecl.MangledName);
         // SBSW_ prefix marks the Swift-CC (@_silgen_name) method wrapper. See EmitSwiftWrapper
@@ -674,9 +678,17 @@ public static class ExistentialBypassEmitter
         // Sibling bindings (the params that get a binding are passthroughArgs) so a reserved-name
         // escape also dodges a sibling user binding. The call loop reuses the same set.
         var siblings = CdeclParamMapper.CollectSiblingBindingNames(passthroughArgs);
+        // Bare names in this wrapper's signature resolve against every import, so a bound-module
+        // type sharing a name with an imported module's type is ambiguous to swiftc.
+        // QualificationPolicy compares against NamedTypeSpec.Module, the raw ABI spelling —
+        // never backtick-escaped. UnescapeModuleName produces Swift SOURCE syntax (e.g. the
+        // C#-safe "_class" becomes "`class`" for emission into text); comparing that against
+        // the raw ABI name would never match for a keyword-named module, silently disabling
+        // qualification for it. Compare on the raw name instead.
+        var boundModuleName = env.MethodDecl.ModuleDecl?.Name ?? "";
         foreach (var arg in passthroughArgs)
         {
-            var swiftType = RenderSwiftTypeSpec(arg.SwiftTypeSpec);
+            var swiftType = RenderSwiftTypeSpecForWrapperSignature(arg.SwiftTypeSpec, boundModuleName);
             if (arg.SwiftTypeSpec is ClosureTypeSpec closureSpec)
             {
                 if (!swiftType.StartsWith("@escaping"))
@@ -741,7 +753,9 @@ public static class ExistentialBypassEmitter
         {
             // Render the Swift return type — Swift uses this to lay out the existential container
             // in the caller's buffer so C# can read back matching bytes as ExistentialContainerN.
-            var returnSwiftType = RenderSwiftTypeSpec(returnArg.SwiftTypeSpec);
+            // Return position, hence the ReturnType helper (strips @escaping, which return types
+            // cannot carry) rather than the signature helper used for the passthrough params above.
+            var returnSwiftType = RenderSwiftTypeSpecForWrapperReturnType(returnArg.SwiftTypeSpec, boundModuleName);
             if (!isClass)
             {
                 swiftWriter.WriteLine($"let __selfTyped = __self.assumingMemoryBound(to: {swiftTypeName}.self).pointee");
@@ -1016,9 +1030,17 @@ public static class ExistentialBypassEmitter
         // Sibling bindings (the params that get a binding are passthroughArgs) so a reserved-name
         // escape also dodges a sibling user binding. The call loop reuses the same set.
         var siblings = CdeclParamMapper.CollectSiblingBindingNames(passthroughArgs);
+        // Bare names in this wrapper's signature resolve against every import, so a bound-module
+        // type sharing a name with an imported module's type is ambiguous to swiftc.
+        // QualificationPolicy compares against NamedTypeSpec.Module, the raw ABI spelling —
+        // never backtick-escaped. UnescapeModuleName produces Swift SOURCE syntax (e.g. the
+        // C#-safe "_class" becomes "`class`" for emission into text); comparing that against
+        // the raw ABI name would never match for a keyword-named module, silently disabling
+        // qualification for it. Compare on the raw name instead.
+        var boundModuleName = env.MethodDecl.ModuleDecl?.Name ?? "";
         foreach (var arg in passthroughArgs)
         {
-            var swiftType = RenderSwiftTypeSpec(arg.SwiftTypeSpec);
+            var swiftType = RenderSwiftTypeSpecForWrapperSignature(arg.SwiftTypeSpec, boundModuleName);
             // Wrapper functions always need @escaping on closure parameters because
             // the closure is passed to the original method which may require it.
             if (arg.SwiftTypeSpec is ClosureTypeSpec closureSpec)
@@ -1410,7 +1432,7 @@ public static class ExistentialBypassEmitter
     /// Strips module prefixes (e.g. "Swift.Array&lt;Swift.Int&gt;" → "Array&lt;Int&gt;").
     /// </summary>
     public static string RenderSwiftTypeSpec(TypeSpec typeSpec)
-        => RenderSwiftTypeSpecCore(typeSpec, moduleQualified: false);
+        => RenderSwiftTypeSpecCore(typeSpec, QualificationPolicy.None);
 
     /// <summary>
     /// Renders a TypeSpec for use in return type position.
@@ -1426,22 +1448,86 @@ public static class ExistentialBypassEmitter
     /// may collide with types from other imported modules).
     /// </summary>
     public static string RenderModuleQualifiedSwiftTypeSpec(TypeSpec typeSpec)
-        => RenderSwiftTypeSpecCore(typeSpec, moduleQualified: true);
+        => RenderSwiftTypeSpecCore(typeSpec, QualificationPolicy.All);
 
-    private static string RenderSwiftTypeSpecCore(TypeSpec typeSpec, bool moduleQualified)
+    /// <summary>
+    /// Renders a TypeSpec for a generated wrapper function's own signature, qualifying references
+    /// to <paramref name="boundModuleName"/>'s types and leaving every other name bare.
+    ///
+    /// A bare name in a wrapper signature resolves against everything the wrapper imports, so a
+    /// type whose name is also declared by an imported module (the bound module's own `Logger`
+    /// vs `os.Logger`, `Expression` vs `Foundation.Expression`) makes swiftc reject the signature
+    /// as ambiguous. Qualifying the bound module's types resolves that: the wrapper always imports
+    /// the module it binds, so the prefix is guaranteed to name something.
+    ///
+    /// The narrow scope is the point — qualifying everything is not a spelling change and breaks
+    /// three ways. Dependency and Apple imports are filtered down to what the interface gives
+    /// evidence for, so `Dep.T` can name a module that was never imported even where bare `T`
+    /// resolved through a re-export. Downstream `@_cdecl` lowering classifies primitives by
+    /// comparing this rendered string to a bare name, so qualifying `Bool` silently drops it out
+    /// of its Int8 ABI arm while still compiling. And a dotted spec is not always module-qualified
+    /// (an associated-type reference like `S.Element` splits the same way), so a blanket prefix
+    /// changes meaning rather than adding precision. Restricting to the bound module keeps all
+    /// three out of reach: its import always exists, its name never matches a stdlib primitive's
+    /// module, and a generic parameter is never the module being bound.
+    /// </summary>
+    public static string RenderSwiftTypeSpecForWrapperSignature(TypeSpec typeSpec, string? boundModuleName)
+        => RenderSwiftTypeSpecCore(typeSpec, QualificationPolicy.ForBoundModule(boundModuleName));
+
+    /// <summary>
+    /// Wrapper-signature rendering (see <see cref="RenderSwiftTypeSpecForWrapperSignature"/>) for
+    /// return position, which cannot carry @escaping.
+    /// </summary>
+    public static string RenderSwiftTypeSpecForWrapperReturnType(TypeSpec typeSpec, string? boundModuleName)
+        => RenderSwiftTypeSpecForWrapperSignature(typeSpec, boundModuleName).Replace("@escaping ", "");
+
+    /// <summary>
+    /// Decides, per type reference, whether a render writes the module prefix.
+    /// </summary>
+    private readonly struct QualificationPolicy
+    {
+        private readonly bool _qualifyAll;
+        private readonly string? _onlyModule;
+
+        private QualificationPolicy(bool qualifyAll, string? onlyModule)
+        {
+            _qualifyAll = qualifyAll;
+            _onlyModule = onlyModule;
+        }
+
+        /// <summary>Strip every module prefix.</summary>
+        internal static QualificationPolicy None => new(false, null);
+
+        /// <summary>Keep every module prefix the spec carries.</summary>
+        internal static QualificationPolicy All => new(true, null);
+
+        /// <summary>
+        /// Keep the prefix only on types belonging to <paramref name="moduleName"/>. A null or
+        /// empty name degrades to <see cref="None"/> rather than qualifying nothing-in-particular.
+        /// </summary>
+        internal static QualificationPolicy ForBoundModule(string? moduleName)
+            => string.IsNullOrEmpty(moduleName) ? None : new(false, moduleName);
+
+        /// <summary>True when this reference is rendered with its module prefix.</summary>
+        internal bool Qualifies(NamedTypeSpec spec)
+            => _qualifyAll || (_onlyModule is not null && spec.Module == _onlyModule);
+    }
+
+    private static string RenderSwiftTypeSpecCore(TypeSpec typeSpec, QualificationPolicy policy)
     {
         switch (typeSpec)
         {
             case NamedTypeSpec namedTypeSpec:
-                var name = moduleQualified ? namedTypeSpec.Name : namedTypeSpec.NameWithoutModule;
+                var qualified = policy.Qualifies(namedTypeSpec);
+                var name = qualified ? namedTypeSpec.Name : namedTypeSpec.NameWithoutModule;
                 // Rewrite SPI (underscore-prefixed) module prefixes to their public counterpart
                 // so the generated Swift doesn't reference types through a non-public module
                 // (e.g. "_LocationEssentials.CLLocation" → "CoreLocation.CLLocation").
-                if (moduleQualified)
+                if (qualified)
                     name = AppleFrameworkRegistry.RewriteSpiModulePrefix(name);
 
                 var rendered = namedTypeSpec.GenericParameters.Count > 0
-                    ? $"{name}<{string.Join(", ", namedTypeSpec.GenericParameters.Select(gp => RenderSwiftTypeSpecCore(gp, moduleQualified)))}>"
+                    ? $"{name}<{string.Join(", ", namedTypeSpec.GenericParameters.Select(gp => RenderSwiftTypeSpecCore(gp, policy)))}>"
                     : name;
 
                 // Nested types: TypeSpecParser populates InnerType for dotted names
@@ -1453,7 +1539,7 @@ public static class ExistentialBypassEmitter
                 // e.g. Outer.Inner<Swift.Int> keeps the Swift.Int qualification when requested.
                 if (namedTypeSpec.InnerType is not null)
                 {
-                    var innerRendered = RenderInnerNamedTypeSpec(namedTypeSpec.InnerType, moduleQualified);
+                    var innerRendered = RenderInnerNamedTypeSpec(namedTypeSpec.InnerType, policy);
                     rendered = $"{rendered}.{innerRendered}";
                 }
                 return rendered;
@@ -1463,7 +1549,7 @@ public static class ExistentialBypassEmitter
                     return "Void";
                 var elements = string.Join(", ", tupleTypeSpec.Elements.Select(e =>
                 {
-                    var rendered = RenderSwiftTypeSpecCore(e, moduleQualified);
+                    var rendered = RenderSwiftTypeSpecCore(e, policy);
                     return !string.IsNullOrEmpty(e.TypeLabel) ? $"{e.TypeLabel}: {rendered}" : rendered;
                 }));
                 return $"({elements})";
@@ -1480,7 +1566,7 @@ public static class ExistentialBypassEmitter
                 {
                     var elems = string.Join(", ", argsTuple.Elements.Select(e =>
                     {
-                        var rendered = RenderSwiftTypeSpecCore(e, moduleQualified);
+                        var rendered = RenderSwiftTypeSpecCore(e, policy);
                         var inoutPrefix = e.IsInOut ? "inout " : "";
                         var labeled = !string.IsNullOrEmpty(e.TypeLabel) ? $"{e.TypeLabel}: {inoutPrefix}{rendered}" : $"{inoutPrefix}{rendered}";
                         return labeled;
@@ -1490,9 +1576,9 @@ public static class ExistentialBypassEmitter
                 else
                 {
                     var singleInout = closureTypeSpec.Arguments.IsInOut ? "inout " : "";
-                    argsRendered = $"({singleInout}{RenderSwiftTypeSpecCore(closureTypeSpec.Arguments, moduleQualified)})";
+                    argsRendered = $"({singleInout}{RenderSwiftTypeSpecCore(closureTypeSpec.Arguments, policy)})";
                 }
-                var ret = RenderSwiftTypeSpecCore(closureTypeSpec.ReturnType, moduleQualified);
+                var ret = RenderSwiftTypeSpecCore(closureTypeSpec.ReturnType, policy);
                 var throwsKeyword = closureTypeSpec.Throws ? " throws" : "";
                 var asyncKeyword = closureTypeSpec.IsAsync ? " async" : "";
                 // @escaping and @Sendable from parsed attributes
@@ -1508,7 +1594,7 @@ public static class ExistentialBypassEmitter
                 if (protocolListTypeSpec.Protocols.Count == 0)
                     return "Any";
                 var protocols = string.Join(" & ", protocolListTypeSpec.Protocols.Keys.Select(
-                    p => RenderSwiftTypeSpecCore(p, moduleQualified)));
+                    p => RenderSwiftTypeSpecCore(p, policy)));
                 return $"any {protocols}";
 
             default:
@@ -1519,22 +1605,22 @@ public static class ExistentialBypassEmitter
     /// <summary>
     /// Renders a nested inner segment: its name is always unqualified (outer already
     /// carries the module prefix), but its own generic arguments and further-nested
-    /// inner segments follow the caller's <paramref name="moduleQualified"/> preference
+    /// inner segments follow the caller's <paramref name="policy"/>
     /// so that e.g. Outer.Inner&lt;Swift.Int&gt; keeps Swift.Int qualification when requested.
     /// </summary>
-    private static string RenderInnerNamedTypeSpec(TypeSpec innerSpec, bool moduleQualified)
+    private static string RenderInnerNamedTypeSpec(TypeSpec innerSpec, QualificationPolicy policy)
     {
         if (innerSpec is NamedTypeSpec nts)
         {
             var name = nts.NameWithoutModule;
             var rendered = nts.GenericParameters.Count > 0
-                ? $"{name}<{string.Join(", ", nts.GenericParameters.Select(gp => RenderSwiftTypeSpecCore(gp, moduleQualified)))}>"
+                ? $"{name}<{string.Join(", ", nts.GenericParameters.Select(gp => RenderSwiftTypeSpecCore(gp, policy)))}>"
                 : name;
             if (nts.InnerType is not null)
-                rendered = $"{rendered}.{RenderInnerNamedTypeSpec(nts.InnerType, moduleQualified)}";
+                rendered = $"{rendered}.{RenderInnerNamedTypeSpec(nts.InnerType, policy)}";
             return rendered;
         }
-        return RenderSwiftTypeSpecCore(innerSpec, moduleQualified);
+        return RenderSwiftTypeSpecCore(innerSpec, policy);
     }
 
     /// <summary>

@@ -105,6 +105,44 @@ namespace BindingsGeneration.Tests
             Assert.False(DepModuleCollisionDetector.HasSwiftPublicTypeWithName("", "Foo"));
             Assert.False(DepModuleCollisionDetector.HasSwiftPublicTypeWithName("public class Foo {}", ""));
         }
+
+        // --- public typealias (module-level alias shadows the module name in type scope) ---
+
+        [Fact]
+        public void HasSwiftPublicTypeWithName_PublicTypealias_Detects()
+        {
+            // A module-level public alias introduces the name into type scope the same way a
+            // nominal type does, so `<Name>.X` resolves into the alias rather than the module.
+            var text = "public typealias Foo = SomeOther";
+            Assert.True(DepModuleCollisionDetector.HasSwiftPublicTypeWithName(text, "Foo"));
+        }
+
+        [Fact]
+        public void HasSwiftPublicTypeWithName_PublicTypealias_PrefixMatch_NoFalsePositive()
+        {
+            // Word boundary: `public typealias FooBar` must not match module "Foo".
+            var text = "public typealias FooBar = X";
+            Assert.False(DepModuleCollisionDetector.HasSwiftPublicTypeWithName(text, "Foo"));
+        }
+
+        [Fact]
+        public void HasSwiftPublicTypeWithName_InternalTypealias_NoDetection()
+        {
+            // Non-public typealias is not exported; collision only fires for public/open.
+            var text = "typealias Foo = X";
+            Assert.False(DepModuleCollisionDetector.HasSwiftPublicTypeWithName(text, "Foo"));
+        }
+
+        [Theory]
+        [InlineData("  public typealias Foo = Bar")]
+        [InlineData("@available(iOS 15.0, *) public typealias Foo = Bar")]
+        [InlineData("\t@objc public typealias Foo = Bar")]
+        public void HasSwiftPublicTypeWithName_PublicTypealias_LeadingAttributesOrWhitespace_Detects(string text)
+        {
+            Assert.True(
+                DepModuleCollisionDetector.HasSwiftPublicTypeWithName(text, "Foo"),
+                $"Expected detection for: {text}");
+        }
     }
 
     public class DepModuleCollisionDetectorHasObjCInterfaceInHeadersTests
