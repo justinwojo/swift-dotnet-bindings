@@ -271,7 +271,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 {
                     return resolvedFromInner;
                 }
-                if (named.GenericParameters.Count == 0)
+                if (named.GenericParameters.Count == 0 && named.InnerType is null)
                 {
                     return typeSpec;
                 }
@@ -282,6 +282,21 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     newNamed.GenericParameters.Add(
                         SubstituteTypeSpec(gp, genericName, altGenericName,
                             conformerTypeSpec, conformer, ref ok));
+                }
+                // Re-attach a genuine nested nominal type (e.g. `ClockStrikes<U>.Values`,
+                // reached here because the associated-type-witness branch above only matches a
+                // BARE associated-type leaf and declined this one). CopyTypeSpecProps does not
+                // copy InnerType — it copies flags, not structure — so without this the nested
+                // component is silently dropped and `Parent<Conformer>.Values` collapses to a
+                // bare `Parent<Conformer>`. The inner segment's own NAME is a nested-member
+                // identifier resolved in the parent's scope, NOT a free generic parameter, so it
+                // is preserved verbatim (only its generic arguments substitute) — otherwise a leaf
+                // that merely shares the pairing generic's name (`Wrapper.Action`) would be wrongly
+                // rewritten to the conformer.
+                if (named.InnerType is { } inner)
+                {
+                    newNamed.InnerType = SubstituteNestedMemberSegment(
+                        inner, genericName, altGenericName, conformerTypeSpec, conformer, ref ok);
                 }
                 return newNamed;
 
@@ -314,6 +329,40 @@ public static partial class ConcreteProtocolSpecializationEmitter
             default:
                 return typeSpec;
         }
+    }
+
+    /// <summary>
+    /// Substitutes pairing generics inside a nested-member segment of a dot-qualified type
+    /// reference (the <c>.Inner</c> of <c>Parent&lt;Args&gt;.Inner</c>). The segment's own NAME is a
+    /// nested-member identifier resolved in the parent's scope — NOT a free generic parameter — so it
+    /// is preserved verbatim; only its generic arguments and any further-nested InnerType are
+    /// substituted. The self-qualified associated-type-witness case (where the whole
+    /// <c>Parent&lt;Conformer&gt;.Assoc</c> node collapses to the conformer's witness) is handled
+    /// earlier via <see cref="TryResolveAssociatedInnerType"/> and never reaches here. Mirrors the
+    /// C#-render-side <c>ResolveInnerPublicCSharpTypeSegment</c>, which likewise never re-resolves the
+    /// inner name.
+    /// </summary>
+    private static NamedTypeSpec SubstituteNestedMemberSegment(
+        NamedTypeSpec inner,
+        string genericName,
+        string altGenericName,
+        NamedTypeSpec conformerTypeSpec,
+        ConcreteSpecializationEngine.ConcreteConformer conformer,
+        ref bool ok)
+    {
+        var result = new NamedTypeSpec(inner.Name);
+        CopyTypeSpecProps(inner, result);
+        foreach (var gp in inner.GenericParameters)
+        {
+            result.GenericParameters.Add(
+                SubstituteTypeSpec(gp, genericName, altGenericName, conformerTypeSpec, conformer, ref ok));
+        }
+        if (inner.InnerType is { } deeper)
+        {
+            result.InnerType = SubstituteNestedMemberSegment(
+                deeper, genericName, altGenericName, conformerTypeSpec, conformer, ref ok);
+        }
+        return result;
     }
 
     private static NamedTypeSpec CloneNamedTypeSpec(NamedTypeSpec source)

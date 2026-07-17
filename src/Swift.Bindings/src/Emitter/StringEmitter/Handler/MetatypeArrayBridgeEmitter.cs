@@ -334,10 +334,9 @@ public static class MetatypeArrayBridgeEmitter
                 var label = !string.IsNullOrEmpty(origArg.PrivateName) ? origArg.PrivateName : origArg.Name;
                 if (string.IsNullOrEmpty(label))
                     label = $"arg{i}";
-                // Escape a user binding colliding with the injected `resultPtr` synthetic OR a sibling
-                // binding; the external call label is origLabel below, so this rename is source-local
-                // and safe.
-                label = NameProvider.EscapeReservedSwiftWrapperLabel(label, CdeclParamMapper.ExcludeSelf(allBindings, label));
+                // Keyword rename + sanitize + reserved/sibling escape (canonical helper). The
+                // external call label is origLabel below, so this rename is source-local and safe.
+                label = CdeclParamMapper.BuildSwiftBindingName(label, allBindings);
                 swiftParams.Add($"_ {label}: {swiftType}");
 
                 var origLabel = BuildArgLabel(origArg);

@@ -703,11 +703,10 @@ public static class ExistentialBypassEmitter
                     swiftType = swiftType.Replace("@escaping ", "@escaping @Sendable ");
                 }
             }
-            // Escape a user binding colliding with a synthetic this wrapper injects (resultPtr/__self)
-            // OR a sibling user binding. The call loop escapes the matching arg identically.
+            // Keyword rename + sanitize + reserved/sibling escape (canonical helper). The call
+            // loop derives the matching arg identically.
             var rawLabel = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
-            var label = NameProvider.EscapeReservedSwiftWrapperLabel(
-                rawLabel, CdeclParamMapper.ExcludeSelf(siblings, rawLabel));
+            var label = CdeclParamMapper.BuildSwiftBindingName(rawLabel, siblings);
             swiftParams.Add($"_ {label}: {swiftType}");
         }
         var swiftParamString = string.Join(", ", swiftParams);
@@ -720,11 +719,10 @@ public static class ExistentialBypassEmitter
             if (existentialArgs.Contains(arg))
                 continue; // Omitted — Swift uses default value
 
-            // Escape identically to the param-decl loop (same sibling set, self-excluded) so the
+            // Identical to the param-decl loop (same sibling set + BuildSwiftBindingName) so the
             // value references the same binding.
             var rawLabel = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
-            var privateName = NameProvider.EscapeReservedSwiftWrapperLabel(
-                rawLabel, CdeclParamMapper.ExcludeSelf(siblings, rawLabel));
+            var privateName = CdeclParamMapper.BuildSwiftBindingName(rawLabel, siblings);
             // Provenance-aware call label (canonical builder) — preserves labels that genuinely
             // begin with '_' (e.g. _self) and backtick-escapes keywords. Label and value (the
             // escaped binding) are independent.
@@ -1057,12 +1055,10 @@ public static class ExistentialBypassEmitter
                     swiftType = swiftType.Replace("@escaping ", "@escaping @Sendable ");
                 }
             }
-            // Escape a user binding colliding with a synthetic this wrapper injects
-            // (self_/resultPtr/__self) OR a sibling user binding. The call loop escapes the matching
-            // arg identically.
+            // Keyword rename + sanitize + reserved/sibling escape (canonical helper). The call
+            // loop derives the matching arg identically.
             var rawLabel = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
-            var label = NameProvider.EscapeReservedSwiftWrapperLabel(
-                rawLabel, CdeclParamMapper.ExcludeSelf(siblings, rawLabel));
+            var label = CdeclParamMapper.BuildSwiftBindingName(rawLabel, siblings);
             swiftParams.Add($"_ {label}: {swiftType}");
         }
         var swiftParamString = string.Join(", ", swiftParams);
@@ -1080,11 +1076,10 @@ public static class ExistentialBypassEmitter
                 // Omitted — Swift uses default value
                 continue;
             }
-            // Escape identically to the param-decl loop (same sibling set, self-excluded) so the
+            // Identical to the param-decl loop (same sibling set + BuildSwiftBindingName) so the
             // value references the same binding.
             var rawLabel = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
-            var privateName = NameProvider.EscapeReservedSwiftWrapperLabel(
-                rawLabel, CdeclParamMapper.ExcludeSelf(siblings, rawLabel));
+            var privateName = CdeclParamMapper.BuildSwiftBindingName(rawLabel, siblings);
             // Provenance-aware call label (canonical builder) — preserves labels that genuinely
             // begin with '_' (e.g. _self) and backtick-escapes keywords. Label and value (the
             // escaped binding) are independent.

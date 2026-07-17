@@ -586,6 +586,25 @@ public class CrossModuleTests : TestBase
 
     #endregion
 
+    #region Bug (e) sub-case e-1: Unlabeled Parameters on a Cross-Module Struct Extension
+
+    public void TestDependencyPointOffsetByExtension_UnlabeledParameters()
+    {
+        // offsetBy(_ dx: Double, _ dy: Double) — two UNLABELED parameters. Pre-fix, the
+        // struct-receiver trampoline reconstructed the Swift call-site label straight from
+        // ArgumentDecl.Name, which for an unlabeled parameter can be an auto-generated
+        // placeholder ("arg0") rather than the literal "_" sentinel it checked for —
+        // emitting a spurious external label the original declaration never had, which
+        // swiftc rejected at the trampoline's internal call site. The fix routes label
+        // reconstruction through CdeclParamMapper.BuildSwiftCallArgLabel.
+        var point = new DependencyPoint(3.0, 4.0);
+        var moved = point.OffsetBy(1.0, -2.0);
+        AssertEqual(4.0, moved.X, "offsetBy(_:_:) adds dx to x through the unlabeled-param trampoline");
+        AssertEqual(2.0, moved.Y, "offsetBy(_:_:) adds dy to y through the unlabeled-param trampoline");
+    }
+
+    #endregion
+
     #region Cross-Module Synthetic-Name Collision (user `self_` vs injected receiver pointer)
 
     // The cross-module extension trampolines inject the receiver pointer as `self_`. A user

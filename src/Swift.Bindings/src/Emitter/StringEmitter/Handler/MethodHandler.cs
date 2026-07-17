@@ -1305,6 +1305,17 @@ namespace BindingsGeneration
             bool hasMethodOwnGenericParams = methodEnv.MethodDecl.GenericParameters
                 .Any(p => !parentTypeParamNames.Contains(p.TypeName));
 
+            // Inout-ABI-mismatch check: OptionalPointerWrapperEmitter only special-cases the
+            // large-Optional param(s) it exists for — every OTHER parameter (including an inout
+            // one) is declared using its plain native Swift type with no IsInOut awareness at
+            // all (unlike MethodWrapperEmitter/HasCdeclCompatibleFunctionShape, which this method
+            // never reaches once UsesWrapperLibrary is set below). A sibling `inout` parameter
+            // whose type can't be safely round-tripped (String, class/ObjC-bridged, non-frozen,
+            // etc. — see HasInoutWithAbiMismatch) would silently lose its `inout`, producing a
+            // wrapper that declares the parameter as an immutable `let` while the real Swift
+            // method requires `inout` — a Swift compile error in the emitted wrapper. Decline
+            // here so the method falls through to the raw CallConvSwift P/Invoke path instead,
+            // which already forwards inout params via `ref` (PInvokeEmitter.cs).
             if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
                 !methodEnv.MethodDecl.IsAsync &&
                 !methodEnv.MethodDecl.IsModuleInternal &&
@@ -1313,6 +1324,7 @@ namespace BindingsGeneration
                 !hasMethodOwnGenericParams &&
                 !_requiresOpaqueReturn(methodEnv) &&
                 parentTypeDecl?.IsGeneric != true &&
+                !WrapperValidation.HasInoutWithAbiMismatch(methodEnv) &&
                 (methodEnv.BoundGenericsHandler.HasLargeOptionalParams(methodEnv.MethodDecl) ||
                  methodEnv.BoundGenericsHandler.IsLargeOptionalReturn(methodEnv.MethodDecl)))
             {

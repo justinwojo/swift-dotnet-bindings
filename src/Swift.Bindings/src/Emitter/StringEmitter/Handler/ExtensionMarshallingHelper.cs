@@ -148,6 +148,61 @@ public static class ExtensionMarshallingHelper
     }
 
     /// <summary>
+    /// Resolves a SimpleEnum TypeSpec to the raw-integer lowering used at the cdecl/silgen
+    /// boundary: the C# underlying integer name (e.g. "int"), the matching Swift scalar (e.g.
+    /// "Int32"), and the fully module-qualified Swift enum name for <c>T(rawValue:)</c>
+    /// reconstruction. Shared by both extension emitters so a SimpleEnum parameter is never
+    /// treated as an object pointer (<c>Unmanaged&lt;AnyObject&gt;</c> is illegal for a
+    /// non-class type) — enums cross the raw-text/silgen boundary as their raw scalar, not a
+    /// pointer, same as the ABI-JSON cdecl boundary.
+    ///
+    /// Returns false for any enum that cannot be lowered to a single integer: String-raw enums
+    /// (not blittable across the C ABI) and no-raw simple enums (no <c>init(rawValue:)</c> /
+    /// <c>.rawValue</c>). Callers must treat a false return as "unsupported" and skip the
+    /// member/parameter rather than fall through to a pointer-based marshal.
+    /// </summary>
+    public static bool TryGetSimpleEnumLowering(
+        TypeSpec typeSpec,
+        ITypeDatabase typeDatabase,
+        out string? underlyingCSType,
+        out string? underlyingSwiftType,
+        out string? qualifiedSwiftType)
+    {
+        underlyingCSType = null;
+        underlyingSwiftType = null;
+        qualifiedSwiftType = null;
+
+        if (typeSpec is not NamedTypeSpec named)
+            return false;
+
+        SwiftTypeName swiftTypeName;
+        try
+        {
+            swiftTypeName = SwiftTypeName.FromModuleQualifiedName(named.Name);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+
+        if (!typeDatabase.TryGetTypeRecord(swiftTypeName, out var record))
+            return false;
+        if (record.Kind != TypeRecordKind.Enum || !record.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+            return false;
+
+        // String-raw enums are not blittable across the C ABI.
+        // No-raw simple enums lack init(rawValue:) / .rawValue — routing them through
+        // the integer-raw lowering would emit Swift that fails to compile.
+        if (string.IsNullOrEmpty(record.RawValueTypeName) || record.RawValueTypeName == "String")
+            return false;
+
+        underlyingCSType = EnumHandler.GetCSharpEnumUnderlyingType(record.RawValueTypeName);
+        underlyingSwiftType = EnumHandler.GetSwiftScalarType(underlyingCSType);
+        qualifiedSwiftType = record.SwiftTypeName.ModuleQualifiedName;
+        return true;
+    }
+
+    /// <summary>
     /// Resolves a TypeSpec to its C# type name for use in public method signatures.
     /// </summary>
     public static string ResolveCSharpTypeName(TypeSpec typeSpec, ITypeDatabase typeDatabase)
@@ -196,6 +251,16 @@ public static class ExtensionMarshallingHelper
     {
         if (usesIndirectResult)
             return "void";
+
+        // A SimpleEnum crosses the silgen boundary as its raw scalar (see
+        // EmitSwiftMethodWrapper/EmitSwiftPropertyGetter in ForeignTypeExtensionEmitter) —
+        // the P/Invoke declaration must match that raw type, never the enum type itself,
+        // or CallConvSwift reads the wrong-sized/shaped value out of the return register.
+        if (category == ReturnKind.Primitive && typeSpec != null &&
+            TryGetSimpleEnumLowering(typeSpec, typeDatabase, out var simpleEnumUnderlyingCS, out _, out _))
+        {
+            return simpleEnumUnderlyingCS!;
+        }
 
         return category switch
         {
@@ -248,7 +313,8 @@ public static class ExtensionMarshallingHelper
         CSharpWriter csWriter,
         ReturnKind returnCategory,
         string nativeCall,
-        string csharpType)
+        string csharpType,
+        bool primitiveReturnNeedsEnumCast = false)
     {
         switch (returnCategory)
         {
@@ -257,7 +323,13 @@ public static class ExtensionMarshallingHelper
                 break;
 
             case ReturnKind.Primitive:
-                csWriter.WriteLine($"return {nativeCall};");
+                // A SimpleEnum crosses the silgen boundary as its raw underlying scalar (see
+                // ResolvePInvokeReturnType and EmitSwiftMethodWrapper's `.rawValue` reconstruction) —
+                // the public C# method still returns the enum type, so cast the raw P/Invoke
+                // result back here.
+                csWriter.WriteLine(primitiveReturnNeedsEnumCast
+                    ? $"return ({csharpType}){nativeCall};"
+                    : $"return {nativeCall};");
                 break;
 
             case ReturnKind.ObjCClass:

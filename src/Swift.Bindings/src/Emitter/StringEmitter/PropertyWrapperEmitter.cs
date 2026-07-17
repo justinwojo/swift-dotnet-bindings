@@ -947,12 +947,21 @@ public static class PropertyWrapperEmitter
 
         string protocolReturnType = needsResultPtr ? "" : $" -> {returnMapping.CdeclReturnType}";
 
+        // A struct getter declared as `mutating get { ... }` cannot be invoked on a `let`-bound
+        // copy — same accommodation as the non-generic getter path (EmitSelfReconstruction above).
+        // Binding `var` here is a local copy, not a through-pointer write-back: the wrapper's
+        // C#-visible surface is read-only, so any mutation the getter performs is deliberately
+        // discarded once the call returns.
+        bool isMutatingGetter = !isClass
+            && (propertyDecl.Accessors.OfType<GetAccessorDecl>().FirstOrDefault()?.Method.IsMutating == true
+                || propertyDecl.Accessors.OfType<SetAccessorDecl>().Any());
+
         // Build extension body lines
         var bodyLines = new List<string>();
         if (isClass)
             bodyLines.Add("let obj = Unmanaged<AnyObject>.fromOpaque(selfPtr).takeUnretainedValue() as! Self");
         else
-            bodyLines.Add("let obj = selfPtr.assumingMemoryBound(to: Self.self).pointee");
+            bodyLines.Add($"{(isMutatingGetter ? "var" : "let")} obj = selfPtr.assumingMemoryBound(to: Self.self).pointee");
 
         var propAccess = $"obj.{propertyDecl.Name}";
 

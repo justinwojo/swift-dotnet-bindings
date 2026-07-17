@@ -1340,6 +1340,52 @@ public class MemberValidationPipelineTests
         Assert.True(result.ShouldEmit);
     }
 
+    // Gate 5c — an inout parameter whose type can't round-trip through a C-ABI pointer
+    // (String, class/ObjC-bridged, protocol/existential, non-copyable, non-frozen), combined
+    // with a large-Optional parameter/return, has no correct marshalling path: the OptionalPointer
+    // wrapper can't forward the inout and the CallConvSwift fallback drops it. Skip cleanly.
+    // An ABI-safe inout (Int) alongside the same large-Optional keeps its OptionalPointer cdecl
+    // wrapper (var + &param + deferred write-back) and must NOT be skipped.
+
+    [Fact]
+    public void ValidateMethodEmission_AbiMismatchInoutWithLargeOptionalReturn_ReturnsSkip()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        // func styleInPlace(_ s: inout String) -> String? — inout String is an ABI mismatch,
+        // and String? is a large Optional that forces the OptionalPointer wrapper.
+        var method = CreateMethodWithArgs(
+            "styleInPlace",
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.String")),
+            new NamedTypeSpec("Swift.String"));
+        method.CSSignature[1].IsInOut = true;
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
+        Assert.Contains("inout", result.Details!);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_AbiSafeInoutWithLargeOptionalReturn_ReturnsEmit()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        // func stepAndLabel(_ value: inout Int) -> String? — Int inout is ABI-safe (frozen
+        // blittable), so the OptionalPointer cdecl wrapper forwards it correctly; Gate 5c must
+        // not skip it merely because a large Optional is present.
+        var method = CreateMethodWithArgs(
+            "stepAndLabel",
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.String")),
+            new NamedTypeSpec("Swift.Int"));
+        method.CSSignature[1].IsInOut = true;
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.True(result.ShouldEmit);
+    }
+
     // Gate 3c — a PUBLIC member on a @usableFromInline internal parent type. The
     // member compiles in Swift, but the only way to dispatch it across the binding
     // boundary is a wrapper whose body names the internal parent as `self`, which

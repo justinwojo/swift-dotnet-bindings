@@ -308,7 +308,7 @@ public static partial class CrossModuleExtensionEmitter
             string? simpleEnumUnderlyingSwift = null;
             string? simpleEnumQualifiedSwift = null;
             if (paramCategory == ParamKind.SimpleEnum &&
-                TryGetSimpleEnumLowering(arg.SwiftTypeSpec, typeDatabase,
+                ExtensionMarshallingHelper.TryGetSimpleEnumLowering(arg.SwiftTypeSpec, typeDatabase,
                     out simpleEnumUnderlyingCS, out simpleEnumUnderlyingSwift, out simpleEnumQualifiedSwift) == false)
             {
                 // Classified as SimpleEnum but we cannot derive a raw integer lowering
@@ -608,23 +608,29 @@ public static partial class CrossModuleExtensionEmitter
 
         swiftWriter.WriteLine($"let __self = self_.assumingMemoryBound(to: {origSwiftTypeQualified}.self).pointee");
 
-        // Reconstruct call args using the Swift external label. ArgumentDecl.Name
-        // is the external (call-site) label; PrivateName is the function-body name
-        // when it differs. An external label of "_" means the parameter is unlabeled
-        // at the call site, so it must NOT be prefixed in the trampoline body.
+        // Reconstruct call args using the Swift external label via the canonical builder
+        // (CdeclParamMapper.BuildSwiftCallArgLabel), not ArgumentDecl.Name directly:
+        // an unlabeled parameter's Name can be an auto-generated placeholder (e.g. "arg0")
+        // rather than a literal "_", which the raw-Name check below did not recognize —
+        // emitting a spurious external label the original declaration never had.
         var callArgs = new List<string>();
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
             var argDecl = method.CSSignature[i];
             var p = parameters[i - 1];
-            var label = argDecl.Name;
             var bound = ConvertCdeclSwiftArg(p);
-            callArgs.Add(string.IsNullOrEmpty(label) || label == "_"
-                ? bound
-                : $"{label}: {bound}");
+            callArgs.Add($"{CdeclParamMapper.BuildSwiftCallArgLabel(argDecl)}{bound}");
         }
 
-        var callExpr = $"__self.{NameProvider.EscapeSwiftKeyword(method.Name)}({string.Join(", ", callArgs)})";
+        // A read-only extension-default property surfaced as a synthetic getter method
+        // (IsExtensionPropertyGetter, set by ProtocolExtensionEmitter's swiftinterface-derived
+        // synthesis — see ConcreteProtocolSpecializationEmitter's identical branch) is READ,
+        // not called: `__self.name`, no parens. Emitting `__self.name()` makes swiftc reject
+        // the wrapper with "cannot call value of non-function type".
+        var methodSwiftName = NameProvider.EscapeSwiftKeyword(method.Name);
+        var callExpr = method.IsExtensionPropertyGetter
+            ? $"__self.{methodSwiftName}"
+            : $"__self.{methodSwiftName}({string.Join(", ", callArgs)})";
 
         switch (returnCategory)
         {
@@ -855,65 +861,14 @@ public static partial class CrossModuleExtensionEmitter
         _ => p.SwiftBindingName,
     };
 
-    /// <summary>
-    /// Resolves a SimpleEnum TypeSpec to the raw-integer lowering used at the
-    /// cdecl boundary: the C# underlying integer name (e.g. "int"), the matching
-    /// Swift scalar (e.g. "Int32"), and the fully module-qualified Swift enum
-    /// name for <c>T(rawValue:)</c> reconstruction.
-    ///
-    /// Returns false for any enum we cannot lower to a single integer:
-    /// String-raw enums (not blittable across the C ABI) and no-raw simple
-    /// enums (no <c>init(rawValue:)</c> / <c>.rawValue</c>; reconstructed via
-    /// tag-switch lowering elsewhere). The existing free-function wrappers
-    /// cover those surfaces; this trampoline path only handles integer-raw.
-    /// </summary>
-    private static bool TryGetSimpleEnumLowering(
-        TypeSpec typeSpec,
-        ITypeDatabase typeDatabase,
-        out string? underlyingCSType,
-        out string? underlyingSwiftType,
-        out string? qualifiedSwiftType)
-    {
-        underlyingCSType = null;
-        underlyingSwiftType = null;
-        qualifiedSwiftType = null;
-
-        if (typeSpec is not NamedTypeSpec named)
-            return false;
-
-        SwiftTypeName swiftTypeName;
-        try
-        {
-            swiftTypeName = SwiftTypeName.FromModuleQualifiedName(named.Name);
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
-
-        if (!typeDatabase.TryGetTypeRecord(swiftTypeName, out var record))
-            return false;
-        if (record.Kind != TypeRecordKind.Enum || !record.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
-            return false;
-
-        // String-raw enums are not blittable across the C ABI.
-        // No-raw simple enums lack init(rawValue:) / .rawValue — routing them through
-        // the integer-raw lowering would emit Swift that fails to compile.
-        // Lower only integer-raw simple enums on this trampoline surface.
-        if (string.IsNullOrEmpty(record.RawValueTypeName) || record.RawValueTypeName == "String")
-            return false;
-
-        underlyingCSType = EnumHandler.GetCSharpEnumUnderlyingType(record.RawValueTypeName);
-        underlyingSwiftType = EnumHandler.GetSwiftScalarType(underlyingCSType);
-        qualifiedSwiftType = record.SwiftTypeName.ModuleQualifiedName;
-        return true;
-    }
-
     private static SimpleEnumLowering? TryGetReturnSimpleEnumLowering(TypeSpec? typeSpec, ITypeDatabase typeDatabase)
     {
         if (typeSpec == null)
             return null;
-        if (!TryGetSimpleEnumLowering(typeSpec, typeDatabase, out var cs, out var sw, out var qs))
+        // Lowering logic lives once on ExtensionMarshallingHelper, shared with
+        // ForeignTypeExtensionEmitter — string-raw/no-raw enums return false there and this
+        // trampoline path only handles integer-raw, same restriction as before the extraction.
+        if (!ExtensionMarshallingHelper.TryGetSimpleEnumLowering(typeSpec, typeDatabase, out var cs, out var sw, out var qs))
             return null;
         return new SimpleEnumLowering(cs!, sw!, qs!);
     }

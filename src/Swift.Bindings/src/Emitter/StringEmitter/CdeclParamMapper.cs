@@ -57,24 +57,12 @@ public static class CdeclParamMapper
 
         var swiftTypeSpec = arg.SwiftTypeSpec;
 
-        // Swift keywords (in, for, repeat, etc.) can't be used as bare identifiers
-        // in @_cdecl wrapper bodies. Rename to avoid conflicts — the call argument
-        // label comes from arg.Name, so it's unaffected by this rename.
-        if (NameProvider.IsSwiftKeyword(label))
-            label = $"{label}Param";
-
-        // Strip type-syntax characters (<>[]()) that could appear in demangled parameter names
-        label = SwiftBuilder.SanitizeIdentifier(label);
-
-        // Escape a user binding that collides with a synthetic the caller injects into the same
-        // wrapper signature (resultPtr, errorOut, self_, …) OR with a SIBLING user param's binding
-        // (reservedSiblings — e.g. `tag` escaping to `__tag` must also dodge a sibling literally
-        // named `__tag`). Same safety rationale as the keyword rename above: the internal binding is
-        // source-local and the call label comes from arg.Name. No-op (returns the bare name) when
-        // there is no collision. Skipped when the label IS the synthetic itself
-        // (escapeReservedCollision: false) — see the param doc.
-        if (escapeReservedCollision)
-            label = NameProvider.EscapeReservedSwiftWrapperLabel(label, ExcludeSelf(reservedSiblings, label));
+        // Swift keywords (in, for, repeat, extension, …) can't be used as bare identifiers in
+        // wrapper bodies; demangled names can carry type-syntax characters; and a user binding can
+        // collide with a synthetic the caller injects into the same signature (resultPtr, errorOut,
+        // self_, …) or with a sibling user param. All three are handled by the shared core so this
+        // path and the @_silgen_name shim emitters can't derive different bindings for one param.
+        label = BuildSwiftBindingName(label, reservedSiblings, escapeReservedCollision);
 
         // Determine the Swift argument label for the init call
         // When calling _dbw_init_* (omitLabels=true), all params use _ (no external label)
@@ -1029,6 +1017,50 @@ public static class CdeclParamMapper
         var filtered = new HashSet<string>(siblings, StringComparer.Ordinal);
         filtered.Remove(label);
         return filtered;
+    }
+
+    /// <summary>
+    /// Canonical derivation of the INTERNAL Swift binding name for a user-derived wrapper parameter:
+    /// keyword rename, then identifier sanitization, then reserved/sibling collision escape. All
+    /// three steps exist for the same reason — a user param name that is not a usable Swift binding —
+    /// and they must be applied together and in this order, since each later step assumes the earlier
+    /// ones have run (the sibling set is documented as holding post-keyword/sanitize forms).
+    /// <para>
+    /// This is the single core. Splitting it lets an emitter apply a subset: a
+    /// <c>@_silgen_name</c> shim that escaped only the reserved collision emitted a parameter named
+    /// with a bare Swift keyword (<c>_ extension: String</c>) and forwarded it unescaped, which
+    /// <c>swiftc</c> rejects — while its own call-site LABEL, built by <see cref="BuildSwiftCallArgLabel"/>,
+    /// was backtick-escaped and so looked correct. Both the parameter declaration and every value
+    /// reference to it must come from here.
+    /// </para>
+    /// <para>
+    /// Renaming is output-safe for the same reason each step already was: the internal binding is
+    /// source-local — it is not part of the positional <c>@_cdecl</c> C ABI, and the forwarded Swift
+    /// call's external argument label is computed separately from <c>arg.Name</c>/
+    /// <c>OriginalSwiftName</c>, never from this binding.
+    /// </para>
+    /// </summary>
+    /// <param name="rawLabel">The user-derived name as it arrives from the parser.</param>
+    /// <param name="reservedSiblings">
+    /// The other internal binding names emitted into the same wrapper signature. The current label is
+    /// stripped internally via <see cref="ExcludeSelf"/>, so callers pass their full set.
+    /// </param>
+    /// <param name="escapeReservedCollision">
+    /// False only when the label IS the synthetic itself and so must not be escaped away from it.
+    /// The keyword and sanitization steps still run.
+    /// </param>
+    internal static string BuildSwiftBindingName(
+        string rawLabel,
+        IReadOnlySet<string>? reservedSiblings = null,
+        bool escapeReservedCollision = true)
+    {
+        var label = NameProvider.IsSwiftKeyword(rawLabel) ? $"{rawLabel}Param" : rawLabel;
+        label = SwiftBuilder.SanitizeIdentifier(label);
+
+        if (escapeReservedCollision)
+            label = NameProvider.EscapeReservedSwiftWrapperLabel(label, ExcludeSelf(reservedSiblings, label));
+
+        return label;
     }
 
     /// <summary>

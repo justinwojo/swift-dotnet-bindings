@@ -1194,13 +1194,19 @@ public static class WrapperValidation
     /// incompatible copy semantics (non-copyable) are rejected.
     /// </summary>
     public static bool HasInoutWithAbiMismatch(MethodEnvironment env)
+        => HasInoutWithAbiMismatch(env.MethodDecl, env.TypeDatabase);
+
+    /// <inheritdoc cref="HasInoutWithAbiMismatch(MethodEnvironment)"/>
+    /// <remarks>Decl+database overload for callers (e.g. the member-validation pipeline) that
+    /// have no <see cref="MethodEnvironment"/> yet.</remarks>
+    public static bool HasInoutWithAbiMismatch(MethodDecl methodDecl, ITypeDatabase typeDatabase)
     {
-        foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
+        foreach (var arg in methodDecl.CSSignature.Skip(1))
         {
             if (!arg.IsInOut) continue;
             if (arg.SwiftTypeSpec is NamedTypeSpec inoutNamed && inoutNamed.Name == "Swift.String")
                 return true;
-            if (env.TypeDatabase.TryGetTypeRecord(arg.SwiftTypeSpec, out var inoutTypeRec))
+            if (typeDatabase.TryGetTypeRecord(arg.SwiftTypeSpec, out var inoutTypeRec))
             {
                 if (inoutTypeRec.Kind == TypeRecordKind.Class ||
                     MarshallingHelpers.IsObjCBridged(inoutTypeRec) ||
@@ -1211,6 +1217,18 @@ public static class WrapperValidation
                     inoutTypeRec.Flags.HasFlag(TypeRecordFlags.NonCopyable) ||
                     (!MarshallingHelpers.IsTypeFrozen(inoutTypeRec) && inoutTypeRec.Kind != TypeRecordKind.Enum))
                     return true;
+            }
+            else
+            {
+                // No TypeRecord — commonly a foreign ObjC/Foundation type never registered in the
+                // TypeDatabase (e.g. NSMutableAttributedString). Its layout can't be verified for a
+                // safe UnsafeMutableRawPointer round-trip, and every fallback path is wrong for it:
+                // the raw CallConvSwift P/Invoke (PInvokeEmitter's ObjC-bridged / enum arms) drops
+                // the inout modifier, and a MethodWrapper's own P/Invoke emission calls
+                // GetTypeRecordOrThrow and throws. Treat it as a confirmed mismatch so the caller
+                // declines the wrapper (and the MemberValidationPipeline inout+large-Optional gate
+                // skips the member cleanly) rather than emitting a wrapper that mis-forwards inout.
+                return true;
             }
         }
         return false;

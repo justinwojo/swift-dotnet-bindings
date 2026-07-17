@@ -168,7 +168,7 @@
       "autoBridge": true,
       "optionalFallback": true,
       "wrapperImportable": true,
-      "valueTypes": ["NSFetchRequestResultType"]
+      "valueTypes": ["NSFetchRequestResultType", "NSAttributeType", "NSDeleteRule"]
     },
     {
       "module": "CoreFoundation",
@@ -300,6 +300,7 @@
         "DateComponents",
         "DateInterval",
         "Calendar",
+        "Calendar.Identifier",
         "CharacterSet",
         "ComparisonResult",
         "Decimal",

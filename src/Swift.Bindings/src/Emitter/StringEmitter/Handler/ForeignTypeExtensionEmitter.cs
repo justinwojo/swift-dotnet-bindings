@@ -324,7 +324,7 @@ public static class ForeignTypeExtensionEmitter
             return;
 
         // Emit Swift getter wrapper
-        EmitSwiftPropertyGetter(foreignTypeQualifiedName, extMethod, propertyTypeSpec, getterSymbol, returnCategory.Value, ctx, availabilityAnnotations);
+        EmitSwiftPropertyGetter(foreignTypeQualifiedName, extMethod, propertyTypeSpec, getterSymbol, returnCategory.Value, typeDatabase, ctx, availabilityAnnotations);
 
         // Collect C# getter info
         var csharpMethodName = $"Get{ToPascalCase(extMethod.MethodName)}";
@@ -459,7 +459,7 @@ public static class ForeignTypeExtensionEmitter
 
         // Emit Swift wrapper
         EmitSwiftMethodWrapper(foreignTypeQualifiedName, extMethod, allParameters, compatibleParams,
-            returnTypeSpec, symbolName, returnCategory, ctx, availabilityAnnotations);
+            returnTypeSpec, symbolName, returnCategory, typeDatabase, ctx, availabilityAnnotations);
 
         // Collect C# info
         var classInfo = GetOrCreateClassInfo(foreignTypeQualifiedName, moduleDecl.Name, ctx);
@@ -487,9 +487,18 @@ public static class ForeignTypeExtensionEmitter
         TypeSpec propertyTypeSpec,
         string symbolName,
         ReturnKind returnCategory,
+        ITypeDatabase typeDatabase,
         ModuleEmissionContext ctx,
         IReadOnlyList<AvailabilityAnnotation>? availabilityAnnotations = null)
     {
+        // A SimpleEnum's physical tag layout is assigned in declaration order and is NOT
+        // guaranteed to equal its raw value, so this silgen boundary can only cross it as
+        // the raw scalar (matching EmitSwiftMethodWrapper's identical parameter/return
+        // treatment) — never the enum type itself.
+        string? returnUnderlyingSwiftType = null;
+        bool returnIsSimpleEnum = returnCategory == ReturnKind.Primitive &&
+            TryGetSimpleEnumLowering(propertyTypeSpec, typeDatabase, out _, out returnUnderlyingSwiftType, out _);
+
         string swiftReturnType;
         bool wrapAsOpaque;
 
@@ -500,7 +509,7 @@ public static class ForeignTypeExtensionEmitter
                 wrapAsOpaque = false;
                 break;
             case ReturnKind.Primitive:
-                swiftReturnType = ExistentialBypassEmitter.RenderSwiftTypeSpec(propertyTypeSpec);
+                swiftReturnType = returnIsSimpleEnum ? returnUnderlyingSwiftType! : ExistentialBypassEmitter.RenderSwiftTypeSpec(propertyTypeSpec);
                 wrapAsOpaque = false;
                 break;
             case ReturnKind.ObjCClass:
@@ -540,7 +549,10 @@ public static class ForeignTypeExtensionEmitter
         }
         else if (returnCategory == ReturnKind.Primitive)
         {
-            ctx.AddForeignExtWrapperLine($"    return instance.{NameProvider.EscapeSwiftKeyword(extMethod.MethodName)}");
+            var propertyAccess = $"instance.{NameProvider.EscapeSwiftKeyword(extMethod.MethodName)}";
+            ctx.AddForeignExtWrapperLine(returnIsSimpleEnum
+                ? $"    return ({propertyAccess}).rawValue"
+                : $"    return {propertyAccess}");
         }
         else
         {
@@ -588,6 +600,7 @@ public static class ForeignTypeExtensionEmitter
         TypeSpec? returnTypeSpec,
         string symbolName,
         ReturnKind returnCategory,
+        ITypeDatabase typeDatabase,
         ModuleEmissionContext ctx,
         IReadOnlyList<AvailabilityAnnotation>? availabilityAnnotations = null)
     {
@@ -603,7 +616,13 @@ public static class ForeignTypeExtensionEmitter
         {
             var (_, typeSpec, _, _) = compatibleParams[p];
             var paramName = paramNames[p];
-            if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
+            if (TryGetSimpleEnumLowering(typeSpec, typeDatabase, out _, out var underlyingSwiftType, out _))
+            {
+                // Crosses the silgen boundary as its raw scalar; the call-arg loop below
+                // reconstructs the real enum via T(rawValue:) before the Swift call.
+                swiftParams.Add($"_ {paramName}: {underlyingSwiftType}");
+            }
+            else if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
                 !MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
             {
                 swiftParams.Add($"_ {paramName}: UnsafeMutableRawPointer");
@@ -615,7 +634,15 @@ public static class ForeignTypeExtensionEmitter
             }
         }
 
-        // Build return type
+        // Build return type. A SimpleEnum's physical tag layout is assigned in
+        // declaration order and is NOT guaranteed to equal its raw value, so this
+        // silgen boundary can only cross it as the raw scalar (matching the parameter
+        // treatment above) — never the enum type itself, or a CallConvSwift caller that
+        // isn't swiftc (i.e. the C# P/Invoke) can observe the wrong case entirely.
+        string? returnUnderlyingSwiftType = null;
+        bool returnIsSimpleEnum = returnCategory == ReturnKind.Primitive && returnTypeSpec != null &&
+            TryGetSimpleEnumLowering(returnTypeSpec, typeDatabase, out _, out returnUnderlyingSwiftType, out _);
+
         string swiftReturnType;
         bool returnIsClass;
         switch (returnCategory)
@@ -626,7 +653,7 @@ public static class ForeignTypeExtensionEmitter
                 returnIsClass = true;
                 break;
             case ReturnKind.Primitive:
-                swiftReturnType = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec!);
+                swiftReturnType = returnIsSimpleEnum ? returnUnderlyingSwiftType! : ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec!);
                 returnIsClass = false;
                 break;
             case ReturnKind.NonFrozenStruct:
@@ -677,7 +704,15 @@ public static class ForeignTypeExtensionEmitter
             // recompute here, or a reserved-escape applied above would desync from the call body.
             var paramName = paramNames[compatIdx++];
 
-            if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
+            if (TryGetSimpleEnumLowering(typeSpec, typeDatabase, out _, out _, out var qualifiedSwiftType))
+            {
+                // Reconstruct the enum from its raw scalar (guard-let / preconditionFailure,
+                // matching CrossModuleExtensionEmitter's identical SimpleEnum reconstruction).
+                var localName = $"{paramName}Val";
+                ctx.AddForeignExtWrapperLine($"    guard let {localName} = {qualifiedSwiftType}(rawValue: {paramName}) else {{ preconditionFailure(\"[SwiftBindings] Invalid raw value \\({paramName}) for {qualifiedSwiftType}\") }}");
+                callArgs.Add(label == "_" ? localName : $"{label}: {localName}");
+            }
+            else if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
                 !MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
             {
                 // Use Unmanaged<AnyObject> + cast to handle both true classes and ObjC-bridged structs
@@ -693,6 +728,12 @@ public static class ForeignTypeExtensionEmitter
         }
 
         var callStr = $"instance.{NameProvider.EscapeSwiftKeyword(extMethod.MethodName)}({string.Join(", ", callArgs)})";
+        if (returnIsSimpleEnum)
+        {
+            // Cross the boundary as the raw scalar, not the enum's physical tag — see the
+            // returnIsSimpleEnum comment above.
+            callStr = $"({callStr}).rawValue";
+        }
 
         if (returnIsClass)
         {
@@ -818,7 +859,17 @@ public static class ForeignTypeExtensionEmitter
             if (member.IsPropertySetter && label == "value")
                 paramName = "value";
 
-            if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
+            // A SimpleEnum is a NamedTypeSpec too, but it crosses the silgen boundary as
+            // its raw integer scalar (see EmitSwiftMethodWrapper's reconstruction via
+            // T(rawValue:)), never a pointer — check this before the generic
+            // NamedTypeSpec/.Handle branch below, or a C# enum value falls into that
+            // branch and emits `status.Handle`, which doesn't exist on a plain enum.
+            if (ExtensionMarshallingHelper.TryGetSimpleEnumLowering(typeSpec, typeDatabase,
+                out var simpleEnumUnderlyingCS, out _, out _))
+            {
+                nativeArgs.Add($"({simpleEnumUnderlyingCS}){paramName}");
+            }
+            else if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
                 !MarshallingHelpers.IsSwiftPrimitive(namedType.Name) &&
                 !MarshallingHelpers.TypeAliasToCSPrimitive.ContainsKey(namedType.Name))
             {
@@ -837,7 +888,9 @@ public static class ForeignTypeExtensionEmitter
         var nativeCall = $"NativeMethods.{member.SymbolName}({string.Join(", ", nativeArgs)})";
 
         var csharpType = ResolveCSharpReturnType(member, typeDatabase, moduleName);
-        EmitReturnValueMarshalling(csWriter, member.ReturnCategory, nativeCall, csharpType);
+        bool returnNeedsEnumCast = member.ReturnCategory == ReturnKind.Primitive && member.ReturnTypeSpec != null &&
+            ExtensionMarshallingHelper.TryGetSimpleEnumLowering(member.ReturnTypeSpec, typeDatabase, out _, out _, out _);
+        EmitReturnValueMarshalling(csWriter, member.ReturnCategory, nativeCall, csharpType, returnNeedsEnumCast);
     }
 
     /// <summary>
@@ -873,7 +926,15 @@ public static class ForeignTypeExtensionEmitter
             if (member.IsPropertySetter && label == "value")
                 paramName = "value";
 
-            if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
+            // Mirror EmitMethodBody: a SimpleEnum crosses this silgen boundary as its raw
+            // integer scalar, not a pointer, so the P/Invoke declaration must take the
+            // underlying numeric type — not fall into the generic NamedTypeSpec IntPtr arm.
+            if (ExtensionMarshallingHelper.TryGetSimpleEnumLowering(typeSpec, typeDatabase,
+                out var simpleEnumUnderlyingCS, out _, out _))
+            {
+                pinvokeParams.Add($"{simpleEnumUnderlyingCS} {paramName}");
+            }
+            else if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
                 !MarshallingHelpers.IsSwiftPrimitive(namedType.Name) &&
                 !MarshallingHelpers.TypeAliasToCSPrimitive.ContainsKey(namedType.Name))
             {
@@ -963,7 +1024,23 @@ public static class ForeignTypeExtensionEmitter
             // cross-module struct-receiver path; this emitter has no equivalent plumbing,
             // so reject them here (historically rejected at the helper level).
             var kind = ClassifyParameterType(typeSpec, typeDatabase);
-            return kind != null && kind != ParamKind.FrozenStruct;
+            if (kind == null || kind == ParamKind.FrozenStruct)
+                return false;
+
+            // A SimpleEnum crosses this silgen boundary as its raw integer scalar, never a
+            // pointer (see the declaration/call-arg loops in EmitSwiftMethodWrapper) — that
+            // lowering only exists for a non-String raw value. Reject one this emitter cannot
+            // lower so the containing method is cleanly skipped/defaulted via the existing
+            // hasIncompatibleNonDefault path, instead of falling through to the object-pointer
+            // arm below and emitting an illegal `Unmanaged<AnyObject> ... as! T` for a
+            // non-class type (e.g. CoreData.NSAttributeType).
+            if (kind == ParamKind.SimpleEnum &&
+                !TryGetSimpleEnumLowering(typeSpec, typeDatabase, out _, out _, out _))
+            {
+                return false;
+            }
+
+            return true;
         }
 
         if (typeSpec is ClosureTypeSpec) return false;
@@ -1093,11 +1170,19 @@ public static class ForeignTypeExtensionEmitter
             var parts = SplitParameters(paramStr);
             foreach (var part in parts)
             {
-                var parsed = ParseParameter(part.Trim());
+                var parsed = ParseParameter(part.Trim(), out var isVariadic);
                 if (parsed == null)
                 {
-                    logger.LogDebug("Skipping foreign extension method {Method}: could not parse parameter '{Param}'",
-                        extMethod.MethodName, part.Trim());
+                    if (isVariadic)
+                    {
+                        logger.LogDebug("Skipping foreign extension method {Method}: variadic parameter '{Param}' is not supported on this raw-text extension path",
+                            extMethod.MethodName, part.Trim());
+                    }
+                    else
+                    {
+                        logger.LogDebug("Skipping foreign extension method {Method}: could not parse parameter '{Param}'",
+                            extMethod.MethodName, part.Trim());
+                    }
                     return null;
                 }
                 parameters.Add(parsed.Value);
@@ -1149,8 +1234,10 @@ public static class ForeignTypeExtensionEmitter
     /// Parses a single parameter, including default value detection.
     /// </summary>
     private static (string label, TypeSpec typeSpec, string swiftType, bool hasDefault)?
-        ParseParameter(string paramDecl)
+        ParseParameter(string paramDecl, out bool isVariadic)
     {
+        isVariadic = false;
+
         var colonIdx = paramDecl.IndexOf(':');
         if (colonIdx < 0)
             return null;
@@ -1159,6 +1246,21 @@ public static class ForeignTypeExtensionEmitter
         var afterColon = paramDecl.Substring(colonIdx + 1).Trim();
 
         afterColon = StripSwiftAttributes(afterColon);
+
+        // A variadic parameter (`UIView...`) has no ABI-JSON-derived MethodDecl/TypeSpec fact to
+        // check on this raw-text-parsing emitter (unlike the ABI-JSON path's
+        // TypeSpec.IsVariadic) — and TypeSpecParser, which this method hands the type text to
+        // below, does not recognize "..." as syntax: it silently folds the ellipsis into the
+        // type NAME token, corrupting Module/NameWithoutModule downstream and eventually
+        // producing an illegal cast in the emitted wrapper. Detect the trailing marker before it
+        // ever reaches the parser and decline the member outright — this text-based path has no
+        // facility to reconstruct the array-splat call shape the ABI-JSON path uses, so a
+        // precise skip is correct here, not a partial or corrupted emit.
+        if (afterColon.TrimEnd().EndsWith("...", StringComparison.Ordinal))
+        {
+            isVariadic = true;
+            return null;
+        }
 
         // Detect and remove default value
         bool hasDefault = false;
@@ -1275,8 +1377,9 @@ public static class ForeignTypeExtensionEmitter
     }
 
     /// <summary>
-    /// Computes the source-local Swift wrapper binding name for each compatible param: sanitize the
-    /// label (or a type-derived name when the label is <c>_</c>), then reserved-escape it
+    /// Computes the source-local Swift wrapper binding name for each compatible param: keyword-rename
+    /// + sanitize the label (or a type-derived name when the label is <c>_</c>) via the canonical
+    /// <see cref="CdeclParamMapper.BuildSwiftBindingName"/> core, then reserved-escape it
     /// against the injected synthetics the wrapper adds to the same signature (<c>self_</c>, …) and
     /// its siblings. The method-wrapper signature loop and the call-arg loop MUST index into this one
     /// list so the <c>_ {name}:</c> decls and the body's <c>{name}</c> references stay in lockstep;
@@ -1290,11 +1393,21 @@ public static class ForeignTypeExtensionEmitter
         // the same type-based binding (`func combine(_ a: Int, _ b: Int)` → two `value`), which swiftc
         // rejects as a duplicate binding. Suffix repeats (`value`, `value2`) exactly as the protocol-
         // extension path does — then reserved-escape against the injected synthetics + siblings.
+        //
+        // The per-param base name is built via CdeclParamMapper.BuildSwiftBindingName with
+        // escapeReservedCollision:false (the reserved-collision step runs once below, after
+        // dedup, against the full sibling set) rather than this file's own former hand-rolled
+        // keyword table — that table covered only a curated subset of Swift keywords (missing
+        // e.g. "extension", "associatedtype", "subscript", …), so a param literally named one of
+        // the missing keywords (e.g. `func foo(extension: Bool)`) reached the reserved-collision
+        // escape below unrenamed — which only escapes a name colliding with an injected synthetic,
+        // not a bare keyword — and emitted an invalid `_ extension: Bool` wrapper parameter.
         var names = new List<string>(parameters.Count);
         var seen = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var (label, _, swiftType, _) in parameters)
         {
-            var baseName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
+            var rawBaseName = label == "_" ? GetParamNameFromType(swiftType) : label;
+            var baseName = CdeclParamMapper.BuildSwiftBindingName(rawBaseName, escapeReservedCollision: false);
             if (seen.TryGetValue(baseName, out var count))
             {
                 seen[baseName] = count + 1;
@@ -1327,42 +1440,6 @@ public static class ForeignTypeExtensionEmitter
             return char.ToLowerInvariant(typeName[0]) + typeName.Substring(1);
 
         return "arg";
-    }
-
-    private static string SanitizeSwiftParamName(string name)
-    {
-        return name switch
-        {
-            "self" => "self_",
-            "class" => "class_",
-            "struct" => "struct_",
-            "enum" => "enum_",
-            "protocol" => "protocol_",
-            "func" => "func_",
-            "return" => "return_",
-            "import" => "import_",
-            "let" => "let_",
-            "var" => "var_",
-            "in" => "in_",
-            "for" => "for_",
-            "if" => "if_",
-            "else" => "else_",
-            "while" => "while_",
-            "switch" => "switch_",
-            "case" => "case_",
-            "default" => "default_",
-            "where" => "where_",
-            "guard" => "guard_",
-            "throw" => "throw_",
-            "try" => "try_",
-            "catch" => "catch_",
-            "as" => "as_",
-            "is" => "is_",
-            "true" => "true_",
-            "false" => "false_",
-            "nil" => "nil_",
-            _ => name,
-        };
     }
 
     private static ForeignExtensionClassInfo GetOrCreateClassInfo(string foreignTypeQualifiedName, string moduleName, ModuleEmissionContext ctx)

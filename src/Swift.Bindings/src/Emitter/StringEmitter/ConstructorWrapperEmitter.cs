@@ -603,11 +603,14 @@ public static class ConstructorWrapperEmitter
             // Routes constructor through C calling convention to avoid CallConvSwift crash on NativeAOT.
             """);
 
-        // Add @MainActor annotation when the parent type is @MainActor-isolated.
-        // Without this, calling a @MainActor init from a non-isolated @_cdecl function
-        // causes a Swift 6 compile error. Safe for synchronous functions (no runtime dispatch).
+        // Add @MainActor annotation when the init is @MainActor-isolated — whether the isolation
+        // comes from the parent type OR from the init member itself (a @MainActor init on a
+        // non-isolated type). Without this, calling a @MainActor init from a non-isolated @_cdecl
+        // function causes a Swift 6 compile error. Safe for synchronous functions (no runtime
+        // dispatch). Uses the shared oracle so member-level isolation is not dropped.
         WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName,
-            needsMainActor: parentTypeDecl?.IsMainActorIsolated == true,
+            needsMainActor: WrapperValidation.NeedsMainActorAnnotation(
+                parentTypeDecl, env.MethodDecl.IsMainActorIsolated, env.MethodDecl.IsNonisolated),
             availabilityAnnotations: WrapperEmitterHelpers.MergeAvailability(env.MethodDecl.AvailabilityAnnotations, parentTypeDecl));
 
         swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){returnClause} {{");
@@ -956,14 +959,9 @@ public static class ConstructorWrapperEmitter
             var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
             if (label == "_")
                 label = $"arg{argIndex}";
-            if (NameProvider.IsSwiftKeyword(label))
-                label = $"{label}Param";
-            label = SwiftBuilder.SanitizeIdentifier(label);
-            // Escape a user binding colliding with a synthetic injected here (resultPtr/errorOut/self_)
-            // OR with a sibling user binding. The external label is argLabel below, so this rename is
-            // safe. Self-excluded from the sibling set so a binding is never escaped against itself.
-            label = NameProvider.EscapeReservedSwiftWrapperLabel(
-                label, CdeclParamMapper.ExcludeSelf(siblings, label));
+            // Keyword rename + sanitize + reserved/sibling escape (canonical helper). The external
+            // label is argLabel below, so this rename is source-local and safe.
+            label = CdeclParamMapper.BuildSwiftBindingName(label, siblings);
 
             // Bare external label ("_" for unlabeled). Provenance-aware: prefer the parser-captured
             // OriginalSwiftName so a label that genuinely begins with '_' (e.g. _self) is not
@@ -1225,7 +1223,8 @@ public static class ConstructorWrapperEmitter
             """);
 
         WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName,
-            needsMainActor: parentTypeDecl.IsMainActorIsolated,
+            needsMainActor: WrapperValidation.NeedsMainActorAnnotation(
+                parentTypeDecl, env.MethodDecl.IsMainActorIsolated, env.MethodDecl.IsNonisolated),
             availabilityAnnotations: WrapperEmitterHelpers.MergeAvailability(env.MethodDecl.AvailabilityAnnotations, parentTypeDecl));
 
         swiftWriter.WriteLine($"public func {swiftFuncName}({cdeclParamString}){cdeclReturnClause} {{");

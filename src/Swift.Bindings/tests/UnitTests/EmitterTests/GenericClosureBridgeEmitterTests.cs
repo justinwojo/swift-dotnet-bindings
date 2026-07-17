@@ -797,6 +797,64 @@ public class GenericClosureBridgeEmitterTests
     }
 
     [Fact]
+    public void TryEmit_InoutClassClosureArg_Rejected()
+    {
+        // The closure's argument is a CONCRETE class passed `inout` — `(inout Database) throws -> T`
+        // (the swift-dependencies `(inout any RandomNumberGenerator) -> R`-style C-callback bridge,
+        // bug b's closure sub-case). This is NOT a bare generic param, so the historical inout gate —
+        // nested inside the generic-parameter branch — never saw it: the arg sailed through
+        // IsSupportedClosureParameterType and the class check (its sibling
+        // TryEmit_ClassClosureArg_UsesOwningBorrowedClassMarshal proves a NON-inout class arg is
+        // eligible) and reached the bridge, which renders the argument by-value and invokes the
+        // closure WITHOUT `&` — a Swift wrapper that cannot type-check against the inout closure
+        // signature. The hoisted gate rejects any inout closure argument regardless of its type, so
+        // the method degrades cleanly instead of emitting an uncompilable wrapper. The inout flag is
+        // the SOLE rejection trigger.
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(new StringWriter());
+
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+        var parentDecl = CreateClassDecl("Database");
+
+        // Closure: (inout Database) throws -> τ_0_0 — a registered class argument, but inout.
+        var closureSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.Database") { IsInOut = true },
+            new NamedTypeSpec("τ_0_0")) { Throws = true };
+        var closureArg = CreateArg("transform", closureSpec, moduleDecl);
+
+        var method = new MethodDecl
+        {
+            Name = "read",
+            MangledName = "$s11RecordStore8Database4readyyF_inoutclass",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = true,
+            IsAsync = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("τ_0_0"), moduleDecl),
+                closureArg
+            },
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "T", new(), new())
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            IsSynthesizedAccessor = false
+        };
+
+        var env = new MethodEnvironment(method, typeDatabase);
+        var handled = GenericClosureBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parentDecl, new ModuleEmissionContext());
+
+        Assert.False(handled);
+        Assert.False(method.WasEmitted);
+        Assert.Equal(string.Empty, csOutput.ToString());
+    }
+
+    [Fact]
     public void TryEmit_InoutBareGenericParam_Rejected()
     {
         // The closure is plain `(τ_0_0) throws -> τ_0_0`, but the method takes a bare generic param of

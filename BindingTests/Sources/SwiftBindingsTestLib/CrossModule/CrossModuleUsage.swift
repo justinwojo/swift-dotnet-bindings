@@ -192,7 +192,46 @@ extension DependencyPoint {
     public func offset(self_: Double) -> DependencyPoint {
         return DependencyPoint(x: self.x + self_, y: self.y + self_)
     }
+
+    /// Bug (e) sub-case e-1: two UNLABELED parameters on a cross-module struct-extension
+    /// method (SwiftDate's `arg0:` symptom — extending a Foundation type with unlabeled
+    /// params, reproduced here on the cross-module `DependencyPoint`). Pre-fix, the
+    /// struct-receiver trampoline reconstructed the Swift call-site label straight from
+    /// `ArgumentDecl.Name`, checking only for a literal `"_"` sentinel; an unlabeled
+    /// parameter's *parsed* name can instead be an auto-generated placeholder (e.g.
+    /// `"arg0"`), which that check didn't recognize — emitting a spurious external label
+    /// (`arg0: value`) the original declaration never had, which swiftc rejects at the
+    /// trampoline's internal call site. The fix routes label reconstruction through the
+    /// canonical `CdeclParamMapper.BuildSwiftCallArgLabel`.
+    public func offsetBy(_ dx: Double, _ dy: Double) -> DependencyPoint {
+        return DependencyPoint(x: self.x + dx, y: self.y + dy)
+    }
 }
+
+/// A protocol with an EXTENSION-DEFAULT computed property (no per-conformer override).
+/// `DependencyPoint` below conforms via an empty `extension DependencyPoint:
+/// DependencyMagnitudeProviding {}`, so reading `.magnitudeLabel` on a `DependencyPoint`
+/// resolves entirely through this protocol extension's default implementation.
+public protocol DependencyMagnitudeProviding {
+    var magnitudeLabel: String { get }
+}
+
+extension DependencyMagnitudeProviding {
+    public var magnitudeLabel: String {
+        return "magnitude"
+    }
+}
+
+/// Bug (e) sub-case e-2: a cross-module struct conforms to a protocol purely through
+/// its extension-default property, with no override (SwiftDate's `.calendar`/`.year`
+/// "invoked as a function" symptom). `ProtocolExtensionEmitter` synthesizes a getter
+/// MethodDecl for the extension-default property and marks it
+/// `IsExtensionPropertyGetter`; pre-fix, the cross-module struct trampoline always
+/// emitted a call expression (`__self.magnitudeLabel(...)`) regardless of that flag, so
+/// a property getter was invoked with parens and swiftc rejected it ("cannot call
+/// value of non-function type"). The fix reads the property (`__self.magnitudeLabel`,
+/// no parens) when the flag is set.
+extension DependencyPoint: DependencyMagnitudeProviding {}
 
 /// Free function that uses the extension method.
 public func scaleDependencyPoint(_ point: DependencyPoint, factor: Double) -> DependencyPoint {

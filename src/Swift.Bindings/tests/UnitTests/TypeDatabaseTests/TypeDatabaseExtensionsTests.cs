@@ -1353,18 +1353,24 @@ public class TypeDatabaseExtensionsTests
     // --- IndexPath → NSIndexPath ObjC-bridged (loaded from FoundationDatabase.xml) ---
 
     [Fact]
-    public async Task LoadFoundationDatabase_IndexPath_ResolvesToNSIndexPath()
+    public async Task LoadFoundationDatabase_IndexPath_ResolvesToObjCBridgeableStruct()
     {
         var typeDatabase = new TypeDatabase();
         var dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", "FoundationDatabase.xml");
         await typeDatabase.LoadModuleDatabaseFromFile(dbPath);
 
+        // IndexPath is a Swift value type that bridges to NSIndexPath (an ObjC class). It is
+        // modeled as an objcBridgeable struct — NOT an objcBridged class — so a by-value use
+        // (e.g. an `inout IndexPath` param) is not marshalled via Unmanaged, which is only valid
+        // for reference types. Mirrors the Decimal precedent below.
         var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.IndexPath");
         Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
         Assert.Equal("Foundation", record!.CSharpTypeName.Namespace);
         Assert.Equal("NSIndexPath", record.CSharpTypeName.Name);
-        Assert.True((record.Flags & TypeRecordFlags.ObjCBridged) != 0);
-        Assert.Equal(TypeRecordKind.Class, record.Kind);
+        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+        Assert.False(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.ObjCBridgeable));
+        Assert.Equal("Foundation.NSIndexPath", record.NativeTypeName!.FullyQualifiedName);
     }
 
     // --- JSONDecoder → AnyType (AppleFrameworkValueTypes exclusion) ---
@@ -1924,29 +1930,37 @@ public class TypeDatabaseExtensionsTests
     // --- CharacterSet, Calendar, Decimal resolve from FoundationDatabase.xml ---
 
     [Fact]
-    public async Task LoadFoundationDatabase_CharacterSet_ResolvesToObjCBridgedClass()
+    public async Task LoadFoundationDatabase_CharacterSet_ResolvesToObjCBridgeableStruct()
     {
         var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml");
 
+        // Swift value type bridging to NSCharacterSet — modeled as an objcBridgeable struct so
+        // by-value uses aren't marshalled via Unmanaged (see Decimal/IndexPath precedent).
         var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.CharacterSet");
         Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
         Assert.Equal("Foundation", record!.CSharpTypeName.Namespace);
         Assert.Equal("NSCharacterSet", record.CSharpTypeName.Name);
-        Assert.Equal(TypeRecordKind.Class, record.Kind);
-        Assert.True(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+        Assert.False(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.ObjCBridgeable));
+        Assert.Equal("Foundation.NSCharacterSet", record.NativeTypeName!.FullyQualifiedName);
     }
 
     [Fact]
-    public async Task LoadFoundationDatabase_Calendar_ResolvesToObjCBridgedClass()
+    public async Task LoadFoundationDatabase_Calendar_ResolvesToObjCBridgeableStruct()
     {
         var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml");
 
+        // Swift value type bridging to NSCalendar — modeled as an objcBridgeable struct so
+        // by-value uses aren't marshalled via Unmanaged (see Decimal/IndexPath precedent).
         var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Calendar");
         Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
         Assert.Equal("Foundation", record!.CSharpTypeName.Namespace);
         Assert.Equal("NSCalendar", record.CSharpTypeName.Name);
-        Assert.Equal(TypeRecordKind.Class, record.Kind);
-        Assert.True(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+        Assert.False(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.ObjCBridgeable));
+        Assert.Equal("Foundation.NSCalendar", record.NativeTypeName!.FullyQualifiedName);
     }
 
     // --- CGBlendMode resolves as simple enum from CoreGraphicsDatabase.xml ---
@@ -2119,16 +2133,20 @@ public class TypeDatabaseExtensionsTests
     // --- Locale resolves as ObjC-bridged class (bridges to NSLocale) ---
 
     [Fact]
-    public async Task LoadFoundationDatabase_Locale_ResolvesToNSLocale()
+    public async Task LoadFoundationDatabase_Locale_ResolvesToObjCBridgeableStruct()
     {
         var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml");
 
+        // Swift value type bridging to NSLocale — modeled as an objcBridgeable struct so
+        // by-value uses aren't marshalled via Unmanaged (see Decimal/IndexPath precedent).
         var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Locale");
         Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
         Assert.Equal("Foundation", record!.CSharpTypeName.Namespace);
         Assert.Equal("NSLocale", record.CSharpTypeName.Name);
-        Assert.Equal(TypeRecordKind.Class, record.Kind);
-        Assert.True(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+        Assert.False(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.ObjCBridgeable));
+        Assert.Equal("Foundation.NSLocale", record.NativeTypeName!.FullyQualifiedName);
     }
 
     [Fact]

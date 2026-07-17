@@ -905,10 +905,14 @@ public class OptionalPointerWrapperTests
     #region Swift Keyword Escaping Tests
 
     [Fact]
-    public void Emit_SwiftWrapper_KeywordParam_EscapedWithBackticks()
+    public void Emit_SwiftWrapper_KeywordParam_RenamedToNonKeyword()
     {
         // Regression: some libraries have a parameter named "protocol" which is a Swift keyword.
-        // The emitted Swift wrapper must backtick-escape it.
+        // The emitted Swift wrapper renames it to a non-keyword identifier ("protocolParam") via
+        // CdeclParamMapper.BuildSwiftBindingName — the same strategy the other wrapper emitters use —
+        // so the declaration is a legal Swift identifier that also survives the C-symbol path (a
+        // bare-keyword `protocol` would fail to compile; the earlier backtick form was inconsistent
+        // with sibling emitters).
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Foo", moduleDecl);
@@ -924,12 +928,14 @@ public class OptionalPointerWrapperTests
 
         var (_, swiftOutput) = EmitMethod(method, typeDatabase);
 
-        // The Swift wrapper should use backtick-escaped `protocol` for the parameter
-        Assert.Contains("`protocol`", swiftOutput);
-        // Should NOT contain bare "protocol" as a parameter name (without backticks)
-        // The word "protocol" appears in the backtick-escaped form only
+        // The Swift wrapper DECLARES the renamed, non-keyword parameter.
+        Assert.Contains("_ protocolParam:", swiftOutput);
+        // Never a bare keyword parameter declaration, and never the old backtick-escaped declaration.
         Assert.DoesNotContain("_ protocol:", swiftOutput);
-        Assert.Contains("_ `protocol`:", swiftOutput);
+        Assert.DoesNotContain("_ `protocol`:", swiftOutput);
+        // The CALL SITE still forwards under the real Swift argument LABEL `protocol` (a keyword,
+        // so backtick-escaped) — `configure(`protocol`: protocolParamVal)` — which is correct Swift.
+        Assert.Contains("`protocol`: protocolParamVal", swiftOutput);
     }
 
     [Fact]
@@ -955,9 +961,9 @@ public class OptionalPointerWrapperTests
     }
 
     [Fact]
-    public void Emit_SwiftWrapper_KeywordParam_DerefUsesEscapedName()
+    public void Emit_SwiftWrapper_KeywordParam_DerefUsesRenamedName()
     {
-        // The dereference code should also use backtick-escaped name on RHS
+        // The dereference code uses the renamed, non-keyword parameter name on both sides.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Foo", moduleDecl);
@@ -972,10 +978,11 @@ public class OptionalPointerWrapperTests
 
         var (_, swiftOutput) = EmitMethod(method, typeDatabase);
 
-        // Dereference line: `protocol`.assumingMemoryBound(to: ...)
-        Assert.Contains("`protocol`.assumingMemoryBound", swiftOutput);
-        // LHS of let uses suffixed name (protocolVal) — no backticks needed
-        Assert.Contains("let protocolVal = ", swiftOutput);
+        // Dereference line reads through the renamed parameter; the local binding is suffixed.
+        Assert.Contains("protocolParam.assumingMemoryBound", swiftOutput);
+        Assert.Contains("let protocolParamVal = ", swiftOutput);
+        // The deref reads the renamed param, never the old backtick-escaped keyword form.
+        Assert.DoesNotContain("`protocol`.assumingMemoryBound", swiftOutput);
     }
 
     #endregion

@@ -955,13 +955,11 @@ public static partial class ClosureEmitter
 
         foreach (var arg in methodDecl.CSSignature.Skip(1))
         {
-            // Escape a user binding colliding with a synthetic this wrapper injects
-            // (resultPtr/_resultBuf/self/errorOut) OR a sibling user binding before it becomes a
-            // direct Swift binding. Self-excluded so a binding is never escaped against itself.
+            // Keyword rename + sanitize + reserved/sibling escape (canonical helper) before the
+            // name becomes a direct Swift binding.
             var rawCsName = NameProvider.StripVerbatimPrefix(NameProvider.GetCSharpParameterName(arg));
-            var csName = NameProvider.EscapeReservedSwiftWrapperLabel(
-                rawCsName, CdeclParamMapper.ExcludeSelf(closureSiblings, rawCsName));
-            // Escape Swift keywords with backticks for use in generated Swift code
+            var csName = CdeclParamMapper.BuildSwiftBindingName(rawCsName, closureSiblings);
+            // Escape any remaining Swift keywords with backticks for use in generated Swift code
             var swiftName = NameProvider.EscapeSwiftKeyword(csName);
             var closureTypeSpec = closureHandler.GetClosureTypeSpec(arg);
 
@@ -1016,8 +1014,7 @@ public static partial class ClosureEmitter
                 // Val for everything else) — the same single-source-of-truth approach
                 // PropertyWrapperEmitter uses, instead of re-deriving the suffix here.
                 var label_ = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
-                label_ = NameProvider.EscapeReservedSwiftWrapperLabel(
-                    label_, CdeclParamMapper.ExcludeSelf(closureSiblings, label_));
+                label_ = CdeclParamMapper.BuildSwiftBindingName(label_, closureSiblings);
                 var (cdeclParam, reconstruction, callArg) =
                     CdeclParamMapper.Map(arg, label_, env, omitLabels: false, reservedSiblings: closureSiblings);
                 argParams.Add(cdeclParam);

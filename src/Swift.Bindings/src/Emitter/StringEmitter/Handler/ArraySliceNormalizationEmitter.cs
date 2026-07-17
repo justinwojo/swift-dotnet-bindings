@@ -507,13 +507,11 @@ public static class ArraySliceNormalizationEmitter
         for (int i = 0; i < normalizedArgs.Count; i++)
         {
             var arg = normalizedArgs[i];
-            // Escape a user binding colliding with a synthetic this wrapper injects
-            // (_resultBuf/self_/errorOut) OR a sibling user binding. The call-value loop below
-            // escapes the matching normArg identically, keeping the param decl and the forwarded
-            // value in sync. Self-excluded so a binding is never escaped against itself.
+            // Keyword rename + sanitize + reserved/sibling escape (canonical helper). The
+            // call-value loop below derives the matching normArg identically, keeping the
+            // param decl and the forwarded value in sync.
             var rawLabel = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
-            var label = NameProvider.EscapeReservedSwiftWrapperLabel(
-                rawLabel, CdeclParamMapper.ExcludeSelf(sliceSiblings, rawLabel));
+            var label = CdeclParamMapper.BuildSwiftBindingName(rawLabel, sliceSiblings);
 
             // Large Optional params: accept UnsafeRawPointer, dereference in body
             if (OptionalPointerWrapperEmitter.ShouldWidenParam(arg, normalizedEnv.BoundGenericsHandler))
@@ -555,12 +553,10 @@ public static class ArraySliceNormalizationEmitter
         {
             var origArg = originalArgs[i];
             var normArg = normalizedArgs[i];
-            // Escape identically to the param-decl loop (same sibling set, self-excluded) so the
-            // forwarded value references the same (possibly synthetic/sibling-escaped) binding the
-            // wrapper declared.
+            // Identical to the param-decl loop (same sibling set + BuildSwiftBindingName) so the
+            // forwarded value references the same binding the wrapper declared.
             var rawNormName = !string.IsNullOrEmpty(normArg.PrivateName) ? normArg.PrivateName : normArg.Name;
-            var privateName = NameProvider.EscapeReservedSwiftWrapperLabel(
-                rawNormName, CdeclParamMapper.ExcludeSelf(sliceSiblings, rawNormName));
+            var privateName = CdeclParamMapper.BuildSwiftBindingName(rawNormName, sliceSiblings);
 
             // Use dereferenced value for large Optional params
             var valueRef = OptionalPointerWrapperEmitter.ShouldWidenParam(normArg, normalizedEnv.BoundGenericsHandler)

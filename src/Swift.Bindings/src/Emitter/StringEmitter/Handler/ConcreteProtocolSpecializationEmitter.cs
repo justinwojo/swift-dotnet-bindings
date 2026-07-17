@@ -3212,14 +3212,38 @@ public static partial class ConcreteProtocolSpecializationEmitter
             // Roslyn reports CS0305 "requires N type arguments" on the resolved open
             // generic. Recurse into GenericParameters; non-generic args fall out with
             // the existing NamedTypeSpec path.
-            if (named.GenericParameters.Count == 0)
-                return baseName;
+            var rendered = named.GenericParameters.Count == 0
+                ? baseName
+                : $"{baseName}<{string.Join(", ", named.GenericParameters.Select(g => ResolvePublicCSharpType(g, typeDatabase)))}>";
 
-            var args = named.GenericParameters
-                .Select(g => ResolvePublicCSharpType(g, typeDatabase));
-            return $"{baseName}<{string.Join(", ", args)}>";
+            // A dot-qualified nested-type reference (e.g. `NestedReturnHost<Unit>.Values`)
+            // carries the nested member on InnerType rather than in Name/GenericParameters
+            // (see NamedTypeSpec.LLFinalStringParts). The emitted C# projection mirrors
+            // Swift's nesting as a C# nested type (`Outer<Args>.Inner`); dropping InnerType
+            // here silently flattens the return/param type to the bare outer generic.
+            if (named.InnerType is not null)
+                rendered = $"{rendered}.{ResolveInnerPublicCSharpTypeSegment(named.InnerType, typeDatabase)}";
+
+            return rendered;
         }
         return "IntPtr";
+    }
+
+    /// <summary>
+    /// Renders a nested-type segment of a dot-qualified C# type reference (the part
+    /// after the first `.`). Its own name is never re-resolved via the type database —
+    /// that lookup only covers top-level type names — but its generic arguments and any
+    /// further-nested segments recurse through the normal resolvers.
+    /// </summary>
+    private static string ResolveInnerPublicCSharpTypeSegment(NamedTypeSpec inner, ITypeDatabase typeDatabase)
+    {
+        var name = inner.NameWithoutModule;
+        var rendered = inner.GenericParameters.Count == 0
+            ? name
+            : $"{name}<{string.Join(", ", inner.GenericParameters.Select(g => ResolvePublicCSharpType(g, typeDatabase)))}>";
+        if (inner.InnerType is not null)
+            rendered = $"{rendered}.{ResolveInnerPublicCSharpTypeSegment(inner.InnerType, typeDatabase)}";
+        return rendered;
     }
 
     private static string SanitizeTypeName(string name)

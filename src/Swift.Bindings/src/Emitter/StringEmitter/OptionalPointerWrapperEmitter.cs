@@ -146,8 +146,7 @@ public static class OptionalPointerWrapperEmitter
             bool isSetterValueParam = isSetter && argIndex == 0;
             var csName = isSetterValueParam
                 ? rawCsName
-                : NameProvider.EscapeReservedSwiftWrapperLabel(
-                    rawCsName, CdeclParamMapper.ExcludeSelf(optSiblings, rawCsName));
+                : CdeclParamMapper.BuildSwiftBindingName(rawCsName, optSiblings);
             // Escape Swift keywords with backticks for use in generated Swift code
             var swiftName = NameProvider.EscapeSwiftKeyword(csName);
 
@@ -183,8 +182,7 @@ public static class OptionalPointerWrapperEmitter
                 // The setter value param is exempt — it IS the synthetic (see above), so it must not be
                 // escaped here or inside Map, or the declaration diverges from the bare-name body RHS.
                 if (!isSetterValueParam)
-                    label_ = NameProvider.EscapeReservedSwiftWrapperLabel(
-                        label_, CdeclParamMapper.ExcludeSelf(optSiblings, label_));
+                    label_ = CdeclParamMapper.BuildSwiftBindingName(label_, optSiblings);
                 var (cdeclParam, reconstruction, callArg) =
                     CdeclParamMapper.Map(arg, label_, env, omitLabels: false,
                         escapeReservedCollision: !isSetterValueParam, reservedSiblings: optSiblings);

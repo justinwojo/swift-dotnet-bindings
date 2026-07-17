@@ -37,8 +37,10 @@
         <entity managedNameSpace="Foundation" managedTypeName="NSUrlSessionWebSocketCloseCode">
             <typedeclaration kind="enum" name="URLSessionWebSocketTask.CloseCode" module="Foundation" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
-        <entity managedNameSpace="Foundation" managedTypeName="NSIndexPath" objcBridged="true">
-            <typedeclaration kind="class" name="IndexPath" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        <!-- IndexPath — Swift value type bridging to NSIndexPath (ObjC class).
+             Follows the same pattern as URL → NSUrl (objcBridgeable struct). -->
+        <entity managedNameSpace="Foundation" managedTypeName="NSIndexPath">
+            <typedeclaration kind="struct" name="IndexPath" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" nativeType="Foundation.NSIndexPath" objcBridgeable="true" />
         </entity>
         <entity managedNameSpace="Foundation" managedTypeName="NSUrlSessionTask" objcBridged="true">
             <typedeclaration kind="class" name="URLSessionTask" module="Foundation" mangledName="$sSo20NSURLSessionTaskC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
@@ -225,15 +227,19 @@
                              mangledName="" frozen="false" requiresMemoryManagement="true"
                              nativeType="Foundation.NSDecimalNumber" objcBridgeable="true" />
         </entity>
-        <!-- CharacterSet — bridges to NSCharacterSet -->
+        <!-- CharacterSet — Swift value type bridging to NSCharacterSet (ObjC class).
+             Follows the same pattern as URL → NSUrl (objcBridgeable struct). -->
         <entity managedNameSpace="Foundation" managedTypeName="NSCharacterSet">
-            <typedeclaration kind="class" name="CharacterSet" module="Foundation"
-                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+            <typedeclaration kind="struct" name="CharacterSet" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true"
+                             nativeType="Foundation.NSCharacterSet" objcBridgeable="true" />
         </entity>
-        <!-- Calendar — bridges to NSCalendar -->
+        <!-- Calendar — Swift value type bridging to NSCalendar (ObjC class).
+             Follows the same pattern as URL → NSUrl (objcBridgeable struct). -->
         <entity managedNameSpace="Foundation" managedTypeName="NSCalendar">
-            <typedeclaration kind="class" name="Calendar" module="Foundation"
-                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+            <typedeclaration kind="struct" name="Calendar" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true"
+                             nativeType="Foundation.NSCalendar" objcBridgeable="true" />
         </entity>
         <!-- JSONEncoder — Swift class, bridges to NSObject -->
         <entity managedNameSpace="Foundation" managedTypeName="NSObject">
@@ -411,10 +417,12 @@
             <typedeclaration kind="class" name="XMLNode" module="Foundation"
                              mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
-        <!-- Locale — bridges to NSLocale -->
+        <!-- Locale — Swift value type bridging to NSLocale (ObjC class).
+             Follows the same pattern as URL → NSUrl (objcBridgeable struct). -->
         <entity managedNameSpace="Foundation" managedTypeName="NSLocale">
-            <typedeclaration kind="class" name="Locale" module="Foundation"
-                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+            <typedeclaration kind="struct" name="Locale" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true"
+                             nativeType="Foundation.NSLocale" objcBridgeable="true" />
         </entity>
         <!-- ComparisonResult — ObjC enum (NSComparisonResult) -->
         <entity managedNameSpace="Foundation" managedTypeName="NSComparisonResult">

@@ -684,16 +684,20 @@ public class ClosureHandler
         // GetGenericParamNames mapping). All non-generic closure arguments must remain supported.
         foreach (var arg in closureTypeSpec.EachArgument())
         {
+            // (c1) An `inout` closure argument of ANY type — `(inout T)`, `(inout any P)`,
+            // `(inout Concrete)` — is rejected. The bridge renders every argument as an ordinary
+            // by-value parameter in both the C# callback and the Swift `@_cdecl` wrapper (generic args
+            // as UnsafeMutableRawPointer, concrete args by value), invoking the closure WITHOUT `&`.
+            // That produces a Swift wrapper that cannot type-check against the inout closure signature,
+            // so fall out of the bridge entirely (the member degrades rather than emitting an
+            // uncompilable wrapper). Hoisted above the type-kind dispatch so an inout existential/
+            // concrete arg is caught, not just an inout bare generic. Mirrors the bare-generic inout
+            // param gate (d2) below.
+            if (arg.IsInOut)
+                return false;
+
             if (arg is NamedTypeSpec argNamed && IsGenericTypeParameter(argNamed.Name))
             {
-                // (c1) An `inout` generic closure argument — `(inout T) throws -> T` — is rejected.
-                // The bridge specializes T = UnsafeMutableRawPointer and renders the argument as an
-                // ordinary by-value void* in both the C# callback and the Swift `@_cdecl` wrapper,
-                // invoking the closure WITHOUT `&`. That produces a Swift wrapper that cannot
-                // type-check against the inout closure signature, so fall out of the bridge entirely
-                // (the member degrades rather than emitting an uncompilable wrapper).
-                if (argNamed.IsInOut)
-                    return false;
                 continue; // Generic arg in input position — marshalled via VWT value-buffer pointer
             }
             if (!IsSupportedClosureParameterType(arg))

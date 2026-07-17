@@ -34,6 +34,8 @@ namespace BindingsGeneration;
 ///     11. Bare generic usage in signature
 ///     12. Non-ISwiftObject bound generic type argument
 ///     13. Unsatisfied generic constraint
+///   Gate 5c — inout of an ABI-mismatched type combined with a large-Optional:
+///     13b. inout param that can't round-trip a C-ABI pointer + large-Optional param/return
 ///   Gate 6 — Generic constructor own params (constructor only):
 ///     14. C# does not support generic constructors with method-own type parameters
 ///
@@ -541,6 +543,34 @@ public class MemberValidationPipeline
                 return ValidationResult.Skip(SkipReason.UnsupportedSignature,
                     $"Tuple parameter '{argument.Name}' has elements whose P/Invoke type differs from the C# type — per-element marshalling for convertible-element tuple parameters is not yet implemented.");
             }
+        }
+
+        // ── Gate 5c: inout of an ABI-mismatched type combined with a large-Optional ──
+        // An ABI-SAFE inout (Int32, frozen blittable struct) that also carries a large-Optional
+        // parameter/return is claimed by MethodWrapperEmitter's cdecl path, which forwards the inout
+        // correctly (CdeclParamMapper.MapInout: an UnsafeMutableRawPointer parameter + `&` call arg +
+        // a deferred pointee write-back) — so it is NOT skipped here. An ABI-MISMATCH inout (String,
+        // class/ObjC-bridged, protocol/existential, non-copyable, non-frozen — see
+        // WrapperValidation.HasInoutWithAbiMismatch) has no wrapper path: MethodWrapperEmitter rejects
+        // it ("inout_abi_mismatch") and the OptionalPointer routing declines it as well (its guard
+        // requires !HasInoutWithAbiMismatch, because OptionalPointerWrapperEmitter has no inout
+        // awareness — it special-cases only the large-Optional arg and would drop a sibling inout).
+        // With both wrappers declined, the method falls to the raw CallConvSwift P/Invoke, which drops
+        // the inout modifier for an ObjC-bridged / enum parameter — passing the bridged object handle
+        // *by value* where Swift expects the value's inout storage address (a silent ABI mismatch,
+        // e.g. `inout IndexPath` calling with NSIndexPath.Handle). There is no correct emission path
+        // for that combination, so skip the member cleanly here rather than emit a mis-forwarded binding.
+        var inoutBoundGenerics = new BoundGenericsHandler(_typeDatabase);
+        if (WrapperValidation.HasInoutWithAbiMismatch(methodDecl, _typeDatabase) &&
+            (inoutBoundGenerics.HasLargeOptionalParams(methodDecl) ||
+             inoutBoundGenerics.IsLargeOptionalReturn(methodDecl)))
+        {
+            return ValidationResult.Skip(SkipReason.UnsupportedSignature,
+                "An inout parameter whose type cannot round-trip through a C-ABI pointer (String, " +
+                "class/ObjC-bridged, protocol/existential, non-copyable, or non-frozen) combined with " +
+                "a large-Optional parameter or return has no correct marshalling path: both the " +
+                "MethodWrapper and OptionalPointer wrapper paths decline the mismatched inout type, " +
+                "and the raw CallConvSwift fallback drops the inout modifier.");
         }
 
         // ── Gate 6: Generic constructor own params (constructor only) ──

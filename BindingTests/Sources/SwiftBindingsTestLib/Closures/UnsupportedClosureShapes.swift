@@ -17,8 +17,9 @@ import Foundation
 //   ArrayOfExistentialReturn    — closure returning `[any P]`
 //   SendableOptionalExistential — optional existential with @Sendable
 //   AsyncVoidReturn             — `@escaping (Args) async -> Void` (not baseline-async)
+//   InoutClosureParameter       — the closure's OWN parameter is `inout`
 //
-// All five shapes degrade today. Fixing each is a separate Closure-handler session
+// All six shapes degrade today. Fixing each is a separate Closure-handler session
 // (per-shape evidence + indirect-return marshalling). Layer B's job here is to keep
 // the count visible.
 
@@ -132,5 +133,23 @@ public class UnsupportedClosureAsyncVoidReturn {
         _ handler: @escaping (UnsupportedClosureRequest, UnsupportedClosureSignalDefault) async -> Void
     ) {
         self.deferred = handler
+    }
+}
+
+/// Shape (6): the closure's OWN parameter is `inout` (swift-dependencies'
+/// `(inout RandomNumberGenerator) -> UInt64`-style C-callback bridge, bug b's
+/// closure-bridge sub-case). Closures crossing the @_cdecl boundary use a fixed
+/// value-parameter ABI (a heap-boxed context + by-value argument marshalling); an
+/// `inout` parameter inside the closure's OWN signature has no write-back channel
+/// through that boundary today, so this shape is declined rather than silently
+/// dropping the mutation (pre-fix, the emitter dropped `inout` from the bridged
+/// closure's parameter type entirely, producing a signature mismatch swiftc rejected
+/// at the call site inside the wrapper).
+public class UnsupportedClosureInoutParam {
+    public init() {}
+
+    public func generate(_ body: (inout Int32) -> Int32) -> Int32 {
+        var seed: Int32 = 7
+        return body(&seed)
     }
 }

@@ -1332,6 +1332,48 @@ public class ConstructorWrapperEmitterTests
         Assert.Contains("@_cdecl(\"", output);
     }
 
+    [Fact]
+    public void EmitSwiftWrapper_MemberMainActorIsolatedNonIsolatedParent_EmitsMainActorAnnotation()
+    {
+        // rive-ios `Worker.init(device:)`: the TYPE is not @MainActor, but the init MEMBER is
+        // @MainActor-isolated. Calling that init from a nonisolated synchronous @_cdecl wrapper is a
+        // Swift 6 error, so the wrapper must carry @MainActor. The other wrapper emitters route the
+        // decision through WrapperValidation.NeedsMainActorAnnotation (which ORs type- AND member-level
+        // isolation); this emitter previously read only parentTypeDecl.IsMainActorIsolated, so a
+        // member-only @MainActor init silently dropped the annotation. Sole trigger here is the member
+        // flag — the parent stays non-isolated.
+        var (env, ctx) = CreateConstructorEnv(isClass: false, isFailable: false, throws: false);
+        env.MethodDecl.IsMainActorIsolated = true;
+
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
+
+        var output = sw.ToString();
+        Assert.Contains("@MainActor", output);
+        Assert.Contains("@_cdecl(\"", output);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_NonisolatedMemberOnMainActorParent_NoMainActorAnnotation()
+    {
+        // Control for the member-level path: a `nonisolated` init explicitly opts OUT of its
+        // @MainActor parent's isolation, so the wrapper must NOT carry @MainActor. Only reachable now
+        // that the emitter honors the shared NeedsMainActorAnnotation oracle (which returns false when
+        // the member is nonisolated) instead of the member-blind parent flag.
+        var (env, ctx) = CreateConstructorEnv(isClass: false, isFailable: false, throws: false);
+        ((TypeDecl)env.ParentDecl!).IsMainActorIsolated = true;
+        env.MethodDecl.IsNonisolated = true;
+
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
+
+        var output = sw.ToString();
+        Assert.DoesNotContain("@MainActor", output);
+        Assert.Contains("@_cdecl(\"", output);
+    }
+
     #endregion
 
     #region Optional String Passthrough Tests (Issue J)

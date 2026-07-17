@@ -343,7 +343,15 @@ final class ActorIsolationWalker: SyntaxVisitor {
         // set (`localMatch ?? importedMatch`); the imported fallback only adds the
         // cross-module case the local set cannot see.
         let isCustomActor = matchAnyCustomActor(attributes: attributes, includeImported: true) != nil
-        let isAnyActor = isMainActor || isCustomActor
+
+        // An `isolated` parameter (`func f(_ a: isolated any Actor)`) isolates the member to
+        // whatever actor instance is passed — a third isolation mechanism alongside the
+        // MainActor and custom-global-actor attributes, and the only one that carries NO
+        // attribute to scan. Its isolation target is dynamic, so it is never main-actor even
+        // when some attribute suggests otherwise; treating it as main-actor would annotate a
+        // wrapper `@MainActor` and still fail to satisfy the callee's isolation.
+        let hasIsolatedParam = hasIsolatedParameter(params)
+        let isAnyActor = isMainActor || isCustomActor || hasIsolatedParam
         let isNonisolated = hasNonisolatedModifier(modifiers)
 
         if !isAnyActor && !isNonisolated {
@@ -376,7 +384,7 @@ final class ActorIsolationWalker: SyntaxVisitor {
             else { return }
             if isAnyActor {
                 actorIsolatedMembers.insert(pname)
-                if isMainActor {
+                if isMainActor && !hasIsolatedParam {
                     mainActorIsolatedMembers.insert(pname)
                 }
             }
@@ -390,7 +398,7 @@ final class ActorIsolationWalker: SyntaxVisitor {
 
         if isAnyActor {
             actorIsolatedMembers.insert(key)
-            if isMainActor {
+            if isMainActor && !hasIsolatedParam {
                 mainActorIsolatedMembers.insert(key)
             }
         }
@@ -398,6 +406,20 @@ final class ActorIsolationWalker: SyntaxVisitor {
         if isNonisolated {
             nonisolatedMembers.insert(key)
         }
+    }
+
+    /// True when any parameter carries the `isolated` specifier. The specifier sits inside the
+    /// parameter's type (`AttributedTypeSyntax`), so it reads as a leading word of the type text
+    /// rather than as a modifier on the declaration. Requiring a following type rules out a
+    /// parameter whose type is merely *named* `isolated`.
+    private func hasIsolatedParameter(_ params: FunctionParameterClauseSyntax?) -> Bool {
+        guard let params else { return false }
+        for param in params.parameters {
+            if param.type.trimmedDescription.hasPrefix("isolated ") {
+                return true
+            }
+        }
+        return false
     }
 
     private func hasMainActorAttribute(_ attributes: AttributeListSyntax) -> Bool {

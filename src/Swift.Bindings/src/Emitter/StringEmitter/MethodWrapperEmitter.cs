@@ -1031,13 +1031,9 @@ public static class MethodWrapperEmitter
 
                         var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
                         if (label == "_") label = $"arg{argIndex}";
-                        if (NameProvider.IsSwiftKeyword(label)) label = $"{label}Param";
-                        label = SwiftBuilder.SanitizeIdentifier(label);
-                        // Escape a user binding colliding with a synthetic injected into this wrapper signature
-                        // (self_/resultPtr/…) OR with a sibling user binding. The external label is argLabel
-                        // below, so this rename is safe. Self-excluded so a binding is never escaped against itself.
-                        label = NameProvider.EscapeReservedSwiftWrapperLabel(
-                            label, CdeclParamMapper.ExcludeSelf(siblings, label));
+                        // Keyword rename + sanitize + reserved/sibling escape (canonical helper). The
+                        // external label is argLabel below, so this rename is source-local and safe.
+                        label = CdeclParamMapper.BuildSwiftBindingName(label, siblings);
 
                         // Bare external label for the wrapper's own signature ("_" for unlabeled). Provenance-
                         // aware: prefer the parser-captured OriginalSwiftName so a label that genuinely begins
@@ -1147,7 +1143,16 @@ public static class MethodWrapperEmitter
             protocolReturnType = $" -> {returnMapping.CdeclReturnType}";
 
         var throwsClause = throws ? " throws" : "";
-        var protocolMethodSig = $"static func {dispatchMethodName}({string.Join(", ", protocolParams)}){throwsClause}{protocolReturnType}";
+
+        // A main-actor-isolated member can only be called from a matching isolation context.
+        // The @_cdecl entry point below carries @MainActor, but the call itself happens in the
+        // type-erasure dispatch shim — so the requirement and its witness need the annotation
+        // too, or the shim is nonisolated and the call is rejected.
+        bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
+            parentTypeDecl, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated);
+        var mainActorPrefix = needsMainActor ? "@MainActor " : "";
+
+        var protocolMethodSig = $"{mainActorPrefix}static func {dispatchMethodName}({string.Join(", ", protocolParams)}){throwsClause}{protocolReturnType}";
 
         // Build extension body
         var methodCallArgString = string.Join(", ", methodCallArgs);
@@ -1258,7 +1263,7 @@ public static class MethodWrapperEmitter
             extensionAvailability, "");
         swiftWriter.WriteLines($$"""
             {{extensionAvailPrefix}}extension {{moduleQualifiedSwiftName}}: {{protocolName}} {
-                static func {{dispatchMethodName}}({{string.Join(", ", protocolParams)}}){{throwsClause}}{{protocolReturnType}} {
+                {{mainActorPrefix}}static func {{dispatchMethodName}}({{string.Join(", ", protocolParams)}}){{throwsClause}}{{protocolReturnType}} {
                     {{extensionBody}}
                 }
             }
@@ -1284,8 +1289,6 @@ public static class MethodWrapperEmitter
             // Routes through protocol-based type erasure to avoid CallConvSwift crash.
             """);
 
-        bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
-            parentTypeDecl, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated);
         WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActor,
             WrapperEmitterHelpers.MergeAvailability(methodDecl.AvailabilityAnnotations, parentTypeDecl));
 

@@ -68,6 +68,49 @@ public class ParameterTests : TestBase
 
     #endregion
 
+    #region Bug (b): inout Parameter Alongside Trailing Default Parameters
+
+    public void TestAdjustAndLog_InoutPreservedOnTrimmedDefaultOverload()
+    {
+        // adjustAndLog(_ value: inout Int32, tag: String = "default", scale: Int32 = 1) —
+        // an inout parameter sitting alongside trailing default parameters. Pre-fix, the
+        // trimmed (no-default-args) overload's re-derived parameter list dropped the
+        // `inout` qualifier on the still-present `value` parameter, so the trimmed
+        // overload's internal call passed a plain value where the underlying method
+        // required a mutable reference. This calls the FULL form (all args explicit) to
+        // pin the write-back; the trimmed-overload compile itself is covered by the
+        // compile-only gate (the trimmed overload wouldn't build at all pre-fix).
+        int value = 5;
+        string label = TestLibFunctions.AdjustAndLog(ref value, "count", 2);
+        AssertEqual(12, value, "adjustAndLog must write (value+1)*scale back to the caller");
+        AssertEqual("count: 12", label, "adjustAndLog returns \"tag: <new value>\"");
+    }
+
+    #endregion
+
+    #region Bug (b): ABI-safe inout Alongside a large-Optional Return
+
+    public void TestStepAndLabel_InoutWriteBackWithOptionalReturn()
+    {
+        // stepAndLabel(_ value: inout Int32) -> String? — an ABI-safe (blittable) inout
+        // parameter combined with a large-Optional (String?) return. The large-Optional return
+        // forces the OptionalPointer @_cdecl wrapper; that path must STILL forward the inout
+        // (var + &param + deferred write-back) rather than dropping it or skipping the member.
+        // Both channels are asserted: the ref write-back AND the non-nil Optional payload.
+        int value = 41;
+        string? label = TestLibFunctions.StepAndLabel(ref value);
+        AssertEqual(42, value, "stepAndLabel must write the incremented value back to the caller");
+        AssertEqual("positive:42", label, "stepAndLabel returns the non-nil Optional payload");
+
+        // Drive the nil arm too: value <= 0 after the increment returns nil.
+        int negative = -5;
+        string? none = TestLibFunctions.StepAndLabel(ref negative);
+        AssertEqual(-4, negative, "stepAndLabel must write the incremented value back on the nil arm");
+        AssertEqual(null, none, "stepAndLabel returns nil when the stepped value is not positive");
+    }
+
+    #endregion
+
     #region Default Parameters
 
     public void TestGreetDefault()

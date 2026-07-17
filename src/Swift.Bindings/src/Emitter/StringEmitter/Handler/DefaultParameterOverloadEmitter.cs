@@ -223,6 +223,17 @@ public static class DefaultParameterOverloadEmitter
                 continue;
             }
 
+            // A closure-typed inout param can't be expressed by this @_silgen_name shim:
+            // EmitSwiftWrapper unconditionally forces @escaping onto every closure parameter
+            // it forwards (the original method may require it), but `inout` and `@escaping`
+            // are mutually exclusive on a Swift function parameter — swiftc rejects the
+            // combination outright. Skip rather than emit an uncompilable wrapper.
+            if (overloadDecl.CSSignature.Skip(1).Any(a => a.IsInOut && a.SwiftTypeSpec is ClosureTypeSpec))
+            {
+                logger.LogDebug("DefaultParameterOverload: skipping overload (trim {Trim}) for {Name} — inout closure parameter cannot be expressed in the @_silgen_name shim", trim, methodDecl.Name);
+                continue;
+            }
+
             // Check for collision with existing methods/ctors that have same name and param count
             if (HasSignatureCollision(overloadDecl))
             {
@@ -567,11 +578,10 @@ public static class DefaultParameterOverloadEmitter
         for (int i = 0; i < keptArgs.Count; i++)
         {
             var arg = keptArgs[i];
-            // Escape a user binding colliding with the synthetic _resultBuf this shim injects OR a
-            // sibling user binding. The call-value loop below escapes the matching arg identically.
+            // Keyword rename + sanitize + reserved/sibling escape (canonical helper). The
+            // call-value loop below derives the matching arg identically.
             var rawLabel = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
-            var label = NameProvider.EscapeReservedSwiftWrapperLabel(
-                rawLabel, CdeclParamMapper.ExcludeSelf(siblings, rawLabel));
+            var label = CdeclParamMapper.BuildSwiftBindingName(rawLabel, siblings);
 
             // Large Optional params: accept UnsafeRawPointer, dereference in body
             if (OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler))
@@ -600,6 +610,20 @@ public static class DefaultParameterOverloadEmitter
                     {
                         swiftType = swiftType.Replace("@escaping ", "@escaping @Sendable ");
                     }
+                }
+                // RenderSwiftTypeSpecForWrapperSignature never emits a top-level `inout ` —
+                // this @_silgen_name shim intercepts the ORIGINAL Swift symbol, so its
+                // signature must match the original function type exactly, `inout` included,
+                // or the ABI the caller (the shim itself, called by the promoted @_cdecl/P-Invoke
+                // path) and the callee (the real method, called below) disagree on whether this
+                // slot is a pass-by-reference parameter. ArgumentDecl.IsInOut (not TypeSpec.IsInOut,
+                // which this renderer does not consult for a top-level param) is the parser-sourced
+                // fact for it. A closure-typed inout can't reach here — @escaping and inout are
+                // mutually exclusive in Swift, so TryEmitOverloads/EmitDebugParamWrapper skip that
+                // shape entirely rather than emit it.
+                if (arg.IsInOut && !swiftType.StartsWith("inout "))
+                {
+                    swiftType = $"inout {swiftType}";
                 }
                 swiftParams.Add($"_ {label}: {swiftType}");
             }
@@ -638,15 +662,14 @@ public static class DefaultParameterOverloadEmitter
         for (int i = 0; i < keptArgs.Count; i++)
         {
             var arg = keptArgs[i];
-            // Escape identically to the param-decl loop (same sibling set, self-excluded) so the
+            // Identical to the param-decl loop (same sibling set + BuildSwiftBindingName) so the
             // value references the same binding.
             var rawLabel = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
-            var privateName = NameProvider.EscapeReservedSwiftWrapperLabel(
-                rawLabel, CdeclParamMapper.ExcludeSelf(siblings, rawLabel));
+            var privateName = CdeclParamMapper.BuildSwiftBindingName(rawLabel, siblings);
 
             // Use dereferenced value for large Optional params
-            var valueRef = OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler)
-                ? $"{privateName}Val" : privateName;
+            bool isWidened = OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler);
+            var valueRef = isWidened ? $"{privateName}Val" : privateName;
 
             // Provenance-aware call label (canonical builder) — preserves labels that genuinely
             // begin with '_' (e.g. _self) and backtick-escapes keywords.
@@ -657,8 +680,16 @@ public static class DefaultParameterOverloadEmitter
             // Swift can re-wrap the result in @autoclosure at the call site.
             var autoclosureSuffix = arg.SwiftTypeSpec is ClosureTypeSpec cls && cls.IsAutoClosure ? "()" : "";
 
+            // Forward the wrapper's own `inout` parameter to the original method with `&` —
+            // required by Swift at every call site passing an lvalue to an inout parameter
+            // (matches the `inout` prefix added to the declaration above). The widened-Optional
+            // deref path is excluded: GetDerefCode always declares its local with `let`, so
+            // `&{name}Val` would not compile — that combination isn't reachable from a real
+            // trailing-default inout param today, and isn't fixed here (out of scope).
+            var refPrefix = (arg.IsInOut && !isWidened) ? "&" : "";
+
             // Call args use native param names — @_silgen_name preserves original ABI
-            callArgs.Add(argStr + valueRef + autoclosureSuffix);
+            callArgs.Add(argStr + refPrefix + valueRef + autoclosureSuffix);
         }
         var callArgString = string.Join(", ", callArgs);
 
@@ -913,11 +944,10 @@ public static class DefaultParameterOverloadEmitter
         var siblings = CdeclParamMapper.CollectSiblingBindingNames(keptArgs);
         foreach (var arg in keptArgs)
         {
-            // Escape a user binding colliding with the synthetic _resultBuf this shim injects OR a
-            // sibling user binding. The call-arg loop below escapes the matching arg identically.
+            // Keyword rename + sanitize + reserved/sibling escape (canonical helper). The
+            // call-arg loop below derives the matching arg identically.
             var rawLabel = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
-            var label = NameProvider.EscapeReservedSwiftWrapperLabel(
-                rawLabel, CdeclParamMapper.ExcludeSelf(siblings, rawLabel));
+            var label = CdeclParamMapper.BuildSwiftBindingName(rawLabel, siblings);
             if (OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler))
             {
                 swiftParams.Add($"_ {label}: UnsafeRawPointer");
@@ -941,6 +971,14 @@ public static class DefaultParameterOverloadEmitter
                         swiftType = swiftType.Replace("@escaping ", "@escaping @Sendable ");
                     }
                 }
+                // Same inout-preservation requirement as EmitSwiftWrapper above — this is the
+                // same @_silgen_name-shim shape (a debug-param-stripping variant, not a
+                // trailing-default trim), so the original function type's `inout` must survive
+                // here too, or the shim's ABI diverges from the original it intercepts.
+                if (arg.IsInOut && !swiftType.StartsWith("inout "))
+                {
+                    swiftType = $"inout {swiftType}";
+                }
                 swiftParams.Add($"_ {label}: {swiftType}");
             }
         }
@@ -956,13 +994,12 @@ public static class DefaultParameterOverloadEmitter
         var callArgs = new List<string>();
         foreach (var arg in keptArgs)
         {
-            // Escape identically to the param-decl loop (same sibling set, self-excluded) so the
+            // Identical to the param-decl loop (same sibling set + BuildSwiftBindingName) so the
             // value references the same binding.
             var rawLabel = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
-            var privateName = NameProvider.EscapeReservedSwiftWrapperLabel(
-                rawLabel, CdeclParamMapper.ExcludeSelf(siblings, rawLabel));
-            var valueRef = OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler)
-                ? $"{privateName}Val" : privateName;
+            var privateName = CdeclParamMapper.BuildSwiftBindingName(rawLabel, siblings);
+            bool isWidened = OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler);
+            var valueRef = isWidened ? $"{privateName}Val" : privateName;
             // Provenance-aware call label (canonical builder) — preserves labels that genuinely
             // begin with '_' (e.g. _self) and backtick-escapes keywords.
             var argStr = CdeclParamMapper.BuildSwiftCallArgLabel(arg);
@@ -972,7 +1009,11 @@ public static class DefaultParameterOverloadEmitter
             // Swift can re-wrap the result in @autoclosure at the call site.
             var autoclosureSuffix = arg.SwiftTypeSpec is ClosureTypeSpec cls && cls.IsAutoClosure ? "()" : "";
 
-            callArgs.Add(argStr + valueRef + autoclosureSuffix);
+            // Same `&`-forwarding requirement as EmitSwiftWrapper above; same widened-Optional
+            // exclusion (GetDerefCode's local is a `let`, so `&{name}Val` would not compile).
+            var refPrefix = (arg.IsInOut && !isWidened) ? "&" : "";
+
+            callArgs.Add(argStr + refPrefix + valueRef + autoclosureSuffix);
         }
         var callArgString = string.Join(", ", callArgs);
 
@@ -1008,6 +1049,17 @@ public static class DefaultParameterOverloadEmitter
         // mangled name via CallConvSwift (same pattern as raw generic type params above).
         if (methodDecl.IsModuleInternal ||
             (methodDecl.ParentDecl is TypeDecl parentInternal && parentInternal.IsModuleInternal))
+        {
+            methodDecl.CSSignature = methodDecl.CSSignature
+                .Where((a, i) => i == 0 || !IsDebugParameter(a))
+                .ToList();
+            return;
+        }
+
+        // Same inout-closure conflict as TryEmitOverloads's trim shim (this is the same
+        // @_silgen_name-shim shape): @escaping is forced onto every closure param above, but
+        // `inout` + `@escaping` is rejected by swiftc. Same fallback as the two skips above.
+        if (keptArgs.Any(a => a.IsInOut && a.SwiftTypeSpec is ClosureTypeSpec))
         {
             methodDecl.CSSignature = methodDecl.CSSignature
                 .Where((a, i) => i == 0 || !IsDebugParameter(a))

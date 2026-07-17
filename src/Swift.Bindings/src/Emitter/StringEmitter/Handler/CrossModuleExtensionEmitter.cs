@@ -357,6 +357,17 @@ public static partial class CrossModuleExtensionEmitter
         if (returnCategory == ReturnKind.NonFrozenStruct || returnCategory == ReturnKind.FrozenStruct)
             return false;
 
+        // A SimpleEnum return folds into ReturnKind.Primitive above, but this path calls the
+        // real Swift method's mangled symbol directly under CallConvSwift with no synthesized
+        // wrapper to reconstruct it through — unlike ForeignTypeExtensionEmitter, there is no
+        // place to inject `.rawValue`/`init(rawValue:)`. A SimpleEnum's physical tag is assigned
+        // in declaration order and is not guaranteed to match its raw value (or even be the same
+        // width), so returning it bare here would be silently wrong. Decline cleanly rather than
+        // emit a P/Invoke that reads the tag as if it were the raw value.
+        if (returnCategory == ReturnKind.Primitive && returnTypeSpec != null &&
+            TryGetSimpleEnumLowering(returnTypeSpec, typeDatabase, out _, out _, out _))
+            return false;
+
         // Build parameter list — skip methods with unsupported param types
         var parameters = new List<(string name, string csharpType, string pinvokeExpr, TypeSpec typeSpec)>();
         for (int i = 1; i < method.CSSignature.Count; i++)
@@ -533,6 +544,13 @@ public static partial class CrossModuleExtensionEmitter
 
         // Same limitation as TryEmitMethodExtension: struct returns need trampolines not available on the class-receiver path.
         if (returnCategory.Value == ReturnKind.NonFrozenStruct || returnCategory.Value == ReturnKind.FrozenStruct)
+            return false;
+
+        // Same limitation as TryEmitMethodExtension: a SimpleEnum return has no synthesized
+        // wrapper on this path to reconstruct it through `.rawValue` — decline rather than
+        // return the raw physical tag as if it were the declared raw value.
+        if (returnCategory.Value == ReturnKind.Primitive && property.SwiftTypeSpec != null &&
+            TryGetSimpleEnumLowering(property.SwiftTypeSpec, typeDatabase, out _, out _, out _))
             return false;
 
         var propertyName = NameProvider.ToPascalCase(property.Name);
