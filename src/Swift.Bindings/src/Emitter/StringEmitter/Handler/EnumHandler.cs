@@ -107,6 +107,20 @@ namespace BindingsGeneration
             // and/or holding static members. Emitting ISwiftObject + SafeHandle is wrong.
             if (enumDecl.IsNamespaceEnum)
             {
+                // A caseless enum that ALSO has no static members and no nested types is a pure
+                // uninhabited marker — a protocol associated-type placeholder or a phantom closure
+                // parameter type, not a namespace. The static-class projection below cannot appear as
+                // a type argument (Action<T>, generic positions) or be cast — using a static class as
+                // a type arg is CS0718 and as an expression is CS0721. Project it as an empty
+                // int-backed C# enum instead: a real value type that IS a legal type argument and whose
+                // (int) cast the closure/ABI marshalling already emits for it. Namespace facades (nested
+                // types) and static-member holders (CryptoKit AES.GCM, etc.) keep the static class.
+                if (IsUninhabitedValueEnum(enumDecl))
+                {
+                    EmitUninhabitedValueEnum(csWriter, enumDecl);
+                    return;
+                }
+
                 EmitNamespaceEnum(csWriter, swiftWriter, enumDecl, moduleDecl, env.TypeDatabase, conductor, context);
                 return;
             }
@@ -593,6 +607,42 @@ namespace BindingsGeneration
         /// containers (e.g., `enum ImageProcessors { struct Resize { } }`) and as non-instantiable
         /// types with static members (e.g., `enum Constants { static let x = 1 }`).
         /// </summary>
+        /// <summary>
+        /// True for a caseless enum that is a pure uninhabited marker: no cases, no static
+        /// properties or methods, no nested types, and non-generic. Such an enum is not a
+        /// Swift "enum namespace" — it holds nothing — so it must project to an empty value
+        /// type (see <see cref="EmitUninhabitedValueEnum"/>) rather than a static class, or it
+        /// cannot be used as a type argument. The gate stays disjoint from namespace facades
+        /// (which carry nested types) and static-member holders (which carry static members).
+        /// </summary>
+        private static bool IsUninhabitedValueEnum(EnumDecl enumDecl) =>
+            enumDecl.Cases.Count == 0
+            && !enumDecl.Properties.Any(p => p.IsStatic)
+            && !enumDecl.Methods.Any(m => !m.IsConstructor && m.MethodType == MethodType.Static)
+            && enumDecl.Types.Count == 0
+            && !enumDecl.IsGeneric;
+
+        /// <summary>
+        /// Emits an uninhabited caseless enum as an empty int-backed C# enum. It has no
+        /// inhabitants at the Swift level but must exist as a real value type so it can appear
+        /// as a type argument — e.g. a closure parameter <c>Action&lt;T&gt;</c>, the shape that
+        /// occurs in practice — which the closure marshaller already bridges as an <c>int</c>
+        /// (<c>(T)arg</c>); before this it emitted a <c>static class</c> and both the type
+        /// argument and that cast failed to compile. (A genuinely uninhabited enum has no value,
+        /// so it is never actually passed by value across the boundary at runtime.)
+        /// </summary>
+        private void EmitUninhabitedValueEnum(CSharpWriter csWriter, EnumDecl enumDecl)
+        {
+            XmlDocCommentEmitter.EmitDocComment(csWriter, enumDecl);
+            AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, enumDecl, emitObsolete: true);
+            if (enumDecl.Name.StartsWith("_"))
+                csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
+            csWriter.WriteLine($"public enum {enumDecl.Name}");
+            csWriter.WriteLine("{");
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+        }
+
         private void EmitNamespaceEnum(CSharpWriter csWriter, SwiftWriter swiftWriter, EnumDecl enumDecl,
             ModuleDecl moduleDecl, ITypeDatabase typeDatabase, Conductor conductor, TypeHandlerContext context)
         {

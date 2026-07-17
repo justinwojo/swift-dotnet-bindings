@@ -18,10 +18,10 @@ public class SilentTombstoneRegistrarTests
     [Fact]
     public void Precompute_NamespaceEnumWithAllMembersSkipped_NotRegistered()
     {
-        // A caseless enum emits as a static class, not an opaque ISwiftObject.
-        // Even if every method is skipped (e.g., generic method the emitter
-        // cannot lower), the call site can still call remaining static members,
-        // so SB0002 would be a false positive.
+        // A caseless enum emits as a namespace/value type, not an opaque ISwiftObject.
+        // Even if every method is skipped (e.g., generic method the emitter cannot
+        // lower), the type itself is still usable — as a namespace for static members
+        // or as a value-typed type argument — so SB0002 would be a false positive.
         var moduleDecl = BuildModule();
         var enumDecl = BuildEnum(moduleDecl, "NS", cases: new(), withSkippedGenericMethod: true);
         moduleDecl.Types.Add(enumDecl);

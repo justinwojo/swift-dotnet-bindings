@@ -185,11 +185,12 @@ public static class ErrorEnumRegistryEmitter
     /// Filters out types that conform to Error but cannot be instantiated at runtime —
     /// most notably Swift caseless namespace enums (e.g. WeatherKit-style
     /// <c>enum WeatherErrorNamespace { static let ... }</c> with a <c>LocalizedError</c>
-    /// extension). The C# emission projects a caseless enum as a <c>static class</c>,
-    /// which can't be a generic type argument and can't be cast to. Registering one
-    /// would produce <c>SwiftException&lt;StaticClass&gt;</c> code that fails to compile,
-    /// so the cascade simply skips it and falls through to the untyped <c>SwiftException</c>.
-    /// Struct and class error types are always considered instantiable.
+    /// extension). The C# emission projects a caseless enum as either a <c>static class</c>
+    /// (namespace / static-member holder) or an empty value enum (a pure uninhabited marker);
+    /// neither carries a constructible error value, so registering one would produce
+    /// <c>SwiftException&lt;T&gt;</c> code that can never be thrown (and, for the static-class
+    /// form, fails to compile). The cascade skips it and falls through to the untyped
+    /// <c>SwiftException</c>. Struct and class error types are always considered instantiable.
     /// </summary>
     private static bool IsInstantiable(TypeDecl typeDecl) =>
         typeDecl is not EnumDecl enumDecl || enumDecl.Cases.Count > 0;

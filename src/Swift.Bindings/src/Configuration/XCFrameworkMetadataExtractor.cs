@@ -361,7 +361,7 @@ namespace BindingsGeneration
             var supplementProps = "";
             if (needsAppleSupplement)
             {
-                var effectiveVersion = appleSupplementVersion ?? "26.0.0";
+                var effectiveVersion = appleSupplementVersion ?? CliOptions.DefaultAppleSupplementVersion;
                 supplementProps = $"\n    <_SwiftBindingNeedsAppleSupplement>True</_SwiftBindingNeedsAppleSupplement>" +
                                   $"\n    <_SwiftBindingAppleSupplementVersion>{XmlEscape(effectiveVersion)}</_SwiftBindingAppleSupplementVersion>";
                 if (!string.IsNullOrEmpty(appleSupplementPrototypeCsprojPath))

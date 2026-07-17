@@ -121,7 +121,9 @@ internal static class SilentTombstoneRegistrar
         // EnumHandler: three early-return paths precede the opaque branch.
         if (typeDecl is EnumDecl enumDecl)
         {
-            // Namespace (caseless) enum → emitted as static class.
+            // Caseless enum → emitted as a static class (namespace / static-member holder) or
+            // an empty value enum (uninhabited marker); either is a real emitted type, not an
+            // opaque tombstone.
             if (enumDecl.IsNamespaceEnum)
                 return false;
 

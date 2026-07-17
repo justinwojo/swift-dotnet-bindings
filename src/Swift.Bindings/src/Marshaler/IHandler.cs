@@ -1213,6 +1213,16 @@ namespace BindingsGeneration
         {
             if (typeSpecForKey is NamedTypeSpec namedSpec)
             {
+                // A container-shaped metatype ([T].Type) is not a collection. Skip the
+                // IEnumerable<T> normalization below so the overload key routes it through the
+                // SAME GetTypeRecordOrAnyType resolution the signature path uses (TypeProjectionFactory
+                // returns null for a metatype, then the DB fallback yields AnyType), keeping key and
+                // signature consistent by construction for this shape. In practice a metatype param
+                // resolves to an AnyType placeholder and the method is skipped before it is keyed, so
+                // this is a consistency guard, not the fix for an observable collision.
+                if (WrapperValidation.IsMetatypeType(namedSpec))
+                    return typeDatabase.GetTypeRecordOrAnyType(typeSpecForKey).CSharpTypeName.FullyQualifiedName;
+
                 // Optional<GenericParam> and bare GenericParam produce the same dedup key.
                 // Reference-constrained generics treat T? and T as the same overload (CS0111).
                 // TypeProjectionFactory returns null for unresolved generic params, so the DB

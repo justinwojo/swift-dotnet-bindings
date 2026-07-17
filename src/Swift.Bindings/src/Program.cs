@@ -195,6 +195,23 @@ namespace BindingsGeneration
                             dep.AbiJsonPath, typeDatabase, depDemangledTbd,
                             loggerFactory.CreateLogger<SwiftABIParser>(),
                             SwiftInterfaceFacts.Empty);
+
+                        // An empty dependency shim (zero ABI declarations — a re-export/namespace-only
+                        // module) has no types to contribute and no resolvable module name; its
+                        // GetModuleName() would throw on the empty child set and, for an explicit
+                        // --framework-dependency, hard-fail SWIFTBIND073. Skip it with a warning
+                        // instead. This is deliberately BENIGN-only: a malformed ABI that fails to
+                        // deserialize still throws in the parser constructor above and is caught below
+                        // as before, so fail-closed behaviour for genuinely broken input is preserved.
+                        if (depParser.HasNoDeclChildren)
+                        {
+                            logger.LogWarning(
+                                "Dependency '{Module}' has an empty ABI (no declarations); skipping. " +
+                                "It contributes no types.",
+                                dep.ModuleName);
+                            continue;
+                        }
+
                         var depModuleName = depParser.GetModuleName();
                         var depParseResult = depParser.ParseModule();
 

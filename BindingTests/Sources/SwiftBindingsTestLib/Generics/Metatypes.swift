@@ -142,3 +142,18 @@ public func joinSearchableKinds(_ types: [any SearchableItem.Type]) -> String {
 public func countSearchableTypes(_ types: [any SearchableItem.Type]) -> Int {
     return types.count
 }
+
+// MARK: - Array-Metatype Discriminated Overloads
+
+/// Return-type-polymorphic overloads discriminated only by an array-metatype `as:`
+/// parameter — the `Disk.retrieve(_:as:)` shape. An array metatype `[T].Type` is NOT a
+/// collection: projecting it as `IEnumerable<T>` produces a signature that contradicts the
+/// AnyType-backed (`.Payload`) marshalling body the emitter generates for the argument. The
+/// generator recognizes the metatype, keeps it out of the container path, and skips these as
+/// unsupported (there is no faithful C# binding for a metatype used purely as a return-type
+/// discriminator) — so the binding compiles instead of emitting a self-contradicting method.
+public struct ArrayMetatypeStore {
+    public init() {}
+    public static func loadItems(as type: [Int32].Type) -> [Int32] { return [] }
+    public static func loadItems(as type: [Double].Type) -> [Double] { return [] }
+}

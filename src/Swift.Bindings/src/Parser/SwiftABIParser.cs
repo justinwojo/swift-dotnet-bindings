@@ -915,6 +915,15 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// True when the parsed ABI carries zero top-level declaration children — an empty
+        /// shim module (e.g. a re-export-only or namespace-only dependency). Distinct from a
+        /// malformed ABI, which fails to deserialize in the constructor and throws before this
+        /// can ever be read. An empty shim contributes no types and its <see cref="GetModuleName"/>
+        /// would throw on the empty child set, so callers skip it rather than hard-failing.
+        /// </summary>
+        public bool HasNoDeclChildren => !_moduleRoot.ABIRoot.Children.Any();
+
+        /// <summary>
         /// Cache for <see cref="CurrentModuleName"/>. The module name is fixed for the
         /// lifetime of the parser instance (one abi.json = one module), so resolve it once.
         /// </summary>

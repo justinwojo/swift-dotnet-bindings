@@ -127,12 +127,11 @@ public class ErrorEnumRegistryEmitterTests
     [Fact]
     public void Precompute_CaselessNamespaceEnumWithLocalizedError_NotRegistered()
     {
-        // WeatherKit-shaped pattern: a caseless namespace enum (used as a container for
-        // `static let` constants) that conforms to LocalizedError via extension. The C#
-        // emission projects a caseless enum as a `static class`, which can't be a generic
-        // type argument and can't be cast to. The cascade dispatcher would emit
-        // SwiftException<StaticClass> code that fails to compile, so the registry must
-        // skip these and let the untyped SwiftException fallback handle them at runtime.
+        // WeatherKit-shaped pattern: a caseless enum that conforms to LocalizedError via
+        // extension. Because it has zero cases it is uninhabited — no instance can ever be
+        // constructed or thrown — so registering it as a concrete error type would emit dead
+        // SwiftException<T> dispatch for a value that can never occur. The registry must skip
+        // caseless enums and let the untyped SwiftException fallback handle them at runtime.
         var moduleDecl = BuildModule();
         var caselessEnum = new EnumDecl
         {

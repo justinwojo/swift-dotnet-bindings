@@ -380,6 +380,110 @@ public class ForeignTypeExtensionEmitterTests
         Assert.Empty(csOutput.ToString());
     }
 
+    [Fact]
+    public void EmitCSharpExtensionClasses_LabelOnlyOverloads_Disambiguated()
+    {
+        // Swift permits overloads that differ ONLY by argument label. Both PascalCase to the
+        // same C# method name with identical projected parameter types, so a naive emit produces
+        // two `public static double Scaled(this UIView, double)` — CS0111. Each colliding member
+        // must be renamed with a label-derived suffix.
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+
+        var extensions = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["UIKit.UIView"] = new()
+            {
+                CreateExtMethod("scaled", "public func scaled(by factor: Swift.Double) -> Swift.Double"),
+                CreateExtMethod("scaled", "public func scaled(to factor: Swift.Double) -> Swift.Double"),
+            }
+        };
+
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
+            moduleDecl, extensions, typeDatabase, Logger, ctx);
+
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        ForeignTypeExtensionEmitter.EmitCSharpExtensionClasses(csWriter, typeDatabase, "TestModule", ctx);
+
+        var result = csOutput.ToString();
+        // Both overloads survive, under distinct label-derived names (not first-wins).
+        Assert.Contains("ScaledBy", result);
+        Assert.Contains("ScaledTo", result);
+    }
+
+    [Fact]
+    public void EmitCSharpExtensionClasses_TypeDistinctOverloads_NotRenamed()
+    {
+        // Overloads that differ by projected parameter TYPE are legal C# overloads — they must
+        // keep their natural name. Only a genuine same-name + same-signature collision is renamed;
+        // "don't rename the world".
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+
+        var extensions = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["UIKit.UIView"] = new()
+            {
+                CreateExtMethod("scaled", "public func scaled(by factor: Swift.Double) -> Swift.Double"),
+                CreateExtMethod("scaled", "public func scaled(from count: Swift.Int) -> Swift.Double"),
+            }
+        };
+
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
+            moduleDecl, extensions, typeDatabase, Logger, ctx);
+
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        ForeignTypeExtensionEmitter.EmitCSharpExtensionClasses(csWriter, typeDatabase, "TestModule", ctx);
+
+        var result = csOutput.ToString();
+        Assert.Contains("Scaled(", result);
+        Assert.DoesNotContain("ScaledBy", result);
+        Assert.DoesNotContain("ScaledFrom", result);
+    }
+
+    [Fact]
+    public void EmitCSharpExtensionClasses_RenamedGroupCollidesWithNaturalSibling_BumpedNotDuplicated()
+    {
+        // A label suffix can collide with an UNRELATED natural sibling in the same class: the
+        // singleton `scaledBy(x:)` emits its natural `ScaledBy(double)`, while the label-only
+        // pair `scaled(by:)`/`scaled(to:)` renames `scaled(by:)` to the SAME `ScaledBy(double)`.
+        // Reserving only within the collision group would let both emit `ScaledBy(this,double)`
+        // → CS0111 again. The natural sibling's signature is reserved first, so the renamed
+        // member is bumped (ScaledBy1) instead of duplicating it.
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+
+        var extensions = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["UIKit.UIView"] = new()
+            {
+                CreateExtMethod("scaledBy", "public func scaledBy(x: Swift.Double) -> Swift.Double"),
+                CreateExtMethod("scaled", "public func scaled(by factor: Swift.Double) -> Swift.Double"),
+                CreateExtMethod("scaled", "public func scaled(to factor: Swift.Double) -> Swift.Double"),
+            }
+        };
+
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
+            moduleDecl, extensions, typeDatabase, Logger, ctx);
+
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        ForeignTypeExtensionEmitter.EmitCSharpExtensionClasses(csWriter, typeDatabase, "TestModule", ctx);
+
+        var result = csOutput.ToString();
+        // All three members survive under DISTINCT names. Each name declares exactly one method,
+        // so no two share a signature (the CS0111 guard). The bumped name proves the natural
+        // sibling's key was reserved before the rename ran.
+        Assert.Single(Regex.Matches(result, @"\bScaledBy\("));
+        Assert.Single(Regex.Matches(result, @"\bScaledBy1\("));
+        Assert.Single(Regex.Matches(result, @"\bScaledTo\("));
+    }
+
     #endregion
 
     #region ProcessForeignTypeExtensions: property with setter

@@ -112,6 +112,37 @@ public class SwiftABIParserRuntimeTests
 
     #endregion
 
+    #region Empty Shim Guard Tests
+
+    [Fact]
+    public void HasNoDeclChildren_EmptyShim_ReturnsTrue()
+    {
+        // An empty shim module (a re-export/namespace-only dependency, e.g. SwiftSyntax509)
+        // carries zero top-level declaration children. HasNoDeclChildren lets callers skip it
+        // with a warning BEFORE GetModuleName — which would otherwise throw on the empty set —
+        // so an explicit --framework-dependency no longer hard-fails SWIFTBIND073 on a benign shim.
+        using var fixture = CreateParserWithNodes();
+        var parser = fixture.Parser;
+
+        Assert.True(parser.HasNoDeclChildren);
+        // The guard exists precisely because GetModuleName is not survivable on this input.
+        Assert.Throws<InvalidOperationException>(() => parser.GetModuleName());
+    }
+
+    [Fact]
+    public void HasNoDeclChildren_WithDecls_ReturnsFalse()
+    {
+        // A real module with declarations is NOT an empty shim and must be parsed normally —
+        // the skip is benign-shim-only; a malformed ABI still fails hard in the parser constructor.
+        using var fixture = CreateParserWithNodes(
+            CreateNode(kind: "Import", moduleName: "StoreKit", name: "StoreKit"));
+        var parser = fixture.Parser;
+
+        Assert.False(parser.HasNoDeclChildren);
+    }
+
+    #endregion
+
     #region SPI Suppression Tests
 
     [Fact]

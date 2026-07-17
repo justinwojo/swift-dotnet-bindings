@@ -778,10 +778,14 @@ public static class ForeignTypeExtensionEmitter
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
+        // Resolve the emitted C# name per member up front so label-only Swift overloads
+        // (which collapse to identical C# signatures — CS0111) get disambiguated before emission.
+        var emittedNames = ResolveExtensionMemberNames(classInfo, typeDatabase);
+
         // Emit each member
         foreach (var member in classInfo.Members)
         {
-            EmitExtensionMember(csWriter, member, csharpSelfType, wrapperLibPath, typeDatabase, moduleName);
+            EmitExtensionMember(csWriter, member, emittedNames[member], csharpSelfType, wrapperLibPath, typeDatabase, moduleName);
         }
 
         // Emit NativeMethods nested class
@@ -802,10 +806,114 @@ public static class ForeignTypeExtensionEmitter
     }
 
     /// <summary>
+    /// Resolves the emitted C# method name for every member, disambiguating label-only
+    /// overloads. Swift permits overloads that differ ONLY by argument labels (e.g.
+    /// <c>func f(a:)</c> vs <c>func f(b:)</c>); both PascalCase to the same C# name and, with
+    /// the same projected parameter types, would emit as duplicate signatures (CS0111). Members
+    /// are grouped by their full emitted signature (name + projected parameter types); only a
+    /// group with more than one member is a genuine collision, and then EVERY member in that
+    /// group is renamed with a label-derived suffix (not first-wins) so the emitted API stays
+    /// symmetric and self-describing. A positional index is the fallback when labels don't
+    /// disambiguate. Type-distinct overloads and unique names are left untouched.
+    ///
+    /// A renamed member must avoid EVERY other emitted signature in the class, not just the
+    /// names within its own collision group. The signature keys of members that keep their
+    /// natural name are reserved first, so a label suffix that would land on an unrelated
+    /// natural sibling — natural <c>processBy(x:)</c> → <c>ProcessBy(int)</c> vs
+    /// <c>process(by:)</c> renamed to the same <c>ProcessBy(int)</c> — is bumped with a
+    /// positional index instead of silently re-introducing the CS0111 this method removes.
+    /// </summary>
+    private static Dictionary<ForeignExtensionMemberInfo, string> ResolveExtensionMemberNames(
+        ForeignExtensionClassInfo classInfo, ITypeDatabase typeDatabase)
+    {
+        var resolved = new Dictionary<ForeignExtensionMemberInfo, string>();
+
+        var groups = classInfo.Members
+            .GroupBy(m => BuildEmittedSignatureKey(m, m.CSharpMethodName, typeDatabase))
+            .Select(g => g.ToList())
+            .ToList();
+
+        // Reserve the signature key of every member that keeps its natural name (singleton
+        // groups) before assigning any suffix, so cross-group collisions are caught too.
+        var reservedKeys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var members in groups)
+        {
+            if (members.Count != 1)
+                continue;
+            resolved[members[0]] = members[0].CSharpMethodName;
+            reservedKeys.Add(BuildEmittedSignatureKey(members[0], members[0].CSharpMethodName, typeDatabase));
+        }
+
+        foreach (var members in groups)
+        {
+            if (members.Count == 1)
+                continue;
+
+            foreach (var member in members)
+            {
+                var baseName = member.CSharpMethodName;
+                var suffix = BuildLabelSuffix(member);
+                var candidate = baseName + suffix;
+                var key = BuildEmittedSignatureKey(member, candidate, typeDatabase);
+                if (suffix.Length == 0 || !reservedKeys.Add(key))
+                {
+                    var i = 1;
+                    do
+                    {
+                        candidate = $"{baseName}{suffix}{i++}";
+                        key = BuildEmittedSignatureKey(member, candidate, typeDatabase);
+                    } while (!reservedKeys.Add(key));
+                }
+                resolved[member] = candidate;
+            }
+        }
+
+        return resolved;
+    }
+
+    /// <summary>
+    /// Builds the emitted-signature collision key: the C# method name plus the projected C#
+    /// parameter types, in order. The <c>this self</c> receiver is identical for every member
+    /// in one extension class, so it's omitted — only the relative signatures within the class
+    /// determine a CS0111 collision.
+    /// </summary>
+    private static string BuildEmittedSignatureKey(ForeignExtensionMemberInfo member, string name,
+        ITypeDatabase typeDatabase)
+    {
+        var sb = new System.Text.StringBuilder(name);
+        sb.Append('(');
+        var first = true;
+        foreach (var (_, typeSpec, _, _) in member.Parameters)
+        {
+            if (!first) sb.Append(',');
+            first = false;
+            sb.Append(ResolveCSharpParameterType(typeSpec, typeDatabase));
+        }
+        sb.Append(')');
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Concatenates the PascalCased Swift argument labels into a name suffix, skipping wildcard
+    /// (<c>_</c>) and empty labels. Empty when the member carries no explicit labels.
+    /// </summary>
+    private static string BuildLabelSuffix(ForeignExtensionMemberInfo member)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var (label, _, _, _) in member.Parameters)
+        {
+            if (string.IsNullOrEmpty(label) || label == "_")
+                continue;
+            sb.Append(ToPascalCase(label));
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
     /// Emits a single public extension method in the extension class.
     /// </summary>
     private static void EmitExtensionMember(CSharpWriter csWriter, ForeignExtensionMemberInfo member,
-        string csharpSelfType, string wrapperLibPath, ITypeDatabase typeDatabase, string moduleName)
+        string emittedMethodName, string csharpSelfType, string wrapperLibPath, ITypeDatabase typeDatabase, string moduleName)
     {
         var csharpReturnType = ResolveCSharpReturnType(member, typeDatabase, moduleName);
 
@@ -825,7 +933,7 @@ public static class ForeignTypeExtensionEmitter
         var methodReturnType = member.IsPropertySetter ? "void" : csharpReturnType;
 
         csWriter.WriteLine();
-        csWriter.WriteLine($"public static {methodReturnType} {member.CSharpMethodName}({string.Join(", ", paramList)})");
+        csWriter.WriteLine($"public static {methodReturnType} {emittedMethodName}({string.Join(", ", paramList)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
 

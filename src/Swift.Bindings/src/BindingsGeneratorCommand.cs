@@ -70,7 +70,7 @@ public static class BindingsGeneratorCommand
         var emitAppleTypesManifest = parseResult.GetValueForOption(options.EmitAppleTypesManifest);
         var appleAbiJsonPaths = parseResult.GetValueForOption(options.AppleAbiJson);
         var appleIncludeTypes = parseResult.GetValueForOption(options.AppleIncludeTypes);
-        var appleVersion = parseResult.GetValueForOption(options.AppleVersion) ?? "26.0.0";
+        var appleVersion = parseResult.GetValueForOption(options.AppleVersion) ?? CliOptions.DefaultAppleSupplementVersion;
         var appleSdkTrainMajorExplicit = parseResult.GetValueForOption(options.AppleSdkTrainMajor);
         var appleSdkTrainMajor = appleSdkTrainMajorExplicit ?? ParseAppleVersionMajor(appleVersion);
         var appleSdkTrainLabel = parseResult.GetValueForOption(options.AppleSdkTrainLabel);
@@ -2122,7 +2122,7 @@ public static class BindingsGeneratorCommand
         Console.WriteLine("  --emit-apple-types-manifest  Emit the Apple-types metadata manifest from ABI JSON dumps. With this flag, -o is a FILE path (the target .json), not a directory.");
         Console.WriteLine("  --apple-abi-json         Repeatable. Path to an Apple SDK ABI JSON dump (from `swift-api-digester -dump-sdk`). Union-merged per-platform.");
         Console.WriteLine("  --apple-include-types    Required. Path to include-types.json (positive-list of 'Module.NestedType' identities to emit).");
-        Console.WriteLine("  --apple-version          Apple SDK train / SwiftBindings.Apple supplement version (e.g. 26.0.0). Default: 26.0.0.");
+        Console.WriteLine($"  --apple-version          Apple SDK train / SwiftBindings.Apple supplement version (e.g. 26.2.4). Default: {CliOptions.DefaultAppleSupplementVersion}.");
         Console.WriteLine("  --apple-sdk-train-major  Optional override for sdk_train.major. Derived from --apple-version when omitted.");
         Console.WriteLine("  --apple-sdk-train-label  Optional. Human-readable SDK train label (e.g. 'Xcode 26 / iOS 26').");
         Console.WriteLine("  --apple-sdk-min-ios / --apple-sdk-min-maccatalyst / --apple-sdk-min-tvos / --apple-sdk-min-macos  Optional per-platform floors.");

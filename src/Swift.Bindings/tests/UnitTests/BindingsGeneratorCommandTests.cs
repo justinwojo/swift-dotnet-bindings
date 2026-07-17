@@ -166,6 +166,71 @@ public class AppleVersionForwardingTests
     }
 }
 
+/// <summary>
+/// The Apple-supplement floor is a deliberate NuGet-contract value, not incidental. A
+/// generated binding stamps <c>&lt;PackageReference Include="SwiftBindings.Apple" Version="[X,)"/&gt;</c>,
+/// and a floor <c>[X,)</c> resolves to the LOWEST applicable PUBLISHED supplement. If X predates
+/// the published version that first shipped <c>AnyError(ExistentialContainer1, ownsContainer:)</c>,
+/// the resolved package lacks that constructor and consumer compiles fail with CS1739 (the
+/// observed SwiftyStoreKit/Siren break) even though the in-tree emitter and supplement agree.
+/// These pin the floor, its single-constant flow through the CLI, and the in-tree ctor shape the
+/// emitter targets — so the floor can only move by a deliberate edit, never silently drift.
+/// </summary>
+public class AppleSupplementFloorTests
+{
+    [Fact]
+    public void DefaultAppleSupplementVersion_PinsPublishedFloorWithOwnsContainerCtor()
+    {
+        // 26.2.4 is the first PUBLISHED SwiftBindings.Apple carrying the ownsContainer ctor the
+        // owned-error return paths emit. Changing this is a compatibility decision: raise it when
+        // the emitter starts emitting Apple surface a still-newer published supplement introduces;
+        // never lower it below the published version that first shipped the emitted surface.
+        Assert.Equal("26.2.4", CliOptions.DefaultAppleSupplementVersion);
+    }
+
+    [Fact]
+    public void AppleVersionOption_DefaultsToSupplementFloor_WhenNotSupplied()
+    {
+        // The --apple-version default must resolve to the single DefaultAppleSupplementVersion
+        // constant, so a binding generated without an explicit --apple-version stamps the pinned
+        // floor and can't diverge from it.
+        var opts = new CliOptions();
+        var root = opts.CreateRootCommand();
+        var parsed = root.Parse(Array.Empty<string>());
+        Assert.Equal(CliOptions.DefaultAppleSupplementVersion,
+            parsed.GetValueForOption(opts.AppleVersion));
+    }
+
+    [Fact]
+    public void AppleVersionOption_OverrideWins_WhenSupplied()
+    {
+        var opts = new CliOptions();
+        var root = opts.CreateRootCommand();
+        var parsed = root.Parse(new[] { "--apple-version", "30.1.2" });
+        Assert.Equal("30.1.2", parsed.GetValueForOption(opts.AppleVersion));
+    }
+
+    [Fact]
+    public void AnyErrorSupplement_DeclaresOwnsContainerCtor_MatchingEmittedCall()
+    {
+        // Owned-error/Optional<Error> return marshalling emits
+        // `new Swift.Foundation.AnyError(container, ownsContainer: true)`. Pin the in-tree
+        // supplement's matching two-arg ctor so removing or reshaping it is caught here rather
+        // than at a downstream consumer compile — the emitter<->runtime shape half of this bug.
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "SwiftBindings.sln")))
+            dir = dir.Parent;
+        Assert.NotNull(dir);
+        var anyErrorPath = Path.Combine(dir!.FullName, "src", "Swift.Bindings.Apple",
+            "Sources", "Foundation", "AnyError.cs");
+        Assert.True(File.Exists(anyErrorPath), $"AnyError supplement not found at {anyErrorPath}");
+        var src = File.ReadAllText(anyErrorPath);
+        Assert.Matches(
+            @"public\s+AnyError\s*\(\s*ExistentialContainer1\s+\w+\s*,\s*bool\s+ownsContainer\s*\)",
+            src);
+    }
+}
+
 #endregion
 
 #region --platform-version CLI option

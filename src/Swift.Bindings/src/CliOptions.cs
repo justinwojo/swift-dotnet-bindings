@@ -271,13 +271,27 @@ public class CliOptions
         description: "Path to an include-types.json file listing Swift identities (and optional typealiases) to emit into the Apple types manifest. " +
                      "Positive-list only so the supplement never shadows Runtime-owned canonical types.");
 
+    /// <summary>
+    /// Default <c>--apple-version</c>: the stamped <c>SwiftBindings.Apple</c> PackageReference
+    /// floor (<c>[version,)</c>) when a caller doesn't pass one. This is the MINIMUM published
+    /// supplement version whose public surface satisfies everything the emitter currently emits
+    /// against SwiftBindings.Apple — a NuGet lower bound / API contract floor, NOT a pin to the
+    /// latest release (a floor of the latest would over-constrain consumers on every Apple patch).
+    /// A floor `[X,)` resolves to the LOWEST applicable published package, so this must move UP
+    /// whenever the emitter starts emitting Apple surface newer than X — otherwise the stamped
+    /// floor resolves to a package that lacks it and consumers hit CS1739/CS1061. 26.2.4 is the
+    /// first published supplement carrying the `AnyError(ExistentialContainer1, ownsContainer:)`
+    /// constructor the OptionalProjection/ExistentialHandler paths emit.
+    /// </summary>
+    public const string DefaultAppleSupplementVersion = "26.2.4";
+
     public Option<string> AppleVersion { get; } = new(
         aliases: new[] { "--apple-version" },
-        description: "Apple SDK train / SwiftBindings.Apple supplement version (e.g. 26.0.0). " +
+        description: "Apple SDK train / SwiftBindings.Apple supplement version (e.g. 26.2.4). " +
                      "Drives the generated PackageReference floor, binding-metadata.props, and — when " +
                      "--apple-sdk-train-major is not set explicitly — the manifest sdk_train.major " +
                      "(parsed from the leading numeric component). Package major tracks Apple SDK train.",
-        getDefaultValue: () => "26.0.0");
+        getDefaultValue: () => DefaultAppleSupplementVersion);
 
     // Optional override; falls back to the major component of --apple-version when null.
     public Option<int?> AppleSdkTrainMajor { get; } = new(

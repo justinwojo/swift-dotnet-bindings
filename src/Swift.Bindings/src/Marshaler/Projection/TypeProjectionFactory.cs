@@ -230,6 +230,19 @@ public class TypeProjectionFactory
             return new OptionalProjection(innerProjection, isExistentialInner);
         }
 
+        // A metatype ([T].Type, T.Type) is NOT a container, even though the ABI can give its
+        // NamedTypeSpec a "Swift.Array" name (the array type's own metatype). It has no C# value
+        // form. Returning null keeps it out of the container branches below, which would otherwise
+        // read [T].Type as IEnumerable<T> — a signature that disagrees with the AnyType-based
+        // (.Payload) marshalling body the emitter independently generates for the same argument
+        // (the CS1061 this guards against). With the container path skipped, a metatype resolves
+        // through GetTypeRecordOrAnyType to an AnyType placeholder, the same as a bare metatype;
+        // a method taking one is then honestly skipped as unsupported (no faithful C# binding for
+        // a metatype used purely as a return-type discriminator) rather than emitted with a
+        // signature the body contradicts.
+        if (WrapperValidation.IsMetatypeType(namedType))
+            return null;
+
         if (name == "Swift.Array" && namedType.GenericParameters.Count == 1)
         {
             var elemProjection = Project(namedType.GenericParameters[0], context)

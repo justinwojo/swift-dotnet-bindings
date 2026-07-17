@@ -1136,18 +1136,22 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_NamespaceEnum_EmitsStaticClass()
+    public void Emit_UninhabitedCaselessEnum_EmitsValueEnum()
     {
-        // E12: Zero-case enums used as namespaces should emit as static classes
+        // A caseless enum with NO static members and NO nested types is a pure uninhabited
+        // marker, not a namespace. A static-class projection can't be used as a type argument
+        // (Action<T>, generic positions) or cast — CS0718/CS0721. It must emit as an empty
+        // value enum so it is a real (int-backed) type that IS a legal type argument.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
-        var enumDecl = CreateEnumDecl("ImageProcessors", moduleDecl, isFrozen: true);
-        // No cases — this is a namespace-like enum
+        var enumDecl = CreateEnumDecl("Event", moduleDecl, isFrozen: true);
+        // No cases, no members — a phantom/placeholder type.
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        Assert.Contains("public static partial class ImageProcessors", csOutput);
-        // Should NOT contain ISwiftObject, IDisposable, SafeHandle, Payload
+        Assert.Contains("public enum Event", csOutput);
+        // Must NOT be a static class (unusable as a type argument) or an opaque wrapper.
+        Assert.DoesNotContain("static partial class Event", csOutput);
         Assert.DoesNotContain("ISwiftObject", csOutput);
         Assert.DoesNotContain("IDisposable", csOutput);
         Assert.DoesNotContain("SwiftSafeHandle", csOutput);
