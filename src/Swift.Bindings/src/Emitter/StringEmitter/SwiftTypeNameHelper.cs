@@ -55,6 +55,12 @@ public static class SwiftTypeNameHelper
                 if (namedType.Name == "Swift.Optional" && namedType.GenericParameters.Count == 1)
                 {
                     var innerType = GetSwiftTypeName(namedType.GenericParameters[0]);
+                    // Always `?`, even for a spec marked IsImplicitlyUnwrappedOptional. `!` is legal
+                    // ONLY in a declaration position, which GetSwiftTypeNameForDeclaration handles;
+                    // this renderer also feeds generic arguments (UnsafeMutablePointer<T>,
+                    // CheckedContinuation<T, _>), `.self` metatypes and dedup keys, where `!` is
+                    // either rejected outright ("using '!' is not allowed here") or would split one
+                    // Swift type across two keys.
                     return $"({innerType})?";
                 }
 
@@ -121,6 +127,50 @@ public static class SwiftTypeNameHelper
         }
 
         return typeSpec.ToString() ?? "Any";
+    }
+
+    /// <summary>
+    /// Renders a TypeSpec for a Swift *declaration* position — a var/let type annotation, a function
+    /// parameter, or a function result. Identical to <see cref="GetSwiftTypeName"/> except that a
+    /// type the source spelled `T!` renders back as `T!` rather than `T?`.
+    ///
+    /// The distinction only exists here because Swift's conformance checker rejects a `T?` witness
+    /// for a `T!` requirement ("candidate has non-matching type"), so a synthesized EveryProtocol
+    /// stub must reproduce the spelling the protocol used. It is NOT a different type: IUO and
+    /// Optional share a layout and project to the same C#.
+    ///
+    /// Only the TOP level is re-spelled, which is exactly Swift's own rule — `!` is permitted solely
+    /// in these three positions, and a nested IUO (a generic argument, a tuple element) is erased to
+    /// Optional by the compiler and is a syntax error to write.
+    /// </summary>
+    public static string GetSwiftTypeNameForDeclaration(TypeSpec? typeSpec)
+        => ApplyImplicitlyUnwrappedOptionalSigil(GetSwiftTypeName(typeSpec), typeSpec);
+
+    /// <summary>
+    /// Re-spells an already-rendered Swift type as `T!` when <paramref name="typeSpec"/> is a
+    /// top-level implicitly unwrapped optional. This is the single rule for the IUO spelling; every
+    /// declaration-position renderer routes through it rather than re-deriving the swap, so the
+    /// stub renderers and <see cref="GetSwiftTypeNameForDeclaration"/> cannot drift apart.
+    ///
+    /// Call it ONLY on text destined for a declaration position. <paramref name="rendered"/> must be
+    /// the rendering of <paramref name="typeSpec"/> itself — passing an inner type's text re-spells
+    /// the wrong level.
+    ///
+    /// A rendering that is not the `T?` sugar (e.g. the degraded `Swift.Optional&lt;Any&gt;` a stub
+    /// emits once a generic placeholder is substituted away) is returned untouched: there is no
+    /// legal IUO spelling of the angle-bracket form, and such a stub cannot match its requirement
+    /// faithfully regardless.
+    /// </summary>
+    public static string ApplyImplicitlyUnwrappedOptionalSigil(string rendered, TypeSpec? typeSpec)
+    {
+        if (typeSpec is NamedTypeSpec { IsImplicitlyUnwrappedOptional: true, Name: "Swift.Optional" } namedType
+            && namedType.GenericParameters.Count == 1
+            && rendered.EndsWith('?'))
+        {
+            return string.Concat(rendered.AsSpan(0, rendered.Length - 1), "!");
+        }
+
+        return rendered;
     }
 
     /// <summary>

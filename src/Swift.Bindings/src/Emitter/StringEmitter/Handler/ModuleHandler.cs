@@ -1474,12 +1474,28 @@ namespace BindingsGeneration
             // requirement. The stub is no-op — the synthetic carrier never archives.
             emitter.EmitObjCCodingStubIfNeeded(swiftWriter, suitableProtocols, protocols);
 
+            // Every module-local protocol that lost the candidacy filter above. None of these get an
+            // `extension {carrier}: {P}` — so a surviving protocol that INHERITS one would emit a
+            // conformance Swift can't satisfy (the extension body witnesses only the child's own
+            // members, and the parent's requirements go unwitnessed → "type 'EveryProtocol' does not
+            // conform to protocol '{parent}'" at wrapper compile). The pre-scan can't discover this
+            // on its own: it only iterates the survivors, so a dropped parent is invisible to it.
+            // Both spellings are seeded because a constraint may name either.
+            var droppedCandidates = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var dropped in protocols.Except(suitableProtocols))
+            {
+                droppedCandidates.Add(dropped.Name);
+                if (dropped.SwiftTypeName != null)
+                    droppedCandidates.Add(dropped.SwiftTypeName.ModuleQualifiedName);
+            }
+
             // Pre-scan: identify protocols that will be skipped by structural gates.
-            // This makes genericSig constraint checks order-independent. Pass the cross-module
+            // This makes inherited-conformance checks order-independent. Pass the cross-module
             // parents so the cross-carrier suppression gate can resolve a child that inherits a
             // parent in a --framework-dependency module (which emits its own EveryProtocol
-            // conformance below) and detect a carrier split across the module boundary.
-            emitter.PreScanProtocols(suitableProtocols, crossModuleParents);
+            // conformance below) and detect a carrier split across the module boundary. Cross-module
+            // parents are never in moduleDecl.Protocols, so droppedCandidates can't shadow one.
+            emitter.PreScanProtocols(suitableProtocols, crossModuleParents, droppedCandidates);
 
             // Drop cross-module parents that no LONGER have a live local child after the pre-scan.
             // A cross-module parent's Swift EveryProtocol scaffolding (vtable struct + setter
@@ -1879,6 +1895,10 @@ namespace BindingsGeneration
             // and is implemented by a closed set of compiler-known expression structs.
             "Foundation.PredicateExpression",
             "Foundation.StandardPredicateExpression",
+            // Swift concurrency clock protocol. Carries associated types Duration and Instant
+            // (Instant itself constrained to InstantProtocol), so a witness would have to pin
+            // concrete types the reverse-dispatch vtable has no way to choose.
+            "_Concurrency.Clock",
         };
 
         /// <summary>

@@ -27,6 +27,19 @@ public class EveryProtocolEmitter
     private readonly HashSet<string> _skippedProtocols = new(StringComparer.Ordinal);
 
     /// <summary>
+    /// Module-local protocols that were never offered for EveryProtocol emission at all — they lost
+    /// the module-level candidacy filter before <see cref="PreScanProtocols"/> ever saw them, so no
+    /// <c>extension {carrier}: {P}</c> exists for them even though nothing here "skipped" them.
+    ///
+    /// Deliberately SEPARATE from <see cref="_skippedProtocols"/>: that set drives
+    /// <see cref="IsConformanceSkipped"/>, which the sibling-plan and cross-module-parent retention
+    /// paths read by SIMPLE name. Folding these in would let a dropped local protocol shadow a
+    /// live cross-module parent that happens to share its simple name. Only the inherited-conformance
+    /// predicate consults this set.
+    /// </summary>
+    private readonly HashSet<string> _unavailableConformances = new(StringComparer.Ordinal);
+
+    /// <summary>
     /// Module-local protocol list set during <see cref="PreScanProtocols"/>. Used by
     /// <see cref="IsClassBoundProtocol(ProtocolDecl, IReadOnlyList{ProtocolDecl}?)"/> and
     /// <see cref="IsNSObjectProtocolOnly(ProtocolDecl, IReadOnlyList{ProtocolDecl}?)"/>
@@ -2102,13 +2115,21 @@ public class EveryProtocolEmitter
 
     /// <summary>
     /// Pre-scans all protocols to populate _skippedProtocols BEFORE any emission.
-    /// This makes genericSig constraint checks order-independent: even if ChildProtocol
+    /// This makes inherited-conformance checks order-independent: even if ChildProtocol
     /// appears before ParentProtocol in the list, the pre-scan will have already identified
     /// ParentProtocol as unsatisfied if it has static method requirements, etc.
     /// </summary>
+    /// <param name="protocols">The module-local protocols offered for conformance emission.</param>
+    /// <param name="crossModuleParents">Parent decls from --framework-dependency modules.</param>
+    /// <param name="unavailableConformances">
+    /// Names of module-local protocols the caller excluded from <paramref name="protocols"/>, so
+    /// this pass can propagate from them even though it never sees their decls. Both the
+    /// simple and module-qualified spellings should be supplied.
+    /// </param>
     public void PreScanProtocols(
         IReadOnlyList<ProtocolDecl> protocols,
-        IReadOnlyList<ProtocolDecl>? crossModuleParents = null)
+        IReadOnlyList<ProtocolDecl>? crossModuleParents = null,
+        IEnumerable<string>? unavailableConformances = null)
     {
         // Capture the module-local protocol list so transitive class-bound /
         // NSObjectProtocol-only checks can resolve inherited module-local protocols
@@ -2122,6 +2143,12 @@ public class EveryProtocolEmitter
         // emits on plain EveryProtocol, and the split is missed.
         _crossModuleParents = crossModuleParents;
 
+        // Seed BEFORE pass 1 so the fixpoint below propagates from protocols this emitter never
+        // sees. A protocol dropped by the module-level candidacy filter gets no conformance
+        // extension, but nothing in passes 1-2 can learn that — they only iterate the survivors.
+        if (unavailableConformances != null)
+            _unavailableConformances.UnionWith(unavailableConformances);
+
         // Pass 1: identify protocols that will be skipped by structural gates
         foreach (var protocolDecl in protocols)
         {
@@ -2133,8 +2160,9 @@ public class EveryProtocolEmitter
             }
         }
 
-        // Pass 2: propagate skips through genericSig constraints.
-        // Protocols whose genericSig references a skipped protocol must also be skipped.
+        // Pass 2: propagate skips through inherited conformances.
+        // A protocol inheriting one that gets no witness must also be skipped — declaring the
+        // child conformance makes Swift demand the parent's witnesses, which won't exist.
         // Repeat until no new skips are found (handles transitive chains).
         bool changed = true;
         while (changed)
@@ -2144,7 +2172,7 @@ public class EveryProtocolEmitter
             {
                 if (_skippedProtocols.Contains(protocolDecl.Name))
                     continue;
-                if (HasUnsatisfiedProtocolConstraintInGenericSig(protocolDecl))
+                if (HasUnavailableInheritedConformance(protocolDecl))
                 {
                     _skippedProtocols.Add(protocolDecl.Name);
                     if (protocolDecl.SwiftTypeName != null)
@@ -2560,13 +2588,14 @@ public class EveryProtocolEmitter
             return;
         }
 
-        // Skip protocols whose genericSig constrains Self (τ_0_0) to conform to a protocol
-        // that EveryProtocol can't satisfy — either from a known ObjC module or a previously
-        // skipped protocol from the same module.
-        if (HasUnsatisfiedProtocolConstraintInGenericSig(protocolDecl))
+        // Skip protocols that inherit a conformance EveryProtocol can't satisfy — a known ObjC
+        // module's protocol, or a same-module protocol that gets no witness of its own. Reads the
+        // same predicate the pre-scan fixpoint uses, so the plan and the emission agree by
+        // construction rather than by two gates being kept in step by hand.
+        if (HasUnavailableInheritedConformance(protocolDecl))
         {
-            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: genericSig constrains Self to unsatisfied protocol");
-            RecordSkip("UnsatisfiedProtocolConstraint");
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: inherits a protocol EveryProtocol cannot witness");
+            RecordSkip(EveryProtocolSkipCause.DroppedInheritsUnsatisfiable);
             return;
         }
 
@@ -2928,7 +2957,7 @@ public class EveryProtocolEmitter
     {
         var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
-        var swiftTypeName = GetSwiftTypeName(property.SwiftTypeSpec);
+        var swiftTypeName = GetSwiftTypeNameForDeclaration(property.SwiftTypeSpec);
 
         writer.WriteLine($"public var {NameProvider.ParserNameToSwift(property)}: {swiftTypeName} {{");
         writer.Indent++;
@@ -2953,7 +2982,7 @@ public class EveryProtocolEmitter
     {
         var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
-        var swiftTypeName = RenderTypeSpecWithSelfSubstitution(property.SwiftTypeSpec);
+        var swiftTypeName = RenderTypeSpecWithSelfSubstitutionForDeclaration(property.SwiftTypeSpec);
 
         writer.WriteLine($"public var {NameProvider.ParserNameToSwift(property)}: {swiftTypeName} {{");
         writer.Indent++;
@@ -2987,7 +3016,7 @@ public class EveryProtocolEmitter
         var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
 
-        var swiftTypeName = GetSwiftTypeName(property.SwiftTypeSpec);
+        var swiftTypeName = GetSwiftTypeNameForDeclaration(property.SwiftTypeSpec);
         var swiftTypeNameForMetatype = GetSwiftTypeNameForMetatype(property.SwiftTypeSpec);
 
         // Resolve the dispatch branches. A solo group (no siblings) keeps the original
@@ -3269,14 +3298,14 @@ public class EveryProtocolEmitter
         for (int i = 0; i < subscript.IndexParameters.Count; i++)
         {
             var param = subscript.IndexParameters[i];
-            var paramTypeName = GetSwiftTypeName(param.SwiftTypeSpec);
+            var paramTypeName = GetSwiftTypeNameForDeclaration(param.SwiftTypeSpec);
             var externalLabel = NameProvider.GetSubscriptExternalLabel(param);
             var internalName = $"arg{i}";
             parameters.Add($"{externalLabel} {internalName}: {paramTypeName}");
         }
         var parametersString = string.Join(", ", parameters);
 
-        var returnTypeName = GetSwiftTypeName(subscript.ReturnTypeSpec);
+        var returnTypeName = GetSwiftTypeNameForDeclaration(subscript.ReturnTypeSpec);
         var returnTypeNameForMetatype = GetSwiftTypeNameForMetatype(subscript.ReturnTypeSpec);
 
         // Resolve the dispatch branches. A solo group (no siblings) keeps the original
@@ -3718,13 +3747,19 @@ public class EveryProtocolEmitter
         }
 
         // Build parameter list with proper Swift labeling
+
+        // Declaration-position form: a stub must still satisfy its requirement, so a `T!` requirement
+        // needs a `T!` stub. Top level only — the recursion above stays on the plain form, where `!`
+        // would be a syntax error.
+        string RenderTypeSpecForDeclaration(TypeSpec? ts) =>
+            SwiftTypeNameHelper.ApplyImplicitlyUnwrappedOptionalSigil(RenderTypeSpec(ts), ts);
         var parameters = new List<string>();
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
             var param = method.CSSignature[i];
             // RenderTypeSpec already handles @escaping for direct closures and
             // suppresses it for Optional<Closure> (always escaping in Swift).
-            var paramTypeName = RenderTypeSpec(param.SwiftTypeSpec);
+            var paramTypeName = RenderTypeSpecForDeclaration(param.SwiftTypeSpec);
             var externalLabel = GetSwiftParameterLabel(param, i);
             var internalName = GetSwiftParameterName(param, i);
             var inoutPrefix = param.IsInOut ? "inout " : "";
@@ -3739,7 +3774,7 @@ public class EveryProtocolEmitter
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
-        var returnTypeName = hasReturn ? RenderTypeSpec(returnType!) : "Void";
+        var returnTypeName = hasReturn ? RenderTypeSpecForDeclaration(returnType!) : "Void";
         // This non-dispatchable fatalError stub keeps the requirement's own effects (`async`/`throws`)
         // — a stub satisfies its protocol either way, and a mixed sync/async (or throws/non-throws)
         // fan-out group never routes through an effect-mismatched stub: ComputeMethodEmissionPlans
@@ -3887,11 +3922,17 @@ public class EveryProtocolEmitter
         }
 
         // Build parameter list using raw TypeSpec
+
+        // Declaration-position form: a stub must still satisfy its requirement, so a `T!` requirement
+        // needs a `T!` stub. Top level only — the recursion above stays on the plain form, where `!`
+        // would be a syntax error.
+        string RenderTypeSpecForDeclaration(TypeSpec? ts) =>
+            SwiftTypeNameHelper.ApplyImplicitlyUnwrappedOptionalSigil(RenderTypeSpec(ts), ts);
         var parameters = new List<string>();
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
             var param = method.CSSignature[i];
-            var paramTypeName = RenderTypeSpec(param.SwiftTypeSpec);
+            var paramTypeName = RenderTypeSpecForDeclaration(param.SwiftTypeSpec);
             var externalLabel = GetSwiftParameterLabel(param, i);
             var internalName = GetSwiftParameterName(param, i);
             var inoutPrefix = param.IsInOut ? "inout " : "";
@@ -3905,7 +3946,7 @@ public class EveryProtocolEmitter
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
-        var returnTypeName = hasReturn ? RenderTypeSpec(returnType!) : "Void";
+        var returnTypeName = hasReturn ? RenderTypeSpecForDeclaration(returnType!) : "Void";
         // This non-dispatchable fatalError stub keeps the requirement's own effects (`async`/`throws`)
         // — a stub satisfies its protocol either way, and a mixed sync/async (or throws/non-throws)
         // fan-out group never routes through an effect-mismatched stub: ComputeMethodEmissionPlans
@@ -3949,7 +3990,7 @@ public class EveryProtocolEmitter
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
             var param = method.CSSignature[i];
-            var paramTypeName = RenderTypeSpecWithSelfSubstitution(param.SwiftTypeSpec);
+            var paramTypeName = RenderTypeSpecWithSelfSubstitutionForDeclaration(param.SwiftTypeSpec);
             var externalLabel = GetSwiftParameterLabel(param, i);
             var internalName = GetSwiftParameterName(param, i);
             var inoutPrefix = param.IsInOut ? "inout " : "";
@@ -3963,7 +4004,7 @@ public class EveryProtocolEmitter
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
-        var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitution(returnType!) : "Void";
+        var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitutionForDeclaration(returnType!) : "Void";
         // This non-dispatchable fatalError stub keeps the requirement's own effects (`async`/`throws`)
         // — a stub satisfies its protocol either way, and a mixed sync/async (or throws/non-throws)
         // fan-out group never routes through an effect-mismatched stub: ComputeMethodEmissionPlans
@@ -4016,7 +4057,7 @@ public class EveryProtocolEmitter
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
             var param = method.CSSignature[i];
-            var paramTypeName = RenderTypeSpecWithSelfSubstitution(param.SwiftTypeSpec);
+            var paramTypeName = RenderTypeSpecWithSelfSubstitutionForDeclaration(param.SwiftTypeSpec);
             var externalLabel = GetSwiftParameterLabel(param, i);
             var internalName = GetSwiftParameterName(param, i);
             var inoutPrefix = param.IsInOut ? "inout " : "";
@@ -4030,7 +4071,7 @@ public class EveryProtocolEmitter
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
-        var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitution(returnType!) : "Void";
+        var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitutionForDeclaration(returnType!) : "Void";
         // This non-dispatchable fatalError stub keeps the requirement's own effects (`async`/`throws`)
         // — a stub satisfies its protocol either way, and a mixed sync/async (or throws/non-throws)
         // fan-out group never routes through an effect-mismatched stub: ComputeMethodEmissionPlans
@@ -4150,7 +4191,7 @@ public class EveryProtocolEmitter
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
             var param = method.CSSignature[i];
-            var paramTypeName = RenderTypeSpecWithSelfSubstitution(param.SwiftTypeSpec);
+            var paramTypeName = RenderTypeSpecWithSelfSubstitutionForDeclaration(param.SwiftTypeSpec);
             var externalLabel = GetSwiftParameterLabel(param, i);
             var internalName = GetSwiftParameterName(param, i);
             var inoutPrefix = param.IsInOut ? "inout " : "";
@@ -4164,7 +4205,7 @@ public class EveryProtocolEmitter
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
-        var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitution(returnType!) : "Void";
+        var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitutionForDeclaration(returnType!) : "Void";
         // Keep the requirement's own effects — a stub satisfies its protocol either way (see
         // EmitSelfTypedMethodStub for the effect-mismatch fan-out rationale).
         var asyncDecl = method.IsAsync ? " async" : "";
@@ -4211,7 +4252,7 @@ public class EveryProtocolEmitter
     {
         var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
-        var swiftTypeName = RenderTypeSpecWithSelfSubstitution(property.SwiftTypeSpec);
+        var swiftTypeName = RenderTypeSpecWithSelfSubstitutionForDeclaration(property.SwiftTypeSpec);
 
         writer.WriteLine($"public var {NameProvider.ParserNameToSwift(property)}: {swiftTypeName} {{");
         writer.Indent++;
@@ -4234,7 +4275,7 @@ public class EveryProtocolEmitter
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
             var param = method.CSSignature[i];
-            var paramTypeName = RenderTypeSpecWithSelfSubstitution(param.SwiftTypeSpec);
+            var paramTypeName = RenderTypeSpecWithSelfSubstitutionForDeclaration(param.SwiftTypeSpec);
             var externalLabel = GetSwiftParameterLabel(param, i);
             var internalName = GetSwiftParameterName(param, i);
             var inoutPrefix = param.IsInOut ? "inout " : "";
@@ -4248,7 +4289,7 @@ public class EveryProtocolEmitter
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
-        var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitution(returnType!) : "Void";
+        var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitutionForDeclaration(returnType!) : "Void";
         // Keep the requirement's own effects — a stub satisfies its protocol either way (see
         // EmitSelfTypedMethodStub for the effect-mismatch fan-out rationale).
         var asyncDecl = method.IsAsync ? " async" : "";
@@ -4273,13 +4314,13 @@ public class EveryProtocolEmitter
         for (int i = 0; i < subscript.IndexParameters.Count; i++)
         {
             var param = subscript.IndexParameters[i];
-            var typeName = RenderTypeSpecWithSelfSubstitution(param.SwiftTypeSpec);
+            var typeName = RenderTypeSpecWithSelfSubstitutionForDeclaration(param.SwiftTypeSpec);
             var externalLabel = NameProvider.GetSubscriptExternalLabel(param);
             var internalName = $"arg{i}";
             parameters.Add($"{externalLabel} {internalName}: {typeName}");
         }
 
-        var returnTypeName = RenderTypeSpecWithSelfSubstitution(subscript.ReturnTypeSpec);
+        var returnTypeName = RenderTypeSpecWithSelfSubstitutionForDeclaration(subscript.ReturnTypeSpec);
 
         writer.WriteLine($"public subscript({string.Join(", ", parameters)}) -> {returnTypeName} {{");
         writer.Indent++;
@@ -4303,13 +4344,13 @@ public class EveryProtocolEmitter
         for (int i = 0; i < subscript.IndexParameters.Count; i++)
         {
             var param = subscript.IndexParameters[i];
-            var typeName = RenderTypeSpecWithSelfSubstitution(param.SwiftTypeSpec);
+            var typeName = RenderTypeSpecWithSelfSubstitutionForDeclaration(param.SwiftTypeSpec);
             var externalLabel = NameProvider.GetSubscriptExternalLabel(param);
             var internalName = $"arg{i}";
             parameters.Add($"{externalLabel} {internalName}: {typeName}");
         }
 
-        var returnTypeName = RenderTypeSpecWithSelfSubstitution(subscript.ReturnTypeSpec);
+        var returnTypeName = RenderTypeSpecWithSelfSubstitutionForDeclaration(subscript.ReturnTypeSpec);
 
         writer.WriteLine($"public subscript({string.Join(", ", parameters)}) -> {returnTypeName} {{");
         writer.Indent++;
@@ -4336,7 +4377,7 @@ public class EveryProtocolEmitter
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
             var param = method.CSSignature[i];
-            var paramTypeName = GetSwiftTypeName(param.SwiftTypeSpec);
+            var paramTypeName = GetSwiftTypeNameForDeclaration(param.SwiftTypeSpec);
             var externalLabel = GetSwiftParameterLabel(param, i);
             var internalName = GetSwiftParameterName(param, i);
             internalNames.Add(internalName);
@@ -4369,7 +4410,7 @@ public class EveryProtocolEmitter
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
-        var returnTypeName = hasReturn ? GetSwiftTypeName(returnType!) : "Void";
+        var returnTypeName = hasReturn ? GetSwiftTypeNameForDeclaration(returnType!) : "Void";
         var returnTypeNameForMetatype = hasReturn ? GetSwiftTypeNameForMetatype(returnType!) : "Void";
         // `async` must be propagated to the conformance declaration ONLY for the
         // EveryObjCProtocol path (NSObject-rooted twin used for @objc protocols):
@@ -4724,7 +4765,7 @@ public class EveryProtocolEmitter
             var param = method.CSSignature[i];
             if (DefaultParameterOverloadEmitter.IsDebugParameter(param) || param.SwiftTypeSpec.IsEmptyTuple)
                 continue;
-            var paramTypeName = GetSwiftTypeName(param.SwiftTypeSpec);
+            var paramTypeName = GetSwiftTypeNameForDeclaration(param.SwiftTypeSpec);
             var externalLabel = GetSwiftParameterLabel(param, i);
             var internalName = GetSwiftParameterName(param, i);
             var escaped = NameProvider.EscapeSwiftKeyword(internalName);
@@ -4852,7 +4893,7 @@ public class EveryProtocolEmitter
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
             var param = method.CSSignature[i];
-            var paramTypeName = GetSwiftTypeName(param.SwiftTypeSpec);
+            var paramTypeName = GetSwiftTypeNameForDeclaration(param.SwiftTypeSpec);
             var externalLabel = GetSwiftParameterLabel(param, i);
             var internalName = GetSwiftParameterName(param, i);
             internalNames.Add(internalName);
@@ -5158,7 +5199,7 @@ public class EveryProtocolEmitter
     {
         var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
-        var swiftTypeName = GetSwiftTypeName(property.SwiftTypeSpec);
+        var swiftTypeName = GetSwiftTypeNameForDeclaration(property.SwiftTypeSpec);
         var hasClosure = TryGetDispatchableClosureParam(property.SwiftTypeSpec, closureHandler, out var closure, out var isOptional);
         if (!hasClosure || closure is null)
             throw new InvalidOperationException(
@@ -5304,7 +5345,7 @@ public class EveryProtocolEmitter
 
         var protocolName = protocolDecl.SwiftTypeName.ModuleQualifiedName;
         var conventionCType = ClosureEmitter.GetSwiftConventionCType(retClosure, closureHandler);
-        var swiftReturnTypeName = GetSwiftTypeName(retClosure);
+        var swiftReturnTypeName = GetSwiftTypeNameForDeclaration(retClosure);
 
         // Same sibling fan-out as the closure-param / value-method paths: a same-signature
         // sibling group must walk each sibling's vtable and dispatch through whichever the
@@ -6314,6 +6355,15 @@ public class EveryProtocolEmitter
     private string GetSwiftTypeName(TypeSpec? typeSpec) =>
         SwiftTypeNameHelper.GetSwiftTypeName(typeSpec);
 
+    /// <summary>
+    /// Renders a witness's declaration type — the var annotation, parameter, or result. Differs from
+    /// <see cref="GetSwiftTypeName"/> only for a `T!` requirement, which must render back as `T!` or
+    /// the conformance checker rejects the witness. Never use it for a body expression: `!` is a
+    /// syntax error in a generic argument or a `.self` metatype.
+    /// </summary>
+    private string GetSwiftTypeNameForDeclaration(TypeSpec? typeSpec) =>
+        SwiftTypeNameHelper.GetSwiftTypeNameForDeclaration(typeSpec);
+
     private string GetSwiftTypeNameForMetatype(TypeSpec? typeSpec) =>
         SwiftTypeNameHelper.GetSwiftTypeNameForMetatype(typeSpec);
 
@@ -6322,6 +6372,16 @@ public class EveryProtocolEmitter
     /// (τ_0_0, τ_0_1, etc.) with EveryProtocol. Used by Self-typed member stubs so the
     /// conformance compiles — in the extension context, Self IS EveryProtocol.
     /// </summary>
+    /// <summary>
+    /// Declaration-position form of <see cref="RenderTypeSpecWithSelfSubstitution"/>. A stub still
+    /// has to satisfy its requirement, so a `T!` requirement needs a `T!` stub — the fatalError body
+    /// is irrelevant to the conformance checker. Only the top level is re-spelled, so the recursive
+    /// calls inside the renderer stay on the plain form.
+    /// </summary>
+    private string RenderTypeSpecWithSelfSubstitutionForDeclaration(TypeSpec? typeSpec) =>
+        SwiftTypeNameHelper.ApplyImplicitlyUnwrappedOptionalSigil(
+            RenderTypeSpecWithSelfSubstitution(typeSpec), typeSpec);
+
     private string RenderTypeSpecWithSelfSubstitution(TypeSpec? typeSpec, bool suppressEscaping = false)
     {
         if (typeSpec == null)
@@ -7157,101 +7217,186 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
-    /// Checks if a protocol's genericSig constrains Self (τ_0_0) to conform to a protocol
-    /// that EveryProtocol can't satisfy. Covers three cases:
-    /// 1. Constraint from a known ObjC module (UIKit, AppKit, Foundation) — requires NSObject
-    /// 2. Constraint referencing a protocol whose conformance was already skipped (same module)
-    /// 3. Constraint referencing an underscore-prefixed internal protocol from another module
+    /// Checks if a protocol's genericSig constrains Self (τ_0_0) to conform to a protocol that
+    /// EveryProtocol can't satisfy. This is the genericSig ARM of
+    /// <see cref="HasUnavailableInheritedConformance"/> — prefer that predicate for gating
+    /// decisions; this one exists for callers that mean the genericSig edge specifically.
     /// </summary>
     internal bool HasUnsatisfiedProtocolConstraintInGenericSig(ProtocolDecl protocolDecl)
     {
         if (string.IsNullOrEmpty(protocolDecl.GenericSignature))
             return false;
 
-        var sig = protocolDecl.GenericSignature;
-
-        // Trivial protocols that don't imply unsatisfied conformance
-        var trivialProtocols = new HashSet<string>(StringComparer.Ordinal)
+        foreach (var constraint in ParseGenericSigConstraints(protocolDecl.GenericSignature))
         {
-            "Copyable", "Escapable", "Sendable", "SendableMetatype",
-            "AnyObject", "Error", "NSObjectProtocol"
-        };
+            if (IsInheritedConformanceUnavailable(constraint, protocolDecl))
+                return true;
+        }
 
-        foreach (var constraint in ParseGenericSigConstraints(sig))
+        return false;
+    }
+
+    /// <summary>
+    /// Trivial protocols whose conformance never needs a synthesized witness — markers the
+    /// compiler satisfies implicitly, plus the ones a carrier class supplies for free
+    /// (<c>AnyObject</c>/<c>NSObjectProtocol</c> on a class, <c>Error</c> via a stub).
+    /// </summary>
+    private static readonly HashSet<string> s_trivialInheritedProtocols = new(StringComparer.Ordinal)
+    {
+        "Copyable", "Escapable", "Sendable", "SendableMetatype",
+        "AnyObject", "Error", "NSObjectProtocol"
+    };
+
+    /// <summary>
+    /// Decides whether conforming to <paramref name="constraint"/> would leave the carrier without a
+    /// witness — i.e. no <c>extension {carrier}: {constraint}</c> will exist and the constraint is not
+    /// satisfied by other means. This is the SINGLE fact behind every inherited-conformance decision;
+    /// both edges that can carry an inheritance (the protocol's <c>genericSig</c> <c>Self :</c> clauses
+    /// and its parsed <see cref="ProtocolDecl.InheritedProtocols"/>) resolve through it, so the two
+    /// can't drift into disagreeing about the same parent.
+    ///
+    /// Declaring <c>extension EveryProtocol: Child</c> makes Swift require the inherited conformance
+    /// too, but the extension body only witnesses <c>Child</c>'s OWN members — so an unavailable parent
+    /// surfaces as "type 'EveryProtocol' does not conform to protocol '{parent}'" at wrapper compile.
+    /// </summary>
+    private bool IsInheritedConformanceUnavailable(string constraint, ProtocolDecl protocolDecl)
+    {
+        // Check unqualified names
+        if (s_trivialInheritedProtocols.Contains(constraint))
+            return false;
+
+        var constraintSimple = GetSimpleName(constraint);
+
+        // A class-superclass constraint on RealityFoundation.Entity (umbrella
+        // spelling RealityKit.Entity) is satisfiable through the Entity-rooted
+        // EveryEntityProtocol helper — it is NOT an unsatisfied protocol
+        // constraint. Likewise a protocol-typed constraint that is itself
+        // Entity-rooted (e.g. RealityKit.HasTransform) is satisfied transitively.
+        // Without these allowances, the autoBridge / optionalFallback module gate
+        // below would mis-skip every Entity-rooted RealityFoundation protocol
+        // (their genericSig names the root as RealityKit.Entity / RealityKit.*).
+        if (IsRealityFoundationEntityName(constraint, constraintSimple))
+            return false;
+        if (_allProtocols != null)
         {
-            // Check unqualified names
-            if (trivialProtocols.Contains(constraint))
-                continue;
+            var constraintDecl = _allProtocols.FirstOrDefault(p =>
+                p.Name == constraintSimple || p.Name == constraint ||
+                p.SwiftTypeName?.ToString() == constraint);
+            if (constraintDecl != null &&
+                IsEntityRootedProtocol(constraintDecl, _typeDatabase, _allProtocols))
+                return false;
+        }
 
-            var constraintSimple = GetSimpleName(constraint);
+        var dotIdx = constraint.IndexOf('.');
+        if (dotIdx < 0)
+        {
+            // Unqualified name — check if it's a same-module protocol that will get no witness,
+            // either because a structural gate skipped it or because it never reached emission.
+            return IsUnwitnessed(constraint);
+        }
 
-            // A class-superclass constraint on RealityFoundation.Entity (umbrella
-            // spelling RealityKit.Entity) is satisfiable through the Entity-rooted
-            // EveryEntityProtocol helper — it is NOT an unsatisfied protocol
-            // constraint. Likewise a protocol-typed constraint that is itself
-            // Entity-rooted (e.g. RealityKit.HasTransform) is satisfied transitively.
-            // Without these continues, the autoBridge / optionalFallback module gate
-            // below would mis-skip every Entity-rooted RealityFoundation protocol
-            // (their genericSig names the root as RealityKit.Entity / RealityKit.*).
-            if (IsRealityFoundationEntityName(constraint, constraintSimple))
-                continue;
-            if (_allProtocols != null)
-            {
-                var constraintDecl = _allProtocols.FirstOrDefault(p =>
-                    p.Name == constraintSimple || p.Name == constraint ||
-                    p.SwiftTypeName?.ToString() == constraint);
-                if (constraintDecl != null &&
-                    IsEntityRootedProtocol(constraintDecl, _typeDatabase, _allProtocols))
-                    continue;
-            }
+        var moduleName = constraint.Substring(0, dotIdx);
+        var typeName = constraint.Substring(dotIdx + 1);
 
-            var dotIdx = constraint.IndexOf('.');
-            if (dotIdx < 0)
-            {
-                // Unqualified name — check if it's a skipped same-module protocol
-                if (_skippedProtocols.Contains(constraint))
-                    return true;
-                continue;
-            }
+        // Qualified form of a trivial protocol (e.g. ObjectiveC.NSObjectProtocol)
+        // is also satisfied — the trivial set above is consulted as the unqualified
+        // typeName here. Without this branch, NSObjectProtocol-only @objc
+        // protocols would still skip below because their protocol-level genericSig
+        // names the constraint as ObjectiveC.NSObjectProtocol, which the unqualified
+        // trivial-set check at the top never sees.
+        if (s_trivialInheritedProtocols.Contains(typeName))
+            return false;
 
-            var moduleName = constraint.Substring(0, dotIdx);
-            var typeName = constraint.Substring(dotIdx + 1);
+        // Foundation.NSCoding is satisfiable on the NSObject-rooted EveryObjCProtocol carrier
+        // via the no-op stub conformance (EmitObjCCodingStubIfNeeded), so a `Self : NSCoding`
+        // constraint is NOT unsatisfied when the protocol routes through that carrier (the
+        // RoomPlan.RoomCaptureViewDelegate shape). Gated on IsNSObjectProtocolOnly so the
+        // disqualifying refinements (NSSecureCoding / NSCopying / NSMutableCopying, which make
+        // that predicate false) still fall through to the Foundation skip below. Mirrors the
+        // NSObjectProtocol trivial-set allowance above.
+        if (typeName == "NSCoding" && IsNSObjectProtocolOnly(protocolDecl, _allProtocols))
+            return false;
 
-            // Qualified form of a trivial protocol (e.g. ObjectiveC.NSObjectProtocol)
-            // is also satisfied — the trivial set above is consulted as the unqualified
-            // typeName here. Without this branch, NSObjectProtocol-only @objc
-            // protocols would still skip below because their protocol-level genericSig
-            // names the constraint as ObjectiveC.NSObjectProtocol, which the unqualified
-            // trivial-set check at the top of the loop never sees.
-            if (trivialProtocols.Contains(typeName))
-                continue;
+        // Codable and its halves get explicit EveryProtocol stub conformances
+        // (EmitCodableStubsIfNeeded), so inheriting them is satisfied rather than unavailable.
+        // The genericSig arm never needed this — Swift.Decodable's module isn't autoBridge and
+        // its typeName doesn't start with "_", so it fell through to `return false` anyway — but
+        // the InheritedProtocols arm reaches here for the same edge and must agree.
+        if (s_codableStubbedProtocols.Contains(typeName))
+            return false;
 
-            // Foundation.NSCoding is satisfiable on the NSObject-rooted EveryObjCProtocol carrier
-            // via the no-op stub conformance (EmitObjCCodingStubIfNeeded), so a `Self : NSCoding`
-            // constraint is NOT unsatisfied when the protocol routes through that carrier (the
-            // RoomPlan.RoomCaptureViewDelegate shape). Gated on IsNSObjectProtocolOnly so the
-            // disqualifying refinements (NSSecureCoding / NSCopying / NSMutableCopying, which make
-            // that predicate false) still fall through to the Foundation skip below. Mirrors the
-            // NSObjectProtocol trivial-set allowance above.
-            if (typeName == "NSCoding" && IsNSObjectProtocolOnly(protocolDecl, _allProtocols))
-                continue;
+        // Case 1: Known ObjC/Apple framework module
+        if (AppleFrameworkRegistry.IsAutoBridgeModule(moduleName) ||
+            AppleFrameworkRegistry.IsOptionalFallbackModule(moduleName) ||
+            moduleName == "ObjectiveC" || moduleName == "Foundation")
+        {
+            return true;
+        }
 
-            // Case 1: Known ObjC/Apple framework module
-            if (AppleFrameworkRegistry.IsAutoBridgeModule(moduleName) ||
-                AppleFrameworkRegistry.IsOptionalFallbackModule(moduleName) ||
-                moduleName == "ObjectiveC" || moduleName == "Foundation")
-            {
-                return true;
-            }
+        // Case 2: a protocol that will get no witness.
+        //
+        // The bare typeName arm is LOAD-BEARING, not a same-module convenience — do not restrict it
+        // to `moduleName == _moduleName`. The unwitnessed sets are NOT module-local: a module's ABI
+        // lists foreign protocols it conforms to or extends, and those lose candidacy (their mangled
+        // name fails the module prefix) and get seeded here. Such a parent genuinely has no witness,
+        // so its child must skip — but its two spellings disagree. ChartView is the worked example:
+        // the ABI declares `View` with moduleName `SwiftUICore` and mangled `$s7SwiftUI4ViewP`, so
+        // the qualified seed reads `SwiftUICore.View` while the child's constraint spells the
+        // re-exported `SwiftUI.View`. Only the bare `View` bridges the two; drop it and the child
+        // emits `extension EveryProtocol: ChartBase` against an unsatisfiable `View` requirement.
+        //
+        // The cost is a known false positive: a dropped local `Foo` also makes a live cross-module
+        // `Dep.Foo` parent look unwitnessed and over-skips its child. That needs a real conformer
+        // lookup to separate (ResolveInheritedConformer), not a module comparison — a module
+        // comparison rejects the re-exported spellings this arm exists to catch.
+        if (IsUnwitnessed(constraint) || IsUnwitnessed(typeName))
+            return true;
 
-            // Case 2: Same-module protocol that was already skipped
-            if (_skippedProtocols.Contains(constraint) || _skippedProtocols.Contains(typeName))
-                return true;
+        // Case 3: Underscore-prefixed internal protocol from external module.
+        // These are often ObjC protocol backing types (e.g., ExternalModule._internal_SomeDelegate)
+        // that we can't inspect. Conservative: skip rather than emit broken conformance.
+        if (moduleName != _moduleName && typeName.StartsWith("_"))
+            return true;
 
-            // Case 3: Underscore-prefixed internal protocol from external module.
-            // These are often ObjC protocol backing types (e.g., ExternalModule._internal_SomeDelegate)
-            // that we can't inspect. Conservative: skip rather than emit broken conformance.
-            if (moduleName != _moduleName && typeName.StartsWith("_"))
+        return false;
+    }
+
+    /// <summary>
+    /// Whether no <c>extension {carrier}: {name}</c> will be emitted for this protocol — it was
+    /// either skipped by a structural gate at emission time (<see cref="_skippedProtocols"/>) or
+    /// never offered for emission at all (<see cref="_unavailableConformances"/>).
+    /// </summary>
+    private bool IsUnwitnessed(string name)
+        => _skippedProtocols.Contains(name) || _unavailableConformances.Contains(name);
+
+    /// <summary>
+    /// Protocols whose conformance EveryProtocol carries via an emitted stub rather than a
+    /// per-protocol witness extension (see <c>EmitCodableStubsIfNeeded</c>).
+    /// </summary>
+    private static readonly HashSet<string> s_codableStubbedProtocols = new(StringComparer.Ordinal)
+    {
+        "Codable", "Decodable", "Encodable"
+    };
+
+    /// <summary>
+    /// Whether any protocol this one inherits will be left without a witness on the carrier.
+    /// Unions the two independent channels that can record an inheritance — the <c>genericSig</c>
+    /// <c>Self :</c> clauses and the parsed <see cref="ProtocolDecl.InheritedProtocols"/> — because
+    /// the parser populates them from DIFFERENT ABI fields and they are not interchangeable: a
+    /// protocol can carry an empty genericSig while declaring inheritance through conformances,
+    /// marker protocols are filtered out of InheritedProtocols, and superclass constraints appear
+    /// only in the genericSig. Both planes that decide stub synthesis read THIS one predicate.
+    /// </summary>
+    internal bool HasUnavailableInheritedConformance(ProtocolDecl protocolDecl)
+    {
+        if (HasUnsatisfiedProtocolConstraintInGenericSig(protocolDecl))
+            return true;
+
+        foreach (var inherited in protocolDecl.InheritedProtocols)
+        {
+            // NamedTypeSpec.Name carries the same possibly-module-qualified spelling the
+            // genericSig constraint strings use, so both arms feed the predicate one shape.
+            if (IsInheritedConformanceUnavailable(inherited.Name, protocolDecl))
                 return true;
         }
 

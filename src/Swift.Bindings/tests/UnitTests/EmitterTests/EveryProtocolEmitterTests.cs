@@ -3455,6 +3455,216 @@ public class EveryProtocolEmitterTests
         Assert.DoesNotContain("extension EveryProtocol", childOutput.ToString());
     }
 
+    [Fact]
+    public void PreScan_ParentDroppedFromCandidacy_SkipsChild()
+    {
+        // A parent dropped by the MODULE-LEVEL candidacy filter never reaches the emitter at all,
+        // so no `extension EveryProtocol: Parent` exists — but the pre-scan's own passes iterate
+        // only the protocols they are handed and cannot discover that. The child must still be
+        // skipped: `extension EveryProtocol: Child` makes Swift demand Parent's witnesses too, and
+        // swiftc names the PARENT in the error, not the child.
+        var childProtocol = CreateProtocolWithMethod("ChildProtocol", "childMethod");
+        childProtocol.GenericSignature = "<τ_0_0 : TestModule.DroppedParent>";
+
+        // Only the child is offered for emission — the parent lost candidacy upstream.
+        var protocols = new List<ProtocolDecl> { childProtocol };
+
+        var emitter = new EveryProtocolEmitter(_typeDatabase, NullLogger.Instance, "TestModule");
+        emitter.PreScanProtocols(
+            protocols,
+            crossModuleParents: null,
+            unavailableConformances: new[] { "DroppedParent", "TestModule.DroppedParent" });
+
+        var output = new StringWriter();
+        emitter.EmitProtocolConformance(new SwiftWriter(output), childProtocol, new HashSet<string>());
+        Assert.DoesNotContain("extension EveryProtocol", output.ToString());
+    }
+
+    [Fact]
+    public void PreScan_ParentDroppedFromCandidacy_InheritedProtocolsEdgeOnly_SkipsChild()
+    {
+        // Same defect reached through the OTHER channel. The parser fills InheritedProtocols from
+        // ABI `Conformances` and GenericSignature from `GenericSig` — different fields, populated
+        // independently. A child that records its parent ONLY as an inherited protocol (empty
+        // genericSig) must be skipped just the same; a genericSig-only check short-circuits on the
+        // empty string and lets the broken conformance through.
+        var childProtocol = CreateProtocolWithMethod("ChildProtocol", "childMethod");
+        childProtocol.InheritedProtocols.Add(new NamedTypeSpec("TestModule.DroppedParent"));
+        Assert.True(string.IsNullOrEmpty(childProtocol.GenericSignature));
+
+        var protocols = new List<ProtocolDecl> { childProtocol };
+
+        var emitter = new EveryProtocolEmitter(_typeDatabase, NullLogger.Instance, "TestModule");
+        emitter.PreScanProtocols(
+            protocols,
+            crossModuleParents: null,
+            unavailableConformances: new[] { "DroppedParent", "TestModule.DroppedParent" });
+
+        var output = new StringWriter();
+        emitter.EmitProtocolConformance(new SwiftWriter(output), childProtocol, new HashSet<string>());
+        Assert.DoesNotContain("extension EveryProtocol", output.ToString());
+    }
+
+    [Fact]
+    public void PreScan_ParentSkippedByStructuralGate_InheritedProtocolsEdgeOnly_SkipsChild()
+    {
+        // The InheritedProtocols edge must also carry Pass-1 skips, not just seeded drops: a parent
+        // that IS offered for emission but loses on a structural gate (here, a static requirement)
+        // leaves the same unwitnessed hole.
+        var parentProtocol = CreateSimpleProtocol("ParentProtocol");
+        parentProtocol.Methods.Add(CreateMethodDecl("doStuff"));
+        parentProtocol.Methods.Add(CreateStaticMethodDecl("staticReq")); // causes skip
+
+        var childProtocol = CreateProtocolWithMethod("ChildProtocol", "childMethod");
+        childProtocol.InheritedProtocols.Add(new NamedTypeSpec("TestModule.ParentProtocol"));
+
+        var protocols = new List<ProtocolDecl> { childProtocol, parentProtocol };
+
+        var emitter = new EveryProtocolEmitter(_typeDatabase, NullLogger.Instance, "TestModule");
+        emitter.PreScanProtocols(protocols);
+
+        var output = new StringWriter();
+        emitter.EmitProtocolConformance(new SwiftWriter(output), childProtocol, new HashSet<string>());
+        Assert.DoesNotContain("extension EveryProtocol", output.ToString());
+    }
+
+    [Fact]
+    public void PreScan_DroppedParentSkip_PropagatesTransitively()
+    {
+        // The seed must feed the existing fixpoint, not just a one-level check: Grandchild inherits
+        // Child inherits the dropped Parent. Seeding after the passes (or checking only direct
+        // edges) leaves Grandchild emitting against a Child that never conforms.
+        var childProtocol = CreateProtocolWithMethod("ChildProtocol", "childMethod");
+        childProtocol.InheritedProtocols.Add(new NamedTypeSpec("TestModule.DroppedParent"));
+
+        var grandchild = CreateProtocolWithMethod("GrandchildProtocol", "grandchildMethod");
+        grandchild.InheritedProtocols.Add(new NamedTypeSpec("TestModule.ChildProtocol"));
+
+        // Grandchild first, so the fixpoint has to re-visit it after Child is marked.
+        var protocols = new List<ProtocolDecl> { grandchild, childProtocol };
+
+        var emitter = new EveryProtocolEmitter(_typeDatabase, NullLogger.Instance, "TestModule");
+        emitter.PreScanProtocols(
+            protocols,
+            crossModuleParents: null,
+            unavailableConformances: new[] { "DroppedParent", "TestModule.DroppedParent" });
+
+        var output = new StringWriter();
+        emitter.EmitProtocolConformance(new SwiftWriter(output), grandchild, new HashSet<string>());
+        Assert.DoesNotContain("extension EveryProtocol", output.ToString());
+    }
+
+    [Fact]
+    public void PreScan_UnrelatedProtocol_StillEmitsWhenSiblingDropped()
+    {
+        // Guard the other direction: seeding dropped candidates must not suppress a protocol that
+        // doesn't inherit any of them. Over-skipping is as much a defect as under-skipping.
+        var loneProtocol = CreateProtocolWithMethod("LoneProtocol", "loneMethod");
+
+        var emitter = new EveryProtocolEmitter(_typeDatabase, NullLogger.Instance, "TestModule");
+        emitter.PreScanProtocols(
+            new List<ProtocolDecl> { loneProtocol },
+            crossModuleParents: null,
+            unavailableConformances: new[] { "DroppedParent", "TestModule.DroppedParent" });
+
+        var output = new StringWriter();
+        emitter.EmitProtocolConformance(new SwiftWriter(output), loneProtocol, new HashSet<string>());
+        Assert.Contains("extension EveryProtocol", output.ToString());
+    }
+
+    [Fact]
+    public void PreScan_InheritsStubbedCodable_StillEmits()
+    {
+        // Codable and its halves get explicit stub conformances on EveryProtocol
+        // (EmitCodableStubsIfNeeded), so the inherited edge is witnessed and must NOT read as
+        // unavailable. This is the exemption most at risk from the new InheritedProtocols arm:
+        // the genericSig arm never had to rule on it.
+        var codableChild = CreateProtocolWithMethod("CodableChild", "childMethod");
+        codableChild.InheritedProtocols.Add(new NamedTypeSpec("Swift.Codable"));
+
+        var emitter = new EveryProtocolEmitter(_typeDatabase, NullLogger.Instance, "TestModule");
+        emitter.PreScanProtocols(new List<ProtocolDecl> { codableChild });
+
+        var output = new StringWriter();
+        emitter.EmitProtocolConformance(new SwiftWriter(output), codableChild, new HashSet<string>());
+        Assert.Contains("extension EveryProtocol", output.ToString());
+    }
+
+    [Theory]
+    [InlineData(true, "public var thing: (Swift.Int)! {")]
+    [InlineData(false, "public var thing: (Swift.Int)? {")]
+    public void EmitProtocolConformance_OptionalProperty_WitnessSpellingFollowsTheRequirement(
+        bool iuo, string expectedDecl)
+    {
+        // Swift rejects a `T?` witness for a `T!` requirement ("candidate has non-matching type"),
+        // so the emitted declaration has to carry the spelling the protocol used. Asserted through
+        // real emission rather than the renderer alone: the renderer was already correct while the
+        // emitter called it from the wrong seam, which is exactly what this locks down.
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        optional.IsImplicitlyUnwrappedOptional = iuo;
+
+        var protocol = CreateProtocolWithProperty("OptionalProto", "thing", hasGetter: true, hasSetter: false);
+        protocol.Properties[0].SwiftTypeSpec = optional;
+
+        var emitter = new EveryProtocolEmitter(_typeDatabase, NullLogger.Instance, "TestModule");
+        emitter.PreScanProtocols(new List<ProtocolDecl> { protocol });
+
+        var output = new StringWriter();
+        emitter.EmitProtocolConformance(new SwiftWriter(output), protocol, new HashSet<string>());
+        var emitted = output.ToString();
+
+        Assert.Contains(expectedDecl, emitted);
+        // The `!` spelling is legal ONLY in the declaration. The witness body reads the value back
+        // through a metatype, which must stay on the plain form or swiftc rejects the file outright
+        // with "using '!' is not allowed here".
+        Assert.DoesNotContain("!.self", emitted);
+    }
+
+    [Fact]
+    public void PreScan_DroppedForeignParent_SpelledUnderReexportingModule_StillSkipsChild()
+    {
+        // The ChartView shape, and the reason Case 2's simple-name arm cannot be narrowed to our own
+        // module. A module's ABI lists the foreign protocols it extends, so `View` arrives declared
+        // by moduleName "SwiftUICore" while mangled `$s7SwiftUI4ViewP`; it fails module candidacy and
+        // is seeded unwitnessed under BOTH its bare name and its declaring module. The child spells
+        // the constraint with the re-exporting module instead — "SwiftUI.View" — so the qualified
+        // seed never matches and only the bare name connects them. Skip the child, or it emits an
+        // extension against a `View` requirement nothing satisfies.
+        var child = CreateProtocolWithMethod("ChartBase", "chartMethod");
+        child.InheritedProtocols.Add(new NamedTypeSpec("SwiftUI.View"));
+
+        var emitter = new EveryProtocolEmitter(_typeDatabase, NullLogger.Instance, "SwiftUICharts");
+        emitter.PreScanProtocols(
+            new List<ProtocolDecl> { child },
+            crossModuleParents: null,
+            unavailableConformances: new[] { "View", "SwiftUICore.View" });
+
+        var output = new StringWriter();
+        emitter.EmitProtocolConformance(new SwiftWriter(output), child, new HashSet<string>());
+        Assert.DoesNotContain("extension EveryProtocol", output.ToString());
+    }
+
+    [Fact]
+    public void PreScan_DroppedLocalParent_QualifiedWithOwnModule_StillSkipsChild()
+    {
+        // The companion to the guard above: when the constraint names OUR module, the simple-name
+        // arm must still fire, or the analytics-swift shape (`EventPlugin : Plugin` where Plugin
+        // lost candidacy) regresses back to emitting a conformance Swift cannot satisfy.
+        var child = CreateProtocolWithMethod("Child", "childMethod");
+        child.InheritedProtocols.Add(new NamedTypeSpec("TestModule.Plugin"));
+
+        var emitter = new EveryProtocolEmitter(_typeDatabase, NullLogger.Instance, "TestModule");
+        emitter.PreScanProtocols(
+            new List<ProtocolDecl> { child },
+            crossModuleParents: null,
+            unavailableConformances: new[] { "Plugin" });
+
+        var output = new StringWriter();
+        emitter.EmitProtocolConformance(new SwiftWriter(output), child, new HashSet<string>());
+        Assert.DoesNotContain("extension EveryProtocol", output.ToString());
+    }
+
     #endregion
 
     #region Method Type Conflict Gate Tests

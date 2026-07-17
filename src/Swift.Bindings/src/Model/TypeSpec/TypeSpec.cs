@@ -98,6 +98,21 @@ public abstract class TypeSpec
     public bool IsVariadic { get; set; } = false;
 
     /// <summary>
+    /// True when the declaration spelled this type as an implicitly unwrapped optional (<c>T!</c>)
+    /// rather than a plain optional (<c>T?</c>). Like <see cref="IsVariadic"/>, this is a marker on
+    /// an otherwise ordinary spec: the type stays <c>Swift.Optional&lt;T&gt;</c>, because IUO and
+    /// Optional are the same type with the same layout and project to the same C#.
+    ///
+    /// It matters in exactly one place — rendering a Swift witness signature. Swift's conformance
+    /// checker does NOT accept a <c>T?</c> witness for a <c>T!</c> requirement (it reports
+    /// "candidate has non-matching type"), so a synthesized stub must reproduce the spelling the
+    /// protocol used. swift-api-digester makes this recoverable only via the type node's structural
+    /// <c>name</c> ("ImplicitlyUnwrappedOptional"); its <c>printedName</c> renders IUO with <c>?</c>
+    /// and its USR is Optional's either way.
+    /// </summary>
+    public bool IsImplicitlyUnwrappedOptional { get; set; } = false;
+
+    /// <summary>
     /// Returns true if the type is an array
     /// </summary>
     public bool IsArray

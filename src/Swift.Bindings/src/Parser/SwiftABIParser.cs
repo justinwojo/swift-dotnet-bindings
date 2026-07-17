@@ -3623,6 +3623,14 @@ namespace BindingsGeneration
                         return arraySpec;
                     }
                     var spec = ParseTypeSpecOrDegrade(node.PrintedName);
+                    // swift-api-digester prints an implicitly unwrapped optional with `?` and gives
+                    // it Optional's USR, so printedName alone can't tell `T!` from `T?`. The node's
+                    // structural name is the only surviving signal. Mark the spec rather than
+                    // changing its type: IUO IS Optional (same layout, same C# projection) — the
+                    // spelling only has to survive as far as a Swift witness signature, where the
+                    // conformance checker rejects a `T?` witness for a `T!` requirement.
+                    if (node.Name == "ImplicitlyUnwrappedOptional")
+                        spec.IsImplicitlyUnwrappedOptional = true;
                     // Carry each reference node's Swift USR onto the matching spec — the outer type
                     // and, positionally, the generic-argument types from the node's child type nodes.
                     // The USR's mangling suffix letter is the only signal that distinguishes a value
