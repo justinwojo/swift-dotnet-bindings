@@ -28,6 +28,62 @@ public class EnumCaseWrapperEmitterTests
     }
 
     [Fact]
+    public void ShouldEmit_ModuleInternalEnum_ReturnsFalse()
+    {
+        // The factory wrapper body names the case through its module-qualified path
+        // (TestModule.Status.active), which a separate wrapper-compilation module cannot
+        // spell for an internal type. Emitting the wrapper anyway leaves swiftc to reject
+        // it, the post-processor to strip it, and the C# P/Invoke to reference a symbol
+        // nothing defines (SWIFTBIND108).
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var enumDecl = CreateEnumDecl("Status", moduleDecl);
+        enumDecl.IsModuleInternal = true;
+        var caseDecl = CreateCaseDecl("active", new List<TypeSpec> { new NamedTypeSpec("Swift.Int") }, moduleDecl);
+
+        Assert.False(EnumCaseWrapperEmitter.ShouldEmitCaseFactoryWrapper(enumDecl, caseDecl, typeDb));
+    }
+
+    [Fact]
+    public void ShouldEmit_PublicEnumNestedInModuleInternalParent_ReturnsFalse()
+    {
+        // The enum's own IsModuleInternal is false, but its qualified path runs through an
+        // internal parent (TestModule.Outer.Inner.active), so the wrapper module cannot
+        // spell it either. Checking only the enum's own flag misses this shape — one
+        // internal link anywhere on the chain makes the whole path unspellable.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var outer = CreateEnumDecl("Outer", moduleDecl);
+        outer.IsModuleInternal = true;
+        var nested = CreateEnumDecl("Inner", moduleDecl);
+        nested.ParentDecl = outer;
+        Assert.False(nested.IsModuleInternal);
+
+        var caseDecl = CreateCaseDecl("active", new List<TypeSpec> { new NamedTypeSpec("Swift.Int") }, moduleDecl);
+
+        Assert.False(EnumCaseWrapperEmitter.ShouldEmitCaseFactoryWrapper(nested, caseDecl, typeDb));
+    }
+
+    [Fact]
+    public void ShouldEmit_PublicEnumNestedInPublicParent_ReturnsTrue()
+    {
+        // Discrimination guard for the two tests above: nesting alone must not decline the
+        // wrapper — only an internal link on the chain does. Without this, a predicate that
+        // rejected every nested enum would pass them both.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var outer = CreateEnumDecl("Outer", moduleDecl);
+        var nested = CreateEnumDecl("Inner", moduleDecl);
+        nested.ParentDecl = outer;
+        var caseDecl = CreateCaseDecl("active", new List<TypeSpec> { new NamedTypeSpec("Swift.Int") }, moduleDecl);
+
+        Assert.True(EnumCaseWrapperEmitter.ShouldEmitCaseFactoryWrapper(nested, caseDecl, typeDb));
+    }
+
+    [Fact]
     public void ShouldEmit_NoAsyncLibraryName_ReturnsFalse()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment();

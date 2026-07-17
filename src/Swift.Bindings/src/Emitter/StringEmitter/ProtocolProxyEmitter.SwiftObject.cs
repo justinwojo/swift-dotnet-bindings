@@ -363,44 +363,59 @@ public partial class ProtocolProxyEmitter
             });
             writer.WriteLine();
         }
-        PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+        // The EveryProtocol carrier trio (Create / SetDeinitCallback / GetMetadata, or the
+        // EveryObjCProtocol / EveryEntityProtocol twins) is DECLARED only when this proxy can
+        // actually CALL it — the same `UsesEveryProtocolCarrier` fact the three call sites are
+        // gated on, so the declared set and the called set derive from one decision instead of
+        // two predicates that must stay accidentally equal.
+        //
+        // A read-only (Swift-vended-only) proxy calls none of the three: its C#-impl ctor and
+        // GetTypeMetadata() throw NotSupportedException instead, and it emits no eager
+        // s_everyProtocolMetadata field. Its module may also export no EveryProtocol scaffolding
+        // at all (zero suitable protocols ⇒ EmitEveryProtocolClass never runs), in which case
+        // these three entry points are undefined and the declarations alone are a dangling
+        // wrapper-symbol reference that WrapperSymbolIntegrityGate hard-fails at generation time.
+        if (UsesEveryProtocolCarrier)
         {
-            LibraryPath = wrapperLibPath,
-            EntryPoint = CreateHelperEntryPoint,
-            MethodName = CreateHelperMethodName,
-            ReturnType = "IntPtr",
-            ParametersString = "",
-            CallingConvention = PInvokeCallingConvention.Cdecl,
-            Visibility = PInvokeVisibility.Public
-        });
-        writer.WriteLine();
-        // SBW_SetEveryProtocolDeinitCallback (or its EveryObjCProtocol twin) — wires
-        // a C# unmanaged callback onto a helper instance so Swift's deinit can drive
-        // the strong-registry and ProxyLifetimeTracker teardown. The function-pointer
-        // parameter requires an unsafe P/Invoke; [LibraryImport] supports
-        // `delegate* unmanaged[Cdecl]<...>` in .NET 10.
-        PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
-        {
-            LibraryPath = wrapperLibPath,
-            EntryPoint = SetDeinitCallbackEntryPoint,
-            MethodName = SetDeinitCallbackMethodName,
-            ReturnType = "void",
-            ParametersString = "IntPtr instance, delegate* unmanaged[Cdecl]<IntPtr, void> callback, IntPtr context",
-            CallingConvention = PInvokeCallingConvention.Cdecl,
-            Visibility = PInvokeVisibility.Public,
-            IsUnsafe = true,
-        });
-        writer.WriteLine();
-        PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
-        {
-            LibraryPath = wrapperLibPath,
-            EntryPoint = GetMetadataEntryPoint,
-            MethodName = GetMetadataMethodName,
-            ReturnType = "IntPtr",
-            ParametersString = "",
-            CallingConvention = PInvokeCallingConvention.Cdecl,
-            Visibility = PInvokeVisibility.Public
-        });
+            PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+            {
+                LibraryPath = wrapperLibPath,
+                EntryPoint = CreateHelperEntryPoint,
+                MethodName = CreateHelperMethodName,
+                ReturnType = "IntPtr",
+                ParametersString = "",
+                CallingConvention = PInvokeCallingConvention.Cdecl,
+                Visibility = PInvokeVisibility.Public
+            });
+            writer.WriteLine();
+            // SBW_SetEveryProtocolDeinitCallback (or its EveryObjCProtocol twin) — wires
+            // a C# unmanaged callback onto a helper instance so Swift's deinit can drive
+            // the strong-registry and ProxyLifetimeTracker teardown. The function-pointer
+            // parameter requires an unsafe P/Invoke; [LibraryImport] supports
+            // `delegate* unmanaged[Cdecl]<...>` in .NET 10.
+            PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+            {
+                LibraryPath = wrapperLibPath,
+                EntryPoint = SetDeinitCallbackEntryPoint,
+                MethodName = SetDeinitCallbackMethodName,
+                ReturnType = "void",
+                ParametersString = "IntPtr instance, delegate* unmanaged[Cdecl]<IntPtr, void> callback, IntPtr context",
+                CallingConvention = PInvokeCallingConvention.Cdecl,
+                Visibility = PInvokeVisibility.Public,
+                IsUnsafe = true,
+            });
+            writer.WriteLine();
+            PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+            {
+                LibraryPath = wrapperLibPath,
+                EntryPoint = GetMetadataEntryPoint,
+                MethodName = GetMetadataMethodName,
+                ReturnType = "IntPtr",
+                ParametersString = "",
+                CallingConvention = PInvokeCallingConvention.Cdecl,
+                Visibility = PInvokeVisibility.Public
+            });
+        }
 
         // Emit P/Invoke declarations for witness dispatch accessors
         EmitWitnessDispatchPInvokes(writer, protocolDecl, dispatchEmitter, wrapperLibPath);

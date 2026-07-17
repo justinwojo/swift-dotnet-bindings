@@ -1004,10 +1004,38 @@ public static class NameProvider
 
     /// <summary>
     /// The curated NSObject instance-property names whose C# accessors collide with a same-named
-    /// projected method on an ObjC-rooted binding. Exposed for the seed site in ClassHandler and for
-    /// the reflection drift test; <see cref="_objCRootedInheritedPropertyNames"/> stays private.
+    /// projected method on an ObjC-rooted binding. Exposed for the reflection drift test;
+    /// <see cref="_objCRootedInheritedPropertyNames"/> stays private. Emission and conformance
+    /// code must NOT union this set by hand — go through
+    /// <see cref="SeedObjCRootedInheritedPropertyNames"/>.
     /// </summary>
     public static IReadOnlyCollection<string> ObjCRootedInheritedPropertyNames => _objCRootedInheritedPropertyNames;
+
+    /// <summary>
+    /// Seeds <paramref name="propertyNames"/> with the NSObject instance-property names an
+    /// ObjC-rooted class inherits — the single fact behind every "which sibling names does this
+    /// concrete type's method-name shaping have to dodge?" decision.
+    ///
+    /// Two planes ask that question and MUST get the same answer. The emitting plane renames a
+    /// method that projects onto an inherited name (<c>handle(url:)</c> → <c>HandleMethod</c>) so it
+    /// cannot shadow the inherited property (CS0108, and CS0428 at later property reads). The
+    /// conformance plane predicts that same emitted name to decide whether the class still fills an
+    /// interface slot. A plane that builds this set from the type's OWN declared properties alone
+    /// predicts <c>Handle</c>, keeps a conformance the emitter then contradicts by emitting
+    /// <c>HandleMethod</c>, and the class is left declaring an interface member it never defines
+    /// (CS0535). Seeding both planes from here is what keeps the prediction and the emission from
+    /// drifting apart.
+    ///
+    /// Non-ObjC-rooted types inherit no such properties, so they are left untouched and keep
+    /// projecting the unrenamed name.
+    /// </summary>
+    /// <param name="propertyNames">The sibling-name set being assembled for <paramref name="concreteType"/>.</param>
+    /// <param name="concreteType">The type whose methods are being named, or whose emitted names are being predicted.</param>
+    public static void SeedObjCRootedInheritedPropertyNames(ISet<string> propertyNames, TypeDecl? concreteType)
+    {
+        if (concreteType is ClassDecl { IsObjCRooted: true })
+            propertyNames.UnionWith(_objCRootedInheritedPropertyNames);
+    }
 
     public static string GetMetadataName(string typeName) => $"{typeName}Metadata";
     public static string GetPayloadName(string argumentName) => $"{argumentName}Payload";

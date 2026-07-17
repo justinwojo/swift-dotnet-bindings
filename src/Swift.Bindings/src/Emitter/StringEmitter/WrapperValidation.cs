@@ -333,6 +333,37 @@ public static class WrapperValidation
         => (env.ParentDecl as TypeDecl)?.IsModuleInternal == true;
 
     /// <summary>
+    /// True when <paramref name="decl"/> — or ANY type enclosing it — is module-internal, so a
+    /// separate wrapper-compilation module cannot name it by its module-qualified path.
+    ///
+    /// <para>
+    /// This is the single decision record for "can wrapper source spell this type?". A @_cdecl
+    /// wrapper body always names the type through its FULL qualified path
+    /// (<c>Module.Outer.Inner.case</c>), so one internal link anywhere in the chain makes the
+    /// whole path unspellable — swiftc rejects the wrapper with "no type named X in module Y".
+    /// Checking only the type's own flag misses the nested shape (a public enum inside an
+    /// internal parent), where the wrapper is emitted, fails to compile, is stripped by the
+    /// post-processor, and leaves the C# P/Invoke that was planned against it pointing at a
+    /// symbol nothing defines.
+    /// </para>
+    ///
+    /// <para>
+    /// Every plane that decides whether wrapper source exists for a type must consult THIS, so
+    /// the side that plans C# P/Invokes and the side that emits Swift symbols cannot drift into
+    /// two predicates that merely happen to agree.
+    /// </para>
+    /// </summary>
+    public static bool IsTypeOrEnclosingModuleInternal(TypeDecl? decl)
+    {
+        for (var current = decl; current is not null; current = current.ParentDecl as TypeDecl)
+        {
+            if (current.IsModuleInternal)
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Returns true when the generator is running in xcframework mode, where the wrapper
     /// library exists. This is a prerequisite for all @_cdecl wrapper emission. This is the
     /// single chokepoint for the mode decision — it consults the explicit

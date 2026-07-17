@@ -371,8 +371,9 @@ namespace BindingsGeneration
                 // Description, …). A Swift method projected to one of those names shadows the
                 // inherited property (CS0108) and breaks later property reads (CS0428). Seed the
                 // sibling-property rename axis with them so any such method is renamed uniformly.
-                if (isObjCRooted)
-                    propertyNames.UnionWith(NameProvider.ObjCRootedInheritedPropertyNames);
+                // Shared with the conformance plane, which has to predict the very name this seed
+                // produces — see NameProvider.SeedObjCRootedInheritedPropertyNames.
+                NameProvider.SeedObjCRootedInheritedPropertyNames(propertyNames, classDecl);
 
                 SubscriptHandler.EmitSubscripts(csWriter, swiftWriter, classDecl, env.TypeDatabase, conductor, childContext, _logger);
 

@@ -48,7 +48,7 @@ public partial class ProtocolProxyEmitter
         // TypeInitializationException the first time the proxy type is touched — even on the
         // wrap-only path that never needs the helper metadata. GetTypeMetadata() fails clean for
         // these proxies instead (see EmitISwiftObjectImplementation), mirroring GetWitnessTableFromSwift.
-        if (!_useObjCBase && !_isReadOnlyProxy)
+        if (!_useObjCBase && UsesEveryProtocolCarrier)
         {
             writer.WriteLines($$"""
                 private static readonly TypeMetadata s_everyProtocolMetadata = TypeMetadata.FromHandle(NativeMethods.{{GetMetadataMethodName}}());

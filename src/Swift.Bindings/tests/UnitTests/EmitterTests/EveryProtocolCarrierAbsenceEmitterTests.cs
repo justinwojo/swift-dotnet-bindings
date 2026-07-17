@@ -99,6 +99,23 @@ public class EveryProtocolCarrierAbsenceEmitterTests : IDisposable
         Assert.Contains("EntryPoint = \"SBW_CreateEveryProtocol\"", csOutput);
     }
 
+    [Fact]
+    public void ReadOnlyProxy_CarrierEmitted_DoesNotDeclareCarrierTrio()
+    {
+        // A read-only (Swift-vended-only) proxy never CALLS the EveryProtocol factory trio — it
+        // wraps an existing `any P` and cannot synthesize a C#→Swift conformance. The emission
+        // policy therefore exempts it from the carrier check. But exempting the CALL while still
+        // emitting the NativeMethods DECLARATION leaves the trio named as P/Invoke entry points in
+        // a module that may export no such symbols. Declaring and calling must derive from the one
+        // fact "does this proxy use the carrier?", not from two independent decisions.
+        var protocolDecl = BuildProxyEligibleProtocol("UnknownFieldsDecodable");
+        var (csOutput, _, _) = EmitModule("TestModule", protocolDecl, markReadOnlyProxy: true);
+
+        Assert.DoesNotContain("EntryPoint = \"SBW_CreateEveryProtocol\"", csOutput);
+        Assert.DoesNotContain("EntryPoint = \"SBW_GetMetadata_EveryProtocol\"", csOutput);
+        Assert.DoesNotContain("EntryPoint = \"SBW_SetEveryProtocolDeinitCallback\"", csOutput);
+    }
+
     // A non-class, non-Self protocol that is full-proxy-eligible (has an implementable `ping()`
     // requirement) but dropped from the suitable set because `probe()` returns a module-internal type
     // absent from the DB (HasMembersReferencingInternalTypes). Internal-type reach is NOT a
@@ -194,7 +211,7 @@ public class EveryProtocolCarrierAbsenceEmitterTests : IDisposable
     // — the parser maintains those as independent lists, and ProtocolHandler (which emits/suppresses
     // the C# proxy) only walks Types, so a Protocols-only entry would never exercise the proxy path.
     private static (string csOutput, string swiftOutput, ModuleEmissionContext ctx) EmitModule(
-        string moduleName, ProtocolDecl protocolDecl)
+        string moduleName, ProtocolDecl protocolDecl, bool markReadOnlyProxy = false)
     {
         var moduleDecl = new ModuleDecl
         {
@@ -233,6 +250,12 @@ public class EveryProtocolCarrierAbsenceEmitterTests : IDisposable
 
         var conductor = new Conductor(new NullLoggerFactory());
         var emissionCtx = new ModuleEmissionContext();
+        // Mirror ModuleHandler.MarkReadOnlyProxy(p.Name) for the read-only cell. The marking
+        // DECISION (superclass-constrained, non-Entity-rooted) is pinned by
+        // ProtocolProxyEmissionPolicyTests; pre-marking here targets what the proxy emitter does
+        // once that decision is already made.
+        if (markReadOnlyProxy)
+            emissionCtx.MarkReadOnlyProxy(protocolDecl.Name);
         var context = new TypeHandlerContext(null, new(), null, EmissionContext: emissionCtx);
         handler.Emit(csWriter, swiftWriter, env, conductor, context);
 

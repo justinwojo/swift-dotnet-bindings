@@ -1469,7 +1469,11 @@ public class ModuleHandlerTests
         var env = handler.Marshal(moduleDecl, typeDatabase);
         var loggerFactory = new Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory();
         var conductor = new Conductor(loggerFactory);
-        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+        // Fresh emission context, not the ModuleEmissionContext.Default singleton a bare
+        // TypeHandlerContext.Empty resolves to — a module emit ENUMERATES that shared state while
+        // tests in other classes concurrently register into it.
+        handler.Emit(csWriter, swiftWriter, env, conductor,
+            TypeHandlerContext.Empty with { EmissionContext = new ModuleEmissionContext() });
 
         var csOutput = csStringWriter.ToString();
 
@@ -1708,20 +1712,17 @@ public class ModuleHandlerTests
         var loggerFactory = new Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory();
         var conductor = new Conductor(loggerFactory, namespaceResolver);
 
-        // Pre-emit hook receives a fresh per-test emission context so tests that
-        // mutate state (e.g. RegisterErrorTypeId) don't leak into the shared
-        // ModuleEmissionContext.Default singleton used by other tests.
-        TypeHandlerContext context;
-        if (preEmitHook != null)
-        {
-            var emissionContext = new ModuleEmissionContext();
-            preEmitHook(emissionContext);
-            context = TypeHandlerContext.Empty with { EmissionContext = emissionContext };
-        }
-        else
-        {
-            context = TypeHandlerContext.Empty;
-        }
+        // Every emit gets a FRESH context, hook or no hook. TypeHandlerContext.Empty leaves
+        // EmissionContext null, which GetEmissionContext() resolves to the ModuleEmissionContext
+        // .Default singleton — shared, mutable, and written by any test in any class xUnit happens
+        // to be running in parallel. Emission both reads and writes it (EmitFrameworkResolver
+        // enumerates EmittedSwiftObjectTypes while another test's emit registers into the same
+        // list), so falling back to Default made this helper's tests fail intermittently with
+        // "Collection was modified; enumeration operation may not execute" — a test-isolation
+        // artifact, not a generator defect: a real run emits one module per process.
+        var emissionContext = new ModuleEmissionContext();
+        preEmitHook?.Invoke(emissionContext);
+        var context = TypeHandlerContext.Empty with { EmissionContext = emissionContext };
 
         handler.Emit(csWriter, swiftWriter, env, conductor, context);
 

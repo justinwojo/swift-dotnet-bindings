@@ -800,6 +800,85 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_ModuleInternalEnum_FailsClosedOnPayloadCaseFactory()
+    {
+        // A `@usableFromInline internal` enum's payload-case factory has no route to the native
+        // case constructor. The wrapper module cannot name the enum's module-qualified path, so
+        // the @_cdecl wrapper declines it; and the case constructor is never an exported function
+        // (the built framework exports only the `…mlFWC` case-descriptor DATA), so the remaining
+        // direct-CallConvSwift path would import a symbol that does not exist. Emitting the
+        // factory anyway leaves a P/Invoke referencing a wrapper symbol nothing defines —
+        // SWIFTBIND108 catches it and aborts generation for the whole library. The generator must
+        // fail closed HERE, at the factory, so the C# reference is never written in the first
+        // place.
+        var typeDatabase = CreateXCFrameworkTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("TokenQueue", moduleDecl, isFrozen: true);
+        enumDecl.IsModuleInternal = true;
+
+        var payloadCase = CreateCase("boxed");
+        payloadCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(payloadCase);
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // No factory, and no P/Invoke for it — the two halves of the dangling reference.
+        Assert.DoesNotContain("public static unsafe TokenQueue Boxed(", csOutput);
+        Assert.DoesNotContain("PInvoke_Boxed", csOutput);
+        Assert.DoesNotContain("SBW_TokenQueue_boxed", csOutput);
+        // The skip is loud, not silent.
+        Assert.Contains("// Unsupported: method 'Boxed'", csOutput);
+    }
+
+    [Fact]
+    public void Emit_PublicEnumNestedInModuleInternalParent_FailsClosedOnPayloadCaseFactory()
+    {
+        // Same unnameable-path defect reached through the enclosing type: the enum's OWN
+        // IsModuleInternal is false, so a check that reads only the enum's flag lets the factory
+        // emit — but the wrapper module still cannot spell `Outer.Inner` when `Outer` is internal.
+        // This is the shape that makes the module-internal check have to walk the parent chain
+        // rather than read one flag.
+        var typeDatabase = CreateXCFrameworkTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var outerDecl = CreateEnumDecl("Parser", moduleDecl, isFrozen: true);
+        outerDecl.IsModuleInternal = true;
+
+        var enumDecl = CreateEnumDecl("State", moduleDecl, isFrozen: true);
+        enumDecl.ParentDecl = outerDecl;
+        // The enum itself is public — only its enclosing type is internal.
+        Assert.False(enumDecl.IsModuleInternal);
+
+        var payloadCase = CreateCase("boxed");
+        payloadCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(payloadCase);
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.DoesNotContain("public static unsafe State Boxed(", csOutput);
+        Assert.DoesNotContain("PInvoke_Boxed", csOutput);
+        Assert.Contains("// Unsupported: method 'Boxed'", csOutput);
+    }
+
+    [Fact]
+    public void Emit_PublicEnumInPublicParent_StillEmitsPayloadCaseFactory()
+    {
+        // Discrimination guard: the fail-closed arms above must key on the enum being
+        // unnameable, not on "has a payload case". An ordinary public enum keeps its factory.
+        var typeDatabase = CreateXCFrameworkTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Node", moduleDecl, isFrozen: true);
+
+        var payloadCase = CreateCase("boxed");
+        payloadCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(payloadCase);
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("Boxed(", csOutput);
+        Assert.DoesNotContain("// Unsupported: method 'Boxed'", csOutput);
+    }
+
+    [Fact]
     public void Emit_GenericEnum_PayloadSizeUsesHelperPInvokeAccessor()
     {
         // Regression: when emitting a generic enum, `_payloadSize` MUST go through the
@@ -1195,6 +1274,19 @@ public class EnumHandlerOutputTests
             });
         typeDatabase.AddModuleDatabase(swiftModule);
         typeDatabase.AddModuleDatabase(new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib"));
+        return typeDatabase;
+    }
+
+    /// <summary>
+    /// A type database in XCFramework mode — i.e. one with a companion wrapper library, which is
+    /// what <see cref="WrapperValidation.IsXCFrameworkMode"/> keys off. The wrapper-routing
+    /// decisions only exist in this mode; on the Direct path there is no wrapper module to fail
+    /// to name a type from.
+    /// </summary>
+    private static TypeDatabase CreateXCFrameworkTypeDatabase()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
         return typeDatabase;
     }
 

@@ -88,6 +88,23 @@ public partial class ProtocolProxyEmitter
     /// </summary>
     private bool _isReadOnlyProxy;
 
+    /// <summary>
+    /// Whether this proxy uses the EveryProtocol carrier family at all — i.e. whether it may call
+    /// the <c>Create</c> / <c>SetDeinitCallback</c> / <c>GetMetadata</c> factory trio (or its
+    /// EveryObjCProtocol / EveryEntityProtocol twins).
+    ///
+    /// <para>
+    /// This is the SINGLE fact the carrier plane derives from: every site that emits a CALL to the
+    /// trio and the site that emits their P/Invoke DECLARATIONS both gate on it, so the declared
+    /// set and the called set cannot drift apart. A read-only (Swift-vended-only) proxy is the one
+    /// false case — it synthesizes no conformance, so its C#-impl ctor and <c>GetTypeMetadata()</c>
+    /// throw instead of calling the trio, and it emits no eager metadata field. Such a proxy may
+    /// live in a module that emitted NO carrier at all (zero suitable protocols), where the three
+    /// symbols are undefined and even a bare declaration dangles.
+    /// </para>
+    /// </summary>
+    private bool UsesEveryProtocolCarrier => !_isReadOnlyProxy;
+
     /// <summary>Name of the C# Swift-side factory P/Invoke used to allocate the helper instance.</summary>
     private string CreateHelperMethodName => _useEntityBase
         ? "CreateEveryEntityProtocol"

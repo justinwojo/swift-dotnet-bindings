@@ -27,6 +27,95 @@ namespace BindingsGeneration.Tests;
 /// </summary>
 public class ObjCRootedInheritedPropertyDriftTests
 {
+    [Fact]
+    public void Seed_ObjCRootedClass_RenamesMethodCollidingWithInheritedProperty()
+    {
+        // The emitting plane and the conformance plane both shape this name. Seeded with the
+        // inherited NSObject names, Swift `handle(url:)` must project to `HandleMethod` — it
+        // cannot stay `Handle` without shadowing the inherited NSObject.Handle property.
+        var propertyNames = new HashSet<string>();
+        NameProvider.SeedObjCRootedInheritedPropertyNames(propertyNames, CreateClassDecl("SafariURLHandler", isObjCRooted: true));
+
+        Assert.Contains("Handle", propertyNames);
+
+        var shaped = NameProvider.GetPublicMethodName(
+            "handle", isAsync: false, hasReturnValue: false, propertyNames: propertyNames, parameterCount: 1);
+
+        Assert.Equal("HandleMethod", shaped);
+    }
+
+    [Fact]
+    public void Seed_NonObjCRootedClass_LeavesMethodNameUnrenamed()
+    {
+        // Discrimination guard: a class that does not root in NSObject inherits none of those
+        // properties, so the same Swift method must keep projecting to `Handle`. This is the
+        // shape that is correct today (OAuthSwift's non-NSObject ExtensionContextURLHandler);
+        // a seed that fired unconditionally would rename it and break its conformance instead.
+        var propertyNames = new HashSet<string>();
+        NameProvider.SeedObjCRootedInheritedPropertyNames(propertyNames, CreateClassDecl("ExtensionContextURLHandler", isObjCRooted: false));
+
+        Assert.Empty(propertyNames);
+
+        var shaped = NameProvider.GetPublicMethodName(
+            "handle", isAsync: false, hasReturnValue: false, propertyNames: propertyNames, parameterCount: 1);
+
+        Assert.Equal("Handle", shaped);
+    }
+
+    [Fact]
+    public void Seed_NonClassDecl_IsLeftUnseeded()
+    {
+        // Structs and enums have no NSObject ancestry, so the conformance plane must not seed
+        // inherited names for them — that would predict `HandleMethod` for a witness the emitter
+        // still emits as `Handle` and drop a conformance that is valid today (CS0535's mirror
+        // image: a silently missing interface).
+        var propertyNames = new HashSet<string>();
+        NameProvider.SeedObjCRootedInheritedPropertyNames(propertyNames, CreateStructDecl("PlainValue"));
+
+        Assert.Empty(propertyNames);
+    }
+
+    private static StructDecl CreateStructDecl(string name)
+    {
+        return new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}VN",
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+            IsFrozen = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+    }
+
+    private static ClassDecl CreateClassDecl(string name, bool isObjCRooted)
+    {
+        return new ClassDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}CN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsObjCRooted = isObjCRooted,
+        };
+    }
+
     [SkippableFact]
     public void CuratedSet_CoversEveryPublicNSObjectInstanceProperty()
     {

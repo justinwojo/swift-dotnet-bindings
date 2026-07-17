@@ -45,6 +45,15 @@ public static class EnumCaseWrapperEmitter
         if (enumDecl.IsGeneric || WrapperValidation.IsInheritedGenericContext(enumDecl))
             return false;
 
+        // 2b. The enum — or any type enclosing it — is module-internal. The factory wrapper body
+        // names the case through its full module-qualified path (Module.Outer.Inner.case), which
+        // the separate wrapper-compilation module cannot spell for an internal link, so swiftc
+        // rejects it. Consulting the shared predicate keeps this plane deriving from the same
+        // fact as the C# planner and the other wrapper emitters, instead of a private predicate
+        // that must stay accidentally equal to theirs.
+        if (WrapperValidation.IsTypeOrEnclosingModuleInternal(enumDecl))
+            return false;
+
         // 3. Each associated value must be mappable to @_cdecl params
         foreach (var assocValue in caseDecl.AssociatedValues)
         {

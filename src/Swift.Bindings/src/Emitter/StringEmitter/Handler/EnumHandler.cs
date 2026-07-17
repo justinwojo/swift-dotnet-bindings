@@ -75,7 +75,15 @@ namespace BindingsGeneration
             // because other types may reference the enum in method signatures.
             // Redirecting swiftWriter to a discard writer prevents Swift wrapper emission while
             // allowing all C# code paths to proceed normally.
-            if (enumDecl.IsModuleInternal)
+            //
+            // The condition consults the shared "can wrapper source spell this type?" predicate
+            // rather than the enum's own flag alone: an enum nested in an internal parent is just
+            // as unspellable from the wrapper module, and suppressing it here keeps this decision
+            // deriving from the same fact the per-case wrapper gate uses. Note the discard writer
+            // is deliberately NOT the signal any C# planner reads — it is non-null and therefore
+            // invisible to a `swiftWriter != null` test; planes that must know whether wrapper
+            // source will exist consult the predicate directly.
+            if (WrapperValidation.IsTypeOrEnclosingModuleInternal(enumDecl))
                 swiftWriter = new SwiftWriter(new System.IO.StringWriter());
 
             // Type-level skip conditions — evaluated via the shared list so this decision

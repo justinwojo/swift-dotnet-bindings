@@ -912,9 +912,29 @@ public partial class ProtocolProxyEmitter
                     {
                         writer.WriteLine($"var value = {valueClassCopyOut};");
                     }
+                    // Optional ObjC-bridgeable VALUE (URL?, NS_TYPED_ENUM newtypes): the Swift thunk
+                    // passes one optional ObjC pointer word, so read a bare IntPtr and +0-bridge it.
+                    // GetReceiverSetterConversion's contract requires this shape to be intercepted at
+                    // the call site — its default arm fails closed rather than reinterpret the value's
+                    // storage bytes as the two-word SwiftOptional<IntPtr> carrier. Ordered after the
+                    // class copy-out arm above, matching the property setter's precedence.
+                    else if (TryGetReceiverOptionalObjCBridgeableValueRead(
+                        subscript.ReturnTypeSpec, "valuePtr", "rawValue",
+                        out var subscriptObjCOptMarshal, out var subscriptObjCOptConv))
+                    {
+                        writer.WriteLine($"var rawValue = {subscriptObjCOptMarshal};");
+                        writer.WriteLine($"var value = {subscriptObjCOptConv};");
+                    }
                     else
                     {
-                        var subscriptSetterConv = GetReceiverExistentialSetterConversion("rawValue", subscript.ReturnTypeSpec);
+                        // Project the incoming value through the SAME general converter this subscript's
+                        // GETTER and the property setter already use (existential arm first, then the
+                        // projection visitor). Consulting only the existential arm here left every other
+                        // projected shape — Optional<String> the loudest — sitting in its raw ABI carrier
+                        // while the interface slot expects the idiomatic type: the two accessors of one
+                        // member disagreed on that member's projection, and the assignment could not
+                        // compile. One converter for both accessors is what keeps them agreeing.
+                        var subscriptSetterConv = GetReceiverSetterConversion("rawValue", subscript.ReturnTypeSpec);
                         if (subscriptSetterConv != null)
                         {
                             writer.WriteLine($"var rawValue = {GetReceiverRawMaterialization(returnTypeName, "valuePtr", subscript.ReturnTypeSpec)};");

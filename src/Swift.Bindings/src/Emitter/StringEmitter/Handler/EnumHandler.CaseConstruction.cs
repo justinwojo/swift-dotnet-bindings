@@ -170,6 +170,28 @@ namespace BindingsGeneration
                 return false;
             }
 
+            // Same fail-closed shape, different unspellable-type cause: the enum — or a type
+            // enclosing it — is module-internal, so the wrapper module cannot name the case's
+            // module-qualified path and the @_cdecl route is declined above. Skip rather than
+            // fall through to the direct-CallConvSwift path: an enum case constructor is never
+            // exported as a callable function (the built framework exports only the `…mlFWC`
+            // case-descriptor DATA), so that path would ship an EntryPointNotFoundException.
+            // This kind belongs to the no-clean-fallback class — like async, closure-bearing,
+            // and operator members on an internal parent — where rejecting only the wrapper and
+            // keeping the member is not an option, so the member itself is dropped.
+            if (WrapperValidation.IsXCFrameworkMode(typeDatabase) && !useCdeclWrapper &&
+                WrapperValidation.IsTypeOrEnclosingModuleInternal(enumDecl))
+            {
+                _logger.LogWarning(
+                    "Enum case '{Enum}.{Case}' belongs to a module-internal enum (or one nested in an internal type); the wrapper module cannot name its qualified path, and the case constructor is not an exported function symbol. Skipping the C# factory to avoid a dangling wrapper-symbol reference.",
+                    enumDecl.Name, caseName);
+                UnsupportedCommentEmitter.EmitMemberSkipped(
+                    csWriter, capitalizedName, BindingItemKind.Method, SkipReason.ModuleInternal,
+                    "module-internal enum payload-case constructor cannot be named by the wrapper module and has no exported function symbol to import directly.",
+                    containingDecl: caseDecl.ParentDecl);
+                return false;
+            }
+
             // Generate the static method for this case — prefer symbol graph doc over synthetic
             if (caseDecl.Documentation != null && !caseDecl.Documentation.IsEmpty)
             {

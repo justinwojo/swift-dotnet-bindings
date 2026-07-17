@@ -527,6 +527,13 @@ public class ProtocolConformanceValidator
             };
             var concretePropertyNames = new HashSet<string>(
                 concreteProperties.Select(p => NameProvider.GetPropertyName(p.Name)));
+            // The emitter shapes this method's name against the NSObject properties an ObjC-rooted
+            // class inherits, not just the type's own declared ones. Predicting the name from the
+            // declared properties alone reads `handle(url:)` as `Handle`, matches the interface
+            // slot, and keeps a conformance the emitter then contradicts by emitting `HandleMethod`
+            // — the class ends up declaring an interface member it never defines (CS0535). Seed
+            // from the same fact the emitter seeds from so the prediction tracks the emission.
+            NameProvider.SeedObjCRootedInheritedPropertyNames(concretePropertyNames, concreteType);
             var concreteReturnTypeSpec = concreteMethod.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
             bool concreteHasReturn = concreteReturnTypeSpec != null && !concreteReturnTypeSpec.IsEmptyTuple;
             var concreteIsSelfReturning = MethodEnvironment.IsSelfReturningMethod(concreteMethod);
@@ -604,6 +611,13 @@ public class ProtocolConformanceValidator
             };
             var concretePropertyNames = new HashSet<string>(
                 concreteProperties.Select(p => NameProvider.GetPropertyName(p.Name)));
+            // The emitter shapes this method's name against the NSObject properties an ObjC-rooted
+            // class inherits, not just the type's own declared ones. Predicting the name from the
+            // declared properties alone reads `handle(url:)` as `Handle`, matches the interface
+            // slot, and keeps a conformance the emitter then contradicts by emitting `HandleMethod`
+            // — the class ends up declaring an interface member it never defines (CS0535). Seed
+            // from the same fact the emitter seeds from so the prediction tracks the emission.
+            NameProvider.SeedObjCRootedInheritedPropertyNames(concretePropertyNames, concreteType);
             var concreteReturnTypeSpec = concreteMethod.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
             bool concreteHasReturn = concreteReturnTypeSpec != null && !concreteReturnTypeSpec.IsEmptyTuple;
             var concreteIsSelfReturning = MethodEnvironment.IsSelfReturningMethod(concreteMethod);

@@ -5,6 +5,38 @@ namespace BindingsGeneration;
 
 public partial class ProtocolProxyEmitter
 {
+    /// <summary>
+    /// Whether the emitted C# interface actually declares the requirement identified by
+    /// <paramref name="methodKey"/> — the single fact every site that emits a proxy member
+    /// referencing that requirement must derive from.
+    ///
+    /// <para>
+    /// The skip sets are populated by the interface emitter and mean different things, which is
+    /// why membership cannot be read off either one alone. A key in <c>_skippedMethodKeys</c> was
+    /// dropped from the interface, EXCEPT when it is also in <c>_closureSkippedMethodKeys</c>:
+    /// those requirements ARE declared, and the proxy owes them a NotSupported stub. Reading only
+    /// "was it skipped?" therefore drops declared members (CS0535); assuming every requirement is
+    /// declared emits references to members that never existed (CS1061). Both failures are the
+    /// same defect — a proxy member set derived from something other than what the interface
+    /// actually declared.
+    /// </para>
+    ///
+    /// <para>
+    /// An <c>@objc optional</c> requirement is the third shape, and it is why this takes the decl
+    /// rather than just the key: the interface emitter adds its key to <c>_skippedMethodKeys</c>
+    /// (it emits no witness dispatch) while still declaring it as a no-op default interface
+    /// method, and never records it in <c>_closureSkippedMethodKeys</c>. Keyed off the sets alone
+    /// it reads as undeclared, which is the opposite of the truth. Callers happen to pre-skip
+    /// <c>IsObjCOptional</c> today, so answering from the decl changes nothing now — but a helper
+    /// whose whole purpose is being the one oracle must not owe its correctness to every caller
+    /// remembering a case it doesn't handle.
+    /// </para>
+    /// </summary>
+    private bool InterfaceDeclaresMethod(MethodDecl method, string methodKey)
+        => method.IsObjCOptional
+            || !_skippedMethodKeys.Contains(methodKey)
+            || _closureSkippedMethodKeys.Contains(methodKey);
+
     private void EmitInterfaceImplementation(CSharpWriter writer, ProtocolDecl protocolDecl, string interfaceName, WitnessDispatchEmitter dispatchEmitter)
     {
         writer.WriteLine("#region Interface Implementation");
@@ -101,6 +133,13 @@ public partial class ProtocolProxyEmitter
         var emittedCSharpKeys = new Dictionary<string, MethodDecl>();
         foreach (var method in protocolDecl.Methods)
         {
+            // EffectiveRawKey: a label-only-overload sibling keys on its label-INCLUSIVE slot key (so both
+            // siblings emit their interface impl and the skip-set lookup matches ProtocolHandler), every
+            // other method on the unchanged label-erased signature key (AnyType-collapse preserved).
+            // Computed once, above the eligibility fork, so every "did this requirement survive into the
+            // interface?" lookup in this loop reads the same key and no path can derive its own.
+            var methodKey = ProtocolMethodDisambiguator.EffectiveRawKey(method, protocolDecl, _typeDatabase);
+
             // Shared eligibility predicate — must mirror the Swift wrapper and the P/Invoke decl
             // walk so the index threaded into EmitMethodImplementation (and thus the SBW call
             // site) matches the symbol the wrapper actually exported. @objc-optional methods
@@ -109,16 +148,27 @@ public partial class ProtocolProxyEmitter
             {
                 // A mixed-generic protocol's witness dispatch is suppressed wholesale at the
                 // ModuleHandler level — no SBW_ accessor is exported for ANY member — so the
-                // producer walk never runs and there is no index to keep in lockstep here. But
-                // the C# interface still declares this instance method, so dropping it would
-                // leave the proxy unimplemented (CS0535). Degrade it to an SB0003 NotSupported
+                // producer walk never runs and there is no index to keep in lockstep here. When
+                // the C# interface DOES declare this instance method, dropping it would leave
+                // the proxy unimplemented (CS0535), so degrade it to an SB0003 NotSupported
                 // stub, mirroring the property path's throwing-body fallthrough. Other
                 // ineligible members keep dropping through: @objc-optional methods are DIM
                 // no-ops on the interface, and static methods get their throwing stub from
                 // EmitStaticAbstractStubs below.
+                //
+                // InterfaceDeclaresMethod is load-bearing, not belt-and-braces: witness-dispatch
+                // ineligibility is decided for the protocol as a WHOLE (every member of a mixed
+                // generic protocol lands here), whereas interface membership is decided PER
+                // MEMBER by the requirement gate. A member the gate dropped for its own,
+                // unrelated reason — an unresolved method-generic argument collapsing to
+                // AnyType, say — is absent from the interface, so stubbing it here would emit a
+                // body referencing a member that was never declared (CS1061). Deriving both the
+                // stub decision and the implementation decision below from this one predicate is
+                // what keeps the proxy's member set equal to the interface's.
                 if (!method.IsConstructor
                     && method.MethodType != MethodType.Static
                     && !method.IsObjCOptional
+                    && InterfaceDeclaresMethod(method, methodKey)
                     && EveryProtocolEmitter.IsMixedGenericProtocol(protocolDecl))
                 {
                     var mixedGenericKey = ProtocolMethodDisambiguator.EffectiveProjectedKey(method, protocolDecl, _typeDatabase, emittedCSharpPropertyNames);
@@ -142,10 +192,6 @@ public partial class ProtocolProxyEmitter
             // because ProtocolHandler populates _skippedMethodKeys / _closureSkippedMethodKeys with
             // ProtocolSignatureHelper.GetMethodSignatureKey.
             var slotKey = ProtocolMethodDisambiguator.EffectiveWitnessSlotKey(method, protocolDecl, _typeDatabase);
-            // EffectiveRawKey: a label-only-overload sibling keys on its label-INCLUSIVE slot key (so both
-            // siblings emit their interface impl and the skip-set lookup matches ProtocolHandler), every
-            // other method on the unchanged label-erased signature key (AnyType-collapse preserved).
-            var methodKey = ProtocolMethodDisambiguator.EffectiveRawKey(method, protocolDecl, _typeDatabase);
             if (methodIndices.ContainsKey(slotKey))
                 continue;
             var idx = methodIndex++;
@@ -160,22 +206,24 @@ public partial class ProtocolProxyEmitter
             // and the array as IReadOnlyList, so it would let both emit (the regression this fixes).
             if (!emittedMethodSignatureKeys.Add(methodKey))
                 continue;
+            // Absent from the interface entirely — emit nothing at all, or the proxy would
+            // reference a member that was never declared.
+            if (!InterfaceDeclaresMethod(method, methodKey))
+                continue;
+            // Declared but not implementable through witness dispatch (closure parameters) —
+            // emit a NotSupported stub so the interface contract is still satisfied.
             if (_skippedMethodKeys.Contains(methodKey))
             {
-                // Closure-skipped methods are now in the interface — emit NotSupported stub
-                if (_closureSkippedMethodKeys.Contains(methodKey))
-                {
-                    // Pass the proxy's own propertyNames so the dedup key reflects the
-                    // collision-aware C# member name (Foo -> FooMethod when this protocol
-                    // has a property Foo). Without it, two methods that emit under
-                    // different C# names can falsely share a dedup key, dropping one
-                    // emission entirely.
-                    var projectedKeySkipped = ProtocolMethodDisambiguator.EffectiveProjectedKey(method, protocolDecl, _typeDatabase, emittedCSharpPropertyNames);
-                    if (emittedCSharpKeys.ContainsKey(projectedKeySkipped))
-                        continue;
-                    emittedCSharpKeys[projectedKeySkipped] = method;
-                    EmitNotSupportedMethodStub(writer, method, protocolDecl, "closure parameters cannot be marshalled", emittedCSharpPropertyNames);
-                }
+                // Pass the proxy's own propertyNames so the dedup key reflects the
+                // collision-aware C# member name (Foo -> FooMethod when this protocol
+                // has a property Foo). Without it, two methods that emit under
+                // different C# names can falsely share a dedup key, dropping one
+                // emission entirely.
+                var projectedKeySkipped = ProtocolMethodDisambiguator.EffectiveProjectedKey(method, protocolDecl, _typeDatabase, emittedCSharpPropertyNames);
+                if (emittedCSharpKeys.ContainsKey(projectedKeySkipped))
+                    continue;
+                emittedCSharpKeys[projectedKeySkipped] = method;
+                EmitNotSupportedMethodStub(writer, method, protocolDecl, "closure parameters cannot be marshalled", emittedCSharpPropertyNames);
                 continue;
             }
             var projectedKey = ProtocolMethodDisambiguator.EffectiveProjectedKey(method, protocolDecl, _typeDatabase, emittedCSharpPropertyNames);
