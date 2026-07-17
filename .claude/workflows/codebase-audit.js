@@ -192,6 +192,15 @@ const READONLY =
   'STRICT READ-ONLY on the repository: do NOT edit, create, or delete any repo file except (for the reporter) the single assigned report. Do all compile-probe work in a fresh /tmp directory. The repo root is ' + REPO + '. ' +
   'Target files are named by basename or partial path; the generator source lives under src/Swift.Bindings/src/, the runtime under src/Swift.Runtime/src/, unit tests under src/Swift.Bindings/tests/, and end-to-end tests under BindingTests/. If a path does not resolve directly, locate the file by basename with Grep/Glob first — ALWAYS open and read the actual source file before reporting on it. '
 
+// Systemic error patterns exposed when the 2026-07 deep audit was independently
+// re-verified (backup: /Users/wojo/Dev/SB-Backup-Docs/2026-07-deep-audit/, §9).
+const LESSONS =
+  'Known audit failure modes — actively guard against each: ' +
+  '(1) REACHABILITY: never validate a parser/walker-shape claim against hand-written Swift source syntax — swiftc canonicalizes modifier order and shape in generated .swiftinterface, which is the only input the pipeline consumes; grep the actual generated-interface corpus for the REJECTED shape before claiming a gate is reachable. ' +
+  '(2) SEVERITY INFLATION: severity must come from the concrete finding evidence, not the narrative — when summarizing, restate the raw Severity/Status/Reachability facts rather than escalating them. ' +
+  '(3) DEAD-CODE CLAIMS: any "unused / low-risk delete" claim requires a fresh whole-repo grep for callers at claim time (two such rows in the last audit had live production callers). ' +
+  '(4) ALREADY-FIXED: before reporting a missing safeguard, grep for an existing mechanism that already covers it (e.g. a compile-time poison attribute) — the last audit recommended building a weaker version of a guard that already shipped. '
+
 const rank = { P0: 0, P1: 1, P2: 2 }
 const keyOf = (f) => `${(f.file || '?').toLowerCase()}::${(f.title || '').toLowerCase().slice(0, 80)}`
 
@@ -207,7 +216,7 @@ const results = await pipeline(
       const known = all.length ? all.map(f => `- ${f.title} (${f.file}:${f.line || '?'})`).join('\n') : '(none yet)'
       const finders = Array.from({ length: FINDERS }, (_, i) => () =>
         agent(
-          `${READONLY}\nYou audit the "${track.title}" track of a Swift->C# binding generator. READ-ONLY.\n` +
+          `${READONLY}\n${LESSONS}\nYou audit the "${track.title}" track of a Swift->C# binding generator. READ-ONLY.\n` +
           `TARGET FILES (relative to repo root): ${track.targets}\n` +
           `HUNT FOR: ${track.hunt}\n` +
           `You are finder ${i + 1}/${FINDERS}, round ${round + 1}. Findings already reported — do NOT repeat these, find DIFFERENT/additional defects:\n${known}\n` +
@@ -238,7 +247,7 @@ const results = await pipeline(
     const verified = await parallel(toVerify.map(f => () =>
       parallel(Array.from({ length: VERIFIERS }, (_, k) => () =>
         agent(
-          `${READONLY}\nAdversarially VERIFY a suspected defect in a Swift->C# binding generator — try to REFUTE it.\n` +
+          `${READONLY}\n${LESSONS}\nAdversarially VERIFY a suspected defect in a Swift->C# binding generator — try to REFUTE it.\n` +
           `TRACK: ${track.title}\nCLAIM: ${f.claim}\nFILE: ${f.file}:${f.line || '?'}\nEVIDENCE: ${f.evidence}\nPROBE IDEA: ${f.probeIdea || '(devise one)'}\n` +
           `Construct the smallest probe in /tmp and compile/inspect it (swiftc, swiftc -emit-sil, swiftc -emit-assembly, swift-demangle, nm on the built dylib, or a dotnet build of a generated binding) to see what the ABI/SIL/compiler ACTUALLY produces. ` +
           `Verdict 'confirmed' ONLY if the probe demonstrates the defect; 'refuted' if it shows the code is correct; 'inconclusive' if you cannot build a decisive probe. Default to 'inconclusive' over 'confirmed' when unsure. Report the exact probe command(s) and what they showed.`,
