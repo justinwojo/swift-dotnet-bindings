@@ -34,7 +34,7 @@ The motivating evidence (measured 2026-06-10, see roadmap "Strategic posture (po
 end-to-end corpus (~44 apps across `swift-dotnet-packages` + `internal-binding-testing`,
 both runtimes, real value assertions) is **thick exactly where real libraries are thick**
 (enums, structs, optionals, simple async/protocols) and **thin exactly where they're thin**
-(closures, inout, tuples, constrained generics, actors). The roadmap's Latent list —
+(closures, inout, tuples, constrained generics, actors). The parked-latent list (now `../not-planned.md`; formerly roadmap's Latent tier) —
 "present mechanism, zero emission site in current surface" — clusters in the *same* thin
 corners, causally: nothing reaches that code because no common library uses that shape, yet
 the generator still emits it. The 1.0 risk is a consumer calling an emitted binding for a
@@ -51,7 +51,7 @@ bridges) + 13 closure C# test files, dozens of reverse-dispatch `*Delegate` fixt
 and 2/3/7-element + named + mixed tuple coverage. So the premise is
 **not** "we don't test closures/tuples" — we do. The genuine local gap is narrower and more
 specific: (a) the *complex combinations* real libraries never forced (resilient × async ×
-optional-tuple-return), and (b) the named roadmap **Latent** shapes with no current emission
+optional-tuple-return), and (b) the named parked-**Latent** shapes (see `../not-planned.md`) with no current emission
 site — `inout` writeback observability, `inout` ObjC-bridgeable, generic-parent `inout`,
 mixed-indirect generic tuple returns, same-signature closure/async fan-out. The grid's job is
 to reach *those*, not to re-cover the basics. This is why Phase 0 (§11) audits existing
@@ -162,7 +162,7 @@ genuinely-unreached, Latent-tied shapes:
   mutation is *not* asserted to reach the caller — assert it does),
 - `inout` ObjC-bridgeable (URL/Decimal) and generic-parent `inout`,
 - mixed / generic tuple returns **under async / throws**,
-- same-signature closure/async fan-out (the roadmap Latent repro).
+- same-signature closure/async fan-out (the parked-Latent repro, see `../not-planned.md`).
 
 **Disposition, not gray-mask.** Cells are dispositioned per §3 (`expect-green` /
 `supported-low-priority` / `by-design-gray`). Only genuinely product/architecture-unsupported
