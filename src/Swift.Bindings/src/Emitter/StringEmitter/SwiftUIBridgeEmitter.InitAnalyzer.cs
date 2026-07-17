@@ -423,7 +423,17 @@ public static partial class SwiftUIBridgeEmitter
             return null;
 
         var typeDatabase = context.TypeDatabase;
-        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedSpec.Name);
+
+        // The name reaching here is a printed ABI type name, so it may not name a type at all —
+        // most notably an unsubstituted generic parameter (τ_0_0) on a generic View whose type
+        // argument the caller-side analysis could not pin down. That is not a database type, so
+        // it resolves the same way as any other unsupported parameter: null, which drops the
+        // whole view to template emission. Parsing it as a module-qualified name instead would
+        // either fabricate an identity (a placeholder-rooted name splits into a module that does
+        // not exist) or throw, and a throw here aborts the entire generation from a single
+        // unbindable init parameter.
+        if (!SwiftTypeName.TryFromModuleQualifiedName(namedSpec.Name, out var swiftTypeName))
+            return null;
 
         if (!typeDatabase.TryGetTypeRecord(swiftTypeName, out var record))
             return null;

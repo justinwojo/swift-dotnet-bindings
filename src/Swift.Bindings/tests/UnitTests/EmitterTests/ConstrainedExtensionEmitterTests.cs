@@ -102,6 +102,36 @@ public class ConstrainedExtensionEmitterTests
         Assert.Equal("ConcreteType", result.Name);
     }
 
+    // When the sugared generic signature is unavailable the parser falls back to the raw ABI
+    // spelling, where a dependent-member pin reads as a placeholder-rooted path. It is dotted,
+    // so it parses into a plausible-looking name whose "module" is really a generic parameter.
+    // Nothing concrete was ever substituted, so it cannot close the parent: rendering it spells
+    // Parent<τ_0_0.Bridge.T> into Swift and into the @_cdecl symbol, which cannot compile.
+    [Theory]
+    [InlineData("τ_0_0.Bridge.T")]
+    [InlineData("τ_0_0.Element")]
+    [InlineData("τ_1_0.Wrapped")]
+    public void ExtractSameTypeConstraint_PlaceholderRootedPin_ReturnsNull(string pin)
+    {
+        var property = CreatePropertyWithConstraint("prop", pin);
+        Assert.Null(ConstrainedExtensionEmitter.ExtractSameTypeConstraint(property));
+    }
+
+    // The root segment is what disqualifies a pin. A type genuinely named T in type position is
+    // a real, specializable target — rejecting it would drop bindable constrained members.
+    [Theory]
+    [InlineData("TestModule.T")]
+    [InlineData("TestModule.Outer.T")]
+    public void ExtractSameTypeConstraint_ConcretePinWithShortLeafName_ReturnsTarget(string pin)
+    {
+        var property = CreatePropertyWithConstraint("prop", pin);
+        var result = ConstrainedExtensionEmitter.ExtractSameTypeConstraint(property);
+
+        Assert.NotNull(result);
+        Assert.Equal("TestModule", result!.Module);
+        Assert.Equal("T", result.Name);
+    }
+
     [Fact]
     public void ExtractSameTypeConstraint_PropertyWithProtocolConstraint_ReturnsNull()
     {

@@ -1185,6 +1185,26 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Null(result);
     }
 
+    // An init parameter on a generic View whose type argument the caller-side analysis could not
+    // pin down arrives here as a printed ABI generic parameter. It does not name a type, so it
+    // must degrade to template fallback like any other unsupported parameter — NOT abort. These
+    // reach the analyzer as ordinary named types, so a throw here takes down the whole module's
+    // generation over a single unbindable parameter.
+    [Theory]
+    [InlineData("τ_0_0")]
+    [InlineData("τ_1_0")]
+    [InlineData("τ_0_0.Bridge.T")]
+    public void InitAnalyzer_UnsubstitutedGenericParam_FallsBackToTemplate_DoesNotThrow(string typeName)
+    {
+        var context = new BridgeContext(CreateEnumTypeDatabase());
+        var ctor = CreateConstructorWithNamedType("value", typeName);
+
+        var result = Record.Exception(() => SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context));
+
+        Assert.Null(result);
+        Assert.Null(SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context));
+    }
+
     [Fact]
     public void InitAnalyzer_BoundEnum_FallsBackToTemplate_WhenTypeNotInDatabase()
     {

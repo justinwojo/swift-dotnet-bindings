@@ -88,9 +88,26 @@ internal static class NativeIntOverloadEmitter
         // Narrowing the return would change overload resolution: int literals (e.g., Skip(3)) would
         // pick the int overload → silent truncation for values exceeding Int32 range.
         // Property types ARE narrowed (no overload ambiguity there).
+        //
+        // Take the return type from the SAME oracle the primary method emits from rather than
+        // re-deriving it. This overload is pure C# delegation — its body is a call to the primary —
+        // so any divergence between the two spellings is by definition a compile error in the
+        // emitted binding, not a difference of opinion worth having. The local ResolveType below is
+        // a weaker projection (no parent decl, no full generic context, no module), so for a
+        // Self-typed or placeholder return it degrades to AnyType and composes nonsense like
+        // AnyType<T> for a bound generic, while the primary projects the real type.
         var returnTypeSpec = csSignature[0].SwiftTypeSpec;
         bool hasReturn = !returnTypeSpec.IsEmptyTuple;
-        string returnType = hasReturn ? ResolveType(returnTypeSpec, methodEnv, isParameter: false) : "void";
+        string returnType = hasReturn
+            ? new SignatureHandler(methodEnv).GetWrapperSignature().ReturnType
+            : "void";
+
+        // If even the primary could not project the return, there is no real type to borrow.
+        // Emitting the sugar overload anyway would either fabricate an unresolvable placeholder
+        // spelling or forward to a primary that was never emitted under that signature. Neither
+        // compiles, and this overload is a convenience — dropping it costs only sugar.
+        if (hasReturn && returnType.Contains(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName))
+            return;
 
         // Build the method name
         var methodName = methodEnv.CSharpMethodName;

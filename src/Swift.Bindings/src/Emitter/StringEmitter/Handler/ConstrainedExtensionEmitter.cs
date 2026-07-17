@@ -191,12 +191,38 @@ public static class ConstrainedExtensionEmitter
         {
             foreach (var conformance in genericParam.GenericConformances)
             {
-                if (conformance.Kind == ConformanceKind.ConcreteType)
+                if (conformance.Kind == ConformanceKind.ConcreteType &&
+                    IsSpecializableConcretePin(conformance.ConformanceTarget))
                     return conformance.ConformanceTarget;
             }
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// A same-type pin can only close this generic parent if it names a real type. When the
+    /// sugared generic signature is unavailable the parser falls back to the raw ABI spelling,
+    /// where a dependent-member pin reads as a placeholder-rooted path (<c>τ_0_0.Bridge.T</c>).
+    /// That is dotted, so it carries a well-formed-looking module-qualified name, but its root
+    /// segment is a generic parameter rather than a module — substitution never supplied a
+    /// concrete type here. Rendering it anyway spells the parent as
+    /// <c>Parent&lt;τ_0_0.Bridge.T&gt;</c> in Swift source and sanitizes the same text into the
+    /// @_cdecl symbol, which cannot compile ("generic parameter could not be inferred").
+    /// Reporting it as un-specializable turns the whole member into one precise skip instead.
+    /// The pin stays intact on the decl: other consumers read it as a structural marker for
+    /// "pinned to another parameter's associated type", and this only decides whether THIS
+    /// emitter can close the parent over it.
+    /// </summary>
+    private static bool IsSpecializableConcretePin(SwiftTypeName concreteTypeName)
+    {
+        var parts = concreteTypeName.ModuleQualifiedName.Split('.', StringSplitOptions.RemoveEmptyEntries);
+
+        // Only the ROOT segment decides. It sits in module position, so a generic parameter there
+        // means the path hangs off a stand-in. Later segments sit in type position, where a
+        // one-letter name is a real type (`MyModule.T` pins to a type genuinely named T) and the
+        // placeholder test would misread it as a parameter.
+        return parts.Length > 0 && !TypeSpecHelpers.IsGenericTypeParameter(parts[0]);
     }
 
     /// <summary>
@@ -1087,7 +1113,8 @@ public static class ConstrainedExtensionEmitter
         {
             foreach (var conformance in genericParam.GenericConformances)
             {
-                if (conformance.Kind == ConformanceKind.ConcreteType)
+                if (conformance.Kind == ConformanceKind.ConcreteType &&
+                    IsSpecializableConcretePin(conformance.ConformanceTarget))
                     return conformance.ConformanceTarget;
             }
         }

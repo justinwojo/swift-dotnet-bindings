@@ -198,6 +198,16 @@ public class NativeIntOverloadEmitterTests
     }
 
     [Fact]
+    public void TryGetNarrowedType_UnqualifiedInt_ReturnsInt()
+    {
+        // Bare "Int" / "UInt" reach this path from swiftinterface-parsed protocol extensions.
+        Assert.True(NativeIntOverloadEmitter.TryGetNarrowedType(new NamedTypeSpec("Int"), out var narrowed));
+        Assert.Equal("int", narrowed);
+        Assert.True(NativeIntOverloadEmitter.TryGetNarrowedType(new NamedTypeSpec("UInt"), out var uNarrowed));
+        Assert.Equal("uint", uNarrowed);
+    }
+
+    [Fact]
     public void TryEmitOverload_DuplicateSignature_SkipsSecond()
     {
         var method1 = CreateMethod("process", MethodType.Instance,
@@ -391,6 +401,72 @@ public class NativeIntOverloadEmitterTests
         var output = EmitMethodOverload(method);
 
         Assert.Equal(string.Empty, output);
+    }
+
+    #endregion
+
+    #region Primary signature oracle
+
+    [Fact]
+    public void TryEmitOverload_PlaceholderReturn_EmitsNothing()
+    {
+        // Return type is unregistered → primary signature oracle projects AnyType/placeholder.
+        // Forwarding an int overload to a primary that was not emitted must not happen.
+        var method = CreateMethod("fetch", MethodType.Instance,
+            returnType: "SomeModule.UnknownType",
+            ("count", "Swift.Int"));
+
+        var typeDb = CreateTypeDatabase();
+        var env = new MethodEnvironment(method, typeDb);
+        var primary = new SignatureHandler(env).GetWrapperSignature();
+        Assert.True(primary.ContainsPlaceholder);
+
+        var output = EmitMethodOverload(method);
+
+        Assert.Equal(string.Empty, output);
+    }
+
+    [Fact]
+    public void TryEmitOverload_OrdinaryNintParam_ReturnMatchesPrimarySignature()
+    {
+        // Overload return type is taken from the primary's GetWrapperSignature(), not a
+        // local re-projection. Ordinary nint-param method still emits; return spelling matches.
+        var method = CreateMethod("getName", MethodType.Instance,
+            returnType: "Swift.String",
+            ("index", "Swift.Int"));
+
+        var typeDb = CreateTypeDatabase();
+        var env = new MethodEnvironment(method, typeDb);
+        var primary = new SignatureHandler(env).GetWrapperSignature();
+        Assert.False(primary.ContainsPlaceholder);
+
+        var writer = new StringWriter();
+        NativeIntOverloadEmitter.TryEmitOverload(new CSharpWriter(writer), env);
+        var output = writer.ToString();
+
+        Assert.NotEmpty(output);
+        Assert.Contains($"{primary.ReturnType} GetName(int index) => GetName((nint)index);", output);
+    }
+
+    [Fact]
+    public void TryEmitOverload_NintParamAndNintReturn_ReturnMatchesPrimaryNint()
+    {
+        var method = CreateMethod("getCount", MethodType.Instance,
+            returnType: "Swift.Int",
+            ("offset", "Swift.Int"));
+
+        var typeDb = CreateTypeDatabase();
+        var env = new MethodEnvironment(method, typeDb);
+        var primary = new SignatureHandler(env).GetWrapperSignature();
+        Assert.False(primary.ContainsPlaceholder);
+
+        var writer = new StringWriter();
+        NativeIntOverloadEmitter.TryEmitOverload(new CSharpWriter(writer), env);
+        var output = writer.ToString();
+
+        Assert.Contains($"{primary.ReturnType} GetCount(int offset) => GetCount((nint)offset);", output);
+        // Method returns are not narrowed to int.
+        Assert.DoesNotContain("int GetCount(int offset)", output);
     }
 
     #endregion

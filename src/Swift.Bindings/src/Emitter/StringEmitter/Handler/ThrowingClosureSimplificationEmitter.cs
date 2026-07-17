@@ -61,12 +61,26 @@ internal static class ThrowingClosureSimplificationEmitter
 
         var csSignature = methodEnv.MethodDecl.CSSignature;
 
-        // Determine method return type
+        // Determine method return type. When the return passes straight through, take it from the
+        // SAME oracle the primary emits from — this overload's body is a call to the primary, so a
+        // second, weaker derivation can only agree or produce a compile error. (The SwiftResult
+        // case below is different in kind: there the overload deliberately returns the unwrapped
+        // success type, which is not the primary's return type at all.)
         var returnTypeSpec = csSignature[0].SwiftTypeSpec;
         bool hasMethodReturn = !returnTypeSpec.IsEmptyTuple;
         string returnType = hasMethodReturn
-            ? NativeIntOverloadEmitter.ResolveType(returnTypeSpec, methodEnv, isParameter: false)
+            ? new SignatureHandler(methodEnv).GetWrapperSignature().ReturnType
             : "void";
+
+        // If even the primary could not project the return, there is no real type to borrow;
+        // the simplified overload is convenience sugar, so drop it rather than fabricate a
+        // placeholder spelling that cannot compile. This deliberately does NOT cover the
+        // SwiftResult shape below, whose emitted return is the unwrapped success type rather
+        // than the primary's return — that path bails on its own when it cannot determine the
+        // success type.
+        if (hasMethodReturn && !IsSwiftResultReturnType(returnTypeSpec) &&
+            returnType.Contains(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName))
+            return;
 
         // Check if the method return is a SwiftResult (throws with non-void return)
         // In this case the overload unwraps the result and throws on failure
