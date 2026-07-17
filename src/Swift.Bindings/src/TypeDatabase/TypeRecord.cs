@@ -98,6 +98,22 @@ public enum TypeRecordFlags
     // non-optional, so the same guard/force-unwrap would not compile. Set alongside SimpleEnum to
     // steer the raw-value reconstruction (see CdeclParamMapper) to the direct, non-failable form.
     OptionSet = 1 << 17,
+    // This flag marks a synthesized Apple-framework record whose reference cannot be projected:
+    // the type's real Microsoft.iOS shape is a value type / static-constants type, or the type
+    // isn't in the binding at all, so the fabricated Handle-bearing class would dangle. Carried on
+    // the synthesized record (which still looks like an ObjCBridged class) so member-level
+    // validation skips any member that references it, with a precise absent-framework-type reason.
+    AbsentAppleProjection = 1 << 18,
+    // This flag marks a raw-value SimpleEnum record synthesized from the Microsoft.iOS surface whose
+    // Swift init(rawValue:) failability is UNKNOWN. Swift imports an ObjC NS_ENUM as a failable
+    // enum (init?(rawValue:)) but an NS_OPTIONS as a non-failable OptionSet (init(rawValue:)); the
+    // managed [Flags] attribute the surface index reads is supposed to distinguish them but is not
+    // applied consistently (some NS_OPTIONS bind without [Flags]). When set (and OptionSet is NOT),
+    // the @_cdecl reconstruction must use the failability-agnostic form — coerce the result to an
+    // Optional (`T(rawValue:) as T?`) so the guard compiles whichever init the Swift type actually
+    // synthesizes. See CdeclParamMapper. Native (in-module) enums never carry this flag, so their
+    // reconstruction is unchanged.
+    ExternalAppleEnum = 1 << 19,
 }
 
 /// <summary>

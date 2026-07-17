@@ -681,6 +681,46 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Resolves additional <c>-F</c> framework search paths for frameworks EMBEDDED inside the
+        /// slice — the nested-framework distribution shape where a framework ships helper frameworks
+        /// under a <c>Frameworks/</c> directory (either at the slice root or inside the primary
+        /// <c>.framework</c> bundle). Each returned path is a directory that CONTAINS one or more
+        /// <c>.framework</c> bundles, so a public header's <c>#import &lt;Embedded/Header.h&gt;</c>
+        /// framework-style import resolves. The slice directory itself is already a search path (it
+        /// holds the primary framework and any peer frameworks in the same xcframework slice), so it
+        /// is intentionally NOT re-added here. Best-effort: never throws; returns an empty list when
+        /// no embedded <c>Frameworks/</c> directory exists.
+        /// </summary>
+        internal static IReadOnlyList<string> ResolveNestedFrameworkSearchPaths(
+            string? sliceDir,
+            string? primaryFrameworkPath)
+        {
+            var paths = new List<string>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+
+            void Consider(string? dir)
+            {
+                if (string.IsNullOrEmpty(dir)) return;
+                var frameworksDir = Path.Combine(dir, "Frameworks");
+                try
+                {
+                    if (!Directory.Exists(frameworksDir)) return;
+                    if (Directory.GetDirectories(frameworksDir, "*.framework").Length == 0) return;
+                    var full = Path.GetFullPath(frameworksDir);
+                    if (seen.Add(full)) paths.Add(full);
+                }
+                catch
+                {
+                    // Unreadable directory — treat as "no embedded frameworks here".
+                }
+            }
+
+            Consider(sliceDir);
+            Consider(primaryFrameworkPath);
+            return paths;
+        }
+
+        /// <summary>
         /// Merges explicit dependency <c>-F</c> search paths with auto-detected co-located sibling
         /// xcframework slices for the WRAPPER COMPILE, so a companion xcframework dropped next to the
         /// source resolves its module for <c>swiftc</c> exactly as it already does for ABI extraction

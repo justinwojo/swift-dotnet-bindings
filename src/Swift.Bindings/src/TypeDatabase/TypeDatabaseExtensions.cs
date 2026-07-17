@@ -443,9 +443,18 @@ public static class TypeDatabaseExtensions
     /// The resulting record triggers the existing ObjCBridged marshalling pipeline
     /// (IntPtr in P/Invoke, Handle extraction in wrappers).
     /// Types with explicit name remappings in the registry are resolved first;
-    /// remaining types use module→namespace mapping + nested name flattening.
+    /// remaining types are verified against the real Microsoft.iOS surface (see
+    /// <see cref="AppleTypeSurfaceIndex"/>) and, failing that, fall back to
+    /// module→namespace mapping + nested name flattening.
     /// </summary>
-    internal static TypeRecord CreateObjCBridgedTypeRecord(SwiftTypeName swiftTypeName)
+    /// <param name="usr">
+    /// The referenced declaration's USR from the ABI JSON, when present. A clang integer-enum
+    /// (<c>c:@E@…</c>), typedef (<c>c:@T@…</c>), or struct (<c>c:@S@…</c>) symbol names the real
+    /// Apple type and marks it a value type; used both to look up the true .NET identity and to
+    /// decide, when the type isn't in the binding, that a member referencing it must be skipped
+    /// rather than dangle as a phantom class.
+    /// </param>
+    internal static TypeRecord CreateObjCBridgedTypeRecord(SwiftTypeName swiftTypeName, string? usr = null)
     {
         // Check registry for explicit name remapping (Foundation Swift names → .NET ObjC names)
         if (AppleFrameworkRegistry.TryGetNetTypeName(swiftTypeName.ModuleQualifiedName, out var netName))
@@ -489,6 +498,13 @@ public static class TypeDatabaseExtensions
             }
         }
 
+        // Verify the synthesized identity against the type Microsoft.iOS actually declares: correct
+        // the name, project integer enums as value types, or mark an absent/value/static type so the
+        // referencing member is skipped. Null result = degrade to the synthesized class below.
+        var verified = TryProjectViaAppleSurface(swiftTypeName, usr, csharpNamespace, csharpName);
+        if (verified is not null)
+            return verified;
+
         return new TypeRecord
         {
             CSharpTypeName = CSharpTypeName.FromNamespaceAndName(csharpNamespace, csharpName),
@@ -498,6 +514,209 @@ public static class TypeDatabaseExtensions
             Kind = TypeRecordKind.Class,
         };
     }
+
+    /// <summary>
+    /// Resolves an ObjC-bridged reference against the real Microsoft.iOS surface. Returns a
+    /// corrected record (integer enum value type, or class with the true name/namespace), a
+    /// skip-marked record when the type is a value/static/absent shape a phantom class can't stand
+    /// in for, or null to fall back to name synthesis (index unavailable / no reliable match on a
+    /// non-value-type reference).
+    /// </summary>
+    private static TypeRecord? TryProjectViaAppleSurface(
+        SwiftTypeName swiftTypeName, string? usr, string synthNamespace, string synthName)
+        => TryProjectViaAppleSurface(swiftTypeName, usr, synthNamespace, synthName, AppleTypeSurfaceIndex.Default);
+
+    /// <summary>
+    /// Core decision tree with the surface <paramref name="index"/> injected, so it can be exercised
+    /// against a hand-built index without the installed iOS workload. A null index models the
+    /// workload-absent case (graceful degradation to name synthesis). The production entry point reads
+    /// the process-wide singleton.
+    /// </summary>
+    internal static TypeRecord? TryProjectViaAppleSurface(
+        SwiftTypeName swiftTypeName, string? usr, string synthNamespace, string synthName,
+        AppleTypeSurfaceIndex? index)
+    {
+        // A bridged NSError reference (Swift's NS_ERROR_ENUM import) is a struct, not a raw enum,
+        // and cannot be reconstructed from a raw integer — skip any member that takes/returns one.
+        // This is decided from the USR alone (no surface lookup) so it holds even without the index.
+        if (IsBridgedNSErrorReference(usr, swiftTypeName.Name))
+            return CreateAbsentAppleRecord(swiftTypeName, synthNamespace, synthName);
+
+        if (index is null)
+            return null; // Workload not installed → graceful degradation to synthesis.
+
+        // Candidate .NET names, most authoritative first: the clang/ObjC USR symbol names the real
+        // Apple type (which the flattening often gets wrong), then the synthesized flattened name.
+        AppleTypeSurfaceEntry? hit = null;
+        bool qualified = false;
+        foreach (var candidate in AppleSurfaceCandidateNames(usr, synthName))
+        {
+            if (index.TryResolveQualified(synthNamespace, candidate, out hit))
+            {
+                qualified = true;
+                break;
+            }
+            if (index.TryResolveBare(candidate, out hit))
+            {
+                qualified = false;
+                break;
+            }
+        }
+
+        if (hit is not null)
+        {
+            // Integer enums project as value types regardless of which candidate matched — the
+            // raw-value marshalling is namespace-independent and uses the reflected identity.
+            if (hit.Kind == AppleTypeSurfaceKind.Enum)
+                return CreateExternalEnumRecord(swiftTypeName, hit);
+
+            // A namespace-exact class match corrects the name/namespace to what actually ships.
+            // A bare (cross-namespace) class match is too ambiguous to override a name that may
+            // already compile — leave it to synthesis.
+            if (qualified && hit.Kind == AppleTypeSurfaceKind.Class)
+                return CreateCorrectedObjCClassRecord(swiftTypeName, hit);
+
+            // A namespace-exact struct / static-constants / protocol has no Handle-bearing class to
+            // marshal through — skip the referencing member.
+            if (qualified)
+                return CreateAbsentAppleRecord(swiftTypeName, synthNamespace, synthName);
+        }
+
+        // No reliable match. A clang value-type reference (integer enum, typedef, or C struct) that
+        // Microsoft.iOS doesn't declare would dangle as a phantom class → skip. Object references
+        // (ObjC class USR, or no USR) keep the synthesized class projection.
+        if (IsClangImportedValueTypeUsr(usr))
+            return CreateAbsentAppleRecord(swiftTypeName, synthNamespace, synthName);
+
+        return null;
+    }
+
+    /// <summary>Candidate .NET simple names for surface lookup, USR-derived first, then synthesized.</summary>
+    private static IEnumerable<string> AppleSurfaceCandidateNames(string? usr, string synthName)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var usrName = DeriveNameFromUsr(usr);
+        if (!string.IsNullOrEmpty(usrName) && seen.Add(usrName))
+            yield return usrName;
+        if (!string.IsNullOrEmpty(synthName) && seen.Add(synthName))
+            yield return synthName;
+    }
+
+    /// <summary>
+    /// Extracts the type's simple name from a USR: <c>c:objc(cs)UIView</c>/<c>c:objc(pl)…</c> →
+    /// the trailing name; <c>c:@E@X</c>/<c>c:@T@X</c>/<c>c:@S@X</c> (optionally module-qualified
+    /// <c>c:@M@Mod@E@X</c>) → the segment after the last <c>@</c>. Swift USRs are skipped (the
+    /// synthesized name already carries the leaf). Returns null when nothing can be derived.
+    /// </summary>
+    internal static string? DeriveNameFromUsr(string? usr)
+    {
+        if (string.IsNullOrEmpty(usr))
+            return null;
+
+        if (usr.StartsWith("c:objc(", StringComparison.Ordinal))
+        {
+            int paren = usr.IndexOf(')');
+            if (paren > 0 && paren + 1 < usr.Length)
+                return usr.Substring(paren + 1);
+            return null;
+        }
+
+        if (usr.StartsWith("c:", StringComparison.Ordinal))
+        {
+            int at = usr.LastIndexOf('@');
+            if (at >= 0 && at + 1 < usr.Length)
+                return usr.Substring(at + 1);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// True when the USR is a clang-imported value type — an integer enum (<c>c:@E@</c>), a typedef
+    /// (<c>c:@T@</c>), or a C struct (<c>c:@S@</c>), including module-qualified forms. These cross
+    /// the boundary by value; if Microsoft.iOS has no such type, a synthesized bridged class would
+    /// be a dangling reference, so the member must be skipped.
+    /// </summary>
+    internal static bool IsClangImportedValueTypeUsr(string? usr)
+        => !string.IsNullOrEmpty(usr)
+            && usr.StartsWith("c:", StringComparison.Ordinal)
+            && (usr.Contains("@E@", StringComparison.Ordinal)
+                || usr.Contains("@T@", StringComparison.Ordinal)
+                || usr.Contains("@S@", StringComparison.Ordinal));
+
+    /// <summary>
+    /// True when the reference is Swift's NS_ERROR_ENUM import: a clang error enum whose USR is
+    /// <c>c:@E@{Name}Code</c> that Swift surfaces NOT as a flat enum but as a bridged NSError
+    /// <em>struct</em> named <c>{Name}</c> (with the enum nested as <c>{Name}.Code</c>). The ABI
+    /// spells the referenced type as that struct — its leaf name is <c>{Name}</c>, matching the USR
+    /// name with the trailing <c>Code</c> removed. The struct wraps a full <c>NSError</c> and has no
+    /// <c>init(rawValue:)</c>, so it can't be reconstructed from a raw integer and the member must be
+    /// skipped. The leaf-name match is what keeps this precise: a direct reference to the nested
+    /// <c>{Name}.Code</c> enum (leaf <c>Code</c>) or a flat enum Swift kept as <c>{Name}Code</c>
+    /// (leaf <c>{Name}Code</c>) does not match, so neither is misclassified as a bridged error.
+    /// </summary>
+    internal static bool IsBridgedNSErrorReference(string? usr, string swiftLeafName)
+    {
+        var usrName = DeriveNameFromUsr(usr);
+        if (string.IsNullOrEmpty(usrName)
+            || !usr!.Contains("@E@", StringComparison.Ordinal)
+            || !usrName.EndsWith("Code", StringComparison.Ordinal))
+            return false;
+
+        var bridgedStructName = usrName[..^"Code".Length];
+        return bridgedStructName.Length > 0
+            && string.Equals(bridgedStructName, swiftLeafName, StringComparison.Ordinal);
+    }
+
+    /// <summary>Projects a Microsoft.iOS integer enum as a SimpleEnum value-type record.</summary>
+    private static TypeRecord CreateExternalEnumRecord(SwiftTypeName swiftTypeName, AppleTypeSurfaceEntry entry)
+    {
+        // ExternalAppleEnum steers @_cdecl reconstruction to the failability-agnostic form: the
+        // managed [Flags] attribute distinguishes NS_ENUM (failable init) from NS_OPTIONS
+        // (non-failable OptionSet init) only when the binding actually applied it, which is not
+        // guaranteed, so the reconstruction must compile for either init shape.
+        var flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum | TypeRecordFlags.ExternalAppleEnum;
+        if (entry.IsFlags)
+            flags |= TypeRecordFlags.OptionSet;
+
+        return new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName(entry.Namespace, entry.Name),
+            SwiftTypeName = swiftTypeName,
+            MetadataAccessor = string.Empty,
+            Flags = flags,
+            Kind = TypeRecordKind.Enum,
+            RawValueTypeName = entry.EnumUnderlyingType ?? "Int",
+        };
+    }
+
+    /// <summary>Projects an ObjC class using its real Microsoft.iOS name and namespace.</summary>
+    private static TypeRecord CreateCorrectedObjCClassRecord(SwiftTypeName swiftTypeName, AppleTypeSurfaceEntry entry)
+        => new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName(entry.Namespace, entry.Name),
+            SwiftTypeName = swiftTypeName,
+            MetadataAccessor = string.Empty,
+            Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+        };
+
+    /// <summary>
+    /// Builds a record that still looks like a synthesized bridged class (so downstream code that
+    /// only reads ObjCBridged records behaves unchanged) but carries
+    /// <see cref="TypeRecordFlags.AbsentAppleProjection"/> so member validation skips any reference
+    /// to it instead of emitting a dangling type.
+    /// </summary>
+    private static TypeRecord CreateAbsentAppleRecord(SwiftTypeName swiftTypeName, string ns, string name)
+        => new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName(ns, name),
+            SwiftTypeName = swiftTypeName,
+            MetadataAccessor = string.Empty,
+            Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement
+                | TypeRecordFlags.AbsentAppleProjection,
+            Kind = TypeRecordKind.Class,
+        };
 
     /// <summary>
     /// Concatenates two name parts with overlap deduplication. If the first part ends with

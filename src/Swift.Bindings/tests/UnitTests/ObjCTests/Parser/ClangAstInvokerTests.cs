@@ -44,9 +44,14 @@ public class ClangAstInvokerTests
         runner.SetResponse("-ast-dump=json", 1, "", "fatal error: module not found");
 
         var invoker = new ClangAstInvoker(runner, Logger);
-        var ex = Assert.Throws<InvalidOperationException>(
+        // The invoker raises the specific ClangAstDumpException carrying the raw exit code and
+        // stderr, so the pipeline can classify the cause (missing header/module/platform) into a
+        // SWIFTBIND109 diagnostic rather than surfacing one opaque InvalidOperationException line.
+        var ex = Assert.Throws<ClangAstDumpException>(
             () => invoker.InvokeClangAstDump("/tmp/test.h", "/tmp/frameworks", isSimulator: true));
         Assert.Contains("Clang AST dump failed", ex.Message);
+        Assert.Equal(1, ex.ExitCode);
+        Assert.Contains("module not found", ex.Stderr);
     }
 
     [Fact]

@@ -1931,6 +1931,16 @@ namespace BindingsGeneration
                                                     parsedElements[i] = resolved;
                                                 }
                                             }
+                                            else
+                                            {
+                                                // The printedName parse carries the type's shape but not
+                                                // its ABI USR; thread it from the matching child node so a
+                                                // clang-imported associated value (e.g. a bridged NSError
+                                                // that Swift surfaces as a struct) can be recognized at
+                                                // type resolution and its case skipped rather than
+                                                // reconstructed from a raw payload it has no initializer for.
+                                                ThreadNominalUsrs(parsedElements[i], assocChildren[i]);
+                                            }
                                         }
                                         foreach (var element in parsedElements)
                                             enumCaseDecl.AssociatedValues.Add(element);
@@ -1962,7 +1972,10 @@ namespace BindingsGeneration
                                             {
                                                 var typeSpec = TypeSpecParser.Parse(tupleElement.PrintedName);
                                                 if (typeSpec != null)
+                                                {
+                                                    ThreadNominalUsrs(typeSpec, tupleElement);
                                                     enumCaseDecl.AssociatedValues.Add(typeSpec);
+                                                }
                                             }
                                             catch (TypeSpecParseException ex)
                                             {
@@ -1998,6 +2011,10 @@ namespace BindingsGeneration
                                     var typeSpec = TypeSpecParser.Parse(assocValuesNode.PrintedName);
                                     if (typeSpec != null)
                                     {
+                                        // Thread the ABI USR onto the textually-parsed spec so a
+                                        // clang-imported payload (e.g. a bridged NSError struct) is
+                                        // recognized at type resolution and its case skipped.
+                                        ThreadNominalUsrs(typeSpec, assocValuesNode);
                                         enumCaseDecl.AssociatedValues.Add(typeSpec);
                                     }
                                 }
@@ -3722,6 +3739,23 @@ namespace BindingsGeneration
         /// </summary>
         private static void ThreadNominalUsrs(TypeSpec spec, Node node)
         {
+            // A tuple element leaks an absent type in the same way a generic argument does — an enum
+            // case's associated values are encoded as a tuple `(label: T, …)`, so the USR that marks
+            // T's nominal kind (or, for a bridged NSError, the clang `…Code` enum) reaches T only if
+            // threaded through the tuple. Match tuple elements positionally to the tuple node's
+            // children, applied only when the counts agree so a shape mismatch leaves USRs unset.
+            if (spec is TupleTypeSpec tuple)
+            {
+                var tupleChildren = node.Children?.ToList();
+                if (tupleChildren != null && tupleChildren.Count == tuple.Elements.Count)
+                {
+                    for (int i = 0; i < tupleChildren.Count; i++)
+                    {
+                        ThreadNominalUsrs(tuple.Elements[i], tupleChildren[i]);
+                    }
+                }
+                return;
+            }
             if (spec is not NamedTypeSpec named)
                 return;
             if (!string.IsNullOrEmpty(node.usr))

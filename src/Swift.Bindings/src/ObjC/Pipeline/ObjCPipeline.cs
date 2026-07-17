@@ -116,7 +116,13 @@ public static class ObjCPipeline
                 "", pi, diagnostics);
         }
 
-        // 3. Invoke clang AST dump
+        // 3. Invoke clang AST dump. Fold in framework search paths for frameworks EMBEDDED inside
+        // the slice (nested-framework distribution shape) so a public header's cross-import into a
+        // helper framework resolves — appended after the caller's sibling/dependency paths so an
+        // explicit dependency still wins on a module-name collision.
+        var nestedSearchPaths = XCFrameworkResolver.ResolveNestedFrameworkSearchPaths(
+            resolution.FrameworkSearchPath, frameworkPath);
+        var effectiveSearchPaths = MergeSearchPaths(additionalFrameworkSearchPaths, nestedSearchPaths);
         string json;
         try
         {
@@ -124,7 +130,14 @@ public static class ObjCPipeline
             json = invoker.InvokeClangAstDump(
                 headerResult.HeaderPath, resolution.FrameworkSearchPath,
                 resolution.IsSimulatorSlice, headerResult.ModulemapPath,
-                additionalFrameworkSearchPaths, sliceVariant);
+                effectiveSearchPaths, sliceVariant);
+        }
+        catch (ClangAstDumpException ex)
+        {
+            // Classify into a specific, actionable cause (missing header / module / platform-
+            // incompatible header) that names the offending token — tool-bug vs. packaging-bug.
+            var diag = ObjCClangDiagnostics.Classify(resolution.ModuleName, ex.Stderr);
+            return new ObjCParseResult(ex.ExitCode != 0 ? ex.ExitCode : 1, null, diag.Message, "", pi, diagnostics);
         }
         catch (Exception ex)
         {
@@ -309,6 +322,32 @@ public static class ObjCPipeline
         diagnostics.LogSummary(logger);
 
         return new ObjCPipelineResult(0, module, null, apiDefPath, structsPath, projectPath, diagnostics);
+    }
+
+    /// <summary>
+    /// Merges the caller-supplied framework search paths (sibling xcframework + dependency slices)
+    /// with the auto-detected embedded (nested) framework paths into one ordered, normalized,
+    /// de-duplicated list for the clang <c>-F</c> invocation. Caller paths lead so a deliberately
+    /// provided dependency outranks an incidental embedded framework on a module-name collision;
+    /// nested paths follow. Returns <c>null</c> when the merged set is empty so the invoker keeps its
+    /// historical "no additional search paths" behavior.
+    /// </summary>
+    internal static IReadOnlyList<string>? MergeSearchPaths(
+        IReadOnlyList<string>? callerPaths,
+        IReadOnlyList<string> nestedPaths)
+    {
+        var ordered = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        void Add(string? p)
+        {
+            if (string.IsNullOrEmpty(p)) return;
+            var full = Path.GetFullPath(p);
+            if (seen.Add(full)) ordered.Add(full);
+        }
+        if (callerPaths != null)
+            foreach (var p in callerPaths) Add(p);
+        foreach (var p in nestedPaths) Add(p);
+        return ordered.Count > 0 ? ordered : null;
     }
 
     /// <summary>

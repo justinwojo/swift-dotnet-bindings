@@ -28,7 +28,7 @@ internal sealed class ObjCBridgingStrategy : IResolutionStrategy
         {
             var typeName = SwiftTypeName.FromTypeSpec(named);
             result = new TypeResolutionResult(
-                Record: TypeDatabaseExtensions.CreateObjCBridgedTypeRecord(typeName),
+                Record: TypeDatabaseExtensions.CreateObjCBridgedTypeRecord(typeName, named.Usr),
                 Provenance: new ResolutionProvenance($"strategy:{Name}"));
             return true;
         }

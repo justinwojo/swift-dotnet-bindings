@@ -554,7 +554,18 @@ public static class CdeclParamMapper
                     // has the same access level as the type and is always available from
                     // the wrapper module. Guard against invalid raw values from C# (e.g.,
                     // casting an arbitrary integer to the enum type).
-                    conversion = $"guard let {label}Val = {swiftType}(rawValue: {label}) else {{ preconditionFailure(\"[SwiftBindings] Invalid raw value \\({label}) for {swiftType}\") }}";
+                    //
+                    // For an Apple type synthesized from the Microsoft.iOS surface, the Swift
+                    // init's failability is not known ahead of time: an NS_ENUM imports with a
+                    // failable init?(rawValue:) but an NS_OPTIONS imports as an OptionSet with a
+                    // non-failable init(rawValue:), and the managed [Flags] signal used to tell
+                    // them apart is not always present. Coercing the result to an Optional makes
+                    // the guard compile either way — it is an identity on a failable init and an
+                    // Optional-promotion on a non-failable one (the guard then never fails).
+                    var reconstructed = typeRecord.Flags.HasFlag(TypeRecordFlags.ExternalAppleEnum)
+                        ? $"({swiftType}(rawValue: {label}) as {swiftType}?)"
+                        : $"{swiftType}(rawValue: {label})";
+                    conversion = $"guard let {label}Val = {reconstructed} else {{ preconditionFailure(\"[SwiftBindings] Invalid raw value \\({label}) for {swiftType}\") }}";
                 }
                 else
                 {

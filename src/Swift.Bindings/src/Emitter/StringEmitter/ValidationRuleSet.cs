@@ -199,6 +199,22 @@ public static class ValidationRuleSet
                     offendingType = namedType.Name;
                     return UnsupportedReferenceKind.AbsentBridgedValueType;
                 }
+                // An Apple-framework reference the type database checked against the real
+                // Microsoft.iOS surface and found to be a value type, a static-constants class, or
+                // absent from the binding: its synthesized record is marked so the fabricated
+                // Handle-bearing class isn't emitted as a dangling reference (CS0234/CS0721/CS0722).
+                // The clang USR marks the value shape, so this catches references the Swift-USR gate
+                // above (V/O suffix only) can't. Same cheap gate: skip the resolve for registered
+                // types, run synthesis only for the unregistered ObjC-bridged ones.
+                if (namedType.HasModule() && typeDatabase != null &&
+                    !typeDatabase.TryGetTypeRecord(
+                        SwiftTypeName.FromModuleQualifiedName(namedType.Name), out _) &&
+                    typeDatabase.TryGetTypeRecord(namedType, out var appleRecord) &&
+                    appleRecord.Flags.HasFlag(TypeRecordFlags.AbsentAppleProjection))
+                {
+                    offendingType = namedType.Name;
+                    return UnsupportedReferenceKind.AbsentBridgedValueType;
+                }
                 foreach (var genericParam in namedType.GenericParameters)
                 {
                     var kind = ClassifyUnsupportedReference(genericParam, typeDatabase, out offendingType);

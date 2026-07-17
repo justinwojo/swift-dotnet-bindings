@@ -11,6 +11,25 @@ namespace BindingsGeneration.ObjC;
 public sealed record UmbrellaHeaderResult(string HeaderPath, string? ModulemapPath = null);
 
 /// <summary>
+/// Raised when the clang AST dump exits non-zero. Carries the raw compiler stderr so the pipeline
+/// can classify the failure into a specific, user-actionable cause (missing header / module /
+/// platform-incompatible header) via <see cref="ObjCClangDiagnostics"/> — instead of surfacing one
+/// opaque line — while keeping this invoker a thin clang wrapper that knows nothing about modules.
+/// </summary>
+public sealed class ClangAstDumpException : InvalidOperationException
+{
+    public int ExitCode { get; }
+    public string Stderr { get; }
+
+    public ClangAstDumpException(int exitCode, string stderr)
+        : base($"Clang AST dump failed (exit {exitCode}): {stderr}")
+    {
+        ExitCode = exitCode;
+        Stderr = stderr;
+    }
+}
+
+/// <summary>
 /// Invokes xcrun clang to produce AST JSON from ObjC headers.
 /// </summary>
 public sealed class ClangAstInvoker
@@ -30,7 +49,7 @@ public sealed class ClangAstInvoker
     /// </summary>
     public string InvokeClangAstDump(string headerPath, string frameworkSearchPath, bool isSimulator,
         string? modulemapPath = null, IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
-        SliceVariant? sliceVariant = null)
+        SliceVariant? sliceVariant = null, string? minOSVersion = null)
     {
         string sdkName;
         if (sliceVariant != null)
@@ -52,8 +71,23 @@ public sealed class ClangAstInvoker
         // framework (the common case for third-party SDKs) matches its ownership model instead of
         // failing the parse with an ownership mismatch.
         var baseArgs = $"clang -x objective-c -fobjc-arc -Xclang -ast-dump=json " +
-                   $"-isysroot \"{sdkPath}\" " +
-                   $"-F \"{frameworkSearchPath}\" ";
+                   $"-isysroot \"{sdkPath}\" ";
+
+        // Pin the target triple to the slice's actual Apple platform/arch/variant. Without it clang
+        // defaults to the host (macOS) target even under an -isysroot pointing at the iOS SDK, so a
+        // header guarded on the *target* platform's predefined macros (e.g. `#if TARGET_OS_IOS`, or a
+        // `#if __has_include` whose availability differs per platform) can resolve against the wrong
+        // platform and reference symbols the real target never defines. Aligning the triple makes the
+        // parse see the same predefines the framework was compiled under. Best-effort: only when the
+        // slice variant is known (the version component is near-irrelevant to header parsing, so a
+        // conservative platform floor is used when the caller has no concrete deployment target).
+        if (sliceVariant != null)
+        {
+            var triple = sliceVariant.GetTargetTriple(minOSVersion ?? DefaultMinOSVersion(sliceVariant.Platform));
+            baseArgs += $"-target {triple} ";
+        }
+
+        baseArgs += $"-F \"{frameworkSearchPath}\" ";
 
         // XCTest (and other test-support frameworks pulled in by libraries like Quick/Nimble)
         // does NOT ship in the SDK — it lives under the platform's Developer/Library/Frameworks.
@@ -91,8 +125,9 @@ public sealed class ClangAstInvoker
 
         if (exitCode != 0)
         {
-            throw new InvalidOperationException(
-                $"Clang AST dump failed (exit {exitCode}): {stderr}");
+            // Carry the raw stderr up so the pipeline can classify the specific cause (missing
+            // header / module / platform-incompatible header) and name the offending token.
+            throw new ClangAstDumpException(exitCode, stderr ?? string.Empty);
         }
 
         if (string.IsNullOrWhiteSpace(stdout))
@@ -103,6 +138,18 @@ public sealed class ClangAstInvoker
 
         return stdout;
     }
+
+    /// <summary>
+    /// A conservative minimum-OS floor per Apple platform, used to build the clang <c>-target</c>
+    /// triple when the caller has no concrete deployment target to thread. The version component of
+    /// the triple does not affect header resolution (only the platform/arch/variant does), so a
+    /// floor at or below every supported deployment target is safe for parsing.
+    /// </summary>
+    private static string DefaultMinOSVersion(ApplePlatform platform) => platform switch
+    {
+        ApplePlatform.macOS => "12.0",
+        _ => "15.0",
+    };
 
     /// <summary>
     /// Resolves the platform's <c>Developer/Library/Frameworks</c> directory (where XCTest and

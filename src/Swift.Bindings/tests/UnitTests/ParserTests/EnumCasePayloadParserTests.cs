@@ -100,6 +100,71 @@ public class EnumCasePayloadParserTests
         Assert.Empty(plainCase.AssociatedValues);
     }
 
+    [Fact]
+    public void ParseModule_EnumCaseWithBridgedNSErrorPayload_ThreadsUsrOntoAssociatedValue()
+    {
+        // case failed(StoreKit.SKError) — the payload is a clang-imported NS_ERROR_ENUM that Swift
+        // surfaces as a bridged NSError struct. Its ABI USR (c:@E@SKErrorCode) is the ONLY signal
+        // that lets type resolution recognize the payload as unreconstructable and skip the case
+        // rather than marshal it from a raw tag. The textual printedName parse loses the USR, so the
+        // parser must thread it from the associated-value ABI node onto the parsed NamedTypeSpec.
+        var enumNode = BuildPayloadEnum(
+            BuildCaseWithPayload("failed", payloadKind: "TypeNominal",
+                payloadPrintedName: "StoreKit.SKError", payloadUsr: "c:@E@SKErrorCode"));
+
+        using var fixture = CreateParserWithNodes(enumNode);
+        var result = fixture.Parser.ParseModule();
+
+        var enumDecl = Assert.IsType<EnumDecl>(result.ModuleDecl.Types.Single());
+        var payload = Assert.Single(Assert.Single(enumDecl.Cases).AssociatedValues);
+        var named = Assert.IsType<NamedTypeSpec>(payload);
+        Assert.Equal("c:@E@SKErrorCode", named.Usr);
+    }
+
+    [Fact]
+    public void ParseModule_EnumCaseWithTuplePayload_ThreadsUsrOntoTupleElementsPositionally()
+    {
+        // case pair(StoreKit.SKError, Swift.Int) — a tuple payload. The USR marking the first
+        // element as a bridged-NSError import lives on that element's ABI child node; the textual
+        // tuple parse can't carry it, so threading must reach each tuple element positionally — and
+        // ONLY the element whose node carries a USR, never bleeding onto its siblings.
+        var caseNode = CreateNode(kind: "Var", declKind: "EnumElement", name: "pair",
+            mangledName: "$s10TestModule11PayloadEnumO4pairyACcADmF");
+
+        var errorChild = CreateNode(kind: "TypeNominal", name: "SKError");
+        errorChild.PrintedName = "StoreKit.SKError";
+        errorChild.usr = "c:@E@SKErrorCode";
+        var intChild = CreateNode(kind: "TypeNominal", name: "Int");
+        intChild.PrintedName = "Swift.Int";
+
+        var tupleNode = CreateNode(kind: "Tuple");
+        tupleNode.PrintedName = "(StoreKit.SKError, Swift.Int)";
+        tupleNode.Children = new[] { errorChild, intChild };
+
+        var enumReturn = CreateNode(kind: "TypeNominal", name: "PayloadEnum");
+        enumReturn.PrintedName = "TestModule.PayloadEnum";
+        var returnPart = CreateNode(kind: "TypeFunc");
+        returnPart.PrintedName = "((StoreKit.SKError, Swift.Int)) -> TestModule.PayloadEnum";
+        returnPart.Children = new[] { enumReturn, tupleNode };
+        var metatype = CreateNode(kind: "TypeNominal", name: "PayloadEnum.Type");
+        metatype.PrintedName = "TestModule.PayloadEnum.Type";
+        var outerFunc = CreateNode(kind: "TypeFunc");
+        outerFunc.Children = new[] { returnPart, metatype };
+        caseNode.Children = new[] { outerFunc };
+
+        var enumNode = BuildPayloadEnum(caseNode);
+        using var fixture = CreateParserWithNodes(enumNode);
+        var result = fixture.Parser.ParseModule();
+
+        var enumDecl = Assert.IsType<EnumDecl>(result.ModuleDecl.Types.Single());
+        var payloadCase = Assert.Single(enumDecl.Cases);
+        Assert.Equal(2, payloadCase.AssociatedValues.Count);
+        var first = Assert.IsType<NamedTypeSpec>(payloadCase.AssociatedValues[0]);
+        Assert.Equal("c:@E@SKErrorCode", first.Usr);
+        var second = Assert.IsType<NamedTypeSpec>(payloadCase.AssociatedValues[1]);
+        Assert.Null(second.Usr);
+    }
+
     #region Test Helpers
 
     /// <summary>
@@ -118,13 +183,15 @@ public class EnumCasePayloadParserTests
     /// Mirrors the swift-api-digester shape:
     /// Var(EnumElement) → TypeFunc → [TypeFunc → [returnType, payload], metatype].
     /// </summary>
-    private static Node BuildCaseWithPayload(string caseName, string payloadKind, string payloadPrintedName)
+    private static Node BuildCaseWithPayload(
+        string caseName, string payloadKind, string payloadPrintedName, string? payloadUsr = null)
     {
         var caseNode = CreateNode(kind: "Var", declKind: "EnumElement", name: caseName,
             mangledName: $"$s10TestModule11PayloadEnumO{caseName.Length}{caseName}yACcADmF");
 
         var payloadNode = CreateNode(kind: payloadKind);
         payloadNode.PrintedName = payloadPrintedName;
+        payloadNode.usr = payloadUsr;
 
         var enumReturn = CreateNode(kind: "TypeNominal", name: "PayloadEnum");
         enumReturn.PrintedName = "TestModule.PayloadEnum";

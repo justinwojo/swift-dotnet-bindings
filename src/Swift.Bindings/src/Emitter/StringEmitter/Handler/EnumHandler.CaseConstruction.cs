@@ -44,6 +44,18 @@ namespace BindingsGeneration
                     return false;
                 }
 
+                // An Apple-framework associated value whose real shape cannot be projected — a bridged
+                // NSError struct, or a value/static/absent type the fabricated Handle-bearing class
+                // can't stand in for — is marked during type resolution. The @_cdecl case factory
+                // would reconstruct it from a raw payload it has no valid initializer for, so the
+                // wrapper wouldn't compile; skip the case with a precise reason instead.
+                if (ValidationRuleSet.ClassifyUnsupportedReference(typeSpec, typeDatabase, out var absentType)
+                        == ValidationRuleSet.UnsupportedReferenceKind.AbsentBridgedValueType)
+                {
+                    _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has associated value '{absentType}', an Apple-framework type with no reconstructable representation. Skipping case.");
+                    return false;
+                }
+
                 var publicType = GetPublicCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, enumGenericParams, moduleDecl);
 
                 // Use type label if available, otherwise derive from type

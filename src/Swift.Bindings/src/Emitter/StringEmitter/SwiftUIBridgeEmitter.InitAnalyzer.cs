@@ -493,7 +493,13 @@ public static partial class SwiftUIBridgeEmitter
             var swiftSimpleName = swiftTypeName.ModuleQualifiedName.Substring(swiftTypeName.Module.Length + 1);
             // Use fully-qualified C# name for cross-module type safety
             var csharpName = record.CSharpTypeName.FullyQualifiedName;
-            var isObjCBridgeable = MarshallingHelpers.IsObjCBridgeable(record);
+            // A real ObjC class (e.g. UIKit.UIImage) crosses the ABI as an ObjC object pointer:
+            // C# reads its native `.Handle` and Swift reconstructs/passes it via Unmanaged — the
+            // same handle path used by ObjC-bridgeable value types. Our own Swift-class bindings
+            // instead carry an ISwiftObject `.Payload` SafeHandle. An ObjC-bridged class has no
+            // `.Payload`, so routing it through the handle path is what lets it compile at all.
+            var isObjCBridgeable = MarshallingHelpers.IsObjCBridgeable(record)
+                || MarshallingHelpers.IsObjCBridged(record);
 
             return new BridgeParameter(
                 paramName,

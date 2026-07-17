@@ -22,6 +22,9 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.3" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.3" />
+    <!-- Metadata-only reflection over the installed Microsoft.iOS reference assembly, to verify
+         synthesized Apple-type names/shapes against the real binding surface. -->
+    <PackageReference Include="System.Reflection.MetadataLoadContext" Version="9.0.0" />
     <None Include="../../../README.md" Pack="true" PackagePath="\" />
     <EmbeddedResource Include="Data/apple-frameworks.json" />
     <EmbeddedResource Include="Data/objc-type-mappings.json" />
