@@ -868,7 +868,7 @@ public static class NestedClosureBridge
         }
         paramParts.Add("IntPtr outerContext");
 
-        csWriter.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         csWriter.WriteLine($"private static unsafe void {callbackBaseName}({string.Join(", ", paramParts)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
@@ -1028,7 +1028,7 @@ public static class NestedClosureBridge
         csWriter.WriteLine("private readonly IntPtr _box;");
         csWriter.WriteLine($"internal {ownerName}(IntPtr box) => _box = box;");
         csWriter.WriteLine();
-        csWriter.WriteLine($"[DllImport(\"{asyncLibName}\", EntryPoint = \"{releaseSymbol}\", CallingConvention = CallingConvention.Cdecl)]");
+        csWriter.WriteLine($"[global::System.Runtime.InteropServices.DllImport(\"{asyncLibName}\", EntryPoint = \"{releaseSymbol}\", CallingConvention = global::System.Runtime.InteropServices.CallingConvention.Cdecl)]");
         csWriter.WriteLine("private static extern void ReleaseInnerBox(IntPtr box);");
         csWriter.WriteLine();
         csWriter.WriteLine($"~{ownerName}()");
@@ -1107,7 +1107,7 @@ public static class NestedClosureBridge
                     break;
                 case MethodClosureBridge.ParamAbiCategory.Primitive:
                     if (MarshallingHelpers.IsBoolType(arg.SwiftTypeSpec))
-                        pinvokeParams.Add($"[MarshalAs(UnmanagedType.U1)] bool {csName}");
+                        pinvokeParams.Add($"{MarshallingHelpers.BoolPInvokeParamAttribute} bool {csName}");
                     else
                         pinvokeParams.Add($"{GetPInvokePrimitiveType(arg.SwiftTypeSpec)} {csName}");
                     break;

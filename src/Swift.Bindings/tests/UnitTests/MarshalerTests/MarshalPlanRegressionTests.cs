@@ -66,7 +66,11 @@ public class MarshalPlanRegressionTests
     public void Bool_HasMarshalAsAttribute()
     {
         var proj = new BoolProjection();
-        Assert.Equal("[MarshalAs(UnmanagedType.U1)]", proj.PInvokeAttribute);
+        // Qualified: the attribute is emitted into `namespace <SwiftModule>`, where a bound
+        // library's own `MarshalAs`/`UnmanagedType` would otherwise capture it.
+        Assert.Equal(
+            "[global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.U1)]",
+            proj.PInvokeAttribute);
     }
 
     #endregion

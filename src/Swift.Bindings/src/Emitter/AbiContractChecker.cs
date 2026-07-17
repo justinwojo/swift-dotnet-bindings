@@ -106,14 +106,16 @@ public static class AbiContractChecker
     // Matches both unqualified and global:: qualified UnmanagedCallConv attributes.
     // Captures the calling convention type name (e.g., "CallConvSwift" or "CallConvCdecl").
     //
-    // The generator emits the CallConvs array in four interchangeable C# forms, and the
+    // The generator emits the CallConvs array in three interchangeable C# forms, and the
     // checker must recognize all of them — missing one mis-defaults the convention to
     // Cdecl, which silently disables CC-001/CC-002 and fires a false CC-004:
-    //   1. new global::System.Type[] { typeof(global::System.…CallConvSwift) }  (PInvokeEmitHelper, fully-qualified)
-    //   2. new Type[] { typeof(CallConvSwift) }                                 (PInvokeEmitHelper, short)
-    //   3. new[] { typeof(…CallConvSwift) }                                     (PInvokeHelperEmitter, KvoExtensionEmitter — target-typed)
-    //   4. [typeof(CallConvSwift)]                                              (AppleTypesCsEmitter — C# 12 collection expression)
-    // The optional `new …`/`new[]` prefix covers 1–3; the `[{[]`/`[}]]` bracket pair covers
+    //   1. new global::System.Type[] { typeof(global::System.…CallConvSwift) }  (PInvokeEmitHelper — always fully-qualified)
+    //   2. new[] { typeof(…CallConvSwift) }                                     (PInvokeHelperEmitter, KvoExtensionEmitter — target-typed)
+    //   3. [typeof(CallConvSwift)]                                              (AppleTypesCsEmitter — C# 12 collection expression)
+    // The unqualified `new Type[] { typeof(CallConvSwift) }` spelling is no longer emitted
+    // (a user type named `Type` would capture it), but the optional-group regex still
+    // accepts it so the checker keeps working against previously-generated sources.
+    // The optional `new …`/`new[]` prefix covers 1–2; the `[{[]`/`[}]]` bracket pair covers
     // either the `{ … }` array initializer or the `[ … ]` collection expression. Being lax
     // about pairing { with ] is harmless: inputs are only ever generator-emitted attributes.
     private static readonly Regex CallingConvRegex = new(

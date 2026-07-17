@@ -377,7 +377,7 @@ public static class ConstrainedExistentialBridge
             pInvokeParamDecls.Add(bp.Kind switch
             {
                 BridgeParamKind.Primitive when MarshallingHelpers.IsBoolType(bp.CSharpType)
-                    => $"[MarshalAs(UnmanagedType.U1)] {bp.CSharpType} {GetSwiftParamName(bp)}",
+                    => $"{MarshallingHelpers.BoolPInvokeParamAttribute} {bp.CSharpType} {GetSwiftParamName(bp)}",
                 BridgeParamKind.Primitive => $"{bp.CSharpType} {GetSwiftParamName(bp)}",
                 _ => $"IntPtr {GetSwiftParamName(bp)}",
             });

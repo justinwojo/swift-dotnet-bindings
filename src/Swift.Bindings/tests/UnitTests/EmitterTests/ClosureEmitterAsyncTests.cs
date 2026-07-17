@@ -34,7 +34,7 @@ public class ClosureEmitterAsyncTests
             "$s10TestModule6doWorkyyF");
 
         var result = output.ToString();
-        Assert.Contains("[UnmanagedCallersOnly(CallConvs", result);
+        Assert.Contains("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs", result);
         Assert.Contains("CallConvCdecl", result);
         Assert.Contains("_Start", result);
         Assert.Contains("AsyncThrowingClosureStateVoid", result);
@@ -61,7 +61,10 @@ public class ClosureEmitterAsyncTests
             "$s10TestModule8loadDatayyF");
 
         var result = output.ToString();
-        Assert.Contains("[UnmanagedCallersOnly", result);
+        // The qualified spelling, not a bare `[UnmanagedCallersOnly`: this emitter also writes an XML
+        // doc comment whose prose contains the literal text "[UnmanagedCallersOnly]", so a bare match
+        // hits the comment and passes even if the attribute itself were dropped entirely.
+        Assert.Contains("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs", result);
         Assert.Contains("_Start", result);
         Assert.Contains("AsyncThrowingClosureState<", result);
         Assert.Contains("RunAsync", result);

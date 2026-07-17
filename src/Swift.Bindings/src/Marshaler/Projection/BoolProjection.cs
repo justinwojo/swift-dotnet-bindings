@@ -11,7 +11,7 @@ public class BoolProjection : ITypeProjection
 {
     public string PublicType => "bool";
     public string PInvokeType => "bool";
-    public string? PInvokeAttribute => "[MarshalAs(UnmanagedType.U1)]";
+    public string? PInvokeAttribute => MarshallingHelpers.BoolPInvokeParamAttribute;
 
     public MarshalPlan GetParameterPlan(string paramName) => MarshalPlan.PassThrough(paramName);
 

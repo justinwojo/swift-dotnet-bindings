@@ -204,7 +204,7 @@ public class GenericClosureBridgeEmitterTests
         var swResult = swiftOutput.ToString();
 
         // C# output should contain callbacks, P/Invokes, and public methods
-        Assert.Contains("[UnmanagedCallersOnly", csResult);
+        Assert.Contains("[global::System.Runtime.InteropServices.UnmanagedCallersOnly", csResult);
         Assert.Contains("LibraryImport", csResult);
         Assert.Contains("SBW_CreateError", csResult);
 

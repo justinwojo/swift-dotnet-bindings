@@ -159,17 +159,19 @@ public static class GenericTypeEmitter
 
             // Classify *why* each non-marker conformance was filtered out of the C#
             // constraint list. When a param has no surviving resolvable interface, the
-            // ISwiftObject seed is only safe to DROP if every filtered conformance was a
-            // PAT / Self-requirement / associated-type protocol — those route through the
-            // descriptor-symbol PWT path, which uses the UNCONSTRAINED
+            // ISwiftObject seed is only safe to DROP if every filtered conformance routes
+            // through the descriptor-symbol PWT path, which uses the UNCONSTRAINED
             // `TypeMetadata.GetTypeMetadataOrThrow<T>()` helper (see
-            // PInvokeHelperEmitter.GetTypeMetadataAccessorArgumentList), so they never
-            // require `T : ISwiftObject`. Dropping the seed there lets primitive / blittable
+            // PInvokeHelperEmitter.GetTypeMetadataAccessorArgumentList) and so never
+            // requires `T : ISwiftObject`. That covers PAT / Self-requirement /
+            // associated-type protocols, and a well-known-runtime protocol that carries a
+            // descriptor symbol. Dropping the seed there lets primitive / blittable
             // closed instantiations type-check (e.g. `IntentParameter<nint>` for the
             // `Swift.Int : _IntentValue` conformer). Any other filter reason
-            // (unsupported-module, unregistered cross-module, well-known-runtime, or an
-            // empty/non-projectable marker) keeps the seed conservatively — those cases
-            // are not positively known to avoid an ISwiftObject-requiring code path.
+            // (unsupported-module, unregistered cross-module, descriptor-less
+            // well-known-runtime, or an empty/non-projectable marker) keeps the seed
+            // conservatively — those cases are not positively known to avoid an
+            // ISwiftObject-requiring code path.
             bool sawDescriptorPathSafeFilter = false;
             bool sawConservativeFilter = false;
 
@@ -325,10 +327,23 @@ public static class GenericTypeEmitter
                             continue;
                         }
                         // Skip well-known stdlib protocols that map to runtime types (not interfaces).
-                        // e.g., Swift.Error → AnyError (no IError interface is emitted)
+                        // e.g., Swift.Error → AnyError (no IError interface is emitted).
+                        //
+                        // Seed classification splits on whether the record carries a protocol
+                        // descriptor symbol, mirroring how PInvokeHelperEmitter routes the PWT arg:
+                        // with a descriptor, dispatch goes through the unconstrained
+                        // descriptor-symbol path, so ISwiftObject is not required and the seed is
+                        // droppable — keeping it would reject the ordinary conformer shape here
+                        // (a Swift error enum projects to a C# enum, which is not an ISwiftObject).
+                        // Without a descriptor there is no witness table to resolve at all, so the
+                        // emitter routes the constraint to the unresolved list and skip-gates the
+                        // containing type; the seed choice is moot, and conservative is correct.
                         if (TypeDatabaseExtensions.IsWellKnownRuntimeProtocol(constraintRecord))
                         {
-                            sawConservativeFilter = true;
+                            if (!string.IsNullOrEmpty(constraintRecord.ProtocolDescriptorSymbol))
+                                sawDescriptorPathSafeFilter = true;
+                            else
+                                sawConservativeFilter = true;
                             continue;
                         }
                         // Other Kind values (Struct, Enum, Protocol) fall through to
@@ -384,17 +399,19 @@ public static class GenericTypeEmitter
                 // protocol conformance. The question is whether the seed is still required.
                 //
                 // Drop ISwiftObject ONLY when every filtered conformance is
-                // descriptor-path-safe (PAT / Self-requirement / associated-type protocols
-                // whose dispatch goes through the unconstrained descriptor-symbol PWT path:
+                // descriptor-path-safe (PAT / Self-requirement / associated-type protocols,
+                // and descriptor-carrying well-known-runtime protocols, whose dispatch goes
+                // through the unconstrained descriptor-symbol PWT path:
                 // `TypeMetadata.GetTypeMetadataOrThrow<T>()` → `SwiftConformance`). Those do
                 // NOT require `T : ISwiftObject`, so seeding it would needlessly reject
                 // primitive/frozen conformers (e.g. `IntentParameter<nint>` against the
-                // synthesized `_IntentValue` PAT).
+                // synthesized `_IntentValue` PAT, or an error enum against a
+                // `Failure : Swift.Error` param).
                 //
                 // Keep the seed conservatively whenever any filter we couldn't positively
                 // classify fired (unsupported module, unregistered cross-module record,
-                // well-known-runtime protocol, empty marker interface). Those historically
-                // relied on the seed and must not regress.
+                // descriptor-less well-known-runtime protocol, empty marker interface).
+                // Those historically relied on the seed and must not regress.
                 bool dropSeed = sawDescriptorPathSafeFilter && !sawConservativeFilter;
                 if (!dropSeed)
                     constraints.Add($"{typeParamName} : ISwiftObject");

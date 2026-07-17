@@ -148,6 +148,12 @@ public class Issue1SkipAttributionTests
     /// Collects CallConvSwift <c>EntryPoint</c> symbols from the generated bindings. The generator
     /// emits, in order: <c>[UnmanagedCallConv(... CallConvSwift)]</c> then
     /// <c>[LibraryImport(... EntryPoint = "$s…")]</c> then the <c>partial</c> declaration.
+    ///
+    /// The attribute names are matched from the open paren rather than the opening bracket, so
+    /// the match holds whether or not the emitted attribute is namespace-qualified — which it
+    /// is, since the generated code shares a namespace with the bound module's own types.
+    /// Anchoring on the bracket would make this silently extract nothing, and every check
+    /// downstream would pass vacuously.
     /// </summary>
     private static HashSet<string> ExtractCallConvSwiftEntryPoints(string generated)
     {
@@ -156,7 +162,7 @@ public class Issue1SkipAttributionTests
 
         foreach (var raw in generated.Split('\n'))
         {
-            if (raw.Contains("[UnmanagedCallConv", System.StringComparison.Ordinal))
+            if (raw.Contains("UnmanagedCallConv(", System.StringComparison.Ordinal))
             {
                 pendingSwift = raw.Contains("CallConvSwift", System.StringComparison.Ordinal);
                 continue;

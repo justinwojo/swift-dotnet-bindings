@@ -11,6 +11,9 @@ using System.Threading.Tasks;
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
 using Swift.Runtime;
+// The test library exports a public `Type` on purpose, to prove the generator qualifies the
+// BCL names it emits. That makes a bare `Type` ambiguous here, where the reflection type is meant.
+using Type = System.Type;
 
 #pragma warning disable SB0001 // CallConvSwift P/Invoke warning
 

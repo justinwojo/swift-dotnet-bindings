@@ -1849,7 +1849,7 @@ public static partial class SwiftUIBridgeEmitter
                     sb.AppendLine("                return;");
                     sb.AppendLine("            }");
                 }
-                sb.AppendLine($"            var bytes = Encoding.UTF8.GetBytes(newValue ?? \"\");");
+                sb.AppendLine($"            var bytes = global::System.Text.Encoding.UTF8.GetBytes(newValue ?? \"\");");
                 sb.AppendLine("            fixed (byte* ptr = bytes)");
                 sb.AppendLine($"                {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, (IntPtr)ptr, bytes.Length);");
                 sb.AppendLine("        }");
@@ -1955,13 +1955,13 @@ public static partial class SwiftUIBridgeEmitter
         // DAM annotations — same limitation as WPF/MAUI data binding. Dispatchers are parameterless
         // Action closures capturing the viewModel + PropertyInfo, so the handler has zero reflection.
         sb.AppendLine("        /// <summary>Binds a view model's properties to this session's updatable parameters.</summary>");
-        sb.AppendLine("        public void BindTo<[System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] T>(T viewModel) where T : System.ComponentModel.INotifyPropertyChanged");
+        sb.AppendLine("        public void BindTo<[global::System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(global::System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] T>(T viewModel) where T : global::System.ComponentModel.INotifyPropertyChanged");
         sb.AppendLine("        {");
         sb.AppendLine("            ObjectDisposedException.ThrowIf(_disposed, this);");
         sb.AppendLine("            if (_boundViewModel != null)");
         sb.AppendLine("                throw new InvalidOperationException(\"Already bound to a view model. Call Unbind() first.\");");
         sb.AppendLine("#pragma warning disable IL2075 // viewModel.GetType() resolves runtime type for base-typed call sites; DAM on T covers direct-typed calls");
-        sb.AppendLine("            _propertyDispatchers = new System.Collections.Generic.Dictionary<string, Action>(StringComparer.OrdinalIgnoreCase);");
+        sb.AppendLine("            _propertyDispatchers = new global::System.Collections.Generic.Dictionary<string, Action>(StringComparer.OrdinalIgnoreCase);");
         foreach (var param in updatableParams)
         {
             var pascalName = char.ToUpperInvariant(param.Name[0]) + param.Name[1..];
@@ -1989,7 +1989,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine();
 
         // OnBoundPropertyChanged — zero reflection, just calls pre-built closures.
-        sb.AppendLine("        private void OnBoundPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)");
+        sb.AppendLine("        private void OnBoundPropertyChanged(object? sender, global::System.ComponentModel.PropertyChangedEventArgs e)");
         sb.AppendLine("        {");
         sb.AppendLine("            if (_disposed || _propertyDispatchers == null) return;");
         sb.AppendLine("            if (string.IsNullOrEmpty(e.PropertyName))");
@@ -2207,7 +2207,7 @@ public static partial class SwiftUIBridgeEmitter
                     sb.AppendLine($"                {info.ViewName}BridgeNativeMethods.Set{mod.PascalName}(Handle, IntPtr.Zero, 0);");
                     sb.AppendLine("                return;");
                     sb.AppendLine("            }");
-                    sb.AppendLine($"            var bytes = Encoding.UTF8.GetBytes(value);");
+                    sb.AppendLine($"            var bytes = global::System.Text.Encoding.UTF8.GetBytes(value);");
                     sb.AppendLine("            fixed (byte* ptr = bytes)");
                     sb.AppendLine($"                {info.ViewName}BridgeNativeMethods.Set{mod.PascalName}(Handle, (IntPtr)ptr, bytes.Length);");
                     sb.AppendLine("        }");
@@ -2370,7 +2370,7 @@ public static partial class SwiftUIBridgeEmitter
     {
         sb.AppendLine("    internal static unsafe class SwiftUIBridgePostReleaseHelpers");
         sb.AppendLine("    {");
-        sb.AppendLine("        [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        sb.AppendLine("        [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         sb.AppendLine("        internal static void FreeGCHandles(IntPtr buffer, int count)");
         sb.AppendLine("        {");
         OpenUcoFailFastGuard(sb);
@@ -2549,8 +2549,8 @@ public static partial class SwiftUIBridgeEmitter
         var hasUpdatableParams = bridgeParams.Any(p => p.IsUpdatable);
         if (hasUpdatableParams)
         {
-            sb.AppendLine("        private System.ComponentModel.INotifyPropertyChanged? _boundViewModel;");
-            sb.AppendLine("        private System.Collections.Generic.Dictionary<string, Action>? _propertyDispatchers;");
+            sb.AppendLine("        private global::System.ComponentModel.INotifyPropertyChanged? _boundViewModel;");
+            sb.AppendLine("        private global::System.Collections.Generic.Dictionary<string, Action>? _propertyDispatchers;");
         }
         sb.AppendLine();
         sb.AppendLine($"        internal {info.ViewName}Session(IntPtr handle) => _handle = handle;");
@@ -2568,7 +2568,7 @@ public static partial class SwiftUIBridgeEmitter
         foreach (var param in bridgeParams.Where(p => p.Kind == BridgeParameterKind.VoidClosure))
         {
             var trampolineName = char.ToUpperInvariant(param.Name[0]) + param.Name[1..] + "Trampoline";
-            sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
+            sb.AppendLine($"        [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
             sb.AppendLine($"        private static void {trampolineName}(IntPtr userData)");
             sb.AppendLine("        {");
             OpenUcoFailFastGuard(sb);
@@ -2850,11 +2850,11 @@ public static partial class SwiftUIBridgeEmitter
             // String encoding (includes Optional<String> params)
             foreach (var param in bridgeParams.Where(p => p.Kind == BridgeParameterKind.String))
             {
-                sb.AppendLine($"{indent}var {param.Name}Bytes = Encoding.UTF8.GetBytes({param.CSharpName} ?? \"\");");
+                sb.AppendLine($"{indent}var {param.Name}Bytes = global::System.Text.Encoding.UTF8.GetBytes({param.CSharpName} ?? \"\");");
             }
             foreach (var param in bridgeParams.Where(p => p.Kind == BridgeParameterKind.OptionalWrapped && p.InnerParameter?.Kind == BridgeParameterKind.String))
             {
-                sb.AppendLine($"{indent}byte[]? {param.Name}Bytes = {param.CSharpName} != null ? Encoding.UTF8.GetBytes({param.CSharpName}) : null;");
+                sb.AppendLine($"{indent}byte[]? {param.Name}Bytes = {param.CSharpName} != null ? global::System.Text.Encoding.UTF8.GetBytes({param.CSharpName}) : null;");
             }
             // Binding<Codable> JSON encoding
             foreach (var param in bridgeParams.Where(p => p.IsBindingCodableStruct))
@@ -2884,11 +2884,11 @@ public static partial class SwiftUIBridgeEmitter
             // String encoding (includes Optional<String> params)
             foreach (var param in bridgeParams.Where(p => p.Kind == BridgeParameterKind.String))
             {
-                sb.AppendLine($"{indent}var {param.Name}Bytes = Encoding.UTF8.GetBytes({param.CSharpName} ?? \"\");");
+                sb.AppendLine($"{indent}var {param.Name}Bytes = global::System.Text.Encoding.UTF8.GetBytes({param.CSharpName} ?? \"\");");
             }
             foreach (var param in bridgeParams.Where(p => p.Kind == BridgeParameterKind.OptionalWrapped && p.InnerParameter?.Kind == BridgeParameterKind.String))
             {
-                sb.AppendLine($"{indent}byte[]? {param.Name}Bytes = {param.CSharpName} != null ? Encoding.UTF8.GetBytes({param.CSharpName}) : null;");
+                sb.AppendLine($"{indent}byte[]? {param.Name}Bytes = {param.CSharpName} != null ? global::System.Text.Encoding.UTF8.GetBytes({param.CSharpName}) : null;");
             }
             // Binding<Codable> JSON encoding
             foreach (var param in bridgeParams.Where(p => p.IsBindingCodableStruct))
@@ -3691,7 +3691,7 @@ public static partial class SwiftUIBridgeEmitter
         trampolineParams.Add("IntPtr userData");
         var returnType = closureReturn?.CSharpPInvokeType ?? "void";
 
-        sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
+        sb.AppendLine($"        [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
         sb.AppendLine($"        private static {returnType} {trampolineName}({string.Join(", ", trampolineParams)})");
         sb.AppendLine("        {");
         OpenUcoFailFastGuard(sb);
@@ -3715,7 +3715,7 @@ public static partial class SwiftUIBridgeEmitter
                 {
                     sb.AppendLine($"                var str{i} = \"\";");
                     sb.AppendLine($"                if (arg{i}Ptr != IntPtr.Zero && arg{i}Len > 0)");
-                    sb.AppendLine($"                    unsafe {{ str{i} = Encoding.UTF8.GetString((byte*)arg{i}Ptr, (int)arg{i}Len); }}");
+                    sb.AppendLine($"                    unsafe {{ str{i} = global::System.Text.Encoding.UTF8.GetString((byte*)arg{i}Ptr, (int)arg{i}Len); }}");
                 }
                 else if (a.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
                 {
@@ -3803,7 +3803,7 @@ public static partial class SwiftUIBridgeEmitter
         if (closureReturn.Kind == BridgeParameterKind.String)
         {
             // String return: encode to native UTF-8 buffer, write length to out-parameter
-            sb.AppendLine("                    var bytes = Encoding.UTF8.GetBytes(result ?? \"\");");
+            sb.AppendLine("                    var bytes = global::System.Text.Encoding.UTF8.GetBytes(result ?? \"\");");
             sb.AppendLine("                    if (bytes.Length > 0)");
             sb.AppendLine("                    {");
             sb.AppendLine("                        unsafe");
@@ -3978,7 +3978,7 @@ public static partial class SwiftUIBridgeEmitter
         }
         trampolineParams.Add("IntPtr userData");
 
-        sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
+        sb.AppendLine($"        [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
         sb.AppendLine($"        private static void {trampolineName}({string.Join(", ", trampolineParams)})");
         sb.AppendLine("        {");
         OpenUcoFailFastGuard(sb);
@@ -3993,7 +3993,7 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine("                {");
             sb.AppendLine("                    var str = \"\";");
             sb.AppendLine("                    if (valuePtr != IntPtr.Zero && valueLen > 0)");
-            sb.AppendLine("                        unsafe { str = Encoding.UTF8.GetString((byte*)valuePtr, (int)valueLen); }");
+            sb.AppendLine("                        unsafe { str = global::System.Text.Encoding.UTF8.GetString((byte*)valuePtr, (int)valueLen); }");
             sb.AppendLine("                    action(str);");
             sb.AppendLine("                }");
         }

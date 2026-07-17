@@ -542,7 +542,13 @@ public class TypeProjectionConsistencyTests
     {
         var proj = new BoolProjection();
 
-        Assert.Equal("[MarshalAs(UnmanagedType.U1)]", proj.PInvokeAttribute);
+        // Fully qualified on purpose: the emitted attribute lands inside `namespace <SwiftModule>`,
+        // where a bound library's own public `MarshalAs`/`UnmanagedType` would capture a bare
+        // reference. Spelled out rather than compared against the emitter constant so that
+        // dropping the qualification fails here instead of silently tracking the change.
+        Assert.Equal(
+            "[global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.U1)]",
+            proj.PInvokeAttribute);
     }
 
     [Fact]

@@ -57,9 +57,6 @@ public record PInvokeEmissionInfo
     /// <summary>Whether to emit the 'new' modifier (for derived class metadata accessors).</summary>
     public bool HasNewModifier { get; init; }
 
-    /// <summary>Whether to use fully-qualified type names (for marker protocol overloads).</summary>
-    public bool UseFullyQualifiedNames { get; init; }
-
     /// <summary>Additional TypeMetadata parameters for generic type support.</summary>
     public IReadOnlyList<string>? MetadataParameters { get; init; }
 
@@ -242,25 +239,23 @@ public static class PInvokeEmitHelper
         var needsStringMarshalling = info.ParametersString.Contains("string ")
             || info.ParametersString.Contains("string?")
             || (!info.IsAsync && info.ReturnType == "string");
-        var stringMarshalSuffix = needsStringMarshalling ? ", StringMarshalling = StringMarshalling.Utf8" : "";
+        var stringMarshalSuffix = needsStringMarshalling
+            ? ", StringMarshalling = global::System.Runtime.InteropServices.StringMarshalling.Utf8"
+            : "";
 
-        if (info.UseFullyQualifiedNames)
-        {
-            lines.Add($"[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] {{ typeof(global::System.Runtime.CompilerServices.{callConvType}) }})]");
-            lines.Add($"[global::System.Runtime.InteropServices.LibraryImport(\"{info.LibraryPath}\", EntryPoint = \"{info.EntryPoint}\"{stringMarshalSuffix})]");
-        }
-        else
-        {
-            lines.Add($"[UnmanagedCallConv(CallConvs = new Type[] {{ typeof({callConvType}) }})]");
-            lines.Add($"[LibraryImport(\"{info.LibraryPath}\", EntryPoint = \"{info.EntryPoint}\"{stringMarshalSuffix})]");
-        }
+        // Every BCL name in the emitted attribute is global::-qualified. The generated code
+        // lands inside `namespace <SwiftModule>`, so a public Swift type whose projected name
+        // matches an ambient BCL name (e.g. a `Type` that shadows System.Type) would otherwise
+        // capture the reference and break the whole file.
+        lines.Add($"[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] {{ typeof(global::System.Runtime.CompilerServices.{callConvType}) }})]");
+        lines.Add($"[global::System.Runtime.InteropServices.LibraryImport(\"{info.LibraryPath}\", EntryPoint = \"{info.EntryPoint}\"{stringMarshalSuffix})]");
 
         // Return type (async always returns void)
         var returnTypeStr = info.IsAsync ? "void" : info.ReturnType;
 
         // Bool return marshalling
         if (MarshallingHelpers.IsBoolType(returnTypeStr))
-            lines.Add("[return: MarshalAs(UnmanagedType.U1)]");
+            lines.Add(MarshallingHelpers.BoolPInvokeReturnAttribute);
 
         // Build parameter string with metadata parameters
         var paramsStr = info.ParametersString;

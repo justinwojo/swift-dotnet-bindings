@@ -326,7 +326,7 @@ public class PInvokeHelperEmitterTests
         context.EmitHelperClass(csWriter);
 
         var result = output.ToString();
-        Assert.Contains("[LibraryImport(\"/tmp/lib.dylib\", EntryPoint = \"$sTestEntryPoint\")]", result);
+        Assert.Contains("LibraryImport(\"/tmp/lib.dylib\", EntryPoint = \"$sTestEntryPoint\")]", result);
         Assert.Contains("internal static partial void PInvoke_doWork(IntPtr self);", result);
     }
 
@@ -353,7 +353,11 @@ public class PInvokeHelperEmitterTests
         decl.Emit(csWriter);
 
         var result = output.ToString();
-        Assert.Contains("[return: MarshalAs(UnmanagedType.U1)]", result);
+        // Qualified: the attribute is emitted into `namespace <SwiftModule>`, where a bound
+        // library's own `MarshalAs`/`UnmanagedType` would otherwise capture it.
+        Assert.Contains(
+            "[return: global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.U1)]",
+            result);
         Assert.Contains("internal static partial bool PInvoke_isValid();", result);
     }
 
@@ -671,18 +675,16 @@ public class PInvokeHelperEmitterTests
     }
 
     [Fact]
-    public void Emit_GenericClass_SwiftErrorRemappedConstraint_DoesNotEmitRemappedNamespace()
+    public void Emit_GenericClass_SwiftErrorRemappedConstraint_ResolvesWitnessTableViaDescriptor()
     {
-        // Swift.Error has a TypeRecord that remaps CSharpTypeName to
+        // The stdlib error protocol has a TypeRecord that remaps CSharpTypeName to
         // (Swift.Foundation, AnyError) — a runtime struct, not a generated interface.
-        // The umbrella-aware emission path must NOT use record.CSharpTypeName.Namespace
-        // for these well-known runtime protocols, because there is no
-        // 'Swift.Foundation.IError' interface — only modules that declare their own
-        // 'Error' protocol provide a usable I-prefixed interface. Falling back to
-        // target.Module ("Swift") so cross-module qualification is suppressed
-        // (NameProvider.GetInterfaceName treats moduleName="Swift" as the implicit-import
-        // path) is what made the consuming module's
-        // 'ProtocolWitnessTable.GetOrThrowAuto<TFailure, IError>()' resolve again.
+        // No I-prefixed interface is projected for it in ANY module, so neither the
+        // remapped-namespace spelling nor a bare synthetic one can bind: the first is a
+        // CS0246 outright, the second only compiles in the accidental case where the
+        // module happens to declare its own same-named protocol. Because the protocol
+        // does have a real descriptor and witness table, the constraint must resolve
+        // dynamically through the descriptor symbol instead of a static interface.
         var moduleDecl = CreateModuleDecl("NetClient");
         var classDecl = CreateConstrainedGenericClass(
             moduleDecl,
@@ -703,13 +705,19 @@ public class PInvokeHelperEmitterTests
         var ctx = PInvokeHelperContext.CreateIfGeneric(classDecl, typeDb)!;
 
         var entry = Assert.Single(ctx.PwtEntries);
-        Assert.True(entry.IsResolvable);
-        // The emission path previously produced "Swift.Foundation.IError"
-        // (synthesizing 'I' + Target.Name and qualifying with the remapped C#
-        // namespace). The fix produces a bare "IError" instead — the same shape that
-        // The consuming module's own 'public interface IError' satisfies in the consuming module.
-        Assert.DoesNotContain("Swift.Foundation", entry.ResolvableInterfaceName);
-        Assert.Equal("IError", entry.ResolvableInterfaceName);
+
+        // Resolve dynamically: no static interface name is synthesized at all, so neither
+        // the remapped-namespace spelling nor a bare one can leak into the emitted code.
+        Assert.False(entry.IsResolvable);
+        Assert.Null(entry.ResolvableInterfaceName);
+        Assert.Equal("$ss5ErrorMp", entry.DescriptorSymbol);
+        // The descriptor is a stdlib symbol, so it must be looked up in the Swift runtime
+        // rather than in whichever module declared the constrained type.
+        Assert.Contains("libswiftCore", entry.LibraryPath);
+
+        // The constraint must NOT be routed to the skip gate — the containing type stays
+        // bound, since a resolvable witness table means the PWT shape is determinate.
+        Assert.Empty(ctx.UnresolvedPwtConstraints);
     }
 
     [Fact]
@@ -724,6 +732,13 @@ public class PInvokeHelperEmitterTests
         // UnresolvedPwtConstraints list so HasIndeterminatePwtShape skip-gates the
         // containing type (consistent with how
         // MethodValidationGates.IsProtocolAvailableForConstraint handles them).
+        //
+        // The record deliberately carries NO descriptor symbol, matching what the type
+        // database actually builds for it: the descriptor-carrying well-known protocol is a
+        // separate case with a witness table that CAN be resolved dynamically, and it routes
+        // to the descriptor path instead of here. "Metadata-only" is precisely the absence of
+        // a descriptor, so supplying one would describe a record that never occurs and would
+        // test the other branch under this one's name.
         var moduleDecl = CreateModuleDecl("SomeActorLib");
         var classDecl = CreateConstrainedGenericClass(
             moduleDecl,
@@ -733,7 +748,7 @@ public class PInvokeHelperEmitterTests
                 new[] { ("_Concurrency", "Actor") },
             });
         var typeDb = new ConstrainedGenericMockTypeDatabase()
-            .WithProtocol("_Concurrency", "Actor", "$ss5ActorMp");
+            .WithProtocol("_Concurrency", "Actor");
 
         var ctx = PInvokeHelperContext.CreateIfGeneric(classDecl, typeDb)!;
 

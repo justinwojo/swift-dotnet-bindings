@@ -25,7 +25,7 @@ public class OperatorHandlerOutputTests
         Assert.Contains("operator ==", output);
         Assert.Contains("left", output);
         Assert.Contains("right", output);
-        Assert.Contains("[LibraryImport(\"/tmp/TestModule.dylib\", EntryPoint =", output);
+        Assert.Contains("LibraryImport(\"/tmp/TestModule.dylib\", EntryPoint =", output);
         Assert.Contains("PInvoke_op_Equality", output);
     }
 

@@ -6,6 +6,10 @@ using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Swift;
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
+// The test library exports a public `CallConvCdecl` on purpose, to prove the generator qualifies
+// the BCL names it emits. That makes a bare `CallConvCdecl` ambiguous here, where the calling
+// convention is meant.
+using CallConvCdecl = System.Runtime.CompilerServices.CallConvCdecl;
 
 namespace RuntimeTestsApp.Marshalling;
 

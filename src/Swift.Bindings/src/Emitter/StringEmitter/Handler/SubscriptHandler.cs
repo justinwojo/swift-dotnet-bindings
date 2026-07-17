@@ -723,7 +723,7 @@ namespace BindingsGeneration
                     {
                         // @_cdecl: string index params → UTF-8 bytes, pointer+length
                         var bytesName = $"__{bareName}Utf8";
-                        setupLines.Add($"var {bytesName} = System.Text.Encoding.UTF8.GetBytes({paramName});");
+                        setupLines.Add($"var {bytesName} = global::System.Text.Encoding.UTF8.GetBytes({paramName});");
                         // Pointer and length are passed as separate args; fixed block wrapping
                         // is handled by EmitCdeclGetterWithFixedBlock/EmitCdeclSetterWithFixedBlock.
                         argParts.Add($"(IntPtr)__{bareName}Ptr");
@@ -862,7 +862,7 @@ namespace BindingsGeneration
             // For string value (subscript return type is String), encode the newValue
             if (isStringValue)
             {
-                csWriter.WriteLine("var __valueUtf8 = System.Text.Encoding.UTF8.GetBytes(value);");
+                csWriter.WriteLine("var __valueUtf8 = global::System.Text.Encoding.UTF8.GetBytes(value);");
             }
 
             if (hasStringIndexParam || isStringValue)

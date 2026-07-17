@@ -32,7 +32,7 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("[LibraryImport(\"/tmp/AsyncWrapper.dylib\"", csOutput);
+        Assert.Contains("LibraryImport(\"/tmp/AsyncWrapper.dylib\"", csOutput);
         Assert.Contains("public virtual Task<nint> FetchAsync(global::System.Threading.CancellationToken cancellationToken = default)", csOutput);
         Assert.Contains("return _tcs.Task;", csOutput);
     }

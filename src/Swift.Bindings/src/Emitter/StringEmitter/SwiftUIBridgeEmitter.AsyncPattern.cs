@@ -1048,7 +1048,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine();
 
         // OnReady trampoline
-        sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
+        sb.AppendLine($"        [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
         sb.AppendLine("        private static void OnReadyTrampoline(IntPtr handle, IntPtr userData)");
         sb.AppendLine("        {");
         OpenUcoFailFastGuard(sb);
@@ -1062,7 +1062,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine();
 
         // OnError trampoline (idempotent — safe if called twice)
-        sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
+        sb.AppendLine($"        [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
         sb.AppendLine("        private static void OnErrorTrampoline(IntPtr msgPtr, nint msgLen, IntPtr userData)");
         sb.AppendLine("        {");
         OpenUcoFailFastGuard(sb);
@@ -1076,7 +1076,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine("            {");
         sb.AppendLine("                var bytes = new byte[(int)msgLen];");
         sb.AppendLine("                Marshal.Copy(msgPtr, bytes, 0, (int)msgLen);");
-        sb.AppendLine("                msg = Encoding.UTF8.GetString(bytes);");
+        sb.AppendLine("                msg = global::System.Text.Encoding.UTF8.GetString(bytes);");
         sb.AppendLine("            }");
         sb.AppendLine("            state.Tcs.TrySetException(new InvalidOperationException(msg));");
         CloseUcoFailFastGuard(sb);
@@ -1086,7 +1086,7 @@ public static partial class SwiftUIBridgeEmitter
         // OnResult trampoline (if applicable)
         if (pattern.ResultCallback != null)
         {
-            sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
+            sb.AppendLine($"        [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
             sb.AppendLine("        private static void OnResultTrampoline(int resultCode, IntPtr userData)");
             sb.AppendLine("        {");
             OpenUcoFailFastGuard(sb);
@@ -1235,7 +1235,7 @@ public static partial class SwiftUIBridgeEmitter
         var stringParams = pattern.FlattenedParams.Where(p => p.Kind == AsyncFlatParamKind.String).ToList();
         foreach (var param in stringParams)
         {
-            sb.AppendLine($"                    var {param.Name}Bytes = Encoding.UTF8.GetBytes({param.CSharpName} ?? \"\");");
+            sb.AppendLine($"                    var {param.Name}Bytes = global::System.Text.Encoding.UTF8.GetBytes({param.CSharpName} ?? \"\");");
         }
 
         // Fixed block for strings (if any)

@@ -214,7 +214,7 @@ public class StructsAndEnumsEmitterTests
         };
 
         var output = EmitAndRead(module);
-        Assert.Contains("[StructLayout(LayoutKind.Sequential)]", output);
+        Assert.Contains("[global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]", output);
         Assert.Contains("public struct TLPoint", output);
         Assert.Contains("public nfloat X;", output);
         Assert.Contains("public nfloat Y;", output);
@@ -308,7 +308,7 @@ public class StructsAndEnumsEmitterTests
         };
 
         var output = EmitAndRead(module);
-        Assert.Contains("[DllImport(\"__Internal\")]", output);
+        Assert.Contains("[global::System.Runtime.InteropServices.DllImport(\"__Internal\")]", output);
         Assert.Contains("public static extern double TLComputeDistance(double x, double y);", output);
     }
 
@@ -383,7 +383,7 @@ public class StructsAndEnumsEmitterTests
         Assert.Contains("Auto = 0,", output);
 
         // Struct
-        Assert.Contains("[StructLayout(LayoutKind.Sequential)]", output);
+        Assert.Contains("[global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]", output);
         Assert.Contains("public struct TLSize", output);
         Assert.Contains("public nfloat Width;", output);
 
@@ -392,7 +392,7 @@ public class StructsAndEnumsEmitterTests
         Assert.Contains("[Field(\"TLVersion\", \"__Internal\")]", output);
 
         // Function
-        Assert.Contains("[DllImport(\"__Internal\")]", output);
+        Assert.Contains("[global::System.Runtime.InteropServices.DllImport(\"__Internal\")]", output);
         Assert.Contains("public static extern void TLInit();", output);
     }
 
@@ -951,7 +951,9 @@ public class StructsAndEnumsEmitterTests
         };
 
         var output = EmitAndRead(module);
-        Assert.Contains("[MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)]", output);
+        Assert.Contains(
+            "[global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.ByValArray, SizeConst = 4)]",
+            output);
         Assert.Contains("public byte[] Components;", output);
     }
 

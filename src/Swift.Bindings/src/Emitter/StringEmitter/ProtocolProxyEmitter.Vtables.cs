@@ -21,7 +21,7 @@ public partial class ProtocolProxyEmitter
         var structName = GetSwiftVtableStructName(protocolDecl);
 
         writer.WriteLine($"/// <summary>Matches Swift {protocolDecl.Name}_vtable layout</summary>");
-        writer.WriteLine("[StructLayout(LayoutKind.Sequential)]");
+        writer.WriteLine("[global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]");
         writer.WriteLine($"private struct {structName}");
         writer.WriteLine("{");
         writer.Indent++;

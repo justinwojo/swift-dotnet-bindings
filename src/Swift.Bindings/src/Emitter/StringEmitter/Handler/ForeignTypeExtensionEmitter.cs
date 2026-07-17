@@ -884,7 +884,7 @@ public static class ForeignTypeExtensionEmitter
                 var pinvokeType = ExtensionMarshallingHelper.ResolveCSharpTypeName(typeSpec, typeDatabase);
                 // Bool parameters need [MarshalAs(UnmanagedType.U1)]
                 if (typeSpec is NamedTypeSpec paramNamed && paramNamed.Name == "Swift.Bool")
-                    pinvokeParams.Add($"[MarshalAs(UnmanagedType.U1)] bool {paramName}");
+                    pinvokeParams.Add($"{MarshallingHelpers.BoolPInvokeParamAttribute} bool {paramName}");
                 else
                     pinvokeParams.Add($"{pinvokeType} {paramName}");
             }

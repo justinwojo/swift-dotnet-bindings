@@ -213,7 +213,11 @@ public class ParameterSignatureTests
     public void PInvokeSignatureString_Bool_AddsMarshalAs()
     {
         var param = new Parameter(MarshalledType.Bool, "flag");
-        Assert.Equal("[MarshalAs(UnmanagedType.U1)]  bool flag", param.PInvokeSignatureString());
+        // Qualified: the signature is emitted into `namespace <SwiftModule>`, where a bound
+        // library's own `MarshalAs`/`UnmanagedType` would otherwise capture it.
+        Assert.Equal(
+            "[global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.U1)]  bool flag",
+            param.PInvokeSignatureString());
     }
 
     [Fact]

@@ -8385,7 +8385,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("OnAppearTrampoline", csContent);
         Assert.Contains("OnDisappearTrampoline", csContent);
-        Assert.Contains("[UnmanagedCallersOnly(", csContent);
+        Assert.Contains("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(", csContent);
     }
 
     [Fact]
@@ -8735,7 +8735,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Contains("public void BindTo<", csContent);
         Assert.Contains("DynamicallyAccessedMembers", csContent);
         Assert.Contains("PublicProperties", csContent);
-        Assert.Contains("where T : System.ComponentModel.INotifyPropertyChanged", csContent);
+        // The namespace-qualified spelling the emitter actually writes: the bridge shares a
+        // namespace with the bound module's types, so a Swift type projected as `System` would
+        // otherwise capture the root identifier of this constraint.
+        Assert.Contains("where T : global::System.ComponentModel.INotifyPropertyChanged", csContent);
     }
 
     [Fact]
@@ -10556,7 +10559,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("CompletionSuccessTrampoline", csContent);
         Assert.Contains("CompletionErrorTrampoline", csContent);
-        Assert.Contains("[UnmanagedCallersOnly", csContent);
+        Assert.Contains("[global::System.Runtime.InteropServices.UnmanagedCallersOnly", csContent);
     }
 
     [Fact]

@@ -52,7 +52,7 @@ public class ClosureEmitterDirectTests
         var result = output.ToString();
         Assert.Contains("CallConvSwift", result);
         Assert.Contains("SwiftSelf context", result);
-        Assert.Contains("[UnmanagedCallersOnly(CallConvs", result);
+        Assert.Contains("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs", result);
     }
 
     [Fact]

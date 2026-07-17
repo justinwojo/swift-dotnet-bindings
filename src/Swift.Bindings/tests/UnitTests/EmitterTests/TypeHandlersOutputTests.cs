@@ -40,7 +40,7 @@ public class TypeHandlersOutputTests
         Assert.Contains("public SwiftClassHandle<Loader> Payload => _handle;", csOutput);
         // Finding 56a: non-reflective borrowed-marshal finalizer suppression — class handle is the payload.
         Assert.Contains("void ISwiftObject.SuppressPayloadFinalizer() => GC.SuppressFinalize(_handle);", csOutput);
-        Assert.Contains("[LibraryImport(\"/tmp/TestModule.dylib\", EntryPoint = \"$s10TestModule6LoaderCNMa\")]", csOutput);
+        Assert.Contains("LibraryImport(\"/tmp/TestModule.dylib\", EntryPoint = \"$s10TestModule6LoaderCNMa\")]", csOutput);
     }
 
     [Fact]

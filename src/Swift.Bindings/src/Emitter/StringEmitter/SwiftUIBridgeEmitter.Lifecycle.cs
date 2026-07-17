@@ -261,7 +261,7 @@ public static partial class SwiftUIBridgeEmitter
     /// </summary>
     internal static void EmitCSharpLifecycleTrampolines(StringBuilder sb)
     {
-        sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
+        sb.AppendLine($"        [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
         sb.AppendLine($"        private static void OnAppearTrampoline(IntPtr userData)");
         sb.AppendLine("        {");
         OpenUcoFailFastGuard(sb);
@@ -275,7 +275,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine("        }");
         sb.AppendLine();
 
-        sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
+        sb.AppendLine($"        [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
         sb.AppendLine($"        private static void OnDisappearTrampoline(IntPtr userData)");
         sb.AppendLine("        {");
         OpenUcoFailFastGuard(sb);

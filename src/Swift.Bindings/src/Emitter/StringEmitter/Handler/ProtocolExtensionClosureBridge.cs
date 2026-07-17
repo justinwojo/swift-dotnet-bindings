@@ -141,7 +141,7 @@ public static class ProtocolExtensionClosureBridge
 
         string returnType = closureReturnIsBool ? "byte" : "void";
 
-        csWriter.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         csWriter.WriteLine($"private static unsafe {returnType} {callbackBaseName}({string.Join(", ", paramParts)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;

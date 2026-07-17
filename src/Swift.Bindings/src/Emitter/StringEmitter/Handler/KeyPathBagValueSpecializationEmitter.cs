@@ -439,18 +439,18 @@ internal static class KeyPathBagValueSpecializationEmitter
         // self_ last (matches Swift trampoline order). Bool params get [MarshalAs(U1)].
         AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
             csWriter, ov.MergedAvailability, parentAnnotations: null);
-        csWriter.WriteLine($"[System.Runtime.InteropServices.DllImport(\"{wrapperLibPath}\", EntryPoint = \"{ov.CdeclSymbol}\", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]");
+        csWriter.WriteLine($"[global::System.Runtime.InteropServices.DllImport(\"{wrapperLibPath}\", EntryPoint = \"{ov.CdeclSymbol}\", CallingConvention = global::System.Runtime.InteropServices.CallingConvention.Cdecl)]");
         var pinvokeName = $"PInvoke_{ov.CdeclSymbol}";
 
-        var pinvokeParams = new List<string> { "System.IntPtr _by" };
+        var pinvokeParams = new List<string> { "global::System.IntPtr _by" };
         foreach (var p in ov.OtherParams)
         {
             if (IsBoolCsType(p.CsType))
-                pinvokeParams.Add($"[System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.U1)] {p.CsType} _{p.Name}");
+                pinvokeParams.Add($"{MarshallingHelpers.BoolPInvokeParamAttribute} {p.CsType} _{p.Name}");
             else
                 pinvokeParams.Add($"{p.CsType} _{p.Name}");
         }
-        pinvokeParams.Add("System.IntPtr self_");
+        pinvokeParams.Add("global::System.IntPtr self_");
         csWriter.WriteLine($"private static extern void {pinvokeName}({string.Join(", ", pinvokeParams)});");
         csWriter.WriteLine();
 
@@ -464,8 +464,8 @@ internal static class KeyPathBagValueSpecializationEmitter
         csWriter.WriteLine($"public static void {ov.PublicMethodName}({string.Join(", ", publicParams)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        csWriter.WriteLine("if (by is null) throw new System.ArgumentNullException(nameof(by));");
-        csWriter.WriteLine("if (self is null) throw new System.ArgumentNullException(nameof(self));");
+        csWriter.WriteLine("if (by is null) throw new global::System.ArgumentNullException(nameof(by));");
+        csWriter.WriteLine("if (self is null) throw new global::System.ArgumentNullException(nameof(self));");
         // The KeyPath bag-value @_cdecl wrapper is availability-gated; on an OS below the merged floor
         // its body dereferences a weak-linked, null gated symbol (uncatchable SIGSEGV). Throw a
         // catchable exception before the P/Invoke.
@@ -478,8 +478,8 @@ internal static class KeyPathBagValueSpecializationEmitter
         // Keep both the KeyPath SafeHandle and the receiver alive across the call so
         // a finaliser racing the P/Invoke can't free the underlying Swift KP or class
         // instance mid-dispatch.
-        csWriter.WriteLine("System.GC.KeepAlive(by);");
-        csWriter.WriteLine("System.GC.KeepAlive(self);");
+        csWriter.WriteLine("global::System.GC.KeepAlive(by);");
+        csWriter.WriteLine("global::System.GC.KeepAlive(self);");
         csWriter.Indent--;
         csWriter.WriteLine("}");
         csWriter.WriteLine();

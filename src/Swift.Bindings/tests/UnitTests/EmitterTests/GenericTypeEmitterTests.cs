@@ -334,7 +334,7 @@ public class GenericTypeEmitterTests
     }
 
     [Fact]
-    public void GetWhereClause_StdlibErrorConstraint_IsStrippedButISwiftObjectRemains()
+    public void GetWhereClause_StdlibErrorConstraint_IsStrippedAndSeedDropped()
     {
         var typeDecl = CreateGenericStructWithConstraintsAndModule("ErrorWrapper", "NetClient",
             new List<string> { "Swift.Error" });
@@ -342,11 +342,17 @@ public class GenericTypeEmitterTests
 
         var result = GenericTypeEmitter.GetWhereClause(typeDecl, typeDatabase);
 
-        // Same as the Decodable case above: the unregistered cross-module protocol
-        // is filtered, but the underlying Swift conformance keeps the ISwiftObject
-        // seed alive so descriptor-symbol PWT lookups continue to compile.
+        // No I-prefixed interface is projected for the stdlib error protocol, so it cannot
+        // appear as a C# constraint.
         Assert.DoesNotContain("IError", result);
-        Assert.Contains("ISwiftObject", result);
+
+        // The seed goes too. The conformance resolves its witness table from the protocol's
+        // descriptor symbol, which sources metadata through the UNCONSTRAINED
+        // TypeMetadata.GetTypeMetadataOrThrow<T>() helper — nothing on that path requires
+        // ISwiftObject. Seeding it anyway would reject the ordinary conformer for this
+        // constraint, since an error enum with a raw value projects to a plain C# enum and
+        // implements no interface at all.
+        Assert.DoesNotContain("ISwiftObject", result);
     }
 
     [Fact]

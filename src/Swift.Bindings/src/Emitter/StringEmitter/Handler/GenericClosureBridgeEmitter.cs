@@ -538,7 +538,7 @@ public static class GenericClosureBridgeEmitter
         paramParts.Add("void** errorOut");
         paramParts.Add("IntPtr contextPtr");
 
-        csWriter.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         csWriter.WriteLine($"private static unsafe void {callbackName}({string.Join(", ", paramParts)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
@@ -591,7 +591,7 @@ public static class GenericClosureBridgeEmitter
         paramParts.Add("void** errorOut");
         paramParts.Add("IntPtr contextPtr");
 
-        csWriter.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         csWriter.WriteLine($"private static unsafe void {callbackName}({string.Join(", ", paramParts)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
@@ -713,7 +713,7 @@ public static class GenericClosureBridgeEmitter
             {
                 case MethodClosureBridge.ParamAbiCategory.Primitive:
                     if (MarshallingHelpers.IsBoolType(arg.SwiftTypeSpec))
-                        paramList.Add($"[MarshalAs(UnmanagedType.U1)] bool {csName}");
+                        paramList.Add($"{MarshallingHelpers.BoolPInvokeParamAttribute} bool {csName}");
                     else
                         paramList.Add($"{MethodClosureBridge.GetPInvokePrimitiveType(arg.SwiftTypeSpec)} {csName}");
                     break;

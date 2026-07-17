@@ -26,9 +26,29 @@ namespace BindingsGeneration.Tests;
 /// </summary>
 public class CatchFreeUcoValidatorTests
 {
-    // The UCO attribute, anchored at the start of a (trimmed) line so a comment that merely *mentions*
-    // [UnmanagedCallersOnly] is not mistaken for the attribute itself.
-    private const string UcoAttribute = "[UnmanagedCallersOnly";
+    // The emitted attribute is namespace-qualified, since the generated code shares a namespace with
+    // the bound module's own types and a Swift type named `UnmanagedCallersOnly` would otherwise
+    // capture the reference. Both spellings are accepted so this parser reads the attribute rather
+    // than one particular spelling of it.
+    private const string InteropNamespacePrefix = "global::System.Runtime.InteropServices.";
+    private const string UcoAttributeName = "UnmanagedCallersOnly";
+
+    /// <summary>
+    /// True when <paramref name="line"/> IS a UCO attribute, as opposed to a comment mentioning one:
+    /// the bracket must open the (trimmed) line, which a <c>//</c> comment never does.
+    /// </summary>
+    private static bool IsUcoAttributeLine(string line)
+    {
+        var trimmed = line.TrimStart();
+        if (!trimmed.StartsWith("[", System.StringComparison.Ordinal))
+            return false;
+
+        var inner = trimmed.Substring(1).TrimStart();
+        if (inner.StartsWith(InteropNamespacePrefix, System.StringComparison.Ordinal))
+            inner = inner.Substring(InteropNamespacePrefix.Length);
+
+        return inner.StartsWith(UcoAttributeName, System.StringComparison.Ordinal);
+    }
 
     // A floor well below the real count (~872 at time of writing) but far above zero: if the parser
     // drifts and finds almost nothing, the "zero catch-free" assertion would pass vacuously — this
@@ -60,7 +80,7 @@ public class CatchFreeUcoValidatorTests
 
             for (int i = 0; i < lines.Length; i++)
             {
-                if (!lines[i].TrimStart().StartsWith(UcoAttribute, System.StringComparison.Ordinal))
+                if (!IsUcoAttributeLine(lines[i]))
                     continue;
 
                 total++;

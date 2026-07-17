@@ -525,7 +525,7 @@ public static partial class CrossModuleExtensionEmitter
             if (setterEnumLowering is { } sel)
                 setterParam = $"{sel.UnderlyingCSType} value";
             else if (property.SwiftTypeSpec is NamedTypeSpec n && n.Name == "Swift.Bool")
-                setterParam = "[MarshalAs(UnmanagedType.U1)] bool value";
+                setterParam = $"{MarshallingHelpers.BoolPInvokeParamAttribute} bool value";
             else
                 setterParam = $"{ResolveCSharpTypeName(property.SwiftTypeSpec!, typeDatabase)} value";
 
@@ -799,7 +799,7 @@ public static partial class CrossModuleExtensionEmitter
     private static string BuildCdeclPInvokeParam(StructParamInfo p, ITypeDatabase typeDatabase) => p.Kind switch
     {
         ParamKind.Primitive => p.TypeSpec is NamedTypeSpec n && n.Name == "Swift.Bool"
-            ? $"[MarshalAs(UnmanagedType.U1)] bool {p.Name}"
+            ? $"{MarshallingHelpers.BoolPInvokeParamAttribute} bool {p.Name}"
             : $"{ResolveCSharpTypeName(p.TypeSpec, typeDatabase)} {p.Name}",
         ParamKind.ObjCClass => $"IntPtr {p.Name}",
         ParamKind.SwiftClass => $"IntPtr {p.Name}",

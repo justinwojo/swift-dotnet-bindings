@@ -353,7 +353,7 @@ namespace BindingsGeneration
                             var bridgeName = $"_{csName}_boolBridge";
                             ClosureEmitter.EmitConventionCBoolBridge(csWriter, csName, bridgeName, closureTypeSpec, _env.ClosureHandler);
                             marshalSource = bridgeName;
-                            csWriter.WriteLine($"var {bridgeName}Handle = System.Runtime.InteropServices.GCHandle.Alloc({bridgeName});");
+                            csWriter.WriteLine($"var {bridgeName}Handle = global::System.Runtime.InteropServices.GCHandle.Alloc({bridgeName});");
                         }
 
                         csWriter.WriteLines($"""
@@ -1261,7 +1261,7 @@ namespace BindingsGeneration
             // analysis (CS0161) does NOT honor [DoesNotReturn], so the catch needs a definite
             // terminator on value-returning callbacks; the trailing `throw;` provides one
             // (unreachable at runtime, type-agnostic for void and value-returning shapes).
-            csWriter.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+            csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
             csWriter.WriteLine($"private static unsafe {callbackReturnType} {baseName}_impl({callbackParams})");
             csWriter.WriteLine("{");
             csWriter.Indent++;
@@ -1443,7 +1443,7 @@ namespace BindingsGeneration
                         if (CdeclParamMapper.IsCdeclPrimitive(elements[i]))
                         {
                             // Primitive scalar: the C# value is byte-for-byte the slot, written by value.
-                            csWriter.WriteLine($"System.Runtime.CompilerServices.Unsafe.Write({slotExpr}, {itemAccess});");
+                            csWriter.WriteLine($"global::System.Runtime.CompilerServices.Unsafe.Write({slotExpr}, {itemAccess});");
                         }
                         else if (MarshallingHelpers.IsSwiftString(elements[i]))
                         {
@@ -1456,7 +1456,7 @@ namespace BindingsGeneration
                             // keep-alive the class slot relies on) so the SwiftString's SafeHandle cannot
                             // finalize and release the value mid-call, and the Swift wrapper's typed
                             // `.pointee` load retains it for the call's duration.
-                            csWriter.WriteLine($"System.Runtime.CompilerServices.Unsafe.Write({slotExpr}, System.Runtime.CompilerServices.Unsafe.Read<global::Swift.SwiftString.Buffer>((void*){itemAccess}.Payload.DangerousGetHandle()));");
+                            csWriter.WriteLine($"global::System.Runtime.CompilerServices.Unsafe.Write({slotExpr}, global::System.Runtime.CompilerServices.Unsafe.Read<global::Swift.SwiftString.Buffer>((void*){itemAccess}.Payload.DangerousGetHandle()));");
                         }
                         else if (_env.TupleHandler.IsCompositionExistentialElement(elements[i]))
                         {
@@ -1479,7 +1479,7 @@ namespace BindingsGeneration
                             // slot. The handle is borrowed (+0) — the owning ValueTuple is GC.KeepAlive'd
                             // past the native call (see EmitTupleParamKeepAlive) so the SafeHandle backing
                             // it cannot be finalized and release the Swift object mid-call.
-                            csWriter.WriteLine($"System.Runtime.CompilerServices.Unsafe.Write({slotExpr}, {itemAccess}.Payload.DangerousGetHandle());");
+                            csWriter.WriteLine($"global::System.Runtime.CompilerServices.Unsafe.Write({slotExpr}, {itemAccess}.Payload.DangerousGetHandle());");
                         }
                     }
                     csWriter.WriteLine($"var {csName}Ptr = (IntPtr){csName}Buf;");

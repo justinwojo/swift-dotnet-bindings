@@ -1330,7 +1330,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         if (MarshallingHelpers.IsBoolType(arg.SwiftTypeSpec))
                         {
                             publicParams.Add($"bool {csName}");
-                            pinvokeParams.Add($"[MarshalAs(UnmanagedType.U1)] bool {csName}");
+                            pinvokeParams.Add($"{MarshallingHelpers.BoolPInvokeParamAttribute} bool {csName}");
                         }
                         else
                         {
@@ -1374,7 +1374,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         publicParams.Add($"string {csName}");
                         pinvokeParams.Add($"IntPtr {csName}Utf8Ptr");
                         pinvokeParams.Add($"nint {csName}Utf8Len");
-                        preludeLocals.Add($"var __{bareName}Utf8 = System.Text.Encoding.UTF8.GetBytes({csName});");
+                        preludeLocals.Add($"var __{bareName}Utf8 = global::System.Text.Encoding.UTF8.GetBytes({csName});");
                         fixedStatements.Add($"fixed (byte* __{bareName}Ptr = __{bareName}Utf8)");
                         callArgs.Add($"(IntPtr)__{bareName}Ptr");
                         callArgs.Add($"(nint)__{bareName}Utf8.Length");
@@ -1413,8 +1413,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         pinvokeParams.Add($"nint {bareName}_w0");
                         pinvokeParams.Add($"nint {bareName}_w1");
                         preludeLocals.Add($"var {bareName}Swift = global::Swift.Foundation.Data.FromByteArray({csName});");
-                        preludeLocals.Add($"nint {bareName}_w0 = System.Runtime.CompilerServices.Unsafe.As<global::Swift.Foundation.Data, nint>(ref {bareName}Swift);");
-                        preludeLocals.Add($"nint {bareName}_w1 = System.Runtime.CompilerServices.Unsafe.Add(ref System.Runtime.CompilerServices.Unsafe.As<global::Swift.Foundation.Data, nint>(ref {bareName}Swift), 1);");
+                        preludeLocals.Add($"nint {bareName}_w0 = global::System.Runtime.CompilerServices.Unsafe.As<global::Swift.Foundation.Data, nint>(ref {bareName}Swift);");
+                        preludeLocals.Add($"nint {bareName}_w1 = global::System.Runtime.CompilerServices.Unsafe.Add(ref global::System.Runtime.CompilerServices.Unsafe.As<global::Swift.Foundation.Data, nint>(ref {bareName}Swift), 1);");
                         callArgs.Add($"{bareName}_w0");
                         callArgs.Add($"{bareName}_w1");
                         break;
@@ -1730,7 +1730,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             if (isStringReturn)
             {
                 // SBW_Utf8Slice is exactly 2 machine words
-                csWriter.WriteLine($"IntPtr {resultPtrName} = System.Runtime.InteropServices.Marshal.AllocHGlobal(nint.Size * 2);");
+                csWriter.WriteLine($"IntPtr {resultPtrName} = global::System.Runtime.InteropServices.Marshal.AllocHGlobal(nint.Size * 2);");
             }
             else if (needsResultPtrOwnershipTransfer)
             {
@@ -1740,12 +1740,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 // context; methods taking only handle/blittable args aren't marked unsafe,
                 // so wrap the alloc in a local unsafe block.
                 csWriter.WriteLine($"IntPtr {resultPtrName};");
-                csWriter.WriteLine($"unsafe {{ {resultPtrName} = (IntPtr)System.Runtime.InteropServices.NativeMemory.Alloc((nuint)SwiftMarshal.GetSwiftTypeSize<{csReturnMarshalType}>()); }}");
+                csWriter.WriteLine($"unsafe {{ {resultPtrName} = (IntPtr)global::System.Runtime.InteropServices.NativeMemory.Alloc((nuint)SwiftMarshal.GetSwiftTypeSize<{csReturnMarshalType}>()); }}");
             }
             else
             {
                 // Struct constructor or other alloc+free case.
-                csWriter.WriteLine($"IntPtr {resultPtrName} = System.Runtime.InteropServices.Marshal.AllocHGlobal(SwiftMarshal.GetSwiftTypeSize<{csReturnMarshalType}>());");
+                csWriter.WriteLine($"IntPtr {resultPtrName} = global::System.Runtime.InteropServices.Marshal.AllocHGlobal(SwiftMarshal.GetSwiftTypeSize<{csReturnMarshalType}>());");
             }
             if (!needsResultPtrOwnershipTransfer)
             {
@@ -1788,7 +1788,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         }
         else if (needsResultPtrOwnershipTransfer)
         {
-            errorCheck = $"if ({errorPtrName} != IntPtr.Zero) {{ unsafe {{ System.Runtime.InteropServices.NativeMemory.Free((void*){resultPtrName}); }} SwiftMarshal.ThrowSwiftError({errorPtrName}, SBW_GetErrorDescription({errorPtrName}), SBW_ReleaseError); }}";
+            errorCheck = $"if ({errorPtrName} != IntPtr.Zero) {{ unsafe {{ global::System.Runtime.InteropServices.NativeMemory.Free((void*){resultPtrName}); }} SwiftMarshal.ThrowSwiftError({errorPtrName}, SBW_GetErrorDescription({errorPtrName}), SBW_ReleaseError); }}";
         }
         else
         {
@@ -1919,7 +1919,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         {
             csWriter.Indent--;
             csWriter.WriteLine("}");
-            csWriter.WriteLine($"finally {{ System.Runtime.InteropServices.Marshal.FreeHGlobal({resultPtrName}); }}");
+            csWriter.WriteLine($"finally {{ global::System.Runtime.InteropServices.Marshal.FreeHGlobal({resultPtrName}); }}");
         }
 
         csWriter.Indent--;
@@ -2019,7 +2019,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
     private static readonly Dictionary<string, InlineSwiftStructInfo> InlineSwiftStructAllowlist = new(StringComparer.Ordinal)
     {
         ["Foundation.Data"] = new("global::Swift.Foundation.Data", IsISwiftObject: true, IdiomaticPublicType: "byte[]", MarshalToPublicSuffix: ".ToByteArray()"),
-        ["Foundation.UUID"] = new("System.Guid", IsISwiftObject: false)
+        ["Foundation.UUID"] = new("global::System.Guid", IsISwiftObject: false)
     };
 
     /// <summary>

@@ -171,7 +171,7 @@ public static class SwiftErrorMintEmitter
             EntryPoint = SymbolFor(moduleName),
             MethodName = SymbolFor(moduleName),
             ReturnType = "IntPtr",
-            ParametersString = "[MarshalAs(UnmanagedType.LPUTF8Str)] string message, [MarshalAs(UnmanagedType.LPUTF8Str)] string? managedTypeName",
+            ParametersString = "[global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.LPUTF8Str)] string message, [global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.LPUTF8Str)] string? managedTypeName",
             CallingConvention = PInvokeCallingConvention.Cdecl,
             Visibility = PInvokeVisibility.Internal,
             EmissionContext = ctx,

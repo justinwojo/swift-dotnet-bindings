@@ -15,7 +15,13 @@ namespace BindingsGeneration
         /// <param name="csWriter">The CSharpWriter instance.</param>
         internal void EmitFailableFactory(CSharpWriter csWriter)
         {
+            // Every use below is a TYPE reference (the `out` parameter, the metadata lookup,
+            // the construction expressions), so a generic parent must carry its parameter
+            // list — the bare leaf name has the wrong arity and binds to nothing (or, when a
+            // namespace shares the type's name, resolves to the namespace instead).
             var typeName = GetResolvedTypeName();
+            if (_env.ParentDecl is TypeDecl parentTypeDecl && parentTypeDecl.IsGeneric)
+                typeName += GenericTypeEmitter.GetGenericParameterList(parentTypeDecl);
 
             // Support both struct and class parents
             bool isFrozenValue = false;

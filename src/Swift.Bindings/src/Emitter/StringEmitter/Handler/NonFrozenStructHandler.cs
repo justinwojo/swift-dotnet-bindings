@@ -413,7 +413,7 @@ namespace BindingsGeneration
         {
             if (pinvokeHelperContext != null)
             {
-                csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
+                csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                 // Generic types: call the helper class metadata accessor with per-param
                 // metadata (and per-conformance witness tables for constrained generics).
                 // SwiftObjectHelper<GenericType<T>> in a static field initializer crashes
@@ -451,17 +451,17 @@ namespace BindingsGeneration
             else if (availabilityCondition != null)
             {
                 // OS-gated non-generic type: defer metadata resolution out of the static cctor (see param doc).
-                csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
+                csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                 csWriter.WriteLine("static nuint? _payloadSizeCache;");
-                csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
+                csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                 csWriter.WriteLine($"static nuint _payloadSize => (nuint)(_payloadSizeCache ??= SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata().Size);");
             }
             else
             {
-                csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
+                csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                 csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata().Size;");
             }
-            csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
+            csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
             csWriter.WriteLine($"SwiftSafeHandle<{typeNameWithGenerics}> _payload = SwiftSafeHandle<{typeNameWithGenerics}>.Zero;");
             csWriter.WriteLine();
         }
@@ -471,7 +471,7 @@ namespace BindingsGeneration
         /// </summary>
         private static void WritePayload(CSharpWriter csWriter, string typeNameWithGenerics)
         {
-            csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
+            csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
             csWriter.WriteLine($"public SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
             csWriter.WriteLine($"IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();");
             csWriter.WriteLine(FinalizerSeamEmitter.SuppressPayloadFinalizerLine("_payload"));

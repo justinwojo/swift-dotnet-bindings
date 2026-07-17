@@ -68,7 +68,7 @@ namespace BindingsGeneration
             // @_cdecl tuple: pass as IntPtr (pointer to buffer with elements at ABI offsets)
             MarshalledType.CdeclTuple => $"IntPtr {Name}",
             // Bool requires explicit [MarshalAs] with LibraryImport + DisableRuntimeMarshalling
-            MarshalledType.BoolType => $"[MarshalAs(UnmanagedType.U1)] {modifier} bool {Name}",
+            MarshalledType.BoolType => $"{MarshallingHelpers.BoolPInvokeParamAttribute} {modifier} bool {Name}",
             // All other types delegate to SignatureString
             _ => SignatureString()
         };

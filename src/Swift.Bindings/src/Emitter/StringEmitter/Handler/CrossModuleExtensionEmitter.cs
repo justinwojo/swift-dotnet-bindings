@@ -627,7 +627,7 @@ public static partial class CrossModuleExtensionEmitter
             var paramName = NameProvider.GetCSharpParameterName(arg);
             var pinvokeType = ResolvePInvokeParamType(arg.SwiftTypeSpec, paramCategory.Value, typeDatabase);
             if (arg.SwiftTypeSpec is NamedTypeSpec namedType && namedType.Name == "Swift.Bool")
-                pinvokeParams.Add($"[MarshalAs(UnmanagedType.U1)] bool {paramName}");
+                pinvokeParams.Add($"{MarshallingHelpers.BoolPInvokeParamAttribute} bool {paramName}");
             else
                 pinvokeParams.Add($"{pinvokeType} {paramName}");
         }
@@ -735,7 +735,7 @@ public static partial class CrossModuleExtensionEmitter
 
             var pinvokeType = ResolvePInvokeParamType(property.SwiftTypeSpec, ParamKind.Primitive, typeDatabase);
             if (property.SwiftTypeSpec is NamedTypeSpec namedType && namedType.Name == "Swift.Bool")
-                pinvokeParams.Add($"[MarshalAs(UnmanagedType.U1)] bool value");
+                pinvokeParams.Add($"{MarshallingHelpers.BoolPInvokeParamAttribute} bool value");
             else
                 pinvokeParams.Add($"{pinvokeType} value");
 

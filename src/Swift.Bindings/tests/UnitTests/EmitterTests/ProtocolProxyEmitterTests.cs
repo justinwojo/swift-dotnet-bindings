@@ -49,7 +49,7 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocolDecl);
 
         Assert.Contains("private struct TestProtocolSwiftVTable", output);
-        Assert.Contains("[StructLayout(LayoutKind.Sequential)]", output);
+        Assert.Contains("[global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]", output);
     }
 
     [Fact]
@@ -378,7 +378,7 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]", output);
+        Assert.Contains("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]", output);
         Assert.Contains("private static IntPtr Receive_value_get(", output);
     }
 
@@ -782,7 +782,7 @@ public class ProtocolProxyEmitterTests
         // Find the getter receiver function definition (not the vtable assignment).
         var receiverIdx = output.IndexOf("private static IntPtr Receive_flag_get(");
         Assert.True(receiverIdx >= 0, "Receive_flag_get function definition not found in output");
-        var receiverEnd = output.IndexOf("[UnmanagedCallersOnly", receiverIdx + 1);
+        var receiverEnd = output.IndexOf("[global::System.Runtime.InteropServices.UnmanagedCallersOnly", receiverIdx + 1);
         if (receiverEnd < 0) receiverEnd = output.Length;
         var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
 
@@ -825,7 +825,7 @@ public class ProtocolProxyEmitterTests
 
         var receiverIdx = output.IndexOf("private static IntPtr Receive_getMaybe_0(");
         Assert.True(receiverIdx >= 0, "Receive_getMaybe_0 function definition not found in output");
-        var receiverEnd = output.IndexOf("[UnmanagedCallersOnly", receiverIdx + 1);
+        var receiverEnd = output.IndexOf("[global::System.Runtime.InteropServices.UnmanagedCallersOnly", receiverIdx + 1);
         if (receiverEnd < 0) receiverEnd = output.Length;
         var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
 
@@ -850,7 +850,7 @@ public class ProtocolProxyEmitterTests
 
         var receiverIdx = output.IndexOf("private static void Receive_doWork_0(");
         Assert.True(receiverIdx >= 0, "Receive_doWork_0 function definition not found in output");
-        var receiverEnd = output.IndexOf("[UnmanagedCallersOnly", receiverIdx + 1);
+        var receiverEnd = output.IndexOf("[global::System.Runtime.InteropServices.UnmanagedCallersOnly", receiverIdx + 1);
         if (receiverEnd < 0) receiverEnd = output.Length;
         var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
 
@@ -900,7 +900,7 @@ public class ProtocolProxyEmitterTests
 
         var receiverIdx = output.IndexOf("private static IntPtr Receive_subscript_0_get(");
         Assert.True(receiverIdx >= 0, "Receive_subscript_0_get function definition not found in output");
-        var receiverEnd = output.IndexOf("[UnmanagedCallersOnly", receiverIdx + 1);
+        var receiverEnd = output.IndexOf("[global::System.Runtime.InteropServices.UnmanagedCallersOnly", receiverIdx + 1);
         if (receiverEnd < 0) receiverEnd = output.Length;
         var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
 
@@ -1049,7 +1049,7 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocolDecl);
 
         // P/Invoke should target the module library path (fallback when AsyncLibraryName is null)
-        Assert.Contains("[LibraryImport(\"/fake/path\"", output);
+        Assert.Contains("LibraryImport(\"/fake/path\"", output);
         Assert.Contains("EntryPoint = \"SetTestProtocol_vtable\"", output);
     }
 
@@ -1060,8 +1060,8 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("[LibraryImport(\"DocScanSwiftBindings\"", output);
-        Assert.DoesNotContain("[LibraryImport(\"SwiftBindings\"", output);
+        Assert.Contains("LibraryImport(\"DocScanSwiftBindings\"", output);
+        Assert.DoesNotContain("LibraryImport(\"SwiftBindings\"", output);
     }
 
     [Fact]
@@ -1071,8 +1071,8 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("[LibraryImport(\"/fake/path\"", output);
-        Assert.DoesNotContain("[LibraryImport(\"SwiftBindings\"", output);
+        Assert.Contains("LibraryImport(\"/fake/path\"", output);
+        Assert.DoesNotContain("LibraryImport(\"SwiftBindings\"", output);
     }
 
     #endregion

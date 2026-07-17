@@ -557,7 +557,7 @@ public static class StructsAndEnumsEmitter
             }
         }
 
-        sb.AppendLine("    [StructLayout(LayoutKind.Sequential)]");
+        sb.AppendLine("    [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]");
         sb.AppendLine($"    public struct {structDecl.Name}");
         sb.AppendLine("    {");
 
@@ -575,7 +575,7 @@ public static class StructsAndEnumsEmitter
             if (field.Type.FixedArraySize is > 0)
             {
                 var elementType = ObjCTypeMapper.MapType(new ObjCTypeRef { Name = field.Type.Name, IsPointer = field.Type.IsPointer }, typedefMap: typedefMap);
-                sb.AppendLine($"        [MarshalAs(UnmanagedType.ByValArray, SizeConst = {field.Type.FixedArraySize})]");
+                sb.AppendLine($"        [global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.ByValArray, SizeConst = {field.Type.FixedArraySize})]");
                 sb.AppendLine($"        public {elementType}[] {pascalName};");
             }
             else
@@ -719,7 +719,7 @@ public static class StructsAndEnumsEmitter
         }));
 
         ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, function.Availability, "        ");
-        sb.AppendLine($"        [DllImport(\"__Internal\")]");
+        sb.AppendLine($"        [global::System.Runtime.InteropServices.DllImport(\"__Internal\")]");
         sb.AppendLine($"        public static extern {returnType} {function.Name}({parameters});");
         sb.AppendLine();
     }

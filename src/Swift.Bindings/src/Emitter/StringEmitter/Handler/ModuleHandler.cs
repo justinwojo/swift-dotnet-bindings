@@ -478,7 +478,7 @@ namespace BindingsGeneration
             csWriter.WriteLines($$"""
                 internal static class __SwiftFrameworkResolver_{{moduleName}}
                 {
-                    [ModuleInitializer]
+                    [global::System.Runtime.CompilerServices.ModuleInitializer]
                     internal static void Initialize()
                     {
                         // Runtime-contract handshake (Finding 32): a single unconditional check
@@ -605,7 +605,7 @@ namespace BindingsGeneration
             foreach (var (typeName, metadataSymbol, wrapperLibName) in simpleEnumRegistrations)
             {
                 var safeName = typeName.Replace(".", "_");
-                csWriter.WriteLines($"    [System.Runtime.InteropServices.DllImport(\"{wrapperLibName}\", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = \"{metadataSymbol}\")]");
+                csWriter.WriteLines($"    [global::System.Runtime.InteropServices.DllImport(\"{wrapperLibName}\", CallingConvention = global::System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = \"{metadataSymbol}\")]");
                 csWriter.WriteLines($"    private static extern IntPtr __GetEnumMetadata_{safeName}();");
             }
             csWriter.WriteLines($$"""

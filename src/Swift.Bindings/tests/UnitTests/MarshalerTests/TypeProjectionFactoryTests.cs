@@ -32,7 +32,11 @@ public class TypeProjectionFactoryTests
         Assert.NotNull(projection);
         Assert.IsType<BoolProjection>(projection);
         Assert.Equal("bool", projection.PublicType);
-        Assert.Equal("[MarshalAs(UnmanagedType.U1)]", projection.PInvokeAttribute);
+        // Qualified: the attribute is emitted into `namespace <SwiftModule>`, where a bound
+        // library's own `MarshalAs`/`UnmanagedType` would otherwise capture it.
+        Assert.Equal(
+            "[global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.U1)]",
+            projection.PInvokeAttribute);
     }
 
     [Fact]

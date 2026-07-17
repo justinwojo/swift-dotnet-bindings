@@ -389,7 +389,7 @@ internal static class KeyPathSingletonEmitter
             // Pass null for the parent-annotation argument to disable dedup.
             AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
                 csWriter, mergedAvailability, parentAnnotations: null);
-            csWriter.WriteLine($"[System.Runtime.InteropServices.DllImport(\"{wrapperLibPath}\", EntryPoint = \"{symbol}\", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]");
+            csWriter.WriteLine($"[global::System.Runtime.InteropServices.DllImport(\"{wrapperLibPath}\", EntryPoint = \"{symbol}\", CallingConvention = global::System.Runtime.InteropServices.CallingConvention.Cdecl)]");
             csWriter.WriteLine($"private static extern IntPtr {pinvokeName}();");
             csWriter.WriteLine();
 

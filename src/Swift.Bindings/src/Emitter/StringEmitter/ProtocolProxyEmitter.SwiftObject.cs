@@ -306,12 +306,12 @@ public partial class ProtocolProxyEmitter
             /// </summary>
             private static unsafe IntPtr MarshalStringToUtf8Slice(string value)
             {
-                var utf8 = System.Text.Encoding.UTF8.GetBytes(value);
+                var utf8 = global::System.Text.Encoding.UTF8.GetBytes(value);
                 var dataPtr = (byte*)NativeMemory.Alloc((nuint)Math.Max(utf8.Length, 1));
                 if (utf8.Length > 0)
                 {
                     fixed (byte* src = utf8)
-                        System.Buffer.MemoryCopy(src, dataPtr, utf8.Length, utf8.Length);
+                        global::System.Buffer.MemoryCopy(src, dataPtr, utf8.Length, utf8.Length);
                 }
                 // SBW_Utf8Slice layout: { ptr: UnsafeMutablePointer<UInt8>, len: Int }
                 var slicePtr = (byte*)NativeMemory.Alloc((nuint)(2 * sizeof(nint)));

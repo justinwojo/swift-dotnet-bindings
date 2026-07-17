@@ -330,7 +330,7 @@ public class EnumHandlerOutputTests
         Assert.Contains("public static Direction Opposite(this Direction self)", csOutput);
         Assert.Contains("(Direction)PInvoke_Opposite((int)self)", csOutput);
         // Simple enum P/Invoke uses its own emission path (LibraryImport, not PInvokeEmitter)
-        Assert.Contains("[LibraryImport(", csOutput);
+        Assert.Contains("LibraryImport(", csOutput);
 
         // Swift wrapper should have tag-to-case conversion
         Assert.Contains("switch tag {", swiftOutput);
@@ -1551,7 +1551,7 @@ public class EnumHandlerOutputTests
         // Should be a C# enum with no wrapper P/Invokes
         Assert.Contains("public enum ErrorCode", csOutput);
         Assert.Contains("ToRawValue", csOutput);
-        Assert.DoesNotContain("[LibraryImport(", csOutput);
+        Assert.DoesNotContain("LibraryImport(", csOutput);
     }
 
     [Fact]
@@ -1570,8 +1570,8 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // The wrapper P/Invoke (InitWithRawValue) should use AsyncLibraryName
-        Assert.Contains("[LibraryImport(\"DocScanSwiftBindings\", EntryPoint = \"SBW_TestModule_ErrorCode_InitWithRawValue\"", csOutput);
-        Assert.DoesNotContain("[LibraryImport(\"SwiftBindings\"", csOutput);
+        Assert.Contains("LibraryImport(\"DocScanSwiftBindings\", EntryPoint = \"SBW_TestModule_ErrorCode_InitWithRawValue\"", csOutput);
+        Assert.DoesNotContain("LibraryImport(\"SwiftBindings\"", csOutput);
     }
 
     [Fact]
@@ -1614,8 +1614,8 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // Without AsyncLibraryName, wrapper P/Invoke falls back to module library path
-        Assert.Contains("[LibraryImport(\"/tmp/TestModule.dylib\", EntryPoint = \"SBW_TestModule_ErrorCode_InitWithRawValue\"", csOutput);
-        Assert.DoesNotContain("[LibraryImport(\"SwiftBindings\"", csOutput);
+        Assert.Contains("LibraryImport(\"/tmp/TestModule.dylib\", EntryPoint = \"SBW_TestModule_ErrorCode_InitWithRawValue\"", csOutput);
+        Assert.DoesNotContain("LibraryImport(\"SwiftBindings\"", csOutput);
     }
 
     private static TypeDatabase CreateTypeDatabaseWithString()
@@ -3193,7 +3193,7 @@ public class EnumHandlerOutputTests
         Assert.Contains("public enum Status : int", csOutput);
         Assert.Contains("GetPriority(this Status self)", csOutput);
         Assert.Contains("PInvoke_GetPriority((int)self)", csOutput);
-        Assert.Contains("[LibraryImport(", csOutput);
+        Assert.Contains("LibraryImport(", csOutput);
         Assert.Contains("EntryPoint =", csOutput);
         // Swift wrapper
         Assert.Contains("_sbw_Status_get_priority", swiftOutput);
@@ -3581,7 +3581,7 @@ public class EnumHandlerOutputTests
         // C# P/Invoke should use int for both tag and enum param
         Assert.Contains("int tag", csOutput);
         Assert.Contains("int other", csOutput);
-        Assert.Contains("[return: MarshalAs(UnmanagedType.U1)]", csOutput);
+        Assert.Contains(MarshallingHelpers.BoolPInvokeReturnAttribute, csOutput);
 
         // Swift wrapper param should be scalar (Int32), not Direction
         Assert.Contains("_ tag: Int32", swiftOutput);
@@ -3667,8 +3667,16 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        // Bool param in P/Invoke must have MarshalAs attribute
-        Assert.Contains("[MarshalAs(UnmanagedType.U1)]", csOutput);
+        // Bool param in P/Invoke must have MarshalAs attribute.
+        //
+        // Spelled out in full rather than compared against the emitter's own constant: the
+        // qualification is the assertion. Generated code lands inside `namespace <SwiftModule>`,
+        // so a bound library declaring a public `MarshalAs` or `UnmanagedType` would capture an
+        // unqualified reference here. Comparing against the constant would track any respelling
+        // of it, including one that drops the qualification.
+        Assert.Contains(
+            "[global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.U1)]",
+            csOutput);
     }
 
     [Fact]
@@ -4003,9 +4011,9 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // The case factory P/Invoke must use the wrapper library
-        Assert.Contains("[LibraryImport(\"TestModuleSwiftBindings\", EntryPoint = \"SBW_TestModule_Status_active_", csOutput);
+        Assert.Contains("LibraryImport(\"TestModuleSwiftBindings\", EntryPoint = \"SBW_TestModule_Status_active_", csOutput);
         // Must NOT use the original module library for SBW_ symbols
-        Assert.DoesNotContain("[LibraryImport(\"/tmp/TestModule.dylib\", EntryPoint = \"SBW_", csOutput);
+        Assert.DoesNotContain("LibraryImport(\"/tmp/TestModule.dylib\", EntryPoint = \"SBW_", csOutput);
     }
 
     [Fact]
@@ -4053,8 +4061,10 @@ public class EnumHandlerOutputTests
         // Must have try/catch fallback pattern
         Assert.Contains("try", csOutput);
         Assert.Contains("return PInvoke_getMetadata();", csOutput);
-        Assert.Contains("catch (System.DllNotFoundException)", csOutput);
-        Assert.Contains("catch (System.EntryPointNotFoundException)", csOutput);
+        // Pinned to the qualified spelling: this catch lands inside `namespace <SwiftModule>`,
+        // so a bare `System.` root would be captured by a Swift type projected as `System`.
+        Assert.Contains("catch (global::System.DllNotFoundException)", csOutput);
+        Assert.Contains("catch (global::System.EntryPointNotFoundException)", csOutput);
         Assert.Contains("return PInvoke_getMetadata_fallback();", csOutput);
 
         // Primary P/Invoke targets wrapper DLL with Cdecl calling convention

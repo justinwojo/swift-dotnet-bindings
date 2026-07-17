@@ -857,13 +857,34 @@ namespace BindingsGeneration
         /// resolution where the reflective fallback is trimmed.
         /// </para>
         /// </summary>
+        /// <summary>
+        /// True when <paramref name="line"/> is the <c>[ModuleInitializer]</c> attribute, in either the
+        /// bare or the namespace-qualified spelling. The generator emits it qualified — the generated
+        /// code shares a namespace with the bound module's own types, so a Swift type named
+        /// <c>ModuleInitializer</c> would otherwise capture the reference — but matching both keeps this
+        /// reconciler from silently reading nothing if that spelling is ever revisited.
+        /// </summary>
+        private static bool IsModuleInitializerAttributeLine(string line)
+        {
+            var trimmed = line.TrimStart();
+            if (!trimmed.StartsWith("[", StringComparison.Ordinal))
+                return false;
+
+            var inner = trimmed.Substring(1).TrimStart();
+            const string CompilerServicesPrefix = "global::System.Runtime.CompilerServices.";
+            if (inner.StartsWith(CompilerServicesPrefix, StringComparison.Ordinal))
+                inner = inner.Substring(CompilerServicesPrefix.Length);
+
+            return inner.StartsWith("ModuleInitializer]", StringComparison.Ordinal);
+        }
+
         private static void StripOrphanedModuleInitializerRegistrations(
             List<string> lines, HashSet<string> strippedPInvokeNames, HashSet<int> removals)
         {
             for (int i = 0; i < lines.Count; i++)
             {
                 if (removals.Contains(i)) continue;
-                if (!lines[i].TrimStart().StartsWith("[ModuleInitializer]", StringComparison.Ordinal))
+                if (!IsModuleInitializerAttributeLine(lines[i]))
                     continue;
 
                 // The opening brace sits a line or two below the attribute (past the method

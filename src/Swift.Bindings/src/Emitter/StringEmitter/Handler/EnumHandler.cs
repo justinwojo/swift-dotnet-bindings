@@ -194,7 +194,7 @@ namespace BindingsGeneration
                     AvailabilityHelpers.MergeAvailabilityFromAncestors(null, enumDecl));
                 if (ownPInvokeContext != null)
                 {
-                    csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
+                    csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                     // Generic enums: call the helper class metadata accessor directly with
                     // per-param metadata (and per-conformance witness tables for constrained
                     // generics). SwiftObjectHelper<GenericEnum<T>> in a static field
@@ -238,24 +238,24 @@ namespace BindingsGeneration
                     // metadata does not exist and the cctor aborts uncatchably on Mono. Defer the
                     // resolution to a lazily-computed property so a below-floor touch instead throws a
                     // catchable PlatformNotSupportedException through the member guard.
-                    csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
+                    csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                     csWriter.WriteLine("static nuint? _payloadSizeCache;");
-                    csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
+                    csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                     csWriter.WriteLine($"static nuint _payloadSize => (nuint)(_payloadSizeCache ??= SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata().Size);");
                 }
                 else
                 {
-                    csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
+                    csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                     csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata().Size;");
                 }
-                csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
+                csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                 csWriter.WriteLine($"SwiftSafeHandle<{typeNameWithGenerics}> _payload = SwiftSafeHandle<{typeNameWithGenerics}>.Zero;");
-                csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
+                csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                 csWriter.WriteLine($"public SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
                 csWriter.WriteLine($"IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();");
                 csWriter.WriteLine(FinalizerSeamEmitter.SuppressPayloadFinalizerLine("_payload"));
                 csWriter.WriteLine("#pragma warning disable CS0649");
-                csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
+                csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                 csWriter.WriteLine("internal bool _isCachedSingleton;");
                 csWriter.WriteLine("#pragma warning restore CS0649");
                 csWriter.WriteLine();
@@ -982,7 +982,7 @@ namespace BindingsGeneration
             _writer.WriteLines($$"""
             [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
             [global::System.Runtime.InteropServices.LibraryImport("{{_wrapperLibraryName}}", EntryPoint = "{{symbolName}}")]
-            [return: global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.U1)]
+            {{MarshallingHelpers.BoolPInvokeReturnAttribute}}
             private static partial bool PInvoke_eq(IntPtr lhs, IntPtr rhs);
             """);
             _writer.WriteLine();

@@ -857,7 +857,7 @@ public static partial class CrossModuleExtensionEmitter
     private static string BuildClosureTrampolinePInvokeParam(ClassTrampolineParamInfo p, ITypeDatabase typeDatabase) => p.Kind switch
     {
         ClassTrampolineParamKind.Primitive => p.TypeSpec is NamedTypeSpec n && n.Name == "Swift.Bool"
-            ? $"[MarshalAs(UnmanagedType.U1)] bool {p.Name}"
+            ? $"{MarshallingHelpers.BoolPInvokeParamAttribute} bool {p.Name}"
             : $"{ResolveCSharpTypeName(p.TypeSpec, typeDatabase)} {p.Name}",
         ClassTrampolineParamKind.ObjCClass => $"IntPtr {p.Name}",
         ClassTrampolineParamKind.SwiftClass => $"IntPtr {p.Name}",

@@ -693,7 +693,7 @@ internal class MethodMarshalPlanBuilder
                     // Frozen blittable structs (CGSize, CGPoint, CGRect): plain C# structs with
                     // no ISwiftObject implementation. Use Unsafe.SizeOf instead of TypeMetadata.
                     allocCode = $$"""
-                        _cdeclBuf = NativeMemory.Alloc((nuint)System.Runtime.CompilerServices.Unsafe.SizeOf<{{allocTypeName}}>());
+                        _cdeclBuf = NativeMemory.Alloc((nuint)global::System.Runtime.CompilerServices.Unsafe.SizeOf<{{allocTypeName}}>());
                         var {{_env.SyntheticLocals.ResultPtr}} = (IntPtr)_cdeclBuf;
                         """;
                 }
@@ -727,7 +727,7 @@ internal class MethodMarshalPlanBuilder
                             // to get the correct size for protocol compositions.
                             var containerTypeName = (innerProjection as ExistentialProjection)?.PInvokeType ?? "ExistentialContainer1";
                             allocCode = $$"""
-                                var _innerSize = (nuint)System.Runtime.CompilerServices.Unsafe.SizeOf<{{containerTypeName}}>();
+                                var _innerSize = (nuint)global::System.Runtime.CompilerServices.Unsafe.SizeOf<{{containerTypeName}}>();
                                 var _bufSize = Math.Max(_innerSize + 1, 16);
                                 _cdeclBuf = NativeMemory.AllocZeroed(_bufSize);
                                 var {{_env.SyntheticLocals.ResultPtr}} = (IntPtr)_cdeclBuf;

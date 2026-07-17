@@ -121,7 +121,7 @@ public static partial class ClosureEmitter
             // callback.
             var noopReturn = returnType == "void" ? "" : "\n    return default;";
             csWriter.WriteLines($$"""
-                [UnmanagedCallersOnly(CallConvs = new[] { {{suppressedCallConv}} })]
+                [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { {{suppressedCallConv}} })]
                 private static unsafe {{returnType}} {{callbackName}}({{parametersString}})
                 {
                     try
@@ -199,7 +199,7 @@ public static partial class ClosureEmitter
         // unreachable at runtime (FailFast already aborted) and type-agnostic, so it works for
         // both void and value-returning callbacks.
         csWriter.WriteLines($$"""
-            [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
+            [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
             private static unsafe {{returnType}} {{callbackName}}({{parametersString}})
             {
                 try

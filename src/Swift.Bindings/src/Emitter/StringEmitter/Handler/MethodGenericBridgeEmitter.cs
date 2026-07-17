@@ -660,7 +660,7 @@ public static class MethodGenericBridgeEmitter
                 {
                     case MethodClosureBridge.ParamAbiCategory.Primitive:
                         if (MarshallingHelpers.IsBoolType(arg.SwiftTypeSpec))
-                            pinvokeParams.Add($"[MarshalAs(UnmanagedType.U1)] bool {csName}");
+                            pinvokeParams.Add($"{MarshallingHelpers.BoolPInvokeParamAttribute} bool {csName}");
                         else
                             pinvokeParams.Add($"{MethodClosureBridge.GetPInvokePrimitiveType(arg.SwiftTypeSpec)} {csName}");
                         break;
@@ -920,7 +920,7 @@ public static class MethodGenericBridgeEmitter
         // fixed-block stack opens so the `fixed (... = __{bareName}Utf8)` source binding
         // resolves. Mirrors MethodClosureBridge.cs ~1283-1292 verbatim.
         foreach (var (csName, bareName) in utf8SliceLocals)
-            csWriter.WriteLine($"var __{bareName}Utf8 = System.Text.Encoding.UTF8.GetBytes({csName});");
+            csWriter.WriteLine($"var __{bareName}Utf8 = global::System.Text.Encoding.UTF8.GetBytes({csName});");
 
         // Open fixed blocks pinning each UTF-8 byte[] so the P/Invoke + Swift @_silgen_name
         // wrapper sees a stable byte pointer for the entire call duration.

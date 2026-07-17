@@ -76,7 +76,7 @@ public static partial class ClosureEmitter
                 ? "typeof(global::System.Runtime.CompilerServices.CallConvCdecl)"
                 : "typeof(global::System.Runtime.CompilerServices.CallConvSwift)";
             csWriter.WriteLines($$"""
-                [UnmanagedCallersOnly(CallConvs = new[] { {{suppressedCallConv}} })]
+                [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { {{suppressedCallConv}} })]
                 private static unsafe void {{callbackName}}({{parametersString}})
                 {
                     // Protocol proxy unavailable — a required existential argument's proxy class was
@@ -220,7 +220,7 @@ public static partial class ClosureEmitter
         // the process. Wrap the body so any unhandled exception becomes a controlled FailFast
         // BEFORE Swift touches the buffer.
         csWriter.WriteLines($$"""
-            [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
+            [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
             private static unsafe void {{callbackName}}({{parametersString}})
             {
                 try

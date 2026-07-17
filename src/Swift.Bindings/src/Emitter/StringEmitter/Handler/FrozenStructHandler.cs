@@ -173,10 +173,10 @@ namespace BindingsGeneration
                     csWriter.Indent++;
 
                     // Payload used for reference counting
-                    csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
+                    csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                     csWriter.WriteLine($"private SwiftSafeHandle<{typeNameWithGenerics}> _payload = SwiftSafeHandle<{typeNameWithGenerics}>.Zero;");
                     csWriter.WriteLine();
-                    csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
+                    csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                     csWriter.WriteLine($"public SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
                     csWriter.WriteLine($"IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();");
                     csWriter.WriteLine(FinalizerSeamEmitter.SuppressPayloadFinalizerLine("_payload"));
@@ -207,7 +207,7 @@ namespace BindingsGeneration
                     unsafe
                     {
                         // Apply struct layout attributes
-                        csWriter.WriteLine($"[StructLayout(LayoutKind.Sequential, Size = {swiftTypeInfo.Value.ValueWitnessTable->Size})]");
+                        csWriter.WriteLine($"[global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential, Size = {swiftTypeInfo.Value.ValueWitnessTable->Size})]");
                     }
                 }
                 if (isProjectedAsClass)

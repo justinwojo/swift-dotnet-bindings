@@ -304,7 +304,6 @@ public static class ErrorDescriptionEmitter
                 ParametersString = "IntPtr error",
                 CallingConvention = PInvokeCallingConvention.Cdecl,
                 Visibility = PInvokeVisibility.Private,
-                UseFullyQualifiedNames = true,
             });
             csWriter.WriteLine();
             PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
@@ -316,7 +315,6 @@ public static class ErrorDescriptionEmitter
                 ParametersString = "IntPtr error",
                 CallingConvention = PInvokeCallingConvention.Cdecl,
                 Visibility = PInvokeVisibility.Private,
-                UseFullyQualifiedNames = true,
             });
             csWriter.WriteLine();
 
@@ -333,7 +331,6 @@ public static class ErrorDescriptionEmitter
                     ParametersString = "IntPtr ptr",
                     CallingConvention = PInvokeCallingConvention.Cdecl,
                     Visibility = PInvokeVisibility.Private,
-                    UseFullyQualifiedNames = true,
                 });
                 csWriter.WriteLine();
             }
@@ -381,7 +378,6 @@ public static class ErrorDescriptionEmitter
                 ParametersString = "IntPtr error",
                 CallingConvention = PInvokeCallingConvention.Cdecl,
                 Visibility = PInvokeVisibility.Private,
-                UseFullyQualifiedNames = true,
             });
             csWriter.WriteLine();
         }

@@ -1004,7 +1004,7 @@ public static class MethodClosureBridge
         if (!closureReturnIsVoid)
             returnType = "byte"; // Only Bool return supported for now
 
-        csWriter.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         csWriter.WriteLine($"private static unsafe {returnType} {callbackBaseName}({string.Join(", ", paramParts)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
@@ -1115,7 +1115,7 @@ public static class MethodClosureBridge
                     break;
                 case ParamAbiCategory.Primitive:
                     if (MarshallingHelpers.IsBoolType(arg.SwiftTypeSpec))
-                        pinvokeParams.Add($"[MarshalAs(UnmanagedType.U1)] bool {csName}");
+                        pinvokeParams.Add($"{MarshallingHelpers.BoolPInvokeParamAttribute} bool {csName}");
                     else
                         pinvokeParams.Add($"{GetPInvokePrimitiveType(arg.SwiftTypeSpec)} {csName}");
                     break;
@@ -1398,7 +1398,7 @@ public static class MethodClosureBridge
             if (category != ParamAbiCategory.Utf8Slice) continue;
             var bareName = NameProvider.StripVerbatimPrefix(csName);
             utf8SliceLocals.Add((csName, bareName));
-            csWriter.WriteLine($"var __{bareName}Utf8 = System.Text.Encoding.UTF8.GetBytes({csName});");
+            csWriter.WriteLine($"var __{bareName}Utf8 = global::System.Text.Encoding.UTF8.GetBytes({csName});");
         }
 
         // Build P/Invoke call arguments

@@ -129,12 +129,14 @@ public class AppleTypesCsEmitterTests
             "$s10Foundation6LocaleV8LanguageVMa");
         var (_, _, contents) = Emit(entry, "Foundation");
 
-        Assert.Contains("[UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]", contents);
+        Assert.Contains(
+            "[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = [typeof(global::System.Runtime.CompilerServices.CallConvSwift)])]",
+            contents);
         // Bare library name (no `.framework/` substring) so the macios linker doesn't
         // force-add `-framework Foundation`. SwiftFrameworkResolver maps it to a system
         // framework path at runtime via per-assembly DllImportResolver.
         Assert.Contains(
-            "[DllImport(\"Foundation\", EntryPoint = \"$s10Foundation6LocaleV8LanguageVMa\")]",
+            "[global::System.Runtime.InteropServices.DllImport(\"Foundation\", EntryPoint = \"$s10Foundation6LocaleV8LanguageVMa\")]",
             contents);
         Assert.DoesNotContain("/System/Library/Frameworks/Foundation.framework/Foundation", contents);
         Assert.Contains("private static extern TypeMetadata PInvoke_GetMetadata();", contents);
@@ -203,7 +205,9 @@ public class AppleTypesCsEmitterTests
             "$sSome");
         var (_, _, contents) = Emit(entry, "Swift");
 
-        Assert.Contains("[DllImport(\"/usr/lib/swift/libswiftCore.dylib\"", contents);
+        Assert.Contains(
+            "[global::System.Runtime.InteropServices.DllImport(\"/usr/lib/swift/libswiftCore.dylib\"",
+            contents);
     }
 
     [Fact]
@@ -260,7 +264,10 @@ public class AppleTypesCsEmitterTests
         Assert.Contains("sequential-layout-whitelist.json", refused.Reason);
         // VWT-opaque fallback must be the emitted shape.
         Assert.Contains("ISwiftObject", contents);
-        Assert.DoesNotContain("[StructLayout(LayoutKind.Sequential", contents);
+        // Matched without the namespace qualification the emitter actually writes: for a negative
+        // assertion the looser string is the stronger one, since it also fails a sequential layout
+        // emitted under any other spelling.
+        Assert.DoesNotContain("LayoutKind.Sequential", contents);
     }
 
     [Fact]
@@ -475,7 +482,7 @@ public class AppleTypesCsEmitterTests
         var registrationContents = File.ReadAllText(registrationPath);
         Directory.Delete(dir, recursive: true);
 
-        Assert.Contains("[ModuleInitializer]", registrationContents);
+        Assert.Contains("[global::System.Runtime.CompilerServices.ModuleInitializer]", registrationContents);
         Assert.Contains("SwiftFrameworkResolver.RegisterForAssembly", registrationContents);
     }
 
@@ -500,7 +507,7 @@ public class AppleTypesCsEmitterTests
         };
         var (_, _, contents) = Emit(entry, "Foundation", whitelist);
 
-        Assert.Contains("[StructLayout(LayoutKind.Sequential, Size = 16, Pack = 8)]", contents);
+        Assert.Contains("[global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential, Size = 16, Pack = 8)]", contents);
         Assert.Contains("public partial struct SomeStruct", contents);
         Assert.DoesNotContain("ISwiftObject", contents);
     }

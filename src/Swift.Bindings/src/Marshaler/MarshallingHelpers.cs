@@ -784,6 +784,16 @@ namespace BindingsGeneration
         public static bool IsBoolType(string type) => type == "bool";
 
         /// <summary>
+        /// The <c>[MarshalAs]</c> attribute for a bool P/Invoke parameter. Fully qualified because the
+        /// emitted code lands inside `namespace &lt;SwiftModule&gt;`, where a public Swift type projected
+        /// as `MarshalAs` or `UnmanagedType` would otherwise capture the reference.
+        /// </summary>
+        public const string BoolPInvokeParamAttribute = "[global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.U1)]";
+
+        /// <summary>The <c>[return:]</c> form of <see cref="BoolPInvokeParamAttribute"/>.</summary>
+        public const string BoolPInvokeReturnAttribute = "[return: global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.U1)]";
+
+        /// <summary>
         /// Checks if a Swift type spec represents Bool, which requires conversion in callbacks.
         /// </summary>
         public static bool IsBoolType(TypeSpec typeSpec)

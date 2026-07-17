@@ -180,7 +180,7 @@ public static partial class ClosureEmitter
             /// completion — resumes the Swift continuation box exactly once via __resumeGuard,
             /// never silently (Finding 37).
             /// </summary>
-            [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
+            [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
             private static unsafe void {{callbackName}}(
                 {{paramList}}
             {

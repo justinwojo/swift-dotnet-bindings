@@ -341,6 +341,11 @@ public static class TypeDatabaseExtensions
         MetadataAccessor = string.Empty,
         Flags = TypeRecordFlags.Frozen,
         Kind = TypeRecordKind.Protocol,
+        // Unlike the compile-time marker protocols, the stdlib error protocol has a real
+        // protocol descriptor and a real witness table. It has no projected C# interface
+        // (it maps to a runtime struct), so a generic constrained on it resolves its witness
+        // table dynamically from this descriptor symbol instead of a static interface.
+        ProtocolDescriptorSymbol = "$ss5ErrorMp",
     };
 
     /// <summary>

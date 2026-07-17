@@ -238,7 +238,12 @@ namespace BindingsGeneration
             // This handles type references like Foo.SomeType in parameter types, return types,
             // generic arguments, typeof(), casts, etc.
             var escapedNs = Regex.Escape(@namespace);
-            var pattern = $@"(?<!global::)(?<!namespace )(?<![.\w]){escapedNs}\.(?=[A-Z])";
+            // The lookahead admits an underscore start as well as an uppercase one: projected
+            // companion types keep a leading-underscore prefix (e.g. an ObjC-projected peer),
+            // and those references need the same qualification as PascalCase ones. It stays
+            // deliberately narrow — a lowercase start would also match a genuine static-member
+            // access on the colliding class (Namespace.someMember), which must NOT be rewritten.
+            var pattern = $@"(?<!global::)(?<!namespace )(?<![.\w]){escapedNs}\.(?=[A-Z_])";
             return Regex.Replace(csOutput, pattern, match =>
             {
                 // Check if the following identifier is a nested type of the collision class.

@@ -2618,13 +2618,24 @@ namespace BindingsGeneration.Tests
     // collateral damage. The reconciler must drop only the offending single-line statement.
     public class ReconcilerModuleInitializerTests
     {
-        private const string ResolverWithStrippedEnumMetadata =
+        // The attribute spelling is an input-only variation: the generator emits the qualified form
+        // (generated code shares a namespace with the bound module's types, so a Swift type named
+        // `ModuleInitializer` would otherwise capture the reference), and the reconciler must locate
+        // the aggregator either way. Anchoring these fixtures on one spelling would let a reconciler
+        // that silently matches nothing still pass every assertion below — the whole method would be
+        // left untouched, which most of these tests read as success.
+        public const string QualifiedAttribute = "[global::System.Runtime.CompilerServices.ModuleInitializer]";
+        public const string BareAttribute = "[ModuleInitializer]";
+
+        public static TheoryData<string> AttributeSpellings => new() { QualifiedAttribute, BareAttribute };
+
+        private static string ResolverWithStrippedEnumMetadata(string attribute) =>
             "namespace MyLib {\n" +
             "    #pragma warning disable CA2255\n" +
             "    #pragma warning disable CA1416\n" +
             "    internal static class __SwiftFrameworkResolver_MyLib\n" +
             "    {\n" +
-            "        [ModuleInitializer]\n" +
+            "        " + attribute + "\n" +
             "        internal static void Initialize()\n" +
             "        {\n" +
             "            global::Swift.Runtime.RuntimeContract.AssertCompatible(0);\n" +
@@ -2643,12 +2654,13 @@ namespace BindingsGeneration.Tests
             "    #pragma warning restore CA2255\n" +
             "}\n";
 
-        [Fact]
-        public void Process_StrippedEnumMetadata_PreservesInitializerAndSiblingRegistrations()
+        [Theory]
+        [MemberData(nameof(AttributeSpellings))]
+        public void Process_StrippedEnumMetadata_PreservesInitializerAndSiblingRegistrations(string attribute)
         {
             // Only Block.Error's metadata accessor is stripped.
             var stripped = new HashSet<string> { "SBW_GetMetadata_MyLib_Block_Error_BBBB" };
-            var result = StrippedSymbolCSharpReconciler.Process(ResolverWithStrippedEnumMetadata, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(ResolverWithStrippedEnumMetadata(attribute), stripped);
 
             // The initializer method and its unrelated best-effort registrations survive in full.
             Assert.Contains("internal static void Initialize()", result.Content);
@@ -2659,11 +2671,12 @@ namespace BindingsGeneration.Tests
             Assert.Contains("__GetEnumMetadata_Cipher_Mode()", result.Content);
         }
 
-        [Fact]
-        public void Process_StrippedEnumMetadata_RemovesOnlyOffendingRegistrationAndExtern()
+        [Theory]
+        [MemberData(nameof(AttributeSpellings))]
+        public void Process_StrippedEnumMetadata_RemovesOnlyOffendingRegistrationAndExtern(string attribute)
         {
             var stripped = new HashSet<string> { "SBW_GetMetadata_MyLib_Block_Error_BBBB" };
-            var result = StrippedSymbolCSharpReconciler.Process(ResolverWithStrippedEnumMetadata, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(ResolverWithStrippedEnumMetadata(attribute), stripped);
 
             // The stripped accessor's registration line, its extern, and the dead symbol all vanish,
             // with no dangling reference left behind to fail the C# compile.
@@ -2672,15 +2685,35 @@ namespace BindingsGeneration.Tests
             Assert.DoesNotContain("typeof(Block.Error)", result.Content);
         }
 
-        [Fact]
-        public void Process_NoStrippedSymbolInInitializer_LeavesResolverUnchanged()
+        [Theory]
+        [MemberData(nameof(AttributeSpellings))]
+        public void Process_NoStrippedSymbolInInitializer_LeavesResolverUnchanged(string attribute)
         {
             // A symbol stripped elsewhere that the initializer never references must not perturb it.
             var stripped = new HashSet<string> { "SBW_unrelated_method_CCCC" };
-            var result = StrippedSymbolCSharpReconciler.Process(ResolverWithStrippedEnumMetadata, stripped);
+            var result = StrippedSymbolCSharpReconciler.Process(ResolverWithStrippedEnumMetadata(attribute), stripped);
             Assert.False(result.ContentChanged);
             Assert.Contains("__GetEnumMetadata_Block_Error()", result.Content);
             Assert.Contains("__GetEnumMetadata_Cipher_Mode()", result.Content);
+        }
+
+        /// <summary>
+        /// The aggregator-protection tests above all assert on what SURVIVES, so a reconciler that
+        /// failed to recognize the attribute at all — and therefore stripped nothing — would pass
+        /// every one of them. This asserts the qualified spelling the generator actually emits is
+        /// positively located: the offending registration is removed, which can only happen if the
+        /// walk found the initializer.
+        /// </summary>
+        [Fact]
+        public void Process_QualifiedAttributeSpelling_IsRecognizedAndReconciled()
+        {
+            var stripped = new HashSet<string> { "SBW_GetMetadata_MyLib_Block_Error_BBBB" };
+            var result = StrippedSymbolCSharpReconciler.Process(
+                ResolverWithStrippedEnumMetadata(QualifiedAttribute), stripped);
+
+            Assert.True(result.ContentChanged);
+            Assert.DoesNotContain("typeof(Block.Error)", result.Content);
+            Assert.Contains("internal static void Initialize()", result.Content);
         }
     }
 

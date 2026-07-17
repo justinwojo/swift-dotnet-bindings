@@ -300,7 +300,7 @@ public class ThirdPartyValidationFixTests
         // Both helper classes appear at the same level
         Assert.Contains("internal static unsafe partial class Outer_PInvoke", output);
         Assert.Contains("internal static unsafe partial class Outer_Inner_PInvoke", output);
-        Assert.Contains("[LibraryImport", output);
+        Assert.Contains("LibraryImport", output);
 
         // Outer appears before Inner
         var outerIdx = output.IndexOf("Outer_PInvoke", StringComparison.Ordinal);

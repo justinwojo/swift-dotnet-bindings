@@ -613,7 +613,10 @@ public class ThemeBridgeEmitterTests : IDisposable
 
         var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
 
-        Assert.Contains("[LibraryImport(\"TestModuleSwiftBindings\"", content);
+        // Pinned to the qualified spelling the emitter actually writes. A bare `LibraryImport(`
+        // substring would match either spelling, so it would keep passing if qualification were
+        // dropped here — this is the emitter-output assertion that holds the convention.
+        Assert.Contains("[global::System.Runtime.InteropServices.LibraryImport(\"TestModuleSwiftBindings\"", content);
         Assert.Contains("ThemeBridgeNativeMethods", content);
         Assert.Contains("EntryPoint = \"SBW_MyTheme_set_alertColor\"", content);
         Assert.Contains("double r, double g, double b, double a", content);
@@ -639,12 +642,14 @@ public class ThemeBridgeEmitterTests : IDisposable
 
         var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
 
-        Assert.Contains("[LibraryImport(", content);
+        Assert.Contains("LibraryImport(", content);
         Assert.Contains("static partial void", content);
-        Assert.Contains("[UnmanagedCallConv(CallConvs = new Type[]", content);
-        Assert.Contains("typeof(CallConvCdecl)", content);
-        // Must NOT use DllImport
-        Assert.DoesNotContain("[DllImport(", content);
+        Assert.Contains("UnmanagedCallConv(CallConvs = new global::System.Type[]", content);
+        Assert.Contains("typeof(global::System.Runtime.CompilerServices.CallConvCdecl)", content);
+        // Must NOT use DllImport. Matched without the leading bracket or any namespace
+        // qualification: for a negative assertion the looser string is the stronger one,
+        // since it also catches a DllImport emitted under a qualified spelling.
+        Assert.DoesNotContain("DllImport(", content);
     }
 
     // Theme P/Invokes target Swift @_cdecl symbols that only exist on UIKit-family
@@ -671,10 +676,10 @@ public class ThemeBridgeEmitterTests : IDisposable
         Assert.Contains("#endif // __IOS__ || __TVOS__ || __MACCATALYST__", content);
         // The P/Invoke must sit inside the gate, not before the `#if`.
         var ifIdx = content.IndexOf("#if __IOS__ || __TVOS__ || __MACCATALYST__", StringComparison.Ordinal);
-        var pinvokeIdx = content.IndexOf("[LibraryImport(", StringComparison.Ordinal);
+        var pinvokeIdx = content.IndexOf("LibraryImport(", StringComparison.Ordinal);
         var endIdx = content.LastIndexOf("#endif // __IOS__ || __TVOS__ || __MACCATALYST__", StringComparison.Ordinal);
         Assert.True(ifIdx >= 0 && pinvokeIdx > ifIdx && endIdx > pinvokeIdx,
-            "[LibraryImport(...)] must sit between the TFM #if and the matching #endif");
+            "LibraryImport(...) must sit between the TFM #if and the matching #endif");
     }
 
     [Fact]
@@ -1378,7 +1383,7 @@ public class ThemeBridgeEmitterTests : IDisposable
 
         Assert.Contains("EntryPoint = \"SBW_MyTheme_get_alertColor\"", content);
         Assert.Contains("double* r, double* g, double* b, double* a", content);
-        Assert.Contains("[LibraryImport(", content);
+        Assert.Contains("LibraryImport(", content);
     }
 
     [Fact]

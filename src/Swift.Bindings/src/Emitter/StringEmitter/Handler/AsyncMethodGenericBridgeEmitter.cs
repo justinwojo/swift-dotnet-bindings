@@ -778,7 +778,7 @@ public static class AsyncMethodGenericBridgeEmitter
         // ── Success callback delegate field + body ──
         var callbackPtrType = $"delegate* unmanaged[Cdecl]<{callbackParamSig}, void>";
         csWriter.WriteLine($"private static unsafe {callbackPtrType} {callbackFieldName} = &{callbackMethodName};");
-        csWriter.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         csWriter.WriteLine($"private static unsafe void {callbackMethodName}({callbackParamList})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
@@ -792,7 +792,7 @@ public static class AsyncMethodGenericBridgeEmitter
         {
             csWriter.WriteLine("private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, int, long, int, void> "
                 + $"{errorCallbackFieldName} = &{errorCallbackMethodName};");
-            csWriter.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+            csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
             csWriter.WriteLine($"private static unsafe void {errorCallbackMethodName}(IntPtr errorPtr, nint errorSize, IntPtr errorMessagePtr, int isCancellation, long task, int errorTypeId)");
             csWriter.WriteLine("{");
             csWriter.Indent++;
@@ -816,7 +816,7 @@ public static class AsyncMethodGenericBridgeEmitter
                     var rawType = MethodClosureBridge.GetPInvokePrimitiveType(returnTypeSpec);
                     var publicType = ResolveCSharpPublicType(returnTypeSpec, env) ?? rawType;
                     var pInvokeRaw = MarshallingHelpers.IsBoolType(returnTypeSpec)
-                        ? "[MarshalAs(UnmanagedType.U1)] bool rawResult, "
+                        ? $"{MarshallingHelpers.BoolPInvokeParamAttribute} bool rawResult, "
                         : $"{rawType} rawResult, ";
                     return (publicType, $"{rawType}, long", pInvokeRaw + "long task");
                 }
@@ -1107,7 +1107,7 @@ public static class AsyncMethodGenericBridgeEmitter
             {
                 case MethodClosureBridge.ParamAbiCategory.Primitive:
                     if (MarshallingHelpers.IsBoolType(arg.SwiftTypeSpec))
-                        pinvokeParams.Add($"[MarshalAs(UnmanagedType.U1)] bool {csName}");
+                        pinvokeParams.Add($"{MarshallingHelpers.BoolPInvokeParamAttribute} bool {csName}");
                     else
                         pinvokeParams.Add($"{MethodClosureBridge.GetPInvokePrimitiveType(arg.SwiftTypeSpec)} {csName}");
                     break;
@@ -1431,7 +1431,7 @@ public static class AsyncMethodGenericBridgeEmitter
 
         // Prelude byte[] allocations precede the fixed-block stack (mirrors MGBE/CPSE).
         foreach (var (csName, bareName) in utf8SliceLocals)
-            csWriter.WriteLine($"var __{bareName}Utf8 = System.Text.Encoding.UTF8.GetBytes({csName});");
+            csWriter.WriteLine($"var __{bareName}Utf8 = global::System.Text.Encoding.UTF8.GetBytes({csName});");
 
         foreach (var (_, bareName) in utf8SliceLocals)
         {

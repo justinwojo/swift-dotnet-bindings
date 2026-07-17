@@ -4,6 +4,9 @@
 using System.Diagnostics.CodeAnalysis;
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
+// The test library exports a public `Type` on purpose, to prove the generator qualifies the
+// BCL names it emits. That makes a bare `Type` ambiguous here, where the reflection type is meant.
+using Type = System.Type;
 
 namespace RuntimeTestsApp.Collisions;
 

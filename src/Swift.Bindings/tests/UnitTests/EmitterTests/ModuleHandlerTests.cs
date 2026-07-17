@@ -1883,7 +1883,7 @@ public class ModuleHandlerTests
     {
         var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>());
 
-        Assert.Contains("[ModuleInitializer]", csOutput);
+        Assert.Contains("[global::System.Runtime.CompilerServices.ModuleInitializer]", csOutput);
     }
 
     [Fact]
@@ -2610,6 +2610,47 @@ public class ModuleHandlerTests
         // Renamed nested type should NOT get global:: qualification
         Assert.Contains("NetworkMonitor.ConnectionKind", result);
         Assert.DoesNotContain("global::NetworkMonitor.ConnectionKind", result);
+    }
+
+    [Fact]
+    public void QualifyNamespaceReferences_UnderscorePrefixedType_GetsGlobalQualified()
+    {
+        // A module declaring a class with the module's own name turns every unqualified
+        // `Module.Type` reference into a nested-type lookup on that class, which fails.
+        // Projected companion types keep a leading-underscore prefix, so they need the same
+        // qualification as PascalCase ones — the type is a namespace member either way.
+        var input = "public static void Register(SwiftyRSA._objc_ClearMessage message)";
+
+        var result = StringEmitter.QualifyNamespaceReferences(input, "SwiftyRSA", new HashSet<string>());
+
+        Assert.Contains("global::SwiftyRSA._objc_ClearMessage", result);
+    }
+
+    [Fact]
+    public void QualifyNamespaceReferences_StaticMemberAccess_NotQualified()
+    {
+        // The counterpart to the underscore case: a lowercase start marks a member access on
+        // the colliding class rather than a namespace member, so rewriting it would retarget
+        // a real static call at the namespace and break it.
+        var input = "var value = SwiftyRSA.sharedInstance;";
+
+        var result = StringEmitter.QualifyNamespaceReferences(input, "SwiftyRSA", new HashSet<string>());
+
+        Assert.DoesNotContain("global::SwiftyRSA.sharedInstance", result);
+        Assert.Contains("SwiftyRSA.sharedInstance", result);
+    }
+
+    [Fact]
+    public void QualifyNamespaceReferences_AlreadyQualifiedReference_NotDoubleQualified()
+    {
+        // The pass runs over output that already contains qualified references; re-qualifying
+        // one would produce `global::global::`, which does not parse.
+        var input = "public static void Use(global::SwiftyRSA.PublicKey key)";
+
+        var result = StringEmitter.QualifyNamespaceReferences(input, "SwiftyRSA", new HashSet<string>());
+
+        Assert.DoesNotContain("global::global::", result);
+        Assert.Contains("global::SwiftyRSA.PublicKey", result);
     }
 
     #endregion

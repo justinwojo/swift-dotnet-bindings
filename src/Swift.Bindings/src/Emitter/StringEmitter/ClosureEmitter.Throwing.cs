@@ -90,7 +90,7 @@ public static partial class ClosureEmitter
             // rather than unwinding into native Swift). Return is at the try/catch-body depth.
             var noopReturn = returnType == "void" ? "" : "\n        return default;";
             csWriter.WriteLines($$"""
-                [UnmanagedCallersOnly(CallConvs = new[] { {{suppressedCallConv}} })]
+                [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { {{suppressedCallConv}} })]
                 private static unsafe {{returnType}} {{callbackName}}({{parametersString}})
                 {
                     try
@@ -161,7 +161,7 @@ public static partial class ClosureEmitter
         // Swift adapter rethrows it on the Swift side. The cooperative IsFailure path is
         // unchanged.
         csWriter.WriteLines($$"""
-            [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
+            [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
             private static unsafe {{returnType}} {{callbackName}}({{parametersString}})
             {
                 var del = {{extractCall}};

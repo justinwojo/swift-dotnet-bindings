@@ -132,8 +132,8 @@ namespace BindingsGeneration
                     csWriter.WriteLine();
 
                     // P/Invoke for the Swift wrapper (not the original init)
-                    csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]");
-                    csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{wrapperSymbol}\")]");
+                    csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+                    csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{wrapperSymbol}\")]");
                     csWriter.WriteLine("private static partial IntPtr PInvoke_InitWithRawValue_Wrapper(IntPtr slicePtr);");
                     csWriter.WriteLine();
                 }
@@ -301,8 +301,8 @@ namespace BindingsGeneration
                 if (isStringRawType)
                 {
                     // String raw type: P/Invoke for the Swift wrapper
-                    csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]");
-                    csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{wrapperSymbol}\")]");
+                    csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+                    csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{wrapperSymbol}\")]");
                     csWriter.WriteLine("private static partial void PInvoke_InitWithRawValue_Wrapper(IntPtr resultPtr, IntPtr slicePtr);");
                     csWriter.WriteLine();
                 }
@@ -395,8 +395,8 @@ namespace BindingsGeneration
                 }
                 else
                 {
-                    csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]");
-                    csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{caseByIndexSymbol}\")]");
+                    csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+                    csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{caseByIndexSymbol}\")]");
                     csWriter.WriteLine("private static partial IntPtr PInvoke_CaseByIndex(nint index);");
                     csWriter.WriteLine();
                 }

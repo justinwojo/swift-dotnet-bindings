@@ -1306,7 +1306,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         {
             csWriter.WriteLines($$"""
                 set {
-                    var __utf8 = System.Text.Encoding.UTF8.GetBytes(value);
+                    var __utf8 = global::System.Text.Encoding.UTF8.GetBytes(value);
                     unsafe { fixed (byte* __p = __utf8) { {{methodName}}((IntPtr)__p, __utf8.Length); } }
                 }
                 """);

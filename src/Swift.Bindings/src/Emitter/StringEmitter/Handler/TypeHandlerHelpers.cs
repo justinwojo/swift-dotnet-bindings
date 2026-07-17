@@ -214,7 +214,7 @@ namespace BindingsGeneration
                 // projected as `(nint)` (nint IS IntPtr). The non-frozen-struct and class paths
                 // already use this SwiftHandle indirection; this path must match.
                 var text = $$"""
-                [EditorBrowsable(EditorBrowsableState.Never)]
+                [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
                 static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
                 {
                     var obj = new {{_typeNameWithGenerics}}(new SwiftHandle(handle));
@@ -237,7 +237,7 @@ namespace BindingsGeneration
             else
             {
                 var text = $$"""
-                [EditorBrowsable(EditorBrowsableState.Never)]
+                [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
                 static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
                 {
                     return *({{_typeNameWithGenerics}}*)handle;
@@ -263,7 +263,7 @@ namespace BindingsGeneration
             // hand it to TypeMetadata.RegisterAndGetSize as the NewFromPayloadDispatcher factory.
             // This removes the NativeAOT reflection fallback for generic instantiations.
             var text = $$"""
-            [EditorBrowsable(EditorBrowsableState.Never)]
+            [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
             private static ISwiftObject NewFromPayloadCore(IntPtr handle)
             {
                 var obj = new {{_typeNameWithGenerics}}(new SwiftHandle(handle));
@@ -271,7 +271,7 @@ namespace BindingsGeneration
                 return obj;
             }
 
-            [EditorBrowsable(EditorBrowsableState.Never)]
+            [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
             static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle) => NewFromPayloadCore(handle);
             """;
 
@@ -348,7 +348,7 @@ namespace BindingsGeneration
             if (MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
             {
                 var text = $$"""
-                [EditorBrowsable(EditorBrowsableState.Never)]
+                [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
                 unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
                 {
                     var metadata = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
@@ -380,7 +380,7 @@ namespace BindingsGeneration
             else
             {
                 var text = $$"""
-                [EditorBrowsable(EditorBrowsableState.Never)]
+                [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
                 unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
                 {
                     var metadata = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
@@ -409,7 +409,7 @@ namespace BindingsGeneration
         private void WriteMarshalToSwiftNonFrozenStruct()
         {
             var text = $$"""
-            [EditorBrowsable(EditorBrowsableState.Never)]
+            [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
             unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
             {
                 var metadata = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
@@ -450,7 +450,7 @@ namespace BindingsGeneration
             var libPath = _typeDatabase.GetLibraryPath(_moduleDecl.Name);
             // Note: LoadFromSymbol is a runtime call, not a DllImport, so no helper class needed
             var text = $$"""
-            [EditorBrowsable(EditorBrowsableState.Never)]
+            [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
             static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
                 where TProtocol : class
             {
@@ -491,7 +491,7 @@ namespace BindingsGeneration
             var eagerInitHelpers = isGeneric
                 ? $$"""
 
-                [EditorBrowsable(EditorBrowsableState.Never)]
+                [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
                 internal static bool TryEagerInitialize()
                 {
                     try
@@ -505,7 +505,7 @@ namespace BindingsGeneration
                     }
                 }
 
-                [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+                [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
                 private static void NativeAotInitialize()
                 {
                     _ = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
@@ -513,13 +513,18 @@ namespace BindingsGeneration
                 """
                 : "";
 
+            // The BCL names here are global::-qualified because this block lands inside
+            // `namespace <SwiftModule>`: a public Swift type whose projected name matches one
+            // of them (a `Type` shadowing System.Type is the realistic case) would otherwise
+            // capture the reference, and the resulting mismatch against `typeof(...)` breaks
+            // every conforming type in the module rather than just the colliding one.
             var text = $$"""
-            [EditorBrowsable(EditorBrowsableState.Never)]
-            private static Dictionary<Type, string> _protocolConformanceSymbols;
+            [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
+            private static global::System.Collections.Generic.Dictionary<global::System.Type, string> _protocolConformanceSymbols;
 
             static {{_constructorName}}()
             {
-                _protocolConformanceSymbols = new Dictionary<Type, string>
+                _protocolConformanceSymbols = new global::System.Collections.Generic.Dictionary<global::System.Type, string>
                 {
                     {{GenerateGetProtocolConformanceDictionaryEntries()}}
                 };
@@ -542,7 +547,7 @@ namespace BindingsGeneration
                 return;
 
             var text = $$"""
-            [EditorBrowsable(EditorBrowsableState.Never)]
+            [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
             ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
                 => ExistentialContainerFactory.Create<{{_typeNameWithGenerics}}, TProtocol>(this);
             """;
@@ -844,7 +849,7 @@ namespace BindingsGeneration
             _writer.WriteLines($$"""
             [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
             [global::System.Runtime.InteropServices.LibraryImport("{{_wrapperLibraryName}}", EntryPoint = "{{symbolName}}")]
-            [return: global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.U1)]
+            {{MarshallingHelpers.BoolPInvokeReturnAttribute}}
             private static partial bool PInvoke_eq(IntPtr lhs, IntPtr rhs);
             """);
             _writer.WriteLine();

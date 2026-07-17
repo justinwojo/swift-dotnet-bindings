@@ -228,7 +228,7 @@ public partial class ProtocolProxyEmitter
         // Pass the suppressed proxy's name (carried on the exception) so the row names the exact protocol,
         // matching every other Record* site and keeping the row greppable by protocol during triage.
         SuppressedProxyReporting.RecordReceiver(memberDescriptor, proxyClassName);
-        writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        writer.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         writer.WriteLine($"private static {returnType} {receiverName}({paramList})");
         writer.WriteLine("{");
         writer.Indent++;
@@ -325,7 +325,7 @@ public partial class ProtocolProxyEmitter
                     // causing crashes when Swift reads the result. Utf8Slice passes raw bytes safely.
                     bool isStringReturn = IsStringTypeSpec(property.SwiftTypeSpec);
 
-                    writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+                    writer.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
                     writer.WriteLine($"private static IntPtr {receiverName}(IntPtr vtHandle, IntPtr selfContainer)");
                     writer.WriteLine("{");
                     writer.Indent++;
@@ -434,7 +434,7 @@ public partial class ProtocolProxyEmitter
                     if (setterSiblings == null || setterSiblings.Count == 0)
                     {
                         writer.WriteLines($$"""
-                            [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
+                            [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
                             private static void {{receiverName}}(IntPtr vtHandle, IntPtr selfContainer, IntPtr valuePtr)
                             {
                                 try
@@ -461,7 +461,7 @@ public partial class ProtocolProxyEmitter
                     }
                     else
                     {
-                        writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+                        writer.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
                         writer.WriteLine($"private static void {receiverName}(IntPtr vtHandle, IntPtr selfContainer, IntPtr valuePtr)");
                         writer.WriteLine("{");
                         writer.Indent++;
@@ -533,7 +533,7 @@ public partial class ProtocolProxyEmitter
                 var helperName = EveryProtocolEmitter.GetProtocolClosureInvokeThunkHelperName(entryPoint);
                 var invokerClassName = ClosureEmitter.GetInvokerClassName(helperName);
 
-                writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+                writer.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
                 writer.WriteLine($"private static void {receiverName}(IntPtr vtHandle, IntPtr selfContainer, IntPtr rawFn, IntPtr rawCtx)");
                 writer.WriteLine("{");
                 writer.Indent++;
@@ -567,7 +567,7 @@ public partial class ProtocolProxyEmitter
             var receiverName = $"Receive_{property.Name}_get";
             if (emittedReceivers.Add(receiverName))
             {
-                writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+                writer.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
                 writer.WriteLine($"private static IntPtr {receiverName}(IntPtr vtHandle, IntPtr selfContainer)");
                 writer.WriteLine("{");
                 writer.Indent++;
@@ -606,7 +606,7 @@ public partial class ProtocolProxyEmitter
         // EveryProtocolEmitter.IsDispatchableClosureProperty.
         if (hasGetter && emittedReceivers.Add(getterThunkName))
         {
-            writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+            writer.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
             writer.WriteLine($"private static void {getterThunkName}(IntPtr ctx)");
             writer.WriteLine("{");
             writer.Indent++;
@@ -645,7 +645,7 @@ public partial class ProtocolProxyEmitter
         var delegateType = closureHandler.GetCSharpDelegateType(retClosure);
         var returnedThunkName = $"_MethodClosureThunk_{method.Name}_{index}";
 
-        writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        writer.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         writer.WriteLine($"private static IntPtr {receiverName}(IntPtr vtHandle, IntPtr selfContainer)");
         writer.WriteLine("{");
         writer.Indent++;
@@ -672,7 +672,7 @@ public partial class ProtocolProxyEmitter
         // Stable C# cdecl thunk fired by the materialised Swift closure on the Swift
         // side. ctx is the GCHandle.ToIntPtr of the Action returned from impl.<Method>().
         // Restricted to () -> Void by IsDispatchableClosureReturningMethod.
-        writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        writer.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         writer.WriteLine($"private static void {returnedThunkName}(IntPtr ctx)");
         writer.WriteLine("{");
         writer.Indent++;
@@ -739,7 +739,7 @@ public partial class ProtocolProxyEmitter
             parameterCount: 1,
             isMutating: method.IsMutating);
 
-        writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        writer.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         writer.WriteLine($"private static void {receiverName}(IntPtr vtHandle, IntPtr selfContainer, IntPtr rawArg0_fn, IntPtr rawArg0_ctx)");
         writer.WriteLine("{");
         writer.Indent++;
@@ -800,7 +800,7 @@ public partial class ProtocolProxyEmitter
                 var degraded = EmitReceiverOrDegrade(writer, "IntPtr", receiverName, paramTypes,
                     getterDescriptor, () =>
                 {
-                    writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+                    writer.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
                     writer.WriteLine($"private static IntPtr {receiverName}({paramTypes})");
                     writer.WriteLine("{");
                     writer.Indent++;
@@ -893,7 +893,7 @@ public partial class ProtocolProxyEmitter
                 EmitReceiverOrDegrade(writer, "void", receiverName, paramTypes,
                     $"{protocolDecl.Name} subscript{RenderReceiverParamSignature(subscript.IndexParameters)} setter", () =>
                 {
-                    writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+                    writer.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
                     writer.WriteLine($"private static void {receiverName}({paramTypes})");
                     writer.WriteLine("{");
                     writer.Indent++;
@@ -1142,7 +1142,7 @@ public partial class ProtocolProxyEmitter
         List<ArgumentDecl> nonEmptyParams, ClosureHandler closureHandlerForParams,
         IReadOnlyList<ModuleEmissionContext.SiblingMethodFallback>? siblingFallbacks)
     {
-        writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        writer.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         writer.WriteLine($"private static {csharpReturnType} {receiverName}({paramTypes})");
         writer.WriteLine("{");
         writer.Indent++;
@@ -1488,7 +1488,7 @@ public partial class ProtocolProxyEmitter
         var siblingFallbacks = _emissionContext.GetSiblingMethodFallbacks(protoQNameForMethod, methodSiblingMapKey);
         bool useSiblingFallback = siblingFallbacks != null && siblingFallbacks.Count > 0;
 
-        writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        writer.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         writer.WriteLine($"private static unsafe void {receiverName}({paramTypes})");
         writer.WriteLine("{");
         writer.Indent++;

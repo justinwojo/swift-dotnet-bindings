@@ -254,7 +254,7 @@ namespace BindingsGeneration
                     if (useCdeclWrapper)
                     {
                         // @_cdecl: encode string to UTF-8 bytes, pass pointer + length
-                        csWriter.WriteLine($"var __{bareName}Utf8 = System.Text.Encoding.UTF8.GetBytes({name});");
+                        csWriter.WriteLine($"var __{bareName}Utf8 = global::System.Text.Encoding.UTF8.GetBytes({name});");
                     }
                     else
                     {
@@ -768,7 +768,7 @@ namespace BindingsGeneration
                     else
                     {
                         var pInvokeType = GetPInvokeType(typeSpec, typeDatabase, enumGenericParamsForArgs);
-                        var marshalPrefix = MarshallingHelpers.IsBoolType(pInvokeType) ? "[MarshalAs(UnmanagedType.U1)] " : "";
+                        var marshalPrefix = MarshallingHelpers.IsBoolType(pInvokeType) ? MarshallingHelpers.BoolPInvokeParamAttribute + " " : "";
                         pInvokeParams.Add($"{marshalPrefix}{pInvokeType} {name}");
                     }
                 }
@@ -815,7 +815,7 @@ namespace BindingsGeneration
                 {
                     var (_, _, name, typeSpec) = parameters[i];
                     var pInvokeType = GetPInvokeType(typeSpec, typeDatabase, enumGenericParamsForArgs);
-                    var marshalPrefix = MarshallingHelpers.IsBoolType(pInvokeType) ? "[MarshalAs(UnmanagedType.U1)] " : "";
+                    var marshalPrefix = MarshallingHelpers.IsBoolType(pInvokeType) ? MarshallingHelpers.BoolPInvokeParamAttribute + " " : "";
                     pInvokeParams.Add($"{marshalPrefix}{pInvokeType} {name}");
                 }
 

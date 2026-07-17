@@ -319,28 +319,30 @@ public class PInvokeHelperContext
                     // reach this branch, so the only members of IsWellKnownRuntimeProtocol
                     // that can show up here are Swift.Error and _Concurrency.Actor.
                     //
-                    // Swift.Error: emit bare "IError" — modules that
-                    //   declare their own 'public protocol Error' provide a usable
-                    //   IError interface in the consumer module, so PWT extraction
-                    //   `ProtocolWitnessTable.GetOrThrowAuto<TFailure, IError>()`
-                    //   resolves. Using target.Module="Swift" tells GetInterfaceName
-                    //   to suppress cross-module qualification (Swift is implicitly
-                    //   imported), producing the bare "IError" form.
+                    // The stdlib error protocol: no I-prefixed interface is ever projected for
+                    //   it (its record maps to a runtime struct), so there is nothing for a
+                    //   static `GetOrThrowAuto<T, IError>()` to bind to — synthesizing the name
+                    //   only compiles in the accidental case where the module happens to declare
+                    //   its own same-named protocol, and is a CS0246 everywhere else. It does
+                    //   have a real protocol descriptor and witness table, so route it through
+                    //   the dynamic descriptor-symbol path used for every other constraint that
+                    //   can't be expressed as a C# interface.
                     //
-                    // Other well-known runtime protocols (e.g. _Concurrency.Actor):
-                    //   no projected I-prefix counterpart exists, and synthesizing
-                    //   "_Concurrency.IActor" would produce a CS0246. Route to the
+                    // Other well-known runtime protocols (e.g. the implicit actor protocol):
+                    //   no projected I-prefix counterpart exists AND no usable descriptor, so
+                    //   synthesizing an interface name would produce a CS0246. Route to the
                     //   unresolved list so HasIndeterminatePwtShape skip-gates the
                     //   containing type, matching the no-witness-table treatment in
                     //   MethodValidationGates.IsProtocolAvailableForConstraint.
                     if (TypeDatabaseExtensions.IsWellKnownRuntimeProtocol(record))
                     {
-                        if (target.ModuleQualifiedName == "Swift.Error")
+                        if (!string.IsNullOrEmpty(record.ProtocolDescriptorSymbol))
                         {
-                            interfaceName = NameProvider.GetInterfaceName(
-                                target.Name,
-                                moduleName: target.Module,
-                                currentModuleName: typeDecl.ModuleDecl?.Name ?? "");
+                            isResolvable = false;
+                            descriptorSymbol = record.ProtocolDescriptorSymbol;
+                            // The descriptor is a stdlib symbol, so it resolves out of the
+                            // Swift runtime rather than any module registered in the database.
+                            libraryPath = "/usr/lib/swift/libswiftCore.dylib";
                         }
                         else
                         {
@@ -567,7 +569,8 @@ public class PInvokeHelperContext
     /// <see cref="PwtEntries"/> via a descriptor-symbol path while its only protocol
     /// conformance is filtered out of the where clause for being a PAT / Self-requirement /
     /// associated-type protocol (e.g. <c>IntentParameter&lt;nint&gt;</c> against the
-    /// synthesized <c>_IntentValue</c>). See
+    /// synthesized <c>_IntentValue</c>), or a descriptor-carrying well-known-runtime protocol
+    /// (e.g. an error enum against a <c>Failure : Swift.Error</c> param). See
     /// <c>GenericTypeEmitter.GetWhereClause</c>'s descriptor-path-safe seed drop.
     /// </summary>
     public IReadOnlyList<string> GetTypeMetadataAccessorArgumentList()

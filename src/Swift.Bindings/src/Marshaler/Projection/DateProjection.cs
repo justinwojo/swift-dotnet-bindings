@@ -41,7 +41,7 @@ public class DateProjection : ITypeProjection
             },
             ReturnStrategy.IndirectResult => new MarshalPlan
             {
-                PInvokeExpression = $"{SwiftEpoch}.AddSeconds(System.Runtime.InteropServices.Marshal.PtrToStructure<double>({resultName}))"
+                PInvokeExpression = $"{SwiftEpoch}.AddSeconds(global::System.Runtime.InteropServices.Marshal.PtrToStructure<double>({resultName}))"
             },
             _ => MarshalPlan.PassThrough(resultName)
         };

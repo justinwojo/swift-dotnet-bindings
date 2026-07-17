@@ -120,7 +120,7 @@ public sealed class AppleTypesCsEmitter
         sb.AppendLine("internal static class AppleSupplementRegistration");
         sb.AppendLine("{");
         sb.AppendLine("#pragma warning disable CA2255 // ModuleInitializer is intentional — supplement needs self-registration");
-        sb.AppendLine("    [ModuleInitializer]");
+        sb.AppendLine("    [global::System.Runtime.CompilerServices.ModuleInitializer]");
         sb.AppendLine("#pragma warning restore CA2255");
         sb.AppendLine("    internal static void Initialize()");
         sb.AppendLine("        => SwiftFrameworkResolver.RegisterForAssembly(typeof(AppleSupplementRegistration).Assembly);");
@@ -342,8 +342,8 @@ public sealed class AppleTypesCsEmitter
         sb.AppendLine();
         sb.Append(bodyPad); sb.AppendLine($"private {leaf}(IntPtr handle) => _payload = new SwiftSafeHandle<{leaf}>(handle);");
         sb.AppendLine();
-        sb.Append(bodyPad); sb.AppendLine("[UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]");
-        sb.Append(bodyPad); sb.AppendLine($"[DllImport(\"{libraryPath}\", EntryPoint = \"{accessor.Symbol}\")]");
+        sb.Append(bodyPad); sb.AppendLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = [typeof(global::System.Runtime.CompilerServices.CallConvSwift)])]");
+        sb.Append(bodyPad); sb.AppendLine($"[global::System.Runtime.InteropServices.DllImport(\"{libraryPath}\", EntryPoint = \"{accessor.Symbol}\")]");
         sb.Append(bodyPad); sb.AppendLine("private static extern TypeMetadata PInvoke_GetMetadata();");
         sb.AppendLine();
         sb.Append(bodyPad); sb.AppendLine("public void Dispose()");
@@ -405,7 +405,7 @@ public sealed class AppleTypesCsEmitter
 
         AppendAvailabilityAttributes(sb, accessor.Availability, indent);
         var pad = new string(' ', indent * 4);
-        sb.Append(pad); sb.AppendLine($"[StructLayout(LayoutKind.Sequential, Size = {size}, Pack = {alignment})]");
+        sb.Append(pad); sb.AppendLine($"[global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential, Size = {size}, Pack = {alignment})]");
         sb.Append(pad); sb.AppendLine($"public partial struct {leaf}");
         sb.Append(pad); sb.AppendLine("{");
         var bodyPad = new string(' ', (indent + 1) * 4);
@@ -418,8 +418,8 @@ public sealed class AppleTypesCsEmitter
         sb.AppendLine();
         sb.Append(bodyPad); sb.AppendLine("public static TypeMetadata Metadata => _cachedMetadata ??= PInvoke_GetMetadata();");
         sb.AppendLine();
-        sb.Append(bodyPad); sb.AppendLine("[UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]");
-        sb.Append(bodyPad); sb.AppendLine($"[DllImport(\"{libraryPath}\", EntryPoint = \"{accessor.Symbol}\")]");
+        sb.Append(bodyPad); sb.AppendLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = [typeof(global::System.Runtime.CompilerServices.CallConvSwift)])]");
+        sb.Append(bodyPad); sb.AppendLine($"[global::System.Runtime.InteropServices.DllImport(\"{libraryPath}\", EntryPoint = \"{accessor.Symbol}\")]");
         sb.Append(bodyPad); sb.AppendLine("private static extern TypeMetadata PInvoke_GetMetadata();");
         sb.Append(pad); sb.AppendLine("}");
 

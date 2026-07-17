@@ -118,11 +118,11 @@ public static class MetadataWrapperEmitter
                     {
                         return PInvoke_getMetadata();
                     }
-                    catch (System.DllNotFoundException)
+                    catch (global::System.DllNotFoundException)
                     {
                         return PInvoke_getMetadata_fallback();
                     }
-                    catch (System.EntryPointNotFoundException)
+                    catch (global::System.EntryPointNotFoundException)
                     {
                         return PInvoke_getMetadata_fallback();
                     }
@@ -140,11 +140,11 @@ public static class MetadataWrapperEmitter
                 {
                     __metadata = PInvoke_getMetadata();
                 }
-                catch (System.DllNotFoundException)
+                catch (global::System.DllNotFoundException)
                 {
                     __metadata = PInvoke_getMetadata_fallback();
                 }
-                catch (System.EntryPointNotFoundException)
+                catch (global::System.EntryPointNotFoundException)
                 {
                     __metadata = PInvoke_getMetadata_fallback();
                 }

@@ -32,7 +32,7 @@ public static class AsyncStreamEmitter
         // [UnmanagedCallersOnly] body guarded by the StreamFault policy: a marshalling failure inside
         // DeliverElement faults the channel (the consumer observes the exception) rather than unwinding
         // across the Swift boundary (undefined behaviour) or silently truncating the stream.
-        csWriter.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         csWriter.WriteLine($"private static unsafe byte {callbackName}_OnElement(void* elementPtr, long context)");
         csWriter.WriteLine("{");
         csWriter.Indent++;
@@ -72,7 +72,7 @@ public static class AsyncStreamEmitter
         // and a mismatch between the OnElement and OnComplete <T> would break the cast.
         var elementType = asyncStreamHandler.GetCSharpInternalChannelElementType(propertyDecl.SwiftTypeSpec);
 
-        csWriter.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         csWriter.WriteLine($"private static void {callbackName}_OnComplete(long context)");
         csWriter.WriteLine("{");
         csWriter.Indent++;
@@ -118,7 +118,7 @@ public static class AsyncStreamEmitter
         // FromContext casts the GCHandle target back to SwiftAsyncStream<TElement>.
         var elementType = asyncStreamHandler.GetCSharpInternalChannelElementType(propertyDecl.SwiftTypeSpec);
 
-        csWriter.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         csWriter.WriteLine($"private static unsafe void {callbackName}_OnError(long context, byte* messagePtr)");
         csWriter.WriteLine("{");
         csWriter.Indent++;
@@ -167,8 +167,8 @@ public static class AsyncStreamEmitter
         var paramList = string.Join(", ", ps);
 
         csWriter.WriteLines($$"""
-            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
-            [LibraryImport("{{libraryPath}}", EntryPoint = "{{swiftWrapperName}}")]
+            [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
+            [global::System.Runtime.InteropServices.LibraryImport("{{libraryPath}}", EntryPoint = "{{swiftWrapperName}}")]
             private static unsafe partial void PInvoke_{{swiftWrapperName}}({{paramList}});
             """);
     }

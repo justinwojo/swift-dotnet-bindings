@@ -1183,7 +1183,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // byte[] prelude (inside the try-block — UTF8.GetBytes can throw on null input,
         // and the catch below correctly cleans up handle + resultPtr in that case).
         foreach (var (csName, bareName) in utf8SliceLocals)
-            csWriter.WriteLine($"var __{bareName}Utf8 = System.Text.Encoding.UTF8.GetBytes({csName});");
+            csWriter.WriteLine($"var __{bareName}Utf8 = global::System.Text.Encoding.UTF8.GetBytes({csName});");
 
         // Open nested `fixed` blocks for each Utf8Slice byte[]. The pin only needs to
         // cover the synchronous P/Invoke (which schedules the Swift Task); the Swift

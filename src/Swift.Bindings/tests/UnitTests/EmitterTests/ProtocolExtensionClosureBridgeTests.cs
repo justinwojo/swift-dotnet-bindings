@@ -83,7 +83,7 @@ public class ProtocolExtensionClosureBridgeTests
         var result = csOutput.ToString();
 
         // Should emit [UnmanagedCallersOnly] callback
-        Assert.Contains("[UnmanagedCallersOnly", result);
+        Assert.Contains("[global::System.Runtime.InteropServices.UnmanagedCallersOnly", result);
         Assert.Contains("CallConvCdecl", result);
         Assert.Contains("PExtCB_", result);
 
