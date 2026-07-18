@@ -36,6 +36,30 @@ public class URLContainerBridgeTests : TestBase
 
     #endregion
 
+    #region Scalar URL parameter — string convenience overload
+
+    // A scalar `URL` parameter projects to an `NSUrl` primary; the generator emits an
+    // additive `string`-taking overload that forwards through `new NSUrl(s)`. Both the
+    // primary and the string overload must reach the same Swift entry point and round-trip.
+
+    public void TestDescribeURL_StringOverload_RoundTrips()
+    {
+        using var helper = new SwiftBindingsTestLib.URLContainerTestHelper();
+        // Calls the additive `string` overload — no hand-constructed NSUrl at the call site.
+        var described = helper.DescribeURL("https://example.com");
+        AssertEqual("https://example.com", described, "String overload round-trips URL through absoluteString");
+    }
+
+    public void TestDescribeURL_NSUrlPrimary_RoundTrips()
+    {
+        using var helper = new SwiftBindingsTestLib.URLContainerTestHelper();
+        // The NSUrl primary the overload forwards to still works directly.
+        var described = helper.DescribeURL(Foundation.NSUrl.FromString("https://primary.example.com")!);
+        AssertEqual("https://primary.example.com", described, "NSUrl primary round-trips URL through absoluteString");
+    }
+
+    #endregion
+
     #region Array Parameter
 
     public void TestAcceptURLArray()

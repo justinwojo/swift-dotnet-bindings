@@ -285,3 +285,21 @@ extension Direction {
         }
     }
 }
+
+// MARK: - Int-payload case factory: idiomatic int convenience forwarder
+
+/// A payload case whose associated value is `Int`. The generated C# case factory surfaces the
+/// ABI-accurate `nint` parameter; an additive `int` forwarder lets callers pass a plain int and
+/// casts it up to `nint` before delegating to the primary factory. `rawCount` reads the payload
+/// back out so the round-trip through forwarder → primary is observable from C#.
+public enum RetryBudget {
+    case limited(Int)
+    case unlimited
+
+    public var rawCount: Int {
+        switch self {
+        case .limited(let n): return n
+        case .unlimited: return -1
+        }
+    }
+}

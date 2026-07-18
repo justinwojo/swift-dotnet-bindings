@@ -75,4 +75,15 @@ public class URLContainerTestHelper {
             42: URL(string: "https://sample-42.example.com")!,
         ]
     }
+
+    // MARK: - Scalar URL parameter (string convenience overload)
+    //
+    // A method taking a single non-optional scalar `URL` parameter, which projects
+    // to a `Foundation.NSUrl` primary in C#. The generator emits an additive
+    // `string`-taking overload alongside it, forwarding through `new NSUrl(s)`, so a
+    // C# caller can pass the URL string directly without hand-constructing an NSUrl.
+
+    public func describeURL(url: URL) -> String {
+        return url.absoluteString
+    }
 }

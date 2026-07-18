@@ -122,6 +122,54 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_EnumPayloadCaseWithIntPayload_EmitsIntConvenienceForwarder()
+    {
+        // A payload-case factory whose associated value is Swift.Int surfaces the ABI-accurate
+        // nint parameter. Every other native-int API gets an int convenience overload via
+        // NativeIntOverloadEmitter, but the enum-case factory bypasses that post-processor —
+        // so the factory itself emits an additive int forwarder that casts up to nint and
+        // delegates to the primary factory. Purely additive; the cast forces the nint overload.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Outcome", moduleDecl, isFrozen: false);
+        var successCase = CreateCase("success");
+        successCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(successCase);
+        enumDecl.Cases.Add(CreateCase("failure"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Primary ABI factory (nint) is still emitted.
+        Assert.Contains("public static unsafe Outcome Success(nint ", csOutput);
+        // Additive int forwarder delegating to the nint factory. The (nint) cast forces the
+        // native-int overload — a bare call would re-bind to this forwarder and recurse.
+        Assert.Contains("public static Outcome Success(int ", csOutput);
+        Assert.Contains("=> Success((nint)", csOutput);
+    }
+
+    [Fact]
+    public void Emit_EnumPayloadCaseWithNonNativeIntPayload_EmitsNoForwarder()
+    {
+        // Control: a Bool payload is not a native-int type, so no int/uint forwarder is emitted —
+        // only the primary factory. Guards against the forwarder firing for every payload case.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Measure", moduleDecl, isFrozen: false);
+        var valueCase = CreateCase("exact");
+        valueCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Bool"));
+        enumDecl.Cases.Add(valueCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // The primary factory is still emitted.
+        Assert.Contains("public static unsafe Measure Exact(", csOutput);
+        // No convenience forwarder — a Bool factory has no narrowable native-int param. The
+        // expression-bodied delegation `=> Exact(` is unique to the forwarder.
+        Assert.DoesNotContain("=> Exact(", csOutput);
+    }
+
+    [Fact]
     public void Emit_NonFrozenEnumWithInstanceProperties_EmitsSimpleEnumWithExtension()
     {
         // BX2: Non-frozen no-payload enum with instance property → simple enum + extension getter

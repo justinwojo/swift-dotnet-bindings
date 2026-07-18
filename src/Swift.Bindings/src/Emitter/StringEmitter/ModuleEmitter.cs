@@ -141,6 +141,11 @@ namespace BindingsGeneration
                 // entry symbol so the ratchet gate can detect a same-signature symbol retarget.
                 ApiManifestEmitter.Emit(moduleDecl.Name, @namespace, emissionContext, _outputDirectory, _logger);
 
+                // Emit the human-readable member table ({namespace}.api-surface.md) from the SAME
+                // emitted-surface facts, so a consumer-facing README can derive its member list from
+                // what the generator actually emitted instead of a hand-authored (drift-prone) list.
+                ApiSurfaceDocEmitter.Emit(moduleDecl.Name, @namespace, emissionContext, _outputDirectory, _logger);
+
                 string swiftOutputPath = Path.Combine(_outputDirectory, $"{@namespace}.Wrapper.swift");
                 // Module/type-name collision rewrite (formerly Pattern 5 in SwiftWrapperPostProcessor):
                 // when the module has a public type with the same name as the module, bare

@@ -766,6 +766,48 @@ namespace BindingsGeneration
             csWriter.WriteLine("}");
             csWriter.WriteLine();
 
+            // A payload-case factory surfaces native-int associated values as nint/nuint (the
+            // ABI-accurate Swift.Int/Swift.UInt projection). C# callers idiomatically pass a plain
+            // int/uint, so emit an additive convenience forwarder that narrows those params and
+            // delegates to the primary factory. The (nint)/(nuint) casts force binding to the
+            // native-int factory — a bare call would re-bind to this forwarder and recurse. Every
+            // other native-int API gets this overload from NativeIntOverloadEmitter, but the
+            // enum-case factory bypasses it (that runs only through the IMethodPostProcessor method
+            // path), so without this the int overload is missing here. Skipped for CONSUME-degraded
+            // or deprecated cases so the convenience surface never rides an [Obsolete] the primary
+            // factory already carries, and skipped when nothing narrows (no net-new overload).
+            if (!anyConsumeDegraded && AvailabilityAttributeEmitter.GetDeprecationMessage(caseDecl) == null)
+            {
+                var narrowedParams = new List<string>();
+                var forwardArgs = new List<string>();
+                bool anyNarrowed = false;
+                foreach (var (_, publicType, name, _) in parameters)
+                {
+                    var narrowed = NativeIntOverloadEmitter.NarrowNativeIntType(publicType);
+                    if (narrowed != publicType)
+                    {
+                        anyNarrowed = true;
+                        narrowedParams.Add($"{narrowed} {name}");
+                        // Explicit cast back to the native-int type steers overload resolution to
+                        // the primary factory instead of recursively selecting this forwarder.
+                        forwardArgs.Add($"({publicType}){name}");
+                    }
+                    else
+                    {
+                        narrowedParams.Add($"{publicType} {name}");
+                        forwardArgs.Add(name);
+                    }
+                }
+                if (anyNarrowed)
+                {
+                    AvailabilityAttributeEmitter.EmitAvailabilityAttributes(
+                        csWriter, caseDecl, parentDecl: enumDecl, emitObsolete: true);
+                    csWriter.WriteLine(
+                        $"public static {enumTypeName} {capitalizedName}({string.Join(", ", narrowedParams)}) => {capitalizedName}({string.Join(", ", forwardArgs)});");
+                    csWriter.WriteLine();
+                }
+            }
+
             // P/Invoke declaration
             if (useCdeclWrapper)
             {

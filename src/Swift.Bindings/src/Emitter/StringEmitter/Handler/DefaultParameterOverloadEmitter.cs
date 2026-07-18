@@ -20,6 +20,33 @@ public static class DefaultParameterOverloadEmitter
     private const int MaxOverloads = 4;
 
     /// <summary>
+    /// Same as <see cref="TryEmitOverloads"/> but reports whether at least one overload was
+    /// actually emitted, measured by a C# buffer delta across the call.
+    ///
+    /// Used by the placeholder-rejection recovery path in the method/constructor handlers: when a
+    /// full signature is unbindable because a TRAILING DEFAULTED parameter resolves to the
+    /// <c>AnyType</c> placeholder (e.g. a defaulted parameter whose type is an unmapped platform
+    /// enum), the full form is genuinely unavailable — but Swift supplies the trailing defaults, so
+    /// a truncated overload that omits the unbindable tail binds cleanly. <see cref="TryEmitOverloads"/>
+    /// already re-validates every trimmed variant for placeholders and sibling collisions, so it
+    /// emits only the variants whose remaining parameters are all bindable, and nothing when the
+    /// placeholder sits in a required parameter or the return type (no trim can remove it). The
+    /// caller uses the return value to suppress the loud "unsupported" drop comment when a working
+    /// truncated form was recovered, so it does not sit under a misleading drop notice.
+    /// </summary>
+    public static bool TryEmitRecoveryOverloads(
+        CSharpWriter csWriter,
+        SwiftWriter swiftWriter,
+        MethodEnvironment env,
+        ILogger logger,
+        ModuleEmissionContext? emissionContext = null)
+    {
+        var before = csWriter.Checkpoint();
+        TryEmitOverloads(csWriter, swiftWriter, env, logger, emissionContext);
+        return csWriter.Checkpoint().Length > before.Length;
+    }
+
+    /// <summary>
     /// Emits overloads for a method with trailing default parameters.
     /// Called after the primary method has already been emitted.
     /// </summary>
@@ -242,7 +269,13 @@ public static class DefaultParameterOverloadEmitter
             }
 
             // C6/C7: Check projected C# signature against already-emitted methods from the main pass
-            // Different Swift overloads can produce identical C# signatures after normalization
+            // Different Swift overloads can produce identical C# signatures after normalization.
+            // Hoisted out of the dedup guard so the successful post-collision key can also seed the
+            // API-manifest entry after emission (below): a recovered overload whose FULL signature was
+            // rejected has no primary manifest entry, so without this it lands in the generated C# but
+            // is absent from api-surface.md / the api-manifest — the exact drift the surface doc exists
+            // to prevent, one path deeper.
+            string? recordedProjectedKey = null;
             if (env.EmittedProjectedSignatures != null)
             {
                 var projectedKey = GetProjectedOverloadKey(overloadDecl, env.TypeDatabase, env.SiblingPropertyNames);
@@ -287,6 +320,7 @@ public static class DefaultParameterOverloadEmitter
                     logger.LogDebug("DefaultParameterOverload: skipping overload (trim {Trim}) for {Name} — projected signature collides: {Key}", trim, methodDecl.Name, projectedKey);
                     continue;
                 }
+                recordedProjectedKey = projectedKey;
             }
 
             // EmitSwiftWrapper reads overloadDecl.MangledName (immutable) as the @_silgen_name target.
@@ -380,6 +414,24 @@ public static class DefaultParameterOverloadEmitter
                 wrapperEmitter.EmitMethod(csWriter, swiftWriter);
             }
             PInvokeEmitter.EmitPInvoke(csWriter, overloadEnv, signatureHandler);
+
+            // Record this recovered overload in the API manifest so it surfaces in api-surface.md.
+            // The member's FULL signature was rejected (a trailing defaulted param resolved to an
+            // AnyType placeholder), so it has no primary manifest entry from the main dedup loop and
+            // WasEmitted stays false — recording the callable TRUNCATED form here (not the full
+            // unbindable signature) keeps the emitted C# and the documented surface in agreement.
+            // Guarded on recordedProjectedKey so a synthetic env with no dedup set (unit harness that
+            // never assigns EmittedProjectedSignatures) records nothing. The name mirrors the emitted
+            // member: a failable init emits under its label-disambiguated factory name, everything else
+            // under CSharpMethodName ("Init" for constructors, matching the primary-path keying).
+            if (emissionContext != null && recordedProjectedKey != null)
+            {
+                var manifestName = overloadEnv.FailableFactoryName ?? overloadEnv.CSharpMethodName;
+                emissionContext.RecordApiManifestEntry(
+                    ModuleEmissionContext.BuildApiManifestKey(
+                        overloadDecl.ParentDecl, manifestName, recordedProjectedKey, env.TypeDatabase),
+                    overloadEnv.EmissionSymbol);
+            }
         }
     }
 

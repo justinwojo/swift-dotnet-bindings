@@ -473,7 +473,13 @@ namespace BindingsGeneration
             {
                 _logger.LogWarning($"Constructor {methodEnv.MethodDecl.Name} has unsupported signature: ({signatureHandler.GetWrapperSignature().ParametersString()}) -> {signatureHandler.GetWrapperSignature().ReturnType}");
                 ReportCollector.RecordMemberSkipped(methodEnv.MethodDecl, SkipReason.UnsupportedSignature, "Constructor signature contains unsupported placeholder type.");
-                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "unsupported placeholder type in constructor", containingDecl: methodEnv.MethodDecl.ParentDecl);
+                // The full signature is unbindable, but if the placeholder is confined to a trailing
+                // defaulted parameter, a truncated overload that omits the unbindable tail still binds
+                // (Swift supplies the default). Attempt those recovery overloads before giving up; only
+                // fall back to the loud "unsupported" drop comment when nothing recovered, so a working
+                // truncated constructor never sits under a misleading drop notice.
+                if (!DefaultParameterOverloadEmitter.TryEmitRecoveryOverloads(csWriter, swiftWriter, methodEnv, _logger, context.GetEmissionContext()))
+                    UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "unsupported placeholder type in constructor", containingDecl: methodEnv.MethodDecl.ParentDecl);
                 return;
             }
 
@@ -957,6 +963,7 @@ namespace BindingsGeneration
             new MarkerProtocolOverloadPostProcessor(),      // Typed marker protocol overloads
             new NativeIntOverloadPostProcessor(),           // int/uint convenience overloads
             new ThrowingClosureSimplificationPostProcessor(), // Action/Func overloads for throwing closures
+            new UrlStringConvenienceOverloadPostProcessor(),  // string overloads for Foundation.URL params
         ];
 
         /// <summary>
@@ -1482,7 +1489,12 @@ namespace BindingsGeneration
                 if (!isAccessor)
                 {
                     ReportCollector.RecordMemberSkipped(methodEnv.MethodDecl, SkipReason.UnsupportedSignature, "Method signature contains unsupported placeholder type.");
-                    UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "unsupported placeholder type", containingDecl: methodEnv.MethodDecl.ParentDecl);
+                    // A placeholder confined to a trailing defaulted parameter is recoverable: a
+                    // truncated overload that omits the unbindable tail still binds (Swift supplies
+                    // the default). Only emit the loud "unsupported" drop comment when nothing
+                    // recovered, so a working truncated overload never sits under a misleading notice.
+                    if (!DefaultParameterOverloadEmitter.TryEmitRecoveryOverloads(csWriter, swiftWriter, methodEnv, _logger, context.GetEmissionContext()))
+                        UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "unsupported placeholder type", containingDecl: methodEnv.MethodDecl.ParentDecl);
                 }
                 return;
             }

@@ -123,4 +123,18 @@ namespace BindingsGeneration
             ThrowingClosureSimplificationEmitter.TryEmitOverload(context.CsWriter, context.MethodEnv);
         }
     }
+
+    /// <summary>
+    /// Post-processor for string convenience overloads of methods taking a scalar Foundation.URL param.
+    /// Methods only — not constructors or accessors.
+    /// </summary>
+    internal sealed class UrlStringConvenienceOverloadPostProcessor : IMethodPostProcessor
+    {
+        public PostProcessorScope Scope => PostProcessorScope.MethodsOnly;
+
+        public void TryPostProcess(PostProcessorContext context)
+        {
+            UrlStringConvenienceOverloadEmitter.TryEmitOverload(context.CsWriter, context.MethodEnv);
+        }
+    }
 }
