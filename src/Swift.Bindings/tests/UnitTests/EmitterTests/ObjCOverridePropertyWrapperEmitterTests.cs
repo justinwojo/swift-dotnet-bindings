@@ -277,6 +277,36 @@ public class ObjCOverridePropertyWrapperEmitterTests
         Assert.Equal(firstOutput, secondOutput);
     }
 
+    [Fact]
+    public void GetterAndSetterWrappers_OfOneProperty_AreAttributedToDistinctArtifacts()
+    {
+        // The getter and setter are two separate wrapper artifacts of one property, and the
+        // symbol→owner map is what a symbol-level failure is resolved through. Registering both
+        // under an accessor-less property id collapses them onto one ArtifactId, so an attributed
+        // failure can no longer say WHICH accessor's wrapper broke — it can only name the property.
+        var (moduleDecl, _) = CreateTestEnvironment("VectorAnimation");
+        var classDecl = CreateClassDecl("AnimationViewBase", moduleDecl, isObjCRooted: true);
+        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "contentMode", "Swift.Int",
+            hasGetter: true, hasSetter: true);
+
+        var ctx = new ModuleEmissionContext();
+        var writer = new SwiftWriter(new StringWriter());
+        const string getterSymbol = "SBW_Get_VectorAnimation_AnimationViewBase_contentMode";
+        const string setterSymbol = "SBW_Set_VectorAnimation_AnimationViewBase_contentMode";
+
+        ObjCOverridePropertyWrapperEmitter.EmitSwiftGetterWrapper(writer, property, getterSymbol, ctx);
+        ObjCOverridePropertyWrapperEmitter.EmitSwiftSetterWrapper(writer, property, setterSymbol, ctx);
+
+        Assert.True(ctx.TryGetWrapperSymbolOwner(getterSymbol, out var getterOwner));
+        Assert.True(ctx.TryGetWrapperSymbolOwner(setterSymbol, out var setterOwner));
+        Assert.NotEqual(getterOwner, setterOwner);
+        Assert.Equal(AccessorKind.Getter, getterOwner.Decl.Accessor);
+        Assert.Equal(AccessorKind.Setter, setterOwner.Decl.Accessor);
+        // Both still resolve back to the one property they belong to.
+        Assert.Equal(getterOwner.Decl with { Accessor = AccessorKind.None },
+                     setterOwner.Decl with { Accessor = AccessorKind.None });
+    }
+
     // ==================== ModuleEmissionContext Tracking Tests ====================
 
     [Fact]

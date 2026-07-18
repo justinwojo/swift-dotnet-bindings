@@ -369,7 +369,7 @@ public static class ConstructorWrapperEmitter
         // buckets — no other emitter ever registers a constructor mangled name. The cdecl
         // symbol is unique per overload by construction, so the per-kind dedup gate is
         // collision-safe without routing through the structural-identity registry.
-        if (!ctx.TryAddConstructorWrapperSymbol(symbolName))
+        if (!ctx.TryAddConstructorWrapperSymbol(symbolName, DeclIdFactory.ForMethod(methodDecl)))
             return; // Already emitted
 
         var moduleName = parentTypeDecl.SwiftTypeName.Module;
@@ -1404,7 +1404,7 @@ public static class ConstructorWrapperEmitter
         // Singleton helper per (module, type). The fixed `SBW_GetOptionalTag_` prefix
         // is uniquely shaped and cannot alias any method/property/constructor wrapper
         // symbol; the per-kind helper dedup gate is sufficient.
-        if (!ctx.TryAddOptionalTagHelperSymbol(symbolName))
+        if (!ctx.TryAddOptionalTagHelperSymbol(symbolName, DeclIdFactory.ForType(parentTypeDecl)))
             return; // Already emitted for this type
 
         var moduleQualifiedSwiftName = parentTypeDecl.SwiftTypeName.ModuleQualifiedName;

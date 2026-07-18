@@ -46,6 +46,7 @@ public static class BindingReportProjection
             // SWIFTBIND025/026 lists must be restored here or the diagnostics' "recorded under
             // unsupportedCommentDrops/objectDegradations in binding-report.json" promise is broken.
             report.UnsupportedCommentDrops.AddRange(g.UnsupportedCommentDrops);
+            report.UnsupportedCommentDropDetails.AddRange(g.UnsupportedCommentDropDetails);
             report.ObjectDegradations.AddRange(g.ObjectDegradations);
             // F10 Stage 20: round-trip the ObjC-prefix bridge guesses so binding-report.json carries
             // the heuristic observability channel (same projection contract as the two lists above).

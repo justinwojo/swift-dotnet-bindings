@@ -543,7 +543,8 @@ public static class ConstrainedExtensionEmitter
                 $"{qualifiedParent}<{qualifiedConcrete}>",
                 $"{property.Name}::{dispatchMarker}",
                 $"constrained-extension::get::{qualifiedParent}::{qualifiedConcrete}::{dispatchMarker}::{property.Name}",
-                symbolName))
+                symbolName,
+                DeclIdFactory.ForProperty(property, AccessorKind.Getter)))
             return false;
 
         // ----- C# extension method -----
@@ -1341,7 +1342,8 @@ public static class ConstrainedExtensionEmitter
                 $"{qualifiedParent}<{qualifiedConcrete}>",
                 $"{method.Name}::{dispatchMarker}",
                 $"constrained-extension::method::{qualifiedParent}::{qualifiedConcrete}::{dispatchMarker}::{method.Name}",
-                symbolName))
+                symbolName,
+                DeclIdFactory.ForMethod(method)))
             return false;
 
         // ----- C# extension method -----

@@ -300,7 +300,7 @@ public static class MethodWrapperEmitter
         var sourceTypeName = parentTypeDecl?.SwiftTypeName.ModuleQualifiedName
             ?? parentModuleDecl?.Name
             ?? string.Empty;
-        if (!ctx.TryClaimWrapperSymbol(sourceTypeName, methodDecl.Name, sourceKey, symbolName))
+        if (!ctx.TryClaimWrapperSymbol(sourceTypeName, methodDecl.Name, sourceKey, symbolName, DeclIdFactory.ForMethod(methodDecl)))
             return; // Already emitted
 
         var moduleName = parentTypeDecl?.SwiftTypeName.Module ?? parentModuleDecl!.Name;

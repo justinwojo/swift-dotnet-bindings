@@ -229,7 +229,7 @@ public static class NestedClosureBridge
         // the nested-closure variant is distinguished by the per-nested closure's unique
         // CallbackBaseName, owned exclusively by the closure-bridge family. Per-kind
         // method bucket is collision-safe.
-        ctx.TryAddMethodWrapperSymbol(bridgeSilgenName);
+        ctx.TryAddMethodWrapperSymbol(bridgeSilgenName, DeclIdFactory.ForMethod(method));
 
         // Emit a single Swift wrapper that receives all outer closures' funcPtr/context pairs
         // and dispatches to the original method. The wrapper symbol matches the first outer

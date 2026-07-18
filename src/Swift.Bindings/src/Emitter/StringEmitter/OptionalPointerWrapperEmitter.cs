@@ -408,7 +408,7 @@ public static class OptionalPointerWrapperEmitter
         // only one fires); the method's mangled name is unique per overload, so the
         // per-kind method bucket is collision-safe.
         if (useCdecl)
-            emissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol);
+            emissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol, DeclIdFactory.ForMethod(methodDecl));
         swiftWriter.WriteLine($"{annotation}(\"{wrapperSymbol}\")");
         swiftWriter.WriteLine($"public func {NameProvider.GetPInvokeName(env.EmissionSymbol, methodDecl)}(");
         swiftWriter.WriteLine($"    {paramsStr}");

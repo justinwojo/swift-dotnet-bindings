@@ -190,7 +190,10 @@ public static class PropertyWrapperEmitter
         // Swift mangles property accessors with a distinct accessor-kind discriminator,
         // so the symbol is unique per property and the per-kind dedup gate is
         // collision-safe without routing through the structural-identity registry.
-        if (!ctx.TryAddPropertyWrapperSymbol(symbolName))
+        // Attribute on the accessor axis: the getter and setter are two separate wrapper
+        // artifacts of one property, so an accessor-less id would give both the same
+        // ArtifactId and lose which half a symbol-level failure actually belongs to.
+        if (!ctx.TryAddPropertyWrapperSymbol(symbolName, DeclIdFactory.ForProperty(propertyDecl, AccessorKind.Getter)))
             return; // Already emitted
 
         var parentTypeDecl = env.ParentDecl as TypeDecl;
@@ -491,7 +494,9 @@ public static class PropertyWrapperEmitter
         // Swift's accessor mangling distinguishes setter from getter at the symbol level, so
         // the symbol is unique per (property, accessor-kind). No method/constructor/subscript
         // emitter ever registers symbols here; the per-kind dedup gate is collision-safe.
-        if (!ctx.TryAddPropertyWrapperSymbol(symbolName))
+        // Attributed on the accessor axis for the same reason the getter is — the two
+        // accessors are distinct wrapper artifacts of one property.
+        if (!ctx.TryAddPropertyWrapperSymbol(symbolName, DeclIdFactory.ForProperty(propertyDecl, AccessorKind.Setter)))
             return; // Already emitted
 
         var parentTypeDecl = env.ParentDecl as TypeDecl;

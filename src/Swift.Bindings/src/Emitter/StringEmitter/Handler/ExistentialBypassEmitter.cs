@@ -280,12 +280,12 @@ public static class ExistentialBypassEmitter
         env.MethodDecl.StructuralIdentityKey = initSourceKey;
         if (env.EmissionContext != null &&
             !env.EmissionContext.TryClaimWrapperSymbol(swiftModuleQualifiedName, "init",
-                initSourceKey, wrapperSymbol))
+                initSourceKey, wrapperSymbol, DeclIdFactory.ForMethod(env.MethodDecl)))
         {
             return false;
         }
         env.EmissionContext?.TryClaimWrapperSymbol(swiftModuleQualifiedName, "free",
-            $"existential-bypass-free::{env.MethodDecl.MangledName}", freeSymbol);
+            $"existential-bypass-free::{env.MethodDecl.MangledName}", freeSymbol, DeclIdFactory.ForMethod(env.MethodDecl));
 
         // Prefer a hash-free `Create` factory when the name is provably free on this type;
         // fall back to the deterministic Create_{hash} only on a genuine collision. Two sources:
@@ -632,7 +632,7 @@ public static class ExistentialBypassEmitter
         methodDecl.StructuralIdentityKey = bypassSourceKey;
         if (env.EmissionContext != null &&
             !env.EmissionContext.TryClaimWrapperSymbol(swiftModuleQualifiedName, methodDecl.Name,
-                bypassSourceKey, wrapperSymbol))
+                bypassSourceKey, wrapperSymbol, DeclIdFactory.ForMethod(methodDecl)))
         {
             return false;
         }

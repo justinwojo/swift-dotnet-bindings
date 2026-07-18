@@ -87,9 +87,31 @@ public readonly record struct MemberDiagnosticIdentity
     public string? MangledSymbol { get; init; }
 
     /// <summary>
+    /// Normalized generic context of the declaration, carried so <see cref="ToDeclId"/> can
+    /// produce a complete <see cref="DeclId"/>.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately excluded from <see cref="Equals(MemberDiagnosticIdentity)"/> and
+    /// <see cref="GetHashCode"/>: this type's equality is the report dedup key, and folding in a
+    /// component the pre-existing key never had would split rows that used to collapse — a
+    /// silent change to report contents. Declarations that differ only in generic context are
+    /// already separated for dedup purposes by their mangled symbols.
+    /// </remarks>
+    public string? GenericContext { get; init; }
+
+    /// <summary>
+    /// Extra declaration discriminator (e.g. <c>static</c>) carried for the same round-trip reason
+    /// as <see cref="GenericContext"/>, and excluded from equality for the same reason: adding an
+    /// axis the pre-existing dedup key never had would split report rows that used to collapse.
+    /// </summary>
+    public string? Discriminator { get; init; }
+
+    /// <summary>
     /// Build an identity directly. Validates that
     /// <see cref="ParameterLabels"/> and <see cref="ParameterTypes"/> have
-    /// matching lengths.
+    /// matching lengths. Every component <see cref="ToDeclId"/> projects is settable here —
+    /// including the two excluded from equality — so a hand-built identity round-trips to the
+    /// same <see cref="DeclId"/> as the decl-derived one instead of silently dropping an axis.
     /// </summary>
     public static MemberDiagnosticIdentity Create(
         string? module,
@@ -99,7 +121,9 @@ public readonly record struct MemberDiagnosticIdentity
         ImmutableArray<string>? parameterLabels = null,
         ImmutableArray<string>? parameterTypes = null,
         AccessorKind accessor = AccessorKind.None,
-        string? mangledSymbol = null)
+        string? mangledSymbol = null,
+        string? genericContext = null,
+        string? discriminator = null)
     {
         var labels = parameterLabels ?? ImmutableArray<string>.Empty;
         var types = parameterTypes ?? ImmutableArray<string>.Empty;
@@ -119,8 +143,55 @@ public readonly record struct MemberDiagnosticIdentity
             ParameterTypes = types,
             Accessor = accessor,
             MangledSymbol = mangledSymbol,
+            GenericContext = genericContext,
+            Discriminator = discriminator,
         };
     }
+
+    /// <summary>
+    /// Projects a <see cref="DeclId"/> down to a diagnostic identity. The two types carry the
+    /// same components, so every decl-aware factory below is this projection applied to the
+    /// matching <see cref="DeclIdFactory"/> call — there is exactly one implementation of "which
+    /// declaration is this", and the report can never disagree with the id.
+    /// </summary>
+    public static MemberDiagnosticIdentity FromDeclId(DeclId declId) =>
+        new()
+        {
+            Module = declId.Module ?? string.Empty,
+            DeclPath = declId.DeclPath ?? string.Empty,
+            Kind = declId.Kind,
+            BaseName = declId.Name ?? string.Empty,
+            ParameterLabels = declId.ParameterLabels.IsDefault
+                ? ImmutableArray<string>.Empty
+                : declId.ParameterLabels,
+            ParameterTypes = declId.ParameterTypes.IsDefault
+                ? ImmutableArray<string>.Empty
+                : declId.ParameterTypes,
+            Accessor = declId.Accessor,
+            // DeclId normalizes "no symbol" to empty; this type spells it null. Round-tripping
+            // through empty would be equal anyway (Equals normalizes), but keep the original
+            // spelling so a caller reading MangledSymbol sees what it saw before.
+            MangledSymbol = string.IsNullOrEmpty(declId.Symbol) ? null : declId.Symbol,
+            GenericContext = string.IsNullOrEmpty(declId.GenericContext) ? null : declId.GenericContext,
+            Discriminator = string.IsNullOrEmpty(declId.Discriminator) ? null : declId.Discriminator,
+        };
+
+    /// <summary>
+    /// Widens this identity back to a <see cref="DeclId"/> — the stable, serializable form used
+    /// as a report field, a denylist key, and an attribution value.
+    /// </summary>
+    public DeclId ToDeclId() =>
+        DeclId.Create(
+            Module,
+            DeclPath,
+            Kind,
+            BaseName,
+            ParameterLabels,
+            ParameterTypes,
+            Accessor,
+            GenericContext,
+            MangledSymbol,
+            Discriminator);
 
     /// <summary>
     /// Convenience builder from the legacy <c>(kind, name, containingDecl)</c>
@@ -133,35 +204,16 @@ public readonly record struct MemberDiagnosticIdentity
     /// decl-aware overloads (<see cref="FromMethod"/>, <see cref="FromProperty"/>,
     /// <see cref="FromSubscript"/>, <see cref="FromOperator"/>).
     /// </summary>
-    public static MemberDiagnosticIdentity FromMember(BindingItemKind kind, string name, BaseDecl? containingDecl)
-    {
-        var (module, declPath) = SplitContainer(containingDecl);
-        return Create(module, declPath, kind, name);
-    }
+    public static MemberDiagnosticIdentity FromMember(BindingItemKind kind, string name, BaseDecl? containingDecl) =>
+        FromDeclId(DeclIdFactory.ForMember(kind, name, containingDecl));
 
     /// <summary>
     /// Identity for an emitted-or-skipped Swift method (or constructor).
     /// Captures parameter labels + Swift type expressions in declaration
     /// order so overloaded methods record distinctly.
     /// </summary>
-    public static MemberDiagnosticIdentity FromMethod(MethodDecl methodDecl, BaseDecl? containingDecl = null)
-    {
-        ArgumentNullException.ThrowIfNull(methodDecl);
-        var container = containingDecl ?? methodDecl.ParentDecl;
-        var (module, declPath) = SplitContainer(container);
-        var (labels, types) = BuildParameterArrays(methodDecl.CSSignature);
-        return new MemberDiagnosticIdentity
-        {
-            Module = module,
-            DeclPath = declPath,
-            Kind = BindingItemKind.Method,
-            BaseName = methodDecl.Name,
-            ParameterLabels = labels,
-            ParameterTypes = types,
-            Accessor = AccessorKind.None,
-            MangledSymbol = methodDecl.MangledName,
-        };
-    }
+    public static MemberDiagnosticIdentity FromMethod(MethodDecl methodDecl, BaseDecl? containingDecl = null) =>
+        FromDeclId(DeclIdFactory.ForMethod(methodDecl, containingDecl));
 
     /// <summary>
     /// Identity for an emitted-or-skipped Swift property declaration.
@@ -172,23 +224,8 @@ public readonly record struct MemberDiagnosticIdentity
     public static MemberDiagnosticIdentity FromProperty(
         PropertyDecl propertyDecl,
         AccessorKind accessor = AccessorKind.None,
-        BaseDecl? containingDecl = null)
-    {
-        ArgumentNullException.ThrowIfNull(propertyDecl);
-        var container = containingDecl ?? propertyDecl.ParentDecl;
-        var (module, declPath) = SplitContainer(container);
-        return new MemberDiagnosticIdentity
-        {
-            Module = module,
-            DeclPath = declPath,
-            Kind = BindingItemKind.Property,
-            BaseName = propertyDecl.Name,
-            ParameterLabels = ImmutableArray<string>.Empty,
-            ParameterTypes = ImmutableArray<string>.Empty,
-            Accessor = accessor,
-            MangledSymbol = null,
-        };
-    }
+        BaseDecl? containingDecl = null) =>
+        FromDeclId(DeclIdFactory.ForProperty(propertyDecl, accessor, containingDecl));
 
     /// <summary>
     /// Identity for an emitted-or-skipped Swift subscript declaration.
@@ -201,59 +238,23 @@ public readonly record struct MemberDiagnosticIdentity
     public static MemberDiagnosticIdentity FromSubscript(
         SubscriptDecl subscriptDecl,
         AccessorKind accessor = AccessorKind.None,
-        BaseDecl? containingDecl = null)
-    {
-        ArgumentNullException.ThrowIfNull(subscriptDecl);
-        var container = containingDecl ?? subscriptDecl.ParentDecl;
-        var (module, declPath) = SplitContainer(container);
-        var (labels, types) = BuildParameterArrays(subscriptDecl.IndexParameters);
-        return new MemberDiagnosticIdentity
-        {
-            Module = module,
-            DeclPath = declPath,
-            Kind = BindingItemKind.Subscript,
-            BaseName = subscriptDecl.Name,
-            ParameterLabels = labels,
-            ParameterTypes = types,
-            Accessor = accessor,
-            MangledSymbol = subscriptDecl.MangledName,
-        };
-    }
+        BaseDecl? containingDecl = null) =>
+        FromDeclId(DeclIdFactory.ForSubscript(subscriptDecl, accessor, containingDecl));
 
     /// <summary>
     /// Identity for an emitted-or-skipped Swift operator declaration.
     /// Pulls the parameter signature from the underlying method so
     /// overloaded operators record distinctly.
     /// </summary>
-    public static MemberDiagnosticIdentity FromOperator(OperatorDecl operatorDecl, BaseDecl? containingDecl = null)
-    {
-        ArgumentNullException.ThrowIfNull(operatorDecl);
-        var container = containingDecl ?? operatorDecl.ParentDecl;
-        var (module, declPath) = SplitContainer(container);
-        var (labels, types) = BuildParameterArrays(operatorDecl.UnderlyingMethod.CSSignature);
-        return new MemberDiagnosticIdentity
-        {
-            Module = module,
-            DeclPath = declPath,
-            Kind = BindingItemKind.Operator,
-            BaseName = operatorDecl.OperatorSymbol,
-            ParameterLabels = labels,
-            ParameterTypes = types,
-            Accessor = AccessorKind.None,
-            MangledSymbol = operatorDecl.UnderlyingMethod.MangledName,
-        };
-    }
+    public static MemberDiagnosticIdentity FromOperator(OperatorDecl operatorDecl, BaseDecl? containingDecl = null) =>
+        FromDeclId(DeclIdFactory.ForOperator(operatorDecl, containingDecl));
 
     /// <summary>
     /// Identity for an emitted-or-skipped type declaration. Type identity
     /// carries no parameter information.
     /// </summary>
-    public static MemberDiagnosticIdentity FromType(TypeDecl typeDecl)
-    {
-        ArgumentNullException.ThrowIfNull(typeDecl);
-        var (module, declPath) = SplitContainer(typeDecl.ParentDecl);
-        return Create(module, declPath, BindingItemKind.Type, typeDecl.Name);
-    }
+    public static MemberDiagnosticIdentity FromType(TypeDecl typeDecl) =>
+        FromDeclId(DeclIdFactory.ForType(typeDecl));
 
     /// <summary>
     /// Stable, deterministic string projection used for diagnostic output and
@@ -342,49 +343,6 @@ public readonly record struct MemberDiagnosticIdentity
         return hash.ToHashCode();
     }
 
-    private static (ImmutableArray<string> Labels, ImmutableArray<string> Types) BuildParameterArrays(
-        IReadOnlyList<ArgumentDecl> args)
-    {
-        if (args.Count == 0)
-            return (ImmutableArray<string>.Empty, ImmutableArray<string>.Empty);
-
-        var labels = ImmutableArray.CreateBuilder<string>(args.Count);
-        var types = ImmutableArray.CreateBuilder<string>(args.Count);
-        foreach (var arg in args)
-        {
-            labels.Add(arg.Name ?? string.Empty);
-            types.Add(arg.SwiftTypeSpec?.ToString() ?? string.Empty);
-        }
-        return (labels.MoveToImmutable(), types.MoveToImmutable());
-    }
-
-    private static (string Module, string DeclPath) SplitContainer(BaseDecl? containingDecl)
-    {
-        switch (containingDecl)
-        {
-            case TypeDecl typeDecl:
-                {
-                    // SwiftTypeName.ModuleQualifiedName has the form "Module.TypeChain"
-                    // (e.g. "TestModule.Loader.Payload"). Split off the leading
-                    // module token so callers can compare module + decl-path
-                    // independently.
-                    var qualified = typeDecl.SwiftTypeName.ModuleQualifiedName;
-                    var firstDot = qualified.IndexOf('.');
-                    return firstDot < 0
-                        ? (qualified, string.Empty)
-                        : (qualified.Substring(0, firstDot), qualified.Substring(firstDot + 1));
-                }
-            case ModuleDecl moduleDecl:
-                return (moduleDecl.Name, string.Empty);
-            case null:
-                return (string.Empty, string.Empty);
-            default:
-                {
-                    var moduleName = containingDecl.ModuleDecl?.Name ?? string.Empty;
-                    return (moduleName, containingDecl.Name);
-                }
-        }
-    }
 }
 
 /// <summary>

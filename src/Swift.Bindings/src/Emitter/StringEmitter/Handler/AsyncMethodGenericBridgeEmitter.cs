@@ -487,7 +487,7 @@ public static class AsyncMethodGenericBridgeEmitter
         // the `_XMA` suffix distinguishes async-generic-bridge symbols
         // from both `_XM` (sync generic bridge) and unsuffixed plain method wrappers.
         // Inter-emitter collision is impossible by the suffix convention.
-        if (!ctx.TryAddMethodWrapperSymbol(cdeclSymbol))
+        if (!ctx.TryAddMethodWrapperSymbol(cdeclSymbol, DeclIdFactory.ForMethod(env.MethodDecl)))
             return;
 
         var methodDecl = env.MethodDecl;

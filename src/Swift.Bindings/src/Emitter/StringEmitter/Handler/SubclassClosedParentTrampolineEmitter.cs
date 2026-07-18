@@ -231,7 +231,7 @@ public static class SubclassClosedParentTrampolineEmitter
         var cdeclSymbol = $"SBW_SCP_{moduleName}_{leafDecl.Name}_{method.Name}_{hash}";
 
         // Registry guard — every SBW_ wrapper symbol must be unique across the module.
-        if (!emissionContext.TryAddMethodWrapperSymbol(cdeclSymbol))
+        if (!emissionContext.TryAddMethodWrapperSymbol(cdeclSymbol, DeclIdFactory.ForMethod(method)))
             return;
 
         var swiftMethodName = NameProvider.ParserNameToSwift(method);

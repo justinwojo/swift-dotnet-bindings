@@ -37,7 +37,7 @@ public static class MetadataWrapperEmitter
         // one metadata accessor per type. The `SBW_GetMetadata_`-style
         // prefix is structurally distinct from method/property/constructor symbols, so the
         // per-kind metadata bucket is collision-safe by construction.
-        if (!ctx.TryAddMetadataWrapperSymbol(symbolName))
+        if (!ctx.TryAddMetadataWrapperSymbol(symbolName, typeDecl is TypeDecl td ? DeclIdFactory.ForType(td) : null))
             return;
 
         swiftWriter.WriteLine();

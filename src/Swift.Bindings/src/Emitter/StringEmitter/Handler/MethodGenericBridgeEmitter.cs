@@ -405,7 +405,7 @@ public static class MethodGenericBridgeEmitter
         // plain method wrapper (`SBW_{module}_{type}_{method}_{hash}`) and from the async
         // generic bridge (`_XMA`). Collision is impossible by suffix convention even for
         // the same method.
-        if (!ctx.TryAddMethodWrapperSymbol(cdeclSymbol))
+        if (!ctx.TryAddMethodWrapperSymbol(cdeclSymbol, DeclIdFactory.ForMethod(env.MethodDecl)))
             return; // Already emitted
 
         var methodDecl = env.MethodDecl;

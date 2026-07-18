@@ -626,6 +626,38 @@ public class SubscriptWrapperEmitterTests
     }
 
     [Fact]
+    public void AccessorWrapperOwners_JoinAgainstTheSubscriptReportingIdentity()
+    {
+        // The wrapper-symbol owner is only useful if it joins against the identity the
+        // reporting side stamps for the same accessor. Reporting spells subscript accessors
+        // SubscriptGetter/SubscriptSetter, and the accessor kind is a field of the canonical
+        // id — so registering the property-flavoured Getter/Setter here would silently
+        // produce an owner that can never match its own skip/report row.
+        var (swiftWriter, _, subscriptDecl, env, ctx) = CreateGetterTestSetup(
+            new NamedTypeSpec("Swift.Int"),
+            new[] { CreateIndexParam("index", new NamedTypeSpec("Swift.Int"), env: null) },
+            isClass: true);
+
+        const string getterSymbol = "SBW_SubGet_TestModule_MyType_join";
+        const string setterSymbol = "SBW_SubSet_TestModule_MyType_join";
+        SubscriptWrapperEmitter.EmitSwiftSubscriptGetterWrapper(swiftWriter, subscriptDecl, getterSymbol, env, ctx);
+        SubscriptWrapperEmitter.EmitSwiftSubscriptSetterWrapper(swiftWriter, subscriptDecl, setterSymbol, env, ctx);
+
+        Assert.True(ctx.TryGetWrapperSymbolOwner(getterSymbol, out var getterOwner));
+        Assert.True(ctx.TryGetWrapperSymbolOwner(setterSymbol, out var setterOwner));
+
+        Assert.Equal(
+            MemberDiagnosticIdentity.FromSubscript(subscriptDecl, AccessorKind.SubscriptGetter).ToDeclId(),
+            getterOwner.Decl);
+        Assert.Equal(
+            MemberDiagnosticIdentity.FromSubscript(subscriptDecl, AccessorKind.SubscriptSetter).ToDeclId(),
+            setterOwner.Decl);
+
+        // And the two accessors still separate — the axis has to discriminate, not just agree.
+        Assert.NotEqual(getterOwner, setterOwner);
+    }
+
+    [Fact]
     public void EmitGetterWrapper_ConstrainedGenericClassParent_ConcreteReturn_EmitsPwtAfterMetadata()
     {
         // Subscript counterpart of the property-getter SIGSEGV on constrained-generic

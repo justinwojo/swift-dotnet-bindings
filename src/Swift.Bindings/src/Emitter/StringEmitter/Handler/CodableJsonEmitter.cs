@@ -102,8 +102,8 @@ internal static class CodableJsonEmitter
         // to these synthetic Codable trampolines (one pair per Codable type per module).
         // No regular method or property wrapper produces a symbol with these suffixes;
         // per-kind method bucket is collision-safe.
-        emissionContext?.TryAddMethodWrapperSymbol(encodeSymbol);
-        emissionContext?.TryAddMethodWrapperSymbol(decodeSymbol);
+        emissionContext?.TryAddMethodWrapperSymbol(encodeSymbol, DeclIdFactory.ForType(structDecl));
+        emissionContext?.TryAddMethodWrapperSymbol(decodeSymbol, DeclIdFactory.ForType(structDecl));
 
         EmitSwiftTrampolines(swiftWriter, swiftQualifiedName, encodeSymbol, decodeSymbol, availability);
         EmitCSharpMembers(csWriter, structDecl, typeNameWithGenerics, encodeSymbol, decodeSymbol, wrapperLib);

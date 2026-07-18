@@ -240,7 +240,7 @@ public static class MethodClosureBridge
         // CallbackBaseName, not the method's own mangled name. That namespace is owned
         // exclusively by MethodClosureBridge / NestedClosureBridge and cannot collide
         // with any method/property/constructor wrapper. Per-kind method bucket is safe.
-        ctx.TryAddMethodWrapperSymbol(bridgeSilgenName);
+        ctx.TryAddMethodWrapperSymbol(bridgeSilgenName, DeclIdFactory.ForMethod(method));
 
         // Emit Swift wrapper
         EmitSwiftWrapper(swiftWriter, method, env, parentDecl, closures, passableNonClosureParams);

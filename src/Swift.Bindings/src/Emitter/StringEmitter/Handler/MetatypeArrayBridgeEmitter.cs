@@ -123,7 +123,7 @@ public static class MetatypeArrayBridgeEmitter
         methodDecl.StructuralIdentityKey = bridgeSourceKey;
         if (emissionContext != null &&
             !emissionContext.TryClaimWrapperSymbol(moduleName, methodDecl.Name,
-                bridgeSourceKey, cdeclSymbol))
+                bridgeSourceKey, cdeclSymbol, DeclIdFactory.ForMethod(methodDecl)))
         {
             return false;
         }

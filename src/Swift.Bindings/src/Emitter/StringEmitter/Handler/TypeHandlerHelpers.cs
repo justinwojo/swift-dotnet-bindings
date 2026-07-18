@@ -812,7 +812,7 @@ namespace BindingsGeneration
             var symbolName = GetEqualitySymbolName(_structDecl);
 
             // equality helpers live in the shared `_equality` bucket (also written by ClassHandler and EnumHandler). One helper per struct type; symbol name from GetEqualitySymbolName is unique per type, so cross-emitter collisions in the bucket are impossible by construction.
-            if (!_emissionContext.TryAddEqualityWrapperSymbol(symbolName))
+            if (!_emissionContext.TryAddEqualityWrapperSymbol(symbolName, DeclIdFactory.ForType(_structDecl)))
                 return symbolName; // Already emitted, return for C# P/Invoke
 
             var swiftTypeName = _structDecl.SwiftTypeName.ToString();

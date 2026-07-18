@@ -59,7 +59,8 @@ public static class TypeMetadataAccessorSkipGate
             SkipReason.IndeterminatePwtShape,
             details);
         UnsupportedCommentEmitter.EmitTypeSkipped(
-            csWriter, typeDecl.Name, SkipReason.IndeterminatePwtShape, details);
+            csWriter, typeDecl.Name, SkipReason.IndeterminatePwtShape, details,
+            DeclIdFactory.ForType(typeDecl));
         return true;
     }
 }

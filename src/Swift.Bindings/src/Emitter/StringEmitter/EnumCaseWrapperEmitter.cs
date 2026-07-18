@@ -211,7 +211,7 @@ public static class EnumCaseWrapperEmitter
         // method/property/subscript emitter ever registers symbols here. The cdecl symbol
         // is unique per enum case overload by construction, so the per-kind dedup gate
         // is collision-safe without routing through the structural-identity registry.
-        if (!ctx.TryAddConstructorWrapperSymbol(symbolName))
+        if (!ctx.TryAddConstructorWrapperSymbol(symbolName, DeclIdFactory.ForType(enumDecl)))
             return; // Already emitted
 
         var moduleDecl = enumDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(enumDecl.ModuleDecl));

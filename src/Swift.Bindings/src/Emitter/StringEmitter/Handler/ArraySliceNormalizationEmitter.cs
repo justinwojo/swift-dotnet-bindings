@@ -677,7 +677,7 @@ public static class ArraySliceNormalizationEmitter
         // MethodDecl whose mangled name has been rewritten to use the normalized (non-
         // slice) ABI. That rewritten mangled name is unique and disjoint from the
         // original method's symbol, so it cannot alias any non-normalized wrapper.
-        emissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol);
+        emissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol, DeclIdFactory.ForMethod(originalMethodDecl));
 
         // @_silgen_name and @_cdecl wrappers are top-level Swift functions (or live in a
         // foreign extension that won't pick up the original declaration's @available); both

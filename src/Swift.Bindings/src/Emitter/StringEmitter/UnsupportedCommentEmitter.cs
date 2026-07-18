@@ -12,7 +12,20 @@ public static class UnsupportedCommentEmitter
     /// <summary>
     /// Emits an unsupported comment for a skipped type.
     /// </summary>
-    public static void EmitTypeSkipped(CSharpWriter csWriter, string typeName, SkipReason reason, string? details = null)
+    /// <param name="declId">
+    /// Identity of the dropped type, recorded alongside the comment so a consumer can correlate the
+    /// drop with the declaration across regenerations. Every production call site has the
+    /// <see cref="TypeDecl"/> in scope and passes <c>DeclIdFactory.ForType(decl)</c>; the name-only
+    /// fallback below exists for tests and ad-hoc callers and is strictly weaker (no module, no
+    /// containing-type chain), so a new call site that omits it silently degrades the join key.
+    /// Purely additive — the emitted comment text does not depend on it.
+    /// </param>
+    public static void EmitTypeSkipped(
+        CSharpWriter csWriter,
+        string typeName,
+        SkipReason reason,
+        string? details = null,
+        DeclId? declId = null)
     {
         var description = WorkaroundRecommendations.GetDescription(reason) ?? reason.ToString();
         var comment = $"// Unsupported: type '{typeName}' — {description}";
@@ -21,7 +34,9 @@ public static class UnsupportedCommentEmitter
         csWriter.WriteLine(comment);
         // Finding 53: a comment-drop is a degradation — surface it loudly (SWIFTBIND025) via the
         // ambient collector. Strip the leading "// " so the diagnostic reads cleanly.
-        ReportCollector.RecordUnsupportedCommentDrop(comment.Substring(3));
+        ReportCollector.RecordUnsupportedCommentDrop(
+            comment.Substring(3),
+            declId ?? DeclId.Create(module: null, declPath: null, BindingItemKind.Type, typeName));
     }
 
     /// <summary>
@@ -41,7 +56,17 @@ public static class UnsupportedCommentEmitter
     /// because parameter types are not part of it; the per-overload accounting lives in the structured
     /// <c>skippedItems</c> report channel, so the loud comment channel intentionally summarizes them.
     /// </param>
-    public static void EmitMemberSkipped(CSharpWriter csWriter, string memberName, BindingItemKind kind, SkipReason reason, string? details = null, BaseDecl? containingDecl = null)
+    /// <param name="declId">
+    /// Identity of the dropped member. The default is the coarse <c>(kind, name, containing decl)</c>
+    /// id below, and for this channel that is the RIGHT granularity, not a shortfall: a row here is
+    /// keyed by its comment text, which omits parameter types, so one row covers every same-named
+    /// overload dropped for the same reason. The coarse id describes exactly that group; a precise
+    /// per-overload id would name one arbitrary member of it and imply the siblings were fine.
+    /// Per-overload accounting is the structured <c>skippedItems</c> channel's job. Pass an explicit
+    /// id only when the call site knows its comment text is already unique to one declaration.
+    /// Purely additive — the emitted comment text does not depend on it.
+    /// </param>
+    public static void EmitMemberSkipped(CSharpWriter csWriter, string memberName, BindingItemKind kind, SkipReason reason, string? details = null, BaseDecl? containingDecl = null, DeclId? declId = null)
     {
         var description = WorkaroundRecommendations.GetDescription(reason) ?? reason.ToString();
         var kindLabel = kind.ToString().ToLowerInvariant();
@@ -54,7 +79,9 @@ public static class UnsupportedCommentEmitter
         // Finding 53: a comment-drop is a degradation — surface it loudly (SWIFTBIND025) via the
         // ambient collector. Strip the leading "// " so the diagnostic reads cleanly. The qualified
         // name keeps the dedup key distinct per declaring type.
-        ReportCollector.RecordUnsupportedCommentDrop(comment.Substring(3));
+        ReportCollector.RecordUnsupportedCommentDrop(
+            comment.Substring(3),
+            declId ?? DeclIdFactory.ForMember(kind, memberName, containingDecl));
     }
 
     /// <summary>

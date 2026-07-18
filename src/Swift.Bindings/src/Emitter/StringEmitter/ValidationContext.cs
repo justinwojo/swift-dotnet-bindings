@@ -69,6 +69,18 @@ public sealed class ValidationResult
     /// </summary>
     public bool IsRoutedElsewhere { get; }
 
+    /// <summary>
+    /// Identity of the declaration this verdict is about, when the validating call site stamped
+    /// one via <see cref="WithSubject"/>. Null on a bare verdict — the shared
+    /// <see cref="Emit"/> singleton in particular is subject-less by construction.
+    /// </summary>
+    /// <remarks>
+    /// A verdict travels away from the decl that produced it (the pipeline returns it, a handler
+    /// acts on it later), so carrying the subject is what lets a downstream consumer name what was
+    /// validated without re-deriving it — which is the identity the future denylist gate keys on.
+    /// </remarks>
+    public DeclId? Subject { get; private init; }
+
     private ValidationResult(bool shouldEmit, SkipReason? reason, string? details, bool isSynthesized, bool isRoutedElsewhere)
     {
         ShouldEmit = shouldEmit;
@@ -77,6 +89,17 @@ public sealed class ValidationResult
         IsSynthesized = isSynthesized;
         IsRoutedElsewhere = isRoutedElsewhere;
     }
+
+    /// <summary>
+    /// Returns a copy of this verdict stamped with <paramref name="subject"/>.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately a copy, never an in-place assignment: <see cref="Emit"/> is a process-shared
+    /// singleton returned by every passing validation, so mutating the instance would let one
+    /// member's identity leak onto every other member's verdict.
+    /// </remarks>
+    public ValidationResult WithSubject(DeclId subject) =>
+        new(ShouldEmit, Reason, Details, IsSynthesized, IsRoutedElsewhere) { Subject = subject };
 
     public static readonly ValidationResult Emit = new(true, null, null, false, false);
 

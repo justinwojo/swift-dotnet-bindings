@@ -400,8 +400,8 @@ public sealed class ModuleEmissionContext
     public bool HasEmittedProtocolExtSymbol(string symbol) => _protocolExtEmittedSymbols.Contains(symbol);
 
     /// <summary>Adds a protocol extension symbol. Returns true if newly added.</summary>
-    public bool TryAddProtocolExtSymbol(string symbol) =>
-        RegisterWrapperSymbolInternal(_protocolExtEmittedSymbols, symbol);
+    public bool TryAddProtocolExtSymbol(string symbol, DeclId? owner = null) =>
+        RegisterWrapperSymbolInternal(_protocolExtEmittedSymbols, symbol, owner);
 
     /// <summary>Adds a single Swift wrapper line for protocol extensions.</summary>
     public void AddProtocolExtWrapperLine(string line) => _protocolExtWrapperLines.Add(line);
@@ -485,8 +485,8 @@ public sealed class ModuleEmissionContext
     public bool HasEmittedForeignExtSymbol(string symbol) => _foreignExtEmittedSymbols.Contains(symbol);
 
     /// <summary>Adds a foreign extension symbol. Returns true if newly added.</summary>
-    public bool TryAddForeignExtSymbol(string symbol) =>
-        RegisterWrapperSymbolInternal(_foreignExtEmittedSymbols, symbol);
+    public bool TryAddForeignExtSymbol(string symbol, DeclId? owner = null) =>
+        RegisterWrapperSymbolInternal(_foreignExtEmittedSymbols, symbol, owner);
 
     /// <summary>Adds a single Swift wrapper line for foreign type extensions.</summary>
     public void AddForeignExtWrapperLine(string line) => _foreignExtWrapperLines.Add(line);
@@ -1236,6 +1236,17 @@ public sealed class ModuleEmissionContext
 
     private readonly HashSet<string> _registeredWrapperSymbols = new(StringComparer.Ordinal);
 
+    // symbol -> the artifact that owns it. This is the reverse map a Swift diagnostic needs:
+    // swiftc names a symbol, and attribution has to answer "which declaration produced it".
+    //
+    // Ownership is passed in EXPLICITLY by the registering emitter rather than read from an
+    // ambient "currently emitting" scope. An ambient stack is less code at the call sites, but
+    // its failure mode is a symbol silently attributed to the enclosing type or module — and a
+    // wrong owner is far worse than a missing one for a map that will drive denylisting: it
+    // poisons a declaration that was never at fault. With explicit owners, a call site that
+    // hasn't been threaded yet simply has no entry, which every consumer can detect.
+    private readonly Dictionary<string, ArtifactId> _wrapperSymbolOwners = new(StringComparer.Ordinal);
+
     /// <summary>
     /// Returns true when wrapper-emit registered the given Swift symbol via any of
     /// the per-kind TryAdd*WrapperSymbol methods. Consulted by
@@ -1252,7 +1263,36 @@ public sealed class ModuleEmissionContext
     /// </summary>
     public IReadOnlyCollection<string> RegisteredWrapperSymbols => _registeredWrapperSymbols;
 
-    private bool RegisterWrapperSymbolInternal(HashSet<string> kindSet, string symbol)
+    /// <summary>
+    /// Looks up the artifact that registered <paramref name="symbol"/>. Returns false when the
+    /// symbol is unregistered OR when its registering call site has not been threaded with an
+    /// owner yet — callers must treat "no owner" as "unknown", never as "owned by nobody".
+    /// </summary>
+    public bool TryGetWrapperSymbolOwner(string symbol, out ArtifactId owner)
+    {
+        if (string.IsNullOrEmpty(symbol))
+        {
+            owner = default;
+            return false;
+        }
+        return _wrapperSymbolOwners.TryGetValue(symbol, out owner);
+    }
+
+    /// <summary>Snapshot of every owned wrapper symbol, for diagnostics and tests.</summary>
+    public IReadOnlyDictionary<string, ArtifactId> WrapperSymbolOwners => _wrapperSymbolOwners;
+
+    /// <summary>
+    /// The one place a symbol enters the unified registry, and therefore the one place ownership
+    /// can be recorded. Both <see cref="RegisterWrapperSymbolInternal"/> and
+    /// <see cref="TryClaimWrapperSymbol"/> route through it: the claim path used to call
+    /// <c>_registeredWrapperSymbols.Add</c> directly, which meant the emitter responsible for most
+    /// ordinary method wrappers bypassed the funnel entirely.
+    /// </summary>
+    /// <remarks>
+    /// Ownership is recorded only on a winning registration, so the loser of a collision never
+    /// overwrites the surviving artifact's claim.
+    /// </remarks>
+    private bool AddWrapperSymbolInternal(string symbol, DeclId? owner, ArtifactRole role)
     {
         // Cross-kind collision check via the unified registry — two emitters (e.g.
         // MethodWrapperEmitter + ProtocolExtensionEmitter for the same protocol-extension
@@ -1262,6 +1302,21 @@ public sealed class ModuleEmissionContext
         // set is the linker's view; if it already has this symbol, reject the second
         // registration so the caller skips its emission.
         if (!_registeredWrapperSymbols.Add(symbol))
+            return false;
+
+        if (owner is { } declId)
+            _wrapperSymbolOwners[symbol] = ArtifactId.Create(declId, role);
+
+        return true;
+    }
+
+    private bool RegisterWrapperSymbolInternal(
+        HashSet<string> kindSet,
+        string symbol,
+        DeclId? owner = null,
+        ArtifactRole role = ArtifactRole.SwiftWrapper)
+    {
+        if (!AddWrapperSymbolInternal(symbol, owner, role))
             return false;
         kindSet.Add(symbol);
         return true;
@@ -1280,8 +1335,8 @@ public sealed class ModuleEmissionContext
     public bool HasConstructorWrapperSymbol(string symbol) => _constructorWrapperSymbols.Contains(symbol);
 
     /// <summary>Adds a constructor wrapper symbol. Returns true if newly added.</summary>
-    public bool TryAddConstructorWrapperSymbol(string symbol) =>
-        RegisterWrapperSymbolInternal(_constructorWrapperSymbols, symbol);
+    public bool TryAddConstructorWrapperSymbol(string symbol, DeclId? owner = null) =>
+        RegisterWrapperSymbolInternal(_constructorWrapperSymbols, symbol, owner);
 
     // ==================== ObjC Override Property Wrapper ====================
 
@@ -1291,24 +1346,24 @@ public sealed class ModuleEmissionContext
     public bool HasObjCPropertyWrapperSymbol(string symbol) => _objcPropertyWrapperSymbols.Contains(symbol);
 
     /// <summary>Adds an ObjC override property wrapper symbol. Returns true if newly added.</summary>
-    public bool TryAddObjCPropertyWrapperSymbol(string symbol) =>
-        RegisterWrapperSymbolInternal(_objcPropertyWrapperSymbols, symbol);
+    public bool TryAddObjCPropertyWrapperSymbol(string symbol, DeclId? owner = null) =>
+        RegisterWrapperSymbolInternal(_objcPropertyWrapperSymbols, symbol, owner);
 
     // ==================== Property @_cdecl Wrapper ====================
 
     private readonly HashSet<string> _propertyWrapperSymbols = new();
 
     /// <summary>Adds a property @_cdecl wrapper symbol. Returns true if newly added (not a duplicate).</summary>
-    public bool TryAddPropertyWrapperSymbol(string symbol) =>
-        RegisterWrapperSymbolInternal(_propertyWrapperSymbols, symbol);
+    public bool TryAddPropertyWrapperSymbol(string symbol, DeclId? owner = null) =>
+        RegisterWrapperSymbolInternal(_propertyWrapperSymbols, symbol, owner);
 
     // ==================== Method @_cdecl Wrapper ====================
 
     private readonly HashSet<string> _methodWrapperSymbols = new();
 
     /// <summary>Adds a method @_cdecl wrapper symbol. Returns true if newly added (not a duplicate).</summary>
-    public bool TryAddMethodWrapperSymbol(string symbol) =>
-        RegisterWrapperSymbolInternal(_methodWrapperSymbols, symbol);
+    public bool TryAddMethodWrapperSymbol(string symbol, DeclId? owner = null) =>
+        RegisterWrapperSymbolInternal(_methodWrapperSymbols, symbol, owner);
 
     // ============ Existential-bypass `Create` factory name reservation ============
 
@@ -1593,13 +1648,23 @@ public sealed class ModuleEmissionContext
     /// string for the protocol-extension path. See the section header above
     /// for the rules each emitter follows.
     /// </summary>
-    public bool TryClaimWrapperSymbol(string typeName, string methodName, string sourceKey, string symbol)
+    /// <param name="owner">
+    /// Identity of the declaration whose wrapper this is, recorded against
+    /// <paramref name="symbol"/> for later attribution. Optional: an un-threaded call site leaves
+    /// the symbol unowned rather than mis-owned.
+    /// </param>
+    public bool TryClaimWrapperSymbol(
+        string typeName,
+        string methodName,
+        string sourceKey,
+        string symbol,
+        DeclId? owner = null)
     {
         var identity = (typeName ?? string.Empty, methodName ?? string.Empty, sourceKey ?? string.Empty);
         if (!_wrapperStructuralIdentities.Add(identity))
             return false;
 
-        if (!string.IsNullOrEmpty(symbol) && !_registeredWrapperSymbols.Add(symbol))
+        if (!string.IsNullOrEmpty(symbol) && !AddWrapperSymbolInternal(symbol, owner, ArtifactRole.SwiftWrapper))
         {
             // The structural slot is now claimed but the symbol string was
             // already registered by some other path (e.g. constructor wrapper
@@ -1667,8 +1732,8 @@ public sealed class ModuleEmissionContext
     private readonly HashSet<string> _metadataWrapperSymbols = new();
 
     /// <summary>Adds a metadata @_cdecl wrapper symbol. Returns true if newly added (not a duplicate).</summary>
-    public bool TryAddMetadataWrapperSymbol(string symbol) =>
-        MarkSharedSwiftArtifact(RegisterWrapperSymbolInternal(_metadataWrapperSymbols, symbol));
+    public bool TryAddMetadataWrapperSymbol(string symbol, DeclId? owner = null) =>
+        MarkSharedSwiftArtifact(RegisterWrapperSymbolInternal(_metadataWrapperSymbols, symbol, owner, ArtifactRole.MetadataHelper));
 
     // ==================== Enum Handler RawRepresentable ====================
 
@@ -1678,32 +1743,32 @@ public sealed class ModuleEmissionContext
     public bool HasEnumRawRepWrapperSymbol(string symbol) => _enumRawRepSymbols.Contains(symbol);
 
     /// <summary>Adds an enum RawRepresentable wrapper symbol. Returns true if newly added.</summary>
-    public bool TryAddEnumRawRepWrapperSymbol(string symbol) =>
-        MarkSharedSwiftArtifact(RegisterWrapperSymbolInternal(_enumRawRepSymbols, symbol));
+    public bool TryAddEnumRawRepWrapperSymbol(string symbol, DeclId? owner = null) =>
+        MarkSharedSwiftArtifact(RegisterWrapperSymbolInternal(_enumRawRepSymbols, symbol, owner, ArtifactRole.MetadataHelper));
 
     // ==================== Equality @_cdecl Wrapper ====================
 
     private readonly HashSet<string> _equalityWrapperSymbols = new();
 
     /// <summary>Adds an equality @_cdecl wrapper symbol. Returns true if newly added (not a duplicate).</summary>
-    public bool TryAddEqualityWrapperSymbol(string symbol) =>
-        MarkSharedSwiftArtifact(RegisterWrapperSymbolInternal(_equalityWrapperSymbols, symbol));
+    public bool TryAddEqualityWrapperSymbol(string symbol, DeclId? owner = null) =>
+        MarkSharedSwiftArtifact(RegisterWrapperSymbolInternal(_equalityWrapperSymbols, symbol, owner, ArtifactRole.MetadataHelper));
 
     // ==================== Metadata Accessor Helper ====================
 
     private readonly HashSet<string> _metadataAccessorHelperSymbols = new();
 
     /// <summary>Adds a metadata accessor helper symbol. Returns true if newly added (not a duplicate).</summary>
-    public bool TryAddMetadataAccessorHelper(string typeMangledName) =>
-        MarkSharedSwiftArtifact(RegisterWrapperSymbolInternal(_metadataAccessorHelperSymbols, typeMangledName));
+    public bool TryAddMetadataAccessorHelper(string typeMangledName, DeclId? owner = null) =>
+        MarkSharedSwiftArtifact(RegisterWrapperSymbolInternal(_metadataAccessorHelperSymbols, typeMangledName, owner, ArtifactRole.MetadataHelper));
 
     // ==================== Optional Tag Helper ====================
 
     private readonly HashSet<string> _optionalTagHelperSymbols = new();
 
     /// <summary>Adds an Optional tag helper @_cdecl symbol. Returns true if newly added (not a duplicate).</summary>
-    public bool TryAddOptionalTagHelperSymbol(string symbol) =>
-        MarkSharedSwiftArtifact(RegisterWrapperSymbolInternal(_optionalTagHelperSymbols, symbol));
+    public bool TryAddOptionalTagHelperSymbol(string symbol, DeclId? owner = null) =>
+        MarkSharedSwiftArtifact(RegisterWrapperSymbolInternal(_optionalTagHelperSymbols, symbol, owner, ArtifactRole.MetadataHelper));
 
     // ==================== Direct Helper Symbols ====================
     //
@@ -1717,8 +1782,8 @@ public sealed class ModuleEmissionContext
 
     /// <summary>Adds a direct @_cdecl helper symbol (non-method/property/constructor).
     /// Returns true if newly added (not a duplicate).</summary>
-    public bool TryAddDirectHelperWrapperSymbol(string symbol) =>
-        RegisterWrapperSymbolInternal(_directHelperSymbols, symbol);
+    public bool TryAddDirectHelperWrapperSymbol(string symbol, DeclId? owner = null) =>
+        RegisterWrapperSymbolInternal(_directHelperSymbols, symbol, owner);
 
     // ==================== Emission Report Accumulators ====================
 

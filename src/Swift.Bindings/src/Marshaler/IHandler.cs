@@ -246,7 +246,8 @@ namespace BindingsGeneration
                     {
                         ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.UnderscorePrefixInternal,
                             "Underscore-prefixed type suppressed from public API.");
-                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.UnderscorePrefixInternal);
+                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.UnderscorePrefixInternal,
+                            declId: DeclIdFactory.ForType(typeDecl));
                         continue;
                     }
 
@@ -260,7 +261,8 @@ namespace BindingsGeneration
                     {
                         ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.ModuleInternal,
                             "@_spi type suppressed from bindings (not part of public API).");
-                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.ModuleInternal, "@_spi type");
+                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.ModuleInternal, "@_spi type",
+                            DeclIdFactory.ForType(typeDecl));
                         continue;
                     }
 
@@ -283,7 +285,7 @@ namespace BindingsGeneration
                         ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.OwnedByAppleSupplement,
                             $"Type '{typeDecl.SwiftTypeName.ModuleQualifiedName}' is owned by SwiftBindings.Apple; consume the supplement projection instead.");
                         UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.OwnedByAppleSupplement,
-                            "owned by SwiftBindings.Apple");
+                            "owned by SwiftBindings.Apple", DeclIdFactory.ForType(typeDecl));
                         continue;
                     }
                 }
@@ -294,7 +296,8 @@ namespace BindingsGeneration
                     {
                         ReportCollector.RecordTypeSkipped(structDecl, SkipReason.SwiftUIView,
                             "Type conforms to SwiftUI.View. Bridge generation available.");
-                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, structDecl.Name, SkipReason.SwiftUIView);
+                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, structDecl.Name, SkipReason.SwiftUIView,
+                            declId: DeclIdFactory.ForType(structDecl));
                         SwiftUIBridgeCollector.Collect(structDecl, context.GetEmissionContext());
                         continue;
                     }
@@ -326,7 +329,8 @@ namespace BindingsGeneration
                     {
                         _logger.LogWarning($"No handler found for method {structDecl.Name}");
                         ReportCollector.RecordTypeSkipped(structDecl, SkipReason.MissingHandler, "No type handler found for struct.");
-                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, structDecl.Name, SkipReason.MissingHandler);
+                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, structDecl.Name, SkipReason.MissingHandler,
+                            declId: DeclIdFactory.ForType(structDecl));
                     }
                 }
                 else if (baseDecl is ClassDecl classDecl)
@@ -335,7 +339,8 @@ namespace BindingsGeneration
                     {
                         ReportCollector.RecordTypeSkipped(classDecl, SkipReason.SwiftUIView,
                             "Type conforms to SwiftUI.View. Bridge generation available.");
-                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, classDecl.Name, SkipReason.SwiftUIView);
+                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, classDecl.Name, SkipReason.SwiftUIView,
+                            declId: DeclIdFactory.ForType(classDecl));
                         SwiftUIBridgeCollector.Collect(classDecl, context.GetEmissionContext());
                         continue;
                     }
@@ -350,7 +355,8 @@ namespace BindingsGeneration
                     {
                         _logger.LogWarning($"No handler found for method {classDecl.Name}");
                         ReportCollector.RecordTypeSkipped(classDecl, SkipReason.MissingHandler, "No type handler found for class.");
-                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, classDecl.Name, SkipReason.MissingHandler);
+                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, classDecl.Name, SkipReason.MissingHandler,
+                            declId: DeclIdFactory.ForType(classDecl));
                     }
                 }
                 else if (baseDecl is ProtocolDecl protocolDecl)
@@ -365,7 +371,8 @@ namespace BindingsGeneration
                     {
                         _logger.LogWarning($"No handler found for method {protocolDecl.Name}");
                         ReportCollector.RecordTypeSkipped(protocolDecl, SkipReason.MissingHandler, "No type handler found for protocol.");
-                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, protocolDecl.Name, SkipReason.MissingHandler);
+                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, protocolDecl.Name, SkipReason.MissingHandler,
+                            declId: DeclIdFactory.ForType(protocolDecl));
                     }
                 }
                 else if (baseDecl is EnumDecl enumDecl)
@@ -397,7 +404,8 @@ namespace BindingsGeneration
                     {
                         _logger.LogWarning($"No handler found for enum {enumDecl.Name}");
                         ReportCollector.RecordTypeSkipped(enumDecl, SkipReason.MissingHandler, "No type handler found for enum.");
-                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, enumDecl.Name, SkipReason.MissingHandler);
+                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, enumDecl.Name, SkipReason.MissingHandler,
+                            declId: DeclIdFactory.ForType(enumDecl));
                     }
                 }
                 else if (baseDecl is MethodDecl methodDecl)

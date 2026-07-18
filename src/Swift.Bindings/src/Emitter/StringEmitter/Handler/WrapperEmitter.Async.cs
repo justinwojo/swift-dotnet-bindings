@@ -1294,7 +1294,7 @@ namespace BindingsGeneration
             // Per-kind method bucket is collision-safe.
             if (_emissionContext != null && _env.MethodDecl.UsesCdeclMethodWrapper)
             {
-                _emissionContext.TryAddMethodWrapperSymbol(NameProvider.GetMangledName(_env.EmissionSymbol, _env.MethodDecl));
+                _emissionContext.TryAddMethodWrapperSymbol(NameProvider.GetMangledName(_env.EmissionSymbol, _env.MethodDecl), DeclIdFactory.ForMethod(_env.MethodDecl));
             }
 
             swiftWriter.WriteLine(BuildSwiftAsyncWrapperCode(

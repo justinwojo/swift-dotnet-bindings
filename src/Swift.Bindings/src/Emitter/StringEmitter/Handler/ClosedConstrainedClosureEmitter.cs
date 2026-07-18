@@ -339,7 +339,7 @@ public static class ClosedConstrainedClosureEmitter
             p.IsClosure ? $"c:{ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(p.Arg.SwiftTypeSpec)}"
                         : $"v:{p.SwiftScalar}"));
         var sourceKey = $"closed-constrained-closure::method::{plan.Parent.SwiftTypeName.ModuleQualifiedName}::{plan.ConcreteAnchor.ModuleQualifiedName}::instance::{method.Name}::{paramSig}";
-        if (!emissionContext.TryClaimWrapperSymbol(plan.ClosedSwiftType, method.Name, sourceKey, cdeclSymbol))
+        if (!emissionContext.TryClaimWrapperSymbol(plan.ClosedSwiftType, method.Name, sourceKey, cdeclSymbol, DeclIdFactory.ForMethod(method)))
         {
             logger.LogDebug(
                 "ClosedConstrainedClosure: identity already claimed for {Type}.{Method} — skipping duplicate specialization.",

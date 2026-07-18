@@ -64,6 +64,12 @@ public static class ReportCollector
         internal readonly HashSet<string> UnsupportedCommentDropEntries = new(StringComparer.Ordinal);
         internal readonly HashSet<string> ObjectDegradationEntries = new(StringComparer.Ordinal);
 
+        // Canonical DeclId per comment-drop description, when the emitting site had a declaration
+        // in scope. Keyed by the same description that drives the dedup set above, so the two
+        // stay in lockstep; first writer wins, which is deterministic because the description is
+        // itself derived from the decl.
+        internal readonly Dictionary<string, string> UnsupportedCommentDropDeclIds = new(StringComparer.Ordinal);
+
         // F10 Stage 20: Apple-framework reference types bridged to their ObjC class purely by the
         // naming-convention heuristic (no database record) — see MarshallingHelpers.IsObjCPrefixBridgeCandidate.
         // Unlike the two degradation sets above, this is a SUCCESSFUL bridge, so it is recorded for
@@ -142,6 +148,15 @@ public static class ReportCollector
             // diagnostics emitted from the report block.
             report.UnsupportedCommentDrops.AddRange(
                 session.UnsupportedCommentDropEntries.OrderBy(x => x, StringComparer.Ordinal));
+            // Parallel identity-carrying view of the same drops, in the same order.
+            report.UnsupportedCommentDropDetails.AddRange(
+                session.UnsupportedCommentDropEntries
+                    .OrderBy(x => x, StringComparer.Ordinal)
+                    .Select(description => new UnsupportedCommentDropItem
+                    {
+                        Description = description,
+                        DeclId = session.UnsupportedCommentDropDeclIds.GetValueOrDefault(description),
+                    }));
             report.ObjectDegradations.AddRange(
                 session.ObjectDegradationEntries.OrderBy(x => x, StringComparer.Ordinal));
             // F10 Stage 20: flow the ObjC-prefix bridge guesses onto the report (sorted) so they
@@ -225,6 +240,7 @@ public static class ReportCollector
                 Details = details,
                 RecommendedWorkaround = WorkaroundRecommendations.GetRecommendation(reason),
                 Position = position,
+                DeclId = DeclIdFactory.ForType(typeDecl).Canonical,
             });
         }
     }
@@ -542,6 +558,7 @@ public static class ReportCollector
                 Details = details,
                 RecommendedWorkaround = WorkaroundRecommendations.GetRecommendation(reason),
                 Position = position,
+                DeclId = identity.ToDeclId().Canonical,
             });
         }
     }
@@ -598,7 +615,7 @@ public static class ReportCollector
     /// comment text minus its leading <c>// </c>, used as the dedup key so the loud SWIFTBIND025
     /// diagnostic fires once per distinct drop. No-op outside an active report session.
     /// </summary>
-    public static void RecordUnsupportedCommentDrop(string description)
+    public static void RecordUnsupportedCommentDrop(string description, DeclId? declId = null)
     {
         var session = Current;
         if (session == null || string.IsNullOrEmpty(description))
@@ -607,6 +624,8 @@ public static class ReportCollector
         lock (session.Sync)
         {
             session.UnsupportedCommentDropEntries.Add(description);
+            if (declId is { } id)
+                session.UnsupportedCommentDropDeclIds.TryAdd(description, id.Canonical);
         }
     }
 

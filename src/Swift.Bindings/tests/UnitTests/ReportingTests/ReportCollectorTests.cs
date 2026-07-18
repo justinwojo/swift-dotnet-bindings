@@ -894,6 +894,76 @@ public class ReportCollectorTests
         ModuleDecl = moduleDecl
     };
 
+    // ==================== DeclId on report rows ====================
+
+    [Fact]
+    public void RecordTypeSkipped_StampsTheTypesDeclIdOnTheRow()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordTypeSkipped(classDecl, SkipReason.UnsupportedType, "test");
+
+        var report = ReportCollector.Complete();
+        var row = Assert.Single(report!.SkippedItems);
+        Assert.Equal(DeclIdFactory.ForType(classDecl).Canonical, row.DeclId);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void RecordMemberSkipped_StampsTheMembersDeclIdOnTheRow()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberSkipped(
+            BindingItemKind.Method, "Fetch", classDecl, SkipReason.UnsupportedExistential, "test");
+
+        var report = ReportCollector.Complete();
+        var row = Assert.Single(report!.SkippedItems);
+        Assert.Equal(
+            DeclIdFactory.ForMember(BindingItemKind.Method, "Fetch", classDecl).Canonical,
+            row.DeclId);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void RecordUnsupportedCommentDrop_ProjectsDescriptionsWithTheirDeclIds()
+    {
+        // The drop list has always carried descriptions; the detail list pairs each one with the
+        // declaration it came from so a "why is this member missing?" question is answerable.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var declId = DeclIdFactory.ForType(classDecl);
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordUnsupportedCommentDrop("Loader: unsupported type", declId);
+        ReportCollector.RecordUnsupportedCommentDrop("Loader: unsupported type", declId); // dedups
+        ReportCollector.RecordUnsupportedCommentDrop("anonymous drop");                   // no owner
+
+        var report = ReportCollector.Complete();
+        Assert.Equal(2, report!.UnsupportedCommentDropDetails.Count);
+
+        var owned = report.UnsupportedCommentDropDetails
+            .Single(d => d.Description == "Loader: unsupported type");
+        Assert.Equal(declId.Canonical, owned.DeclId);
+
+        var unowned = report.UnsupportedCommentDropDetails
+            .Single(d => d.Description == "anonymous drop");
+        Assert.Null(unowned.DeclId);
+
+        // The pre-existing description list is unchanged in content.
+        Assert.Equal(
+            report.UnsupportedCommentDropDetails.Select(d => d.Description),
+            report.UnsupportedCommentDrops);
+
+        ReportCollector.Reset();
+    }
+
     /// <summary>
     /// Simple ILogger that captures log messages for assertions.
     /// </summary>

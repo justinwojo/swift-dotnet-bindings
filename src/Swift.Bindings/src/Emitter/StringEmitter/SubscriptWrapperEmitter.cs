@@ -177,7 +177,13 @@ public static class SubscriptWrapperEmitter
         // but Swift's mangling shapes subscript accessors with a distinct `_subscript`
         // discriminator that is structurally disjoint from any property/method/constructor
         // mangling. The per-kind dedup gate is collision-safe.
-        if (!ctx.TryAddPropertyWrapperSymbol(symbolName))
+        // Attribute on the accessor axis so the getter and setter wrappers of one subscript
+        // do not collapse onto a single ArtifactId. Subscripts take the SubscriptGetter/
+        // SubscriptSetter kinds, not the property Getter/Setter ones: every report and skip
+        // row for a subscript accessor is built with those, and the accessor kind is a field
+        // of the canonical id, so the property kinds would produce an owner id that can never
+        // join against the reporting identity for the same accessor.
+        if (!ctx.TryAddPropertyWrapperSymbol(symbolName, DeclIdFactory.ForSubscript(subscriptDecl, AccessorKind.SubscriptGetter)))
             return; // Already emitted
 
         var parentTypeDecl = env.ParentDecl as TypeDecl;
@@ -372,7 +378,9 @@ public static class SubscriptWrapperEmitter
         // subscript setters carry Swift's `_subscript`-discriminated
         // setter mangling — disjoint from getters, properties, methods, and constructors.
         // The per-kind dedup gate is collision-safe.
-        if (!ctx.TryAddPropertyWrapperSymbol(symbolName))
+        // Attributed on the accessor axis, with the subscript-specific kind, for the same
+        // reasons the getter is.
+        if (!ctx.TryAddPropertyWrapperSymbol(symbolName, DeclIdFactory.ForSubscript(subscriptDecl, AccessorKind.SubscriptSetter)))
             return; // Already emitted
 
         var parentTypeDecl = env.ParentDecl as TypeDecl;

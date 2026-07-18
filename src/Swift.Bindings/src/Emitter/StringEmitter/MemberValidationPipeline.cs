@@ -60,7 +60,16 @@ public class MemberValidationPipeline
     /// Consolidates: SPI protection, implicit+overriding constructor, synthesized protocol method,
     /// and ShouldSkipMethodEmission.
     /// </summary>
-    public ValidationResult ValidateMethodEmission(MethodDecl methodDecl, ValidationContext? context)
+    /// <remarks>
+    /// Stamps the validated declaration's identity onto whatever verdict the gates produce. Done
+    /// once here rather than at each of the ~40 <c>return</c> sites below: a per-arm stamp is a
+    /// standing invitation for a new gate to forget one, and a verdict that reaches a consumer
+    /// without a subject is indistinguishable from one about a different member.
+    /// </remarks>
+    public ValidationResult ValidateMethodEmission(MethodDecl methodDecl, ValidationContext? context) =>
+        ValidateMethodEmissionCore(methodDecl, context).WithSubject(DeclIdFactory.ForMethod(methodDecl));
+
+    private ValidationResult ValidateMethodEmissionCore(MethodDecl methodDecl, ValidationContext? context)
     {
         // ── Gate 1: Suppression gates (cheapest, no type resolution) ──
 
@@ -597,7 +606,12 @@ public class MemberValidationPipeline
     /// Validates whether a property should be emitted. Consolidates property-level bound generic
     /// gates that were previously inline in PropertyHandler.Emit.
     /// </summary>
-    public ValidationResult ValidatePropertyEmission(PropertyDecl propertyDecl, ValidationContext? context)
+    /// <remarks>Stamps the validated property's identity onto the verdict; see
+    /// <see cref="ValidateMethodEmission"/> for why the stamp lives at the entry point.</remarks>
+    public ValidationResult ValidatePropertyEmission(PropertyDecl propertyDecl, ValidationContext? context) =>
+        ValidatePropertyEmissionCore(propertyDecl, context).WithSubject(DeclIdFactory.ForProperty(propertyDecl));
+
+    private ValidationResult ValidatePropertyEmissionCore(PropertyDecl propertyDecl, ValidationContext? context)
     {
         // Pattern 2 emission-time gate (mirrors ValidateMethodEmission). Property
         // accessors would be emitted with a @_cdecl wrapper that exposes the
@@ -712,7 +726,12 @@ public class MemberValidationPipeline
     /// emission-time gate; other subscript validation (AnyType, complex index params,
     /// dedup) lives in <c>SubscriptHandler.EmitSubscripts</c>.
     /// </summary>
-    public ValidationResult ValidateSubscriptEmission(SubscriptDecl subscriptDecl, ValidationContext? context)
+    /// <remarks>Stamps the validated subscript's identity onto the verdict; see
+    /// <see cref="ValidateMethodEmission"/> for why the stamp lives at the entry point.</remarks>
+    public ValidationResult ValidateSubscriptEmission(SubscriptDecl subscriptDecl, ValidationContext? context) =>
+        ValidateSubscriptEmissionCore(subscriptDecl, context).WithSubject(DeclIdFactory.ForSubscript(subscriptDecl));
+
+    private ValidationResult ValidateSubscriptEmissionCore(SubscriptDecl subscriptDecl, ValidationContext? context)
     {
         // Member-level visibility gate (mirrors the method/property paths). A
         // @usableFromInline internal or @_spi subscript with an all-public signature would

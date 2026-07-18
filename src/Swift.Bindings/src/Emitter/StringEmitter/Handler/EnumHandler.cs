@@ -1009,7 +1009,7 @@ namespace BindingsGeneration
             var symbolName = GetEqualitySymbolName(_enumDecl);
 
             // equality helpers live in the shared `_equality` bucket (also written by ClassHandler and TypeHandlerHelpers). One helper per enum type; symbol name from GetEqualitySymbolName is unique per type, so cross-emitter collisions in the bucket are impossible by construction.
-            if (!_emissionContext.TryAddEqualityWrapperSymbol(symbolName))
+            if (!_emissionContext.TryAddEqualityWrapperSymbol(symbolName, DeclIdFactory.ForType(_enumDecl)))
                 return symbolName;
 
             var swiftTypeName = _enumDecl.SwiftTypeName.ToString();

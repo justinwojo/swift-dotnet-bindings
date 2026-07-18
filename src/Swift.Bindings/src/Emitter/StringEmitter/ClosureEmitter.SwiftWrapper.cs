@@ -1179,7 +1179,7 @@ public static partial class ClosureEmitter
         // exclusive with the standard wrapper for the same method. Per-kind method bucket
         // is collision-safe.
         if (useCdecl)
-            emissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol);
+            emissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol, DeclIdFactory.ForMethod(methodDecl));
         swiftWriter.WriteLine($"{annotation}(\"{wrapperSymbol}\")");
         swiftWriter.WriteLine($"public func {NameProvider.GetPInvokeName(env.EmissionSymbol, methodDecl)}(");
         swiftWriter.WriteLine($"    {paramsStr}");

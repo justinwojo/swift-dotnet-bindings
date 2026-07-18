@@ -6044,7 +6044,7 @@ public class EveryProtocolEmitter
         // shape is `SBW_{protocol}_{method}_m{i}_arg{j}_AsyncInvCR`, structurally
         // disjoint from any non-thunk wrapper symbol. Per-kind method bucket is
         // collision-safe.
-        _emissionContext?.TryAddMethodWrapperSymbol(entryPoint);
+        _emissionContext?.TryAddMethodWrapperSymbol(entryPoint, DeclIdFactory.ForMethod(method));
     }
 
     /// <summary>

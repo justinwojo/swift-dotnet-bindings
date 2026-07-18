@@ -401,4 +401,104 @@ public class MemberDiagnosticIdentityTests
         Assert.Equal(2, set.Count);
         Assert.False(set.Add(fooInt)); // dedup hits on second add.
     }
+
+    // ==================== DeclId bridge ====================
+    // MemberDiagnosticIdentity and DeclId describe the same thing at different layers: the report's
+    // dedup key and the generator's serializable identity. They share a construction path, so these
+    // pin the two directions of the bridge and the equality semantics that must NOT have moved.
+
+    [Fact]
+    public void ToDeclId_RoundTripsBackThroughFromDeclId()
+    {
+        var moduleDecl = TestModelFactory.CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var methodDecl = TestModelFactory.CreateMethod(
+            "fetch", classDecl, new[] { ("from", "Swift.String") }, mangledName: "$s_fetch");
+
+        var identity = MemberDiagnosticIdentity.FromMethod(methodDecl, classDecl);
+        var round = MemberDiagnosticIdentity.FromDeclId(identity.ToDeclId());
+
+        Assert.Equal(identity, round);
+        Assert.Equal(identity.Module, round.Module);
+        Assert.Equal(identity.DeclPath, round.DeclPath);
+        Assert.Equal(identity.BaseName, round.BaseName);
+        Assert.Equal(identity.ParameterLabels, round.ParameterLabels);
+        Assert.Equal(identity.ParameterTypes, round.ParameterTypes);
+        Assert.Equal(identity.MangledSymbol, round.MangledSymbol);
+        Assert.Equal(identity.GenericContext, round.GenericContext);
+        Assert.Equal(identity.Discriminator, round.Discriminator);
+    }
+
+    [Fact]
+    public void ToDeclId_AgreesWithTheFactoryIdForTheSameDeclaration()
+    {
+        // Two subsystems describing one declaration must produce the same string, or a report row
+        // and a generator-side artifact can't be joined.
+        var moduleDecl = TestModelFactory.CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var methodDecl = TestModelFactory.CreateMethod(
+            "fetch", classDecl, new[] { ("from", "Swift.String") }, mangledName: "$s_fetch");
+
+        Assert.Equal(
+            DeclIdFactory.ForMethod(methodDecl, classDecl).Canonical,
+            MemberDiagnosticIdentity.FromMethod(methodDecl, classDecl).ToDeclId().Canonical);
+    }
+
+    [Fact]
+    public void GenericContextAndDiscriminator_AreCarriedButExcludedFromEquality()
+    {
+        // These two components exist so ToDeclId is lossless. They are deliberately NOT part of
+        // MemberDiagnosticIdentity's equality: this type is the report's dedup key, and folding in
+        // an axis it never had would split report rows that used to collapse into one.
+        var withContext = MemberDiagnosticIdentity.Create(
+            module: "TestModule", declPath: "Loader",
+            kind: BindingItemKind.Method, baseName: "map",
+            genericContext: "<T>");
+        var withoutContext = MemberDiagnosticIdentity.Create(
+            module: "TestModule", declPath: "Loader",
+            kind: BindingItemKind.Method, baseName: "map");
+
+        Assert.Equal("<T>", withContext.GenericContext);
+        Assert.Equal(withContext, withoutContext);
+        Assert.Equal(withContext.GetHashCode(), withoutContext.GetHashCode());
+
+        var moduleDecl = TestModelFactory.CreateModuleDecl();
+        var instance = MemberDiagnosticIdentity.FromProperty(
+            TestModelFactory.CreateProperty("count", moduleDecl));
+        var @static = MemberDiagnosticIdentity.FromProperty(
+            TestModelFactory.CreateProperty("count", moduleDecl, isStatic: true));
+
+        Assert.Equal("static", @static.Discriminator);
+        Assert.Equal(instance, @static);
+        // …while the DeclIds those identities carry still tell the two declarations apart.
+        Assert.NotEqual(instance.ToDeclId(), @static.ToDeclId());
+    }
+
+    [Fact]
+    public void Create_SetsEveryComponentToDeclIdProjects()
+    {
+        // Create is the hand-built escape hatch from the decl-derived factories. Any component
+        // ToDeclId reads but Create cannot set is silently dropped on the way back to a DeclId —
+        // a hand-built identity would then round-trip to a DIFFERENT id than the decl-derived one
+        // for the same declaration, which defeats the point of a single identity projection.
+        var identity = MemberDiagnosticIdentity.Create(
+            module: "TestModule",
+            declPath: "Loader.Inner",
+            kind: BindingItemKind.Property,
+            baseName: "count",
+            accessor: AccessorKind.Getter,
+            mangledSymbol: "$s10TestModule",
+            genericContext: "<T>",
+            discriminator: "static");
+
+        var id = identity.ToDeclId();
+        Assert.Equal("TestModule", id.Module);
+        Assert.Equal("Loader.Inner", id.DeclPath);
+        Assert.Equal(BindingItemKind.Property, id.Kind);
+        Assert.Equal("count", id.Name);
+        Assert.Equal(AccessorKind.Getter, id.Accessor);
+        Assert.Equal("$s10TestModule", id.Symbol);
+        Assert.Equal("<T>", id.GenericContext);
+        Assert.Equal("static", id.Discriminator);
+    }
 }

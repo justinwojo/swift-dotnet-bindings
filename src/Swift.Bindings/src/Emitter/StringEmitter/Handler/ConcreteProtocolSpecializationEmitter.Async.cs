@@ -61,7 +61,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // same `SBW_CSM_` prefix as the sync path; this async-only
         // branch is gated by `IsAsync` upstream so the two paths never co-emit for the
         // same method. Per-kind method bucket is collision-safe.
-        if (!emissionContext.TryAddMethodWrapperSymbol(cdeclSymbol))
+        if (!emissionContext.TryAddMethodWrapperSymbol(cdeclSymbol, DeclIdFactory.ForMethod(originalMethod)))
         {
             return false;
         }

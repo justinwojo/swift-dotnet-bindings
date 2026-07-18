@@ -327,7 +327,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // The `SBW_CSM_` prefix is a dedicated namespace for per-conformer specialization
         // wrappers; no other emitter produces an `SBW_CSM_` symbol. Per-kind method
         // bucket is collision-safe.
-        if (!emissionContext.TryAddMethodWrapperSymbol(cdeclSymbol))
+        if (!emissionContext.TryAddMethodWrapperSymbol(cdeclSymbol, DeclIdFactory.ForMethod(method)))
             return false;
 
         // Merge availability (method + parent + all conformers) once — both Swift and C#

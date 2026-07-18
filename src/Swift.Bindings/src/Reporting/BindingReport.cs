@@ -44,6 +44,14 @@ public sealed class BindingReport
     public List<string> UnsupportedCommentDrops { get; } = new();
 
     /// <summary>
+    /// The same drops as <see cref="UnsupportedCommentDrops"/>, in the same order, each paired with
+    /// the canonical <see cref="BindingsGeneration.DeclId"/> of the declaration it replaced. The
+    /// plain string list stays for consumers that already read it; this one is what a tool keys on
+    /// to correlate a drop with the declaration across regenerations.
+    /// </summary>
+    public List<UnsupportedCommentDropItem> UnsupportedCommentDropDetails { get; } = new();
+
+    /// <summary>
     /// Distinct Swift types that degraded to bare <c>object</c> with no <c>[UnsupportedSwiftType]</c>
     /// marker (Finding 53) — e.g. an existential the resolver could not project at a closure
     /// parameter/return position. Each is surfaced as a loud <c>SWIFTBIND026</c> diagnostic so the
@@ -86,6 +94,14 @@ public enum BindingItemKind
     Property,
     Operator,
     Subscript,
+
+    /// <summary>
+    /// A whole Swift module. Never used for a skip row — modules fail, they aren't skipped —
+    /// but <see cref="DeclId"/> needs a kind for module-scoped artifacts (the module
+    /// initializer, module-level helpers), and a second parallel kind taxonomy would be one
+    /// more thing to keep in sync. Appended last so existing ordinals are unchanged.
+    /// </summary>
+    Module,
 }
 
 /// <summary>
@@ -299,6 +315,39 @@ public sealed class SkippedItem
     /// <c>binding-report.json</c> rather than buried in <see cref="Details"/>.
     /// </summary>
     public SourcePosition? Position { get; init; }
+
+    /// <summary>
+    /// Canonical <see cref="BindingsGeneration.DeclId"/> of the declaration this row describes —
+    /// the stable, parseable identity a consumer can key on across regenerations. Unlike
+    /// <see cref="Name"/>/<see cref="ContainingType"/>, it separates overloads and accessors, so
+    /// it is the field to match on when correlating a skip with a later run or with a denylist.
+    /// Null only for rows recorded through a path that had no declaration in scope.
+    /// </summary>
+    public string? DeclId { get; init; }
+}
+
+/// <summary>
+/// A <c>// Unsupported:</c> comment-drop, with the identity of the declaration it replaced.
+/// </summary>
+/// <remarks>
+/// The bare description string remains the dedup key and stays in
+/// <see cref="BindingReport.UnsupportedCommentDrops"/> for consumers that already read it; this
+/// parallel list adds the machine-usable identity alongside the human-readable text.
+/// </remarks>
+public sealed class UnsupportedCommentDropItem
+{
+    /// <summary>The comment text, minus its leading <c>// </c> — identical to the legacy entry.</summary>
+    public required string Description { get; init; }
+
+    /// <summary>
+    /// Canonical <see cref="BindingsGeneration.DeclId"/> of the dropped declaration, or null when
+    /// the emitting site had no declaration in scope. Because <see cref="Description"/> is the dedup
+    /// key, this names the FIRST declaration to produce that text — a representative, not an
+    /// exhaustive list, whenever several declarations share one description (same-named overloads,
+    /// or same-named nested types under different parents, whose comment text is identical). The
+    /// per-declaration enumeration is <see cref="BindingReport.SkippedItems"/>.
+    /// </summary>
+    public string? DeclId { get; init; }
 }
 
 /// <summary>

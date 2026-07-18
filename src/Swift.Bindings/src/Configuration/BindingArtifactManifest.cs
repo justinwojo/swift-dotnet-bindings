@@ -122,6 +122,13 @@ public sealed class GenerationSection
     public List<string> UnsupportedCommentDrops { get; init; } = new();
 
     /// <summary>
+    /// The identity-carrying view of <see cref="UnsupportedCommentDrops"/>, round-tripped for the
+    /// same reason: the report is projected from this manifest, so a field that stops here never
+    /// reaches <c>binding-report.json</c>.
+    /// </summary>
+    public List<UnsupportedCommentDropItem> UnsupportedCommentDropDetails { get; init; } = new();
+
+    /// <summary>
     /// Finding 53: distinct Swift types that degraded to bare <c>object</c>, each surfaced as a
     /// <c>SWIFTBIND026</c> diagnostic. Carried on the manifest for the same round-trip reason as
     /// <see cref="UnsupportedCommentDrops"/>.
@@ -160,6 +167,7 @@ public sealed class GenerationSection
         section.BridgedViews.AddRange(report.BridgedViews);
         section.ThemeBridgedProperties.AddRange(report.ThemeBridgedProperties);
         section.UnsupportedCommentDrops.AddRange(report.UnsupportedCommentDrops);
+        section.UnsupportedCommentDropDetails.AddRange(report.UnsupportedCommentDropDetails);
         section.ObjectDegradations.AddRange(report.ObjectDegradations);
         section.ObjCPrefixBridges.AddRange(report.ObjCPrefixBridges);
         return section;

@@ -530,7 +530,7 @@ namespace BindingsGeneration
         {
             ctx ??= ModuleEmissionContext.Default;
             // RawRep wrappers live in a dedicated `_enum_raw_rep` bucket — no other emitter writes to it. One init(rawValue:) wrapper per enum, keyed by symbol name.
-            if (!ctx.TryAddEnumRawRepWrapperSymbol(wrapperSymbol))
+            if (!ctx.TryAddEnumRawRepWrapperSymbol(wrapperSymbol, DeclIdFactory.ForType(enumDecl)))
             {
                 return;
             }
@@ -613,7 +613,7 @@ namespace BindingsGeneration
         {
             ctx ??= ModuleEmissionContext.Default;
             // RawRep wrappers live in a dedicated `_enum_raw_rep` bucket — no other emitter writes to it. One init(rawValue:) wrapper per enum, keyed by symbol name.
-            if (!ctx.TryAddEnumRawRepWrapperSymbol(wrapperSymbol))
+            if (!ctx.TryAddEnumRawRepWrapperSymbol(wrapperSymbol, DeclIdFactory.ForType(enumDecl)))
                 return;
 
             var enumFullName = enumDecl.SwiftTypeName.ModuleQualifiedName;
@@ -641,7 +641,7 @@ namespace BindingsGeneration
         {
             ctx ??= ModuleEmissionContext.Default;
             // RawRep wrappers live in a dedicated `_enum_raw_rep` bucket — no other emitter writes to it. One case-by-index wrapper per enum, keyed by symbol name.
-            if (!ctx.TryAddEnumRawRepWrapperSymbol(caseByIndexSymbol))
+            if (!ctx.TryAddEnumRawRepWrapperSymbol(caseByIndexSymbol, DeclIdFactory.ForType(enumDecl)))
                 return;
 
             var enumFullName = enumDecl.SwiftTypeName.ModuleQualifiedName;

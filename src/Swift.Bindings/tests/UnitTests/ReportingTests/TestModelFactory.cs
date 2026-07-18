@@ -145,12 +145,12 @@ internal static class TestModelFactory
         };
     }
 
-    public static PropertyDecl CreateProperty(string name, BaseDecl? parent) => new()
+    public static PropertyDecl CreateProperty(string name, BaseDecl? parent, bool isStatic = false) => new()
     {
         Name = name,
         SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
         HasStorage = false,
-        IsStatic = false,
+        IsStatic = isStatic,
         Accessors = new List<AccessorDecl>(),
         ParentDecl = parent,
         ModuleDecl = parent?.ModuleDecl,

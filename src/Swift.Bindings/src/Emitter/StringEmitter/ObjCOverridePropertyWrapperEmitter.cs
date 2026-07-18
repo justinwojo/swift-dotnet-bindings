@@ -94,8 +94,9 @@ public static class ObjCOverridePropertyWrapperEmitter
         // ObjC override property accessors use @_silgen_name (not
         // @_cdecl) and are registered in the dedicated ObjC-property bucket. No other
         // emitter touches @_silgen_name override symbols, and the symbol is unique per
-        // (property, getter) by ObjC selector mangling.
-        if (!ctx.TryAddObjCPropertyWrapperSymbol(symbolName))
+        // (property, getter) by ObjC selector mangling. Attributed on the accessor axis so the
+        // getter and setter wrappers of one property do not share a single ArtifactId.
+        if (!ctx.TryAddObjCPropertyWrapperSymbol(symbolName, DeclIdFactory.ForProperty(propertyDecl, AccessorKind.Getter)))
             return; // Already emitted
 
         var parentTypeDecl = propertyDecl.ParentDecl as TypeDecl;
@@ -142,8 +143,9 @@ public static class ObjCOverridePropertyWrapperEmitter
 
         // ObjC override property setter — same dedicated bucket as
         // the getter above. Setter and getter symbols are distinct ObjC selectors, and
-        // no other emitter writes to the @_silgen_name override slot.
-        if (!ctx.TryAddObjCPropertyWrapperSymbol(symbolName))
+        // no other emitter writes to the @_silgen_name override slot. Attributed on the accessor
+        // axis for the same reason the getter is.
+        if (!ctx.TryAddObjCPropertyWrapperSymbol(symbolName, DeclIdFactory.ForProperty(propertyDecl, AccessorKind.Setter)))
             return; // Already emitted
 
         var parentTypeDecl = propertyDecl.ParentDecl as TypeDecl;

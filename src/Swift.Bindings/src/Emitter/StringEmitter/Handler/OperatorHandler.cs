@@ -965,7 +965,12 @@ namespace BindingsGeneration
             // (e.g. `_Equal_`, `_Add_`) that namespaces them away from regular
             // `_{methodName}_` symbols. The mangled-name hash makes the symbol unique
             // per overload. Per-kind method bucket is collision-safe.
-            if (!ctx.TryAddMethodWrapperSymbol(symbolName))
+            // Attribute to the OPERATOR, not its UnderlyingMethod: every report row for this
+            // declaration is built by ReportCollector from `operatorDecl` (Kind=Operator, name =
+            // the operator symbol, container = operatorDecl.ParentDecl). Registering the
+            // underlying method's id instead yields Kind=Method under the method's name, which
+            // can never join against the reporting identity for the same declaration.
+            if (!ctx.TryAddMethodWrapperSymbol(symbolName, DeclIdFactory.ForOperator(operatorDecl)))
                 return symbolName; // Already emitted, but still use it
 
             var moduleQualifiedSwiftName = parentDecl.SwiftTypeName.ModuleQualifiedName;

@@ -69,7 +69,7 @@ public static class MetatypeHelperEmitter
         var helperName = $"_sbw_meta_{EmitterUtility.DeterministicHash8(hashInput)}";
 
         // metadata-accessor helpers live in a dedicated `_metadata_accessor` bucket — no other emitter writes to it. dedupKey includes mangledName + PWT count, helper name is hashed for cross-type collision safety.
-        if (!ctx.TryAddMetadataAccessorHelper(dedupKey))
+        if (!ctx.TryAddMetadataAccessorHelper(dedupKey, DeclIdFactory.ForType(parentTypeDecl)))
             return helperName; // Already emitted, just return the name
 
         var metaSymbol = $"{mangledName}Ma";

@@ -48,6 +48,13 @@ public sealed class TypeSkipMatch
 
     /// <summary>Set when <see cref="Kind"/> is <see cref="TypeSkipConditionKind.IndeterminatePwtShape"/>.</summary>
     public PInvokeHelperContext? PInvokeContext { get; init; }
+
+    /// <summary>
+    /// Identity of the type this match was evaluated against. Stamped by
+    /// <see cref="TypeSkipConditions.FirstMatch"/> on every arm, so a consumer that receives only
+    /// the match still knows exactly which declaration it describes.
+    /// </summary>
+    public DeclId? Subject { get; init; }
 }
 
 /// <summary>
@@ -91,12 +98,17 @@ public static class TypeSkipConditions
         ArgumentNullException.ThrowIfNull(typeDatabase);
         pinvokeContext = null;
 
+        // Identity of what is being judged, stamped on whichever arm matches. Computed once so
+        // every arm reports the same subject and no arm can forget to set it.
+        var subject = DeclIdFactory.ForType(typeDecl);
+
         if (GenericTypeEmitter.TryGetUnsupportedConstraint(typeDecl, out var unsupportedConstraint))
         {
             return new TypeSkipMatch
             {
                 Kind = TypeSkipConditionKind.UnsupportedGenericConstraint,
                 UnsupportedConstraint = unsupportedConstraint,
+                Subject = subject,
             };
         }
 
@@ -106,6 +118,7 @@ public static class TypeSkipConditions
             {
                 Kind = TypeSkipConditionKind.VariadicGenericParameterPack,
                 VariadicParameter = variadicParam,
+                Subject = subject,
             };
         }
 
@@ -115,10 +128,10 @@ public static class TypeSkipConditions
         if (typeDecl is StructDecl structDecl)
         {
             if (FrozenStructHandler.HasIndeterminateBufferLayout(structDecl, typeDatabase))
-                return new TypeSkipMatch { Kind = TypeSkipConditionKind.IndeterminateBufferLayout };
+                return new TypeSkipMatch { Kind = TypeSkipConditionKind.IndeterminateBufferLayout, Subject = subject };
 
             if (FrozenStructHandler.HasSubWordOptionalLayoutMismatch(structDecl, typeDatabase))
-                return new TypeSkipMatch { Kind = TypeSkipConditionKind.SubWordOptionalLayoutMismatch };
+                return new TypeSkipMatch { Kind = TypeSkipConditionKind.SubWordOptionalLayoutMismatch, Subject = subject };
         }
 
         // Only generic types produce a non-null helper context — non-generics are never
@@ -130,6 +143,7 @@ public static class TypeSkipConditions
             {
                 Kind = TypeSkipConditionKind.IndeterminatePwtShape,
                 PInvokeContext = pinvokeContext,
+                Subject = subject,
             };
         }
 
@@ -180,7 +194,7 @@ public static class TypeSkipConditions
                 var constraint = match.UnsupportedConstraint!;
                 var reason = AppleFrameworkRegistry.GetUnsupportedConstraintSkipReason(constraint.Module);
                 ReportCollector.RecordTypeSkipped(typeDecl, reason, $"Unsupported generic constraint: {constraint.ModuleQualifiedName}");
-                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, reason, $"generic constraint: {constraint.ModuleQualifiedName}");
+                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, reason, $"generic constraint: {constraint.ModuleQualifiedName}", match.Subject);
                 logger.LogWarning(
                     "Skipping type '{TypeName}' - generic constraint references unsupported protocol '{Protocol}' from module '{Module}'.",
                     typeDecl.Name,
@@ -193,7 +207,7 @@ public static class TypeSkipConditions
             {
                 var variadicParam = match.VariadicParameter!;
                 ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.UnsupportedSignature, $"Variadic generic parameter pack '{variadicParam}' has no C# equivalent.");
-                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.UnsupportedSignature, $"variadic generic parameter pack '{variadicParam}' (Swift `{variadicParam}` / `repeat {variadicParam}`) has no C# equivalent.");
+                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.UnsupportedSignature, $"variadic generic parameter pack '{variadicParam}' (Swift `{variadicParam}` / `repeat {variadicParam}`) has no C# equivalent.", match.Subject);
                 logger.LogWarning(
                     "Skipping type '{TypeName}' - variadic generic parameter pack '{Variadic}' has no C# equivalent.",
                     typeDecl.Name,
@@ -207,7 +221,7 @@ public static class TypeSkipConditions
                 // heap, so the handler fails closed (see HasIndeterminateBufferLayout).
                 const string detail = "stored property has a generic value-type layout whose per-instantiation size is not derivable cross-compile (e.g. ClosedRange<Bound>, Result<Success,Failure>); a blitted Buffer would mis-size the field.";
                 ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.IndeterminateStructLayout, detail);
-                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.IndeterminateStructLayout, detail);
+                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.IndeterminateStructLayout, detail, match.Subject);
                 logger.LogWarning(
                     "Skipping frozen struct '{TypeName}' - indeterminate Buffer layout (unsizeable generic value-type stored field).",
                     typeDecl.Name);
@@ -221,7 +235,7 @@ public static class TypeSkipConditions
                 // HasSubWordOptionalLayoutMismatch).
                 const string detail = "frozen value struct mixes sub-word Optional<primitive> fields whose 8-byte IntPtr-word emission places a stored field at a different byte offset than the Swift packed layout; a by-value pass would read the field from the wrong slot and corrupt it.";
                 ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.IndeterminateStructLayout, detail);
-                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.IndeterminateStructLayout, detail);
+                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.IndeterminateStructLayout, detail, match.Subject);
                 logger.LogWarning(
                     "Skipping frozen struct '{TypeName}' - sub-word Optional field packing makes the by-value C# layout diverge from Swift.",
                     typeDecl.Name);
