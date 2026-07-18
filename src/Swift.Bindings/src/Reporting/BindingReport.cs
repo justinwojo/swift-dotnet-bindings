@@ -324,6 +324,45 @@ public sealed class SkippedItem
     /// Null only for rows recorded through a path that had no declaration in scope.
     /// </summary>
     public string? DeclId { get; init; }
+
+    /// <summary>
+    /// Canonical <see cref="RecoveryUnitId"/> of the row that ultimately caused this one — its own
+    /// unit on a root cause, the root's unit on a cascade. Grouping by it turns "forty rows" into
+    /// "one root and thirty-nine consequences". Null when the row carries no parseable declaration
+    /// identity to name a unit with.
+    /// </summary>
+    /// <remarks>
+    /// Settable, like <see cref="RecoveredBy"/>, because <see cref="SkipAttributionLinker"/> fills it
+    /// in at projection time: the causal picture is only complete once every stage has contributed
+    /// its rows, and some rows do not exist until after the Swift wrapper is built.
+    /// </remarks>
+    public string? RootCauseId { get; set; }
+
+    /// <summary>
+    /// Canonical <see cref="RecoveryUnitId"/> of the row this one is a direct consequence of. Null
+    /// exactly when this row is itself a root cause.
+    /// </summary>
+    public string? CascadeFrom { get; set; }
+
+    /// <summary>Who is in a position to fix this. Null until attribution has run.</summary>
+    /// <remarks>
+    /// The three attribution fields are nullable so that "not computed" is distinguishable from a
+    /// computed answer of <see cref="BindingsGeneration.CauseOwner.Unknown"/>. The artifact manifest is
+    /// serialized before <see cref="BindingReportProjection"/> runs — attribution cannot be computed
+    /// any earlier, since rows keep arriving until the Swift wrapper is built — so these read null
+    /// there and carry real values only in <c>binding-report.json</c>. A non-null default would make
+    /// the manifest assert a stage and an owner it never determined.
+    /// </remarks>
+    public CauseOwner? CauseOwner { get; set; }
+
+    /// <summary>The pipeline stage at which this degradation was decided. Null until attribution has run.</summary>
+    public RecoveryStage? RecoveryStage { get; set; }
+
+    /// <summary>
+    /// How much to trust <see cref="CauseOwner"/> and <see cref="RecoveryStage"/>. Null until
+    /// attribution has run.
+    /// </summary>
+    public AttributionConfidence? Confidence { get; set; }
 }
 
 /// <summary>

@@ -94,6 +94,10 @@ public static class BindingReportProjection
             }
         }
 
+        // Attribute causes before rolling up, on the same settled list and for the same reason: only
+        // now is every row present, so a root and its cascades can be told apart.
+        SkipAttributionLinker.Link(report.SkippedItems);
+
         // Roll the settled skip list up by actionability last — after co-gating has folded every
         // wrapper-stripped member in — so the triage reflects final reality, not the mid-pipeline guess.
         report.SkipTriage = SkipTriageBuilder.Build(report.SkippedItems);

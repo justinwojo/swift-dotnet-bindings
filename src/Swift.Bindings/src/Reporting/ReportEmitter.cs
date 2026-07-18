@@ -90,12 +90,63 @@ public static class ReportEmitter
                     logger.LogInformation("  {Reason}: {Count}", group.Key, group.Count());
             }
             LogTriage(report.SkipTriage, logger);
+            LogAttribution(report.SkippedItems, logger);
             logger.LogInformation("Skipped items are excluded from C# output but don't affect the rest of the generated API.");
             logger.LogInformation("See binding-report.json for per-item skip reasons and workaround suggestions.");
         }
 
         if (reportPath != null)
             logger.LogInformation("Report: {ReportPath}", reportPath);
+    }
+
+    /// <summary>
+    /// Logs cause ownership and the root/cascade split: who could act on the degradations, and how
+    /// many rows are consequences of how few actual failures. A reader chasing forty rows that turn
+    /// out to be one root and thirty-nine consequences is the case this exists for.
+    /// </summary>
+    /// <remarks>
+    /// Counts only rows that are genuine losses, as <see cref="SkipAttributionLinker.IsLoss"/> defines
+    /// them: neither recovered by another mechanism nor deliberately left to the Apple supplement.
+    /// Including either would report surface that exists as missing.
+    /// </remarks>
+    private static void LogAttribution(List<SkippedItem> items, ILogger logger)
+    {
+        var losses = items.Where(SkipAttributionLinker.IsLoss).ToList();
+        if (losses.Count == 0)
+            return;
+
+        var cascaded = losses.Where(i => i.CascadeFrom != null).ToList();
+        var cascades = cascaded.Count;
+        if (cascades > 0)
+        {
+            // The roots that actually explain the cascades, not every root in the report — and distinct
+            // units rather than rows, since several rows can name one root (a getter and a setter
+            // normalize onto the same accessor group). Counting all losses would let five unrelated
+            // independent skips inflate the sentence to "six root causes explain two further rows".
+            var roots = cascaded
+                .Select(i => i.RootCauseId)
+                .Where(id => id is { Length: > 0 })
+                .Distinct(StringComparer.Ordinal)
+                .Count();
+            logger.LogInformation(
+                "  Root causes: {Roots} root {RootLabel} explain {Cascades} further {CascadeLabel}.",
+                roots,
+                roots == 1 ? "cause" : "causes",
+                cascades,
+                cascades == 1 ? "row" : "rows");
+        }
+
+        var byOwner = losses
+            .GroupBy(i => i.CauseOwner)
+            .Where(g => g.Key is { } owner && owner != CauseOwner.Unknown)
+            .OrderByDescending(g => g.Count())
+            .ToList();
+        if (byOwner.Count > 0)
+        {
+            logger.LogInformation(
+                "  Cause ownership: {Breakdown}.",
+                string.Join(", ", byOwner.Select(g => $"{g.Count()} {g.Key}")));
+        }
     }
 
     /// <summary>
