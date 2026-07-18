@@ -701,7 +701,7 @@ namespace BindingsGeneration
             // (covers both failable EmitFailableFactory and non-failable EmitConstructor paths)
             wrapperEmitter.EmitTypedErrorExtractor(swiftWriter);
 
-            var ctorCheckpoint = csWriter.Checkpoint();
+            var ctorTransaction = MemberEmissionTransaction.Begin(csWriter, swiftWriter, context.GetEmissionContext());
             try
             {
                 if (methodEnv.MethodDecl.IsFailable)
@@ -742,8 +742,12 @@ namespace BindingsGeneration
                 // Backstop: the predict-then-skip above shares FindUnregisteredWrapperSymbol
                 // with this throw and the constructor symbol's registration does not change
                 // across the body, so this is unreachable in practice. If a path ever slips
-                // through, roll the orphan body back out of the buffer before recording the skip.
-                csWriter.RollbackTo(ctorCheckpoint);
+                // through, roll the orphan body back out before recording the skip. The try body
+                // here writes C# only — the constructor's Swift wrapper and its typed-error
+                // extractor are emitted ABOVE the checkpoint — so the Swift arm of this rollback
+                // is a no-op today. It is transactional anyway so that a future emitter writing
+                // Swift inside this body is covered by construction rather than by an audit.
+                WrapperSymbolContractGate.ReportKeptWrapperBlock(ctorTransaction.Rollback(), methodEnv, ex.EntryPoint, _logger);
                 WrapperSymbolContractGate.HandleSkip(methodEnv, ex.EntryPoint, csWriter, _logger);
                 return;
             }
@@ -1104,14 +1108,14 @@ namespace BindingsGeneration
                     // Transactional rollback (bridge site): each bridge derives its own
                     // SBW_/SBSW_ symbol inside TryEmit, so checkpoint before the attempt and
                     // roll that bridge's partial output back out on the eager contract throw.
-                    var bridgeCheckpoint = csWriter.Checkpoint();
+                    var bridgeTransaction = MemberEmissionTransaction.Begin(csWriter, swiftWriter, context.GetEmissionContext());
                     try
                     {
                         result = bridge.TryEmit(bridgeContext);
                     }
                     catch (WrapperSymbolContractException ex)
                     {
-                        csWriter.RollbackTo(bridgeCheckpoint);
+                        WrapperSymbolContractGate.ReportKeptWrapperBlock(bridgeTransaction.Rollback(), methodEnv, ex.EntryPoint, _logger);
                         WrapperSymbolContractGate.HandleSkip(methodEnv, ex.EntryPoint, csWriter, _logger);
                         return;
                     }
@@ -1721,7 +1725,7 @@ namespace BindingsGeneration
             // predict-before-emit query cannot tell a valid async method from a silent bail.
             // Checkpoint the writer, emit, and on the eager contract throw roll the orphan
             // public member back out of the buffer before recording the skip.
-            var methodCheckpoint = csWriter.Checkpoint();
+            var methodTransaction = MemberEmissionTransaction.Begin(csWriter, swiftWriter, context.GetEmissionContext());
             try
             {
                 wrapperEmitter.EmitMethod(csWriter, swiftWriter);
@@ -1729,7 +1733,7 @@ namespace BindingsGeneration
             }
             catch (WrapperSymbolContractException ex)
             {
-                csWriter.RollbackTo(methodCheckpoint);
+                WrapperSymbolContractGate.ReportKeptWrapperBlock(methodTransaction.Rollback(), methodEnv, ex.EntryPoint, _logger);
                 WrapperSymbolContractGate.HandleSkip(methodEnv, ex.EntryPoint, csWriter, _logger);
                 return;
             }

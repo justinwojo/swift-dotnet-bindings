@@ -4,8 +4,10 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -468,6 +470,191 @@ public class WrapperSymbolContractTests
             Assert.Contains($"@_cdecl(\"{sym}\")", swiftOutput);
             Assert.Contains($"EntryPoint = \"{sym}\"", csOutput);
         }
+    }
+
+    [Fact]
+    public void Production_Path_Leaves_No_Wrapper_Block_The_Contract_Cannot_See()
+    {
+        // The orphan shape the paired rollback exists to prevent: a @_cdecl block sitting in the
+        // wrapper source with no counterpart on the managed side. A C#-only assertion cannot see
+        // it, so pin the cross-buffer invariant directly — every wrapper block emitted for this
+        // member is registered, which is exactly what makes it visible to the contract and to any
+        // later rollback decision.
+        var (ctx, _, _, csOutput, swiftOutput) = EmitAsyncMethodAndCaptureRegistry();
+
+        var emittedCdeclSymbols = System.Text.RegularExpressions.Regex
+            .Matches(swiftOutput, "@_cdecl\\(\"([^\"]+)\"\\)")
+            .Select(m => m.Groups[1].Value)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.NotEmpty(emittedCdeclSymbols);
+        foreach (var symbol in emittedCdeclSymbols)
+        {
+            Assert.True(
+                ctx.IsWrapperSymbolRegistered(symbol),
+                $"Wrapper block '{symbol}' was written into the Swift buffer but never registered, so " +
+                $"nothing downstream can tell it apart from an orphan.\n\nSwift:\n{swiftOutput}\n\nCS:\n{csOutput}");
+        }
+    }
+
+    [Fact]
+    public void ContractTrip_MidMember_LeavesNoWrapperBlockForTheSkippedMember()
+    {
+        // The rollback pairing, driven through the real emission path rather than a writer
+        // fixture. Emission normally promotes the entry point to an SBW_ symbol and marks the
+        // method cdecl-wrapped in the same step, which is what makes the symbol get registered;
+        // promoting the symbol alone reproduces the state the contract exists to catch — a
+        // P/Invoke naming a wrapper symbol that wrapper-emit never registered — so EmitPInvoke
+        // throws after the Swift side has already been written.
+        var (csOutput, swiftOutput, tripped) = EmitAsyncMethodWithUnregisteredWrapperSymbol();
+
+        // Assert the mechanism, not just the outcome. Without this the test could pass vacuously:
+        // a member skipped for any OTHER reason before reaching the transaction never writes Swift,
+        // so the buffer assertion below would hold while proving nothing about rollback. `tripped`
+        // is taken from the contract gate's own skip diagnostic, so only that path satisfies it.
+        Assert.True(tripped,
+            $"The wrapper-symbol contract did not trip, so this test proves nothing about rollback.\n\nCS:\n{csOutput}");
+
+        // Semantic assertion: whatever survives in the wrapper source, none of it may be a block
+        // for the member whose managed side was just rolled back.
+        Assert.DoesNotContain(OrphanProbeSymbol, swiftOutput, StringComparison.Ordinal);
+    }
+
+    private const string OrphanProbeSymbol = "SBSW_orphanProbe";
+
+    /// <summary>Captures log messages so a test can assert which emission path ran.</summary>
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        public List<string> Messages { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) => Messages.Add(formatter(state, exception));
+    }
+
+    private static (string csOutput, string swiftOutput, bool tripped)
+        EmitAsyncMethodWithUnregisteredWrapperSymbol()
+    {
+        var (moduleDecl, parentDecl, methodDecl, typeDatabase) = BuildAsyncFixture(setAsyncLibraryName: false);
+        _ = moduleDecl;
+        _ = parentDecl;
+
+        var ctx = new ModuleEmissionContext();
+        var context = new TypeHandlerContext(null, new(), null, EmissionContext: ctx);
+
+        var csSw = new StringWriter();
+        var swiftSw = new StringWriter();
+        var csWriter = new CSharpWriter(csSw);
+        var swiftWriter = new SwiftWriter(swiftSw);
+        var conductor = new Conductor(new NullLoggerFactory());
+        var logger = new CapturingLogger<MethodHandler>();
+        var handler = new MethodHandler(logger);
+        var env = (MethodEnvironment)handler.Marshal(methodDecl, typeDatabase);
+
+        env.PromoteSymbol(OrphanProbeSymbol);
+        handler.Emit(csWriter, swiftWriter, env, conductor, context);
+
+        // The contract gate's skip diagnostic is the only thing that names both the contract and
+        // the probe symbol, so it pins the member to THIS path rather than any other skip.
+        var trippedTheContract = logger.Messages.Any(m =>
+            m.Contains("Wrapper-symbol contract", StringComparison.Ordinal)
+            && m.Contains(OrphanProbeSymbol, StringComparison.Ordinal));
+
+        return (csSw.ToString(), swiftSw.ToString(),
+            trippedTheContract && !ctx.IsWrapperSymbolRegistered($"{OrphanProbeSymbol}_async"));
+    }
+
+    private static (ModuleDecl, StructDecl, MethodDecl, TypeDatabase) BuildAsyncFixture(bool setAsyncLibraryName)
+    {
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "WSCAsyncTest",
+            Dependencies = new List<string>(),
+            Types = new List<TypeDecl>(),
+            Methods = new List<MethodDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+        var parentDecl = new StructDecl
+        {
+            Name = "Fetcher",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("WSCAsyncTest.Fetcher"),
+            IsFrozen = true,
+            MetadataAccessor = "$s12WSCAsyncTest7FetcherVMa",
+            MangledName = "$s12WSCAsyncTest7FetcherV",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Conformances = new List<TypeConformance>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(parentDecl);
+
+        var methodDecl = new MethodDecl
+        {
+            Name = "fetchValue",
+            MangledName = "$s12WSCAsyncTest7FetcherV10fetchValueSiyYaF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = parentDecl,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = true,
+            IsSynthesizedAccessor = false
+        };
+        parentDecl.Methods.Add(methodDecl);
+
+        var typeDatabase = new TypeDatabase();
+        if (setAsyncLibraryName)
+        {
+            typeDatabase.AsyncLibraryName = "WSCAsyncTestSwiftBindings";
+        }
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        var intName = SwiftTypeName.FromModuleQualifiedName("Swift.Int");
+        swiftModule.RegisterType(intName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "nint"),
+            SwiftTypeName = intName,
+            MetadataAccessor = "$sSiMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        var module = new ModuleTypeDatabase("WSCAsyncTest", "/fake/path");
+        module.RegisterType(parentDecl.SwiftTypeName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("WSCAsyncTest", "Fetcher"),
+            SwiftTypeName = parentDecl.SwiftTypeName,
+            MetadataAccessor = parentDecl.MetadataAccessor,
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+        typeDatabase.AddModuleDatabase(module);
+
+        return (moduleDecl, parentDecl, methodDecl, typeDatabase);
     }
 
     private static (ModuleEmissionContext ctx, IReadOnlyCollection<string> symbols,

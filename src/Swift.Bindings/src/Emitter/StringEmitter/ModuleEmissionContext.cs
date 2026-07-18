@@ -508,15 +508,84 @@ public sealed class ModuleEmissionContext
         return info;
     }
 
+    // ==================== Shared-Swift-helper commit epoch ====================
+
+    private int _sharedSwiftArtifactEpoch;
+
+    /// <summary>
+    /// Counts commits of module-shared Swift helpers — text written once per module into the
+    /// wrapper source and recorded here so no later member re-emits it (the
+    /// <c>SBW_Utf8Slice</c> struct, <c>SBW_Free</c>, the closure-context box helpers, the
+    /// async-closure bridge preamble and boxes, typed-error extractors, the error-mint helper,
+    /// the nested-closure inner-box release helpers, and the per-type singletons: metadata
+    /// wrappers, metadata-accessor helpers, equality wrappers, Optional-tag helpers and enum
+    /// RawRepresentable wrappers).
+    /// <para>Read it before speculatively emitting a member and compare after: an unchanged
+    /// epoch proves every Swift byte written in between belongs to that member alone, so
+    /// truncating the Swift buffer back is safe. A changed epoch means shared helper text sits
+    /// inside the same span while this registry already reports it emitted — and there is no
+    /// un-register — so truncating would delete a definition nothing will ever write again and
+    /// leave later members referring to it. Callers that cannot prove the span is member-private
+    /// must keep the Swift text.</para>
+    /// <para>The test for a new registry is not "does it write Swift" but: <b>does its return
+    /// value gate someone else's re-emission of text that lands in the Swift writer?</b> Bump only
+    /// when all three hold — (a) the text goes into the <c>SwiftWriter</c> buffer a rollback can
+    /// truncate, (b) the registry is consulted as a dedup gate (<c>if (!TryAdd…) return;</c>), and
+    /// (c) the definition outlives the member that happened to write it. Three shapes deliberately
+    /// do NOT bump, and bumping them would be a bug, not extra safety:</para>
+    /// <list type="bullet">
+    /// <item><description><b>Per-member wrapper symbols</b> (method/property/constructor/@objc
+    /// property). Their text IS the member's own body and rolls back with it. Bumping would make
+    /// every member suppress its own rollback, disabling the recovery path entirely.</description></item>
+    /// <item><description><b>Bare registrations</b> whose result every caller discards — the
+    /// direct-helper bucket. Gating nothing, they can't cause a skipped re-emit.</description></item>
+    /// <item><description><b>Side-list accumulators</b> (protocol-extension and foreign-extension
+    /// wrapper lines). That text never enters the writer buffer, so truncation cannot reach
+    /// it.</description></item>
+    /// </list>
+    /// <para>A new shared Swift helper registry that meets (a)+(b)+(c) must bump, or the rollback
+    /// path silently regains the hazard — <c>ModuleEmissionContextEpochTests</c> pins the current
+    /// set on both sides, bumping and non-bumping.</para>
+    /// </summary>
+    public int SharedSwiftArtifactEpoch => _sharedSwiftArtifactEpoch;
+
+    /// <summary>Records that module-shared Swift helper text was committed.</summary>
+    private bool MarkSharedSwiftArtifact(bool committed)
+    {
+        if (committed)
+        {
+            _sharedSwiftArtifactEpoch++;
+        }
+        return committed;
+    }
+
     // ==================== Utf8Slice ====================
 
     private readonly HashSet<string> _utf8SliceFreePInvokeTypes = new();
+    private bool _utf8SliceStructEmitted;
+    private bool _utf8SliceFreeEmitted;
 
     /// <summary>Whether the SBW_Utf8Slice struct has been emitted for this module.</summary>
-    public bool Utf8SliceStructEmitted { get; set; }
+    public bool Utf8SliceStructEmitted
+    {
+        get => _utf8SliceStructEmitted;
+        set
+        {
+            MarkSharedSwiftArtifact(value && !_utf8SliceStructEmitted);
+            _utf8SliceStructEmitted = value;
+        }
+    }
 
     /// <summary>Whether the SBW_Utf8Slice_Free function has been emitted for this module.</summary>
-    public bool Utf8SliceFreeEmitted { get; set; }
+    public bool Utf8SliceFreeEmitted
+    {
+        get => _utf8SliceFreeEmitted;
+        set
+        {
+            MarkSharedSwiftArtifact(value && !_utf8SliceFreeEmitted);
+            _utf8SliceFreeEmitted = value;
+        }
+    }
 
     /// <summary>The current module name for Utf8Slice symbol generation.</summary>
     public string? Utf8SliceCurrentModuleName { get; set; }
@@ -535,7 +604,8 @@ public sealed class ModuleEmissionContext
     private readonly HashSet<string> _ncbInnerBoxReleaseSymbolsEmitted = new(StringComparer.Ordinal);
 
     /// <summary>Marks the escaping inner-closure box release helper for a symbol as emitted. Returns true if newly added.</summary>
-    public bool TryAddNcbInnerBoxReleaseSymbol(string symbol) => _ncbInnerBoxReleaseSymbolsEmitted.Add(symbol);
+    public bool TryAddNcbInnerBoxReleaseSymbol(string symbol) =>
+        MarkSharedSwiftArtifact(_ncbInnerBoxReleaseSymbolsEmitted.Add(symbol));
 
     // ==================== SwiftUI Bridge Collection ====================
     //
@@ -574,7 +644,17 @@ public sealed class ModuleEmissionContext
     private readonly HashSet<string> _cancellationPInvokeTypes = new();
 
     /// <summary>Whether the cancellation infrastructure has been emitted for this module.</summary>
-    public bool CancellationInfrastructureEmitted { get; set; }
+    public bool CancellationInfrastructureEmitted
+    {
+        get => _cancellationInfrastructureEmitted;
+        set
+        {
+            MarkSharedSwiftArtifact(value && !_cancellationInfrastructureEmitted);
+            _cancellationInfrastructureEmitted = value;
+        }
+    }
+
+    private bool _cancellationInfrastructureEmitted;
 
     /// <summary>The current module name for cancellation symbol generation.</summary>
     public string? CancellationCurrentModuleName { get; set; }
@@ -592,7 +672,17 @@ public sealed class ModuleEmissionContext
     private readonly HashSet<string> _errorDescExtractorPInvokeTypes = new();
 
     /// <summary>Whether the error description infrastructure has been emitted for this module.</summary>
-    public bool ErrorDescInfrastructureEmitted { get; set; }
+    public bool ErrorDescInfrastructureEmitted
+    {
+        get => _errorDescInfrastructureEmitted;
+        set
+        {
+            MarkSharedSwiftArtifact(value && !_errorDescInfrastructureEmitted);
+            _errorDescInfrastructureEmitted = value;
+        }
+    }
+
+    private bool _errorDescInfrastructureEmitted;
 
     /// <summary>The current module name for error description symbol generation.</summary>
     public string? ErrorDescCurrentModuleName { get; set; }
@@ -604,7 +694,8 @@ public sealed class ModuleEmissionContext
     public bool TryAddErrorDescPInvoke(string typeKey) => _errorDescPInvokeTypes.Add(typeKey);
 
     /// <summary>Marks a typed error extractor as emitted. Returns true if newly added.</summary>
-    public bool TryAddTypedErrorExtractor(string swiftErrorType) => _errorDescExtractorsEmitted.Add(swiftErrorType);
+    public bool TryAddTypedErrorExtractor(string swiftErrorType) =>
+        MarkSharedSwiftArtifact(_errorDescExtractorsEmitted.Add(swiftErrorType));
 
     /// <summary>Checks if an extractor P/Invoke has been emitted for a key.</summary>
     public bool HasExtractorPInvoke(string key) => _errorDescExtractorPInvokeTypes.Contains(key);
@@ -677,7 +768,17 @@ public sealed class ModuleEmissionContext
     /// Whether the Swift-side cascade dispatcher
     /// (<see cref="ErrorRegistryHelperEmitter"/>) has been emitted for this module.
     /// </summary>
-    public bool ErrorRegistryHelperEmittedSwift { get; set; }
+    public bool ErrorRegistryHelperEmittedSwift
+    {
+        get => _errorRegistryHelperEmittedSwift;
+        set
+        {
+            MarkSharedSwiftArtifact(value && !_errorRegistryHelperEmittedSwift);
+            _errorRegistryHelperEmittedSwift = value;
+        }
+    }
+
+    private bool _errorRegistryHelperEmittedSwift;
 
     /// <summary>
     /// Whether the C#-side typed-exception dispatcher class
@@ -694,8 +795,18 @@ public sealed class ModuleEmissionContext
 
     private readonly HashSet<string> _swiftErrorMintPInvokeTypes = new();
 
+    private bool _swiftErrorMintHelperEmitted;
+
     /// <summary>Whether the SBW_CreateError Swift helper has been emitted for this module.</summary>
-    public bool SwiftErrorMintHelperEmitted { get; set; }
+    public bool SwiftErrorMintHelperEmitted
+    {
+        get => _swiftErrorMintHelperEmitted;
+        set
+        {
+            MarkSharedSwiftArtifact(value && !_swiftErrorMintHelperEmitted);
+            _swiftErrorMintHelperEmitted = value;
+        }
+    }
 
     /// <summary>Checks if the SBW_CreateError C# P/Invoke has been emitted for a type.</summary>
     public bool HasSwiftErrorMintPInvoke(string typeKey) => _swiftErrorMintPInvokeTypes.Contains(typeKey);
@@ -707,11 +818,22 @@ public sealed class ModuleEmissionContext
 
     private readonly HashSet<string> _asyncClosureSwiftWrapperKeys = new();
 
+    private bool _asyncClosureBridgeErrorEmitted;
+
     /// <summary>Whether the SwiftBindingsBridgeError error type stub has been emitted for the current Swift module.</summary>
-    public bool AsyncClosureBridgeErrorEmitted { get; set; }
+    public bool AsyncClosureBridgeErrorEmitted
+    {
+        get => _asyncClosureBridgeErrorEmitted;
+        set
+        {
+            MarkSharedSwiftArtifact(value && !_asyncClosureBridgeErrorEmitted);
+            _asyncClosureBridgeErrorEmitted = value;
+        }
+    }
 
     /// <summary>Marks an async-closure box + resume-callback trio as emitted for a (module, T) pair. Returns true if newly added.</summary>
-    public bool TryAddAsyncClosureSwiftWrapperKey(string key) => _asyncClosureSwiftWrapperKeys.Add(key);
+    public bool TryAddAsyncClosureSwiftWrapperKey(string key) =>
+        MarkSharedSwiftArtifact(_asyncClosureSwiftWrapperKeys.Add(key));
 
     // ==================== NativeAOT Factory Registration ====================
 
@@ -1546,7 +1668,7 @@ public sealed class ModuleEmissionContext
 
     /// <summary>Adds a metadata @_cdecl wrapper symbol. Returns true if newly added (not a duplicate).</summary>
     public bool TryAddMetadataWrapperSymbol(string symbol) =>
-        RegisterWrapperSymbolInternal(_metadataWrapperSymbols, symbol);
+        MarkSharedSwiftArtifact(RegisterWrapperSymbolInternal(_metadataWrapperSymbols, symbol));
 
     // ==================== Enum Handler RawRepresentable ====================
 
@@ -1557,7 +1679,7 @@ public sealed class ModuleEmissionContext
 
     /// <summary>Adds an enum RawRepresentable wrapper symbol. Returns true if newly added.</summary>
     public bool TryAddEnumRawRepWrapperSymbol(string symbol) =>
-        RegisterWrapperSymbolInternal(_enumRawRepSymbols, symbol);
+        MarkSharedSwiftArtifact(RegisterWrapperSymbolInternal(_enumRawRepSymbols, symbol));
 
     // ==================== Equality @_cdecl Wrapper ====================
 
@@ -1565,7 +1687,7 @@ public sealed class ModuleEmissionContext
 
     /// <summary>Adds an equality @_cdecl wrapper symbol. Returns true if newly added (not a duplicate).</summary>
     public bool TryAddEqualityWrapperSymbol(string symbol) =>
-        RegisterWrapperSymbolInternal(_equalityWrapperSymbols, symbol);
+        MarkSharedSwiftArtifact(RegisterWrapperSymbolInternal(_equalityWrapperSymbols, symbol));
 
     // ==================== Metadata Accessor Helper ====================
 
@@ -1573,7 +1695,7 @@ public sealed class ModuleEmissionContext
 
     /// <summary>Adds a metadata accessor helper symbol. Returns true if newly added (not a duplicate).</summary>
     public bool TryAddMetadataAccessorHelper(string typeMangledName) =>
-        RegisterWrapperSymbolInternal(_metadataAccessorHelperSymbols, typeMangledName);
+        MarkSharedSwiftArtifact(RegisterWrapperSymbolInternal(_metadataAccessorHelperSymbols, typeMangledName));
 
     // ==================== Optional Tag Helper ====================
 
@@ -1581,7 +1703,7 @@ public sealed class ModuleEmissionContext
 
     /// <summary>Adds an Optional tag helper @_cdecl symbol. Returns true if newly added (not a duplicate).</summary>
     public bool TryAddOptionalTagHelperSymbol(string symbol) =>
-        RegisterWrapperSymbolInternal(_optionalTagHelperSymbols, symbol);
+        MarkSharedSwiftArtifact(RegisterWrapperSymbolInternal(_optionalTagHelperSymbols, symbol));
 
     // ==================== Direct Helper Symbols ====================
     //
@@ -1964,7 +2086,17 @@ public sealed class ModuleEmissionContext
     /// helpers exactly once; per-closure adapter code refers to the helper by a
     /// fixed name.
     /// </summary>
-    public bool ClosureContextHelpersEmitted { get; set; }
+    public bool ClosureContextHelpersEmitted
+    {
+        get => _closureContextHelpersEmitted;
+        set
+        {
+            MarkSharedSwiftArtifact(value && !_closureContextHelpersEmitted);
+            _closureContextHelpersEmitted = value;
+        }
+    }
+
+    private bool _closureContextHelpersEmitted;
 
     /// <summary>
     /// Set by <c>ProtocolExtensionEmitter.EmitClosureSwiftWrapper</c> when the buffered

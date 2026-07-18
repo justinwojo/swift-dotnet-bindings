@@ -77,8 +77,9 @@ internal static class WrapperSymbolContractGate
     /// and logs a warning. Callers must <c>return</c> from their handler immediately after
     /// invoking this — the rest of the emit path (post-processors, RecordMemberEmitted, …)
     /// must not run for a member that won't compile. Predict-then-skip callers invoke this
-    /// before any body is written; rollback callers must roll the C# writer back to a
-    /// pre-member checkpoint first so no orphan body survives.
+    /// before any body is written; rollback callers must undo the member's speculative emission
+    /// first — via <see cref="MemberEmissionTransaction"/>, which covers the Swift wrapper buffer
+    /// as well as the C# one — so no orphan body survives.
     /// </summary>
     public static void HandleSkip(
         MethodEnvironment methodEnv,
@@ -99,5 +100,54 @@ internal static class WrapperSymbolContractGate
         logger.LogWarning(
             "Wrapper-symbol contract: skipping member '{Member}' on '{Parent}' — wrapper symbol '{Symbol}' not registered.",
             methodDecl.Name, methodDecl.ParentDecl?.Name, missingSymbol);
+    }
+
+    /// <summary>
+    /// Records a member whose Swift wrapper block had to be kept when its C# side was rolled back.
+    /// <para>The block is left complete, compiling, and unreachable from managed code — dead weight
+    /// in the wrapper source, deliberately preferred over the alternative. Truncating a span that
+    /// also committed module-shared Swift helpers would take those helpers with it, and nothing
+    /// will write them again, so every later member referring to them would fail to compile: a
+    /// wrapper library that does not build at all.</para>
+    /// <para>The reason is reported rather than assumed. Only
+    /// <see cref="MemberEmissionTransaction.SwiftKeep.SharedHelperCommitted"/> means helper text is
+    /// actually sitting in the span; the other two mean the transaction could not prove the span
+    /// was member-private and kept it fail-safe. Collapsing them would send a reader hunting for a
+    /// shared helper that was never committed.</para>
+    /// </summary>
+    public static void ReportKeptWrapperBlock(
+        MemberEmissionTransaction.SwiftKeep keepReason,
+        MethodEnvironment methodEnv,
+        string missingSymbol,
+        ILogger logger)
+    {
+        if (keepReason == MemberEmissionTransaction.SwiftKeep.RolledBack)
+        {
+            return;
+        }
+
+        ArgumentNullException.ThrowIfNull(methodEnv);
+
+        var explanation = keepReason switch
+        {
+            MemberEmissionTransaction.SwiftKeep.SharedHelperCommitted =>
+                "module-shared Swift helpers were committed in the same span, so truncating it would delete "
+                + "definitions that cannot be re-emitted",
+            MemberEmissionTransaction.SwiftKeep.NoSwiftWriter =>
+                "no Swift writer took part in this member's emission, so there was no span to discard",
+            MemberEmissionTransaction.SwiftKeep.NoEmissionContext =>
+                "no emission context was available, so the span could not be proven member-private",
+            // Deliberately generic: true of any keep reason. A future reason that falls here reads
+            // vague rather than wrong, which a specific-but-mismatched fallback would not.
+            _ => "the span could not be proven member-private",
+        };
+
+        // The preamble states only that the span was not discarded — asserting a block was "kept"
+        // would be false for the NoSwiftWriter case, where no Swift span existed at all.
+        var methodDecl = (MethodDecl)methodEnv.MethodDecl;
+        logger.LogDebug(
+            "Wrapper-symbol contract: the Swift wrapper span for skipped member '{Member}' on '{Parent}' "
+            + "(symbol '{Symbol}') was not discarded — {Reason}.",
+            methodDecl.Name, methodDecl.ParentDecl?.Name, missingSymbol, explanation);
     }
 }
