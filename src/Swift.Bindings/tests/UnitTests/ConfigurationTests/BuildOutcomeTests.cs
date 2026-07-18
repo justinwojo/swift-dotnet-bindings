@@ -15,68 +15,49 @@ namespace BindingsGeneration.Tests
     public class WrapperBuildOutcomeTests
     {
         [Fact]
-        public void From_NoCompilationAttempted_IsSuccess_NotFatal_NotWarning()
+        public void From_NoCompilationAttempted_IsSuccess_NotFatal()
         {
             var outcome = WrapperBuildOutcome.From(
-                compilationResult: null, asyncLibraryAutoWired: false,
-                sdkMode: false, compilationException: null);
+                compilationResult: null, compilationException: null);
 
             Assert.Equal(WrapperCompilationOutcome.Success, outcome.RawOutcome);
-            Assert.Equal(WrapperCompilationOutcome.Success, outcome.EffectiveOutcome);
             Assert.False(outcome.IsFatal);
-            Assert.False(outcome.IsWarning);
             Assert.Equal(0, outcome.ExitCode);
         }
 
         [Fact]
-        public void From_FatalNonSdkMode_IsFatal_HasNoSwiftbind050Code()
+        public void From_CompileException_IsFatal_ExitCode1()
         {
+            // Shape produced by the SDK's --compile-wrapper-only path: a compile exception must
+            // fail publication (exit 1), not soft-fail as a warning.
             var ex = new InvalidOperationException("swiftc failed");
             var outcome = WrapperBuildOutcome.From(
-                compilationResult: null, asyncLibraryAutoWired: true,
-                sdkMode: false, compilationException: ex);
+                compilationResult: null, compilationException: ex);
 
             Assert.Equal(WrapperCompilationOutcome.Fatal, outcome.RawOutcome);
-            Assert.Equal(WrapperCompilationOutcome.Fatal, outcome.EffectiveOutcome);
             Assert.True(outcome.IsFatal);
-            Assert.False(outcome.IsWarning);
             Assert.Equal(1, outcome.ExitCode);
             Assert.Null(outcome.DiagnosticCode);
+            Assert.Contains("swiftc failed", outcome.Message);
         }
 
         [Fact]
-        public void From_FatalSdkMode_IsWarning_HasSwiftbind050Code()
+        public void From_AllStripped_IsFatal_ExitCode1()
         {
-            var ex = new InvalidOperationException("swiftc failed");
-            var outcome = WrapperBuildOutcome.From(
-                compilationResult: null, asyncLibraryAutoWired: true,
-                sdkMode: true, compilationException: ex);
-
-            Assert.Equal(WrapperCompilationOutcome.Fatal, outcome.RawOutcome);
-            Assert.Equal(WrapperCompilationOutcome.Warning, outcome.EffectiveOutcome);
-            Assert.False(outcome.IsFatal);
-            Assert.True(outcome.IsWarning);
-            Assert.Equal(0, outcome.ExitCode);
-            Assert.Equal("SWIFTBIND050", outcome.DiagnosticCode);
-            Assert.Contains("SWIFTBIND050", outcome.Message);
-        }
-
-        [Fact]
-        public void From_WarningRaw_IsWarning_NoSwiftbind050Code()
-        {
-            // Stripped block triggers Warning when async library is not auto-wired.
+            // The real all-stripped shape: Compile()'s give-up paths return an empty
+            // XCFrameworkPath, which is what marks "no wrapper on disk".
             var result = new SwiftWrapperCompilationResult
             {
-                XCFrameworkPath = "/tmp/none",
+                XCFrameworkPath = "",
                 CompiledFileCount = 0,
                 StrippedBlockCount = 3,
             };
             var outcome = WrapperBuildOutcome.From(
-                result, asyncLibraryAutoWired: false, sdkMode: false, compilationException: null);
+                result, compilationException: null);
 
-            Assert.Equal(WrapperCompilationOutcome.Warning, outcome.RawOutcome);
-            Assert.False(outcome.IsFatal);
-            Assert.True(outcome.IsWarning);
+            Assert.Equal(WrapperCompilationOutcome.Fatal, outcome.RawOutcome);
+            Assert.True(outcome.IsFatal);
+            Assert.Equal(1, outcome.ExitCode);
             Assert.Null(outcome.DiagnosticCode);
         }
 
@@ -91,7 +72,7 @@ namespace BindingsGeneration.Tests
                 StrippedSymbols = new HashSet<string> { "$s4Test3fooyyF", "$s4Test3baryyF" },
             };
             var outcome = WrapperBuildOutcome.From(
-                result, asyncLibraryAutoWired: false, sdkMode: false, compilationException: null);
+                result, compilationException: null);
 
             Assert.Equal(2, outcome.StrippedSymbols.Count);
             Assert.Contains("$s4Test3fooyyF", outcome.StrippedSymbols);
@@ -101,8 +82,7 @@ namespace BindingsGeneration.Tests
         public void StrippedSymbols_NullCompilationResult_ReturnsEmptySet()
         {
             var outcome = WrapperBuildOutcome.From(
-                compilationResult: null, asyncLibraryAutoWired: false,
-                sdkMode: false, compilationException: null);
+                compilationResult: null, compilationException: null);
 
             Assert.Empty(outcome.StrippedSymbols);
         }
@@ -112,8 +92,7 @@ namespace BindingsGeneration.Tests
         {
             var logger = new CapturingLogger();
             var outcome = WrapperBuildOutcome.From(
-                compilationResult: null, asyncLibraryAutoWired: false,
-                sdkMode: false, compilationException: null);
+                compilationResult: null, compilationException: null);
 
             outcome.LogTo(logger);
 
@@ -126,8 +105,7 @@ namespace BindingsGeneration.Tests
             var logger = new CapturingLogger();
             var ex = new InvalidOperationException("swiftc failed");
             var outcome = WrapperBuildOutcome.From(
-                compilationResult: null, asyncLibraryAutoWired: true,
-                sdkMode: false, compilationException: ex);
+                compilationResult: null, compilationException: ex);
 
             outcome.LogTo(logger);
 
@@ -137,170 +115,23 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void LogTo_FatalSdkMode_LogsWarning_WithSwiftbind050()
-        {
-            var logger = new CapturingLogger();
-            var ex = new InvalidOperationException("swiftc failed");
-            var outcome = WrapperBuildOutcome.From(
-                compilationResult: null, asyncLibraryAutoWired: true,
-                sdkMode: true, compilationException: ex);
-
-            outcome.LogTo(logger);
-
-            var entry = Assert.Single(logger.Entries);
-            Assert.Equal(LogLevel.Warning, entry.Level);
-            Assert.Contains("SWIFTBIND050", entry.Message);
-        }
-
-        [Fact]
-        public void LogTo_WarningRaw_LogsWarning_NoSwiftbind050()
+        public void LogTo_AllStripped_LogsError()
         {
             var logger = new CapturingLogger();
             var result = new SwiftWrapperCompilationResult
             {
-                XCFrameworkPath = "/tmp/none",
+                XCFrameworkPath = "",
                 CompiledFileCount = 0,
                 StrippedBlockCount = 3,
             };
             var outcome = WrapperBuildOutcome.From(
-                result, asyncLibraryAutoWired: false, sdkMode: false, compilationException: null);
+                result, compilationException: null);
 
             outcome.LogTo(logger);
 
             var entry = Assert.Single(logger.Entries);
-            Assert.Equal(LogLevel.Warning, entry.Level);
-            Assert.DoesNotContain("SWIFTBIND050", entry.Message);
-        }
-
-        // ── Echo of a non-fatal wrapper-compile failure's swiftc preview to stderr (visible at -v normal) ──
-        // A non-fatal wrapper failure is LogTo'd at Warning → the generator's console logger sends it to
-        // STDOUT; every SDK generator Exec captures stdout at low importance and swallows it at -v normal,
-        // so only the SWIFTBIND051 give-up surfaces. The echo writes the same swiftc-error preview to
-        // stderr (captured at high importance) so the failure is diagnosable on the first build. The gate
-        // is the compilation exception (the preview carrier), NOT the SWIFTBIND050 code — because the two
-        // production classifications differ by whether --async-library was auto-wired: the inline
-        // Apple-framework generate path yields a SWIFTBIND050 warning, while the --compile-wrapper-only
-        // path (always asyncLibraryAutoWired: false) yields a plain, null-code Warning. Both must surface.
-        // These assert the mechanism and that classification is unchanged — not exact strings. A
-        // StringWriter stands in for Console.Error.
-
-        // A deliberately-broken wrapper compile: the exception message carries the filtered swiftc
-        // preview exactly as SwiftWrapperCompiler throws it.
-        private static InvalidOperationException BrokenWrapperCompile() =>
-            new("Swift wrapper compilation failed (exit code 1): error: no such module 'DeliberatelyBroken'");
-
-        [Fact]
-        public void EchoWrapperFailurePreviewToStandardError_Swiftbind050_WritesPreviewAndCode()
-        {
-            // async auto-wired (the inline Apple-framework generate path): raw Fatal, downgraded in SDK
-            // mode to a SWIFTBIND050 warning.
-            var outcome = WrapperBuildOutcome.From(
-                compilationResult: null, asyncLibraryAutoWired: true,
-                sdkMode: true, compilationException: BrokenWrapperCompile());
-
-            var stderr = new StringWriter();
-            outcome.EchoWrapperFailurePreviewToStandardError(stderr);
-
-            var written = stderr.ToString();
-            Assert.Contains("SWIFTBIND050", written);
-            // The swiftc-error preview reaches stderr — the whole point of the surfacing.
-            Assert.Contains("no such module 'DeliberatelyBroken'", written);
-            // Classification is unchanged: still a non-fatal SWIFTBIND050 warning.
-            Assert.Equal(0, outcome.ExitCode);
-            Assert.Equal("SWIFTBIND050", outcome.DiagnosticCode);
-        }
-
-        [Fact]
-        public void EchoWrapperFailurePreviewToStandardError_CompileWrapperOnlyShape_WritesPreview()
-        {
-            // The exact production --compile-wrapper-only argument shape (Program.cs RunCompileWrapperOnly):
-            // asyncLibraryAutoWired: false + sdkMode: true. A compile exception here is a PLAIN Warning with
-            // a NULL DiagnosticCode — NOT SWIFTBIND050 — because 050 is assigned only when the raw outcome
-            // is Fatal (async auto-wired). This is the wired path the feature exists to fix; a guard keyed
-            // on the 050 code would leave it silent. Red without the CompilationException-based guard.
-            var outcome = WrapperBuildOutcome.From(
-                compilationResult: null, asyncLibraryAutoWired: false,
-                sdkMode: true, compilationException: BrokenWrapperCompile());
-
-            // Documents the real classification on this path: non-fatal warning, no 050 code.
-            Assert.True(outcome.IsWarning);
+            Assert.Equal(LogLevel.Error, entry.Level);
             Assert.Null(outcome.DiagnosticCode);
-            Assert.Equal(0, outcome.ExitCode);
-
-            var stderr = new StringWriter();
-            outcome.EchoWrapperFailurePreviewToStandardError(stderr);
-
-            // The swiftc-error preview must still reach stderr despite the null code.
-            Assert.Contains("no such module 'DeliberatelyBroken'", stderr.ToString());
-        }
-
-        [Fact]
-        public void EchoWrapperFailurePreviewToStandardError_Fatal_WritesNothing()
-        {
-            // A fatal outcome already reaches stderr via LogTo's error path; the echo must not
-            // double-surface it (and a non-SDK fatal carries no SWIFTBIND050 code).
-            var outcome = WrapperBuildOutcome.From(
-                compilationResult: null, asyncLibraryAutoWired: true,
-                sdkMode: false, compilationException: BrokenWrapperCompile());
-
-            var stderr = new StringWriter();
-            outcome.EchoWrapperFailurePreviewToStandardError(stderr);
-
-            Assert.True(outcome.IsFatal);
-            Assert.Equal(string.Empty, stderr.ToString());
-        }
-
-        [Fact]
-        public void EchoWrapperFailurePreviewToStandardError_StrippedBlocksNoException_WritesNothing()
-        {
-            // An all-stripped-blocks Warning carries no compilation exception, so it has no swiftc error:
-            // preview to surface — its message is only a stripped-block count. The exception-based guard
-            // keeps it silent even though it IS a non-fatal warning.
-            var result = new SwiftWrapperCompilationResult
-            {
-                XCFrameworkPath = "/tmp/none",
-                CompiledFileCount = 0,
-                StrippedBlockCount = 3,
-            };
-            var outcome = WrapperBuildOutcome.From(
-                result, asyncLibraryAutoWired: false, sdkMode: false, compilationException: null);
-
-            var stderr = new StringWriter();
-            outcome.EchoWrapperFailurePreviewToStandardError(stderr);
-
-            Assert.True(outcome.IsWarning);
-            Assert.Null(outcome.CompilationException);
-            Assert.Equal(string.Empty, stderr.ToString());
-        }
-
-        [Fact]
-        public void EchoWrapperFailurePreviewToStandardError_Success_WritesNothing()
-        {
-            var outcome = WrapperBuildOutcome.From(
-                compilationResult: null, asyncLibraryAutoWired: false,
-                sdkMode: false, compilationException: null);
-
-            var stderr = new StringWriter();
-            outcome.EchoWrapperFailurePreviewToStandardError(stderr);
-
-            Assert.Equal(string.Empty, stderr.ToString());
-        }
-
-        [Fact]
-        public void EchoWrapperFailurePreviewToStandardError_Contractual056_WritesNothing()
-        {
-            // A contract violation carries a non-null diagnostic code that is NOT SWIFTBIND050 and is
-            // fatal — guards against a future refactor keying the echo on "DiagnosticCode != null".
-            var outcome = WrapperBuildOutcome.From(
-                SucceededPrimary(), asyncLibraryAutoWired: false, sdkMode: true,
-                compilationException: null,
-                contractualUnmetArchitectures: new[] { "x86_64" });
-
-            var stderr = new StringWriter();
-            outcome.EchoWrapperFailurePreviewToStandardError(stderr);
-
-            Assert.Equal("SWIFTBIND056", outcome.DiagnosticCode);
-            Assert.Equal(string.Empty, stderr.ToString());
         }
 
         // ── Architecture-contract violation (explicit --target-architectures slice undelivered) ──
@@ -314,19 +145,18 @@ namespace BindingsGeneration.Tests
         };
 
         [Fact]
-        public void From_ContractualUnmet_StaysFatalEvenInSdkMode()
+        public void From_ContractualUnmet_IsFatal()
         {
-            // The whole point: SDK mode downgrades an ordinary wrapper Fatal to a SWIFTBIND050 warning,
-            // but an explicitly-requested arch the fold failed to deliver must NOT be downgraded.
+            // An explicitly-requested arch the fold failed to deliver is fatal: the primary
+            // slice compiled, but shipping a narrower wrapper than requested would silently
+            // drop the demanded architecture.
             var outcome = WrapperBuildOutcome.From(
-                SucceededPrimary(), asyncLibraryAutoWired: false, sdkMode: true,
+                SucceededPrimary(),
                 compilationException: null,
                 contractualUnmetArchitectures: new[] { "x86_64" });
 
             Assert.Equal(WrapperCompilationOutcome.Fatal, outcome.RawOutcome);
-            Assert.Equal(WrapperCompilationOutcome.Fatal, outcome.EffectiveOutcome);
             Assert.True(outcome.IsFatal);
-            Assert.False(outcome.IsWarning);
             Assert.Equal(1, outcome.ExitCode);
             Assert.Equal("SWIFTBIND056", outcome.DiagnosticCode);
             Assert.Contains("SWIFTBIND056", outcome.Message);
@@ -334,10 +164,10 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void From_ContractualUnmet_NonSdkMode_IsFatal()
+        public void From_ContractualUnmet_MultipleArchs_IsFatal()
         {
             var outcome = WrapperBuildOutcome.From(
-                SucceededPrimary(), asyncLibraryAutoWired: false, sdkMode: false,
+                SucceededPrimary(),
                 compilationException: null,
                 contractualUnmetArchitectures: new[] { "arm64", "x86_64" });
 
@@ -354,7 +184,7 @@ namespace BindingsGeneration.Tests
             // Auto mode / satisfied contract: callers pass an empty list, so a successful primary stays
             // a success even though the override parameter is present.
             var outcome = WrapperBuildOutcome.From(
-                SucceededPrimary(), asyncLibraryAutoWired: false, sdkMode: true,
+                SucceededPrimary(),
                 compilationException: null,
                 contractualUnmetArchitectures: System.Array.Empty<string>());
 
@@ -368,8 +198,7 @@ namespace BindingsGeneration.Tests
         {
             // The default (null) argument must leave the historical severity path untouched.
             var outcome = WrapperBuildOutcome.From(
-                compilationResult: null, asyncLibraryAutoWired: false,
-                sdkMode: false, compilationException: null,
+                compilationResult: null, compilationException: null,
                 contractualUnmetArchitectures: null);
 
             Assert.Equal(WrapperCompilationOutcome.Success, outcome.RawOutcome);
@@ -382,7 +211,7 @@ namespace BindingsGeneration.Tests
         {
             var logger = new CapturingLogger();
             var outcome = WrapperBuildOutcome.From(
-                SucceededPrimary(), asyncLibraryAutoWired: false, sdkMode: true,
+                SucceededPrimary(),
                 compilationException: null,
                 contractualUnmetArchitectures: new[] { "x86_64" });
 

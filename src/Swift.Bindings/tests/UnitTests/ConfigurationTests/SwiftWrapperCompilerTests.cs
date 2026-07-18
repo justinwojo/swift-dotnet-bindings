@@ -2401,21 +2401,19 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
-    #region H. EvaluateResult (Fatal / Warning / Success) Tests
+    #region H. EvaluateResult (Fatal / Success) Tests
 
     public class SwiftWrapperEvaluateResultTests
     {
         [Fact]
-        public void EvaluateResult_NullResult_AlwaysSuccess()
+        public void EvaluateResult_NullResult_IsSuccess()
         {
             Assert.Equal(WrapperCompilationOutcome.Success,
-                SwiftWrapperCompiler.EvaluateResult(null, asyncLibraryAutoWired: true));
-            Assert.Equal(WrapperCompilationOutcome.Success,
-                SwiftWrapperCompiler.EvaluateResult(null, asyncLibraryAutoWired: false));
+                SwiftWrapperCompiler.EvaluateResult(null));
         }
 
         [Fact]
-        public void EvaluateResult_SuccessfulCompilation_AlwaysSuccess()
+        public void EvaluateResult_SuccessfulCompilation_IsSuccess()
         {
             var result = new SwiftWrapperCompilationResult
             {
@@ -2424,13 +2422,11 @@ namespace BindingsGeneration.Tests
                 StrippedBlockCount = 1
             };
             Assert.Equal(WrapperCompilationOutcome.Success,
-                SwiftWrapperCompiler.EvaluateResult(result, asyncLibraryAutoWired: true));
-            Assert.Equal(WrapperCompilationOutcome.Success,
-                SwiftWrapperCompiler.EvaluateResult(result, asyncLibraryAutoWired: false));
+                SwiftWrapperCompiler.EvaluateResult(result));
         }
 
         [Fact]
-        public void EvaluateResult_AllStripped_AutoWired_Fatal()
+        public void EvaluateResult_AllStripped_IsFatal()
         {
             var result = new SwiftWrapperCompilationResult
             {
@@ -2439,51 +2435,51 @@ namespace BindingsGeneration.Tests
                 StrippedBlockCount = 5
             };
             Assert.Equal(WrapperCompilationOutcome.Fatal,
-                SwiftWrapperCompiler.EvaluateResult(result, asyncLibraryAutoWired: true));
+                SwiftWrapperCompiler.EvaluateResult(result));
         }
 
         [Fact]
-        public void EvaluateResult_AllStripped_ExplicitAsyncLib_Warning()
-        {
-            var result = new SwiftWrapperCompilationResult
-            {
-                XCFrameworkPath = "",
-                CompiledFileCount = 0,
-                StrippedBlockCount = 5
-            };
-            Assert.Equal(WrapperCompilationOutcome.Warning,
-                SwiftWrapperCompiler.EvaluateResult(result, asyncLibraryAutoWired: false));
-        }
-
-        [Fact]
-        public void EvaluateResult_Exception_AutoWired_Fatal()
+        public void EvaluateResult_Exception_IsFatal()
         {
             var ex = new InvalidOperationException("swiftc not found");
             Assert.Equal(WrapperCompilationOutcome.Fatal,
-                SwiftWrapperCompiler.EvaluateResult(null, asyncLibraryAutoWired: true, compilationException: ex));
+                SwiftWrapperCompiler.EvaluateResult(null, compilationException: ex));
         }
 
         [Fact]
-        public void EvaluateResult_Exception_ExplicitAsyncLib_Warning()
+        public void EvaluateResult_NoXCFrameworkProduced_ZeroStripped_IsFatal()
         {
-            var ex = new InvalidOperationException("swiftc not found");
-            Assert.Equal(WrapperCompilationOutcome.Warning,
-                SwiftWrapperCompiler.EvaluateResult(null, asyncLibraryAutoWired: false, compilationException: ex));
-        }
-
-        [Fact]
-        public void EvaluateResult_ZeroStrippedZeroCompiled_Success()
-        {
-            // Edge case: CompiledFileCount == 0 but StrippedBlockCount == 0 too
-            // (shouldn't happen in practice but tests the boundary)
+            // The give-up shape from the thunk-failure guard: nothing compiled and nothing
+            // stripped, so no wrapper exists on disk. Classifying on the stripped-block count
+            // alone read this as Success and shipped C# P/Invokes into a library that was never
+            // built. The empty path is the ground truth — no artifact, no publication.
             var result = new SwiftWrapperCompilationResult
             {
                 XCFrameworkPath = "",
                 CompiledFileCount = 0,
                 StrippedBlockCount = 0
             };
+            Assert.Equal(WrapperCompilationOutcome.Fatal,
+                SwiftWrapperCompiler.EvaluateResult(result));
+        }
+
+        [Fact]
+        public void EvaluateResult_ThunkOnlyWrapper_NoCleanedSwift_IsSuccess()
+        {
+            // A wrapper whose Swift all stripped but whose hand-written .arm64.s thunks compiled
+            // and linked is a real, working xcframework: CompiledFileCount counts cleaned Swift
+            // files only, so it is legitimately 0 here. Keyed on the block count this looked
+            // identical to a total failure and would now hard-fail a build that produced a valid
+            // artifact.
+            var result = new SwiftWrapperCompilationResult
+            {
+                XCFrameworkPath = "/tmp/out.xcframework",
+                CompiledFileCount = 0,
+                StrippedBlockCount = 3,
+                SliceCount = 1
+            };
             Assert.Equal(WrapperCompilationOutcome.Success,
-                SwiftWrapperCompiler.EvaluateResult(result, asyncLibraryAutoWired: true));
+                SwiftWrapperCompiler.EvaluateResult(result));
         }
 
         [Fact]
@@ -2498,56 +2494,7 @@ namespace BindingsGeneration.Tests
             };
             var ex = new InvalidOperationException("SDK missing");
             Assert.Equal(WrapperCompilationOutcome.Fatal,
-                SwiftWrapperCompiler.EvaluateResult(result, asyncLibraryAutoWired: true, compilationException: ex));
-        }
-    }
-
-    #endregion
-
-    #region I. EffectiveOutcome (SDK-mode downgrade) Tests
-
-    public class SwiftWrapperEffectiveOutcomeTests
-    {
-        [Fact]
-        public void EffectiveOutcome_Fatal_SdkMode_DowngradesToWarning()
-        {
-            Assert.Equal(WrapperCompilationOutcome.Warning,
-                SwiftWrapperCompiler.EffectiveOutcome(WrapperCompilationOutcome.Fatal, sdkMode: true));
-        }
-
-        [Fact]
-        public void EffectiveOutcome_Fatal_NonSdkMode_StaysFatal()
-        {
-            Assert.Equal(WrapperCompilationOutcome.Fatal,
-                SwiftWrapperCompiler.EffectiveOutcome(WrapperCompilationOutcome.Fatal, sdkMode: false));
-        }
-
-        [Fact]
-        public void EffectiveOutcome_Warning_SdkMode_StaysWarning()
-        {
-            Assert.Equal(WrapperCompilationOutcome.Warning,
-                SwiftWrapperCompiler.EffectiveOutcome(WrapperCompilationOutcome.Warning, sdkMode: true));
-        }
-
-        [Fact]
-        public void EffectiveOutcome_Warning_NonSdkMode_StaysWarning()
-        {
-            Assert.Equal(WrapperCompilationOutcome.Warning,
-                SwiftWrapperCompiler.EffectiveOutcome(WrapperCompilationOutcome.Warning, sdkMode: false));
-        }
-
-        [Fact]
-        public void EffectiveOutcome_Success_SdkMode_StaysSuccess()
-        {
-            Assert.Equal(WrapperCompilationOutcome.Success,
-                SwiftWrapperCompiler.EffectiveOutcome(WrapperCompilationOutcome.Success, sdkMode: true));
-        }
-
-        [Fact]
-        public void EffectiveOutcome_Success_NonSdkMode_StaysSuccess()
-        {
-            Assert.Equal(WrapperCompilationOutcome.Success,
-                SwiftWrapperCompiler.EffectiveOutcome(WrapperCompilationOutcome.Success, sdkMode: false));
+                SwiftWrapperCompiler.EvaluateResult(result, compilationException: ex));
         }
     }
 

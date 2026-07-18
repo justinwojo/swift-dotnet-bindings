@@ -190,12 +190,11 @@ public class BindingArtifactManifestTests
             },
             Wrapper = new WrapperSection
             {
-                Status = PhaseStatus.Warning,
-                RawOutcome = "Warning",
-                EffectiveOutcome = "Warning",
-                ExitCode = 0,
-                DiagnosticCode = "SWIFTBIND050",
-                Message = "stripped 3 unsupported APIs",
+                Status = PhaseStatus.Fatal,
+                RawOutcome = "Fatal",
+                ExitCode = 1,
+                DiagnosticCode = null,
+                Message = "All Swift wrapper code was stripped as broken (3 block(s)).",
                 SliceCount = 1,
                 CompiledFileCount = 7,
             },
@@ -219,11 +218,12 @@ public class BindingArtifactManifestTests
         var parsed = JsonConvert.DeserializeObject<BindingArtifactManifest>(json, settings)!;
 
         Assert.Equal("Demo", parsed.Module);
-        Assert.Equal(2, parsed.SchemaVersion);
+        Assert.Equal(3, parsed.SchemaVersion);
         Assert.Equal("1.0.0", parsed.GeneratorVersion);
         Assert.NotNull(parsed.Generation);
-        Assert.Equal(PhaseStatus.Warning, parsed.Wrapper!.Status);
-        Assert.Equal("SWIFTBIND050", parsed.Wrapper.DiagnosticCode);
+        Assert.Equal(PhaseStatus.Fatal, parsed.Wrapper!.Status);
+        Assert.Equal(1, parsed.Wrapper.ExitCode);
+        Assert.Null(parsed.Wrapper.DiagnosticCode);
         Assert.Single(parsed.Wrapper.CSharpCoGatedMembers);
         Assert.Equal(IdentityConfidence.Mangled, parsed.Wrapper.CSharpCoGatedMembers[0].Confidence);
         Assert.Equal(PhaseStatus.NoOp, parsed.Bridge!.Status);
@@ -763,11 +763,9 @@ public class BindingArtifactManifestTests
     [Fact]
     public void WrapperSection_From_OutcomeSeverity_MapsToPhaseStatus()
     {
-        // Exception + auto-wired async library = Fatal per EvaluateResult.
+        // Compile exception = Fatal per EvaluateResult (fail-closed in every mode).
         var fatal = WrapperBuildOutcome.From(
             compilationResult: null,
-            asyncLibraryAutoWired: true,
-            sdkMode: false,
             compilationException: new InvalidOperationException("boom"));
         var fatalSection = WrapperSection.From(fatal, Array.Empty<CoGatedMember>());
         Assert.Equal(PhaseStatus.Fatal, fatalSection.Status);
@@ -775,11 +773,77 @@ public class BindingArtifactManifestTests
         // Null result = no swift files = Success.
         var ok = WrapperBuildOutcome.From(
             compilationResult: null,
-            asyncLibraryAutoWired: false,
-            sdkMode: false,
             compilationException: null);
         var okSection = WrapperSection.From(ok, Array.Empty<CoGatedMember>());
         Assert.Equal(PhaseStatus.Success, okSection.Status);
+    }
+
+    [Fact]
+    public void WrapperSection_From_ReconciliationFailure_RecordsPhaseAsFatal()
+    {
+        // The wrapper itself compiled, but the generated C# could not be made sound against it.
+        // The manifest is the authoritative artifact record, so it must not report a phase that
+        // produced an unusable binding as a success — the surviving wrapper on disk is exactly
+        // what makes this case easy to log as green.
+        using var temp = new TempDirectory();
+        var built = Path.Combine(temp.Path, "Wrapper.xcframework");
+        Directory.CreateDirectory(built);
+
+        var result = new SwiftWrapperCompilationResult
+        {
+            XCFrameworkPath = built,
+            CompiledFileCount = 3,
+            StrippedBlockCount = 1,
+            SliceCount = 1,
+            StrippedSymbols = new HashSet<string> { "$sBroken" },
+        };
+        var outcome = WrapperBuildOutcome.From(result, compilationException: null);
+
+        // Sanity: without the reconciliation failure this is a clean success.
+        var clean = WrapperSection.From(outcome, Array.Empty<CoGatedMember>());
+        Assert.Equal(PhaseStatus.Success, clean.Status);
+        Assert.True(clean.WrapperXcfwExists);
+
+        var failed = WrapperSection.From(
+            outcome, Array.Empty<CoGatedMember>(), "SWIFTBIND057: 'Gauge.Level' could not be rewritten.");
+
+        Assert.Equal(PhaseStatus.Fatal, failed.Status);
+        Assert.NotEqual(0, failed.ExitCode);
+        Assert.Equal("SWIFTBIND057", failed.DiagnosticCode);
+        Assert.Contains("Gauge.Level", failed.Message);
+        // The SDK gate reads this flag; leaving it true would let the binding ship.
+        Assert.False(failed.WrapperXcfwExists);
+    }
+
+    [Fact]
+    public void WrapperSection_From_CompileAndReconciliationBothFailed_CodeAndMessageAgree()
+    {
+        // An unmet explicit architecture contract is fatal while still leaving a compiled primary
+        // on disk, so reconciliation runs anyway and can fail on top of it. The machine-readable
+        // diagnostic and the human-readable message must describe the same failure, and neither
+        // failure may be dropped.
+        var result = new SwiftWrapperCompilationResult
+        {
+            XCFrameworkPath = "/tmp/does-not-exist.xcframework",
+            CompiledFileCount = 3,
+            StrippedBlockCount = 1,
+            SliceCount = 1,
+        };
+        var outcome = WrapperBuildOutcome.From(
+            result, compilationException: null, contractualUnmetArchitectures: new[] { "x86_64" });
+        Assert.True(outcome.IsFatal);
+        Assert.NotNull(outcome.DiagnosticCode);
+
+        var section = WrapperSection.From(
+            outcome, Array.Empty<CoGatedMember>(), "SWIFTBIND057: 'Gauge.Level' could not be rewritten.");
+
+        Assert.Equal(PhaseStatus.Fatal, section.Status);
+        // The compile's own diagnostic stays authoritative, and its message survives alongside
+        // the reconciliation failure rather than being overwritten by it.
+        Assert.Equal(outcome.DiagnosticCode, section.DiagnosticCode);
+        Assert.Contains("Gauge.Level", section.Message);
+        Assert.Contains(outcome.Message, section.Message);
+        Assert.False(section.WrapperXcfwExists);
     }
 
     [Fact]
@@ -793,7 +857,7 @@ public class BindingArtifactManifestTests
             SliceCount = 1,
             StrippedSymbols = new HashSet<string> { "$sZ", "$sA", "$sM" },
         };
-        var outcome = WrapperBuildOutcome.From(result, asyncLibraryAutoWired: false, sdkMode: false, compilationException: null);
+        var outcome = WrapperBuildOutcome.From(result, compilationException: null);
         var section = WrapperSection.From(outcome, Array.Empty<CoGatedMember>());
 
         Assert.Equal(new[] { "$sA", "$sM", "$sZ" }, section.StrippedSymbols);

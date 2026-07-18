@@ -437,7 +437,6 @@ public static class BindingsGeneratorCommand
         // because the SDK's _CompileSwiftWrapper target compiles + packs it in a later pass.
         // Distinct from shouldCompileWrapper (compile *now*) and hasWrapperXcfw (exists *now*).
         var wouldCompileWrapper = false;
-        var asyncLibraryAutoWired = false;
         var platformTarget = XCFrameworkPlatformTarget.Simulator;
 
         // Finding 50: clear the ambient input-resolution collector at the start of every
@@ -614,7 +613,6 @@ public static class BindingsGeneratorCommand
             {
                 var wrapperModuleName = $"{resolution.ModuleName}SwiftBindings";
                 asyncLibrary = wrapperModuleName;
-                asyncLibraryAutoWired = !skipWrapperCompilation; // Only true if actually compiling now
                 logger.LogInformation("Auto-setting --async-library to '{Module}'.", wrapperModuleName);
             }
         }
@@ -1082,14 +1080,8 @@ public static class BindingsGeneratorCommand
                 : unmergedExtraArchs;
 
             var outcome = WrapperBuildOutcome.From(
-                compilationResult, asyncLibraryAutoWired, sdkMode, compilationException, contractualUnmet);
+                compilationResult, compilationException, contractualUnmet);
             outcome.LogTo(logger);
-            // On the inline Apple-framework generate path asyncLibraryAutoWired is true, so a wrapper
-            // failure is a Fatal downgraded (SDK mode) to a SWIFTBIND050 warning that LogTo sends to
-            // stdout — swallowed by the generate Exec at -v normal. Echo the swiftc preview to stderr
-            // (captured at high importance, IgnoreStandardErrorWarningFormat) so it's visible on the
-            // first build. No-op unless the outcome carries a compile exception.
-            outcome.EchoWrapperFailurePreviewToStandardError(Console.Error);
             if (outcome.IsFatal)
             {
                 context.ExitCode = outcome.ExitCode;
@@ -1099,8 +1091,27 @@ public static class BindingsGeneratorCommand
             IReadOnlyList<CoGatedMember> coGated = Array.Empty<CoGatedMember>();
             if (outcome.StrippedSymbols.Count > 0)
             {
-                coGated = StrippedSymbolCSharpReconciler.ProcessDirectory(
-                    outputDirectory, outcome.StrippedSymbols, logger);
+                try
+                {
+                    coGated = StrippedSymbolCSharpReconciler.ProcessDirectory(
+                        outputDirectory, outcome.StrippedSymbols, logger);
+                }
+                catch (StrippedSymbolReconciliationException ex)
+                {
+                    // Reconciliation could not make the surface sound. Shipping it would mean a
+                    // binding that compiles and then throws on first use. Record the fatal phase
+                    // before bailing: the manifest is the authoritative artifact record, and
+                    // returning on the exit code alone would leave it either absent or stale-green
+                    // for an output directory that must not be consumed.
+                    logger.LogError("{Message}", ex.Message);
+                    BindingArtifactManifestStore.ReadModifyWrite(
+                        outputDirectory,
+                        resolution.ModuleName,
+                        m => m.Wrapper = WrapperSection.From(outcome, coGated, ex.Message),
+                        logger);
+                    context.ExitCode = 1;
+                    return;
+                }
                 if (coGated.Count > 0)
                     logger.LogInformation("Suppressed {Count} C# member(s) targeting stripped wrapper symbols.", coGated.Count);
             }
@@ -1244,17 +1255,13 @@ public static class BindingsGeneratorCommand
                 ? (IReadOnlyList<string>)Array.Empty<string>()
                 : directUnmergedExtraArchs;
 
-            // Direct mode never auto-wires --async-library inside the xcframework
-            // helper, so plain failures are treated as Warnings (not Fatal) — but an unmet explicit
-            // architecture contract stays fatal (From keeps it fatal regardless of sdkMode). Surface
-            // and continue otherwise — the C# bindings are still correct on disk and the user can
-            // rerun with --skip-wrapper-compilation to bypass.
+            // An unmet explicit architecture contract is fatal (From keeps it fatal). A plain
+            // wrapper-compile failure is also fatal: generated C# would reference a wrapper that
+            // does not exist, so publication must fail rather than leave DllNotFoundException for
+            // consumers.
             var directOutcome = WrapperBuildOutcome.From(
-                directResult, asyncLibraryAutoWired: false, sdkMode, directException, directContractualUnmet);
+                directResult, directException, directContractualUnmet);
             directOutcome.LogTo(logger);
-            // Same swallow as the other outcome sites: the non-fatal Warning LogTo emits to stdout is
-            // dropped at -v normal, so echo the swiftc preview to stderr on the first build.
-            directOutcome.EchoWrapperFailurePreviewToStandardError(Console.Error);
             if (directOutcome.IsFatal)
             {
                 context.ExitCode = directOutcome.ExitCode;
@@ -1266,8 +1273,24 @@ public static class BindingsGeneratorCommand
             IReadOnlyList<CoGatedMember> directCoGated = Array.Empty<CoGatedMember>();
             if (directOutcome.StrippedSymbols.Count > 0)
             {
-                directCoGated = StrippedSymbolCSharpReconciler.ProcessDirectory(
-                    outputDirectory, directOutcome.StrippedSymbols, logger);
+                try
+                {
+                    directCoGated = StrippedSymbolCSharpReconciler.ProcessDirectory(
+                        outputDirectory, directOutcome.StrippedSymbols, logger);
+                }
+                catch (StrippedSymbolReconciliationException ex)
+                {
+                    // Same fail-closed record as the xcframework path above — the manifest must
+                    // not stay green for an output directory that cannot be consumed.
+                    logger.LogError("{Message}", ex.Message);
+                    BindingArtifactManifestStore.ReadModifyWrite(
+                        outputDirectory,
+                        directModuleName,
+                        m => m.Wrapper = WrapperSection.From(directOutcome, directCoGated, ex.Message),
+                        logger);
+                    context.ExitCode = 1;
+                    return;
+                }
                 if (directCoGated.Count > 0)
                     logger.LogInformation("Suppressed {Count} C# member(s) targeting stripped wrapper symbols.", directCoGated.Count);
             }

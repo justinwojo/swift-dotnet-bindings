@@ -3,10 +3,31 @@
 
 #nullable enable
 
+using Microsoft.CodeAnalysis.CSharp;
 using Xunit;
 
 namespace BindingsGeneration.Tests
 {
+    /// <summary>
+    /// Asserts reconciled output is still parseable C#. The reconciler edits text line by line
+    /// with no syntax model, so a rewrite that unbalances braces or emits a body a member cannot
+    /// take would otherwise only surface as a compile failure in a generated binding.
+    /// </summary>
+    internal static class ReconciledSyntax
+    {
+        public static void AssertParses(string content)
+        {
+            var errors = CSharpSyntaxTree.ParseText(content)
+                .GetDiagnostics()
+                .Where(d => d.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error)
+                .Select(d => d.ToString())
+                .ToList();
+
+            Assert.True(errors.Count == 0,
+                "Reconciled output does not parse:\n" + string.Join("\n", errors) + "\n\n--- output ---\n" + content);
+        }
+    }
+
     #region A. P/Invoke Detection
 
     public class ReconcilerPInvokeDetectionTests
@@ -252,9 +273,12 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Process_InterfaceMethodCallingStrippedPInvoke_Preserved()
+        public void Process_InterfaceMethodCallingStrippedPInvoke_BecomesThrowingStub()
         {
-            // Methods implementing protocol interface members must NOT be stripped
+            // A member implementing an interface cannot be deleted (CS0535), but keeping its
+            // P/Invoke alive after the wrapper symbol was stripped ships a dead native call that
+            // throws EntryPointNotFoundException on first use. The member survives as a stub that
+            // throws attributably; the P/Invoke goes.
             var input =
                 "public interface IConnectionDelegate {\n" +
                 "    void DidReceive(ServerEvent @event);\n" +
@@ -270,16 +294,22 @@ namespace BindingsGeneration.Tests
                 "}\n";
             var stripped = new HashSet<string> { "SBW_didReceive_broken" };
             var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
-            // Both preserved — DidReceive implements IConnectionDelegate
-            Assert.Contains("PInvoke_didReceive_AAA", result.Content);
+
+            // The conformance still compiles: the member is still declared.
             Assert.Contains("DidReceive", result.Content);
-            Assert.Equal(0, result.StrippedMemberCount);
+            // But the dead native call is gone, replaced by a loud, attributable throw.
+            Assert.DoesNotContain("PInvoke_didReceive_AAA", result.Content);
+            Assert.Contains("SwiftBindingUnavailableException", result.Content);
+            Assert.Contains("SBW_didReceive_broken", result.Content);
+            ReconciledSyntax.AssertParses(result.Content);
         }
 
         [Fact]
-        public void Process_InterfacePropertyHelper_Preserved()
+        public void Process_InterfacePropertyHelper_BecomesThrowingStub_PropertyIntact()
         {
-            // Property helpers for interface properties must not be stripped
+            // The exempted block here is the *helper method*, not the property. Stubbing the
+            // helper keeps the property's accessor set exactly as emitted, so the interface
+            // property still conforms.
             var input =
                 "public interface IProcessingMode {\n" +
                 "    string ModeName { get; }\n" +
@@ -301,11 +331,328 @@ namespace BindingsGeneration.Tests
                 "}\n";
             var stripped = new HashSet<string> { "SBW_Get_modeName_broken" };
             var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
-            // All preserved — ModeName is an interface property on this type
-            Assert.Contains("PInvoke_modeName_Get_BBB", result.Content);
-            Assert.Contains("ModeName_Get", result.Content);
+
+            // The property and its forwarding accessor are untouched — conformance holds.
             Assert.Contains("public virtual string ModeName", result.Content);
-            Assert.Equal(0, result.StrippedMemberCount);
+            Assert.Contains("get => ModeName_Get();", result.Content);
+            Assert.Contains("ModeName_Get", result.Content);
+            // The helper no longer calls into a wrapper symbol that does not exist.
+            Assert.DoesNotContain("PInvoke_modeName_Get_BBB", result.Content);
+            Assert.Contains("SwiftBindingUnavailableException", result.Content);
+            ReconciledSyntax.AssertParses(result.Content);
+        }
+
+        [Fact]
+        public void Process_InterfaceExemption_LeavesNoPInvokeForAStrippedSymbol()
+        {
+            // The load-bearing invariant for the whole reconciler: whatever survives, it must
+            // never be a declaration bound to a symbol the wrapper compile stripped.
+            var input =
+                "public interface IConnectionDelegate {\n" +
+                "    void DidReceive(ServerEvent @event);\n" +
+                "}\n" +
+                "public partial class WebSocketServer : ISwiftObject, IConnectionDelegate {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_didReceive_broken\")]\n" +
+                "    private static partial void PInvoke_didReceive_AAA(IntPtr evt, IntPtr self);\n" +
+                "\n" +
+                "    public virtual void DidReceive(ServerEvent @event)\n" +
+                "    {\n" +
+                "        PInvoke_didReceive_AAA(@event.Handle, selfPtr);\n" +
+                "    }\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_didReceive_broken" };
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
+
+            foreach (var line in result.Content.Split('\n'))
+            {
+                if (line.Contains("EntryPoint"))
+                    Assert.DoesNotContain("SBW_didReceive_broken", line);
+            }
+        }
+
+        [Fact]
+        public void Process_DllNotFoundFallbackCaller_StillExemptsPInvoke()
+        {
+            // The reflective-fallback exemption is a separate, legitimate ground: the caller
+            // already handles the missing symbol at runtime, so the P/Invoke must survive.
+            // Stubbing must not swallow this case.
+            var input =
+                "public partial class Widget : ISwiftObject {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_meta_broken\")]\n" +
+                "    private static partial IntPtr PInvoke_GetMetadata_CCC();\n" +
+                "\n" +
+                "    public static IntPtr GetTypeMetadata()\n" +
+                "    {\n" +
+                "        try { return PInvoke_GetMetadata_CCC(); }\n" +
+                "        catch (DllNotFoundException) { return ReflectiveFallback(); }\n" +
+                "    }\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_meta_broken" };
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
+
+            Assert.Contains("PInvoke_GetMetadata_CCC", result.Content);
+            Assert.DoesNotContain("SwiftBindingUnavailableException", result.Content);
+        }
+
+        [Fact]
+        public void Process_InterfacePropertyWithDirectAccessorCalls_BothAccessorsThrow()
+        {
+            // When the accessors call the P/Invoke directly there is no helper to stub, so the
+            // property body itself is rewritten — and a property cannot be given a bare
+            // statement body, so every accessor it declared must survive as a throwing accessor.
+            var input =
+                "public interface ICounter {\n" +
+                "    int Count { get; set; }\n" +
+                "}\n" +
+                "public partial class Counter : ISwiftObject, ICounter {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_count_broken\")]\n" +
+                "    private static partial int PInvoke_count_DDD(IntPtr self);\n" +
+                "\n" +
+                "    public virtual int Count\n" +
+                "    {\n" +
+                "        get { return PInvoke_count_DDD(selfPtr); }\n" +
+                "        set { PInvoke_count_DDD(selfPtr); }\n" +
+                "    }\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_count_broken" };
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
+
+            Assert.Contains("Count", result.Content);
+            Assert.DoesNotContain("PInvoke_count_DDD", result.Content);
+            Assert.Contains("SwiftBindingUnavailableException", result.Content);
+            // Both accessors must remain declared or the property no longer satisfies ICounter.
+            Assert.Contains("get", result.Content);
+            Assert.Contains("set", result.Content);
+            ReconciledSyntax.AssertParses(result.Content);
+        }
+
+        [Fact]
+        public void Process_MethodStub_IsReportedAsCoGatedMember()
+        {
+            // A stub is a degradation, not a silent survival: the thrown exception tells the
+            // consumer to consult the binding report, so a stubbed member absent from that
+            // report would make the exception message false.
+            var input =
+                "public interface IConnectionDelegate {\n" +
+                "    void DidReceive(ServerEvent @event);\n" +
+                "}\n" +
+                "public partial class WebSocketServer : ISwiftObject, IConnectionDelegate {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_didReceive_broken\")]\n" +
+                "    private static partial void PInvoke_didReceive_AAA(IntPtr evt, IntPtr self);\n" +
+                "\n" +
+                "    public virtual void DidReceive(ServerEvent @event)\n" +
+                "    {\n" +
+                "        PInvoke_didReceive_AAA(@event.Handle, selfPtr);\n" +
+                "    }\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_didReceive_broken" };
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
+
+            var reported = Assert.Single(result.StrippedMembers);
+            Assert.Equal("DidReceive", reported.Name);
+            Assert.Equal("WebSocketServer", reported.ContainingType);
+            Assert.Equal(BindingItemKind.Method, reported.Kind);
+        }
+
+        [Fact]
+        public void Process_PropertyStub_IsReportedAsProperty()
+        {
+            var input =
+                "public interface ICounter {\n" +
+                "    int Count { get; set; }\n" +
+                "}\n" +
+                "public partial class Counter : ISwiftObject, ICounter {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_count_broken\")]\n" +
+                "    private static partial int PInvoke_count_DDD(IntPtr self);\n" +
+                "\n" +
+                "    public virtual int Count\n" +
+                "    {\n" +
+                "        get { return PInvoke_count_DDD(selfPtr); }\n" +
+                "        set { PInvoke_count_DDD(selfPtr); }\n" +
+                "    }\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_count_broken" };
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
+
+            var reported = Assert.Single(result.StrippedMembers);
+            Assert.Equal("Count", reported.Name);
+            Assert.Equal(BindingItemKind.Property, reported.Kind);
+        }
+
+        [Fact]
+        public void Process_StubWithBraceOnDeclarationLine_ReportsMemberNotExceptionType()
+        {
+            // When the opening brace shares the declaration line, the stub body overwrites that
+            // line. Reading the identity back from it would extract the name from the first '('
+            // in the rewritten text — the exception type — so the identity must come from the
+            // declaration as it was written. This is the shape that makes the pre-rewrite capture
+            // load-bearing; a multi-line declaration would report correctly either way.
+            var input =
+                "public interface ICounter {\n" +
+                "    int Count { get; }\n" +
+                "}\n" +
+                "public partial class Counter : ISwiftObject, ICounter {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_count_broken\")]\n" +
+                "    private static partial int PInvoke_count_DDD(IntPtr self);\n" +
+                "\n" +
+                "    public virtual int Count {\n" +
+                "        get { return PInvoke_count_DDD(selfPtr); }\n" +
+                "    }\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_count_broken" };
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
+
+            var reported = Assert.Single(result.StrippedMembers);
+            Assert.Equal("Count", reported.Name);
+            Assert.DoesNotContain("Exception", reported.Name);
+            ReconciledSyntax.AssertParses(result.Content);
+        }
+
+        [Fact]
+        public void Process_StubbedPropertyHelper_ReportsThePublicPropertyItBacks()
+        {
+            // The rewritten declaration is the private helper, but a consumer never calls that —
+            // they call ModeName, and that is what now throws. Both the report and the thrown
+            // message must name the property; naming the helper points the reader at an internal
+            // detail that does not appear in the binding's public surface.
+            var input =
+                "public interface IProcessingMode {\n" +
+                "    string ModeName { get; }\n" +
+                "}\n" +
+                "public partial class SimpleMode : ISwiftObject, IProcessingMode {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_Get_modeName_broken\")]\n" +
+                "    private static partial void PInvoke_modeName_Get_BBB(IntPtr resultPtr, IntPtr self);\n" +
+                "\n" +
+                "    private string ModeName_Get()\n" +
+                "    {\n" +
+                "        PInvoke_modeName_Get_BBB(resultPtr, selfPtr);\n" +
+                "        return result;\n" +
+                "    }\n" +
+                "\n" +
+                "    public virtual string ModeName\n" +
+                "    {\n" +
+                "        get => ModeName_Get();\n" +
+                "    }\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_Get_modeName_broken" };
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
+
+            var reported = Assert.Single(result.StrippedMembers);
+            Assert.Equal("ModeName", reported.Name);
+            Assert.Equal("SimpleMode", reported.ContainingType);
+            Assert.Equal(BindingItemKind.Property, reported.Kind);
+            // The runtime failure is attributed the same way.
+            Assert.Contains("SimpleMode.ModeName\"", result.Content);
+            Assert.DoesNotContain("SimpleMode.ModeName_Get\"", result.Content);
+        }
+
+        [Fact]
+        public void Process_ReadWritePropertyWithTwoStubbedHelpers_ReportedOnce()
+        {
+            // A read/write property is backed by two helpers but is ONE member. The report
+            // projection moves each co-gated entry from the emitted tally to the skipped tally,
+            // so reporting both helpers would count this property twice and corrupt the totals.
+            var input =
+                "public interface ICounter {\n" +
+                "    int Count { get; set; }\n" +
+                "}\n" +
+                "public partial class Counter : ISwiftObject, ICounter {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_Get_count_broken\")]\n" +
+                "    private static partial int PInvoke_count_Get_AAA(IntPtr self);\n" +
+                "\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_Set_count_broken\")]\n" +
+                "    private static partial void PInvoke_count_Set_BBB(int value, IntPtr self);\n" +
+                "\n" +
+                "    private int Count_Get()\n" +
+                "    {\n" +
+                "        return PInvoke_count_Get_AAA(selfPtr);\n" +
+                "    }\n" +
+                "\n" +
+                "    private void Count_Set(int value)\n" +
+                "    {\n" +
+                "        PInvoke_count_Set_BBB(value, selfPtr);\n" +
+                "    }\n" +
+                "\n" +
+                "    public virtual int Count\n" +
+                "    {\n" +
+                "        get => Count_Get();\n" +
+                "        set => Count_Set(value);\n" +
+                "    }\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_Get_count_broken", "SBW_Set_count_broken" };
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
+
+            var reported = Assert.Single(result.StrippedMembers);
+            Assert.Equal("Count", reported.Name);
+            Assert.Equal(BindingItemKind.Property, reported.Kind);
+            // Both helpers still became throwing stubs — collapsing the REPORT must not collapse
+            // the rewrite, or one accessor would keep calling a symbol that is gone.
+            Assert.DoesNotContain("PInvoke_count_Get_AAA", result.Content);
+            Assert.DoesNotContain("PInvoke_count_Set_BBB", result.Content);
+            ReconciledSyntax.AssertParses(result.Content);
+        }
+
+        [Fact]
+        public void Process_PropertyShapeWithNoDeclaredAccessors_FailsClosed()
+        {
+            // A property whose accessor sits on the opening-brace line is invisible to the
+            // accessor scan (anchored at line start), leaving no accessor set to reproduce.
+            // There is no sound rewrite, so generation fails rather than guessing a shape or
+            // leaving the dead call in place. This pins the fail-closed contract itself: the
+            // reconciler must throw here, not fall through to some best-effort rewrite.
+            var input =
+                "public interface IGauge {\n" +
+                "    int Level { get; }\n" +
+                "}\n" +
+                "public partial class Gauge : ISwiftObject, IGauge {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_level_broken\")]\n" +
+                "    private static partial int PInvoke_level_EEE(IntPtr self);\n" +
+                "\n" +
+                "    public virtual int Level\n" +
+                "    { get => PInvoke_level_EEE(selfPtr); }\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_level_broken" };
+
+            var ex = Assert.Throws<StrippedSymbolReconciliationException>(
+                () => StrippedSymbolCSharpReconciler.Process(input, stripped));
+
+            Assert.Equal("Gauge", ex.ContainingType);
+            Assert.Equal("Level", ex.MemberName);
+            Assert.Contains("SWIFTBIND057", ex.Message);
+        }
+
+        [Fact]
+        public void Process_SingleLineInterfaceProperty_RemovedAndReported()
+        {
+            // A single-line property declaration escapes interface-protection detection, so it is
+            // removed rather than stubbed. That is still fail-closed — the type is left claiming
+            // IGauge without Level, so the generated binding does not compile (CS0535) and nothing
+            // unsound ships — but it fails at the C# compile gate instead of with a generator
+            // diagnostic. Recorded as the observed behavior so a future change to the detection
+            // shape is a deliberate, visible one.
+            var input =
+                "public interface IGauge {\n" +
+                "    int Level { get; }\n" +
+                "}\n" +
+                "public partial class Gauge : ISwiftObject, IGauge {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_level_broken\")]\n" +
+                "    private static partial int PInvoke_level_EEE(IntPtr self);\n" +
+                "\n" +
+                "    public virtual int Level { get => PInvoke_level_EEE(selfPtr); }\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_level_broken" };
+            var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
+
+            // No dead native call survives.
+            Assert.DoesNotContain("PInvoke_level_EEE", result.Content);
+            Assert.DoesNotContain("SBW_level_broken", result.Content);
+            // The member is gone, and the removal is reported rather than silent.
+            Assert.DoesNotContain("public virtual int Level", result.Content);
+            Assert.Single(result.StrippedMembers);
+            // The reported identity's NAME is deliberately not asserted: the same single-line
+            // parse that hides this member from interface-protection detection also makes
+            // ExtractMemberName return the trampoline ("PInvoke_level_EEE") instead of "Level".
+            // Pinning that here would cement a report-accuracy defect as expected output.
         }
 
         [Fact]
@@ -337,9 +684,12 @@ namespace BindingsGeneration.Tests
                 "}\n";
             var stripped = new HashSet<string> { "SBW_doWorkA", "SBW_doWorkB" };
             var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
-            // TypeA: DoWork preserved (implements IFoo)
-            Assert.Contains("PInvoke_doWork_AAA", result.Content);
-            // TypeB: DoWork stripped (does NOT implement IFoo — scope must not leak from TypeA)
+            // TypeA: DoWork survives as a stub (it implements IFoo, so it cannot be deleted).
+            Assert.Contains("TypeA.DoWork", result.Content);
+            // TypeB: DoWork is deleted outright — it implements nothing, so protection must not
+            // leak across TypeA's closing brace. Neither type keeps its dead P/Invoke.
+            Assert.DoesNotContain("TypeB.DoWork", result.Content);
+            Assert.DoesNotContain("PInvoke_doWork_AAA", result.Content);
             Assert.DoesNotContain("PInvoke_doWork_BBB", result.Content);
         }
 
@@ -384,10 +734,16 @@ namespace BindingsGeneration.Tests
                 "}\n";
             var stripped = new HashSet<string> { "SBW_Get_nameA_broken", "SBW_Get_nameB_broken" };
             var result = StrippedSymbolCSharpReconciler.Process(input, stripped);
-            // TypeA: preserved (Name implements INameable)
-            Assert.Contains("PInvoke_name_Get_AAA", result.Content);
+            // TypeA: the helper survives as a stub so the INameable property still conforms. The
+            // stub is attributed to the public property, not to the private helper backing it —
+            // matched with the closing quote so it cannot also be satisfied by "TypeA.Name_Get".
             Assert.Contains("TypeA", result.Content);
-            // TypeB: stripped (Name is NOT an interface implementation)
+            Assert.Contains("TypeA.Name\"", result.Content);
+            Assert.DoesNotContain("TypeA.Name_Get\"", result.Content);
+            // TypeB: deleted outright — protection must not leak across TypeA's closing brace.
+            Assert.DoesNotContain("TypeB.Name\"", result.Content);
+            Assert.DoesNotContain("TypeB.Name_Get\"", result.Content);
+            Assert.DoesNotContain("PInvoke_name_Get_AAA", result.Content);
             Assert.DoesNotContain("PInvoke_name_Get_BBB", result.Content);
         }
 
@@ -901,6 +1257,9 @@ namespace BindingsGeneration.Tests
         [InlineData("static TypeMetadata ISwiftObject.GetTypeMetadata()", "GetTypeMetadata")]
         [InlineData("public int Count", "Count")]
         [InlineData("public virtual void Execute()", "Execute")]
+        // A property may open its block on the declaration line.
+        [InlineData("public int Count {", "Count")]
+        [InlineData("public virtual string Name   {", "Name")]
         public void ExtractMemberName_ExtractsCorrectly(string trimmed, string expected)
         {
             Assert.Equal(expected, StrippedSymbolCSharpReconciler.ExtractMemberName(trimmed));

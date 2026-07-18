@@ -646,49 +646,44 @@ namespace BindingsGeneration.Tests
     }
 
     /// <summary>
-    /// Tests for HandleWrapperCompilationOutcome — SDK-mode-aware outcome handling.
+    /// Tests for HandleWrapperCompilationOutcome — fail-closed on Fatal in every mode.
     /// </summary>
     public class WrapperOutcomeHandlingTests
     {
         [Fact]
-        public void HandleOutcome_Fatal_SdkMode_ReturnsZeroExitWithSWIFTBIND050()
+        public void HandleOutcome_Fatal_ReturnsExit1()
         {
             var ex = new InvalidOperationException("swiftc failed");
             var (exitCode, diagnosticCode, message) = BindingsGenerator.HandleWrapperCompilationOutcome(
-                WrapperCompilationOutcome.Fatal, sdkMode: true, ex, compilationResult: null);
-            Assert.Equal(0, exitCode);
-            Assert.Equal("SWIFTBIND050", diagnosticCode);
-            Assert.Contains("SWIFTBIND050", message);
+                WrapperCompilationOutcome.Fatal, ex, compilationResult: null);
+            Assert.Equal(1, exitCode);
+            Assert.Null(diagnosticCode);
             Assert.Contains("swiftc failed", message);
             Assert.Contains("dependency framework", message);
         }
 
         [Fact]
-        public void HandleOutcome_Fatal_NonSdkMode_ReturnsNonZeroExit()
+        public void HandleOutcome_Fatal_StrippedBlocks_ReturnsExit1()
         {
-            var ex = new InvalidOperationException("swiftc failed");
+            var result = new SwiftWrapperCompilationResult
+            {
+                XCFrameworkPath = "",
+                CompiledFileCount = 0,
+                StrippedBlockCount = 4,
+            };
             var (exitCode, diagnosticCode, message) = BindingsGenerator.HandleWrapperCompilationOutcome(
-                WrapperCompilationOutcome.Fatal, sdkMode: false, ex, compilationResult: null);
+                WrapperCompilationOutcome.Fatal, compilationException: null, compilationResult: result);
             Assert.Equal(1, exitCode);
             Assert.Null(diagnosticCode);
-            Assert.Contains("swiftc failed", message);
-        }
-
-        [Fact]
-        public void HandleOutcome_Warning_SdkMode_ReturnsZeroExit()
-        {
-            var ex = new InvalidOperationException("something went wrong");
-            var (exitCode, diagnosticCode, _) = BindingsGenerator.HandleWrapperCompilationOutcome(
-                WrapperCompilationOutcome.Warning, sdkMode: true, ex, compilationResult: null);
-            Assert.Equal(0, exitCode);
-            Assert.Null(diagnosticCode);
+            Assert.Contains("stripped as broken", message);
+            Assert.Contains("4 block", message);
         }
 
         [Fact]
         public void HandleOutcome_Success_ReturnsZeroExit()
         {
             var (exitCode, diagnosticCode, _) = BindingsGenerator.HandleWrapperCompilationOutcome(
-                WrapperCompilationOutcome.Success, sdkMode: false,
+                WrapperCompilationOutcome.Success,
                 compilationException: null, compilationResult: null);
             Assert.Equal(0, exitCode);
             Assert.Null(diagnosticCode);
@@ -708,9 +703,11 @@ namespace BindingsGeneration.Tests
                 "PackageId=\"<Module>.Swift.iOS\" PackageVersion=\"1.0.0\" />\n" +
                 "          <PackageReference Include=\"<Module>.Swift.iOS\" Version=\"1.0.0\" />");
 
-            var (_, _, message) = BindingsGenerator.HandleWrapperCompilationOutcome(
-                WrapperCompilationOutcome.Fatal, sdkMode: true, ex, compilationResult: null);
+            var (exitCode, diagnosticCode, message) = BindingsGenerator.HandleWrapperCompilationOutcome(
+                WrapperCompilationOutcome.Fatal, ex, compilationResult: null);
 
+            Assert.Equal(1, exitCode);
+            Assert.Null(diagnosticCode);
             Assert.Contains("Missing module(s): 'PaymentSdk3DS2'", message);
             Assert.Contains("--framework-dependency", message);
             Assert.Contains("SwiftFrameworkDependency", message);
@@ -731,10 +728,11 @@ namespace BindingsGeneration.Tests
                 "  SDK:  add to the binding's <ItemGroup>:\n" +
                 "          <SwiftLinkFramework Include=\"Accelerate\" />");
 
-            var (exitCode, _, message) = BindingsGenerator.HandleWrapperCompilationOutcome(
-                WrapperCompilationOutcome.Fatal, sdkMode: false, ex, compilationResult: null);
+            var (exitCode, diagnosticCode, message) = BindingsGenerator.HandleWrapperCompilationOutcome(
+                WrapperCompilationOutcome.Fatal, ex, compilationResult: null);
 
             Assert.Equal(1, exitCode);
+            Assert.Null(diagnosticCode);
             Assert.Contains("--link-framework Accelerate", message);
             Assert.DoesNotContain("missing dependency framework", message);
         }
@@ -750,9 +748,10 @@ namespace BindingsGeneration.Tests
                 "  CLI:  add --link-library c++\n" +
                 "          <SwiftLinkLibrary Include=\"c++\" />");
 
-            var (_, _, message) = BindingsGenerator.HandleWrapperCompilationOutcome(
-                WrapperCompilationOutcome.Fatal, sdkMode: false, ex, compilationResult: null);
+            var (exitCode, _, message) = BindingsGenerator.HandleWrapperCompilationOutcome(
+                WrapperCompilationOutcome.Fatal, ex, compilationResult: null);
 
+            Assert.Equal(1, exitCode);
             Assert.Contains("--link-library c++", message);
             Assert.DoesNotContain("missing dependency framework", message);
         }
@@ -765,29 +764,28 @@ namespace BindingsGeneration.Tests
             var ex = new InvalidOperationException(
                 "Swift wrapper compilation failed (exit code 1): error: some internal failure");
 
-            var (_, _, message) = BindingsGenerator.HandleWrapperCompilationOutcome(
-                WrapperCompilationOutcome.Fatal, sdkMode: false, ex, compilationResult: null);
+            var (exitCode, _, message) = BindingsGenerator.HandleWrapperCompilationOutcome(
+                WrapperCompilationOutcome.Fatal, ex, compilationResult: null);
 
+            Assert.Equal(1, exitCode);
             Assert.Contains("missing dependency framework", message);
         }
 
         [Fact]
-        public void HandleOutcome_Fatal_SdkMode_SystemLinkGuidance_SuppressesContradictoryCauses()
+        public void HandleOutcome_Fatal_SystemLinkGuidance_DoesNotAppendGenericCauses()
         {
-            // Same suppression on the SDK-mode downgrade path — but the SWIFTBIND050 code and the
-            // DllNotFoundException runtime note are preserved.
+            // Precise system-link guidance must stand alone; the generic causes stay suppressed.
             var ex = new InvalidOperationException(
                 "Swift wrapper compilation failed (exit code 1): Undefined symbols ...\n" +
                 "  CLI:  add --link-framework Metal\n" +
                 "          <SwiftLinkFramework Include=\"Metal\" />");
 
             var (exitCode, diagnosticCode, message) = BindingsGenerator.HandleWrapperCompilationOutcome(
-                WrapperCompilationOutcome.Fatal, sdkMode: true, ex, compilationResult: null);
+                WrapperCompilationOutcome.Fatal, ex, compilationResult: null);
 
-            Assert.Equal(0, exitCode);
-            Assert.Equal("SWIFTBIND050", diagnosticCode);
+            Assert.Equal(1, exitCode);
+            Assert.Null(diagnosticCode);
             Assert.Contains("--link-framework Metal", message);
-            Assert.Contains("DllNotFoundException", message);
             Assert.DoesNotContain("missing dependency framework", message);
         }
     }

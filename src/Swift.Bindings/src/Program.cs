@@ -1064,8 +1064,11 @@ namespace BindingsGeneration
                     // _SwiftBindingHasWrapperXCFramework=False off that null even though the primary is
                     // restored on disk below, dropping the NativeReference for EVERY consumer
                     // (arm64 included). Returning the primary result keeps metadata truthful: the
-                    // package ships the primary-arch wrapper, just not the fat fold. This mirrors the
-                    // SDK's existing sdkMode contract, where a primary wrapper failure is also a warning.
+                    // package ships the primary-arch wrapper, just not the fat fold. Degrading here
+                    // is NOT the removed wrapper-compile soft-fail: a primary wrapper failure is now
+                    // fatal in every mode, and an explicitly requested arch that goes undelivered is
+                    // a contract breach (SWIFTBIND056, always an error). Only the `auto` basis is
+                    // best-effort, because nothing was promised about the arch set in that mode.
                     logger.LogWarning(ex,
                         "Folding extra architecture(s) [{Archs}] into the wrapper failed; shipping the "
                         + "{Primary}-only wrapper instead. Consumers targeting the dropped arch(es) will "
@@ -1383,27 +1386,24 @@ namespace BindingsGeneration
                 ? (IReadOnlyList<string>)Array.Empty<string>()
                 : unmergedExtraArchs;
 
-            // In compile-wrapper-only mode, always use SDK-mode outcome handling
-            // (downgrade fatal to warning) since this target runs within SDK builds — EXCEPT a
-            // contractual arch shortfall, which From() keeps fatal regardless of sdkMode.
             var outcome = WrapperBuildOutcome.From(
-                compilationResult, asyncLibraryAutoWired: false, sdkMode: true, compilationException,
-                contractualUnmet);
+                compilationResult, compilationException, contractualUnmet);
             outcome.LogTo(logger);
-            // This path always passes asyncLibraryAutoWired: false, so a wrapper compile failure is a
-            // plain (null-code) non-fatal Warning — NOT a SWIFTBIND050. LogTo routes it to stdout, which
-            // the SDK's _CompileSwiftWrapper Exec captures at low importance and swallows at -v normal —
-            // leaving the next wrapper regression with only the SWIFTBIND051 give-up and no swiftc cause
-            // until a -v:detailed rerun. Echo the preview (the exception's error: lines) to stderr
-            // (captured at high importance) so it's visible on the first build. Diagnostic text only —
-            // exit code and classification are unchanged.
-            outcome.EchoWrapperFailurePreviewToStandardError(Console.Error);
 
             IReadOnlyList<CoGatedMember> coGated = Array.Empty<CoGatedMember>();
+            string? reconciliationFailure = null;
             if (outcome.StrippedSymbols.Count > 0)
             {
-                coGated = StrippedSymbolCSharpReconciler.ProcessDirectory(
-                    outputDirectory, outcome.StrippedSymbols, logger);
+                try
+                {
+                    coGated = StrippedSymbolCSharpReconciler.ProcessDirectory(
+                        outputDirectory, outcome.StrippedSymbols, logger);
+                }
+                catch (StrippedSymbolReconciliationException ex)
+                {
+                    logger.LogError("{Message}", ex.Message);
+                    reconciliationFailure = ex.Message;
+                }
                 if (coGated.Count > 0)
                     logger.LogInformation("Suppressed {Count} C# member(s) targeting stripped wrapper symbols.", coGated.Count);
             }
@@ -1414,12 +1414,19 @@ namespace BindingsGeneration
             BindingArtifactManifestStore.ReadModifyWrite(
                 outputDirectory,
                 moduleName,
-                m => m.Wrapper = WrapperSection.From(outcome, coGated),
+                m => m.Wrapper = WrapperSection.From(outcome, coGated, reconciliationFailure),
                 logger,
                 partialReasonWhenNew: "Wrapper compile invoked standalone (compile-wrapper-only); generation phase did not run in this output directory.");
 
-            // Update binding-metadata.props with wrapper compilation result
-            var hasWrapperXcfw = compilationResult?.XCFrameworkPath != null
+            // Update binding-metadata.props with wrapper compilation result.
+            //
+            // A reconciliation failure reports the wrapper as unusable even though it is on disk.
+            // The SDK invokes this path through an Exec with ContinueOnError, so the exit code
+            // below is downgraded to an MSBuild warning; the wrapper-presence flag is what the
+            // SWIFTBIND051 gate actually reads. Recording the wrapper as present here would let a
+            // binding whose C# still calls a stripped symbol sail through that gate.
+            var hasWrapperXcfw = reconciliationFailure == null
+                && compilationResult?.XCFrameworkPath != null
                 && Directory.Exists(compilationResult.XCFrameworkPath);
             var wrapperModuleName = $"{moduleName}SwiftBindings";
 
@@ -1427,7 +1434,7 @@ namespace BindingsGeneration
                 outputDirectory, hasWrapperXcfw, wrapperModuleName,
                 compilationResult?.SliceCount ?? 0, logger, contractualUnmet);
 
-            return outcome.ExitCode;
+            return reconciliationFailure != null ? 1 : outcome.ExitCode;
         }
 
         /// <summary>
@@ -2317,16 +2324,16 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Evaluates wrapper compilation outcome with SDK-mode awareness.
+        /// Evaluates wrapper compilation outcome.
         /// Returns exit code, optional diagnostic code, and message for logging.
+        /// A Fatal outcome always fails publication (exit 1) because generated C# would
+        /// reference a wrapper library that does not exist.
         /// </summary>
         internal static (int exitCode, string? diagnosticCode, string message) HandleWrapperCompilationOutcome(
-            WrapperCompilationOutcome rawOutcome, bool sdkMode,
+            WrapperCompilationOutcome rawOutcome,
             Exception? compilationException, SwiftWrapperCompilationResult? compilationResult)
         {
-            var effective = SwiftWrapperCompiler.EffectiveOutcome(rawOutcome, sdkMode);
-
-            if (effective == WrapperCompilationOutcome.Fatal)
+            if (rawOutcome == WrapperCompilationOutcome.Fatal)
             {
                 // When the wrapper-link failure already carried precise system-framework/library
                 // link guidance (--link-framework / <SwiftLinkFramework>, or the library-only
@@ -2341,40 +2348,17 @@ namespace BindingsGeneration
                           "Generated C# references the wrapper library but no compiled wrapper exists. " +
                           "Common causes: missing dependency framework (use --framework-dependency or <SwiftFrameworkDependency>), " +
                           "or internal types in the library's API. See Troubleshooting docs for details.")
-                    : $"All Swift wrapper code was stripped as broken ({compilationResult?.StrippedBlockCount ?? 0} block(s)). " +
-                      "Generated C# references the wrapper library but no compiled wrapper exists. " +
-                      "Use --async-library explicitly or report this as a generator bug.";
+                    : (compilationResult?.StrippedBlockCount > 0
+                        ? $"All Swift wrapper code was stripped as broken ({compilationResult.StrippedBlockCount} block(s)). " +
+                          "Generated C# references the wrapper library but no compiled wrapper exists. " +
+                          "Report this as a generator bug."
+                        // No strips and no exception: the slice compile/link gave up (for example a
+                        // thunk-assembly failure) without producing an xcframework. Naming stripping
+                        // here would send the reader hunting for blocks that were never stripped.
+                        : "No Swift wrapper binary was produced. " +
+                          "Generated C# references the wrapper library but no compiled wrapper exists. " +
+                          "Report this as a generator bug.");
                 return (1, null, message);
-            }
-
-            if (rawOutcome == WrapperCompilationOutcome.Fatal && sdkMode)
-            {
-                // Downgraded from Fatal → Warning in SDK mode
-                const string actionableHint =
-                    " Common causes: missing dependency framework (use --framework-dependency or <SwiftFrameworkDependency>), " +
-                    "or internal types in the library's API. See Troubleshooting docs for details.";
-                // Suppress the generic causes when precise --link-framework/--link-library guidance
-                // is already present, so it isn't undercut by a contradictory "missing dependency"
-                // message.
-                var exceptionHint = HasSystemLinkGuidance(compilationException?.Message)
-                    ? string.Empty
-                    : actionableHint;
-                var message = compilationException != null
-                    ? $"SWIFTBIND050: Swift wrapper compilation failed: {compilationException.Message}. " +
-                      "C# bindings are still valid — wrapper-dependent methods will throw DllNotFoundException at runtime." +
-                      exceptionHint
-                    : $"SWIFTBIND050: All Swift wrapper code was stripped as broken ({compilationResult?.StrippedBlockCount ?? 0} block(s)). " +
-                      "C# bindings are still valid — wrapper-dependent methods will throw DllNotFoundException at runtime." +
-                      actionableHint;
-                return (0, "SWIFTBIND050", message);
-            }
-
-            if (effective == WrapperCompilationOutcome.Warning)
-            {
-                var message = compilationException != null
-                    ? $"Swift wrapper compilation failed: {compilationException.Message}"
-                    : $"All Swift wrapper code was stripped as broken ({compilationResult?.StrippedBlockCount ?? 0} block(s)).";
-                return (0, null, message);
             }
 
             return (0, null, "");

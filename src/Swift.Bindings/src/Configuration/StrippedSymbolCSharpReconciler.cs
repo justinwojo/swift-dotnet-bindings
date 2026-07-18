@@ -8,10 +8,33 @@ using Microsoft.Extensions.Logging;
 namespace BindingsGeneration
 {
     /// <summary>
+    /// Raised when a member that must survive for an interface conformance cannot be rewritten
+    /// into a throwing stub in the reconciler's line-oriented text domain. Publication fails
+    /// rather than fall back to keeping a call into a wrapper symbol that no longer exists.
+    /// </summary>
+    public sealed class StrippedSymbolReconciliationException : Exception
+    {
+        public StrippedSymbolReconciliationException(string containingType, string memberName)
+            : base($"SWIFTBIND057: '{containingType}.{memberName}' calls a Swift wrapper symbol that " +
+                   "wrapper compilation stripped, but its shape could not be rewritten into a throwing " +
+                   "stub. Keeping the call would ship a binding that throws EntryPointNotFoundException " +
+                   "on first use, so generation fails instead. Report this as a generator bug.")
+        {
+            ContainingType = containingType;
+            MemberName = memberName;
+        }
+
+        public string ContainingType { get; }
+        public string MemberName { get; }
+    }
+
+    /// <summary>
     /// Reconciles generated C# against the Swift wrapper-compile strip leg: when wrapper
     /// compilation strips a Swift <c>@_cdecl</c> symbol, this removes the orphaned C# P/Invoke
     /// and its transitive callers (3-level closure: P/Invoke → caller → property forwarder),
-    /// preventing a <see cref="System.DllNotFoundException"/> at runtime.
+    /// preventing a <see cref="System.DllNotFoundException"/> at runtime. A member that a
+    /// managed interface still requires is rewritten into a throwing stub instead of removed,
+    /// so the conformance keeps compiling without carrying a call to a symbol that is gone.
     /// <para>
     /// <b>7b liability — delete with the Swift wrapper strip leg.</b> This is the sole surviving
     /// slice of the retired generate-then-strip co-gater post-pass: trigger #2 (the in-band
@@ -104,10 +127,14 @@ namespace BindingsGeneration
             var interfaceMembers = ParseInterfaceMembers(lines);
             var typeProtectedMembers = BuildTypeProtectedMembers(lines, interfaceMembers, lineToType);
 
-            // Step A3: Exempt P/Invokes whose callers are non-strippable:
-            // - DllNotFoundException fallback (GetMetadata pattern)
-            // - Interface implementations (member name matches an interface the containing type implements)
-            var exemptedNames = FindExemptedPInvokes(lines, candidatePInvokes.Keys, typeProtectedMembers, lineToType);
+            // Step A3: Separate the two reasons a caller resists deletion. Only a
+            // DllNotFoundException fallback (the GetMetadata pattern) genuinely exempts its
+            // P/Invoke — that caller handles the missing symbol itself. An interface
+            // implementation just cannot be deleted; its P/Invoke still goes, and the member is
+            // rewritten into a throwing stub below.
+            var stubTargets = new List<InterfaceStubTarget>();
+            var exemptedNames = FindExemptedPInvokes(
+                lines, candidatePInvokes.Keys, typeProtectedMembers, lineToType, stubTargets);
 
             // Step A4: Detect scope-ambiguous method names.
             // If a P/Invoke method name (e.g., "PInvoke_eq") appears in multiple class scopes,
@@ -132,6 +159,46 @@ namespace BindingsGeneration
 
             if (strippedPInvokeNames.Count == 0)
                 return CoGatingResult.Empty(content);
+
+            // Step A3b: Rewrite the interface-protected members whose P/Invoke just went away.
+            // Only those that actually call a *removed* name qualify — a member calling a name
+            // that survived (exempted or scope-ambiguous) still has a real symbol behind it.
+            // Blocks never overlap, and the rewrite preserves line count, so the removal set and
+            // line→type map stay valid for every step below.
+            //
+            // A stub is a co-gating decision like a removal is, so it is reported alongside the
+            // removals — the thrown exception sends the caller to the binding report, and a
+            // degraded member missing from that report makes the report a liar.
+            //
+            // Identity is captured from the PRE-rewrite declaration text, because a stub whose
+            // brace sits on the declaration line overwrites that line: name extraction would then
+            // read the exception type out of the stub body instead of the member.
+            //
+            // A stubbed property helper is private, so the line-based public filter drops it — but
+            // the degradation is real and lands on the public property that forwards to it. Those
+            // are reported under the public name they present to a consumer.
+            var declTextBeforeStub = new Dictionary<int, string>();
+            var helperBackedStubs = new List<InterfaceStubTarget>();
+            foreach (var target in stubTargets)
+            {
+                var removedCalls = target.CalledPInvokes.Where(strippedPInvokeNames.Contains).ToList();
+                if (removedCalls.Count == 0)
+                    continue;
+
+                var declText = lines[target.DeclStart].TrimStart();
+                RewriteBlockAsThrowingStub(
+                    lines, target, ResolveEntryPoint(lines, candidatePInvokes, removedCalls[0]));
+
+                if (declText.StartsWith("public ", StringComparison.Ordinal))
+                {
+                    declTextBeforeStub[target.DeclStart] = declText;
+                    RecordPublicDecl(publicDeclLines, target.DeclStart, declText);
+                }
+                else
+                {
+                    helperBackedStubs.Add(target);
+                }
+            }
 
             // Step A5: Reconcile the generated [ModuleInitializer] aggregator BEFORE the
             // generic caller walk. Its body is a flat list of independent, best-effort
@@ -212,7 +279,36 @@ namespace BindingsGeneration
                     sb.Append(lines[i]);
             }
 
-            var identities = BuildPublicMemberIdentities(lines, publicDeclLines, lineToType);
+            var identities = BuildPublicMemberIdentities(
+                lines, publicDeclLines, lineToType, declTextBeforeStub);
+
+            // Helper-backed stubs have no public declaration line of their own to walk, so their
+            // identities are appended after the line-derived ones. Ordering is deterministic:
+            // stub targets are discovered in source order.
+            //
+            // Collapsed per public member, unlike the line-derived walk which keeps duplicates so
+            // overloads stay distinct. A read/write property is backed by TWO helpers (Value_Get
+            // and Value_Set) but is ONE member: the report projection moves each entry from the
+            // emitted tally to the skipped tally, so emitting both would count one degraded
+            // property twice and leave the totals wrong.
+            var seenHelperBacked = new HashSet<(string Type, string Name)>();
+            foreach (var target in helperBackedStubs)
+            {
+                if (!seenHelperBacked.Add((target.ContainingType, target.PublicApiName)))
+                    continue;
+
+                identities.Add(new CoGatedMember
+                {
+                    Name = target.PublicApiName,
+                    ContainingType = target.ContainingType,
+                    Kind = IsPropertyHelperName(target.MemberName)
+                        ? BindingItemKind.Property
+                        : BindingItemKind.Method,
+                    MangledSymbol = null,
+                    Ordinal = identities.Count,
+                    Confidence = IdentityConfidence.Heuristic,
+                });
+            }
 
             return new CoGatingResult
             {
@@ -546,15 +642,26 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Finds P/Invoke names that must NOT be stripped because their callers are non-strippable.
-        /// A caller is non-strippable if it:
-        /// - Has a DllNotFoundException fallback (GetMetadata pattern)
-        /// - Implements an interface member on its containing type
+        /// Separates the two reasons a stripped P/Invoke's caller cannot simply be deleted.
+        /// <para>
+        /// A caller with a <see cref="System.DllNotFoundException"/> fallback (the GetMetadata
+        /// pattern) already copes with the symbol being absent at runtime, so the P/Invoke is
+        /// genuinely exempt and is returned in the result set.
+        /// </para>
+        /// <para>
+        /// A caller that implements an interface member merely cannot be *deleted* (CS0535) — that
+        /// is not a licence to keep calling a symbol the wrapper compile stripped, which would
+        /// surface as an opaque <see cref="System.EntryPointNotFoundException"/> on first use.
+        /// Those blocks are reported through <paramref name="stubTargets"/> so the caller can
+        /// rewrite them into throwing stubs and drop the P/Invoke. A block qualifying on both
+        /// grounds keeps its fallback: a working recovery path beats a stub.
+        /// </para>
         /// </summary>
         private static HashSet<string> FindExemptedPInvokes(
             List<string> lines, IEnumerable<string> candidateNames,
             Dictionary<string, HashSet<string>> typeProtectedMembers,
-            string?[] lineToType)
+            string?[] lineToType,
+            List<InterfaceStubTarget> stubTargets)
         {
             var exempted = new HashSet<string>();
 
@@ -587,6 +694,7 @@ namespace BindingsGeneration
                 // Only exempt if the CONTAINING TYPE actually implements an interface
                 // that declares this member.
                 bool isInterfaceMember = false;
+                string? interfaceApiName = null;
                 if (typeProtectedMembers.Count > 0)
                 {
                     var containingType = i < lineToType.Length ? lineToType[i] : null;
@@ -600,21 +708,48 @@ namespace BindingsGeneration
                                 ? memberName.Substring(0, memberName.LastIndexOf('_'))
                                 : memberName;
                             isInterfaceMember = protectedNames.Contains(publicApiName);
+                            if (isInterfaceMember)
+                                interfaceApiName = publicApiName;
                         }
                     }
                 }
 
                 if (hasFallback || isInterfaceMember)
                 {
+                    // Sorted so the stub's attributed symbol is stable across runs when a block
+                    // calls more than one stripped P/Invoke.
+                    var called = new List<string>();
                     foreach (var name in candidateNames)
                     {
                         for (int j = i; j <= blockEnd; j++)
                         {
                             if (ContainsCallTo(lines[j], name))
                             {
-                                exempted.Add(name);
+                                called.Add(name);
                                 break;
                             }
+                        }
+                    }
+
+                    if (called.Count > 0)
+                    {
+                        if (hasFallback)
+                        {
+                            foreach (var name in called)
+                                exempted.Add(name);
+                        }
+                        else
+                        {
+                            called.Sort(StringComparer.Ordinal);
+                            var declName = ExtractMemberName(trimmed) ?? "<member>";
+                            stubTargets.Add(new InterfaceStubTarget(
+                                DeclStart: i,
+                                BraceOpenLine: braceOpenLine,
+                                BlockEnd: blockEnd,
+                                MemberName: declName,
+                                PublicApiName: interfaceApiName ?? declName,
+                                ContainingType: (i < lineToType.Length ? lineToType[i] : null) ?? "<type>",
+                                CalledPInvokes: called));
                         }
                     }
                 }
@@ -623,6 +758,147 @@ namespace BindingsGeneration
             }
 
             return exempted;
+        }
+
+        /// <summary>
+        /// A member that survives only because deleting it would break an interface conformance,
+        /// together with the stripped P/Invokes its body calls.
+        /// </summary>
+        /// <param name="MemberName">The declaration being rewritten, as written in source.</param>
+        /// <param name="PublicApiName">
+        /// The member a consumer actually calls. For a property helper (<c>ModeName_Get</c>) the
+        /// rewritten declaration is private and the public property forwards to it, so both the
+        /// thrown message and the binding report must name the property — attributing either to
+        /// the helper points the reader at an internal detail they cannot find in the API.
+        /// </param>
+        private sealed record InterfaceStubTarget(
+            int DeclStart,
+            int BraceOpenLine,
+            int BlockEnd,
+            string MemberName,
+            string PublicApiName,
+            string ContainingType,
+            List<string> CalledPInvokes);
+
+        /// <summary>
+        /// Rewrites an interface-protected member's body into a throwing stub, in place.
+        /// <para>
+        /// The block's lines are replaced rather than removed so every later step keeps working:
+        /// line indices stay valid for the removal set and the line→type map, and the brace delta
+        /// across the block is unchanged. Because the rewritten body no longer mentions the
+        /// stripped P/Invoke, the caller walk in Step B stops seeing this member as a caller and
+        /// leaves it alone — which is the point, since deleting it is what CS0535 forbids.
+        /// </para>
+        /// </summary>
+        private static void RewriteBlockAsThrowingStub(
+            List<string> lines, InterfaceStubTarget target, string strippedSymbol)
+        {
+            var braceLine = lines[target.BraceOpenLine];
+            int braceIdx = braceLine.IndexOf('{');
+            if (braceIdx < 0)
+                throw new StrippedSymbolReconciliationException(target.ContainingType, target.PublicApiName);
+
+            var indent = new string(' ', LeadingWhitespaceWidth(lines[target.DeclStart]) + 4);
+            var throwExpr =
+                $"throw new global::Swift.Runtime.SwiftBindingUnavailableException(" +
+                $"\"{target.ContainingType}.{target.PublicApiName}\", " +
+                $"\"its Swift wrapper symbol '{strippedSymbol}' was stripped during wrapper compilation\")";
+
+            // A property cannot take a statement body, so it keeps exactly the accessors it
+            // declared — dropping one would change the conformance the member exists to satisfy.
+            string body;
+            if (IsPropertyShapedBlock(lines, target))
+            {
+                var accessors = FindDeclaredAccessors(lines, target);
+                if (accessors.Count == 0)
+                    throw new StrippedSymbolReconciliationException(target.ContainingType, target.PublicApiName);
+
+                var sb = new StringBuilder();
+                foreach (var accessor in accessors)
+                    sb.Append($"{indent}    {accessor} => {throwExpr};\n");
+                body = sb.ToString();
+            }
+            else
+            {
+                body = $"{indent}    {throwExpr};\n";
+            }
+
+            lines[target.BraceOpenLine] = braceLine.Substring(0, braceIdx + 1) + "\n" + body + indent + "}\n";
+
+            // Blank the original body, including its closing brace — already re-emitted above, so
+            // the block's net brace count is unchanged.
+            for (int j = target.BraceOpenLine + 1; j <= target.BlockEnd; j++)
+                lines[j] = "";
+        }
+
+        /// <summary>
+        /// Recovers the wrapper symbol a candidate P/Invoke was bound to, so the stub can name the
+        /// exact symbol that went missing rather than just the member.
+        /// </summary>
+        private static string ResolveEntryPoint(
+            List<string> lines,
+            Dictionary<string, (int preambleStart, int declEnd)> candidates,
+            string pinvokeName)
+        {
+            if (!candidates.TryGetValue(pinvokeName, out var range))
+                return pinvokeName;
+
+            for (int j = range.preambleStart; j <= range.declEnd && j < lines.Count; j++)
+            {
+                var match = EntryPointRegex.Match(lines[j]);
+                if (match.Success)
+                    return match.Groups[1].Value;
+            }
+            return pinvokeName;
+        }
+
+        private static int LeadingWhitespaceWidth(string line)
+        {
+            int n = 0;
+            while (n < line.Length && (line[n] == ' ' || line[n] == '\t')) n++;
+            return n;
+        }
+
+        /// <summary>
+        /// True when the block is a property/indexer body rather than a method body. The
+        /// declaration's parameter list is the discriminator: methods and constructors have one,
+        /// properties do not.
+        /// </summary>
+        private static bool IsPropertyShapedBlock(List<string> lines, InterfaceStubTarget target)
+        {
+            var header = new StringBuilder();
+            for (int j = target.DeclStart; j < target.BraceOpenLine; j++)
+                header.Append(lines[j]);
+
+            var braceLine = lines[target.BraceOpenLine];
+            int braceIdx = braceLine.IndexOf('{');
+            header.Append(braceIdx >= 0 ? braceLine.Substring(0, braceIdx) : braceLine);
+
+            return !header.ToString().Contains('(');
+        }
+
+        private static readonly Regex AccessorRegex = new(
+            @"^\s*(?:\[[^\]]*\]\s*)*(?:(?:public|private|protected|internal)\s+)*(get|set|init)\b",
+            RegexOptions.Compiled);
+
+        /// <summary>
+        /// Collects the accessor keywords a property block declares, in source order and without
+        /// duplicates, so the stub can reproduce exactly that set.
+        /// </summary>
+        private static List<string> FindDeclaredAccessors(List<string> lines, InterfaceStubTarget target)
+        {
+            var accessors = new List<string>();
+            for (int j = target.BraceOpenLine; j <= target.BlockEnd; j++)
+            {
+                var match = AccessorRegex.Match(lines[j]);
+                if (!match.Success)
+                    continue;
+
+                var accessor = match.Groups[1].Value;
+                if (!accessors.Contains(accessor))
+                    accessors.Add(accessor);
+            }
+            return accessors;
         }
 
         /// <summary>
@@ -1053,8 +1329,12 @@ namespace BindingsGeneration
                 }
             }
 
-            // Properties: last identifier on line (no parens on declaration line)
+            // Properties: last identifier on line (no parens on declaration line). A property may
+            // open its block on the declaration line, so the brace is dropped first — otherwise
+            // the "last identifier" is "{" and the member reads as unidentifiable.
             var cleaned = trimmed.TrimEnd();
+            if (cleaned.EndsWith("{", StringComparison.Ordinal))
+                cleaned = cleaned.Substring(0, cleaned.Length - 1).TrimEnd();
             int lastSpaceP = cleaned.LastIndexOf(' ');
             if (lastSpaceP >= 0)
             {
@@ -2399,9 +2679,18 @@ namespace BindingsGeneration
         /// triggered the cascade is an internal trampoline and item 4 will tighten the
         /// link). Subscripts canonicalize to the name <c>this</c> because they have no
         /// member identifier in C# source.
+        /// <para>
+        /// <paramref name="declTextOverrides"/> supplies the pre-rewrite declaration text for
+        /// lines that a throwing stub has since overwritten, so those members are identified off
+        /// the signature they were declared with rather than off the stub body — which would
+        /// otherwise yield the exception type as the member name.
+        /// </para>
         /// </summary>
         private static List<CoGatedMember> BuildPublicMemberIdentities(
-            List<string> lines, HashSet<int> publicDeclLines, string?[] lineToType)
+            List<string> lines,
+            HashSet<int> publicDeclLines,
+            string?[] lineToType,
+            IReadOnlyDictionary<int, string>? declTextOverrides = null)
         {
             var identities = new List<CoGatedMember>();
             if (publicDeclLines.Count == 0)
@@ -2412,7 +2701,10 @@ namespace BindingsGeneration
             {
                 if (declLine < 0 || declLine >= lines.Count)
                     continue;
-                var trimmed = lines[declLine].TrimStart();
+                var trimmed = declTextOverrides != null
+                    && declTextOverrides.TryGetValue(declLine, out var originalDecl)
+                        ? originalDecl
+                        : lines[declLine].TrimStart();
                 var kind = ClassifyMemberKind(trimmed);
                 var name = kind == BindingItemKind.Subscript
                     ? "this"

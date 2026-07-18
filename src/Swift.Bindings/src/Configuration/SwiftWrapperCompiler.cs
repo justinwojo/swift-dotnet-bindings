@@ -53,9 +53,7 @@ namespace BindingsGeneration
     {
         /// <summary>Compilation succeeded or was not needed.</summary>
         Success,
-        /// <summary>Compilation had issues but asyncLibrary was explicit — non-fatal warning.</summary>
-        Warning,
-        /// <summary>Compilation failed and asyncLibrary was auto-wired — fatal, must abort.</summary>
+        /// <summary>Compilation failed - publication must fail; generated C# would reference a wrapper that does not exist.</summary>
         Fatal
     }
 
@@ -67,43 +65,34 @@ namespace BindingsGeneration
     {
         /// <summary>
         /// Evaluates a compilation result to determine whether the outcome is fatal.
+        /// A wrapper-compile failure is fatal in every mode because the generated C#
+        /// references wrapper symbols that would not exist.
         /// </summary>
         /// <param name="result">The compilation result, or null if no Swift files existed.</param>
-        /// <param name="asyncLibraryAutoWired">True if --async-library was auto-set by the generator.</param>
         /// <param name="compilationException">Non-null if Compile() threw an exception.</param>
         public static WrapperCompilationOutcome EvaluateResult(
             SwiftWrapperCompilationResult? result,
-            bool asyncLibraryAutoWired,
             Exception? compilationException = null)
         {
             // Exception path: Compile() threw
             if (compilationException != null)
-                return asyncLibraryAutoWired ? WrapperCompilationOutcome.Fatal : WrapperCompilationOutcome.Warning;
+                return WrapperCompilationOutcome.Fatal;
 
-            // No Swift files — always fine
+            // No Swift files at all — nothing was promised, so nothing is missing.
             if (result == null)
                 return WrapperCompilationOutcome.Success;
 
-            // All code stripped
-            if (result.CompiledFileCount == 0 && result.StrippedBlockCount > 0)
-                return asyncLibraryAutoWired ? WrapperCompilationOutcome.Fatal : WrapperCompilationOutcome.Warning;
+            // A compilation attempt that produced no xcframework. Every give-up path in Compile()
+            // returns an empty XCFrameworkPath, so the path is the ground truth for "does a wrapper
+            // exist"; the stripped-block count is not. Counting blocks got this wrong both ways:
+            // it read a thunk-failure give-up with nothing stripped as Success (shipping C#
+            // P/Invokes into a library that was never built), and it read a thunk-only wrapper —
+            // all Swift stripped, hand-written .arm64.s slices linked into a real artifact — as a
+            // failure, because CompiledFileCount counts cleaned Swift files only.
+            if (string.IsNullOrEmpty(result.XCFrameworkPath))
+                return WrapperCompilationOutcome.Fatal;
 
             return WrapperCompilationOutcome.Success;
-        }
-
-        /// <summary>
-        /// Applies SDK-mode outcome adjustment. In SDK mode, Fatal is downgraded to Warning
-        /// so that wrapper compilation failures don't kill the entire build — the C# bindings
-        /// are still correct, methods referencing the wrapper get DllNotFoundException at runtime.
-        /// </summary>
-        /// <param name="rawOutcome">The outcome from EvaluateResult().</param>
-        /// <param name="sdkMode">True if --sdk-mode was passed.</param>
-        public static WrapperCompilationOutcome EffectiveOutcome(
-            WrapperCompilationOutcome rawOutcome, bool sdkMode)
-        {
-            if (rawOutcome == WrapperCompilationOutcome.Fatal && sdkMode)
-                return WrapperCompilationOutcome.Warning;
-            return rawOutcome;
         }
 
         /// <summary>

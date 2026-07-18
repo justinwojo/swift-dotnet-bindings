@@ -16,7 +16,9 @@ public sealed class BindingArtifactManifest
     // v2: retired the ProxyCoGating/ContractCoGating sections (the generate-then-strip
     // co-gater is gone — proxy/contract decisions are made at emission). The surviving
     // proxy-suppression count moved to EmissionSection.SuppressedProxyClassCount.
-    public const int CurrentSchemaVersion = 2;
+    // v3: WrapperSection no longer records EffectiveOutcome (wrapper-compile failures are
+    // fatal in every mode; there is no SDK-mode severity downgrade to persist).
+    public const int CurrentSchemaVersion = 3;
 
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
     public required string Module { get; init; }
@@ -290,7 +292,6 @@ public sealed class WrapperSection
     public PhaseStatus Status { get; init; } = PhaseStatus.Success;
 
     public string? RawOutcome { get; init; }
-    public string? EffectiveOutcome { get; init; }
     public int ExitCode { get; init; }
     public string? DiagnosticCode { get; init; }
     public string? Message { get; init; }
@@ -323,27 +324,52 @@ public sealed class WrapperSection
     /// </summary>
     public List<CoGatedMember> CSharpCoGatedMembers { get; init; } = new();
 
+    /// <summary>
+    /// Projects a wrapper build into its manifest section.
+    /// <para>
+    /// <paramref name="reconciliationFailureMessage"/> fatalizes the phase for the case where
+    /// the wrapper itself compiled but the C# co-gating pass could not make the generated
+    /// surface sound. The compile's own verdict stays visible in <see cref="RawOutcome"/>,
+    /// while <see cref="Status"/>, <see cref="ExitCode"/> and <see cref="WrapperXcfwExists"/>
+    /// report the phase as failed — the manifest is the authoritative record, so a wrapper
+    /// that exists on disk but must not be consumed cannot be logged as a success.
+    /// </para>
+    /// </summary>
     public static WrapperSection From(
         WrapperBuildOutcome outcome,
-        IReadOnlyList<CoGatedMember> coGatedMembers)
+        IReadOnlyList<CoGatedMember> coGatedMembers,
+        string? reconciliationFailureMessage = null)
     {
         ArgumentNullException.ThrowIfNull(outcome);
         ArgumentNullException.ThrowIfNull(coGatedMembers);
 
+        var reconciliationFailed = !string.IsNullOrEmpty(reconciliationFailureMessage);
+
+        // When the compile ALSO failed, its diagnostic is the primary one and keeps the code
+        // slot; the reconciliation text is appended rather than replacing it, so the code and the
+        // message always describe the same thing and neither failure is lost.
+        var message = string.IsNullOrEmpty(outcome.Message) ? null : outcome.Message;
+        if (reconciliationFailed)
+        {
+            message = message == null
+                ? reconciliationFailureMessage
+                : $"{message} {reconciliationFailureMessage}";
+        }
+
         var section = new WrapperSection
         {
-            Status = outcome.IsFatal
-                ? PhaseStatus.Fatal
-                : (outcome.IsWarning ? PhaseStatus.Warning : PhaseStatus.Success),
+            Status = outcome.IsFatal || reconciliationFailed ? PhaseStatus.Fatal : PhaseStatus.Success,
             RawOutcome = outcome.RawOutcome.ToString(),
-            EffectiveOutcome = outcome.EffectiveOutcome.ToString(),
-            ExitCode = outcome.ExitCode,
-            DiagnosticCode = outcome.DiagnosticCode,
-            Message = string.IsNullOrEmpty(outcome.Message) ? null : outcome.Message,
+            ExitCode = reconciliationFailed && outcome.ExitCode == 0 ? 1 : outcome.ExitCode,
+            DiagnosticCode = reconciliationFailed && outcome.DiagnosticCode == null
+                ? "SWIFTBIND057"
+                : outcome.DiagnosticCode,
+            Message = message,
             SliceCount = outcome.CompilationResult?.SliceCount ?? 0,
             CompiledFileCount = outcome.CompilationResult?.CompiledFileCount ?? 0,
             PostProcessorStrippedBlockCount = outcome.CompilationResult?.StrippedBlockCount ?? 0,
-            WrapperXcfwExists = outcome.CompilationResult?.XCFrameworkPath is { } p && Directory.Exists(p),
+            WrapperXcfwExists = !reconciliationFailed
+                && outcome.CompilationResult?.XCFrameworkPath is { } p && Directory.Exists(p),
         };
         if (outcome.CompilationResult?.StrippedBlocksBySubCause is { } subCauses)
         {

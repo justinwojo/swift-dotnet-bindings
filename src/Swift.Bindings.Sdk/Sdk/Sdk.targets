@@ -1991,17 +1991,21 @@ done; true"
           AfterTargets="_UpdateSwiftWrapperMetadata"
           Condition="'$(_SwiftBindingWrapperModuleName)' != '' AND '$(SwiftFrameworkType)' != 'ObjC'">
 
-    <!-- Wrapper was expected but compilation failed: promote to error when SwiftWrapperRequired=true -->
+    <!-- The wrapper is unusable — either swiftc failed, or it compiled but the generated C# could
+         not be reconciled against the symbols that survived (SWIFTBIND057). Both clear
+         _SwiftBindingHasWrapperXCFramework, because the Exec above runs with
+         ContinueOnError="WarnAndContinue" and swallows the generator's exit code; this metadata
+         flag is the only signal that reaches the gate. Promote to error when SwiftWrapperRequired=true. -->
     <Error Condition="$([System.String]::Equals('$(SwiftWrapperRequired)', 'true', StringComparison.OrdinalIgnoreCase))
                       AND '$(_SwiftBindingHasWrapperXCFramework)' != 'True'"
            Code="SWIFTBIND051"
-           Text="Swift wrapper compilation failed for '$(_SwiftBindingWrapperModuleName)'. Constructor, destroy, and async wrappers will not be available — APIs that depend on them will throw DllNotFoundException at runtime. Check build output for SWIFTBIND050 details. To suppress this error, set &lt;SwiftWrapperRequired&gt;false&lt;/SwiftWrapperRequired&gt; in your project file." />
+           Text="No usable Swift wrapper was produced for '$(_SwiftBindingWrapperModuleName)' — compilation failed, or the generated C# could not be reconciled against it. Constructor, destroy, and async wrappers will not be available — APIs that depend on them will throw DllNotFoundException at runtime. Check the build output above for the generator's diagnostic (for example SWIFTBIND057). To suppress this error, set &lt;SwiftWrapperRequired&gt;false&lt;/SwiftWrapperRequired&gt; in your project file." />
 
     <!-- When SwiftWrapperRequired=false, still warn so the failure is visible -->
     <Warning Condition="!$([System.String]::Equals('$(SwiftWrapperRequired)', 'true', StringComparison.OrdinalIgnoreCase))
                         AND '$(_SwiftBindingHasWrapperXCFramework)' != 'True'"
              Code="SWIFTBIND051"
-             Text="Swift wrapper compilation failed for '$(_SwiftBindingWrapperModuleName)'. Constructor, destroy, and async wrappers will not be available — APIs that depend on them will throw DllNotFoundException at runtime. Set &lt;SwiftWrapperRequired&gt;true&lt;/SwiftWrapperRequired&gt; to promote this to a build error." />
+             Text="No usable Swift wrapper was produced for '$(_SwiftBindingWrapperModuleName)' — compilation failed, or the generated C# could not be reconciled against it. Constructor, destroy, and async wrappers will not be available — APIs that depend on them will throw DllNotFoundException at runtime. Set &lt;SwiftWrapperRequired&gt;true&lt;/SwiftWrapperRequired&gt; to promote this to a build error." />
 
     <!-- An explicitly-requested architecture slice failed to build and was NOT folded into the fat
          wrapper. The generator restored the working primary (so HasWrapper stays True) and exited
