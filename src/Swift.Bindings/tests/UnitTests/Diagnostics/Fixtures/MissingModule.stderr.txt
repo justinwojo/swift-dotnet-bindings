@@ -1,0 +1,7 @@
+MissingModule.wrapper.swift:4:8: error: no such module 'CompletelyFictionalDependency'
+2 | // failure of the inputs, not of any declaration — attribution must classify it to InputConfiguration
+3 | // and never charge it to the entry point below.
+4 | import CompletelyFictionalDependency
+  |        `- error: no such module 'CompletelyFictionalDependency'
+5 | 
+6 | @_cdecl("SBW_Feature_run")

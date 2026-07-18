@@ -1,0 +1,21 @@
+SingleBrokenMember.wrapper.swift:8:34: error: cannot find 'MissingGadgetType' in scope
+ 6 | @_cdecl("SBW_Gadget_rotate")
+ 7 | public func SBW_Gadget_rotate(_ handle: UnsafeMutableRawPointer, _ degrees: Int) {
+ 8 |     let gadget = handle.load(as: MissingGadgetType.self)
+   |                                  `- error: cannot find 'MissingGadgetType' in scope
+ 9 |     gadget.rotate(by: degrees)
+10 | }
+
+SingleBrokenMember.wrapper.swift:8:25: error: generic parameter 'T' could not be inferred
+ 6 | @_cdecl("SBW_Gadget_rotate")
+ 7 | public func SBW_Gadget_rotate(_ handle: UnsafeMutableRawPointer, _ degrees: Int) {
+ 8 |     let gadget = handle.load(as: MissingGadgetType.self)
+   |                         `- error: generic parameter 'T' could not be inferred
+ 9 |     gadget.rotate(by: degrees)
+10 | }
+
+Swift.UnsafeMutableRawPointer.load:2:24: note: in call to function 'load(fromByteOffset:as:)'
+1 | struct UnsafeMutableRawPointer {
+2 | @inlinable public func load<T>(fromByteOffset offset: Int = 0, as type: T.Type) -> T}
+  |                        `- note: in call to function 'load(fromByteOffset:as:)'
+3 | 

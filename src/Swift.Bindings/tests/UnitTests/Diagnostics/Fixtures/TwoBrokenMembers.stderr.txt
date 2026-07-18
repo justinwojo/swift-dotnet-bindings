@@ -1,0 +1,51 @@
+TwoBrokenMembers.wrapper.swift:7:33: error: cannot find 'MissingLedgerEntry' in scope
+ 5 | @_cdecl("SBW_Ledger_credit")
+ 6 | public func SBW_Ledger_credit(_ handle: UnsafeMutableRawPointer, _ amount: Int) {
+ 7 |     let entry = handle.load(as: MissingLedgerEntry.self)
+   |                                 `- error: cannot find 'MissingLedgerEntry' in scope
+ 8 |     entry.credit(amount)
+ 9 | }
+
+TwoBrokenMembers.wrapper.swift:7:24: error: generic parameter 'T' could not be inferred
+ 5 | @_cdecl("SBW_Ledger_credit")
+ 6 | public func SBW_Ledger_credit(_ handle: UnsafeMutableRawPointer, _ amount: Int) {
+ 7 |     let entry = handle.load(as: MissingLedgerEntry.self)
+   |                        `- error: generic parameter 'T' could not be inferred
+ 8 |     entry.credit(amount)
+ 9 | }
+
+Swift.UnsafeMutableRawPointer.load:2:24: note: in call to function 'load(fromByteOffset:as:)'
+1 | struct UnsafeMutableRawPointer {
+2 | @inlinable public func load<T>(fromByteOffset offset: Int = 0, as type: T.Type) -> T}
+  |                        `- note: in call to function 'load(fromByteOffset:as:)'
+3 | 
+
+TwoBrokenMembers.wrapper.swift:19:33: error: cannot find 'MissingLedgerEntry' in scope
+17 | @_cdecl("SBW_Ledger_debit")
+18 | public func SBW_Ledger_debit(_ handle: UnsafeMutableRawPointer, _ amount: Int) {
+19 |     let entry = handle.load(as: MissingLedgerEntry.self)
+   |                                 `- error: cannot find 'MissingLedgerEntry' in scope
+20 |     entry.debit(by: amountUnknown)
+21 | }
+
+TwoBrokenMembers.wrapper.swift:19:24: error: generic parameter 'T' could not be inferred
+17 | @_cdecl("SBW_Ledger_debit")
+18 | public func SBW_Ledger_debit(_ handle: UnsafeMutableRawPointer, _ amount: Int) {
+19 |     let entry = handle.load(as: MissingLedgerEntry.self)
+   |                        `- error: generic parameter 'T' could not be inferred
+20 |     entry.debit(by: amountUnknown)
+21 | }
+
+Swift.UnsafeMutableRawPointer.load:2:24: note: in call to function 'load(fromByteOffset:as:)'
+1 | struct UnsafeMutableRawPointer {
+2 | @inlinable public func load<T>(fromByteOffset offset: Int = 0, as type: T.Type) -> T}
+  |                        `- note: in call to function 'load(fromByteOffset:as:)'
+3 | 
+
+TwoBrokenMembers.wrapper.swift:20:21: error: cannot find 'amountUnknown' in scope
+18 | public func SBW_Ledger_debit(_ handle: UnsafeMutableRawPointer, _ amount: Int) {
+19 |     let entry = handle.load(as: MissingLedgerEntry.self)
+20 |     entry.debit(by: amountUnknown)
+   |                     `- error: cannot find 'amountUnknown' in scope
+21 | }
+22 | 

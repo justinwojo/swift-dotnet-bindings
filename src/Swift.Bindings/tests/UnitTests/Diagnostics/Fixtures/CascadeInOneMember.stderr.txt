@@ -1,0 +1,31 @@
+CascadeInOneMember.wrapper.swift:7:16: error: cannot find type 'UndefinedAlpha' in scope
+ 5 | @_cdecl("SBW_Timer_fire")
+ 6 | public func SBW_Timer_fire(_ handle: UnsafeMutableRawPointer) {
+ 7 |     let first: UndefinedAlpha = handle.load(as: UndefinedAlpha.self)
+   |                `- error: cannot find type 'UndefinedAlpha' in scope
+ 8 |     let second = first.combine(with: UndefinedBeta.shared)
+ 9 |     dispatchOut(second, undefinedGamma)
+
+CascadeInOneMember.wrapper.swift:8:38: error: cannot find 'UndefinedBeta' in scope
+ 6 | public func SBW_Timer_fire(_ handle: UnsafeMutableRawPointer) {
+ 7 |     let first: UndefinedAlpha = handle.load(as: UndefinedAlpha.self)
+ 8 |     let second = first.combine(with: UndefinedBeta.shared)
+   |                                      `- error: cannot find 'UndefinedBeta' in scope
+ 9 |     dispatchOut(second, undefinedGamma)
+10 | }
+
+CascadeInOneMember.wrapper.swift:9:5: error: cannot find 'dispatchOut' in scope
+ 7 |     let first: UndefinedAlpha = handle.load(as: UndefinedAlpha.self)
+ 8 |     let second = first.combine(with: UndefinedBeta.shared)
+ 9 |     dispatchOut(second, undefinedGamma)
+   |     `- error: cannot find 'dispatchOut' in scope
+10 | }
+11 | 
+
+CascadeInOneMember.wrapper.swift:9:25: error: cannot find 'undefinedGamma' in scope
+ 7 |     let first: UndefinedAlpha = handle.load(as: UndefinedAlpha.self)
+ 8 |     let second = first.combine(with: UndefinedBeta.shared)
+ 9 |     dispatchOut(second, undefinedGamma)
+   |                         `- error: cannot find 'undefinedGamma' in scope
+10 | }
+11 | 
