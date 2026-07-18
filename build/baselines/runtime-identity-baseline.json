@@ -1,8 +1,8 @@
 {
-  "git_sha": "19aa99af",
+  "git_sha": "22dac441",
   "platforms": {
     "simulator": {
-      "pass_count": 3192,
+      "pass_count": 3242,
       "skips": [
         {
           "class": "AsyncClosureContextLifetimeTests",
@@ -27,16 +27,6 @@
         {
           "class": "ClosureFanOutTests",
           "method": "TestAsyncClosureFan_PeerExistential",
-          "reason": ""
-        },
-        {
-          "class": "ClosureTests",
-          "method": "TestSetterOnlyCallbackHolder_SetAndTrigger",
-          "reason": ""
-        },
-        {
-          "class": "ClosureTests",
-          "method": "TestSetterOnlyCallbackHolder_SetToNull",
           "reason": ""
         },
         {
@@ -157,6 +147,16 @@
         {
           "class": "OwnershipGCStressTests",
           "method": "TestBundleB_ClosureLifetime_PropertySetterReplace",
+          "reason": ""
+        },
+        {
+          "class": "PatParentAsyncMethodsTests",
+          "method": "TestAsyncBagMockIntItem_CancelRespondAsyncSurfacesCancellation",
+          "reason": ""
+        },
+        {
+          "class": "PatParentAsyncMethodsTests",
+          "method": "TestAsyncBagMockStringItem_CancelRespondAsyncSurfacesCancellation",
           "reason": ""
         },
         {

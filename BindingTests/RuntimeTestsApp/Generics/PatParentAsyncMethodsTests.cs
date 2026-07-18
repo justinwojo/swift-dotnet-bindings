@@ -106,6 +106,7 @@ public class PatParentAsyncMethodsTests : TestBase
         AssertEqual((nint)42, response.N, "Throwing-variant IntResponse.n round-trips");
     }
 
+    [SkipOnMonoJit("Mono arm64 JIT exception-unwinder crash (EXC_BAD_ACCESS/SIGSEGV, fixed pointer-auth-tagged fault address 0x038c1a03881a036c) when an OperationCanceledException unwinds out of a canceled shared-reference-generic Task<TResult_REF> through TaskAwaiter<T>.GetResult, resumed on the main-thread NSAsyncSynchronizationContext continuation, under accumulated full-suite JIT load. Proven upstream and Swift-independent: a pure-managed TaskCompletionSource<StringResponse> canceled and awaited through the same generic WithTimeout<T> — zero Swift/generated-binding/P-Invoke frame on the faulting stack — crashes identically; substituting it for the real CancelRespondAsync() call changes nothing. Layout-sensitive (adding unrelated sibling methods relocates the JIT code and hides it), so it reproduces only under full-suite load, not single-class isolation. Mono-only (Simulator); macOS CoreCLR and device NativeAOT keep running it.")]
     public async Task TestAsyncBagMockStringItem_CancelRespondAsyncSurfacesCancellation()
     {
         // Cancellation classification on the CSM parent-only async ERROR path.
@@ -134,6 +135,7 @@ public class PatParentAsyncMethodsTests : TestBase
         AssertTrue(task.IsCanceled, "CancelRespondAsync Task ends in the Canceled state");
     }
 
+    [SkipOnMonoJit("Mono arm64 JIT exception-unwinder crash (EXC_BAD_ACCESS/SIGSEGV, fixed pointer-auth-tagged fault address 0x038c1a03881a036c) when an OperationCanceledException unwinds out of a canceled shared-reference-generic Task<TResult_REF> through TaskAwaiter<T>.GetResult, resumed on the main-thread NSAsyncSynchronizationContext continuation, under accumulated full-suite JIT load. Same root cause as the MockStringItem sibling and proven upstream/Swift-independent by the same pure-managed TaskCompletionSource<T> repro (the crash resumes on the shared TResult_REF generic instantiation both conformers use). Layout-sensitive, so it reproduces only under full-suite load. Mono-only (Simulator); macOS CoreCLR and device NativeAOT keep running it.")]
     public async Task TestAsyncBagMockIntItem_CancelRespondAsyncSurfacesCancellation()
     {
         // Same cancellation-classification assertion on the second closed

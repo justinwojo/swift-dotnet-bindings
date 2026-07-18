@@ -952,7 +952,7 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 3192,
+      "pass": 3242,
       "fail": 0,
       "skip": 37,
       "crash": 0

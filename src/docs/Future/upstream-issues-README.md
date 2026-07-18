@@ -14,6 +14,7 @@ Last verified: **2026-04-30** on .NET 10.0.103, Microsoft.iOS.Sdk 26.2.10197, Xc
 | 2 | [`upstream-issue-02-non-blittable-callconvswift.md`](./upstream-issue-02-non-blittable-callconvswift.md) | Feature Request | Mono + NativeAOT | `Issue2_NonBlittableRejection` |
 | 3 | [`upstream-issue-03-mono-set-insert-done-blocking.md`](./upstream-issue-03-mono-set-insert-done-blocking.md) | Bug | Mono | `Issue3_MonoSetInsertDoneBlocking` |
 | 4 | [`upstream-issue-04-mono-catalyst-x64-instability.md`](./upstream-issue-04-mono-catalyst-x64-instability.md) | Bug | Mono (maccatalyst-x64) | `Issue4_MonoCatalystX64Instability` *(pending publish)* |
+| 5 | [`upstream-issue-05-mono-unwinder-oce-pac.md`](./upstream-issue-05-mono-unwinder-oce-pac.md) | Bug | Mono (ios-sim arm64) | BindingTests `PatParentAsyncMethodsTests.*CancelRespondAsync*` *(standalone repro pending)* |
 
 **Filing priority:** Issue 2 first (highest real-world impact — drives ~67% of the wrapper rate across 51 third-party Swift library bindings), then Issues 1 and 3.
 
