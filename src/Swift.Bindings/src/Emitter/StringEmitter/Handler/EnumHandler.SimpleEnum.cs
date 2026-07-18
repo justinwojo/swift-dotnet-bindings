@@ -143,9 +143,15 @@ namespace BindingsGeneration
 
             // Emit @_cdecl metadata wrapper for simple enums (needed for correct SwiftOptional<T> layout).
             // Simple enums can't implement ISwiftObject, so metadata is registered via module initializer.
-            // Internal types are inaccessible by name in Swift — skip wrapper emission for them.
+            // Gate on the SAME "can wrapper source spell this type?" predicate the enum-level Swift
+            // discard writer consults, not the enum's own flag alone: an enum nested in an internal parent (e.g. one
+            // declared in an extension on a foreign receiver that is absent from this module's public
+            // set) is unspellable, so its @_cdecl is discarded — recording the C# DllImport+register on
+            // the narrower own-flag check leaves a P/Invoke pointing at a symbol nothing defines, which
+            // the wrapper-symbol integrity gate rightly fail-closes. The registration is a swallowed
+            // no-op when the symbol can't resolve, so skipping both together loses no working capability.
             var metadataEmissionCtx = context.GetEmissionContext();
-            if (metadataEmissionCtx != null && !enumDecl.IsModuleInternal)
+            if (metadataEmissionCtx != null && !WrapperValidation.IsTypeOrEnclosingModuleInternal(enumDecl))
             {
                 var moduleQualified = enumDecl.SwiftTypeName.ModuleQualifiedName;
                 var swiftModuleName = enumDecl.SwiftTypeName.Module;

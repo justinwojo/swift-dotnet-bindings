@@ -927,6 +927,99 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_SimpleEnumNestedInModuleInternalParent_SkipsMetadataRegistration()
+    {
+        // The enclosing-internal gate reaches the SIMPLE-enum metadata path too. A public
+        // no-payload enum whose enclosing type is internal cannot be spelled by the wrapper
+        // module, so EnumHandler discards its Swift @_cdecl metadata wrapper. The C# side must
+        // consult the SAME "can wrapper source spell this type?" predicate and skip
+        // RecordSimpleEnumMetadata — otherwise the module initializer plans a
+        // [DllImport(EntryPoint="SBW_GetMetadata_...")] against a symbol the discarded wrapper
+        // never defines, and the wrapper-symbol integrity gate fail-closes the module.
+        var typeDatabase = CreateXCFrameworkTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var outerDecl = CreateEnumDecl("Parser", moduleDecl, isFrozen: true);
+        outerDecl.IsModuleInternal = true;
+
+        var enumDecl = CreateEnumDecl("Mode", moduleDecl, isFrozen: true);
+        enumDecl.ParentDecl = outerDecl;
+        // The enum itself is public — only its enclosing type is internal.
+        Assert.False(enumDecl.IsModuleInternal);
+        enumDecl.Cases.Add(CreateCase("fast"));
+        enumDecl.Cases.Add(CreateCase("slow"));
+
+        var (_, _, emissionCtx) = EmitEnumWithContext(enumDecl, typeDatabase);
+
+        // No simple-enum metadata recorded → the module initializer emits no dangling
+        // SBW_GetMetadata_ DllImport for a symbol the discarded Swift wrapper never defines.
+        Assert.Empty(emissionCtx.SimpleEnumMetadataRegistrations);
+    }
+
+    [Fact]
+    public void Emit_SimpleEnumInPublicParent_RecordsMetadataRegistration()
+    {
+        // Discrimination guard: a spellable public simple enum still records its metadata so
+        // SwiftOptional<T> uses the enum's real Swift layout rather than the raw integer's.
+        // The skip above must key on the enclosing type being internal, not on "is a simple enum".
+        var typeDatabase = CreateXCFrameworkTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Mode", moduleDecl, isFrozen: true);
+        enumDecl.Cases.Add(CreateCase("fast"));
+        enumDecl.Cases.Add(CreateCase("slow"));
+
+        var (_, _, emissionCtx) = EmitEnumWithContext(enumDecl, typeDatabase);
+
+        Assert.NotEmpty(emissionCtx.SimpleEnumMetadataRegistrations);
+    }
+
+    [Fact]
+    public void Emit_PayloadEnumNestedInModuleInternalParent_UsesCallConvSwiftMetadataAccessor()
+    {
+        // The enclosing-internal gate's ISwiftObject-payload sibling: a payload enum whose
+        // enclosing type is internal has its @_cdecl metadata wrapper discarded, so the
+        // metadata accessor must target the dylib's own CallConvSwift accessor rather than a
+        // cdecl SBW_GetMetadata_ wrapper symbol nothing defines (which SWIFTBIND108 fail-closes).
+        var typeDatabase = CreateXCFrameworkTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var outerDecl = CreateEnumDecl("Parser", moduleDecl, isFrozen: true);
+        outerDecl.IsModuleInternal = true;
+
+        var enumDecl = CreateEnumDecl("State", moduleDecl, isFrozen: true);
+        enumDecl.ParentDecl = outerDecl;
+        Assert.False(enumDecl.IsModuleInternal);
+        var payloadCase = CreateCase("boxed");
+        payloadCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(payloadCase);
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Metadata accessor routes to the dylib's CallConvSwift accessor…
+        Assert.Contains("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();", csOutput);
+        // …never a cdecl SBW_GetMetadata_ wrapper symbol, and no Cdecl-first fallback pair.
+        Assert.DoesNotContain("SBW_GetMetadata_", csOutput);
+        Assert.DoesNotContain("PInvoke_getMetadata_fallback", csOutput);
+    }
+
+    [Fact]
+    public void Emit_PayloadEnumInPublicParent_UsesCdeclMetadataWrapperWithFallback()
+    {
+        // Discrimination guard: a spellable public payload enum keeps the Cdecl-first metadata
+        // wrapper (SBW_GetMetadata_) plus the CallConvSwift dylib fallback. The CallConvSwift-only
+        // routing above must key on the enclosing type being internal, not on "has a payload case".
+        var typeDatabase = CreateXCFrameworkTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("State", moduleDecl, isFrozen: true);
+        var payloadCase = CreateCase("boxed");
+        payloadCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(payloadCase);
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("SBW_GetMetadata_", csOutput);
+        Assert.Contains("PInvoke_getMetadata_fallback", csOutput);
+    }
+
+    [Fact]
     public void Emit_GenericEnum_PayloadSizeUsesHelperPInvokeAccessor()
     {
         // Regression: when emitting a generic enum, `_payloadSize` MUST go through the
@@ -4323,6 +4416,16 @@ public class EnumHandlerOutputTests
 
     private static (string csOutput, string swiftOutput) EmitEnum(EnumDecl enumDecl, TypeDatabase typeDatabase)
     {
+        var (csOutput, swiftOutput, _) = EmitEnumWithContext(enumDecl, typeDatabase);
+        return (csOutput, swiftOutput);
+    }
+
+    // Same as EmitEnum but also returns the ModuleEmissionContext, so a test can assert on
+    // state the enum handler records for later module-initializer emission (e.g. the simple-enum
+    // metadata registrations, which never land in the per-enum C# output).
+    private static (string csOutput, string swiftOutput, ModuleEmissionContext emissionCtx) EmitEnumWithContext(
+        EnumDecl enumDecl, TypeDatabase typeDatabase)
+    {
         var csOutput = new StringWriter();
         var swiftOutput = new StringWriter();
         var csWriter = new CSharpWriter(csOutput);
@@ -4331,10 +4434,11 @@ public class EnumHandlerOutputTests
         var handler = new EnumHandler(new NullLogger<EnumHandler>());
         var env = handler.Marshal(enumDecl, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
-        var context = new TypeHandlerContext(null, new(), null, EmissionContext: new ModuleEmissionContext());
+        var emissionCtx = new ModuleEmissionContext();
+        var context = new TypeHandlerContext(null, new(), null, EmissionContext: emissionCtx);
         handler.Emit(csWriter, swiftWriter, env, conductor, context);
 
-        return (csOutput.ToString(), swiftOutput.ToString());
+        return (csOutput.ToString(), swiftOutput.ToString(), emissionCtx);
     }
 
     [Fact]

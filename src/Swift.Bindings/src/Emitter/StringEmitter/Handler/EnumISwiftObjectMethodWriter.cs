@@ -110,7 +110,14 @@ namespace BindingsGeneration
                 var moduleQualified = _enumDecl.SwiftTypeName.ModuleQualifiedName;
                 var moduleName = _enumDecl.SwiftTypeName.Module;
 
-                if (_enumDecl.IsModuleInternal)
+                // Gate on the SAME "can wrapper source spell this type?" predicate EnumHandler's
+                // discard writer consults, not the enum's own flag alone: an enum nested in an
+                // internal parent (e.g. a payload enum declared in an extension on a foreign
+                // receiver absent from this module's public set) has its @_cdecl discarded, so the
+                // Cdecl-first branch below would plan a P/Invoke against a symbol nothing defines
+                // (SWIFTBIND108 fail-closes). The CallConvSwift fallback targets the dylib's own
+                // metadata accessor, which is always exported and is not a wrapper symbol.
+                if (WrapperValidation.IsTypeOrEnclosingModuleInternal(_enumDecl))
                 {
                     // Fallback: use CallConvSwift P/Invoke targeting the dylib's metadata accessor
                     _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
