@@ -1,8 +1,10 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Collections.Immutable;
 using Xunit;
 
+using BindingsGeneration;
 using BindingsGeneration.Diagnostics;
 
 namespace BindingsGeneration.Tests;
@@ -81,5 +83,39 @@ public class WrapperBlockIndexTests
         Assert.True(index.TryResolve(3, out var block));
         Assert.Null(block.Symbol);
         Assert.Equal(artifact.Canonical, block.OriginAnchor);
+    }
+
+    /// <summary>
+    /// An anchor whose serialized <see cref="ArtifactId"/> embeds a space — a decl canonical carrying a
+    /// spaced parameter type (<c>any Sequence</c>) or generic context, which the emitter escapes no
+    /// whitespace out of — must be captured whole, not truncated at the first space, so it round-trips
+    /// back through <see cref="ArtifactId.TryParse"/> to the owning artifact.
+    /// </summary>
+    [Fact]
+    public void Build_OriginAnchorWithSpacedCanonical_CapturesTheWholeTokenAndRoundTrips()
+    {
+        var decl = DeclId.Create(
+            "Fixture",
+            declPath: null,
+            BindingItemKind.Method,
+            "consume",
+            parameterLabels: ImmutableArray.Create("seq"),
+            parameterTypes: ImmutableArray.Create("any Sequence"));
+        var artifact = ArtifactId.Create(decl, ArtifactRole.SwiftWrapper);
+        Assert.Contains(' ', artifact.Canonical); // guard: the canonical really does carry a space
+
+        var source = $$"""
+            // SBW-ORIGIN: {{artifact.Canonical}}
+            extension Consumer {
+                func broken() -> Missing { fail() }
+            }
+            """;
+
+        var index = WrapperBlockIndex.Build(source);
+
+        Assert.True(index.TryResolve(3, out var block));
+        Assert.Equal(artifact.Canonical, block.OriginAnchor);
+        Assert.True(ArtifactId.TryParse(block.OriginAnchor, out var parsed));
+        Assert.Equal(artifact, parsed);
     }
 }

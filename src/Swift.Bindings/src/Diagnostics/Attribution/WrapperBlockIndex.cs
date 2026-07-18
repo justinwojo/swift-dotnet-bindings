@@ -55,8 +55,13 @@ public sealed class WrapperBlockIndex
         @"@_(?:cdecl|silgen_name)\(\s*""([^""]+)""\s*\)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    // Captures the whole remainder of the line, not a non-whitespace run: a serialized ArtifactId
+    // embeds a DeclId canonical whose generic-context/type fields can legally contain spaces (an
+    // extension over a `where`-constrained type), and a `\S+` capture would truncate it mid-token and
+    // fail to round-trip. The anchor is always emitted alone on its own comment line, so the rest of
+    // the line IS the id; the capture is trimmed to drop any trailing spaces.
     private static readonly Regex OriginAnchorComment = new(
-        @"//\s*SBW-ORIGIN:\s*(\S+)",
+        @"//\s*SBW-ORIGIN:\s*(.+)$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private readonly IReadOnlyList<WrapperBlock> _blocks;
@@ -86,7 +91,7 @@ public sealed class WrapperBlockIndex
             if (anchorMatch.Success)
             {
                 var end = FindBlockEnd(lines, i);
-                blocks.Add(new WrapperBlock(null, anchorMatch.Groups[1].Value, i + 1, end + 1));
+                blocks.Add(new WrapperBlock(null, anchorMatch.Groups[1].Value.Trim(), i + 1, end + 1));
             }
         }
 
