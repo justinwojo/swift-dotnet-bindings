@@ -752,13 +752,34 @@ namespace BindingsGeneration
             if (_modules.TryGetValue(name.Module, out var moduleDb)
                 && moduleDb.TryGetTypeRecord(name, out var existing))
             {
+                EmissionAttempt.Current?.Journal.Capture(name, existing);
                 moduleDb.ApplyEmissionUpdate(name, result.ApplyTo(existing));
                 return;
             }
 
             if (_outOfModuleTypes.TryGetValue(name, out var existingOutOfModule))
             {
+                EmissionAttempt.Current?.Journal.Capture(name, existingOutOfModule);
                 _outOfModuleTypes[name] = result.ApplyTo(existingOutOfModule);
+            }
+        }
+
+        /// <inheritdoc/>
+        public void RestoreEmissionRecord(SwiftTypeName name, TypeRecord record)
+        {
+            // Mirrors ApplyEmissionResult's two stores exactly, so a restore can never land somewhere
+            // the forward stamp did not. Writes the record whole rather than merging: the point is to
+            // reinstate the pre-attempt state, including fields the discarded attempt overwrote.
+            if (_modules.TryGetValue(name.Module, out var moduleDb)
+                && moduleDb.TryGetTypeRecord(name, out _))
+            {
+                moduleDb.ApplyEmissionUpdate(name, record);
+                return;
+            }
+
+            if (_outOfModuleTypes.ContainsKey(name))
+            {
+                _outOfModuleTypes[name] = record;
             }
         }
 

@@ -66,8 +66,12 @@ public class MemberValidationPipeline
     /// standing invitation for a new gate to forget one, and a verdict that reaches a consumer
     /// without a subject is indistinguishable from one about a different member.
     /// </remarks>
-    public ValidationResult ValidateMethodEmission(MethodDecl methodDecl, ValidationContext? context) =>
-        ValidateMethodEmissionCore(methodDecl, context).WithSubject(DeclIdFactory.ForMethod(methodDecl));
+    public ValidationResult ValidateMethodEmission(MethodDecl methodDecl, ValidationContext? context)
+    {
+        var subject = DeclIdFactory.ForMethod(methodDecl);
+        return EmitterFaultGate.Denied(subject)
+            ?? ValidateMethodEmissionCore(methodDecl, context).WithSubject(subject);
+    }
 
     private ValidationResult ValidateMethodEmissionCore(MethodDecl methodDecl, ValidationContext? context)
     {
@@ -608,8 +612,12 @@ public class MemberValidationPipeline
     /// </summary>
     /// <remarks>Stamps the validated property's identity onto the verdict; see
     /// <see cref="ValidateMethodEmission"/> for why the stamp lives at the entry point.</remarks>
-    public ValidationResult ValidatePropertyEmission(PropertyDecl propertyDecl, ValidationContext? context) =>
-        ValidatePropertyEmissionCore(propertyDecl, context).WithSubject(DeclIdFactory.ForProperty(propertyDecl));
+    public ValidationResult ValidatePropertyEmission(PropertyDecl propertyDecl, ValidationContext? context)
+    {
+        var subject = DeclIdFactory.ForProperty(propertyDecl);
+        return EmitterFaultGate.Denied(subject)
+            ?? ValidatePropertyEmissionCore(propertyDecl, context).WithSubject(subject);
+    }
 
     private ValidationResult ValidatePropertyEmissionCore(PropertyDecl propertyDecl, ValidationContext? context)
     {
@@ -728,8 +736,12 @@ public class MemberValidationPipeline
     /// </summary>
     /// <remarks>Stamps the validated subscript's identity onto the verdict; see
     /// <see cref="ValidateMethodEmission"/> for why the stamp lives at the entry point.</remarks>
-    public ValidationResult ValidateSubscriptEmission(SubscriptDecl subscriptDecl, ValidationContext? context) =>
-        ValidateSubscriptEmissionCore(subscriptDecl, context).WithSubject(DeclIdFactory.ForSubscript(subscriptDecl));
+    public ValidationResult ValidateSubscriptEmission(SubscriptDecl subscriptDecl, ValidationContext? context)
+    {
+        var subject = DeclIdFactory.ForSubscript(subscriptDecl);
+        return EmitterFaultGate.Denied(subject)
+            ?? ValidateSubscriptEmissionCore(subscriptDecl, context).WithSubject(subject);
+    }
 
     private ValidationResult ValidateSubscriptEmissionCore(SubscriptDecl subscriptDecl, ValidationContext? context)
     {

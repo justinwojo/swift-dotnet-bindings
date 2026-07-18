@@ -256,6 +256,12 @@ namespace BindingsGeneration
                     var propOwner = FragmentOwners.ForDecl(propertyDecl);
                     using var propCsScope = csWriter.BeginFragment(propOwner);
                     using var propSwiftScope = swiftWriter.BeginFragment(propOwner);
+                    // Ahead of the duplicate-name reservation below, not just at the seam: a property
+                    // denied after claiming its C# name would push the static/instance sibling that
+                    // projects to the same name out as a duplicate, losing a member that has nothing
+                    // wrong with it.
+                    if (EmissionSeam.TryDenyUpFront(propertyDecl, csWriter))
+                        continue;
                     if (classDecl.IsActor && propertyDecl.Name == "unownedExecutor")
                     {
                         _logger.LogInformation($"Skipping actor runtime property 'unownedExecutor' on {classDecl.Name}.");
@@ -293,8 +299,17 @@ namespace BindingsGeneration
 
                     if (conductor.TryGetPropertyHandler(propertyDecl, out var propertyHandler))
                     {
-                        var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);
-                        propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor, childContext);
+                        // Contain one class property's Marshal+Emit. Escalates to the enclosing
+                        // class when denying the property alone still faults on shared type infra.
+                        EmissionSeam.Guard(
+                            propertyDecl,
+                            RecoveryScope.LeafApi,
+                            classDecl,
+                            () =>
+                            {
+                                var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);
+                                propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor, childContext);
+                            });
                     }
                     else
                     {
@@ -333,7 +348,15 @@ namespace BindingsGeneration
                 {
                     if (OperatorHandler.IsSupportedOperator(operatorDecl.OperatorSymbol))
                     {
-                        if (operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase, pinvokeHelperContext))
+                        // Contain one class operator emission. Escalates to the class so a
+                        // sticky operator fault can withdraw the type rather than the module.
+                        bool emitted = false;
+                        EmissionSeam.Guard(
+                            operatorDecl,
+                            RecoveryScope.LeafApi,
+                            classDecl,
+                            () => emitted = operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase, pinvokeHelperContext));
+                        if (emitted)
                         {
                             emittedOperatorSymbols.Add(operatorDecl.OperatorSymbol);
                         }

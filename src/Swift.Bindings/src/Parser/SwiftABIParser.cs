@@ -3992,12 +3992,18 @@ namespace BindingsGeneration
                     // Parser can throw on unfamiliar shapes — treat as unparsable.
                 }
 
+                // Try* rather than the throwing factory: this name comes straight off a generic-signature
+                // requirement node, the one place unsubstituted placeholders (τ_0_0.Something) reach the
+                // parser looking like ordinary dotted type names. A refused constraint degrades exactly
+                // like the unparsable-shape branch below — the synthetic parameter keeps its default
+                // ISwiftObject base constraint — whereas a fabricated τ-rooted module would survive into
+                // lookups and emitted symbols.
                 if (constraintSpec is NamedTypeSpec constraintNamed &&
-                    !string.IsNullOrEmpty(constraintNamed.Name))
+                    SwiftTypeName.TryFromModuleQualifiedName(constraintNamed.Name, out var constraintTypeName))
                 {
                     conformances.Add(new GenericParameterConformance(
                         new[] { syntheticTypeName },
-                        SwiftTypeName.FromModuleQualifiedName(constraintNamed.Name),
+                        constraintTypeName,
                         ConformanceKind.Protocol));
 
                     // Primary-associated-type sugar: `some Collection<X>` == `some P where P.Element == X`.
@@ -4008,9 +4014,9 @@ namespace BindingsGeneration
                         constraintNamed.GenericParameters[0] is NamedTypeSpec elementNamed &&
                         !string.IsNullOrEmpty(elementNamed.Name))
                     {
-                        SwiftTypeName? elementTypeName = null;
-                        try { elementTypeName = SwiftTypeName.FromModuleQualifiedName(elementNamed.Name); }
-                        catch (ArgumentException) { /* Generic element (rare); skip associated constraint. */ }
+                        // Generic element (rare) or a placeholder-rooted name; either way the associated
+                        // constraint is skipped rather than fabricated.
+                        SwiftTypeName.TryFromModuleQualifiedName(elementNamed.Name, out var elementTypeName);
 
                         if (elementTypeName != null)
                         {
@@ -4030,11 +4036,13 @@ namespace BindingsGeneration
                     // the validation pipeline will still suppress the method.
                     foreach (var protoSpec in compositionSpec.Protocols.Keys)
                     {
-                        if (string.IsNullOrEmpty(protoSpec.Name))
+                        // Same untrusted source as the single-constraint arm above: refuse rather than
+                        // fabricate, dropping just this member of the composition.
+                        if (!SwiftTypeName.TryFromModuleQualifiedName(protoSpec.Name, out var protoTypeName))
                             continue;
                         conformances.Add(new GenericParameterConformance(
                             new[] { syntheticTypeName },
-                            SwiftTypeName.FromModuleQualifiedName(protoSpec.Name),
+                            protoTypeName,
                             ConformanceKind.Protocol));
                     }
                 }
@@ -4166,9 +4174,13 @@ namespace BindingsGeneration
             var raw = !string.IsNullOrEmpty(node.PrintedName) ? node.PrintedName
                     : !string.IsNullOrEmpty(node.Name) ? node.Name
                     : "UnknownProtocol";
-            if (raw.Contains('.'))
-                return SwiftTypeName.FromModuleQualifiedName(raw);
-            return SwiftTypeName.FromModuleQualifiedName($"Swift.{raw}");
+            // The dotted form is taken verbatim from ABI JSON, so it can be rooted at an unsubstituted
+            // generic placeholder rather than a module. Accepting one would register a conformance
+            // under a module that does not exist; refusing it falls through to the documented
+            // placeholder shape below, which is inert for the same reason the rest of this fallback is.
+            if (raw.Contains('.') && SwiftTypeName.TryFromModuleQualifiedName(raw, out var printedName))
+                return printedName;
+            return SwiftTypeName.FromModuleQualifiedName($"Swift.{raw.Split('.')[^1]}");
         }
 
         /// <summary>

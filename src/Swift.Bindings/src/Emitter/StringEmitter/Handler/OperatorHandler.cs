@@ -131,6 +131,14 @@ namespace BindingsGeneration
         public bool EmitOperator(CSharpWriter csWriter, OperatorDecl operatorDecl, ITypeDatabase typeDatabase, PInvokeHelperContext? pinvokeHelperContext = null,
             SwiftWriter? swiftWriter = null, ModuleEmissionContext? emissionContext = null)
         {
+            // Gate 0: operators never reach MemberValidationPipeline — this bool return is their only
+            // refusal channel — so a poisoned operator is denied here or not at all.
+            if (EmitterFaultGate.IsDenied(DeclIdFactory.ForOperator(operatorDecl), out var poisonDetails))
+            {
+                ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.EmitterFault, poisonDetails);
+                return false;
+            }
+
             var symbol = operatorDecl.OperatorSymbol;
             if (!IsSupportedOperator(symbol))
             {

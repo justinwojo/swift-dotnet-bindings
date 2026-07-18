@@ -278,6 +278,15 @@ public enum SkipReason
     /// <summary>ObjC duplicate selector flattened to a single member across the type hierarchy.</summary>
     ObjCDuplicateSelector,
 
+    /// <summary>
+    /// Emitting this declaration threw. The exception was contained at the dispatch seam, the whole
+    /// emission attempt was discarded, and the module was re-emitted with this declaration denied —
+    /// so the rest of the surface still ships. Always a generator defect: the declaration is a shape
+    /// the emitter mishandles rather than one it deliberately declines, which is why this reason
+    /// carries the raw exception fingerprint in its details and lands in the "review" tier.
+    /// </summary>
+    EmitterFault,
+
     Unknown,
 }
 

@@ -175,6 +175,11 @@ public static class SkipCauseClassifier
         // ── Emission-stage generator declines ────────────────────────────────────────────────────
         Add(SkipReason.SuppressedProxyMethodBody, CauseOwner.Generator, RecoveryStage.Emit, AttributionConfidence.Medium);
 
+        // An unhandled exception escaped the emitter while lowering this declaration. Nothing about the
+        // library caused it and nothing else could have prevented it, so attribution is certain even
+        // though the specific defect is not yet known.
+        Add(SkipReason.EmitterFault, CauseOwner.Generator, RecoveryStage.Emit, AttributionConfidence.High);
+
         // Context-dependent: the reason alone does not say which of several causes applied, which is
         // why SkipDispositionClassifier already has to read the whole Details string to bucket it.
         Add(SkipReason.EveryProtocolConformanceSkipped, CauseOwner.Generator, RecoveryStage.Plan, AttributionConfidence.Low);

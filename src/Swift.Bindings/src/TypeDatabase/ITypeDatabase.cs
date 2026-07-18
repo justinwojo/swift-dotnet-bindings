@@ -132,6 +132,27 @@ public interface ITypeDatabase
             + "must override ApplyEmissionResult (the concrete TypeDatabase does).");
 
     /// <summary>
+    /// Writes <paramref name="record"/> back verbatim, undoing the emission stamps a discarded
+    /// emission attempt applied to <paramref name="name"/>.
+    /// <para>This is the inverse of <see cref="ApplyEmissionResult"/> and exists only because that
+    /// method has no inverse of its own: it merges, treating a null field as "leave unchanged", so no
+    /// result value can express "restore the previous state". Like the forward path this bypasses the
+    /// freeze guard, and for the same reason — it writes only emission-discovered facts, just older
+    /// ones. It is reached exclusively from the emission attempt loop's discard path.</para>
+    /// <para>The default throws for the same reason <see cref="ApplyEmissionResult"/>'s does: a
+    /// database that silently declined to restore would let a discarded attempt's stamps survive into
+    /// the attempt that replaces it, which is precisely the leak the attempt loop exists to prevent.
+    /// A test double that never stamps never restores, so the throw fires only on a real swallow.</para>
+    /// </summary>
+    /// <param name="name">The Swift type name whose record is being rolled back.</param>
+    /// <param name="record">The record as it stood before the discarded attempt stamped it.</param>
+    public void RestoreEmissionRecord(SwiftTypeName name, TypeRecord record)
+        => throw new System.NotImplementedException(
+            $"ITypeDatabase.RestoreEmissionRecord('{name}') reached the no-implementation default. "
+            + "A discarded emission attempt's stamps would survive into the retry; the implementing "
+            + "database must override RestoreEmissionRecord (the concrete TypeDatabase does).");
+
+    /// <summary>
     /// Finding 47: marks the registry immutable to structural writes. After this,
     /// <see cref="UpdateTypeRecord"/> and the module-level registration path throw (SWIFTBIND045);
     /// only <see cref="ApplyEmissionResult"/> may still mutate records. No-op default for test

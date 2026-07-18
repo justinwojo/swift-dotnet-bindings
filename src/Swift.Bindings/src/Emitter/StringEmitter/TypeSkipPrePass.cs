@@ -79,6 +79,10 @@ public static class TypeSkipPrePass
         // pre-pass runs first ITS reason/details are what the binding report carries.
         var (reason, details) = match.Kind switch
         {
+            TypeSkipConditionKind.EmitterFault => (
+                SkipReason.EmitterFault,
+                match.FaultDetails!),
+
             TypeSkipConditionKind.UnsupportedGenericConstraint => (
                 AppleFrameworkRegistry.GetUnsupportedConstraintSkipReason(match.UnsupportedConstraint!.Module),
                 $"Unsupported generic constraint: {match.UnsupportedConstraint.ModuleQualifiedName}"),

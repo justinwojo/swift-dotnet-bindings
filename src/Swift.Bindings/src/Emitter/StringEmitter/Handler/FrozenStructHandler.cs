@@ -284,6 +284,10 @@ namespace BindingsGeneration
                     var propOwner = FragmentOwners.ForDecl(propertyDecl);
                     using var propCsScope = csWriter.BeginFragment(propOwner);
                     using var propSwiftScope = swiftWriter.BeginFragment(propOwner);
+                    // Ahead of `emittedPropertyNames`, so a denied property does not claim a name it
+                    // will never emit under and drop the sibling that projects to the same name.
+                    if (EmissionSeam.TryDenyUpFront(propertyDecl, csWriter))
+                        continue;
                     // Use post-rename name for consistency with the propertyNames collision set below.
                     var csPropertyName = NameProvider.GetFinalMemberName(
                         NameProvider.GetPropertyName(propertyDecl.Name, structDecl.Name), propertyRenames);
@@ -313,8 +317,17 @@ namespace BindingsGeneration
 
                     if (conductor.TryGetPropertyHandler(propertyDecl, out var propertyHandler))
                     {
-                        var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);
-                        propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor, childContext);
+                        // Contain one frozen-struct property lowering. Escalates to the struct
+                        // when the fault is not leaf-local.
+                        EmissionSeam.Guard(
+                            propertyDecl,
+                            RecoveryScope.LeafApi,
+                            structDecl,
+                            () =>
+                            {
+                                var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);
+                                propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor, childContext);
+                            });
                     }
                     else
                     {
@@ -342,8 +355,16 @@ namespace BindingsGeneration
                         if (deferEqualityToWrapper &&
                             (operatorDecl.OperatorSymbol == "==" || operatorDecl.OperatorSymbol == "!="))
                             continue;
-                        if (operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase, pinvokeHelperContext,
-                            swiftWriter: swiftWriter, emissionContext: context.GetEmissionContext()))
+                        // Contain one frozen-struct operator. Escalates to the struct so a
+                        // recurring operator fault withdraws the type, not the free-function set.
+                        bool emitted = false;
+                        EmissionSeam.Guard(
+                            operatorDecl,
+                            RecoveryScope.LeafApi,
+                            structDecl,
+                            () => emitted = operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase, pinvokeHelperContext,
+                                swiftWriter: swiftWriter, emissionContext: context.GetEmissionContext()));
+                        if (emitted)
                         {
                             emittedOperatorSymbols.Add(operatorDecl.OperatorSymbol);
                         }

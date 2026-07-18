@@ -255,6 +255,12 @@ namespace BindingsGeneration
                             }
                         }
 
+                        // Ahead of the signature and projected-key reservations below, so a denied free
+                        // function does not hold a C# name against a sibling that projects to the same
+                        // one and could still emit.
+                        if (EmissionSeam.TryDenyUpFront(methodDecl, csWriter))
+                            continue;
+
                         // Primary dedup: Swift-level signature
                         var signatureKey = GetMethodSignatureKey(methodDecl, env.TypeDatabase, _logger);
                         if (emittedMethodSignatures.Contains(signatureKey))
@@ -306,7 +312,14 @@ namespace BindingsGeneration
                             var methodEnv = new MethodEnvironment(methodDecl, env.TypeDatabase, compositionCollector: context.CompositionCollector);
                             methodEnv.CollisionIndex = collisionIndex;
                             methodEnv.EmittedProjectedSignatures = emittedProjectedSignatures;
-                            methodHandler.Emit(csWriter, swiftWriter, methodEnv, conductor, context);
+                            // Containment seam for a free function. No escalation rung: a free
+                            // function's enclosing unit is the module, and denying the module is the
+                            // failure this whole mechanism exists to avoid.
+                            EmissionSeam.Guard(
+                                methodDecl,
+                                RecoveryScope.LeafApi,
+                                null,
+                                () => methodHandler.Emit(csWriter, swiftWriter, methodEnv, conductor, context));
                             // Record the consumer-visible contract for this emitted free function —
                             // its post-collision C# signature → the entry symbol the P/Invoke binds. Mirrors
                             // the type-body chokepoint in IHandler; the module is the implicit parent so the
@@ -1076,6 +1089,10 @@ namespace BindingsGeneration
 
             // Check if any protocols are suitable for EveryProtocol conformance
             var suitableProtocols = protocols
+                // Gate 0: this Swift-side pass runs before the C# interface dispatch, so a protocol
+                // denied after faulting would otherwise keep its EveryProtocol conformance and ship a
+                // Swift witness for an interface the retry never emits.
+                .Where(p => !EmitterFaultGate.IsDenied(DeclIdFactory.ForType(p), out _))
                 .Where(p => !p.HasSelfRequirement && p.AssociatedTypes.Count == 0)
                 // Skip internal, @_spi, and @usableFromInline protocols — EveryProtocol can only
                 // conform to protocols whose members are all publicly accessible.

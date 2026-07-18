@@ -139,6 +139,14 @@ namespace BindingsGeneration
                         continue;
                     }
                     emittedProperties.Add(staticPropertyKey);
+                    // Denied AFTER the reservation, not before it. On a protocol the reservation and
+                    // the reverse-dispatch skip sets are keyed the same way, and every downstream
+                    // consumer keys off the name rather than the declaration: releasing the name here
+                    // would let a same-named sibling become the emitted requirement while the
+                    // name-wide skip still suppresses its proxy side. Holding the name keeps a
+                    // denial indistinguishable from the gate skip just below it.
+                    if (EmissionSeam.TryDenyUpFront(propertyDecl))
+                        continue;
 
                     var staticGateEvaluator = new MemberGateEvaluator(env.TypeDatabase);
                     var staticPropertyGate = staticGateEvaluator.EvaluateProperty(propertyDecl, protocolDecl.ModuleDecl, protocolDecl);
@@ -150,10 +158,22 @@ namespace BindingsGeneration
                     }
 
                     // Emit as static abstract (no DIM — static abstract members can't have default implementations)
-                    EmitInterfaceProperty(bodyWriter, propertyDecl, env.TypeDatabase, closureHandler, protocolDecl, isExtensionDefault: false, isStaticAbstract: true, emissionCtx: emissionCtx);
-                    staticAbstractPropertyNames.Add(propertyDecl.Name);
-                    emittedInterfaceMemberCount++;
-                    ReportCollector.RecordMemberEmitted(propertyDecl);
+                    // Contain the static abstract property surface. Escalates to the protocol when
+                    // denying this leaf still faults on shared interface emission.
+                    // A denial returns from the seam normally, so the "it emitted" bookkeeping below
+                    // has to be gated: recording the name, counting the member and filing an emitted
+                    // row for a property that wrote nothing would contradict the skip row the seam
+                    // just recorded for it.
+                    if (EmissionSeam.Guard(
+                        propertyDecl,
+                        RecoveryScope.LeafApi,
+                        protocolDecl,
+                        () => EmitInterfaceProperty(bodyWriter, propertyDecl, env.TypeDatabase, closureHandler, protocolDecl, isExtensionDefault: false, isStaticAbstract: true, emissionCtx: emissionCtx)))
+                    {
+                        staticAbstractPropertyNames.Add(propertyDecl.Name);
+                        emittedInterfaceMemberCount++;
+                        ReportCollector.RecordMemberEmitted(propertyDecl);
+                    }
                     continue;
                 }
 
@@ -166,6 +186,16 @@ namespace BindingsGeneration
                     continue;
                 }
                 emittedProperties.Add(propertyKey);
+                // Same door the gate skip below takes: hold the reserved name and record the
+                // requirement as skipped. The proxy and the static-init vtable fill both decide
+                // what to implement from `skippedPropertyNames`, so a denial that leaves the set
+                // untouched drops the property from the interface while the proxy still emits
+                // `impl.Property` against it.
+                if (EmissionSeam.TryDenyUpFront(propertyDecl))
+                {
+                    skippedPropertyNames.Add(propertyDecl.Name);
+                    continue;
+                }
 
                 // Evaluate property gates via centralized evaluator (P3-P7)
                 var gateEvaluator = new MemberGateEvaluator(env.TypeDatabase);
@@ -226,15 +256,46 @@ namespace BindingsGeneration
                 {
                     skippedPropertyNames.Add(propertyDecl.Name);
                     optionalDimPropertyNames.Add(propertyDecl.Name);
-                    EmitInterfaceProperty(bodyWriter, propertyDecl, env.TypeDatabase, closureHandler, protocolDecl, isExtensionDefault: false, isStaticAbstract: false, isObjCOptional: true, emissionCtx: emissionCtx);
-                    emittedInterfaceMemberCount++;
-                    ReportCollector.RecordMemberEmitted(propertyDecl);
+                    // Contain @objc optional property DIM emission. Escalates to the protocol
+                    // type if the leaf denial does not clear the fault.
+                    // The pre-check above already diverts a poisoned requirement, so this branch is
+                    // the backstop for a denial that arrives at the seam itself. It returns normally
+                    // rather than unwinding, so the bookkeeping has to be gated: counting the member
+                    // and filing an emitted row for a property that wrote nothing would contradict
+                    // the skip row the seam just recorded, and the skip set has to pick it up or the
+                    // proxy implements a requirement absent from the interface.
+                    if (EmissionSeam.Guard(
+                        propertyDecl,
+                        RecoveryScope.LeafApi,
+                        protocolDecl,
+                        () => EmitInterfaceProperty(bodyWriter, propertyDecl, env.TypeDatabase, closureHandler, protocolDecl, isExtensionDefault: false, isStaticAbstract: false, isObjCOptional: true, emissionCtx: emissionCtx)))
+                    {
+                        emittedInterfaceMemberCount++;
+                        ReportCollector.RecordMemberEmitted(propertyDecl);
+                    }
+                    else
+                    {
+                        skippedPropertyNames.Add(propertyDecl.Name);
+                    }
                     continue;
                 }
 
-                EmitInterfaceProperty(bodyWriter, propertyDecl, env.TypeDatabase, closureHandler, protocolDecl, isPropertyExtDefault, emissionCtx: emissionCtx);
-                emittedInterfaceMemberCount++;
-                ReportCollector.RecordMemberEmitted(propertyDecl);
+                // Contain the ordinary protocol property member. Escalates to the enclosing
+                // protocol when the fault is not isolated to this property.
+                // Seam-denial backstop, gated for the same reason as the ObjC-optional branch above.
+                if (EmissionSeam.Guard(
+                    propertyDecl,
+                    RecoveryScope.LeafApi,
+                    protocolDecl,
+                    () => EmitInterfaceProperty(bodyWriter, propertyDecl, env.TypeDatabase, closureHandler, protocolDecl, isPropertyExtDefault, emissionCtx: emissionCtx)))
+                {
+                    emittedInterfaceMemberCount++;
+                    ReportCollector.RecordMemberEmitted(propertyDecl);
+                }
+                else
+                {
+                    skippedPropertyNames.Add(propertyDecl.Name);
+                }
             }
 
             // Collect actually-emitted C# property names for method/property collision detection.
@@ -291,6 +352,17 @@ namespace BindingsGeneration
                     continue;
                 }
                 emittedSubscripts.Add(subscriptKey);
+                // Leaving through the same door the gate skip below uses, and from the same place:
+                // after the key is reserved, so a same-key sibling still resolves as a duplicate
+                // rather than being promoted into the requirement a denied declaration vacated.
+                // The index is consumed and recorded as skipped so the reverse-dispatch slot stays
+                // allocated-but-unfilled — shrinking the vtable would shift every later slot.
+                if (EmissionSeam.TryDenyUpFront(subscriptDecl))
+                {
+                    skippedSubscriptIndices.Add(subscriptIndex);
+                    subscriptIndex++;
+                    continue;
+                }
 
                 // Evaluate subscript gates via centralized evaluator (S3-S5)
                 var subscriptGateEvaluator = new MemberGateEvaluator(env.TypeDatabase);
@@ -304,9 +376,23 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                EmitInterfaceSubscript(bodyWriter, subscriptDecl, env.TypeDatabase, closureHandler, protocolDecl, emissionCtx: emissionCtx);
-                emittedInterfaceMemberCount++;
-                ReportCollector.RecordMemberEmitted(subscriptDecl);
+                // Contain one protocol subscript/indexer requirement. Escalates to the protocol
+                // so a sticky subscript fault can withdraw the interface type.
+                // Seam-denial backstop. The index is consumed either way — the slot exists in the
+                // Swift vtable regardless of whether this requirement filled it.
+                if (EmissionSeam.Guard(
+                    subscriptDecl,
+                    RecoveryScope.LeafApi,
+                    protocolDecl,
+                    () => EmitInterfaceSubscript(bodyWriter, subscriptDecl, env.TypeDatabase, closureHandler, protocolDecl, emissionCtx: emissionCtx)))
+                {
+                    emittedInterfaceMemberCount++;
+                    ReportCollector.RecordMemberEmitted(subscriptDecl);
+                }
+                else
+                {
+                    skippedSubscriptIndices.Add(subscriptIndex);
+                }
                 subscriptIndex++;
             }
 
@@ -369,6 +455,12 @@ namespace BindingsGeneration
                         continue;
                     }
 
+                    // After both reservations, in the slot the gate check below occupies: a denied
+                    // requirement keeps its keys so a sibling sharing either one still resolves as a
+                    // duplicate. Statics own no reverse-dispatch slot, so there is nothing to record.
+                    if (EmissionSeam.TryDenyUpFront(methodDecl))
+                        continue;
+
                     var staticMethodGateEvaluator = new MemberGateEvaluator(env.TypeDatabase);
                     var staticMethodGate = staticMethodGateEvaluator.EvaluateMethod(methodDecl, protocolDecl.ModuleDecl, protocolDecl);
                     if (staticMethodGate.IsSkipped)
@@ -379,10 +471,21 @@ namespace BindingsGeneration
                     }
 
                     // Emit as static abstract (no DIM, no nint overload — static abstract members can't have default implementations)
-                    EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, closureHandler, protocolDecl, emittedCSharpPropertyNames, isExtensionDefault: false, isStaticAbstract: true, emissionCtx: emissionCtx);
-                    staticAbstractMethodKeys.Add(staticMethodKey);
-                    emittedInterfaceMemberCount++;
-                    ReportCollector.RecordMemberEmitted(methodDecl);
+                    // Contain static abstract method interface emission. Escalates to the
+                    // protocol when leaf denial is insufficient.
+                    // Seam-denial backstop. `staticAbstractMethodKeys` drives the conformance
+                    // validator's static name-parity gate, so claiming membership for a requirement
+                    // that wrote nothing would fail an otherwise-valid conformance.
+                    if (EmissionSeam.Guard(
+                        methodDecl,
+                        RecoveryScope.LeafApi,
+                        protocolDecl,
+                        () => EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, closureHandler, protocolDecl, emittedCSharpPropertyNames, isExtensionDefault: false, isStaticAbstract: true, emissionCtx: emissionCtx)))
+                    {
+                        staticAbstractMethodKeys.Add(staticMethodKey);
+                        emittedInterfaceMemberCount++;
+                        ReportCollector.RecordMemberEmitted(methodDecl);
+                    }
                     continue;
                 }
 
@@ -414,6 +517,18 @@ namespace BindingsGeneration
                     skippedMethodKeys.Add(methodKey);
                     _logger.LogDebug($"Skipping method '{methodDecl.Name}' - projected C# signature collides with already-emitted method.");
                     ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.DuplicateSignature, "Projected C# method signature collides with already-emitted method.");
+                    continue;
+                }
+
+                // Denied out through the same door the gate skip below uses, and from the same place:
+                // after both keys are reserved. `skippedMethodKeys` is key-wide and the reverse-dispatch
+                // walks consume it by key, so releasing `methodKey` here would let a sibling sharing it
+                // become the emitted requirement while the key-wide skip still suppressed its proxy
+                // implementation (CS0535). Holding both keys makes a denial indistinguishable from the
+                // gate skip, which is the behaviour the whole retry is defined against.
+                if (EmissionSeam.TryDenyUpFront(methodDecl))
+                {
+                    skippedMethodKeys.Add(methodKey);
                     continue;
                 }
 
@@ -477,16 +592,43 @@ namespace BindingsGeneration
                 if (methodDecl.IsObjCOptional)
                 {
                     skippedMethodKeys.Add(methodKey);
-                    EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, closureHandler, protocolDecl, emittedCSharpPropertyNames, isExtensionDefault: false, isStaticAbstract: false, emissionCtx: emissionCtx, isObjCOptional: true);
-                    emittedInterfaceMemberCount++;
-                    ReportCollector.RecordMemberEmitted(methodDecl);
+                    // Contain @objc optional method DIM emission. Escalates to the protocol
+                    // when the fault sticks after denying this method.
+                    // Seam-denial backstop; the skip set has to pick up a denial or the proxy
+                    // implements a requirement the interface no longer declares.
+                    if (EmissionSeam.Guard(
+                        methodDecl,
+                        RecoveryScope.LeafApi,
+                        protocolDecl,
+                        () => EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, closureHandler, protocolDecl, emittedCSharpPropertyNames, isExtensionDefault: false, isStaticAbstract: false, emissionCtx: emissionCtx, isObjCOptional: true)))
+                    {
+                        emittedInterfaceMemberCount++;
+                        ReportCollector.RecordMemberEmitted(methodDecl);
+                    }
+                    else
+                    {
+                        skippedMethodKeys.Add(methodKey);
+                    }
                     // Skip the nint→int DIM overload for optional members; the no-op DIM
                     // already covers the convenience-overload role and a second DIM with
                     // the same projected name would be a duplicate.
                     continue;
                 }
 
-                EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, closureHandler, protocolDecl, emittedCSharpPropertyNames, isExtensionDefault, emissionCtx: emissionCtx);
+                // Contain the ordinary protocol method requirement. Escalates to the protocol
+                // type rather than the module if leaf denial does not clear the fault.
+                // Seam-denial backstop, gated for the same reason as the ObjC-optional branch above.
+                // A denial also skips the nint→int DIM below: an overload of a requirement that was
+                // never declared has nothing to narrow.
+                if (!EmissionSeam.Guard(
+                    methodDecl,
+                    RecoveryScope.LeafApi,
+                    protocolDecl,
+                    () => EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, closureHandler, protocolDecl, emittedCSharpPropertyNames, isExtensionDefault, emissionCtx: emissionCtx)))
+                {
+                    skippedMethodKeys.Add(methodKey);
+                    continue;
+                }
                 emittedInterfaceMemberCount++;
                 ReportCollector.RecordMemberEmitted(methodDecl);
 
@@ -494,7 +636,15 @@ namespace BindingsGeneration
                 // Proxy classes inherit DIMs automatically — no changes needed in ProtocolProxyEmitter.
                 // Skip nint DIM overload for extension-defaulted methods (a DIM that throws shouldn't also get a convenience overload).
                 if (!isExtensionDefault)
-                    TryEmitInterfaceMethodNintOverload(bodyWriter, methodDecl, env.TypeDatabase, protocolDecl, emittedCSharpKeys, emittedCSharpPropertyNames);
+                {
+                    // Contain the nint→int convenience overload for the same method leaf.
+                    // Escalates to the protocol on a sticky overload-emission fault.
+                    EmissionSeam.Guard(
+                        methodDecl,
+                        RecoveryScope.LeafApi,
+                        protocolDecl,
+                        () => TryEmitInterfaceMethodNintOverload(bodyWriter, methodDecl, env.TypeDatabase, protocolDecl, emittedCSharpKeys, emittedCSharpPropertyNames));
+                }
             }
 
             // Record operators as skipped - C# interfaces cannot have operator overloads

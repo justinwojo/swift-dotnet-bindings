@@ -477,8 +477,17 @@ namespace BindingsGeneration
 
                 if (conductor.TryGetPropertyHandler(propertyDecl, out var propertyHandler))
                 {
-                    var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);
-                    propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor, childContext);
+                    // Contain one enum instance-property lowering. Escalates to the enum type
+                    // when the fault is in shared enum surface rather than this leaf.
+                    EmissionSeam.Guard(
+                        propertyDecl,
+                        RecoveryScope.LeafApi,
+                        enumDecl,
+                        () =>
+                        {
+                            var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);
+                            propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor, childContext);
+                        });
                 }
                 else
                 {
@@ -693,8 +702,17 @@ namespace BindingsGeneration
 
                 if (conductor.TryGetPropertyHandler(propertyDecl, out var propertyHandler))
                 {
-                    var propertyEnv = propertyHandler.Marshal(propertyDecl, typeDatabase);
-                    propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor, childContext);
+                    // Contain one static-enum property emission. Escalates to the enum so a
+                    // sticky property fault can withdraw the type representation.
+                    EmissionSeam.Guard(
+                        propertyDecl,
+                        RecoveryScope.LeafApi,
+                        enumDecl,
+                        () =>
+                        {
+                            var propertyEnv = propertyHandler.Marshal(propertyDecl, typeDatabase);
+                            propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor, childContext);
+                        });
                 }
             }
 

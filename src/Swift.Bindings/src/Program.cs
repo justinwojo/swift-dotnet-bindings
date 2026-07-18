@@ -590,13 +590,29 @@ namespace BindingsGeneration
                     }
                 }
 
-                // Reset Apple supplement tracker at module boundary — stale references from a
-                // previous module must not leak into this module's emitted csproj.
-                AppleSupplementReferences.Reset();
-
-                // Emit the C# bindings
-                var stringEmitter = new StringEmitter(outputDirectory, typeDatabase, loggerFactory, namespaceResolver, bridgeHintsPath, facts.MarkerProtocolConformances);
-                stringEmitter.EmitModule(decl, emissionContext);
+                // Emit the C# bindings under containment: an emitter that throws on one declaration
+                // denies it and re-emits the module from scratch, rather than taking the whole binding
+                // down with it. Returns the declarations that had to be denied — empty for a healthy
+                // module, which is every module today.
+                ContainedModuleEmission.Run(
+                    decl,
+                    emissionContext,
+                    typeDatabase,
+                    logger,
+                    newEmitter: () => new StringEmitter(outputDirectory, typeDatabase, loggerFactory, namespaceResolver, bridgeHintsPath, facts.MarkerProtocolConformances),
+                    prepareRetry: () =>
+                    {
+                        // The specialization engine memoizes rejected pairings and the marshalling
+                        // context caches per-module handler state. Both are cheap to rebuild, and
+                        // rebuilding them is what makes their internals irrelevant to containment.
+                        var retryEngine = new ConcreteSpecializationEngine(typeDatabase, moduleName);
+                        retryEngine.IndexModuleConformances(decl);
+                        emissionContext.SpecializationEngine = retryEngine;
+                        emissionContext.Marshaling = new MarshalingContext(decl, typeDatabase, retryEngine)
+                        {
+                            EmissionContext = emissionContext,
+                        };
+                    });
 
                 var report = ReportCollector.Complete();
                 ReportCollector.Reset();

@@ -74,6 +74,11 @@ internal static class FixtureModuleFactory
         // which is what drives the collision-suffix allocator.
         var registry = Class("Registry", moduleName, moduleDecl);
         registry.Properties.Add(TestDecls.Property("count", intSpec, module: moduleName));
+        // Swift lets a static and an instance property share a name; C# does not (CS0102), so these
+        // two contend for one `Count` and the loser is dropped as a duplicate. That contention is the
+        // point: it is the smallest shape in which one member's fate depends on another member having
+        // claimed the name first, which is what a denied declaration must not be able to do.
+        registry.Properties.Add(TestDecls.Property("count", intSpec, isStatic: true, module: moduleName));
         registry.Properties.Add(TestDecls.Property("name", stringSpec, hasSetter: true, module: moduleName));
         registry.Methods.Add(TestDecls.Method("register", parameters: new[] { TestDecls.Param("first", intSpec) }, module: moduleName));
         registry.Methods.Add(TestDecls.Method("register", parameters: new[] { TestDecls.Param("second", intSpec) }, module: moduleName));

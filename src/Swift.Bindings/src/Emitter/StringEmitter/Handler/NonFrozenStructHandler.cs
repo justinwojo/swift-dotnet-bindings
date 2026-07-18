@@ -193,6 +193,10 @@ namespace BindingsGeneration
                     var propOwner = FragmentOwners.ForDecl(propertyDecl);
                     using var propCsScope = csWriter.BeginFragment(propOwner);
                     using var propSwiftScope = swiftWriter.BeginFragment(propOwner);
+                    // Ahead of `seenPropertyNames`, so a denied property does not claim a name it will
+                    // never emit under and drop the sibling that projects to the same name.
+                    if (EmissionSeam.TryDenyUpFront(propertyDecl, csWriter))
+                        continue;
                     // Use post-rename name for consistency with the propertyNames collision set below.
                     var csPropertyName = NameProvider.GetFinalMemberName(
                         NameProvider.GetPropertyName(propertyDecl.Name, structDecl.Name), propertyRenames);
@@ -223,9 +227,21 @@ namespace BindingsGeneration
 
                     if (conductor.TryGetPropertyHandler(propertyDecl, out var propertyHandler))
                     {
-                        var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);
-                        propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor, childContext);
-                        actuallyEmittedPropertyNames.Add(csPropertyName);
+                        // Contain one non-frozen-struct property. The name is recorded as actually
+                        // emitted only when the seam says the emission ran: a throw unwinds past this,
+                        // but a denial returns normally, and recording it then would tell downstream
+                        // emitters a member surfaced when nothing was written.
+                        bool propertyEmitted = EmissionSeam.Guard(
+                            propertyDecl,
+                            RecoveryScope.LeafApi,
+                            structDecl,
+                            () =>
+                            {
+                                var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);
+                                propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor, childContext);
+                            });
+                        if (propertyEmitted)
+                            actuallyEmittedPropertyNames.Add(csPropertyName);
                     }
                     else
                         _logger.LogWarning($"No handler found for field {propertyDecl.Name}");
@@ -258,7 +274,15 @@ namespace BindingsGeneration
                         if (deferEqualityToWrapper &&
                             (operatorDecl.OperatorSymbol == "==" || operatorDecl.OperatorSymbol == "!="))
                             continue;
-                        if (operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase, pinvokeHelperContext))
+                        // Contain one non-frozen-struct operator. Escalates to the enclosing
+                        // struct when leaf denial is not enough to clear the fault.
+                        bool emitted = false;
+                        EmissionSeam.Guard(
+                            operatorDecl,
+                            RecoveryScope.LeafApi,
+                            structDecl,
+                            () => emitted = operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase, pinvokeHelperContext));
+                        if (emitted)
                         {
                             emittedOperatorSymbols.Add(operatorDecl.OperatorSymbol);
                         }

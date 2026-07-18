@@ -77,6 +77,12 @@ public class MemberGateEvaluator
     /// </summary>
     public GateResult EvaluateProperty(PropertyDecl property, ModuleDecl? moduleDecl, ProtocolDecl? protocolContext)
     {
+        // Gate 0: a declaration a previous attempt threw on is refused before any other gate
+        // runs. Protocol members reach here without passing through MemberValidationPipeline,
+        // so this is their only denial point.
+        if (EmitterFaultGate.IsDenied(DeclIdFactory.ForProperty(property), out var poisonDetails))
+            return GateResult.Skipped(SkipReason.EmitterFault, poisonDetails);
+
         var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
 
         // P2: Leaked associated type reference (e.g., TElement, TRowDecoder.ID)
@@ -179,6 +185,12 @@ public class MemberGateEvaluator
     /// </summary>
     public GateResult EvaluateMethod(MethodDecl method, ModuleDecl? moduleDecl, ProtocolDecl? protocolContext)
     {
+        // Gate 0: a declaration a previous attempt threw on is refused before any other gate
+        // runs. Protocol members reach here without passing through MemberValidationPipeline,
+        // so this is their only denial point.
+        if (EmitterFaultGate.IsDenied(DeclIdFactory.ForMethod(method), out var poisonDetails))
+            return GateResult.Skipped(SkipReason.EmitterFault, poisonDetails);
+
         var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
         var softFlags = SoftGateFlags.None;
 
@@ -293,6 +305,12 @@ public class MemberGateEvaluator
     /// </summary>
     public GateResult EvaluateSubscript(SubscriptDecl subscript, ModuleDecl? moduleDecl, ProtocolDecl? protocolContext)
     {
+        // Gate 0: a declaration a previous attempt threw on is refused before any other gate
+        // runs. Protocol members reach here without passing through MemberValidationPipeline,
+        // so this is their only denial point.
+        if (EmitterFaultGate.IsDenied(DeclIdFactory.ForSubscript(subscript), out var poisonDetails))
+            return GateResult.Skipped(SkipReason.EmitterFault, poisonDetails);
+
         var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
         var resolvedModuleDecl = subscript.ModuleDecl ?? moduleDecl;
 
@@ -378,6 +396,12 @@ public class MemberGateEvaluator
     /// </summary>
     public GateResult EvaluateHardGates(MethodDecl method, ModuleDecl? moduleDecl)
     {
+        // Gate 0: a declaration a previous attempt threw on is refused before any other gate
+        // runs. Protocol members reach here without passing through MemberValidationPipeline,
+        // so this is their only denial point.
+        if (EmitterFaultGate.IsDenied(DeclIdFactory.ForMethod(method), out var poisonDetails))
+            return GateResult.Skipped(SkipReason.EmitterFault, poisonDetails);
+
         var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
 
         // Leaked associated type reference (e.g., TElement, TRowDecoder.ID)
@@ -447,6 +471,12 @@ public class MemberGateEvaluator
     /// </summary>
     public GateResult EvaluatePropertyHardGates(PropertyDecl property, ModuleDecl? moduleDecl)
     {
+        // Gate 0: a declaration a previous attempt threw on is refused before any other gate
+        // runs. Protocol members reach here without passing through MemberValidationPipeline,
+        // so this is their only denial point.
+        if (EmitterFaultGate.IsDenied(DeclIdFactory.ForProperty(property), out var poisonDetails))
+            return GateResult.Skipped(SkipReason.EmitterFault, poisonDetails);
+
         var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
 
         // Leaked associated type reference (e.g., TElement, TRowDecoder.ID)

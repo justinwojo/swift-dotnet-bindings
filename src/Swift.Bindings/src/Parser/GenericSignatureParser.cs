@@ -197,6 +197,25 @@ public class GenericSignatureParser
             return null;
         }
 
+        // The guards above cover the '<' and missing-dot shapes the factory throws on, but not a
+        // target that is all separators around one segment (`.Foo`, `Foo.`): it contains a dot, so it
+        // reaches the factory, which splits away the empties and throws on the single segment left.
+        // That throw propagates to SwiftABIParser.HandleNode, which discards the ENTIRE enclosing decl
+        // rather than this one clause, so check the same condition here and drop like the shapes above.
+        if (conformanceTarget.Split('.', StringSplitOptions.RemoveEmptyEntries).Length < 2)
+        {
+            if (isSameTypeConcretePin) droppedConcretePinRoot = target[0];
+            return null;
+        }
+
+        // Deliberately the throwing factory rather than its Try* counterpart, which additionally
+        // refuses a target rooted at an unsubstituted generic parameter (`τ_1_0.Element`). That
+        // refusal is right where a name is meant to identify a type, and wrong here: a cross-parameter
+        // same-type clause is stored with the OTHER parameter in Module and its associated type in
+        // Name, and the concrete-specialization engine decodes exactly that pair to reject conformer
+        // pairings whose associated types do not line up. Dropping the clause loses the coupling, and
+        // the specialization planner then emits the full cartesian — including pairings whose Swift
+        // wrapper bodies cannot compile.
         ConformanceKind kind = clause.Contains(":") ? ConformanceKind.Protocol : ConformanceKind.ConcreteType;
         return new GenericParameterConformance(target, SwiftTypeName.FromModuleQualifiedName(conformanceTarget), kind);
     }

@@ -11,6 +11,11 @@ namespace BindingsGeneration;
 /// </summary>
 public enum TypeSkipConditionKind
 {
+    /// <summary>The emitter threw while lowering this type on an earlier attempt at this module, so
+    /// the type is denied and the module re-emitted without it. Predicate:
+    /// <see cref="EmitterFaultGate.IsDenied"/>.</summary>
+    EmitterFault,
+
     /// <summary>Generic constraint on an unsupported framework protocol (SwiftUI, Combine).
     /// Predicate: <see cref="GenericTypeEmitter.TryGetUnsupportedConstraint"/>.</summary>
     UnsupportedGenericConstraint,
@@ -48,6 +53,10 @@ public sealed class TypeSkipMatch
 
     /// <summary>Set when <see cref="Kind"/> is <see cref="TypeSkipConditionKind.IndeterminatePwtShape"/>.</summary>
     public PInvokeHelperContext? PInvokeContext { get; init; }
+
+    /// <summary>Set when <see cref="Kind"/> is <see cref="TypeSkipConditionKind.EmitterFault"/>:
+    /// the exception fingerprint captured when the type poisoned the previous attempt.</summary>
+    public string? FaultDetails { get; init; }
 
     /// <summary>
     /// Identity of the type this match was evaluated against. Stamped by
@@ -101,6 +110,18 @@ public static class TypeSkipConditions
         // Identity of what is being judged, stamped on whichever arm matches. Computed once so
         // every arm reports the same subject and no arm can forget to set it.
         var subject = DeclIdFactory.ForType(typeDecl);
+
+        // Evaluated first, ahead of every predicate that inspects the type: reaching any of those
+        // judgements is exactly what threw last time.
+        if (EmitterFaultGate.IsDenied(subject, out var faultDetails))
+        {
+            return new TypeSkipMatch
+            {
+                Kind = TypeSkipConditionKind.EmitterFault,
+                FaultDetails = faultDetails,
+                Subject = subject,
+            };
+        }
 
         if (GenericTypeEmitter.TryGetUnsupportedConstraint(typeDecl, out var unsupportedConstraint))
         {
@@ -239,6 +260,22 @@ public static class TypeSkipConditions
                 logger.LogWarning(
                     "Skipping frozen struct '{TypeName}' - sub-word Optional field packing makes the by-value C# layout diverge from Swift.",
                     typeDecl.Name);
+                break;
+            }
+
+            case TypeSkipConditionKind.EmitterFault:
+            {
+                // Reported like any other type-level refusal so the surface the consumer sees is
+                // shaped identically to a clean run that never supported this type. The details
+                // string carries the exception fingerprint, which is what makes the tombstone
+                // actionable rather than just a hole.
+                var detail = match.FaultDetails!;
+                ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.EmitterFault, detail);
+                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.EmitterFault, detail, match.Subject);
+                logger.LogWarning(
+                    "Skipping type '{TypeName}' - the emitter threw while lowering it; the module was re-emitted without it. {Detail}",
+                    typeDecl.Name,
+                    detail);
                 break;
             }
 

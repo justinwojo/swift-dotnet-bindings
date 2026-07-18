@@ -250,6 +250,18 @@ namespace BindingsGeneration
                 using var declSwiftScope = swiftWriter.BeginFragment(FragmentOwners.ForDeclWrapper(baseDecl));
                 if (baseDecl is TypeDecl typeDecl)
                 {
+                    // Gate 0: a type a previous attempt threw while lowering. The containment seam
+                    // below would refuse to dispatch it in any case; denying it here as well is what
+                    // makes the omission visible, so the re-emitted binding carries the same
+                    // tombstone as any other refused type instead of the type simply vanishing.
+                    if (EmitterFaultGate.IsDenied(DeclIdFactory.ForType(typeDecl), out var typeFaultDetails))
+                    {
+                        ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.EmitterFault, typeFaultDetails);
+                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.EmitterFault,
+                            typeFaultDetails, DeclIdFactory.ForType(typeDecl));
+                        continue;
+                    }
+
                     // Suppress underscore-prefixed types that are not structurally required
                     if (typeDecl.SwiftTypeName != null &&
                         emissionCtx.IsUnderscoreSuppressed(typeDecl.SwiftTypeName.ToString()))
@@ -331,8 +343,15 @@ namespace BindingsGeneration
 
                     if (conductor.TryGetTypeHandler(structDecl, out var handler))
                     {
-                        var env = handler.Marshal(structDecl, typeDatabase);
-                        handler.Emit(csWriter, swiftWriter, env, conductor, context);
+                        // Containment seam: an exception anywhere under this type's lowering
+                        // denies the type and re-emits the module without it, rather than taking
+                        // the whole binding down. Identity is computed before dispatch because
+                        // emission mutates the declaration it is handed.
+                        EmissionSeam.Guard(structDecl, RecoveryScope.TypeRepresentation, null, () =>
+                        {
+                            var env = handler.Marshal(structDecl, typeDatabase);
+                            handler.Emit(csWriter, swiftWriter, env, conductor, context);
+                        });
                         RecordTopLevelSpan(structDecl, spanStart);
                     }
                     else
@@ -357,8 +376,15 @@ namespace BindingsGeneration
 
                     if (conductor.TryGetTypeHandler(classDecl, out var handler))
                     {
-                        var env = handler.Marshal(classDecl, typeDatabase);
-                        handler.Emit(csWriter, swiftWriter, env, conductor, context);
+                        // Containment seam: an exception anywhere under this type's lowering
+                        // denies the type and re-emits the module without it, rather than taking
+                        // the whole binding down. Identity is computed before dispatch because
+                        // emission mutates the declaration it is handed.
+                        EmissionSeam.Guard(classDecl, RecoveryScope.TypeRepresentation, null, () =>
+                        {
+                            var env = handler.Marshal(classDecl, typeDatabase);
+                            handler.Emit(csWriter, swiftWriter, env, conductor, context);
+                        });
                         RecordTopLevelSpan(classDecl, spanStart);
                     }
                     else
@@ -373,8 +399,15 @@ namespace BindingsGeneration
                 {
                     if (conductor.TryGetTypeHandler(protocolDecl, out var handler))
                     {
-                        var env = handler.Marshal(protocolDecl, typeDatabase);
-                        handler.Emit(csWriter, swiftWriter, env, conductor, context);
+                        // Containment seam: an exception anywhere under this type's lowering
+                        // denies the type and re-emits the module without it, rather than taking
+                        // the whole binding down. Identity is computed before dispatch because
+                        // emission mutates the declaration it is handed.
+                        EmissionSeam.Guard(protocolDecl, RecoveryScope.TypeRepresentation, null, () =>
+                        {
+                            var env = handler.Marshal(protocolDecl, typeDatabase);
+                            handler.Emit(csWriter, swiftWriter, env, conductor, context);
+                        });
                         RecordTopLevelSpan(protocolDecl, spanStart);
                     }
                     else
@@ -406,8 +439,15 @@ namespace BindingsGeneration
 
                     if (conductor.TryGetTypeHandler(enumDecl, out var handler))
                     {
-                        var env = handler.Marshal(enumDecl, typeDatabase);
-                        handler.Emit(csWriter, swiftWriter, env, conductor, context);
+                        // Containment seam: an exception anywhere under this type's lowering
+                        // denies the type and re-emits the module without it, rather than taking
+                        // the whole binding down. Identity is computed before dispatch because
+                        // emission mutates the declaration it is handed.
+                        EmissionSeam.Guard(enumDecl, RecoveryScope.TypeRepresentation, null, () =>
+                        {
+                            var env = handler.Marshal(enumDecl, typeDatabase);
+                            handler.Emit(csWriter, swiftWriter, env, conductor, context);
+                        });
                         RecordTopLevelSpan(enumDecl, spanStart);
                     }
                     else
@@ -479,6 +519,14 @@ namespace BindingsGeneration
                             continue;
                         }
                     }
+
+                    // Ahead of every dedup reservation below — the signature key, the projected key and
+                    // the adopted-override key. A denied method that reserved those first would take a
+                    // C# name it never emits under, pushing a sibling that projects to the same name
+                    // onto a collision suffix or out of the binding entirely, so one faulted member
+                    // would cost two.
+                    if (EmissionSeam.TryDenyUpFront(methodDecl, csWriter))
+                        continue;
 
                     // Dedup: primary signature dedup (stays in HandleBaseDecl — stateful, shared with post-processors)
                     var signatureKey = GetMethodSignatureKey(methodDecl, typeDatabase, _logger);
@@ -660,7 +708,15 @@ namespace BindingsGeneration
                         // C6/C7: Share projected signature set so DefaultParameterOverloadEmitter
                         // can dedup against methods already emitted from the main pass
                         env.EmittedProjectedSignatures = emittedProjectedSignatures;
-                        handler.Emit(csWriter, swiftWriter, env, conductor, context);
+                        // Containment seam for a type-body member. Escalates to the enclosing type:
+                        // if denying the member alone still faults, the defect is in shared type
+                        // infrastructure the member merely triggered, and only withdrawing the type
+                        // can make the next attempt differ from this one.
+                        EmissionSeam.Guard(
+                            methodDecl,
+                            RecoveryScope.LeafApi,
+                            methodDecl.ParentDecl,
+                            () => handler.Emit(csWriter, swiftWriter, env, conductor, context));
                         // Stamp the actual emitted C# name on the decl while the env is still
                         // alive (CollisionIndex is set here and nowhere else). This is the only
                         // single source of truth for the post-disambiguation name — recomputing

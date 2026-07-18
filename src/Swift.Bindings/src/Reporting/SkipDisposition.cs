@@ -123,6 +123,12 @@ public static class SkipDispositionClassifier
             // but attributed, so KnownLimitation, not Review. The per-site cause lives in Details.
             [SkipReason.SuppressedProxyMemberDegraded] = SkipDisposition.KnownLimitation,
 
+            // An emitter fault is the one skip that is never defensible: the generator threw on a
+            // shape it was supposed to lower. Containment keeps the rest of the module shippable, but
+            // every one of these is an open generator defect, so they belong in the tier a human is
+            // required to work through rather than in any "expected" bucket.
+            [SkipReason.EmitterFault] = SkipDisposition.Review,
+
             // ── ObjC binding path ─────────────────────────────────────────────────────────────
             // Dispositions mirror the Swift-side character of each cause: a type the registry
             // simply doesn't carry yet, an unsupported construct, a duplicate-signature collision,

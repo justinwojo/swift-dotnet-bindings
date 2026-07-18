@@ -139,6 +139,11 @@ namespace BindingsGeneration
                     continue;
                 }
 
+                // Ahead of the signature-key reservation, so a denied subscript does not hold the key
+                // against an overload that projects to the same indexer signature.
+                if (EmissionSeam.TryDenyUpFront(subscriptDecl))
+                    continue;
+
                 // Dedup by signature key
                 var key = string.Join(",", paramInfos.Select(p => p.typeName));
                 if (!emittedKeys.Add(key))
@@ -258,153 +263,162 @@ namespace BindingsGeneration
                     }
                 }
 
-                // Emit accessor methods via MethodHandler
-                foreach (var accessor in subscriptDecl.Accessors)
-                {
-                    if (conductor.TryGetMethodHandler(accessor.Method, out var methodHandler))
+                // Contain one concrete-type subscript (accessors + indexer). Escalates to
+                // the enclosing type when denying the subscript alone still faults.
+                EmissionSeam.Guard(
+                    subscriptDecl,
+                    RecoveryScope.LeafApi,
+                    typeDecl,
+                    () =>
                     {
-                        accessor.Method.IsAccessor = true;
-
-                        // AF13: the cdecl/thunk symbol decided below is carried on the emission env via
-                        // PromoteSymbol rather than mutated onto the shared accessor decl. null = no
-                        // promotion (the accessor's original silgen MangledName is the entry point).
-                        string? promotedSymbol = null;
-
-                        // Native ARM64 thunk: set flags BEFORE Marshal/Emit.
-                        // If EmitThunk fails, revert flags and fall through to @_cdecl path.
-                        bool thunkHandled = false;
-                        if (accessorThunkFlags.TryGetValue(accessor, out var useThunk) && useThunk &&
-                            typeDecl.SwiftTypeName != null)
+                        // Emit accessor methods via MethodHandler
+                        foreach (var accessor in subscriptDecl.Accessors)
                         {
-                            var originalMangledName = accessor.Method.MangledName;
-                            var thunkSymbol = NativeThunkEmitter.GetThunkSymbol(accessor.Method, typeDecl.SwiftTypeName.Module);
-                            accessor.Method.WrapperStrategy = WrapperStrategy.NativeThunk;
-                            accessor.Method.IsSubscriptAccessor = true;
-                            accessor.Method.UsesWrapperLibrary = true;
-
-                            // Emit thunk assembly. The accessor decl keeps its original silgen MangledName
-                            // (the thunk symbol is carried on the emission env via PromoteSymbol below);
-                            // pass that name so EmitThunk derives the thunk + call-target symbols from it.
-                            var thunkEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, typeDatabase);
-                            bool emitted = NativeThunkEmitter.EmitThunk(thunkEnv, typeDecl.SwiftTypeName.Module, context.GetEmissionContext().AssemblyBuilder, originalMangledName, context.GetEmissionContext().X64AssemblyBuilder);
-                            if (emitted)
+                            if (conductor.TryGetMethodHandler(accessor.Method, out var methodHandler))
                             {
-                                // Mark as emitted to prevent duplicate emission in MethodHandler.Emit
-                                accessor.Method.ThunkAssemblyEmitted = true;
-                                thunkHandled = true;
-                                promotedSymbol = thunkSymbol;
+                                accessor.Method.IsAccessor = true;
+
+                                // AF13: the cdecl/thunk symbol decided below is carried on the emission env via
+                                // PromoteSymbol rather than mutated onto the shared accessor decl. null = no
+                                // promotion (the accessor's original silgen MangledName is the entry point).
+                                string? promotedSymbol = null;
+
+                                // Native ARM64 thunk: set flags BEFORE Marshal/Emit.
+                                // If EmitThunk fails, revert flags and fall through to @_cdecl path.
+                                bool thunkHandled = false;
+                                if (accessorThunkFlags.TryGetValue(accessor, out var useThunk) && useThunk &&
+                                    typeDecl.SwiftTypeName != null)
+                                {
+                                    var originalMangledName = accessor.Method.MangledName;
+                                    var thunkSymbol = NativeThunkEmitter.GetThunkSymbol(accessor.Method, typeDecl.SwiftTypeName.Module);
+                                    accessor.Method.WrapperStrategy = WrapperStrategy.NativeThunk;
+                                    accessor.Method.IsSubscriptAccessor = true;
+                                    accessor.Method.UsesWrapperLibrary = true;
+
+                                    // Emit thunk assembly. The accessor decl keeps its original silgen MangledName
+                                    // (the thunk symbol is carried on the emission env via PromoteSymbol below);
+                                    // pass that name so EmitThunk derives the thunk + call-target symbols from it.
+                                    var thunkEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, typeDatabase);
+                                    bool emitted = NativeThunkEmitter.EmitThunk(thunkEnv, typeDecl.SwiftTypeName.Module, context.GetEmissionContext().AssemblyBuilder, originalMangledName, context.GetEmissionContext().X64AssemblyBuilder);
+                                    if (emitted)
+                                    {
+                                        // Mark as emitted to prevent duplicate emission in MethodHandler.Emit
+                                        accessor.Method.ThunkAssemblyEmitted = true;
+                                        thunkHandled = true;
+                                        promotedSymbol = thunkSymbol;
+                                    }
+                                    else
+                                    {
+                                        // Revert thunk state — fall through to @_cdecl path below
+                                        accessor.Method.WrapperStrategy = WrapperStrategy.None;
+                                        accessor.Method.IsSubscriptAccessor = false;
+                                        accessor.Method.UsesWrapperLibrary = false;
+                                    }
+                                }
+                                // @_cdecl subscript wrapper: set flags BEFORE Marshal/Emit
+                                // Also fires as fallback when thunk emission fails above — in that case,
+                                // accessorCdeclFlags may not have been computed (only set when thunk was
+                                // rejected upfront), so we re-evaluate eligibility on-the-fly.
+                                bool cdeclEligible = accessorCdeclFlags.TryGetValue(accessor, out var useCdecl) && useCdecl;
+                                if (!thunkHandled && !cdeclEligible && !accessor.Method.UsesCdeclPropertyWrapper)
+                                {
+                                    // Thunk failed at emission time — check @_cdecl eligibility now
+                                    if (conductor.TryGetMethodHandler(accessor.Method, out var fallbackHandler))
+                                    {
+                                        var fallbackEnv = (MethodEnvironment)fallbackHandler.Marshal(accessor.Method, typeDatabase);
+                                        cdeclEligible = SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscriptDecl, accessor, fallbackEnv);
+                                        if (cdeclEligible)
+                                            accessorCdeclFlags[accessor] = true; // Update for downstream bookkeeping (SBW_Free, etc.)
+                                    }
+                                }
+                                if (!thunkHandled && cdeclEligible &&
+                                    typeDecl.SwiftTypeName != null)
+                                {
+                                    bool isGetter = accessor is GetAccessorDecl;
+                                    var symbol = SubscriptWrapperEmitter.GetSubscriptAccessorSymbolName(
+                                        typeDecl.SwiftTypeName.Module, typeDecl.Name, accessor.Method.MangledName, isGetter);
+
+                                    accessor.Method.UsesCdeclPropertyWrapper = true;
+                                    accessor.Method.IsSubscriptAccessor = true;
+                                    accessor.Method.UsesWrapperLibrary = true;
+                                    accessor.Method.UsesFreeFunctionWrapper = true;
+                                    promotedSymbol = symbol;
+
+                                    var cdeclEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, typeDatabase);
+                                    if (isGetter)
+                                        SubscriptWrapperEmitter.EmitSwiftSubscriptGetterWrapper(
+                                            swiftWriter, subscriptDecl, symbol, cdeclEnv, context.GetEmissionContext());
+                                    else
+                                        SubscriptWrapperEmitter.EmitSwiftSubscriptSetterWrapper(
+                                            swiftWriter, subscriptDecl, symbol, cdeclEnv, context.GetEmissionContext());
+                                }
+
+                                var accessorEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, typeDatabase);
+                                if (context.PInvokeHelperContext != null && accessorEnv.PInvokeHelperContext == null)
+                                {
+                                    accessorEnv = new MethodEnvironment(accessorEnv.MethodDecl, accessorEnv.TypeDatabase,
+                                        accessorEnv.SiblingPropertyNames, context.PInvokeHelperContext, context.CompositionCollector);
+                                }
+                                if (context.CompositionCollector != null)
+                                    accessorEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
+                                // AF13: carry the wrapper/thunk symbol decided above onto the emission env. The
+                                // thunk asm and @_cdecl wrappers took the symbol explicitly, so promoting only
+                                // this final env is parity-identical to mutating the shared accessor decl.
+                                if (promotedSymbol != null)
+                                    accessorEnv.PromoteSymbol(promotedSymbol);
+                                methodHandler.Emit(csWriter, swiftWriter, accessorEnv, conductor, context);
                             }
-                            else
+                        }
+
+                        // @_cdecl subscript wrapper: emit SBW_Free P/Invoke for string returns (once per type)
+                        if (accessorCdeclFlags.Values.Any(v => v) && WitnessDispatchEmitter.IsStringType(subscriptDecl.ReturnTypeSpec))
+                        {
+                            var typeKey = typeDecl.SwiftTypeName?.ModuleQualifiedName ?? "";
+                            if (!Utf8SliceEmitter.HasFreePInvokeForType(typeKey, context.GetEmissionContext()))
                             {
-                                // Revert thunk state — fall through to @_cdecl path below
-                                accessor.Method.WrapperStrategy = WrapperStrategy.None;
-                                accessor.Method.IsSubscriptAccessor = false;
-                                accessor.Method.UsesWrapperLibrary = false;
+                                Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey, context.GetEmissionContext());
+                                var moduleName = typeDecl.SwiftTypeName?.Module ?? typeDecl.ModuleDecl?.Name ?? "";
+                                var wrapperLibPath = typeDatabase.AsyncLibraryName
+                                    ?? typeDatabase.GetLibraryPath(moduleName);
+                                var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
+                                if (context.PInvokeHelperContext != null)
+                                {
+                                    context.PInvokeHelperContext.AddDeclaration(new PInvokeDeclaration
+                                    {
+                                        LibraryPath = wrapperLibPath,
+                                        EntryPoint = freeSymbol,
+                                        MethodName = "SBW_Free",
+                                        ReturnType = "void",
+                                        ParametersString = "IntPtr ptr",
+                                        UsePrivateVisibility = false,
+                                    });
+                                }
+                                else
+                                {
+                                    PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+                                    {
+                                        LibraryPath = wrapperLibPath,
+                                        EntryPoint = freeSymbol,
+                                        MethodName = "SBW_Free",
+                                        ReturnType = "void",
+                                        ParametersString = "IntPtr ptr",
+                                        CallingConvention = PInvokeCallingConvention.Cdecl,
+                                        Visibility = PInvokeVisibility.Private,
+                                    });
+                                    csWriter.WriteLine();
+                                }
                             }
                         }
-                        // @_cdecl subscript wrapper: set flags BEFORE Marshal/Emit
-                        // Also fires as fallback when thunk emission fails above — in that case,
-                        // accessorCdeclFlags may not have been computed (only set when thunk was
-                        // rejected upfront), so we re-evaluate eligibility on-the-fly.
-                        bool cdeclEligible = accessorCdeclFlags.TryGetValue(accessor, out var useCdecl) && useCdecl;
-                        if (!thunkHandled && !cdeclEligible && !accessor.Method.UsesCdeclPropertyWrapper)
-                        {
-                            // Thunk failed at emission time — check @_cdecl eligibility now
-                            if (conductor.TryGetMethodHandler(accessor.Method, out var fallbackHandler))
-                            {
-                                var fallbackEnv = (MethodEnvironment)fallbackHandler.Marshal(accessor.Method, typeDatabase);
-                                cdeclEligible = SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscriptDecl, accessor, fallbackEnv);
-                                if (cdeclEligible)
-                                    accessorCdeclFlags[accessor] = true; // Update for downstream bookkeeping (SBW_Free, etc.)
-                            }
-                        }
-                        if (!thunkHandled && cdeclEligible &&
-                            typeDecl.SwiftTypeName != null)
-                        {
-                            bool isGetter = accessor is GetAccessorDecl;
-                            var symbol = SubscriptWrapperEmitter.GetSubscriptAccessorSymbolName(
-                                typeDecl.SwiftTypeName.Module, typeDecl.Name, accessor.Method.MangledName, isGetter);
 
-                            accessor.Method.UsesCdeclPropertyWrapper = true;
-                            accessor.Method.IsSubscriptAccessor = true;
-                            accessor.Method.UsesWrapperLibrary = true;
-                            accessor.Method.UsesFreeFunctionWrapper = true;
-                            promotedSymbol = symbol;
+                        // Emit indexer declaration
+                        var subscriptHelperPrefix = context.PInvokeHelperContext != null ? $"{context.PInvokeHelperContext.HelperClassName}." : "";
+                        EmitIndexer(csWriter, subscriptDecl, typeDatabase, returnTypeName, paramInfos, subscriptHelperPrefix, context.GetEmissionContext());
 
-                            var cdeclEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, typeDatabase);
-                            if (isGetter)
-                                SubscriptWrapperEmitter.EmitSwiftSubscriptGetterWrapper(
-                                    swiftWriter, subscriptDecl, symbol, cdeclEnv, context.GetEmissionContext());
-                            else
-                                SubscriptWrapperEmitter.EmitSwiftSubscriptSetterWrapper(
-                                    swiftWriter, subscriptDecl, symbol, cdeclEnv, context.GetEmissionContext());
-                        }
+                        // Collect candidate for convenience int/uint overload (deferred to second pass)
+                        convenienceCandidates.Add((subscriptDecl, returnTypeName, paramInfos));
 
-                        var accessorEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, typeDatabase);
-                        if (context.PInvokeHelperContext != null && accessorEnv.PInvokeHelperContext == null)
-                        {
-                            accessorEnv = new MethodEnvironment(accessorEnv.MethodDecl, accessorEnv.TypeDatabase,
-                                accessorEnv.SiblingPropertyNames, context.PInvokeHelperContext, context.CompositionCollector);
-                        }
-                        if (context.CompositionCollector != null)
-                            accessorEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
-                        // AF13: carry the wrapper/thunk symbol decided above onto the emission env. The
-                        // thunk asm and @_cdecl wrappers took the symbol explicitly, so promoting only
-                        // this final env is parity-identical to mutating the shared accessor decl.
-                        if (promotedSymbol != null)
-                            accessorEnv.PromoteSymbol(promotedSymbol);
-                        methodHandler.Emit(csWriter, swiftWriter, accessorEnv, conductor, context);
-                    }
-                }
-
-                // @_cdecl subscript wrapper: emit SBW_Free P/Invoke for string returns (once per type)
-                if (accessorCdeclFlags.Values.Any(v => v) && WitnessDispatchEmitter.IsStringType(subscriptDecl.ReturnTypeSpec))
-                {
-                    var typeKey = typeDecl.SwiftTypeName?.ModuleQualifiedName ?? "";
-                    if (!Utf8SliceEmitter.HasFreePInvokeForType(typeKey, context.GetEmissionContext()))
-                    {
-                        Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey, context.GetEmissionContext());
-                        var moduleName = typeDecl.SwiftTypeName?.Module ?? typeDecl.ModuleDecl?.Name ?? "";
-                        var wrapperLibPath = typeDatabase.AsyncLibraryName
-                            ?? typeDatabase.GetLibraryPath(moduleName);
-                        var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
-                        if (context.PInvokeHelperContext != null)
-                        {
-                            context.PInvokeHelperContext.AddDeclaration(new PInvokeDeclaration
-                            {
-                                LibraryPath = wrapperLibPath,
-                                EntryPoint = freeSymbol,
-                                MethodName = "SBW_Free",
-                                ReturnType = "void",
-                                ParametersString = "IntPtr ptr",
-                                UsePrivateVisibility = false,
-                            });
-                        }
-                        else
-                        {
-                            PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
-                            {
-                                LibraryPath = wrapperLibPath,
-                                EntryPoint = freeSymbol,
-                                MethodName = "SBW_Free",
-                                ReturnType = "void",
-                                ParametersString = "IntPtr ptr",
-                                CallingConvention = PInvokeCallingConvention.Cdecl,
-                                Visibility = PInvokeVisibility.Private,
-                            });
-                            csWriter.WriteLine();
-                        }
-                    }
-                }
-
-                // Emit indexer declaration
-                var subscriptHelperPrefix = context.PInvokeHelperContext != null ? $"{context.PInvokeHelperContext.HelperClassName}." : "";
-                EmitIndexer(csWriter, subscriptDecl, typeDatabase, returnTypeName, paramInfos, subscriptHelperPrefix, context.GetEmissionContext());
-
-                // Collect candidate for convenience int/uint overload (deferred to second pass)
-                convenienceCandidates.Add((subscriptDecl, returnTypeName, paramInfos));
-
-                ReportCollector.RecordMemberEmitted(subscriptDecl);
+                        ReportCollector.RecordMemberEmitted(subscriptDecl);
+                    });
             }
 
             // Second pass: emit convenience int/uint indexer overloads for nint/nuint params.

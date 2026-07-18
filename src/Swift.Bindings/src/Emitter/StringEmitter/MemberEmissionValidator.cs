@@ -74,6 +74,15 @@ public static class MemberEmissionValidator
         skipDetails = null;
         projectedTypeName = null;
 
+        // Gate 0: a property a previous attempt threw while lowering. This is the validator the
+        // concrete-type handlers consult before their containment seam, so denying it here is what
+        // turns the seam's silent refusal into a tombstone the consumer can find.
+        if (EmitterFaultGate.IsDenied(DeclIdFactory.ForProperty(property), out var faultDetails))
+        {
+            skipDetails = faultDetails;
+            return SkipReason.EmitterFault;
+        }
+
         var asyncStreamHandler = new AsyncStreamHandler(typeDatabase);
         var existentialHandler = new ExistentialHandler(typeDatabase)
             { SpecializationEngine = specializationEngine };

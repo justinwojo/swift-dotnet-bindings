@@ -304,8 +304,14 @@ namespace BindingsGeneration
                 var methodOwner = FragmentOwners.ForDecl(methodDecl);
                 using var methodCsScope = bufferWriter.BeginFragment(methodOwner);
                 using var methodSwiftScope = swiftWriter.BeginFragment(methodOwner);
-                EmitSimpleEnumExtensionMethod(bufferWriter, swiftWriter, enumDecl, enumName, methodDecl,
-                    moduleDecl, typeDatabase, csUnderlyingType, swiftScalarType);
+                // Contain one simple-enum extension method. Escalates to the enum type if
+                // denying the method alone still faults.
+                EmissionSeam.Guard(
+                    methodDecl,
+                    RecoveryScope.LeafApi,
+                    enumDecl,
+                    () => EmitSimpleEnumExtensionMethod(bufferWriter, swiftWriter, enumDecl, enumName, methodDecl,
+                        moduleDecl, typeDatabase, csUnderlyingType, swiftScalarType));
             }
 
             // Emit instance properties as extension methods
@@ -316,8 +322,14 @@ namespace BindingsGeneration
                 var propOwner = FragmentOwners.ForDecl(propertyDecl);
                 using var propCsScope = bufferWriter.BeginFragment(propOwner);
                 using var propSwiftScope = swiftWriter.BeginFragment(propOwner);
-                EmitSimpleEnumExtensionProperty(bufferWriter, swiftWriter, enumDecl, enumName, propertyDecl,
-                    moduleDecl, typeDatabase, csUnderlyingType, swiftScalarType);
+                // Contain one simple-enum extension property. Escalates to the enum when the
+                // leaf denial does not clear a recurring fault.
+                EmissionSeam.Guard(
+                    propertyDecl,
+                    RecoveryScope.LeafApi,
+                    enumDecl,
+                    () => EmitSimpleEnumExtensionProperty(bufferWriter, swiftWriter, enumDecl, enumName, propertyDecl,
+                        moduleDecl, typeDatabase, csUnderlyingType, swiftScalarType));
             }
 
             // Emit static methods directly
@@ -328,8 +340,14 @@ namespace BindingsGeneration
                 var staticMethodOwner = FragmentOwners.ForDecl(methodDecl);
                 using var staticMethodCsScope = bufferWriter.BeginFragment(staticMethodOwner);
                 using var staticMethodSwiftScope = swiftWriter.BeginFragment(staticMethodOwner);
-                EmitSimpleEnumStaticMethod(bufferWriter, swiftWriter, enumDecl, enumName, methodDecl,
-                    moduleDecl, typeDatabase, csUnderlyingType, swiftScalarType);
+                // Contain one simple-enum static method. Escalates to the enclosing enum rather
+                // than the module if the fault sticks after leaf denial.
+                EmissionSeam.Guard(
+                    methodDecl,
+                    RecoveryScope.LeafApi,
+                    enumDecl,
+                    () => EmitSimpleEnumStaticMethod(bufferWriter, swiftWriter, enumDecl, enumName, methodDecl,
+                        moduleDecl, typeDatabase, csUnderlyingType, swiftScalarType));
             }
 
             // Emit static properties
@@ -340,8 +358,14 @@ namespace BindingsGeneration
                 var staticPropOwner = FragmentOwners.ForDecl(propertyDecl);
                 using var staticPropCsScope = bufferWriter.BeginFragment(staticPropOwner);
                 using var staticPropSwiftScope = swiftWriter.BeginFragment(staticPropOwner);
-                EmitSimpleEnumStaticProperty(bufferWriter, swiftWriter, enumDecl, enumName, propertyDecl,
-                    moduleDecl, typeDatabase, csUnderlyingType, swiftScalarType);
+                // Contain one simple-enum static property. Escalates to the enum type on a
+                // sticky fault in shared static-enum surface.
+                EmissionSeam.Guard(
+                    propertyDecl,
+                    RecoveryScope.LeafApi,
+                    enumDecl,
+                    () => EmitSimpleEnumStaticProperty(bufferWriter, swiftWriter, enumDecl, enumName, propertyDecl,
+                        moduleDecl, typeDatabase, csUnderlyingType, swiftScalarType));
             }
 
             // Emit CaseIterable AllCases property (pure C#, no Swift P/Invoke)
