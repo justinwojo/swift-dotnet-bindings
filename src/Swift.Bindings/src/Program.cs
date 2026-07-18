@@ -748,6 +748,17 @@ namespace BindingsGeneration
 
             return true;
             }
+            catch (AbiContractViolationException ex)
+            {
+                // Caught separately from the generic handler below so the failure reports as the
+                // ABI contract violation it is rather than an unexplained generation error. The
+                // message already carries one line per offending member, so it is logged whole
+                // rather than re-emitted per violation.
+                logger.LogError("{Message}", ex.Message);
+                logger.LogDebug("Stack trace:\n{StackTrace}", ex.ToString());
+                ReportCollector.Reset();
+                return false;
+            }
             catch (Exception ex)
             {
                 logger.LogError("Binding generation failed: {Message}", ex.Message);

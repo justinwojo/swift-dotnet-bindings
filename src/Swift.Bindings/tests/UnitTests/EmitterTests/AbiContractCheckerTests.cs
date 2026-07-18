@@ -17,42 +17,57 @@ public class AbiContractCheckerTests
 {
     private static readonly ILogger TestLogger = NullLoggerFactory.Instance.CreateLogger("Test");
 
-    #region CC-001: Non-blittable params in CallConvSwift
+    #region CC-001: ABI-incompatible param carrier in CallConvSwift
 
-    [Fact]
-    public void CC001_SafeHandleInCallConvSwift_DetectsViolation()
+    [Theory]
+    [InlineData("string name")]
+    [InlineData("global::System.String name")]
+    public void CC001_ManagedStringParamInCallConvSwift_DetectsViolation(string parameters)
     {
+        // A managed string marshals to a pointer to a C string — one word. Swift reads a
+        // String parameter as a two-word _StringObject, so no Swift signature makes the
+        // pairing correct and it is judgeable from the declared C# type alone.
         var csOutput = BuildPInvoke(
             callConv: "CallConvSwift",
             library: "TestModule",
             entryPoint: "$s10TestModule5MyFoo3barSiAA0C0CHF",
             returnType: "int",
             methodName: "PInvoke_bar_ABC123",
-            parameters: "SwiftSafeHandle handle, SwiftSelf<IntPtr> self");
+            parameters: parameters);
 
         var result = AbiContractChecker.Validate(csOutput, "TestModule", TestLogger);
 
         Assert.Single(result.Violations);
         Assert.Equal("SWIFTBIND090", result.Violations[0].DiagnosticCode);
         Assert.Equal("CC-001", result.Violations[0].RuleId);
-        Assert.Contains("SwiftSafeHandle", result.Violations[0].AffectedElements[0]);
+        Assert.Equal("PInvoke_bar_ABC123", result.Violations[0].MethodName);
+        Assert.Equal("$s10TestModule5MyFoo3barSiAA0C0CHF", result.Violations[0].EntryPoint);
+        Assert.Contains("name", result.Violations[0].AffectedElements[0]);
     }
 
-    [Fact]
-    public void CC001_SwiftStringInCallConvSwift_DetectsViolation()
+    [Theory]
+    [InlineData("SafeHandle handle, SwiftSelf<IntPtr> self")]
+    [InlineData("SwiftSafeHandle handle, SwiftSelf<IntPtr> self")]
+    [InlineData("SwiftClassHandle handle, SwiftSelf<IntPtr> self")]
+    public void CC001_SafeHandleParam_NoViolation(string parameters)
     {
+        // Discrimination control. Every P/Invoke here is [LibraryImport]: its source
+        // generator marshals a SafeHandle in managed code (DangerousGetHandle) and the
+        // extern that actually carries [UnmanagedCallConv(CallConvSwift)] takes an nint —
+        // exactly the pointer Swift expects for a class reference or a resilient value's
+        // address. Judging the DECLARED type here is what made this rule report every
+        // opaque-payload binding in the corpus.
         var csOutput = BuildPInvoke(
             callConv: "CallConvSwift",
             library: "TestModule",
             entryPoint: "$s10TestModule5MyFoo3barSiAA0C0CHF",
             returnType: "int",
             methodName: "PInvoke_bar_ABC123",
-            parameters: "SwiftString name");
+            parameters: parameters);
 
         var result = AbiContractChecker.Validate(csOutput, "TestModule", TestLogger);
 
-        Assert.Single(result.Violations);
-        Assert.Equal("CC-001", result.Violations[0].RuleId);
+        Assert.Empty(result.Violations);
     }
 
     [Fact]
@@ -74,14 +89,16 @@ public class AbiContractCheckerTests
     [Fact]
     public void CC001_CallConvCdecl_NotChecked()
     {
-        // CC-001 only applies to CallConvSwift — cdecl handles all types
+        // Convention gate. The same managed string that trips CC-001 under CallConvSwift is
+        // correct under cdecl: a @_cdecl wrapper declares a C pointer parameter, which is
+        // precisely what the string marshals to.
         var csOutput = BuildPInvoke(
             callConv: "CallConvCdecl",
             library: "TestModuleSwiftBindings",
             entryPoint: "SBW_TestModule_MyFoo_bar_ABC123",
             returnType: "void",
             methodName: "PInvoke_bar_ABC123",
-            parameters: "SwiftSafeHandle handle");
+            parameters: "string name");
 
         var result = AbiContractChecker.Validate(csOutput, "TestModule", TestLogger);
 
@@ -91,16 +108,16 @@ public class AbiContractCheckerTests
 
     #endregion
 
-    #region CC-002: Non-blittable return in CallConvSwift
+    #region CC-002: ABI-incompatible return carrier in CallConvSwift
 
     [Fact]
-    public void CC002_NonBlittableReturn_DetectsViolation()
+    public void CC002_ManagedStringReturn_DetectsViolation()
     {
         var csOutput = BuildPInvoke(
             callConv: "CallConvSwift",
             library: "TestModule",
             entryPoint: "$s10TestModule5MyFoo3getSS0C0CHF",
-            returnType: "SwiftString",
+            returnType: "string",
             methodName: "PInvoke_get_ABC123",
             parameters: "SwiftSelf<IntPtr> self");
 
@@ -109,7 +126,26 @@ public class AbiContractCheckerTests
         var cc002 = result.Violations.Where(v => v.RuleId == "CC-002").ToList();
         Assert.Single(cc002);
         Assert.Equal("SWIFTBIND091", cc002[0].DiagnosticCode);
-        Assert.Contains("SwiftString", cc002[0].AffectedElements[0]);
+        Assert.Equal("PInvoke_get_ABC123", cc002[0].MethodName);
+        Assert.Contains("return:", cc002[0].AffectedElements[0]);
+    }
+
+    [Fact]
+    public void CC002_SafeHandleReturn_NoViolation()
+    {
+        // Discrimination control, mirroring CC001_SafeHandleParam_NoViolation on the result
+        // side: the LibraryImport-generated extern returns the nint that Swift hands back.
+        var csOutput = BuildPInvoke(
+            callConv: "CallConvSwift",
+            library: "TestModule",
+            entryPoint: "$s10TestModule5MyFoo3getSS0C0CHF",
+            returnType: "SwiftSafeHandle",
+            methodName: "PInvoke_get_ABC123",
+            parameters: "SwiftSelf<IntPtr> self");
+
+        var result = AbiContractChecker.Validate(csOutput, "TestModule", TestLogger);
+
+        Assert.DoesNotContain(result.Violations, v => v.RuleId == "CC-002");
     }
 
     [Fact]
@@ -176,7 +212,8 @@ public class AbiContractCheckerTests
             methodName: "PInvoke_bar_ABC123",
             parameters: "IntPtr self");
 
-        var result = AbiContractChecker.Validate(csOutput, "TestModule", TestLogger);
+        var result = AbiContractChecker.Validate(
+            csOutput, "TestModule", TestLogger, wrapperLibraryName: "TestModuleSwiftBindings");
 
         var cc003 = result.Violations.Where(v => v.RuleId == "CC-003").ToList();
         Assert.Single(cc003);
@@ -194,9 +231,93 @@ public class AbiContractCheckerTests
             methodName: "PInvoke_bar_ABC123",
             parameters: "IntPtr self");
 
+        var result = AbiContractChecker.Validate(
+            csOutput, "TestModule", TestLogger, wrapperLibraryName: "TestModuleSwiftBindings");
+
+        Assert.DoesNotContain(result.Violations, v => v.RuleId == "CC-003");
+    }
+
+    [Fact]
+    public void CC003_SbwEntryPointTargetingADifferentWrapperShapedLib_DetectsViolation()
+    {
+        // With a wrapper configured, it is the SOLE wrapper. A symbol misrouted to some other
+        // library that merely LOOKS like a wrapper is exactly the EntryPointNotFoundException
+        // this rule exists for, so the name-shape fallback must not rescue it.
+        var csOutput = BuildPInvoke(
+            callConv: "CallConvCdecl",
+            library: "OtherModuleSwiftBindings",
+            entryPoint: "SBW_TestModule_MyFoo_bar_ABC123",
+            returnType: "void",
+            methodName: "PInvoke_bar_ABC123",
+            parameters: "IntPtr self");
+
+        var result = AbiContractChecker.Validate(
+            csOutput, "TestModule", TestLogger, wrapperLibraryName: "CustomWrapperLib");
+
+        Assert.Contains(result.Violations, v => v.RuleId == "CC-003");
+    }
+
+    [Fact]
+    public void CC003_NoWrapperLibraryConfigured_NoViolation()
+    {
+        // Discrimination control for the rule's precondition. With no companion wrapper
+        // (direct mode), the generator binds SBW_ symbols against the module's own library
+        // by design — "If null, uses module library". There is no wrong library to point
+        // at, so the rule has nothing to assert and must stay silent rather than report
+        // every binding produced in that mode.
+        var csOutput = BuildPInvoke(
+            callConv: "CallConvCdecl",
+            library: "/fake/TestModule.dylib",
+            entryPoint: "SBW_TestModule_MyFoo_bar_ABC123",
+            returnType: "void",
+            methodName: "PInvoke_bar_ABC123",
+            parameters: "IntPtr self");
+
         var result = AbiContractChecker.Validate(csOutput, "TestModule", TestLogger);
 
         Assert.DoesNotContain(result.Violations, v => v.RuleId == "CC-003");
+    }
+
+    [Fact]
+    public void CC003_SbwEntryPointTargetingConfiguredWrapperLib_NoViolation()
+    {
+        // Discrimination control for wrapper identity. The wrapper library name is
+        // configurable, so a name that does not end in "SwiftBindings" is still the
+        // wrapper — recognizing it only by that suffix reports a correct binding.
+        var csOutput = BuildPInvoke(
+            callConv: "CallConvCdecl",
+            library: "CustomWrapperLib",
+            entryPoint: "SBW_TestModule_MyFoo_bar_ABC123",
+            returnType: "void",
+            methodName: "PInvoke_bar_ABC123",
+            parameters: "IntPtr self");
+
+        var result = AbiContractChecker.Validate(
+            csOutput, "TestModule", TestLogger, wrapperLibraryName: "CustomWrapperLib");
+
+        Assert.DoesNotContain(result.Violations, v => v.RuleId == "CC-003");
+    }
+
+    [Fact]
+    public void CC003_SbwEntryPointTargetingOtherLib_ConfiguredWrapper_DetectsViolation()
+    {
+        // The positive half of the control above: with the wrapper named, a SBW_ symbol
+        // bound anywhere else is still the EntryPointNotFoundException this rule exists for.
+        var csOutput = BuildPInvoke(
+            callConv: "CallConvCdecl",
+            library: "TestModule",
+            entryPoint: "SBW_TestModule_MyFoo_bar_ABC123",
+            returnType: "void",
+            methodName: "PInvoke_bar_ABC123",
+            parameters: "IntPtr self");
+
+        var result = AbiContractChecker.Validate(
+            csOutput, "TestModule", TestLogger, wrapperLibraryName: "CustomWrapperLib");
+
+        var cc003 = result.Violations.Where(v => v.RuleId == "CC-003").ToList();
+        Assert.Single(cc003);
+        Assert.Equal("SWIFTBIND093", cc003[0].DiagnosticCode);
+        Assert.Contains("TestModule", cc003[0].AffectedElements[0]);
     }
 
     #endregion
@@ -242,9 +363,10 @@ public class AbiContractCheckerTests
     #region Tj Thunk Cross-Module Detection
 
     [Fact]
-    public void TjThunk_CrossModuleMismatch_DetectsViolation()
+    public void TjThunk_SymbolModuleDiffersFromBoundLibrary_DetectsViolation()
     {
-        // Entry point encodes "OtherModule" but targets "TestModule" library
+        // The thunk is exported by the dylib of the module that declares the class, so a
+        // symbol naming "OtherModule" bound against library "TestModule" resolves to nothing.
         var csOutput = BuildPInvoke(
             callConv: "CallConvSwift",
             library: "TestModule",
@@ -258,7 +380,9 @@ public class AbiContractCheckerTests
         var tj = result.Violations.Where(v => v.RuleId == "Tj-XM").ToList();
         Assert.Single(tj);
         Assert.Equal("SWIFTBIND092", tj[0].DiagnosticCode);
-        Assert.Contains("cross-module reference mismatch", tj[0].Explanation);
+        Assert.Equal("$s11OtherModule5MyFoo3barSiAA0C0CHFTj", tj[0].EntryPoint);
+        Assert.Contains(tj[0].AffectedElements, e => e.Contains("OtherModule"));
+        Assert.Contains(tj[0].AffectedElements, e => e.Contains("TestModule"));
     }
 
     [Fact]
@@ -269,6 +393,128 @@ public class AbiContractCheckerTests
             callConv: "CallConvSwift",
             library: "TestModule",
             entryPoint: "$s10TestModule5MyFoo3barSiAA0C0CHFTj",
+            returnType: "int",
+            methodName: "PInvoke_bar_ABC123",
+            parameters: "SwiftSelf<IntPtr> self");
+
+        var result = AbiContractChecker.Validate(csOutput, "TestModule", TestLogger);
+
+        Assert.DoesNotContain(result.Violations, v => v.RuleId == "Tj-XM");
+    }
+
+    [Theory]
+    [InlineData("/tmp/build/MyLib.dylib")]
+    [InlineData("/tmp/build/libMyLib.dylib")]
+    [InlineData("@rpath/MyLib.framework/MyLib")]
+    [InlineData("/System/Library/Frameworks/MyLib.framework/MyLib")]
+    public void TjThunk_PathFormLibraryNamingTheSameModule_NoViolation(string library)
+    {
+        // The generator embeds whatever library name it was given, and with none supplied it
+        // falls back to the dylib path. A path naming the very module that exports the thunk
+        // is a correct binding; comparing it to the bare module name as raw text reports it,
+        // which under a blocking gate fails a build that was fine.
+        var csOutput = BuildPInvoke(
+            callConv: "CallConvSwift",
+            library: library,
+            entryPoint: "$s5MyLib3FooC3barSiyFTj",
+            returnType: "int",
+            methodName: "PInvoke_bar_ABC123",
+            parameters: "SwiftSelf<IntPtr> self");
+
+        var result = AbiContractChecker.Validate(csOutput, "MyLib", TestLogger);
+
+        Assert.DoesNotContain(result.Violations, v => v.RuleId == "Tj-XM");
+    }
+
+    [Fact]
+    public void TjThunk_PathFormLibraryNamingAnotherModule_DetectsViolation()
+    {
+        // The positive half: reducing a path to its identity must not blunt the rule — a thunk
+        // exported by OtherModule bound against MyLib's dylib is still unresolvable.
+        var csOutput = BuildPInvoke(
+            callConv: "CallConvSwift",
+            library: "/tmp/build/libMyLib.dylib",
+            entryPoint: "$s11OtherModule5MyFoo3barSiAA0C0CHFTj",
+            returnType: "int",
+            methodName: "PInvoke_bar_ABC123",
+            parameters: "SwiftSelf<IntPtr> self");
+
+        var result = AbiContractChecker.Validate(csOutput, "MyLib", TestLogger);
+
+        Assert.Contains(result.Violations, v => v.RuleId == "Tj-XM");
+    }
+
+    [Theory]
+    [InlineData("/usr/lib/swift/libswiftDispatch.dylib", "Dispatch", "$s8Dispatch3FooC3barSiyFTj")]
+    [InlineData("/usr/lib/swift/libswift_Concurrency.dylib", "_Concurrency", "$s12_Concurrency3FooC3barSiyFTj")]
+    [InlineData("/tmp/out/library.dylib", "library", "$s7library3FooC3barSiyFTj")]
+    [InlineData("@rpath/libMyLib.1.dylib", "MyLib", "$s5MyLib3FooC3barSiyFTj")]
+    public void TjThunk_PathFormLibraryUnderAnyPrefixOrVersion_NoViolation(
+        string library, string module, string entryPoint)
+    {
+        // End-to-end through Validate for the library spellings a single reduction rule cannot
+        // serve at once: Swift's own overlays are "libswift" + module, an ordinary library is
+        // "lib" + module, and a module may itself be named "library". Each of these binds its
+        // OWN thunk, so blocking any of them fails a correct binding.
+        var csOutput = BuildPInvoke(
+            callConv: "CallConvSwift",
+            library: library,
+            entryPoint: entryPoint,
+            returnType: "int",
+            methodName: "PInvoke_bar_ABC123",
+            parameters: "SwiftSelf<IntPtr> self");
+
+        var result = AbiContractChecker.Validate(csOutput, module, TestLogger);
+
+        Assert.DoesNotContain(result.Violations, v => v.RuleId == "Tj-XM");
+    }
+
+    [Theory]
+    [InlineData("MyLib", "MyLib")]
+    [InlineData("/tmp/MyLib.framework/MyLib", "MyLib")]
+    [InlineData("/tmp/libMyLib.dylib", "MyLib")]
+    [InlineData("@rpath/libMyLib.dylib", "MyLib")]
+    [InlineData("libMyLib.tbd", "MyLib")]
+    // Swift's own overlays prefix the module with "libswift" rather than "lib". Both spellings
+    // are shipped in this repo's type databases as the modulePath for these very modules.
+    [InlineData("/usr/lib/swift/libswiftDispatch.dylib", "Dispatch")]
+    [InlineData("/usr/lib/swift/libswift_Concurrency.dylib", "_Concurrency")]
+    // A module whose own name starts with "lib" must survive the prefix reading.
+    [InlineData("/tmp/out/library.dylib", "library")]
+    [InlineData("library", "library")]
+    [InlineData("libDispatch", "libDispatch")]
+    // Versioned install names, spelled either way round.
+    [InlineData("@rpath/libMyLib.1.dylib", "MyLib")]
+    [InlineData("@rpath/libMyLib.dylib.1", "MyLib")]
+    [InlineData("libMyLib.1.2.3.dylib", "MyLib")]
+    public void LibraryIdentity_AcceptsEverySpellingOfItsOwnModulesLibrary(string library, string module)
+    {
+        Assert.True(AbiContractChecker.LibraryIdentityMatchesModule(library, module));
+    }
+
+    [Theory]
+    [InlineData("MyLib", "OtherModule")]
+    [InlineData("/tmp/build/libMyLib.dylib", "OtherModule")]
+    [InlineData("/usr/lib/swift/libswiftDispatch.dylib", "Foundation")]
+    [InlineData("", "MyLib")]
+    public void LibraryIdentity_RejectsALibraryThatNamesADifferentModule(string library, string module)
+    {
+        // The discrimination control: accepting more spellings must not make the predicate
+        // accept a library that names some other module, which is the bug the rule exists for.
+        Assert.False(AbiContractChecker.LibraryIdentityMatchesModule(library, module));
+    }
+
+    [Fact]
+    public void TjThunk_DependencyThunkBoundToDependencyLibrary_NoViolation()
+    {
+        // Discrimination control for the rule's key. A binding for "TestModule" legitimately
+        // calls a dependency's dispatch thunk THROUGH that dependency's library: symbol
+        // module and bound library agree, and only the EMITTING module differs. Keying the
+        // comparison on the emitting module reports every such call.
+        var csOutput = BuildPInvoke(
+            callConv: "CallConvSwift",
+            library: "OtherModule",
+            entryPoint: "$s11OtherModule5MyFoo3barSiAA0C0CHFTj",
             returnType: "int",
             methodName: "PInvoke_bar_ABC123",
             parameters: "SwiftSelf<IntPtr> self");
@@ -297,10 +543,10 @@ public class AbiContractCheckerTests
 
     #endregion
 
-    #region Refinement 1: De-duplication by (RuleId, MethodName)
+    #region De-duplication by (RuleId, MethodName)
 
     [Fact]
-    public void Refinement1_DuplicateViolationsSamePInvoke_Deduplicated()
+    public void DuplicateViolationsSamePInvoke_Deduplicated()
     {
         // Two P/Invoke blocks with the same method name (partial class declarations)
         // should only produce one violation per (RuleId, MethodName)
@@ -311,7 +557,7 @@ public class AbiContractCheckerTests
                 entryPoint: "$s10TestModule5MyFoo3barSiAA0C0CHF",
                 returnType: "int",
                 methodName: "PInvoke_bar_ABC123",
-                parameters: "SwiftSafeHandle handle") +
+                parameters: "string name") +
             "\n" +
             BuildPInvoke(
                 callConv: "CallConvSwift",
@@ -319,7 +565,7 @@ public class AbiContractCheckerTests
                 entryPoint: "$s10TestModule5MyFoo3barSiAA0C0CHF",
                 returnType: "int",
                 methodName: "PInvoke_bar_ABC123",
-                parameters: "SwiftSafeHandle handle");
+                parameters: "string name");
 
         var result = AbiContractChecker.Validate(csOutput, "TestModule", TestLogger);
 
@@ -330,10 +576,10 @@ public class AbiContractCheckerTests
 
     #endregion
 
-    #region Refinement 2: Primitive type exclusion from float struct heuristic
+    #region Carrier classification: primitives, closure context, async wrappers
 
     [Fact]
-    public void Refinement2_PrimitiveTypesNotFlaggedAsNonBlittable()
+    public void PrimitiveTypes_NotFlagged()
     {
         // "double", "float", "int" etc. should not be considered non-blittable
         var csOutput = BuildPInvoke(
@@ -349,12 +595,8 @@ public class AbiContractCheckerTests
         Assert.Empty(result.Violations);
     }
 
-    #endregion
-
-    #region Refinement 3: Closure context adjacency
-
     [Fact]
-    public void Refinement3_ClosureContext_AdjacentToFuncPtr_NotFlagged()
+    public void ClosureContext_AdjacentToFuncPtr_NotFlagged()
     {
         // IntPtr context adjacent to delegate* funcPtr should not trigger CC-001
         var csOutput = BuildPInvoke(
@@ -372,7 +614,7 @@ public class AbiContractCheckerTests
     }
 
     [Fact]
-    public void Refinement3_NonClosureContext_IntPtrNotAdjacentToFuncPtr_NotFlagged()
+    public void NonClosureContext_IntPtrNotAdjacentToFuncPtr_NotFlagged()
     {
         // IntPtr context that is NOT adjacent to a funcPtr — still IntPtr so blittable
         var csOutput = BuildPInvoke(
@@ -389,12 +631,8 @@ public class AbiContractCheckerTests
         Assert.Empty(result.Violations);
     }
 
-    #endregion
-
-    #region Refinement 4: Async detection via _async in entry point
-
     [Fact]
-    public void Refinement4_AsyncDetectedByEntryPoint_NotParamName()
+    public void AsyncCdeclWrapper_NoViolations()
     {
         // Entry point contains _async → correctly classified as async
         var csOutput = BuildPInvoke(
@@ -574,9 +812,12 @@ public class AbiContractCheckerTests
     }
 
     [Fact]
-    public void Blittability_SwiftString_IsNonBlittable()
+    public void Blittability_SwiftStringParam_NotReportedByThisChecker()
     {
-        // SwiftString itself (not .Buffer) IS non-blittable
+        // SwiftString is a managed class, so [LibraryImport] has no marshaller for it and
+        // the C# compiler rejects the declaration outright. Reporting an ABI fault here
+        // claims a runtime failure for source that never compiles — a shape the emitter
+        // cannot ship. What the compiler already rejects is not this checker's job.
         var csOutput = BuildPInvoke(
             callConv: "CallConvSwift",
             library: "TestModule",
@@ -587,7 +828,7 @@ public class AbiContractCheckerTests
 
         var result = AbiContractChecker.Validate(csOutput, "TestModule", TestLogger);
 
-        Assert.Contains(result.Violations, v => v.RuleId == "CC-001");
+        Assert.Empty(result.Violations);
     }
 
     [Fact]
@@ -623,8 +864,10 @@ public class AbiContractCheckerTests
     }
 
     [Fact]
-    public void Blittability_SwiftOptionalGeneric_IsNonBlittable()
+    public void Blittability_SwiftOptionalGeneric_NotReportedByThisChecker()
     {
+        // Same reasoning as SwiftString: a managed generic [LibraryImport] cannot marshal,
+        // so the compiler is the gate, not this checker.
         var csOutput = BuildPInvoke(
             callConv: "CallConvSwift",
             library: "TestModule",
@@ -635,8 +878,45 @@ public class AbiContractCheckerTests
 
         var result = AbiContractChecker.Validate(csOutput, "TestModule", TestLogger);
 
-        // SwiftOptional is non-blittable → CC-002
-        Assert.Contains(result.Violations, v => v.RuleId == "CC-002");
+        Assert.Empty(result.Violations);
+    }
+
+    [Fact]
+    public void Blittability_MarshalAsAttributedString_StillReported()
+    {
+        // The signature text carries any parameter attributes along with the type. An attribute
+        // does not change the carrier, so a string wearing one must still be judged as a string —
+        // otherwise the one carrier class this rule claims to catch is invisible whenever the
+        // emitter spells out the marshalling.
+        var csOutput = BuildPInvoke(
+            callConv: "CallConvSwift",
+            library: "TestModule",
+            entryPoint: "$s10TestModule5MyFoo7describeSiAA0C0CHF",
+            returnType: "int",
+            methodName: "PInvoke_describe_ABC123",
+            parameters: "[MarshalAs(UnmanagedType.LPUTF8Str)] string name, SwiftSelf<IntPtr> self");
+
+        var result = AbiContractChecker.Validate(csOutput, "TestModule", TestLogger);
+
+        Assert.Contains(result.Violations, v => v.RuleId == "CC-001");
+    }
+
+    [Fact]
+    public void Blittability_NullableAnnotatedString_StillReported()
+    {
+        // A nullable annotation is compile-time only — `string?` marshals exactly as
+        // `string` does, so stripping the annotation must not lose the violation.
+        var csOutput = BuildPInvoke(
+            callConv: "CallConvSwift",
+            library: "TestModule",
+            entryPoint: "$s10TestModule5MyFoo7describeSiAA0C0CHF",
+            returnType: "int",
+            methodName: "PInvoke_describe_ABC123",
+            parameters: "string? name, SwiftSelf<IntPtr> self");
+
+        var result = AbiContractChecker.Validate(csOutput, "TestModule", TestLogger);
+
+        Assert.Contains(result.Violations, v => v.RuleId == "CC-001");
     }
 
     #endregion
@@ -647,10 +927,10 @@ public class AbiContractCheckerTests
     public void MultipleViolations_DifferentRules_AllDetected()
     {
         var csOutput =
-            // CC-001: non-blittable param in CallConvSwift
+            // CC-001: C-string carrier param in CallConvSwift
             BuildPInvoke("CallConvSwift", "TestModule",
                 "$s10TestModule2f1SiAA0C0CHF", "int", "PInvoke_f1_A",
-                "SwiftSafeHandle handle, SwiftSelf<IntPtr> self") +
+                "string name, SwiftSelf<IntPtr> self") +
             "\n" +
             // CC-004: CallConvCdecl with mangled symbol
             BuildPInvoke("CallConvCdecl", "TestModule",
@@ -726,7 +1006,7 @@ public sealed partial class TestClass
     }
 
     [Fact]
-    public void CC001_GlobalQualifiedSwiftWithNonBlittable_DetectsViolation()
+    public void CC001_GlobalQualifiedSwiftWithIncompatibleCarrier_DetectsViolation()
     {
         // Fully-qualified attributes should still trigger violation checks
         var csOutput = @"
@@ -734,7 +1014,7 @@ public sealed partial class TestClass
 {
     [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvSwift) })]
     [global::System.Runtime.InteropServices.LibraryImport(""TestModule"", EntryPoint = ""$s10TestModule5MyFoo3barSiAA0C0CHF"")]
-    internal static partial int PInvoke_bar_GLOBAL(SafeHandle handle, SwiftSelf<IntPtr> self);
+    internal static partial int PInvoke_bar_GLOBAL(string name, SwiftSelf<IntPtr> self);
 }";
         var result = AbiContractChecker.Validate(csOutput, "TestModule", TestLogger);
 
@@ -824,17 +1104,17 @@ public sealed partial class TestClass
     }
 
     [Fact]
-    public void CC001_CallConvAfterLibraryImport_NonBlittable_DetectsViolation()
+    public void CC001_CallConvAfterLibraryImport_IncompatibleCarrier_DetectsViolation()
     {
         // Defense-in-depth: a CallConvSwift P/Invoke with the LibraryImport-first layout
-        // AND a non-blittable parameter must still trip CC-001 — the layout fix re-enables
-        // the blittability checks that the mis-default to Cdecl had silently disabled.
+        // AND an incompatible parameter carrier must still trip CC-001 — the layout fix
+        // re-enables the carrier checks that the mis-default to Cdecl silently disabled.
         var csOutput = @"
 public sealed partial class TestClass
 {
     [global::System.Runtime.InteropServices.LibraryImport(""TestModule"", EntryPoint = ""$s10TestModule5MyFoo3barSiyF"")]
     [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvSwift) })]
-    private static partial int PInvoke_bar_LATECC(SwiftSafeHandle handle, SwiftSelf<IntPtr> self);
+    private static partial int PInvoke_bar_LATECC(string name, SwiftSelf<IntPtr> self);
 }";
         var result = AbiContractChecker.Validate(csOutput, "TestModule", TestLogger);
 
@@ -1004,6 +1284,76 @@ public partial class D
 
         Assert.Equal(libraryImportCount, pinvokes.Length);
         Assert.Equal(4, pinvokes.Length);
+    }
+
+    #endregion
+
+    #region Blocking: violations fail publication with an actionable report
+
+    [Fact]
+    public void Describe_CarriesEveryFieldNeededToAct()
+    {
+        // One canonical rendering backs both the warn log and the blocking report, so a
+        // consumer reading either sees the code, rule, member, symbol, and the elements
+        // at fault without having to correlate two formats.
+        var csOutput = BuildPInvoke(
+            callConv: "CallConvSwift",
+            library: "TestModule",
+            entryPoint: "$s10TestModule5MyFoo3barSiAA0C0CHF",
+            returnType: "int",
+            methodName: "PInvoke_bar_ABC123",
+            parameters: "string name");
+
+        var result = AbiContractChecker.Validate(csOutput, "TestModule", TestLogger);
+        var described = Assert.Single(result.Violations).Describe();
+
+        Assert.Contains("SWIFTBIND090", described);
+        Assert.Contains("CC-001", described);
+        Assert.Contains("PInvoke_bar_ABC123", described);
+        Assert.Contains("$s10TestModule5MyFoo3barSiAA0C0CHF", described);
+        Assert.Contains("name", described);
+    }
+
+    [Fact]
+    public void ViolationException_ListsEveryViolationAndNamesTheModule()
+    {
+        var csOutput =
+            BuildPInvoke("CallConvSwift", "TestModule",
+                "$s10TestModule2f1SiAA0C0CHF", "int", "PInvoke_f1_A", "string name") +
+            "\n" +
+            BuildPInvoke("CallConvCdecl", "TestModule",
+                "$s10TestModule2f2SiyF", "int", "PInvoke_f2_B", "int value");
+
+        var result = AbiContractChecker.Validate(csOutput, "TestModule", TestLogger);
+        var ex = new AbiContractViolationException("TestModule", result.Violations);
+
+        Assert.Equal("TestModule", ex.ModuleName);
+        Assert.Equal(2, ex.Violations.Length);
+        Assert.Contains("SWIFTBIND095", ex.Message);
+        Assert.Contains("TestModule", ex.Message);
+        // Every violation must reach the message — a report that summarizes the count but
+        // drops the members is not actionable.
+        foreach (var violation in result.Violations)
+            Assert.Contains(violation.Describe(), ex.Message);
+    }
+
+    [Fact]
+    public void CleanResult_IsCleanTrue_SoNothingBlocks()
+    {
+        // The blocking decision keys off IsClean; a module with P/Invokes and no
+        // violations must not report itself as failing.
+        var csOutput = BuildPInvoke(
+            callConv: "CallConvSwift",
+            library: "TestModule",
+            entryPoint: "$s10TestModule5MyFoo3barSiAA0C0CHF",
+            returnType: "int",
+            methodName: "PInvoke_bar_ABC123",
+            parameters: "SwiftSafeHandle handle, SwiftSelf<IntPtr> self");
+
+        var result = AbiContractChecker.Validate(csOutput, "TestModule", TestLogger);
+
+        Assert.True(result.IsClean);
+        Assert.Equal(1, result.PInvokeCount);
     }
 
     #endregion

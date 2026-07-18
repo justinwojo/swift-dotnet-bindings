@@ -128,8 +128,16 @@ namespace BindingsGeneration
 
                 var wholeOutput = Qualify(preQualifyOutput);
 
-                // Post-generation ABI contract validation — over the whole module, exactly as before.
-                AbiContractChecker.Validate(wholeOutput, moduleDecl.Name, _logger);
+                // Post-generation ABI contract validation, over the whole module. This runs before
+                // any file is written so a violation leaves nothing on disk to consume: every
+                // violation means an emitted member binds a native symbol in a way that compiles
+                // and then breaks when called, and no part of the module is worth shipping past
+                // that. Failing here is the interim posture — once the emitter can re-emit against
+                // a denylist, these violations drop the affected members instead.
+                var abiResult = AbiContractChecker.Validate(
+                    wholeOutput, moduleDecl.Name, _logger, _typeDatabase.AsyncLibraryName);
+                if (!abiResult.IsClean)
+                    throw new AbiContractViolationException(moduleDecl.Name, abiResult.Violations);
 
                 // Split the combined output into one file per top-level type (prelude keeps the
                 // historical {namespace}.cs name). Byte-for-byte a repackaging of wholeOutput —

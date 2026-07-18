@@ -2,20 +2,40 @@
 // Licensed under the MIT License.
 
 // Post-generation ABI contract checker.
-// Validates generated C# P/Invoke declarations against ABI safety rules.
+// Validates generated C# P/Invoke declarations against ABI safety rules. Every
+// violation it reports fails generation: an emitted binding that binds a Swift
+// symbol under the wrong convention, library, or argument carrier compiles
+// cleanly and then misbehaves at the first call, which is precisely the outcome
+// generation must never ship.
 //
 // Checks implemented:
-//   SWIFTBIND090 (CC-001): SafeHandle/non-blittable param in CallConvSwift
-//   SWIFTBIND091 (CC-002): Non-blittable return type in CallConvSwift
-//   SWIFTBIND092 (Tj):     Cross-module Tj dispatch thunk targeting wrong library
+//   SWIFTBIND090 (CC-001): CallConvSwift param whose carrier can't match Swift's
+//   SWIFTBIND091 (CC-002): CallConvSwift return whose carrier can't match Swift's
+//   SWIFTBIND092 (Tj):     Dispatch thunk bound to a library that can't export it
 //   SWIFTBIND093 (CC-003): @_cdecl wrapper entry point targeting original library
 //   SWIFTBIND094 (CC-004): CallConvCdecl targeting mangled Swift symbol
 //
-// Precision refinements (reaching ~83% precision, 100% recall):
-//   1. De-duplicate findings by (RuleId, MethodName)
-//   2. Exclude primitive type names from float struct heuristic
-//   3. Require positional adjacency for closure context classification
-//   4. Use _async in entry point for async detection (not param name heuristic)
+// WHAT THIS CHECKER CAN AND CANNOT SEE. It reads emitted text, so it reasons about
+// symbol/convention/library pairing — never about Swift's declared signature. Two
+// consequences shape every rule below:
+//
+//   1. The declared C# signature is NOT what reaches the Swift trampoline. Every
+//      P/Invoke here is [LibraryImport], whose source generator marshals each
+//      argument in managed code and forwards [UnmanagedCallConv] to an extern
+//      whose parameters are already unmanaged. A `SafeHandle` parameter arrives
+//      as the `nint` the marshaller produced — exactly the pointer Swift expects
+//      for a class reference or a resilient value's address. So "the declared
+//      type is a managed reference" is not an ABI fault, and CC-001/CC-002 judge
+//      the LOWERED carrier instead (see IsAbiIncompatibleCarrier).
+//   2. What the C# compiler already rejects is not this checker's job. LibraryImport
+//      fails the build for any type it cannot marshal at all, so a type that
+//      survives compilation always has *some* carrier. Only a carrier that is
+//      structurally wrong for Swift — a one-word C string pointer where Swift
+//      passes a two-word String value — is reported here.
+//
+// Both rules therefore trade recall for precision on purpose: an unrecognised
+// type is treated as compatible. Proving the carrier right needs the Swift
+// signature, which arrives with typed call-plan validation, not with text.
 
 using System.Collections.Immutable;
 using System.Text.RegularExpressions;
@@ -36,6 +56,40 @@ public sealed record AbiCheckResult
 
     /// <summary>True if no fatal violations were found.</summary>
     public bool IsClean => Violations.IsEmpty;
+}
+
+/// <summary>
+/// Thrown when post-generation ABI validation finds a violation. Generation fails
+/// rather than writing the module: each violation means an emitted member binds a
+/// native symbol in a way that compiles and then misbehaves when called, and there
+/// is no way to ship that surface soundly. Recovery — dropping just the affected
+/// members and reporting them — replaces this hard failure once the emitter can
+/// re-emit against a denylist.
+/// </summary>
+public sealed class AbiContractViolationException : Exception
+{
+    public AbiContractViolationException(string moduleName, ImmutableArray<AbiCheckViolation> violations)
+        : base(BuildMessage(moduleName, violations))
+    {
+        ModuleName = moduleName;
+        Violations = violations;
+    }
+
+    /// <summary>The Swift module whose emitted binding failed validation.</summary>
+    public string ModuleName { get; }
+
+    /// <summary>Every violation that caused the failure, in detection order.</summary>
+    public ImmutableArray<AbiCheckViolation> Violations { get; }
+
+    private static string BuildMessage(string moduleName, ImmutableArray<AbiCheckViolation> violations)
+    {
+        var detail = string.Join(Environment.NewLine, violations.Select(v => "  " + v.Describe()));
+        return $"SWIFTBIND095: ABI contract validation found {violations.Length} violation(s) in the " +
+               $"generated binding for '{moduleName}'. Each one binds a native symbol in a way that " +
+               $"compiles but is wrong at the call boundary, so generation fails instead of writing a " +
+               $"binding that breaks on first use. Report this as a generator bug." +
+               Environment.NewLine + detail;
+    }
 }
 
 /// <summary>
@@ -60,6 +114,20 @@ public sealed record AbiCheckViolation
 
     /// <summary>Affected parameter/return type names.</summary>
     public ImmutableArray<string> AffectedElements { get; init; } = ImmutableArray<string>.Empty;
+
+    /// <summary>
+    /// Single-line rendering carrying every field needed to act on the violation:
+    /// diagnostic code, rule, the offending managed member, the native symbol it binds,
+    /// and the specific parameter/return elements at fault. Used verbatim both by the
+    /// warn-only log line and by the blocking failure report, so the two can never drift.
+    /// </summary>
+    public string Describe()
+    {
+        var elements = AffectedElements.IsEmpty
+            ? ""
+            : $" [{string.Join(", ", AffectedElements)}]";
+        return $"{DiagnosticCode} ({RuleId}): {MethodName} -> {EntryPoint}: {Explanation}{elements}";
+    }
 }
 
 /// <summary>
@@ -68,38 +136,29 @@ public sealed record AbiCheckViolation
 /// </summary>
 public static class AbiContractChecker
 {
-    // ── Known blittable types (safe for CallConvSwift) ──
+    // ── Carriers that cannot match Swift's, whatever the Swift signature says ──
 
-    private static readonly HashSet<string> BlittableTypes = new(StringComparer.Ordinal)
+    // A managed string is marshalled by LibraryImport into a pointer to a C string
+    // (UTF-8 or UTF-16 per StringMarshalling) — one word. Swift passes a String as a
+    // two-word _StringObject by value, so the callee reads the pointer as the first
+    // word and whatever follows in the next register as the second. No Swift signature
+    // makes that pairing correct, which is why it can be judged from the C# type alone.
+    // Bindings carry Swift strings as the blittable SwiftString.Buffer instead.
+    private static readonly HashSet<string> CStringCarrierTypes = new(StringComparer.Ordinal)
     {
-        // Primitives
-        "int", "uint", "long", "ulong", "short", "ushort",
-        "byte", "sbyte", "nint", "nuint", "float", "double",
-        "bool", "IntPtr", "UIntPtr", "void*",
-        // Swift interop register types
-        "SwiftIndirectResult", "SwiftError",
-        // Blittable structs from runtime
-        "ExistentialContainer0", "ExistentialContainer1", "ExistentialContainer2",
-        "ExistentialContainer3", "ExistentialContainer4", "ExistentialContainer5",
-        "ExistentialContainer6", "ExistentialContainer7", "ExistentialContainer8",
-        "SwiftClosureData", "SwiftHandle", "TypeMetadata",
-        "BlittableOptionalInt32",
+        "string", "String", "System.String", "global::System.String",
     };
 
-    private static readonly HashSet<string> NonBlittableTypes = new(StringComparer.Ordinal)
-    {
-        "SafeHandle", "SwiftSafeHandle", "SwiftClassHandle",
-        "SwiftOptional", "SwiftString", "string",
-        "PayloadBuffer",
-    };
+    // Suffixes an embedded library name can carry when it is a file path rather than a
+    // bare module name, longest-first so ".framework" wins over any shorter match.
+    private static readonly string[] LibraryFileExtensions = { ".framework", ".dylib", ".tbd", ".so", ".a" };
 
-    // Refinement 2: Primitive type names that should NOT trigger float struct heuristic
-    private static readonly HashSet<string> PrimitiveTypeExclusions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "double", "float", "Double", "Float", "int", "Int32",
-        "nint", "byte", "long", "ulong", "short", "ushort",
-        "sbyte", "uint", "nuint", "bool", "IntPtr", "UIntPtr",
-    };
+    // Prefixes a library file carries that its module name does not. Swift's own overlays are
+    // "libswift" + module ("libswiftDispatch" is module Dispatch, "libswift_Concurrency" is
+    // module _Concurrency), while an ordinary Unix library is "lib" + module. Every reading is
+    // offered as a candidate rather than picked between — order carries no precedence — because
+    // the same string cannot be reduced correctly under a single rule.
+    private static readonly string[] LibraryNamePrefixes = { "libswift", "lib" };
 
     // ── Regex patterns for P/Invoke extraction ──
 
@@ -145,22 +204,32 @@ public static class AbiContractChecker
     /// <param name="csOutput">The generated C# source text.</param>
     /// <param name="moduleName">The Swift module name.</param>
     /// <param name="logger">Logger for emitting SWIFTBIND warnings.</param>
+    /// <param name="wrapperLibraryName">
+    /// The wrapper library this run emits against, when one is configured. Supplying it lets
+    /// CC-003 recognise a wrapper whose name does not follow the usual shape.
+    /// </param>
     /// <returns>Validation result with any detected violations.</returns>
-    public static AbiCheckResult Validate(string csOutput, string moduleName, ILogger logger)
+    public static AbiCheckResult Validate(
+        string csOutput, string moduleName, ILogger logger, string? wrapperLibraryName = null)
     {
-        var pinvokes = ExtractPInvokes(csOutput, moduleName);
+        var pinvokes = ExtractPInvokes(csOutput, moduleName, wrapperLibraryName);
         var violations = new List<AbiCheckViolation>();
+
+        // Equivalent to GenerationMode.XCFramework: a wrapper library name is configured
+        // exactly when a companion wrapper carries the @_cdecl thunks. CC-003 is the one
+        // rule whose premise depends on that wrapper existing.
+        var hasWrapperLibrary = !string.IsNullOrEmpty(wrapperLibraryName);
 
         foreach (var pinvoke in pinvokes)
         {
             violations.AddRange(CheckCC001_NonBlittableParams(pinvoke));
             violations.AddRange(CheckCC002_NonBlittableReturn(pinvoke));
-            violations.AddRange(CheckCC003_CdeclTargetsWrongLib(pinvoke));
+            violations.AddRange(CheckCC003_CdeclTargetsWrongLib(pinvoke, hasWrapperLibrary));
             violations.AddRange(CheckCC004_CdeclMangledSymbol(pinvoke));
         }
 
-        // Tj thunk cross-module detection (operates on the full set)
-        violations.AddRange(CheckTjThunkCrossModule(pinvokes, moduleName));
+        // Tj thunk library pairing (operates on the full set)
+        violations.AddRange(CheckTjThunkCrossModule(pinvokes));
 
         // Refinement 1: De-duplicate by (RuleId, MethodName)
         var deduplicated = violations
@@ -171,11 +240,7 @@ public static class AbiContractChecker
         // Log warnings for each violation
         foreach (var violation in deduplicated)
         {
-            var elements = violation.AffectedElements.IsEmpty
-                ? ""
-                : $" [{string.Join(", ", violation.AffectedElements)}]";
-            logger.LogWarning("{Code}: {Explanation}{Elements}",
-                violation.DiagnosticCode, violation.Explanation, elements);
+            logger.LogWarning("{Detail}", violation.Describe());
         }
 
         return new AbiCheckResult
@@ -188,24 +253,20 @@ public static class AbiContractChecker
     // ── Check implementations ──
 
     /// <summary>
-    /// CC-001: CallConvSwift P/Invoke has non-blittable parameter(s).
-    /// Both Mono and NativeAOT throw InvalidProgramException.
+    /// CC-001: a CallConvSwift P/Invoke declares a parameter whose marshalled carrier cannot be
+    /// what the Swift symbol reads. See <see cref="IsAbiIncompatibleCarrier"/> for why this is
+    /// judged on the lowered carrier rather than on the declared type's blittability.
     /// </summary>
     internal static ImmutableArray<AbiCheckViolation> CheckCC001_NonBlittableParams(PInvokeInfo pinvoke)
     {
         if (pinvoke.CallingConvention != "CallConvSwift")
             return ImmutableArray<AbiCheckViolation>.Empty;
 
-        var nonBlittable = pinvoke.Parameters
-            .Where(p => IsNonBlittable(p.CSharpType)
-                && !p.IsSwiftSelf
-                && !p.IsSwiftIndirectResult
-                && !p.IsInfrastructure
-                // Refinement 3: Exclude closure context (IntPtr adjacent to funcPtr)
-                && !p.IsClosureContext)
+        var incompatible = pinvoke.Parameters
+            .Where(p => IsAbiIncompatibleCarrier(p.CSharpType))
             .ToList();
 
-        if (nonBlittable.Count == 0)
+        if (incompatible.Count == 0)
             return ImmutableArray<AbiCheckViolation>.Empty;
 
         return ImmutableArray.Create(new AbiCheckViolation
@@ -214,24 +275,26 @@ public static class AbiContractChecker
             RuleId = "CC-001",
             MethodName = pinvoke.MethodName,
             EntryPoint = pinvoke.EntryPoint,
-            Explanation = $"Internal validation detected an issue with the generated binding for '{pinvoke.MethodName}' " +
-                $"({nonBlittable.Count} incompatible parameter(s)). " +
-                $"This method may not work correctly at runtime. Please file an issue with your xcframework.",
-            AffectedElements = nonBlittable
-                .Select(p => $"{p.CSharpType} {p.Name}")
+            Explanation = $"'{pinvoke.MethodName}' calls the Swift symbol '{pinvoke.EntryPoint}' under the Swift " +
+                $"calling convention, but {incompatible.Count} parameter(s) marshal to a pointer to a C string " +
+                $"where Swift passes a two-word String value. The callee would read the pointer as the first " +
+                $"word and an unrelated register as the second. Report this as a generator bug.",
+            AffectedElements = incompatible
+                .Select(p => $"{p.CSharpType} {p.Name} (marshals to a C string pointer; Swift expects a String value)")
                 .ToImmutableArray(),
         });
     }
 
     /// <summary>
-    /// CC-002: CallConvSwift P/Invoke has non-blittable return type.
+    /// CC-002: a CallConvSwift P/Invoke declares a return type whose marshalled carrier cannot be
+    /// what the Swift symbol produces. Same carrier reasoning as CC-001, applied to the result.
     /// </summary>
     internal static ImmutableArray<AbiCheckViolation> CheckCC002_NonBlittableReturn(PInvokeInfo pinvoke)
     {
         if (pinvoke.CallingConvention != "CallConvSwift")
             return ImmutableArray<AbiCheckViolation>.Empty;
 
-        if (pinvoke.ReturnType == "void" || !IsNonBlittable(pinvoke.ReturnType))
+        if (pinvoke.ReturnType == "void" || !IsAbiIncompatibleCarrier(pinvoke.ReturnType))
             return ImmutableArray<AbiCheckViolation>.Empty;
 
         return ImmutableArray.Create(new AbiCheckViolation
@@ -240,18 +303,30 @@ public static class AbiContractChecker
             RuleId = "CC-002",
             MethodName = pinvoke.MethodName,
             EntryPoint = pinvoke.EntryPoint,
-            Explanation = $"Internal validation detected an issue with the generated binding for '{pinvoke.MethodName}' " +
-                $"(incompatible return type). " +
-                $"This method may not work correctly at runtime. Please file an issue with your xcframework.",
-            AffectedElements = ImmutableArray.Create($"return: {pinvoke.ReturnType}"),
+            Explanation = $"'{pinvoke.MethodName}' calls the Swift symbol '{pinvoke.EntryPoint}' under the Swift " +
+                $"calling convention and marshals the result from a pointer to a C string, but Swift returns a " +
+                $"two-word String value. The second word would be lost. Report this as a generator bug.",
+            AffectedElements = ImmutableArray.Create(
+                $"return: {pinvoke.ReturnType} (marshals from a C string pointer; Swift returns a String value)"),
         });
     }
 
     /// <summary>
     /// CC-003: @_cdecl wrapper P/Invoke (SBW_ entry point) targeting original library instead of wrapper.
     /// </summary>
-    internal static ImmutableArray<AbiCheckViolation> CheckCC003_CdeclTargetsWrongLib(PInvokeInfo pinvoke)
+    /// <remarks>
+    /// Only checkable when a companion wrapper library is configured. The rule's whole premise —
+    /// "SBW_ symbols live in the wrapper library, so binding one elsewhere cannot resolve" — needs
+    /// a wrapper to be true of. Without one the generator deliberately binds SBW_ symbols against
+    /// the module's own library, so there is no wrong library to point at and the checker has no
+    /// model of where those symbols live. Reporting there would flag every such binding.
+    /// </remarks>
+    internal static ImmutableArray<AbiCheckViolation> CheckCC003_CdeclTargetsWrongLib(
+        PInvokeInfo pinvoke, bool hasWrapperLibrary)
     {
+        if (!hasWrapperLibrary)
+            return ImmutableArray<AbiCheckViolation>.Empty;
+
         if (pinvoke.CallingConvention != "CallConvCdecl")
             return ImmutableArray<AbiCheckViolation>.Empty;
 
@@ -268,9 +343,11 @@ public static class AbiContractChecker
             RuleId = "CC-003",
             MethodName = pinvoke.MethodName,
             EntryPoint = pinvoke.EntryPoint,
-            Explanation = $"Internal validation detected an issue with the generated binding for '{pinvoke.MethodName}' " +
-                $"(incorrect library target). " +
-                $"This method may not work correctly at runtime. Please file an issue with your xcframework.",
+            Explanation = $"'{pinvoke.MethodName}' binds the wrapper entry point '{pinvoke.EntryPoint}' against " +
+                $"library '{pinvoke.LibraryName}', but SBW_ symbols are emitted only into the generated wrapper " +
+                $"library. The original library does not export it, so the call would throw " +
+                $"EntryPointNotFoundException on first use. Report this as a generator bug.",
+            AffectedElements = ImmutableArray.Create($"bound library: {pinvoke.LibraryName}"),
         });
     }
 
@@ -292,18 +369,28 @@ public static class AbiContractChecker
             RuleId = "CC-004",
             MethodName = pinvoke.MethodName,
             EntryPoint = pinvoke.EntryPoint,
-            Explanation = $"Internal validation detected an issue with the generated binding for '{pinvoke.MethodName}' " +
-                $"(calling convention mismatch). " +
-                $"This method may not work correctly at runtime. Please file an issue with your xcframework.",
+            Explanation = $"'{pinvoke.MethodName}' binds the mangled Swift symbol '{pinvoke.EntryPoint}' under the C " +
+                $"calling convention. A Swift-mangled symbol expects Swift's register assignment (self in x20, " +
+                $"error in x21, indirect result in x8); calling it as C misplaces those arguments. " +
+                $"Report this as a generator bug.",
+            AffectedElements = ImmutableArray.Create($"declared convention: {pinvoke.CallingConvention}"),
         });
     }
 
     /// <summary>
-    /// Cross-module Tj thunk detection: P/Invoke targets a Tj dispatch thunk
-    /// whose mangled symbol encodes a different module than the target library.
+    /// Tj dispatch-thunk library pairing: a class's vtable dispatch thunk is emitted into the
+    /// dylib of the module that declares the class, so its mangled symbol names the only library
+    /// that can export it. Binding it against any other library resolves to nothing at load time.
     /// </summary>
+    /// <remarks>
+    /// The comparison is against the P/Invoke's own target library, never the module being
+    /// emitted: a binding legitimately calls a dependency's thunk through that dependency's
+    /// library, and keying the check on the emitting module would report every such call. Only
+    /// dispatch thunks are checked — extension methods dispatch statically and get no Tj suffix,
+    /// so a symbol reaching here always names its declaring module first.
+    /// </remarks>
     internal static ImmutableArray<AbiCheckViolation> CheckTjThunkCrossModule(
-        ImmutableArray<PInvokeInfo> pinvokes, string moduleName)
+        ImmutableArray<PInvokeInfo> pinvokes)
     {
         var violations = new List<AbiCheckViolation>();
 
@@ -324,8 +411,7 @@ public static class AbiContractChecker
             if (extractedModule == null)
                 continue;
 
-            // Cross-module mismatch: symbol encodes module A but targets library B
-            if (extractedModule != moduleName)
+            if (!LibraryIdentityMatchesModule(pinvoke.LibraryName, extractedModule))
             {
                 violations.Add(new AbiCheckViolation
                 {
@@ -333,12 +419,13 @@ public static class AbiContractChecker
                     RuleId = "Tj-XM",
                     MethodName = pinvoke.MethodName,
                     EntryPoint = pinvoke.EntryPoint,
-                    Explanation = $"Internal validation detected an issue with the generated binding for '{pinvoke.MethodName}' " +
-                        $"(cross-module reference mismatch). " +
-                        $"This method may not work correctly at runtime. Please file an issue with your xcframework.",
+                    Explanation = $"'{pinvoke.MethodName}' binds the dispatch thunk '{pinvoke.EntryPoint}', which " +
+                        $"module '{extractedModule}' declares and therefore exports, against library " +
+                        $"'{pinvoke.LibraryName}'. That library does not contain the symbol, so the call would " +
+                        $"throw EntryPointNotFoundException on first use. Report this as a generator bug.",
                     AffectedElements = ImmutableArray.Create(
                         $"symbol module: {extractedModule}",
-                        $"target library: {moduleName}"),
+                        $"bound library: {pinvoke.LibraryName}"),
                 });
             }
         }
@@ -355,7 +442,8 @@ public static class AbiContractChecker
     /// Handles both unqualified and global:: qualified attribute forms, and
     /// private/internal/public visibility modifiers.
     /// </summary>
-    internal static ImmutableArray<PInvokeInfo> ExtractPInvokes(string sourceText, string moduleName)
+    internal static ImmutableArray<PInvokeInfo> ExtractPInvokes(
+        string sourceText, string moduleName, string? wrapperLibraryName = null)
     {
         var results = new List<PInvokeInfo>();
         var lines = sourceText.Split('\n');
@@ -452,13 +540,9 @@ public static class AbiContractChecker
                 continue;
 
             // Classify target library
-            var targetLibrary = ClassifyLibrary(libraryName, entryPoint, wrapperLibName);
+            var targetLibrary = ClassifyLibrary(libraryName, wrapperLibName, wrapperLibraryName);
 
-            // Parse parameters with refinements
             var parameters = ParseParameters(paramsStr ?? "");
-
-            // Refinement 4: Detect async from _async in entry point, not param names
-            bool isAsync = entryPoint.Contains("_async");
 
             results.Add(new PInvokeInfo
             {
@@ -469,7 +553,6 @@ public static class AbiContractChecker
                 LibraryName = libraryName,
                 ReturnType = returnType,
                 Parameters = parameters,
-                IsAsync = isAsync,
                 ContainingClass = currentClass,
             });
         }
@@ -533,13 +616,32 @@ public static class AbiContractChecker
 
     // ── Classification helpers ──
 
-    private static TargetLibraryKind ClassifyLibrary(string libraryName, string entryPoint, string wrapperLibName)
+    /// <summary>
+    /// Decide which library a P/Invoke targets. <paramref name="configuredWrapperLibrary"/> is the
+    /// wrapper library the generator was actually told to emit against, so a wrapper named anything
+    /// at all is recognised; the name-shape tests are only a fallback for runs that never configured
+    /// one. Classifying on the library name alone (never the entry point) is what lets CC-003 catch
+    /// a wrapper symbol pointed at the original library.
+    /// </summary>
+    /// <remarks>
+    /// When a wrapper IS configured it is the sole wrapper: the name-shape fallback must not also
+    /// run, or a symbol misrouted to some *other* library that merely ends in "SwiftBindings" is
+    /// classified as correctly-wrapper-bound and CC-003 stays silent on a genuine
+    /// EntryPointNotFoundException.
+    /// </remarks>
+    private static TargetLibraryKind ClassifyLibrary(
+        string libraryName, string wrapperLibName, string? configuredWrapperLibrary)
     {
         if (libraryName.Contains("libswiftCore") || libraryName.Contains("SwiftCore"))
             return TargetLibraryKind.SwiftCore;
 
-        // Classify based on library name, NOT entry point.
-        // CC-003 catches the case where entry point is SBW_ but library name is wrong.
+        if (!string.IsNullOrEmpty(configuredWrapperLibrary))
+        {
+            return libraryName == configuredWrapperLibrary
+                ? TargetLibraryKind.WrapperLibrary
+                : TargetLibraryKind.OriginalLibrary;
+        }
+
         if (libraryName == "SwiftBindings" ||
             libraryName.EndsWith("SwiftBindings") || libraryName == wrapperLibName)
             return TargetLibraryKind.WrapperLibrary;
@@ -547,56 +649,147 @@ public static class AbiContractChecker
         return TargetLibraryKind.OriginalLibrary;
     }
 
-    private static bool IsNonBlittable(string csharpType)
+    /// <summary>
+    /// True when LibraryImport will lower this declared type into a carrier that no Swift
+    /// signature can be expecting. Deliberately narrow: the check runs on the declared managed
+    /// type, but the value that reaches Swift is the marshalled one, so only types whose
+    /// marshalling is wrong for *every* Swift counterpart can be judged here. Anything else —
+    /// including SafeHandle payloads, which lower to the plain pointer Swift wants — needs the
+    /// Swift signature to judge and is treated as compatible.
+    /// </summary>
+    private static bool IsAbiIncompatibleCarrier(string csharpType)
     {
         var baseType = StripTypeModifiers(csharpType);
+        return CStringCarrierTypes.Contains(baseType);
+    }
 
-        // Explicit blittable check first
-        if (BlittableTypes.Contains(baseType))
-            return false;
-
-        // Generic SwiftSelf<T> is blittable
-        if (baseType.StartsWith("SwiftSelf"))
-            return false;
-
-        // Function pointers are blittable
-        if (baseType.Contains("delegate*"))
-            return false;
-
-        // SwiftString.Buffer (PayloadBuffer) is a blittable 16-byte struct —
-        // must check before the substring match which would match "SwiftString"
-        if (baseType.Contains("SwiftString.Buffer") || baseType == "Buffer")
-            return false;
-
-        // Check known non-blittable types (substring match for generics like SwiftOptional<T>)
-        foreach (var nbt in NonBlittableTypes)
+    /// <summary>
+    /// Index of the ']' closing the '[' at position 0, accounting for nested brackets so an
+    /// attribute carrying an array or collection-expression argument is skipped whole.
+    /// Returns -1 when the text is unbalanced.
+    /// </summary>
+    private static int FindMatchingBracket(string text)
+    {
+        var depth = 0;
+        for (var i = 0; i < text.Length; i++)
         {
-            if (baseType.Contains(nbt))
+            if (text[i] == '[') depth++;
+            else if (text[i] == ']' && --depth == 0) return i;
+        }
+        return -1;
+    }
+
+    /// <summary>
+    /// Decide whether an embedded library name can legitimately be the library of
+    /// <paramref name="moduleName"/>. The generator embeds whatever it was given: a bare module
+    /// name in xcframework mode, but the dylib path itself when no library name is supplied
+    /// ("use the provided library name, or fall back to the dylib path"). Comparing a module
+    /// name to a path string reports every dispatch thunk in that mode.
+    /// </summary>
+    /// <remarks>
+    /// The comparison enumerates every identity the library string could reasonably be read as
+    /// and accepts if any names the module, rather than reducing it to one answer. A single
+    /// reduction cannot serve both readings that occur in practice: "libswiftDispatch.dylib" is
+    /// module Dispatch, while "libMyLib.dylib" is module MyLib, so a fixed prefix rule
+    /// mis-reduces one of them and blocks a correct binding. Widening the accepted set can only
+    /// cost detection of a library whose own file name matches the module — which is nearly
+    /// always the right library anyway — whereas a wrong reduction fails valid output outright,
+    /// so the ambiguity is resolved toward accepting.
+    /// </remarks>
+    internal static bool LibraryIdentityMatchesModule(string libraryName, string moduleName)
+    {
+        foreach (var candidate in EnumerateLibraryIdentities(libraryName))
+        {
+            if (string.Equals(candidate, moduleName, StringComparison.Ordinal))
                 return true;
         }
 
-        // Refinement 2: Don't flag primitive type names
-        if (PrimitiveTypeExclusions.Contains(baseType))
-            return false;
-
-        // Default: assume blittable (custom structs, enums)
         return false;
+    }
+
+    /// <summary>
+    /// Yield the identities an embedded library name could be read as: the string itself, its
+    /// path leaf, that leaf with trailing file extensions and version components peeled off one
+    /// at a time, and each of those with a library prefix removed. Duplicates are not filtered —
+    /// callers scan for membership.
+    /// </summary>
+    internal static IEnumerable<string> EnumerateLibraryIdentities(string libraryName)
+    {
+        var name = libraryName.Trim();
+        if (name.Length == 0)
+            yield break;
+
+        yield return name;
+
+        var lastSeparator = name.LastIndexOf('/');
+        var stem = lastSeparator >= 0 ? name.Substring(lastSeparator + 1) : name;
+
+        // Peel one trailing component per round so versioned install names reduce however they
+        // are spelled — "libMyLib.1.dylib" and "libMyLib.dylib.1" both reach "libMyLib".
+        while (stem.Length > 0)
+        {
+            yield return stem;
+
+            foreach (var prefix in LibraryNamePrefixes)
+            {
+                if (stem.Length > prefix.Length && stem.StartsWith(prefix, StringComparison.Ordinal))
+                    yield return stem.Substring(prefix.Length);
+            }
+
+            var shortened = TryStripTrailingComponent(stem);
+            if (shortened == null)
+                yield break;
+
+            stem = shortened;
+        }
+    }
+
+    /// <summary>
+    /// Remove one trailing file extension or numeric version component, or return null when the
+    /// name carries neither. Only all-digit components are treated as versions, so the "Kit" in
+    /// "MyKit" and the "1" in "libMyLib.1" are told apart.
+    /// </summary>
+    private static string? TryStripTrailingComponent(string name)
+    {
+        foreach (var extension in LibraryFileExtensions)
+        {
+            if (name.Length > extension.Length && name.EndsWith(extension, StringComparison.Ordinal))
+                return name.Substring(0, name.Length - extension.Length);
+        }
+
+        var lastDot = name.LastIndexOf('.');
+        if (lastDot <= 0 || lastDot == name.Length - 1)
+            return null;
+
+        for (var i = lastDot + 1; i < name.Length; i++)
+        {
+            if (name[i] < '0' || name[i] > '9')
+                return null;
+        }
+
+        return name.Substring(0, lastDot);
     }
 
     private static string StripTypeModifiers(string type)
     {
         var result = type.Trim();
+        // [MarshalAs(...)] and friends sit in front of the type text the signature regex
+        // captured; the carrier is whatever follows them.
+        while (result.StartsWith("[", StringComparison.Ordinal))
+        {
+            var close = FindMatchingBracket(result);
+            if (close < 0) break;
+            result = result.Substring(close + 1).TrimStart();
+        }
         if (result.StartsWith("ref ")) result = result.Substring(4);
         if (result.StartsWith("out ")) result = result.Substring(4);
         if (result.StartsWith("in ")) result = result.Substring(3);
-        // Strip generic suffix for base type check
+        // A nullable annotation is a compile-time-only marker; the carrier is the same.
+        if (result.EndsWith("?")) result = result.Substring(0, result.Length - 1).TrimEnd();
+        // Strip generic suffix so a constructed type is judged by its definition.
         var angleIdx = result.IndexOf('<');
         if (angleIdx > 0)
-        {
-            var basePart = result.Substring(0, angleIdx);
-            // Check base part against non-blittable (e.g., SwiftOptional<T>)
-            return basePart;
-        }
+            return result.Substring(0, angleIdx);
         return result;
     }
 
@@ -624,33 +817,10 @@ public static class AbiContractChecker
             var csType = typeAndName.Substring(0, lastSpace).Trim();
             var name = typeAndName.Substring(lastSpace + 1).Trim();
 
-            bool isSwiftSelf = csType.StartsWith("SwiftSelf");
-            bool isSwiftIndirectResult = csType == "SwiftIndirectResult";
-            bool isInfrastructure =
-                name.EndsWith("Metadata") || name.Contains("TMetadata") ||
-                name.EndsWith("PWT") || name.Contains("ProtocolWitnessTable");
-
-            // Refinement 3: Closure context requires IntPtr type AND adjacency to funcPtr
-            bool isClosureContext = false;
-            if ((name.Contains("Context") || name.Contains("context")) && csType == "IntPtr")
-            {
-                // Check if previous parameter is a function pointer (closure funcPtr)
-                if (idx > 0)
-                {
-                    var prevTrimmed = paramParts[idx - 1].Trim();
-                    if (prevTrimmed.Contains("delegate*") || prevTrimmed.Contains("FuncPtr") || prevTrimmed.Contains("funcPtr"))
-                        isClosureContext = true;
-                }
-            }
-
             results.Add(new PInvokeParamInfo
             {
                 CSharpType = csType,
                 Name = name,
-                IsSwiftSelf = isSwiftSelf,
-                IsSwiftIndirectResult = isSwiftIndirectResult,
-                IsInfrastructure = isInfrastructure,
-                IsClosureContext = isClosureContext,
             });
         }
 
@@ -708,11 +878,6 @@ public static class AbiContractChecker
         return entryPoint.Substring(i, length);
     }
 
-    private static string TruncateSymbol(string symbol)
-    {
-        return symbol.Length > 60 ? symbol.Substring(0, 57) + "..." : symbol;
-    }
-
     // ── Internal types ──
 
     internal enum TargetLibraryKind
@@ -731,7 +896,6 @@ public static class AbiContractChecker
         public required string LibraryName { get; init; }
         public required string ReturnType { get; init; }
         public required ImmutableArray<PInvokeParamInfo> Parameters { get; init; }
-        public bool IsAsync { get; init; }
         public string? ContainingClass { get; init; }
     }
 
@@ -739,9 +903,5 @@ public static class AbiContractChecker
     {
         public required string CSharpType { get; init; }
         public required string Name { get; init; }
-        public bool IsSwiftSelf { get; init; }
-        public bool IsSwiftIndirectResult { get; init; }
-        public bool IsInfrastructure { get; init; }
-        public bool IsClosureContext { get; init; }
     }
 }
