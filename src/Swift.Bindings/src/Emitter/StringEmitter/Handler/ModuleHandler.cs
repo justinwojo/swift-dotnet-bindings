@@ -218,6 +218,11 @@ namespace BindingsGeneration
 
                     foreach (MethodDecl methodDecl in moduleDecl.Methods)
                     {
+                        // Attribute everything this free-function iteration writes to the MethodDecl.
+                        // `using` declarations so every `continue` path closes the scope without re-indent.
+                        var fnOwner = FragmentOwners.ForDecl(methodDecl);
+                        using var fnCsScope = csWriter.BeginFragment(fnOwner);
+                        using var fnSwiftScope = swiftWriter.BeginFragment(fnOwner);
                         // Pipeline: unified emission validation (SPI, internal, synthesized, closures, modules)
                         var validationResult = pipeline.ValidateMethodEmission(methodDecl, null);
                         if (!validationResult.ShouldEmit)

@@ -51,6 +51,7 @@ namespace BindingsGeneration
         public void EmitModule(ModuleDecl moduleDecl, ModuleEmissionContext? emissionContext = null)
         {
             emissionContext ??= ModuleEmissionContext.Default;
+            emissionContext.BeginFragmentRender();
 
             if (_conductor.TryGetModuleHandler(moduleDecl, out var moduleHandler))
             {
@@ -123,10 +124,26 @@ namespace BindingsGeneration
                 // QualifyNamespaceReferences is position-independent (local lookahead only), so
                 // running it per output file is equivalent to running it once on the combined
                 // string and slicing. No-op unless the module name collides with a type name.
-                string Qualify(string source) =>
-                    collisionType != null ? QualifyNamespaceReferences(source, @namespace, nestedTypeNames) : source;
+                // The journal overload records each rewrite so a file's fragment intervals — measured
+                // against the pre-qualify text the splitter slices — can be carried onto the qualified
+                // text that is actually written, without changing what the rewrite does.
+                string Qualify(string source, TextEditJournal? journal = null) =>
+                    collisionType != null
+                        ? QualifyNamespaceReferences(source, @namespace, nestedTypeNames, journal)
+                        : source;
 
                 var wholeOutput = Qualify(preQualifyOutput);
+
+                // The per-render provenance substrate. Built here, from the boundaries recorded while
+                // the buffers were written, and attached to the emission context so the next pass over
+                // these files can ask which artifact produced a given position. Everything with no
+                // scope open — the file header, the usings, the namespace line — belongs to the module.
+                var moduleOwner = FragmentOwners.ForModule(moduleDecl);
+                var fragmentSet = new ModuleFragmentSet { ModuleName = moduleDecl.Name };
+                var csTiling = csWriter.Fragments
+                    .BuildTiling(preQualifyOutput.Length, moduleOwner)
+                    .Select(t => new FragmentAssembly.TileLeaf(t.Owner, t.Start, t.End, t.IsWholeScope, t.Depth))
+                    .ToList();
 
                 // Post-generation ABI contract validation, over the whole module. This runs before
                 // any file is written so a violation leaves nothing on disk to consume: every
@@ -142,7 +159,9 @@ namespace BindingsGeneration
                 // Split the combined output into one file per top-level type (prelude keeps the
                 // historical {namespace}.cs name). Byte-for-byte a repackaging of wholeOutput —
                 // zero public-API change; the union of all files is exactly wholeOutput.
-                WriteModuleFiles(preQualifyOutput, wholeOutput, @namespace, emissionContext, Qualify);
+                WriteModuleFiles(
+                    preQualifyOutput, wholeOutput, @namespace, emissionContext, Qualify,
+                    csTiling, fragmentSet);
 
                 // Emit the API manifest ({namespace}.api-manifest.json) alongside the .cs.
                 // It records every emitted public member's post-collision C# signature → native
@@ -161,7 +180,29 @@ namespace BindingsGeneration
                 // X. Apply the collision-aware rewrite once at the wrapper file boundary, driven
                 // by the structurally-aware ModuleEmissionContext (knows which types are nested in
                 // the colliding class so e.g. LoggingLib.Level stays qualified).
-                var swiftOutput = emissionContext.QualifyForWrapperSource(swiftStringWriter.ToString());
+                var preQualifySwift = swiftStringWriter.ToString();
+                var swiftJournal = new TextEditJournal();
+                var swiftOutput = emissionContext.QualifyForWrapperSource(preQualifySwift, swiftJournal);
+
+                // Provenance for the wrapper as written. This is only the first of the transforms the
+                // Swift plane goes through — the pre-strip and the simulator-guard pass both run later,
+                // against the file on disk — so the map recorded here describes the file that was
+                // written and is re-derived by whatever rewrites it next, never carried across blind.
+                fragmentSet.Add(
+                    $"{@namespace}.Wrapper.swift",
+                    swiftOutput,
+                    swiftJournal.MapIntervals(
+                        FragmentAssembly.BuildIntervals(
+                            preQualifySwift,
+                            swiftWriter.Fragments
+                                .BuildTiling(preQualifySwift.Length, moduleOwner)
+                                .Select(t => new FragmentAssembly.TileLeaf(
+                                    t.Owner, t.Start, t.End, t.IsWholeScope, t.Depth))
+                                .ToList(),
+                            new[] { new FragmentAssembly.SourceRange(0, preQualifySwift.Length) },
+                            OutputPlane.Swift),
+                        swiftOutput));
+                emissionContext.PublishFragmentSet(fragmentSet);
                 // Trap-anonymity lint: verify every emitted fatalError/preconditionFailure carries the
                 // [SwiftBindings] breadcrumb and report the force-cast surface. Read-only.
                 EmittedSwiftTrapLint.Validate(swiftOutput, $"{@namespace}.Wrapper.swift", _logger);
@@ -244,7 +285,24 @@ namespace BindingsGeneration
         /// <param name="nestedTypeNames">Names of types nested within the collision class.
         /// References like Namespace.NestedType should NOT be qualified because they resolve
         /// to nested types of the class, not namespace members.</param>
-        internal static string QualifyNamespaceReferences(string csOutput, string @namespace, HashSet<string> nestedTypeNames)
+        internal static string QualifyNamespaceReferences(string csOutput, string @namespace, HashSet<string> nestedTypeNames) =>
+            QualifyNamespaceReferences(csOutput, @namespace, nestedTypeNames, journal: null);
+
+        /// <summary>
+        /// As <see cref="QualifyNamespaceReferences(string, string, HashSet{string})"/>, additionally
+        /// recording each rewrite into <paramref name="journal"/> so offsets measured against
+        /// <paramref name="csOutput"/> can be carried onto the returned text exactly.
+        /// </summary>
+        /// <remarks>
+        /// The rewrite itself is untouched — same regex, same evaluator, same result — because the
+        /// alternative (qualifying each fragment separately and concatenating) does not preserve it:
+        /// the pattern's <c>(?&lt;!namespace )</c> and <c>(?&lt;!global::)</c> lookbehinds read text
+        /// that a cut can move into the previous fragment, so <c>"namespace "</c> followed by
+        /// <c>"Foo.Bar"</c> qualifies when split and does not when whole. Recording what the single
+        /// whole-text pass did keeps the bytes fixed and makes the mapping exact.
+        /// </remarks>
+        internal static string QualifyNamespaceReferences(
+            string csOutput, string @namespace, HashSet<string> nestedTypeNames, TextEditJournal? journal)
         {
             // Match Namespace.Identifier where Namespace is NOT preceded by global:: or another identifier char,
             // and NOT in a namespace declaration (e.g., namespace Foo.SwiftInterop).
@@ -271,7 +329,9 @@ namespace BindingsGeneration
                     if (nestedTypeNames.Contains(nextIdent))
                         return match.Value; // Keep unqualified
                 }
-                return $"global::{@namespace}.";
+                var replacement = $"global::{@namespace}.";
+                journal?.Record(match.Index, match.Length, replacement.Length);
+                return replacement;
             });
         }
 
@@ -287,7 +347,8 @@ namespace BindingsGeneration
         /// </summary>
         private void WriteModuleFiles(
             string preQualifyOutput, string wholeOutput, string @namespace,
-            ModuleEmissionContext emissionContext, Func<string, string> qualify)
+            ModuleEmissionContext emissionContext, Func<string, TextEditJournal?, string> qualify,
+            IReadOnlyList<FragmentAssembly.TileLeaf> csTiling, ModuleFragmentSet fragmentSet)
         {
             var preludePath = Path.Combine(_outputDirectory, $"{@namespace}.cs");
 
@@ -313,13 +374,39 @@ namespace BindingsGeneration
             if (files == null)
             {
                 // No usable split data (e.g. a module with only free functions) — write the
-                // single combined file, identical to the pre-split behavior.
+                // single combined file, identical to the pre-split behavior. The whole buffer is the
+                // file, so its map is the tiling carried across the one qualification pass.
+                var wholeJournal = new TextEditJournal();
+                var requalified = qualify(preQualifyOutput, wholeJournal);
                 File.WriteAllText(preludePath, wholeOutput);
+                fragmentSet.Add(
+                    $"{@namespace}.cs",
+                    wholeOutput,
+                    string.Equals(requalified, wholeOutput, StringComparison.Ordinal)
+                        ? wholeJournal.MapIntervals(
+                            FragmentAssembly.BuildIntervals(
+                                preQualifyOutput, csTiling,
+                                new[] { new FragmentAssembly.SourceRange(0, preQualifyOutput.Length) },
+                                OutputPlane.CSharp),
+                            wholeOutput)
+                        : null);
                 return;
             }
 
             foreach (var file in files)
+            {
                 File.WriteAllText(Path.Combine(_outputDirectory, file.FileName), file.Content);
+
+                // Provenance for exactly the bytes just written: clip the buffer's tiling to the
+                // ranges this file took, then carry those positions across its own qualification pass.
+                // A file whose journal is absent gets no map rather than an assumed-unshifted one.
+                var preQualifyIntervals = FragmentAssembly.BuildIntervals(
+                    preQualifyOutput, csTiling, file.SourceRanges, OutputPlane.CSharp);
+                fragmentSet.Add(
+                    file.FileName,
+                    file.Content,
+                    file.Journal?.MapIntervals(preQualifyIntervals, file.Content));
+            }
         }
     }
 }

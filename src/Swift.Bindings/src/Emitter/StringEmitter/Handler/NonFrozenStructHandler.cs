@@ -188,6 +188,11 @@ namespace BindingsGeneration
                 var actuallyEmittedPropertyNames = new HashSet<string>();
                 foreach (PropertyDecl propertyDecl in structDecl.Properties)
                 {
+                    // Attribute everything this property iteration writes to the PropertyDecl.
+                    // `using` declarations so every `continue` path closes the scope without re-indent.
+                    var propOwner = FragmentOwners.ForDecl(propertyDecl);
+                    using var propCsScope = csWriter.BeginFragment(propOwner);
+                    using var propSwiftScope = swiftWriter.BeginFragment(propOwner);
                     // Use post-rename name for consistency with the propertyNames collision set below.
                     var csPropertyName = NameProvider.GetFinalMemberName(
                         NameProvider.GetPropertyName(propertyDecl.Name, structDecl.Name), propertyRenames);

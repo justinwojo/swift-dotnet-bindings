@@ -251,6 +251,11 @@ namespace BindingsGeneration
                 var emittedPropertyNames = new HashSet<string>();
                 foreach (PropertyDecl propertyDecl in classDecl.Properties)
                 {
+                    // Attribute everything this property iteration writes to the PropertyDecl.
+                    // `using` declarations so every `continue` path closes the scope without re-indent.
+                    var propOwner = FragmentOwners.ForDecl(propertyDecl);
+                    using var propCsScope = csWriter.BeginFragment(propOwner);
+                    using var propSwiftScope = swiftWriter.BeginFragment(propOwner);
                     if (classDecl.IsActor && propertyDecl.Name == "unownedExecutor")
                     {
                         _logger.LogInformation($"Skipping actor runtime property 'unownedExecutor' on {classDecl.Name}.");

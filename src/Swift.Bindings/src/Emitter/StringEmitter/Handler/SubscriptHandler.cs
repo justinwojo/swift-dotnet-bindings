@@ -44,6 +44,11 @@ namespace BindingsGeneration
 
             foreach (var subscriptDecl in subscripts)
             {
+                // Attribute everything this subscript iteration writes to the SubscriptDecl.
+                // `using` declarations so every `continue` path closes the scope without re-indent.
+                var subOwner = FragmentOwners.ForDecl(subscriptDecl);
+                using var subCsScope = csWriter.BeginFragment(subOwner);
+                using var subSwiftScope = swiftWriter.BeginFragment(subOwner);
                 // Pattern 2 emission-time gate (signature reaches internal). Runs before
                 // projection/dedup so a subscript whose accessors couldn't be wrapped is
                 // dropped silently rather than failing later in wrapper generation.

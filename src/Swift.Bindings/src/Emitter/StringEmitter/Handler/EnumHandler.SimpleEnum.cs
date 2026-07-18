@@ -299,6 +299,11 @@ namespace BindingsGeneration
             // Emit instance methods as extension methods with Swift wrapper
             foreach (var methodDecl in instanceMethods)
             {
+                // Attribute everything this method iteration writes to the MethodDecl.
+                // `using` declarations so every early-return path closes the scope without re-indent.
+                var methodOwner = FragmentOwners.ForDecl(methodDecl);
+                using var methodCsScope = bufferWriter.BeginFragment(methodOwner);
+                using var methodSwiftScope = swiftWriter.BeginFragment(methodOwner);
                 EmitSimpleEnumExtensionMethod(bufferWriter, swiftWriter, enumDecl, enumName, methodDecl,
                     moduleDecl, typeDatabase, csUnderlyingType, swiftScalarType);
             }
@@ -306,6 +311,11 @@ namespace BindingsGeneration
             // Emit instance properties as extension methods
             foreach (var propertyDecl in instanceProperties)
             {
+                // Attribute everything this property iteration writes to the PropertyDecl.
+                // `using` declarations so every early-return path closes the scope without re-indent.
+                var propOwner = FragmentOwners.ForDecl(propertyDecl);
+                using var propCsScope = bufferWriter.BeginFragment(propOwner);
+                using var propSwiftScope = swiftWriter.BeginFragment(propOwner);
                 EmitSimpleEnumExtensionProperty(bufferWriter, swiftWriter, enumDecl, enumName, propertyDecl,
                     moduleDecl, typeDatabase, csUnderlyingType, swiftScalarType);
             }
@@ -313,6 +323,11 @@ namespace BindingsGeneration
             // Emit static methods directly
             foreach (var methodDecl in staticMethods)
             {
+                // Attribute everything this method iteration writes to the MethodDecl.
+                // `using` declarations so every early-return path closes the scope without re-indent.
+                var staticMethodOwner = FragmentOwners.ForDecl(methodDecl);
+                using var staticMethodCsScope = bufferWriter.BeginFragment(staticMethodOwner);
+                using var staticMethodSwiftScope = swiftWriter.BeginFragment(staticMethodOwner);
                 EmitSimpleEnumStaticMethod(bufferWriter, swiftWriter, enumDecl, enumName, methodDecl,
                     moduleDecl, typeDatabase, csUnderlyingType, swiftScalarType);
             }
@@ -320,6 +335,11 @@ namespace BindingsGeneration
             // Emit static properties
             foreach (var propertyDecl in staticProperties)
             {
+                // Attribute everything this property iteration writes to the PropertyDecl.
+                // `using` declarations so every early-return path closes the scope without re-indent.
+                var staticPropOwner = FragmentOwners.ForDecl(propertyDecl);
+                using var staticPropCsScope = bufferWriter.BeginFragment(staticPropOwner);
+                using var staticPropSwiftScope = swiftWriter.BeginFragment(staticPropOwner);
                 EmitSimpleEnumStaticProperty(bufferWriter, swiftWriter, enumDecl, enumName, propertyDecl,
                     moduleDecl, typeDatabase, csUnderlyingType, swiftScalarType);
             }
@@ -336,7 +356,9 @@ namespace BindingsGeneration
                 var className = extensionsClassName ?? $"{enumName}Extensions";
                 csWriter.WriteLine($"public static partial class {className}");
                 csWriter.WriteLine("{");
-                csWriter.InnerWriter.Write(bufferedContent);
+                // Carry across the boundaries bufferWriter recorded, so each extension member keeps
+                // its own provenance instead of collapsing onto the generated extensions class.
+                csWriter.WriteAbsorbing(bufferedContent, bufferWriter);
                 csWriter.WriteLine("}");
                 csWriter.WriteLine();
             }

@@ -238,6 +238,16 @@ namespace BindingsGeneration
                 // `// Unsupported:` comment and `continue`) never call RecordTopLevelSpan, so
                 // their bytes fall outside every type span and land in the prelude file.
                 var spanStart = topLevelSpanSink != null ? csWriter.CurrentOffset : 0;
+
+                // Attribute everything this iteration writes — into either plane — to the
+                // declaration being dispatched. `using` declarations rather than blocks because the
+                // body leaves through some fifteen `continue` paths; a declaration closes on every
+                // one of them without re-indenting four hundred lines. The scope deliberately spans
+                // the skip paths too: an `// Unsupported:` comment belongs to the declaration it
+                // describes, and losing that is losing the one thing a skip diagnostic needs to say.
+                var declOwner = FragmentOwners.ForDecl(baseDecl);
+                using var declCsScope = csWriter.BeginFragment(declOwner);
+                using var declSwiftScope = swiftWriter.BeginFragment(FragmentOwners.ForDeclWrapper(baseDecl));
                 if (baseDecl is TypeDecl typeDecl)
                 {
                     // Suppress underscore-prefixed types that are not structurally required

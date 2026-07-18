@@ -124,6 +124,11 @@ namespace BindingsGeneration
             var staticAbstractPropertyNames = new HashSet<string>(); // Static properties emitted as static abstract
             foreach (var propertyDecl in protocolDecl.Properties)
             {
+                // Attribute everything this property iteration writes to the PropertyDecl.
+                // Interface body is buffered on bodyWriter only (no Swift surface here).
+                // `using` declarations so every `continue` path closes the scope without re-indent.
+                var propOwner = FragmentOwners.ForDecl(propertyDecl);
+                using var propCsScope = bodyWriter.BeginFragment(propOwner);
                 // Static properties: evaluate gates, emit as static abstract if passes
                 if (propertyDecl.IsStatic)
                 {
@@ -262,6 +267,11 @@ namespace BindingsGeneration
             int subscriptIndex = 0;
             foreach (var subscriptDecl in protocolDecl.Subscripts)
             {
+                // Attribute everything this subscript iteration writes to the SubscriptDecl.
+                // Interface body is buffered on bodyWriter only (no Swift surface here).
+                // `using` declarations so every `continue` path closes the scope without re-indent.
+                var subOwner = FragmentOwners.ForDecl(subscriptDecl);
+                using var subCsScope = bodyWriter.BeginFragment(subOwner);
                 // Skip static subscripts - C# interfaces cannot have static members as requirements
                 // Note: Static subscripts are still emitted on conforming types, just not in the interface
                 if (subscriptDecl.IsStatic)
@@ -306,6 +316,11 @@ namespace BindingsGeneration
             var staticAbstractMethodKeys = new HashSet<string>(); // Static methods emitted as static abstract
             foreach (var methodDecl in protocolDecl.Methods)
             {
+                // Attribute everything this method iteration writes to the MethodDecl.
+                // Interface body is buffered on bodyWriter only (no Swift surface here).
+                // `using` declarations so every `continue` path closes the scope without re-indent.
+                var methodOwner = FragmentOwners.ForDecl(methodDecl);
+                using var methodCsScope = bodyWriter.BeginFragment(methodOwner);
                 // Constructors: still skipped (would need factory method synthesis on conforming types)
                 if (methodDecl.IsConstructor)
                 {
@@ -512,8 +527,10 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"public interface {interfaceName}{whereClause}");
             }
             csWriter.WriteLine("{");
-            // Flush the buffered body (already indented by bodyWriter)
-            csWriter.InnerWriter.Write(bodyStringWriter.ToString());
+            // Flush the buffered body (already indented by bodyWriter), carrying across the fragment
+            // boundaries bodyWriter recorded. A plain InnerWriter.Write would land the whole interface
+            // body as one opaque run, collapsing every member's provenance onto the protocol itself.
+            csWriter.WriteAbsorbing(bodyStringWriter.ToString(), bodyWriter);
             csWriter.WriteLine("}");
             csWriter.WriteLine();
 

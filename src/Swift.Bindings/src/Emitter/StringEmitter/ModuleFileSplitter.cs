@@ -26,8 +26,21 @@ namespace BindingsGeneration
     /// </summary>
     internal static class ModuleFileSplitter
     {
-        /// <summary>A single output file: its leaf name (no directory) and full text.</summary>
-        public readonly record struct SplitFile(string FileName, string Content);
+        /// <summary>
+        /// A single output file: its leaf name (no directory), full text, the pre-qualify buffer
+        /// ranges it is the concatenation of, and the edits qualification made to it.
+        /// </summary>
+        /// <remarks>
+        /// The ranges and the journal are what let a caller rebuild this file's provenance map. A file
+        /// is not a contiguous slice of the buffer — a type file is header + type body + namespace
+        /// close, three disjoint ranges — so the ranges are the only record of where its text came
+        /// from, and the journal carries those positions across the qualification that follows.
+        /// </remarks>
+        public readonly record struct SplitFile(
+            string FileName,
+            string Content,
+            IReadOnlyList<FragmentAssembly.SourceRange> SourceRanges,
+            TextEditJournal? Journal);
 
         /// <summary>
         /// Builds the file set. Returns <c>null</c> when the recorded spans are not sliceable
@@ -42,6 +55,22 @@ namespace BindingsGeneration
             int? namespaceCloseEnd,
             IReadOnlyList<(string TypeName, int Start, int End)> spans,
             Func<string, string> qualify)
+            => BuildFileSet(
+                preQualifyOutput, @namespace, namespaceBodyStart, namespaceBodyEnd, namespaceCloseEnd,
+                spans, (source, _) => qualify(source));
+
+        /// <summary>
+        /// As the other overload, but handing each file's qualification pass a journal so the
+        /// caller can carry pre-qualify offsets onto the written text.
+        /// </summary>
+        public static IReadOnlyList<SplitFile>? BuildFileSet(
+            string preQualifyOutput,
+            string @namespace,
+            int? namespaceBodyStart,
+            int? namespaceBodyEnd,
+            int? namespaceCloseEnd,
+            IReadOnlyList<(string TypeName, int Start, int End)> spans,
+            Func<string, TextEditJournal?, string> qualify)
         {
             if (namespaceBodyStart is not int bodyStart
                 || namespaceBodyEnd is not int bodyEnd
@@ -60,14 +89,20 @@ namespace BindingsGeneration
 
             // Prelude = the combined output with every type span cut out.
             var prelude = new StringBuilder(preQualifyOutput.Length);
+            var preludeRanges = new List<FragmentAssembly.SourceRange>(ordered.Count + 1);
             var cursor = 0;
             foreach (var s in ordered)
             {
                 prelude.Append(preQualifyOutput, cursor, s.Start - cursor);
+                preludeRanges.Add(new FragmentAssembly.SourceRange(cursor, s.Start));
                 cursor = s.End;
             }
             prelude.Append(preQualifyOutput, cursor, preQualifyOutput.Length - cursor);
-            files.Add(new SplitFile($"{@namespace}.cs", qualify(prelude.ToString())));
+            preludeRanges.Add(new FragmentAssembly.SourceRange(cursor, preQualifyOutput.Length));
+
+            var preludeJournal = new TextEditJournal();
+            files.Add(new SplitFile(
+                $"{@namespace}.cs", qualify(prelude.ToString(), preludeJournal), preludeRanges, preludeJournal));
 
             // One file per top-level type; disambiguate case-insensitively (macOS/APFS) in
             // deterministic emission order.
@@ -86,7 +121,15 @@ namespace BindingsGeneration
                 var body = header
                     + preQualifyOutput.Substring(s.Start, s.End - s.Start)
                     + namespaceClose;
-                files.Add(new SplitFile(SplitFileNaming.TypeFileName(@namespace, leaf), qualify(body)));
+                var ranges = new[]
+                {
+                    new FragmentAssembly.SourceRange(0, bodyStart),
+                    new FragmentAssembly.SourceRange(s.Start, s.End),
+                    new FragmentAssembly.SourceRange(bodyEnd, closeEnd),
+                };
+                var journal = new TextEditJournal();
+                files.Add(new SplitFile(
+                    SplitFileNaming.TypeFileName(@namespace, leaf), qualify(body, journal), ranges, journal));
             }
 
             return files;

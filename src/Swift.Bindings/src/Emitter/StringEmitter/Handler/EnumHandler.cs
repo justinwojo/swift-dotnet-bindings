@@ -440,6 +440,11 @@ namespace BindingsGeneration
             // Emit properties using the same pattern as other handlers
             foreach (var propertyDecl in enumDecl.Properties)
             {
+                // Attribute everything this property iteration writes to the PropertyDecl.
+                // `using` declarations so every `continue` path closes the scope without re-indent.
+                var propOwner = FragmentOwners.ForDecl(propertyDecl);
+                using var propCsScope = csWriter.BeginFragment(propOwner);
+                using var propSwiftScope = swiftWriter.BeginFragment(propOwner);
                 var propertyName = NameProvider.GetFinalMemberName(
                     NameProvider.GetPropertyName(propertyDecl.Name, enumDecl.Name), propertyRenames);
                 // A property colliding with a case-constructor name is recovered (not dropped) when
@@ -667,6 +672,11 @@ namespace BindingsGeneration
             // (Swift permits instance members on caseless enums, but no real-world library uses them.)
             foreach (var propertyDecl in enumDecl.Properties.Where(p => p.IsStatic))
             {
+                // Attribute everything this property iteration writes to the PropertyDecl.
+                // `using` declarations so every `continue` path closes the scope without re-indent.
+                var propOwner = FragmentOwners.ForDecl(propertyDecl);
+                using var propCsScope = csWriter.BeginFragment(propOwner);
+                using var propSwiftScope = swiftWriter.BeginFragment(propOwner);
                 if (MemberEmissionValidator.IsSynthesizedProtocolProperty(propertyDecl, enumDecl))
                     continue;
 

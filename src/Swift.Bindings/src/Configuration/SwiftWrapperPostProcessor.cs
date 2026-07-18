@@ -59,6 +59,12 @@ namespace BindingsGeneration
         /// Used by the C# stripped-symbol reconciler to suppress P/Invokes targeting these symbols.
         /// </summary>
         public IReadOnlySet<string> StrippedSymbols { get; init; } = new HashSet<string>();
+
+        /// <summary>
+        /// For each line of <see cref="CleanedContent"/>, the 0-based index of the line in the
+        /// original source it came from; null when that mapping could not be established.
+        /// </summary>
+        public IReadOnlyList<int>? CleanedLineSources { get; init; }
     }
 
     /// <summary>
@@ -118,6 +124,9 @@ namespace BindingsGeneration
 
             var lines = SplitLines(sourceContent);
             var outputLines = new List<string>();
+            // Parallel to outputLines: source line index for each kept line. Kept in lockstep so
+            // callers can attribute cleaned positions; length mismatch → null (never a wrong map).
+            var cleanedLineSources = new List<int>();
             int removedCount = 0;
             var strippedSymbols = new HashSet<string>();
             var subCauseCounts = new Dictionary<StripSubCause, int>
@@ -188,7 +197,7 @@ namespace BindingsGeneration
                         // BEFORE the @_cdecl line. Pop those preamble lines from outputLines so they
                         // don't end up dangling — `@available` annotations on a missing declaration
                         // produce "expected declaration" errors at swiftc time.
-                        RemoveTrailingWrapperPreamble(outputLines);
+                        RemoveTrailingWrapperPreamble(outputLines, cleanedLineSources);
                         removedCount++;
                         i = end + 1;
                         continue;
@@ -214,7 +223,7 @@ namespace BindingsGeneration
                         {
                             ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                             subCauseCounts[ClassifySubCause(brokenPat, refsInternal, refsUnavail)]++;
-                            RemoveTrailingWrapperPreamble(outputLines);
+                            RemoveTrailingWrapperPreamble(outputLines, cleanedLineSources);
                             removedCount++;
                             i = end + 1;
                             continue;
@@ -283,7 +292,7 @@ namespace BindingsGeneration
                     {
                         ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                         subCauseCounts[ClassifySubCause(brokenPat, refsInternal, refsUnavail)]++;
-                        RemoveTrailingWrapperPreamble(outputLines);
+                        RemoveTrailingWrapperPreamble(outputLines, cleanedLineSources);
                         removedCount++;
                         i = end + 1;
                         continue;
@@ -291,15 +300,23 @@ namespace BindingsGeneration
                 }
 
                 outputLines.Add(lines[i]);
+                cleanedLineSources.Add(i);
                 i++;
             }
+
+            // Fail closed: a mismatched map would misattribute silently; absent mapping only
+            // degrades attribution.
+            IReadOnlyList<int>? lineSources = cleanedLineSources.Count == outputLines.Count
+                ? cleanedLineSources
+                : null;
 
             return new PostProcessingResult
             {
                 CleanedContent = string.Join("", outputLines),
                 StrippedBlockCount = removedCount,
                 StrippedBlocksBySubCause = subCauseCounts,
-                StrippedSymbols = strippedSymbols
+                StrippedSymbols = strippedSymbols,
+                CleanedLineSources = lineSources,
             };
         }
 
@@ -443,7 +460,11 @@ namespace BindingsGeneration
         /// The walk stops at the first line that doesn't match a known preamble pattern, so it
         /// will never run into the body of an unrelated previous declaration.
         /// </summary>
-        internal static void RemoveTrailingWrapperPreamble(List<string> outputLines)
+        /// <param name="cleanedLineSources">
+        /// Parallel source-index list for <paramref name="outputLines"/>; each removal must
+        /// pop the matching entry so length parity (and fail-closed mapping) is preserved.
+        /// </param>
+        internal static void RemoveTrailingWrapperPreamble(List<string> outputLines, List<int> cleanedLineSources)
         {
             while (outputLines.Count > 0)
             {
@@ -454,6 +475,8 @@ namespace BindingsGeneration
                 if (trimmedEnd.Length == 0)
                 {
                     outputLines.RemoveAt(outputLines.Count - 1);
+                    if (cleanedLineSources.Count > 0)
+                        cleanedLineSources.RemoveAt(cleanedLineSources.Count - 1);
                     continue;
                 }
 
@@ -462,6 +485,8 @@ namespace BindingsGeneration
                     trimmedEnd == "@MainActor")
                 {
                     outputLines.RemoveAt(outputLines.Count - 1);
+                    if (cleanedLineSources.Count > 0)
+                        cleanedLineSources.RemoveAt(cleanedLineSources.Count - 1);
                     continue;
                 }
 
@@ -471,6 +496,8 @@ namespace BindingsGeneration
                     IsWrapperPreambleComment(trimmedEnd))
                 {
                     outputLines.RemoveAt(outputLines.Count - 1);
+                    if (cleanedLineSources.Count > 0)
+                        cleanedLineSources.RemoveAt(cleanedLineSources.Count - 1);
                     continue;
                 }
 

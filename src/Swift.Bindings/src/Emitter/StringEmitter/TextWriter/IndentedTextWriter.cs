@@ -21,12 +21,83 @@ namespace BindingsGeneration
         private readonly StringWriter _innerWriter;
 
         /// <summary>
+        /// Boundaries lifted by the most recent <see cref="RollbackToAndCapture"/>, waiting for the
+        /// matching <see cref="AppendCaptured"/> to say what offset the text was re-appended at.
+        /// </summary>
+        private FragmentRecorder.CapturedFragments _capturedFragments;
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="BufferedSourceWriter"/> class.
         /// </summary>
         /// <param name="writer">The backing in-memory writer.</param>
         protected BufferedSourceWriter(StringWriter writer) : base(writer)
         {
             _innerWriter = writer;
+        }
+
+        /// <summary>
+        /// Records which artifact owned each region of this buffer. Writing is unaffected — the
+        /// recorder only stores boundary offsets — so instrumented and uninstrumented emission
+        /// produce the same bytes. Travels with <see cref="Checkpoint"/>/<see cref="RollbackTo"/>
+        /// so a rolled-back member leaves no provenance behind for text that no longer exists.
+        /// </summary>
+        public FragmentRecorder Fragments { get; } = new();
+
+        /// <summary>
+        /// Opens a fragment scope over everything written until the returned handle is disposed.
+        /// The scope emits nothing; it only brackets the buffer.
+        /// </summary>
+        public FragmentScope BeginFragment(in FragmentOwner owner) =>
+            new(this, Fragments.Open(owner, CurrentOffset));
+
+        /// <summary>
+        /// Closes the fragment scope it was returned from. A struct so the common <c>using</c> in a
+        /// hot emission loop allocates nothing.
+        /// </summary>
+        /// <remarks>
+        /// The scope is closed by token rather than by "innermost open", because a rollback between
+        /// the open and the dispose can erase this scope while leaving an outer one open. Closing
+        /// positionally there would end the outer scope early and hand the rest of its text to
+        /// whatever encloses it; closing by token makes the erased case a no-op instead.
+        /// </remarks>
+        public readonly struct FragmentScope : IDisposable
+        {
+            private readonly BufferedSourceWriter? _writer;
+            private readonly int _token;
+
+            internal FragmentScope(BufferedSourceWriter writer, int token)
+            {
+                _writer = writer;
+                _token = token;
+            }
+
+            /// <summary>Closes the scope at the current end of buffer.</summary>
+            public void Dispose() => _writer?.Fragments.Close(_token, _writer.CurrentOffset);
+        }
+
+        /// <summary>
+        /// Re-labels the innermost open fragment scope, for an emitter that substitutes a different
+        /// declaration after the scope was opened.
+        /// </summary>
+        public void RetagFragment(in FragmentOwner owner) => Fragments.Retag(owner);
+
+        /// <summary>
+        /// Writes <paramref name="text"/> verbatim (no indent processing) and merges the fragment
+        /// boundaries <paramref name="source"/> recorded for it, so text built in a private writer
+        /// and dumped here keeps its per-member provenance instead of arriving as one opaque run.
+        /// </summary>
+        public void WriteAbsorbing(string text, BufferedSourceWriter source)
+        {
+            ArgumentNullException.ThrowIfNull(text);
+            ArgumentNullException.ThrowIfNull(source);
+            var start = CurrentOffset;
+            InnerWriter.Write(text);
+
+            // A refused merge (source left a scope open) is deliberately not an error: the text is
+            // already written, and the absorbed run simply stays attributed to whatever scope is open
+            // here. Provenance degrades to the enclosing owner; it never becomes wrong. Failing the
+            // emit instead would turn a bookkeeping gap into a dropped binding.
+            Fragments.AbsorbFrom(source.Fragments, start);
         }
 
         /// <summary>
@@ -57,16 +128,25 @@ namespace BindingsGeneration
         /// </summary>
         public readonly struct WriterCheckpoint
         {
-            internal WriterCheckpoint(BufferedSourceWriter owner, int length, int indent)
+            internal WriterCheckpoint(
+                BufferedSourceWriter owner, int length, int indent, FragmentRecorder.RecorderCheckpoint fragments)
             {
                 Owner = owner;
                 Length = length;
                 Indent = indent;
+                Fragments = fragments;
             }
 
             internal BufferedSourceWriter? Owner { get; }
             internal int Length { get; }
             internal int Indent { get; }
+
+            /// <summary>
+            /// The fragment-recorder position at the same instant. Erasing text without erasing the
+            /// boundaries recorded inside it would leave intervals pointing past the truncated
+            /// buffer, and the next boundary would appear to move backwards.
+            /// </summary>
+            internal FragmentRecorder.RecorderCheckpoint Fragments { get; }
         }
 
         /// <summary>
@@ -82,7 +162,8 @@ namespace BindingsGeneration
         public WriterCheckpoint Checkpoint()
         {
             Flush();
-            return new WriterCheckpoint(this, _innerWriter.GetStringBuilder().Length, Indent);
+            return new WriterCheckpoint(
+                this, _innerWriter.GetStringBuilder().Length, Indent, Fragments.Checkpoint());
         }
 
         /// <summary>
@@ -99,6 +180,7 @@ namespace BindingsGeneration
                 builder.Length = checkpoint.Length;
             }
             Indent = checkpoint.Indent;
+            Fragments.RollbackTo(checkpoint.Fragments);
         }
 
         /// <summary>
@@ -122,6 +204,12 @@ namespace BindingsGeneration
                 builder.Length = checkpoint.Length;
             }
             Indent = checkpoint.Indent;
+            // The captured text is re-appended verbatim after a prefix is written, so it lands at a
+            // different offset than it was recorded at. Lift its boundaries out rebased to the start
+            // of the captured region and hold them until AppendCaptured says where the text went;
+            // dropping them instead would collapse the whole re-appended member onto its container,
+            // which is precisely the resolution this map exists to provide.
+            _capturedFragments = Fragments.RollbackToAndCapture(checkpoint.Fragments, checkpoint.Length);
             return captured;
         }
 
@@ -133,7 +221,10 @@ namespace BindingsGeneration
         public void AppendCaptured(string captured)
         {
             Flush();
+            var start = _innerWriter.GetStringBuilder().Length;
             _innerWriter.GetStringBuilder().Append(captured);
+            Fragments.ReplayCaptured(_capturedFragments, start);
+            _capturedFragments = default;
         }
 
         /// <summary>

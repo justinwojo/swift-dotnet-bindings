@@ -62,6 +62,32 @@ public sealed class ModuleEmissionContext
     public List<(string TypeName, int Start, int End)> TopLevelTypeSpans { get; } = new();
 
     /// <summary>
+    /// Provenance for the files this module's most recent render actually wrote: which artifact
+    /// produced each character range of each file. Null until a render completes.
+    /// </summary>
+    /// <remarks>
+    /// Replaced wholesale on every render rather than updated in place. The map is only meaningful
+    /// against the exact text it was built from, so a stale one is not a degraded map but a wrong
+    /// one — it would attribute a diagnostic about the current file to whatever occupied that
+    /// position in the previous attempt.
+    /// </remarks>
+    public ModuleFragmentSet? FragmentSet { get; private set; }
+
+    /// <summary>Publishes the fragment set for the render that just finished.</summary>
+    public void PublishFragmentSet(ModuleFragmentSet fragmentSet) => FragmentSet = fragmentSet;
+
+    /// <summary>
+    /// Drops any published map, at the point a render begins.
+    /// </summary>
+    /// <remarks>
+    /// Publication happens only when a render reaches the end, so without this a render that throws
+    /// part-way leaves its predecessor's map in place and nothing downstream can tell it is stale.
+    /// That is reachable on the shared <see cref="Default"/> context, where one context outlives many
+    /// modules — the map would then describe a different module's text entirely.
+    /// </remarks>
+    public void BeginFragmentRender() => FragmentSet = null;
+
+    /// <summary>
     /// Load-time runtime-contract <em>epoch</em> to emit into this module's
     /// <c>RuntimeContract.AssertCompatible(...)</c> call, derived (<c>major*1000 + minor</c>) from
     /// the <em>same</em> resolved runtime version the binding's bounded
@@ -141,7 +167,21 @@ public sealed class ModuleEmissionContext
     /// qualification is preserved (the prefix now reaches a class-nested type).
     /// Outside the collision case, the input is returned unchanged.
     /// </summary>
-    public string QualifyForWrapperSource(string moduleQualifiedName)
+    public string QualifyForWrapperSource(string moduleQualifiedName) =>
+        QualifyForWrapperSource(moduleQualifiedName, journal: null);
+
+    /// <summary>
+    /// As <see cref="QualifyForWrapperSource(string)"/>, additionally recording each rewrite into
+    /// <paramref name="journal"/>.
+    /// </summary>
+    /// <remarks>
+    /// This pass runs over the whole wrapper buffer on its way to disk, so every offset recorded
+    /// while emitting Swift is already stale by the time swiftc reads the file — before the wrapper
+    /// pre-strip has even run. It shortens text (it deletes a module prefix), so the shift is real
+    /// rather than theoretical, and it is the first of the transforms a Swift position has to be
+    /// carried through.
+    /// </remarks>
+    public string QualifyForWrapperSource(string moduleQualifiedName, TextEditJournal? journal)
     {
         if (string.IsNullOrEmpty(moduleQualifiedName) || _collisionPattern == null)
             return moduleQualifiedName;
@@ -156,6 +196,7 @@ public sealed class ModuleEmissionContext
             var topLevelName = dotIdx >= 0 ? firstComponent.Substring(0, dotIdx) : firstComponent;
             if (_nestedTypesInCollidingClass?.Contains(topLevelName) == true)
                 return match.Value;
+            journal?.Record(match.Index, match.Length, firstComponent.Length);
             return match.Groups[1].Value;
         });
     }
