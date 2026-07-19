@@ -53,4 +53,20 @@ internal sealed class EmissionFactsJournal
 
     /// <summary>Drops the log without restoring — the attempt settled and its stamps are keepers.</summary>
     public void Commit() => _preImages.Clear();
+
+    /// <summary>
+    /// Moves this journal's pre-images into <paramref name="outer"/> and clears this one, so a settled
+    /// render's stamps stay on the record (they are what the compile sees) yet remain undoable by the
+    /// outer verify-recover loop before its next render. First-write-per-type wins in the destination,
+    /// matching <see cref="Capture"/>: the earliest pre-image is the true pre-loop baseline, and since
+    /// the loop restores <paramref name="outer"/> to baseline before every render, each render's
+    /// transferred pre-image is that same baseline record.
+    /// </summary>
+    public void TransferTo(EmissionFactsJournal outer)
+    {
+        foreach (var kvp in _preImages)
+            outer._preImages.TryAdd(kvp.Key, kvp.Value);
+
+        _preImages.Clear();
+    }
 }

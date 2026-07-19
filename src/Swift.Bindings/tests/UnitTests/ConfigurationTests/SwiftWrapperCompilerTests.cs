@@ -3921,4 +3921,214 @@ namespace BindingsGeneration.Tests
     }
 
     #endregion
+
+    #region Z. Recovery-mode cross-slice diagnostic collection (inc.3a)
+
+    public class WrapperRecoveryCollectionTests
+    {
+        // A positioned swiftc diagnostic the parser turns into one error-bearing DiagnosticGroup.
+        private const string SwiftcErrorStderr =
+            "/tmp/wrap.swift:3:10: error: cannot find 'Missing' in scope";
+
+        [Fact]
+        public void CompileSlice_RecoveryMode_FailingSwiftc_CapturesDiagnosticsWithoutThrowingOrPromoting()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var dylibPath = WriteSourceFramework(dir);
+                WriteCleanSwiftFile(dir);
+
+                var runner = new MockCommandRunner();
+                runner.SetResponse("--show-sdk-path", 0, "/sdk/path");
+                // Fail the wrapper compile; InvokeSwiftCompiler writes the stderr side-file it reads.
+                runner.SetResponse("TestLibSwiftBindings", 1, "", SwiftcErrorStderr);
+
+                var slice = PlatformInfoFactory.Create(ApplePlatform.iOS).GetSlice(true);
+                var collector = new WrapperSliceCollector();
+
+                // Recovery mode: no throw despite the failing compile.
+                var result = SwiftWrapperCompiler.CompileSlice(
+                    dir, "TestLib", "/fw/search", dylibPath, slice,
+                    NullLogger.Instance, runner, collector: collector);
+
+                Assert.Null(result);                                  // no promotable wrapper
+                Assert.True(collector.AnyFailed);
+                var recorded = Assert.Single(collector.Slices);
+                Assert.False(recorded.Succeeded);
+                Assert.NotEmpty(recorded.Diagnostics);
+                Assert.Contains(recorded.Diagnostics, g => g.IsError);
+                // Nothing was promoted to the canonical path.
+                Assert.False(Directory.Exists(Path.Combine(dir, "TestLibSwiftBindings.xcframework")));
+
+                var diags = collector.ToDiagnostics(result);
+                Assert.False(diags.AllSlicesClean);
+                Assert.Null(diags.Result);
+                Assert.NotEmpty(diags.Diagnostics);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void CompileSlice_RecoveryMode_CleanCompile_RecordsSuccessAndResult()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var dylibPath = WriteSourceFramework(dir);
+                WriteCleanSwiftFile(dir);
+
+                var runner = new MockCommandRunner();
+                runner.SetResponse("--show-sdk-path", 0, "/sdk/path");
+                runner.SetResponse("swiftc", 0, "");
+                runner.SynthesizeMachOOutputs = true;
+
+                var slice = PlatformInfoFactory.Create(ApplePlatform.iOS).GetSlice(true);
+                var collector = new WrapperSliceCollector();
+
+                var result = SwiftWrapperCompiler.CompileSlice(
+                    dir, "TestLib", "/fw/search", dylibPath, slice,
+                    NullLogger.Instance, runner, collector: collector);
+
+                Assert.NotNull(result);
+                Assert.False(collector.AnyFailed);
+                var recorded = Assert.Single(collector.Slices);
+                Assert.True(recorded.Succeeded);
+                Assert.Empty(recorded.Diagnostics);
+
+                var diags = collector.ToDiagnostics(result);
+                Assert.True(diags.AllSlicesClean);
+                Assert.NotNull(diags.Result);
+                Assert.Empty(diags.Diagnostics);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void CompileSlice_ThrowMode_FailingSwiftc_StillThrows()
+        {
+            // Byte-identical throw path: with no collector the exception propagates exactly as before.
+            var dir = CreateTempDir();
+            try
+            {
+                var dylibPath = WriteSourceFramework(dir);
+                WriteCleanSwiftFile(dir);
+
+                var runner = new MockCommandRunner();
+                runner.SetResponse("--show-sdk-path", 0, "/sdk/path");
+                runner.SetResponse("TestLibSwiftBindings", 1, "", SwiftcErrorStderr);
+
+                var slice = PlatformInfoFactory.Create(ApplePlatform.iOS).GetSlice(true);
+
+                Assert.Throws<InvalidOperationException>(() => SwiftWrapperCompiler.CompileSlice(
+                    dir, "TestLib", "/fw/search", dylibPath, slice,
+                    NullLogger.Instance, runner));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void CompileAll_RecoveryMode_BothSlicesFail_UnionsDiagnosticsNoFirstFailureAbort()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var dylibPath = WriteSourceFramework(dir);
+                WriteCleanSwiftFile(dir);
+                var abiPath = Path.Combine(dir, "abi.json");
+                File.WriteAllText(abiPath, "{}");
+
+                var sim = new XCFrameworkResolution
+                {
+                    AbiJsonPath = abiPath,
+                    DylibPath = dylibPath,
+                    TbdPath = "/tmp/test.tbd",
+                    ModuleName = "TestLib",
+                    XCFrameworkPath = "/tmp/TestLib.xcframework",
+                    FrameworkSearchPath = "/fw/sim",
+                    LibraryIdentifier = "ios-arm64_x86_64-simulator",
+                    IsSimulatorSlice = true,
+                    SelectedArchitecture = "x86_64",
+                    SupportedArchitectures = new[] { "arm64", "x86_64" },
+                };
+                var dev = new XCFrameworkResolution
+                {
+                    AbiJsonPath = abiPath,
+                    DylibPath = dylibPath,
+                    TbdPath = "/tmp/test.tbd",
+                    ModuleName = "TestLib",
+                    XCFrameworkPath = "/tmp/TestLib.xcframework",
+                    FrameworkSearchPath = "/fw/dev",
+                    LibraryIdentifier = "ios-arm64",
+                    IsSimulatorSlice = false,
+                    SelectedArchitecture = "arm64",
+                    SupportedArchitectures = new[] { "arm64" },
+                };
+
+                var runner = new MockCommandRunner();
+                runner.SetResponse("--show-sdk-path", 0, "/sdk/path");
+                // Both slices' swiftc fail: the simulator failure must NOT abort the device attempt.
+                runner.SetResponse("swiftc", 1, "", SwiftcErrorStderr);
+
+                var collector = new WrapperSliceCollector();
+                var result = SwiftWrapperCompiler.CompileAll(
+                    dir, "TestLib", sim, dev, NullLogger.Instance, runner, collector: collector);
+
+                Assert.Null(result);
+                Assert.True(collector.AnyFailed);
+                // Both promised slices were attempted despite the simulator failing first.
+                Assert.Equal(2, collector.Slices.Count);
+                Assert.All(collector.Slices, s => Assert.False(s.Succeeded));
+
+                var diags = collector.ToDiagnostics(result);
+                Assert.False(diags.AllSlicesClean);
+                Assert.Null(diags.Result);
+                // Union across both failing slices — one error group each.
+                Assert.True(diags.Diagnostics.Count >= 2);
+                Assert.False(Directory.Exists(Path.Combine(dir, "TestLibSwiftBindings.xcframework")));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        // Writes a source framework dir with an Info.plist deployment target and an (empty) dylib
+        // stub, returning the dylib path CompileSlice/CompileAll read for the min-OS floor.
+        private static string WriteSourceFramework(string dir)
+        {
+            var fwDir = Path.Combine(dir, "source-fw");
+            Directory.CreateDirectory(fwDir);
+            File.WriteAllText(Path.Combine(fwDir, "Info.plist"), """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <plist version="1.0">
+                <dict>
+                    <key>MinimumOSVersion</key>
+                    <string>16.0</string>
+                </dict>
+                </plist>
+                """);
+            var dylibPath = Path.Combine(fwDir, "TestLib");
+            File.WriteAllText(dylibPath, "");
+            return dylibPath;
+        }
+
+        // A single clean (non-stripped) wrapper Swift file so a compile is actually attempted.
+        private static void WriteCleanSwiftFile(string dir)
+        {
+            File.WriteAllText(Path.Combine(dir, "Swift.TestLib.swift"), """
+                import Foundation
+                @_silgen_name("good_func")
+                public func good_func(_self: UnsafeMutableRawPointer) {
+                    let x = 1
+                }
+                """);
+        }
+
+        private static string CreateTempDir()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"swc_recov_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
+
+    #endregion
 }

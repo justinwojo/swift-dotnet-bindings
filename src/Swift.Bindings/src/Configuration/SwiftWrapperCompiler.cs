@@ -123,7 +123,8 @@ namespace BindingsGeneration
             string? resolvedArchitecture = null,
             IReadOnlyList<string>? depModuleNamesForCollision = null,
             IReadOnlyList<string>? linkFrameworks = null,
-            IReadOnlyList<string>? linkLibraries = null)
+            IReadOnlyList<string>? linkLibraries = null,
+            WrapperSliceCollector? collector = null)
         {
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
             var simSlice = pi.GetSlice(true);
@@ -137,7 +138,8 @@ namespace BindingsGeneration
                 skipThunkCompilation: skipThunkCompilation,
                 depModuleNamesForCollision: depModuleNamesForCollision,
                 linkFrameworks: linkFrameworks,
-                linkLibraries: linkLibraries);
+                linkLibraries: linkLibraries,
+                collector: collector);
         }
 
         /// <summary>
@@ -163,7 +165,8 @@ namespace BindingsGeneration
             IReadOnlyList<string>? depModuleNamesForCollisionSimulator = null,
             IReadOnlyList<string>? depModuleNamesForCollisionDevice = null,
             IReadOnlyList<string>? linkFrameworks = null,
-            IReadOnlyList<string>? linkLibraries = null)
+            IReadOnlyList<string>? linkLibraries = null,
+            WrapperSliceCollector? collector = null)
         {
             commandRunner ??= new SystemCommandRunner();
             var wrapperModuleName = $"{moduleName}SwiftBindings";
@@ -231,6 +234,13 @@ namespace BindingsGeneration
                         var cleanedPath = Path.Combine(cleanedDir, Path.GetFileName(swiftFile));
                         File.WriteAllText(cleanedPath, result.CleanedContent);
                         cleanedFiles.Add(cleanedPath);
+
+                        // Recovery mode: capture the remap inputs (pre-strip vs post-strip bytes and
+                        // the line-origin vector) now, while the staging tree still exists — the driver
+                        // rebuilds its interval map from these to attribute a diagnostic to the exact
+                        // fragment swiftc compiled.
+                        collector?.RecordFileProvenance(
+                            Path.GetFileName(swiftFile), content, result.CleanedContent, result.CleanedLineSources);
                     }
                 }
 
@@ -269,6 +279,11 @@ namespace BindingsGeneration
                                 File.WriteAllText(cleanedFile, guarded);
                                 logger.LogInformation("  Applied #if targetEnvironment(simulator) guards to {Count} wrapper(s) in {File}",
                                     count, Path.GetFileName(cleanedFile));
+
+                                // The guard pass inserts #if lines the post-strip remap has no
+                                // provenance for, so a guarded file must attribute through the symbol/
+                                // anchor index, not the interval map. Flag it unmapped for the driver.
+                                collector?.MarkGuardRewrote(Path.GetFileName(cleanedFile));
                             }
                         }
                     }
@@ -298,8 +313,18 @@ namespace BindingsGeneration
                 stagingXcfwPath = MakeStagingXcframeworkPath(outputDirectory, wrapperModuleName, simSlice.SliceId);
 
                 var sliceCount = 0;
+                // Recovery-mode (collector != null) per-slice binary paths, hoisted so each slice's
+                // catch can locate its swiftc stderr side-file. Null on the throw path.
+                string? simBinaryPathForRecovery = null;
+                string? devBinaryPathForRecovery = null;
 
-                // 4. Compile simulator slice
+                // 4. Compile simulator slice. In recovery mode the whole simulator compile is
+                // isolated: a throw is captured as this slice's diagnostics and the build proceeds
+                // to the device slice instead of aborting (no first-failure abort — the device slice
+                // may surface a distinct failure the simulator masked). The body is left at its
+                // original indentation so the change reads clean under `git diff -w`.
+                try
+                {
                 var simFrameworkDir = Path.Combine(stagingXcfwPath, simSlice.SliceId, $"{wrapperModuleName}.framework");
                 Directory.CreateDirectory(simFrameworkDir);
                 WriteFrameworkPlist(simFrameworkDir, wrapperModuleName, minOS, simSlice.PlistPlatformName);
@@ -307,6 +332,7 @@ namespace BindingsGeneration
                 var simSdkPath = ResolveSdkPath(simSlice.SdkName, commandRunner);
                 var simTargetTriple = simSlice.GetTargetTriple(minOS);
                 var simBinaryPath = Path.Combine(simFrameworkDir, wrapperModuleName);
+                simBinaryPathForRecovery = simBinaryPath;
 
                 // Compile thunk assembly for simulator slice
                 // FATAL if .arm64.s files exist — P/Invokes reference thunk symbols
@@ -416,11 +442,21 @@ namespace BindingsGeneration
                     // above; a truncated/wrong-arch binary is rejected here.
                     ValidateCompiledSliceBinary(simBinaryPath, simSlice.Architecture, commandRunner, logger);
                     logger.LogInformation("Compiled simulator slice for {Module}.", wrapperModuleName);
+                    collector?.RecordSuccess(simSlice.SliceId);
+                }
+                }
+                catch (Exception ex) when (collector != null)
+                {
+                    collector.RecordFailure(
+                        simSlice.SliceId, ReadSliceDiagnostics(simBinaryPathForRecovery, ex));
                 }
 
                 // 5. Compile device slice (if available)
                 if (deviceResolution != null)
                 {
+                    // Recovery mode isolates the device compile the same way as the simulator slice.
+                    try
+                    {
                     var deviceSliceCountBefore = sliceCount;
                     var devFrameworkDir = Path.Combine(stagingXcfwPath, deviceSlice.SliceId, $"{wrapperModuleName}.framework");
                     Directory.CreateDirectory(devFrameworkDir);
@@ -429,6 +465,7 @@ namespace BindingsGeneration
                     var devSdkPath = ResolveSdkPath(deviceSlice.SdkName, commandRunner);
                     var devTargetTriple = deviceSlice.GetTargetTriple(minOS);
                     var devBinaryPath = Path.Combine(devFrameworkDir, wrapperModuleName);
+                    devBinaryPathForRecovery = devBinaryPath;
 
                     // Compile thunk assembly for device slice
                     // FATAL if .arm64.s files exist — P/Invokes reference thunk symbols
@@ -563,8 +600,21 @@ namespace BindingsGeneration
                         // was built and must still be checked before promotion).
                         ValidateCompiledSliceBinary(devBinaryPath, deviceSlice.Architecture, commandRunner, logger);
                         logger.LogInformation("Compiled device slice for {Module}.", wrapperModuleName);
+                        collector?.RecordSuccess(deviceSlice.SliceId);
+                    }
+                    }
+                    catch (Exception ex) when (collector != null)
+                    {
+                        collector.RecordFailure(
+                            deviceSlice.SliceId, ReadSliceDiagnostics(devBinaryPathForRecovery, ex));
                     }
                 }
+
+                // Recovery mode: a promised slice failed to compile. Do not promote — the finally
+                // drops the staging tree, so a partial (one-slice) wrapper never reaches the
+                // canonical path. The collector carries every slice's diagnostics for attribution.
+                if (collector != null && collector.AnyFailed)
+                    return null;
 
                 // Guard: if no slices were compiled (all Swift stripped + thunks failed), return failure
                 if (sliceCount == 0)
@@ -663,7 +713,8 @@ namespace BindingsGeneration
             bool skipThunkCompilation = false,
             IReadOnlyList<string>? depModuleNamesForCollision = null,
             IReadOnlyList<string>? linkFrameworks = null,
-            IReadOnlyList<string>? linkLibraries = null)
+            IReadOnlyList<string>? linkLibraries = null,
+            WrapperSliceCollector? collector = null)
         {
             commandRunner ??= new SystemCommandRunner();
             var wrapperModuleName = $"{moduleName}SwiftBindings";
@@ -697,6 +748,11 @@ namespace BindingsGeneration
             // slice id is known. Tracked out here so the finally can drop it if it was never
             // promoted (compile/timeout/validation failure, or a no-binary early return).
             string? stagingXcfwPath = null;
+            // Recovery-mode (collector != null) locals, hoisted above the try so the recovery catch
+            // can name the failing slice and locate its swiftc stderr side-file. They stay null on
+            // the throw path (collector == null), where the catch filter is always false.
+            string? recoverySliceId = null;
+            string? recoveryBinaryPath = null;
 
             try
             {
@@ -722,6 +778,13 @@ namespace BindingsGeneration
                         var cleanedPath = Path.Combine(cleanedDir, Path.GetFileName(swiftFile));
                         File.WriteAllText(cleanedPath, result.CleanedContent);
                         cleanedFiles.Add(cleanedPath);
+
+                        // Recovery mode: capture the remap inputs (pre-strip vs post-strip bytes and
+                        // the line-origin vector) now, while the staging tree still exists — the driver
+                        // rebuilds its interval map from these to attribute a diagnostic to the exact
+                        // fragment swiftc compiled.
+                        collector?.RecordFileProvenance(
+                            Path.GetFileName(swiftFile), content, result.CleanedContent, result.CleanedLineSources);
                     }
                 }
 
@@ -758,6 +821,8 @@ namespace BindingsGeneration
                 stagingXcfwPath = MakeStagingXcframeworkPath(outputDirectory, wrapperModuleName, sliceId);
                 var frameworkDir = Path.Combine(stagingXcfwPath, sliceId, $"{wrapperModuleName}.framework");
                 var outputBinaryPath = Path.Combine(frameworkDir, wrapperModuleName);
+                recoverySliceId = sliceId;
+                recoveryBinaryPath = outputBinaryPath;
                 CreateXCFrameworkStructure(stagingXcfwPath, frameworkDir, wrapperModuleName, minOS, slice);
 
                 // 5. Resolve SDK path
@@ -931,6 +996,9 @@ namespace BindingsGeneration
                         allStrippedSymbols.Count, symbolsPath);
                 }
 
+                // Recovery mode: this slice compiled, validated, and promoted clean.
+                collector?.RecordSuccess(sliceId);
+
                 return new SwiftWrapperCompilationResult
                 {
                     XCFrameworkPath = xcframeworkPath,
@@ -939,6 +1007,17 @@ namespace BindingsGeneration
                     StrippedBlocksBySubCause = subCauseTotals,
                     StrippedSymbols = allStrippedSymbols
                 };
+            }
+            catch (Exception ex) when (collector != null)
+            {
+                // Recovery mode only: capture this slice's diagnostics instead of aborting the whole
+                // generation. The finally drops the staging tree, so a failed slice never promotes a
+                // partial wrapper. When collector is null this filter is always false and the
+                // exception propagates exactly as it did before — the throw path is byte-identical.
+                collector.RecordFailure(
+                    recoverySliceId ?? slice.SliceId,
+                    ReadSliceDiagnostics(recoveryBinaryPath, ex));
+                return null;
             }
             finally
             {
@@ -960,6 +1039,35 @@ namespace BindingsGeneration
                 }
                 catch { /* best-effort cleanup */ }
             }
+        }
+
+        /// <summary>
+        /// Reads and parses one failed slice's swiftc diagnostics for recovery-mode attribution.
+        /// Prefers the per-slice stderr side-file (<c>&lt;binary&gt;.swiftc-stderr.txt</c>) that
+        /// <see cref="InvokeSwiftCompiler"/> writes — each slice's binary path is distinct, so the
+        /// side-files never clobber one another — and falls back to the exception message when the
+        /// side-file is missing, unreadable, or yielded no diagnostics (e.g. a failure that threw
+        /// before swiftc ran). Never throws: attribution must not itself fail the recovery loop.
+        /// </summary>
+        private static IReadOnlyList<Diagnostics.DiagnosticGroup> ReadSliceDiagnostics(
+            string? binaryPath, Exception ex)
+        {
+            string? stderr = null;
+            if (!string.IsNullOrEmpty(binaryPath))
+            {
+                var sideFile = binaryPath + ".swiftc-stderr.txt";
+                try
+                {
+                    if (File.Exists(sideFile))
+                        stderr = File.ReadAllText(sideFile);
+                }
+                catch { /* best-effort: fall back to the exception message below */ }
+            }
+
+            var groups = Diagnostics.SwiftDiagnosticParser.Parse(stderr);
+            if (groups.Count == 0 && ex != null)
+                groups = Diagnostics.SwiftDiagnosticParser.Parse(ex.Message);
+            return groups;
         }
 
         private static Dictionary<StripSubCause, int> NewSubCauseTotals()

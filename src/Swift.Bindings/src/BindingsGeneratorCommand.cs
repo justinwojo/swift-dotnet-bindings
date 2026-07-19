@@ -849,7 +849,54 @@ public static class BindingsGeneratorCommand
             return;
         }
 
-        var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, out var depModuleCollisions, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase, descriptorAssemblyNameOverride: assemblyNameOverride, swiftRuntimeVersion: swiftRuntimeVersion, objcBridgeRecords: mixedBridgeRecords);
+        // Verify-recover: for the default (simulator) xcframework generation path, hand GenerateBindings
+        // a compile delegate so it can run the in-emission verify-recover loop — render the module under
+        // a denylist, compile the promised simulator slice, attribute any failure to a leaf/accessor unit,
+        // withdraw it, and re-render until the wrapper compiles clean or the module fails closed. The loop
+        // settles the ON-DISK wrapper source; the command's post-loop compile below is unchanged and
+        // recompiles that settled source (primary + extra-arch fold, stripped-symbol reconcile,
+        // WrapperSection) exactly as for a non-recovered binding, so the shipped artifact and manifest are
+        // byte-identical for a healthy module. The delegate reuses the already-resolved slice (the denylist
+        // never changes resolution) and never re-resolves, so it adds no input-resolution decisions; the
+        // loop additionally snapshots and restores that report so the finalized manifest is unaffected.
+        // Device/`all` wrapper-arch modes keep today's single-emission path (delegate null): wave-1
+        // verify-recover covers the simulator slice, and a device-only failure still fails the build closed
+        // through the unchanged post-loop compile.
+        Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics>? verifyRecoverCompile = null;
+        if (shouldCompileWrapper && resolution != null &&
+            (wrapperArchitectures?.ToLowerInvariant() ?? "simulator") == "simulator")
+        {
+            var loopResolution = resolution;
+            var loopSimDepPaths = resolvedDependencies?
+                .Where(d => d.SimulatorFrameworkSearchPath != null)
+                .Select(d => d.SimulatorFrameworkSearchPath!)
+                .ToList();
+            loopSimDepPaths = XCFrameworkResolver.MergeWrapperDependencySearchPaths(
+                loopSimDepPaths, xcframeworkPath!, XCFrameworkPlatformTarget.Simulator, logger, platformInfo);
+
+            verifyRecoverCompile = req =>
+            {
+                var collector = new WrapperSliceCollector();
+                var result = SwiftWrapperCompiler.Compile(
+                    req.OutputDirectory, loopResolution.ModuleName,
+                    loopResolution.FrameworkSearchPath, loopResolution.DylibPath, logger,
+                    internalTypeNames: req.InternalTypeNames,
+                    additionalFrameworkSearchPaths: loopSimDepPaths,
+                    platformInfo: platformInfo,
+                    moduleNameForCollision: req.ModuleNameForCollision,
+                    nestedTypesInCollidingClass: req.NestedTypesInCollidingClass,
+                    swiftInterfacePath: loopResolution.SwiftInterfacePath,
+                    skipThunkCompilation: skipThunkCompilation,
+                    resolvedArchitecture: loopResolution.SelectedArchitecture,
+                    depModuleNamesForCollision: req.DepModuleCollisions.Simulator,
+                    linkFrameworks: linkFrameworks,
+                    linkLibraries: linkLibraries,
+                    collector: collector);
+                return collector.ToDiagnostics(result);
+            };
+        }
+
+        var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, out var depModuleCollisions, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase, descriptorAssemblyNameOverride: assemblyNameOverride, swiftRuntimeVersion: swiftRuntimeVersion, objcBridgeRecords: mixedBridgeRecords, compileWrapper: verifyRecoverCompile);
         if (!success)
         {
             context.ExitCode = 1;

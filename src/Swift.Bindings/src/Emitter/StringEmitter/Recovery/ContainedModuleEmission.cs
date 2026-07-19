@@ -59,6 +59,14 @@ internal static class ContainedModuleEmission
     /// Declarations to deny from the first attempt. Production passes none; tests use it to produce
     /// the reference render a contained run is required to match.
     /// </param>
+    /// <param name="retainInto">
+    /// When the verify-recover loop drives repeated renders, the outer journal the settled attempt's
+    /// type-database pre-images are handed to instead of being committed. The settled render's stamps
+    /// stay on the records (they are what the wrapper compile sees), but the loop can undo them by
+    /// restoring this journal before its next render — so a later seeded render emits from the true
+    /// pre-loop baseline rather than from a database still carrying an earlier render's stamps. Null on
+    /// the ordinary single-render path, where the settled attempt commits (discards) its journal as before.
+    /// </param>
     /// <exception cref="EmitterFaultLimitException">Faults were still being discovered at the cap.</exception>
     public static EmitterPoisonList Run(
         ModuleDecl decl,
@@ -67,7 +75,8 @@ internal static class ContainedModuleEmission
         ILogger logger,
         Func<StringEmitter> newEmitter,
         Action? prepareRetry = null,
-        EmitterPoisonList? seed = null)
+        EmitterPoisonList? seed = null,
+        EmissionFactsJournal? retainInto = null)
     {
         ArgumentNullException.ThrowIfNull(decl);
         ArgumentNullException.ThrowIfNull(emissionContext);
@@ -113,7 +122,11 @@ internal static class ContainedModuleEmission
             // the flag is set before the signal is ever thrown.
             if (!abandoned && !attempt.Abandoned)
             {
-                attempt.Journal.Commit();
+                if (retainInto != null)
+                    attempt.Journal.TransferTo(retainInto);
+                else
+                    attempt.Journal.Commit();
+
                 return poison;
             }
 

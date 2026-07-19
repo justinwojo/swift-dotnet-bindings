@@ -50,7 +50,7 @@ namespace BindingsGeneration
             GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibraryName, swiftInterfacePath, symbolGraphPath, bridgeHintsPath, namespacePattern, logger, loggerFactory, out _, out _, out _, out _, dependencyModuleNames: null, moduleDatabasePaths: null);
         }
 
-        internal static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, out HashSet<string>? nestedTypesInCollidingClass, out DepModuleCollisionDetector.SlicedCollisionResult depModuleCollisions, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null, bool keepBuiltinDatabaseForTargetModule = false, Producers.InterfaceFactsAggregator? factsAggregator = null, string? descriptorAssemblyNameOverride = null, string? swiftRuntimeVersion = null, IReadOnlyList<TypeRecord>? objcBridgeRecords = null)
+        internal static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, out HashSet<string>? nestedTypesInCollidingClass, out DepModuleCollisionDetector.SlicedCollisionResult depModuleCollisions, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null, bool keepBuiltinDatabaseForTargetModule = false, Producers.InterfaceFactsAggregator? factsAggregator = null, string? descriptorAssemblyNameOverride = null, string? swiftRuntimeVersion = null, IReadOnlyList<TypeRecord>? objcBridgeRecords = null, Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics>? compileWrapper = null)
         {
             internalTypeNames = null;
             moduleNameForCollision = null;
@@ -594,25 +594,77 @@ namespace BindingsGeneration
                 // denies it and re-emits the module from scratch, rather than taking the whole binding
                 // down with it. Returns the declarations that had to be denied — empty for a healthy
                 // module, which is every module today.
-                ContainedModuleEmission.Run(
-                    decl,
-                    emissionContext,
-                    typeDatabase,
-                    logger,
-                    newEmitter: () => new StringEmitter(outputDirectory, typeDatabase, loggerFactory, namespaceResolver, bridgeHintsPath, facts.MarkerProtocolConformances),
-                    prepareRetry: () =>
+                Func<StringEmitter> newEmitter = () => new StringEmitter(outputDirectory, typeDatabase, loggerFactory, namespaceResolver, bridgeHintsPath, facts.MarkerProtocolConformances);
+                Action rebuildCollaborators = () =>
+                {
+                    // The specialization engine memoizes rejected pairings and the marshalling
+                    // context caches per-module handler state. Both are cheap to rebuild, and
+                    // rebuilding them is what makes their internals irrelevant to containment.
+                    var retryEngine = new ConcreteSpecializationEngine(typeDatabase, moduleName);
+                    retryEngine.IndexModuleConformances(decl);
+                    emissionContext.SpecializationEngine = retryEngine;
+                    emissionContext.Marshaling = new MarshalingContext(decl, typeDatabase, retryEngine)
                     {
-                        // The specialization engine memoizes rejected pairings and the marshalling
-                        // context caches per-module handler state. Both are cheap to rebuild, and
-                        // rebuilding them is what makes their internals irrelevant to containment.
-                        var retryEngine = new ConcreteSpecializationEngine(typeDatabase, moduleName);
-                        retryEngine.IndexModuleConformances(decl);
-                        emissionContext.SpecializationEngine = retryEngine;
-                        emissionContext.Marshaling = new MarshalingContext(decl, typeDatabase, retryEngine)
-                        {
-                            EmissionContext = emissionContext,
-                        };
-                    });
+                        EmissionContext = emissionContext,
+                    };
+                };
+
+                if (compileWrapper == null)
+                {
+                    // Ordinary single render. This is the path for the CI compile gate
+                    // (--compile-only, which never compiles a wrapper), non-wrapper modules, the SDK's
+                    // two-pass flow (wrapper compiled out-of-process in a later pass), and unit tests.
+                    // Emission stays a one-shot: emit once, containment denies any throwing declaration.
+                    ContainedModuleEmission.Run(
+                        decl, emissionContext, typeDatabase, logger,
+                        newEmitter: newEmitter, prepareRetry: rebuildCollaborators);
+                }
+                else
+                {
+                    // Verify-recover loop: render the module under a denylist, compile the promised
+                    // wrapper slices, attribute any failure to leaf/accessor recovery units, withdraw
+                    // them, and re-render until every slice compiles clean or no sound leaf withdrawal
+                    // remains. A run that cannot converge fails the module closed — the one unacceptable
+                    // outcome is a binding that compiles but is wrong at runtime, so a coarse-scope or
+                    // unattributable failure is never papered over by shipping a partial surface.
+                    var wrapperNamespace = namespaceResolver.ResolveNamespace(moduleName);
+                    var request = new WrapperRecoveryCompileRequest(
+                        outputDirectory, internalTypeNames, moduleNameForCollision,
+                        nestedTypesInCollidingClass, depModuleCollisions);
+                    var driver = new InEmissionDriver(
+                        decl, emissionContext, typeDatabase, logger,
+                        newEmitter: newEmitter,
+                        rebuildCollaborators: rebuildCollaborators,
+                        compileWrapper: compileWrapper,
+                        request: request,
+                        preRender: () => CleanStaleWrapperArtifacts(outputDirectory, wrapperNamespace, logger));
+
+                    // The per-render wrapper compiles append input-resolution decisions the finalized
+                    // manifest must not accumulate; snapshot before the loop and restore after so the
+                    // manifest records exactly one resolution's worth — byte-identical to a single render.
+                    var inputResolutionBaseline = InputResolutionReport.Snapshot();
+                    var recovery = Diagnostics.WrapperRecoveryController.Run(driver);
+                    InputResolutionReport.Restore(inputResolutionBaseline);
+
+                    if (!recovery.Converged)
+                    {
+                        logger.LogError(
+                            "SWIFTBIND111: wrapper verify-recover did not converge for {Module} after " +
+                            "{Rounds} round(s) ({Cause}); refusing to ship a binding whose wrapper does " +
+                            "not compile clean.",
+                            decl.Name, recovery.Rounds, recovery.Cause);
+                        ReportCollector.Reset();
+                        return false;
+                    }
+
+                    if (recovery.Denylist.Length > 0)
+                    {
+                        logger.LogWarning(
+                            "SWIFTBIND112: wrapper verify-recover withdrew {Count} leaf/accessor unit(s) " +
+                            "from {Module} over {Rounds} round(s) to reach a clean wrapper compile.",
+                            recovery.Denylist.Length, decl.Name, recovery.Rounds);
+                    }
+                }
 
                 var report = ReportCollector.Complete();
                 ReportCollector.Reset();
@@ -781,6 +833,44 @@ namespace BindingsGeneration
                 logger.LogDebug("Stack trace:\n{StackTrace}", ex.ToString());
                 ReportCollector.Reset();
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// Deletes the module's single wrapper Swift source and its per-arch thunk-assembly files from
+        /// the output directory before a verify-recover re-render.
+        /// </summary>
+        /// <remarks>
+        /// Emission rewrites <c>{namespace}.Wrapper.swift</c> and each <c>{namespace}.{arch}.s</c>
+        /// wholesale — but only when it emits them. A render that withdraws a module's last
+        /// thunk-bearing leaf never rewrites the <c>.s</c>, and the compiler re-collects every
+        /// <c>*.swift</c>/<c>*.{arch}.s</c> in the directory, so a lingering file would re-introduce the
+        /// withdrawn symbol and defeat the withdrawal. Clearing first makes the on-disk wrapper set a
+        /// pure function of the render that produced it. Missing files are the common case (nothing to
+        /// clean) and are not an error.
+        /// </remarks>
+        private static void CleanStaleWrapperArtifacts(string outputDirectory, string wrapperNamespace, ILogger logger)
+        {
+            try
+            {
+                if (!Directory.Exists(outputDirectory))
+                    return;
+
+                var wrapperSwift = Path.Combine(outputDirectory, $"{wrapperNamespace}.Wrapper.swift");
+                if (File.Exists(wrapperSwift))
+                    File.Delete(wrapperSwift);
+
+                foreach (var assembly in Directory.GetFiles(outputDirectory, $"{wrapperNamespace}.*.s"))
+                    File.Delete(assembly);
+            }
+            catch (IOException ex)
+            {
+                // A file we could not remove is a stale-artifact hazard, not a silent one: the next
+                // render's compile would re-collect it. Surface it rather than swallow it, but do not
+                // abort the run — the compile step will fail loudly if the orphan actually breaks it.
+                logger.LogWarning(
+                    "Could not clear stale wrapper artifacts for '{Namespace}' in {Dir}: {Message}",
+                    wrapperNamespace, outputDirectory, ex.Message);
             }
         }
 

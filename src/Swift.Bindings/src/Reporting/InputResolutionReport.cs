@@ -83,6 +83,22 @@ public static class InputResolutionReport
     /// <summary>Clears all recorded decisions. Call once at the start of a generation.</summary>
     public static void Reset() => s_decisions?.Clear();
 
+    /// <summary>
+    /// Captures the decisions recorded so far. The verify-recover loop snapshots before its repeated
+    /// per-render wrapper compiles and <see cref="Restore"/>s after, so the finalized manifest records
+    /// exactly one resolution's worth of decisions — byte-identical to the single-render path — rather
+    /// than the loop's N× accumulation.
+    /// </summary>
+    public static IReadOnlyList<InputResolutionDecision> Snapshot() => Decisions;
+
+    /// <summary>Restores the recorded decisions to a prior <see cref="Snapshot"/>, discarding any added since.</summary>
+    public static void Restore(IReadOnlyList<InputResolutionDecision> snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        (s_decisions ??= new List<InputResolutionDecision>()).Clear();
+        s_decisions.AddRange(snapshot);
+    }
+
     /// <summary>Records a decision that used the requested input as-is.</summary>
     public static void RecordInfo(InputResolutionCategory category, string detail) =>
         Record(category, InputResolutionSeverity.Info, detail);
