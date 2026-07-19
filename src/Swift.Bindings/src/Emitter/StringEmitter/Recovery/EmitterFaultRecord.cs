@@ -7,8 +7,27 @@ using System.Text;
 namespace BindingsGeneration;
 
 /// <summary>
-/// One declaration the emitter threw on, plus enough of the exception to tell two distinct defects
-/// apart in a report without carrying a whole stack trace into generated output.
+/// Why a declaration is being refused: a live emitter exception, or a deliberate withdrawal by the
+/// wrapper verify-recover loop. It selects the wording of <see cref="EmitterFaultRecord.Details"/> so a
+/// recovery withdrawal never masquerades as a thrown exception in a tombstone comment or report row.
+/// </summary>
+internal enum EmitterFaultOrigin
+{
+    /// <summary>The emitter threw while lowering the declaration. The default.</summary>
+    EmitterException,
+
+    /// <summary>
+    /// The declaration was withdrawn to make the Swift wrapper compile — no exception occurred. The
+    /// exception-shaped fields are not meaningful for this origin.
+    /// </summary>
+    RecoveryWithdrawal,
+}
+
+/// <summary>
+/// One declaration being refused emission — either the emitter threw on it, or the wrapper
+/// verify-recover loop withdrew it (see <see cref="Origin"/>). For a thrown fault it also carries
+/// enough of the exception to tell two distinct defects apart in a report without dragging a whole
+/// stack trace into generated output.
 /// </summary>
 /// <remarks>
 /// The fingerprint deliberately excludes file paths and line numbers. It has to be stable across
@@ -20,6 +39,14 @@ internal readonly record struct EmitterFaultRecord
 {
     /// <summary>The declaration whose emission threw.</summary>
     public required DeclId Subject { get; init; }
+
+    /// <summary>
+    /// Whether this fault is a live emitter exception or a deliberate recovery withdrawal. Defaults to
+    /// <see cref="EmitterFaultOrigin.EmitterException"/> so records built by <see cref="From"/> keep the
+    /// exception wording; a synthetic verify-recover seed sets
+    /// <see cref="EmitterFaultOrigin.RecoveryWithdrawal"/>.
+    /// </summary>
+    public EmitterFaultOrigin Origin { get; init; }
 
     /// <summary>How much of the surface has to be withdrawn to contain this fault.</summary>
     public required RecoveryScope Scope { get; init; }
@@ -58,11 +85,36 @@ internal readonly record struct EmitterFaultRecord
         };
 
     /// <summary>
-    /// The details string recorded on the skip row. Reads as a sentence a triager can act on, and
-    /// keeps the fingerprint so two rows can be compared without re-running the generator.
+    /// Builds a record for a declaration withdrawn by the wrapper verify-recover loop rather than one
+    /// the emitter threw on. No exception is involved, so the exception-shaped fields are left empty and
+    /// <see cref="Details"/> reads as a withdrawal, not a throw.
+    /// </summary>
+    public static EmitterFaultRecord ForRecoveryWithdrawal(
+        DeclId subject,
+        RecoveryScope scope,
+        string reason,
+        DeclId? escalation = null) =>
+        new()
+        {
+            Subject = subject,
+            Scope = scope,
+            Origin = EmitterFaultOrigin.RecoveryWithdrawal,
+            ExceptionType = string.Empty,
+            Fingerprint = string.Empty,
+            Message = reason,
+            Escalation = escalation,
+        };
+
+    /// <summary>
+    /// The details string recorded on the skip row. Reads as a sentence a triager can act on. For an
+    /// emitter exception it keeps the fingerprint so two rows can be compared without re-running the
+    /// generator; for a recovery withdrawal it says plainly that the unit was withdrawn to make the
+    /// wrapper compile — never claiming an exception that did not occur.
     /// </summary>
     public string Details =>
-        $"Emitter threw {ExceptionType} at {Fingerprint}: {Message}";
+        Origin == EmitterFaultOrigin.RecoveryWithdrawal
+            ? $"Withdrawn by wrapper verify-recover: {Message}"
+            : $"Emitter threw {ExceptionType} at {Fingerprint}: {Message}";
 
     private static string BuildFingerprint(Exception exception)
     {
