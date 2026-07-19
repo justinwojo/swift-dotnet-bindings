@@ -291,7 +291,9 @@ Stages 1-3 are "minimum viable resilience"; Stages 4-7 are the full proof-carryi
   (methods/ctors/props + their P/Invokes/wrappers/exclusive helpers first); per-render interval
   provenance; the poison-and-regenerate exception container (§5); untrusted-name boundary
   (`Try*` for all ABI-derived names). Eliminates abort-path #1.
-- **Stage 3 — Swift wrapper verify loop (kills "Family A").** `-serialize-diagnostics` parsing;
+- **Stage 3 — Swift wrapper verify loop (kills "Family A").** Structured swiftc stderr parsing
+  (the `-serialize-diagnostics` `.dia` route sketched here pre-landing was dropped — see the
+  wave-1 outcome record below);
   symbol/anchor attribution; needs-closure → denylist; re-render all promised slices from one settled
   source set; recompile until clean or no-progress; escalation ladder + iteration cap. Keep
   `SwiftWrapperPostProcessor` as a fast-path first iteration, recorded through the same recovery-unit
@@ -343,13 +345,70 @@ recorded here — the session docs are not the record.
 
 | Wave | Sessions | Stages (§7) | Highlights |
 |---|---|---|---|
-| 1 | `…-wave1/01–10` | 0, 1, 2, 3 | Determinism pin; H1/H2/H3 closed; DeclId + recovery units; immutable fragments; poison-and-regenerate; swiftc attribution + the wrapper verify-recover loop; resilience fixture gate; closeout re-sweep + wave-2 planning |
+| 1 | `…-wave1/01–10` | 0, 1, 2, 3 | Determinism pin; H1/H2/H3 closed; DeclId + recovery units; immutable fragments; poison-and-regenerate; swiftc attribution + the wrapper verify-recover loop; closeout re-sweep + wave-2 planning (resilience fixture trigger fired at closeout → routed to wave 2) |
 | 2 | `…-wave2/` (authored by wave-1 session 10) | 4, 5, 6, 7 | Roslyn probe loop + reconciler retirement; typed `AbiCallPlan` contracts; staged atomic publication; bounded bisection fallback, fragment transactions, prediction-gate freeze; final corpus soak + zero-whole-binding-failure ratchet |
 
 ### Status
 
-- Wave 1: **planned** (docs written 2026-07-18, not yet run).
-- Wave 2: not yet planned (by design — see D-R3).
+- Wave 1: **done and verified** (run 2026-07-18/19, ten sessions). Gates at closeout: unit
+  **15,214/0** (from 14,772), BindingTests sim **3,242/0/0** (37 skips, from 3,238), device
+  **3,255/0/0** (verified on hardware), `--compile-only` exit 0, corpus **42/120 green** (from
+  39/120).
+- Wave 2: **planned** — session docs authored by wave-1 closeout in
+  `src/docs/sessions/2026-07-binding-resilience-wave2/` (per D-R3); not yet run.
+
+### Wave-1 outcome record (2026-07-19)
+
+**Corpus movement, decomposed** (120-lib re-sweep vs the D-R4 39/120 baseline; four-way accounting):
+
+| Bucket | Count | Libraries |
+|---|---|---|
+| Recovered (loop-attributable green) | 3 | CSV.swift, PromiseKit, ReSwift — generate→ok, each via SWIFTBIND112 withdrawal of 1 unit |
+| Honest advancement (loop, still red) | 3 | CocoaMQTT (1 unit), Eureka (5), Hero (10) — withdrawals settle the Swift wrapper; now fail at the **C# compile** stage, i.e. exactly Family B, wave-2 Stage 4's target |
+| Honest red (loop fail-closed, SWIFTBIND111) | 19 | generate_failed→generate_failed; cause tally across products: 12 InputConfiguration, 7 RequiresGraphClosure, 1 IterationCapExhausted, 1 NoProgress, 2 Unattributable |
+| Degraded-green | 0 | no green binding carries a withdrawal |
+| Regression | 0 | worsened bucket empty |
+
+Environmental drift, excluded from the movement claim: 3 generate→compile flips with zero loop
+evidence (Macaw/MessageKit/YPImagePicker — NU1101 missing dependency-binding packages in the harness
+feed) and 8 convert-cache flips (convert_failed→no_primary_products/compile_failed). Withdrawal
+report rows were spot-checked (CSV.swift, Hero): roots, cascades, owner, and details are honest; the
+one mislabel found (withdrawal rows stamped `RecoveryStage: Emit`) was fixed in closeout —
+withdrawal-origin `EmitterFault` rows now classify at `SwiftCompile`.
+
+**Decisions that changed during execution** (the plan said one thing; landed reality is another):
+
+- S01: determinism is pinned via an **epoch-gated Swift rollback**, not a plain double-emit compare.
+- S03: all five ABI checker rules (one `AbiContractChecker` type) ship **blocking** — the planned warn-only intermediate step was
+  skipped after the 91 CC-001 hits all proved false positives (checker retuned to managed-string
+  carriers only; violations throw `AbiContractViolationException`, SWIFTBIND095).
+- S05: the full recovery lattice (9 scopes), `RecoveryGraph`, and `RecoveryPolicy` were built, but
+  the loop consumes only **LeafApi + AccessorGroup**; graph/policy have zero production callers —
+  their activation is trigger-gated in `not-planned.md`, not silently live.
+- S07: exception containment landed as a **snapshot/restore journal** (poison-and-regenerate,
+  27 `EmissionSeam.Guard` sites, cap 3 → SWIFTBIND110), not the fragment-overlay design sketched
+  in §5.
+- S08: swiftc attribution parses **structured stderr**, not `.dia` serialized diagnostics — swiftc
+  emits no `.dia` under `-emit-library` and .NET has no managed reader; fingerprint is an FNV-1a
+  count-multiset.
+- S09: the wrapper verify-recover loop runs as an **in-emission driver** (pristine re-render per
+  iteration, cross-slice union of failing units, monotonic denylist, cap 4) wired to the in-process
+  simulator wrapper-arch path only; SDK two-pass and device paths keep the fast path — the parity
+  asymmetry is ratified in `not-planned.md`. Post-loop recompile of settled source stays the
+  authoritative ship gate.
+- S8b: the two persistent sim crashes were **root-caused to the Mono unwinder** (confirmed upstream,
+  Issue 5 in the authoritative memory list) → 2 runtime-detected `[SkipOnMonoJit]` skips, device
+  legs re-prove both under NativeAOT.
+- S09b: an 8-probe search found **no natural emitted-but-broken wrapper** in the 20-lib proof
+  corpus; loop mechanics are pinned by mechanism-gap tests instead
+  (`EmissionFactsJournalTests`, `InEmissionDriverRestorationTests`). The first natural firings came
+  from this closeout's 120-lib re-sweep (the 6 libs above).
+
+**Leftover routing:** all wave-1 residuals live as trigger-gated rows in `not-planned.md`
+(§"Wrapper verify-recover loop — wave-2 & deferred": RecoveryGraph completeness + Gate-0 actuators,
+ABI-as-loop-input, strip-as-iteration-0, consume-converged-outcome + convergence-predicate
+precision, loop path parity, BindingTests resilience fixture); near-term intent lives in the wave-2
+session docs; roadmap carries policy only.
 
 ---
 

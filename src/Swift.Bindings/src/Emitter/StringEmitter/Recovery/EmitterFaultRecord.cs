@@ -106,6 +106,14 @@ internal readonly record struct EmitterFaultRecord
         };
 
     /// <summary>
+    /// How a recovery-withdrawal details string begins. This prefix is the one signal of
+    /// <see cref="EmitterFaultOrigin.RecoveryWithdrawal"/> that survives into a skip row — the row
+    /// itself carries only reason and details — so <see cref="SkipCauseClassifier"/> keys stage
+    /// refinement on it rather than duplicating the wording.
+    /// </summary>
+    internal const string WithdrawalDetailsPrefix = "Withdrawn by wrapper verify-recover: ";
+
+    /// <summary>
     /// The details string recorded on the skip row. Reads as a sentence a triager can act on. For an
     /// emitter exception it keeps the fingerprint so two rows can be compared without re-running the
     /// generator; for a recovery withdrawal it says plainly that the unit was withdrawn to make the
@@ -113,7 +121,7 @@ internal readonly record struct EmitterFaultRecord
     /// </summary>
     public string Details =>
         Origin == EmitterFaultOrigin.RecoveryWithdrawal
-            ? $"Withdrawn by wrapper verify-recover: {Message}"
+            ? $"{WithdrawalDetailsPrefix}{Message}"
             : $"Emitter threw {ExceptionType} at {Fingerprint}: {Message}";
 
     private static string BuildFingerprint(Exception exception)

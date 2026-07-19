@@ -389,6 +389,59 @@ public class SkipAttributionTests
     }
 
     /// <summary>
+    /// A wrapper verify-recover withdrawal is decided by the Swift wrapper compile, not by emission —
+    /// the emitter lowered the declaration fine; it was withdrawn because the compiled wrapper failed.
+    /// The row shares <see cref="SkipReason.EmitterFault"/> with live emitter exceptions, so the stage
+    /// must be refined from the withdrawal wording that <see cref="EmitterFaultRecord.Details"/> stamps.
+    /// A report that places the withdrawal at Emit points a triager at the wrong pipeline stage.
+    /// </summary>
+    [Fact]
+    public void Link_PlacesARecoveryWithdrawalRowAtSwiftCompile()
+    {
+        var decl = DeclId.Create("M", "T", BindingItemKind.Method, "foo");
+        var withdrawal = EmitterFaultRecord.ForRecoveryWithdrawal(
+            decl, RecoveryScope.LeafApi, "withdrawn to recover the wrapper compile (M.T.foo (leaf-api))");
+        var item = new SkippedItem
+        {
+            Kind = BindingItemKind.Method,
+            Name = "foo",
+            Reason = SkipReason.EmitterFault,
+            Details = withdrawal.Details,
+            DeclId = decl.Canonical,
+        };
+
+        SkipAttributionLinker.Link(new[] { item });
+
+        Assert.Equal(RecoveryStage.SwiftCompile, item.RecoveryStage);
+        Assert.Equal(CauseOwner.Generator, item.CauseOwner);
+        Assert.Equal(AttributionConfidence.High, item.Confidence);
+    }
+
+    /// <summary>
+    /// A live emitter exception keeps the Emit stage — the refinement must key on the withdrawal
+    /// wording, not on the reason alone.
+    /// </summary>
+    [Fact]
+    public void Link_KeepsAThrownEmitterFaultRowAtEmit()
+    {
+        var decl = DeclId.Create("M", "T", BindingItemKind.Method, "bar");
+        var fault = EmitterFaultRecord.From(
+            decl, RecoveryScope.LeafApi, new InvalidOperationException("boom"));
+        var item = new SkippedItem
+        {
+            Kind = BindingItemKind.Method,
+            Name = "bar",
+            Reason = SkipReason.EmitterFault,
+            Details = fault.Details,
+            DeclId = decl.Canonical,
+        };
+
+        SkipAttributionLinker.Link(new[] { item });
+
+        Assert.Equal(RecoveryStage.Emit, item.RecoveryStage);
+    }
+
+    /// <summary>
     /// A property row names its accessor group, so a getter row and a setter row on one property
     /// resolve to the same unit rather than two.
     /// </summary>

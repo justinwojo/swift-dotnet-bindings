@@ -132,6 +132,29 @@ public static class SkipCauseClassifier
     public static SkipAttribution Classify(SkipReason reason) =>
         Table.TryGetValue(reason, out var attribution) ? attribution : Fallback;
 
+    /// <summary>
+    /// Classifies a root row, refining the reason-only answer where the details disambiguate the
+    /// stage. One reason needs this today: <see cref="SkipReason.EmitterFault"/> covers both a live
+    /// emitter exception (decided at <see cref="RecoveryStage.Emit"/>) and a wrapper verify-recover
+    /// withdrawal — where the emitter lowered the declaration fine and it was withdrawn because the
+    /// compiled Swift wrapper failed, so the decision belongs to
+    /// <see cref="RecoveryStage.SwiftCompile"/>. The withdrawal's only surviving signal on the row is
+    /// its details wording, single-sourced in <see cref="EmitterFaultRecord.WithdrawalDetailsPrefix"/>.
+    /// </summary>
+    public static SkipAttribution Classify(SkipReason reason, string? details)
+    {
+        var attribution = Classify(reason);
+        if (reason == SkipReason.EmitterFault
+            && details is not null
+            && details.StartsWith(EmitterFaultRecord.WithdrawalDetailsPrefix, StringComparison.Ordinal))
+        {
+            attribution = SkipAttribution.Of(
+                attribution.Owner, RecoveryStage.SwiftCompile, attribution.Confidence);
+        }
+
+        return attribution;
+    }
+
     private static ImmutableDictionary<SkipReason, SkipAttribution> BuildTable()
     {
         var builder = ImmutableDictionary.CreateBuilder<SkipReason, SkipAttribution>();

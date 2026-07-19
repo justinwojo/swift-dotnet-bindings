@@ -140,7 +140,7 @@ public static class SkipAttributionLinker
         var root = ResolveRoot(item, items, byUnit);
         var isCascade = !ReferenceEquals(root, item);
 
-        var attribution = SkipCauseClassifier.Classify(root.Reason);
+        var attribution = SkipCauseClassifier.Classify(root.Reason, root.Details);
         if (isCascade)
         {
             // Second-hand: the owner and stage are the root's, but the row itself is evidence of a
