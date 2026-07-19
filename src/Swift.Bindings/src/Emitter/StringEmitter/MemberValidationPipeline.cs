@@ -663,6 +663,34 @@ public class MemberValidationPipeline
                 return ValidationResult.Skip(SkipReason.UnsupportedType,
                     $"Constrained-extension property '{propertyDecl.Name}' on generic type '{constrainedExtensionParent.Name}' requires a dependent-member same-type constraint on a parent associated type (e.g. `where Value.ValueType == Concrete`); not re-surfaceable as a closed-generic extension method and would emit an unsatisfiable protocol-group conformance at the open-generic level.");
             }
+
+            // Protocol-kind narrowing on a parent-declared generic parameter — the
+            // property-side mirror of MethodWrapperEmitter.WouldGenericStaticDispatchSkipForNarrowerConstraint.
+            // A property declared on `extension Box where Base : UIView` carries the extra
+            // `: UIView` constraint on its accessor's OWN generic signature while the parent
+            // leaves Base unconstrained. The generated instance-class-dispatch conformance
+            // (`extension Box: _SBW_PG_<hash> {}`) is emitted UNCONDITIONALLY, so swiftc
+            // rejects it because the getter is only available under the extension's
+            // where-clause — a wrapper the verify-recover loop soundly withdraws as an
+            // EmitterFault. Predict it here so the pipeline never promotes an SBW_ symbol
+            // the wrapper build later withdraws.
+            //
+            // Kind separation with the gate just above is deliberate and load-bearing: a
+            // same-type ConcreteType constraint (`where Base == Concrete`, direct OR
+            // dependent-member) already returned above via HasParentExtensionSameTypeConstraint —
+            // the DIRECT variant is then RE-SURFACED as a closed-generic extension by
+            // ConstrainedExtensionEmitter, so it must NOT be re-skipped here. Because this
+            // gate is only reached when no ConcreteType conformance exists, the narrowing
+            // predicate fires exclusively on the Protocol-kind (`: X`) shape that has no
+            // closed-generic re-surfacing path. Reads every accessor's generic params, so
+            // static and instance properties are both covered (both dispatch paths emit an
+            // unconditional conformance extension).
+            var accessorGenericParams = propertyDecl.Accessors.SelectMany(a => a.Method.GenericParameters);
+            if (WrapperValidation.GenericParamsNarrowParentConstraints(accessorGenericParams, constrainedExtensionParent))
+            {
+                return ValidationResult.Skip(SkipReason.ConstrainedExtensionWrapper,
+                    $"Property '{propertyDecl.Name}' on generic type '{constrainedExtensionParent.Name}' declares a protocol/superclass generic constraint (e.g. `where Base : X`) narrower than its parent; the wrapper conformance extension is emitted unconditionally, so the accessor is invisible at the call site (conditional-conformance wrapper not yet supported).");
+            }
         }
 
         // Bare generic usage (generic declaration used without type arguments)

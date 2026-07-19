@@ -849,51 +849,15 @@ public static class MethodWrapperEmitter
     {
         swiftMethodName = NameProvider.ParserNameToSwift(env.MethodDecl);
         var methodDecl = env.MethodDecl;
+        // Statics flow through metatype-derived dispatch with a different emission shape
+        // (see GenericStaticDispatch_StaticConstrainedExtension_DoesNotMisfire); no
+        // real-world constrained-static-extension regression has been observed, so the
+        // narrowing gate is scoped to instance methods here. The shared predicate itself
+        // is dispatch-neutral — the property path applies it to statics too.
         if (methodDecl.MethodType == MethodType.Static) return false;
-        if (!parentTypeDecl.IsGeneric) return false;
-
-        // Parent's set of generic-parameter names (τ_0_X, depth 0). Method-local
-        // generics live at depth > 0 (τ_1_X etc.); their constraints don't require
-        // propagation onto the conformance extension.
-        var parentParamNames = new HashSet<string>(StringComparer.Ordinal);
-        var parentConformances = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var gp in parentTypeDecl.GenericParameters)
-        {
-            parentParamNames.Add(gp.TypeName);
-            foreach (var c in gp.GenericConformances)
-                parentConformances.Add(BuildNarrowingConformanceKey(c));
-            foreach (var c in gp.AssosiatedTypeConformances)
-                parentConformances.Add(BuildNarrowingConformanceKey(c));
-        }
-
-        foreach (var gp in methodDecl.GenericParameters)
-        {
-            // Only constraints on parent-declared generic params can narrow the
-            // conformance extension — method-local generics are scoped to the method.
-            if (!parentParamNames.Contains(gp.TypeName)) continue;
-            foreach (var c in gp.GenericConformances)
-            {
-                if (!parentConformances.Contains(BuildNarrowingConformanceKey(c)))
-                    return true;
-            }
-            foreach (var c in gp.AssosiatedTypeConformances)
-            {
-                if (!parentConformances.Contains(BuildNarrowingConformanceKey(c)))
-                    return true;
-            }
-        }
-        return false;
+        return WrapperValidation.GenericParamsNarrowParentConstraints(
+            methodDecl.GenericParameters, parentTypeDecl);
     }
-
-    /// <summary>
-    /// Builds a path + target + kind key for narrowing-conformance comparison. Path
-    /// captures both direct (<c>τ_0_0</c>) and associated-type (<c>τ_0_0.Element</c>)
-    /// constraints, ConformanceTarget distinguishes different protocols/types on the
-    /// same parameter, and Kind separates protocol conformance from same-type
-    /// constraints (<c>where N == Foo</c>).
-    /// </summary>
-    private static string BuildNarrowingConformanceKey(GenericParameterConformance c)
-        => $"{string.Join(".", c.Path)}|{c.ConformanceTarget.ModuleQualifiedName}|{c.Kind}";
 
     /// <summary>
     /// Builds the dispatch-identity signature for a method: base name plus the tuple of

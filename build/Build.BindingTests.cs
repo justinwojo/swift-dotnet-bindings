@@ -979,6 +979,15 @@ partial class Build
                 // consistent with the parity and wrapper-build gates.
                 RunApiManifestGate(failClosed);
 
+                // Wrapper verify-recover resilience gate: generate a tiny fixture whose generic types
+                // interleave a deliberately emitted-wrong member (an IUO stored property on a generic
+                // class) with healthy siblings, and assert the verify-recover loop withdrew ONLY the
+                // broken accessor group (EmitterFault / SwiftCompile), kept every healthy sibling with
+                // an identical name/suffix, and left no dangling wrapper symbol. Runs unconditionally on
+                // every --compile-only so CI exercises the loop's compile → attribute → withdraw path,
+                // not just the happy generation. Fail-closed on every assertion by construction.
+                RunResilienceKitchenGate();
+
                 // Layer B trend gate: parse skip markers from generated `.cs`
                 // and diff against `build/baselines/skip-surface-baseline.json`. Gated on
                 // --skip-surface so it runs only when explicitly requested

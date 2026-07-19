@@ -736,6 +736,75 @@ public static class WrapperValidation
     }
 
     /// <summary>
+    /// Returns true when <paramref name="memberGenericParams"/> place a generic-parameter
+    /// constraint on a PARENT-declared generic parameter that the parent type itself does
+    /// not declare — the constrained-extension shape (e.g.
+    /// <c>extension Box where Base : UIView</c> or the same-type <c>where Base == Foo</c>)
+    /// where the constraint lives on the member's own generic signature, not the parent's.
+    /// <para>
+    /// The generated wrapper's conformance/dispatch extension is emitted unconditionally
+    /// (no where-clause), so any extra constraint on a parent-declared generic parameter is
+    /// invisible at the call site and swiftc rejects the unconditional conformance because
+    /// the member is only available under the extension's where-clause. Both the
+    /// generic-static-dispatch method path and the instance-class-dispatch property path
+    /// share this failure mode, so both share this predicate.
+    /// </para>
+    /// <para>
+    /// Member-local generic parameters (introduced by the member signature rather than
+    /// inherited from the parent) are filtered out by the parent-name membership test:
+    /// their constraints are scoped to the member and do not require propagation onto the
+    /// conformance extension.
+    /// </para>
+    /// </summary>
+    public static bool GenericParamsNarrowParentConstraints(
+        IEnumerable<GenericArgumentDecl> memberGenericParams, TypeDecl parentTypeDecl)
+    {
+        if (!parentTypeDecl.IsGeneric) return false;
+
+        // Parent's set of generic-parameter names and the conformances it already
+        // declares on them. A member constraint keyed to a parent param that is NOT in
+        // this conformance set narrows the parent.
+        var parentParamNames = new HashSet<string>(StringComparer.Ordinal);
+        var parentConformances = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var gp in parentTypeDecl.GenericParameters)
+        {
+            parentParamNames.Add(gp.TypeName);
+            foreach (var c in gp.GenericConformances)
+                parentConformances.Add(BuildNarrowingConformanceKey(c));
+            foreach (var c in gp.AssosiatedTypeConformances)
+                parentConformances.Add(BuildNarrowingConformanceKey(c));
+        }
+
+        foreach (var gp in memberGenericParams)
+        {
+            // Only constraints on parent-declared generic params can narrow the
+            // conformance extension — member-local generics are scoped to the member.
+            if (!parentParamNames.Contains(gp.TypeName)) continue;
+            foreach (var c in gp.GenericConformances)
+            {
+                if (!parentConformances.Contains(BuildNarrowingConformanceKey(c)))
+                    return true;
+            }
+            foreach (var c in gp.AssosiatedTypeConformances)
+            {
+                if (!parentConformances.Contains(BuildNarrowingConformanceKey(c)))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Builds a path + target + kind key for narrowing-conformance comparison. Path
+    /// captures both direct (<c>τ_0_0</c>) and associated-type (<c>τ_0_0.Element</c>)
+    /// constraints, ConformanceTarget distinguishes different protocols/types on the
+    /// same parameter, and Kind separates protocol conformance from same-type constraints
+    /// (<c>where N == Foo</c>).
+    /// </summary>
+    public static string BuildNarrowingConformanceKey(GenericParameterConformance c)
+        => $"{string.Join(".", c.Path)}|{c.ConformanceTarget.ModuleQualifiedName}|{c.Kind}";
+
+    /// <summary>
     /// Returns true if a type is a generic container that can't be handled by @_cdecl wrappers.
     /// Allows: Optional&lt;value-type&gt; (IndirectResult), Optional&lt;reference&gt; (nullable pointer),
     /// Array, Dictionary, Set (UnsafeRawPointer transport), Result&lt;T,E&gt; (UnsafeRawPointer transport).

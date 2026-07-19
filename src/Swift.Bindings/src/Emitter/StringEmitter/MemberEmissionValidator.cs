@@ -183,6 +183,22 @@ public static class MemberEmissionValidator
                 skipDetails = $"Constrained-extension property '{property.Name}' on generic type '{constrainedExtensionParent.Name}' requires a dependent-member same-type constraint on a parent associated type (e.g. `where Value.ValueType == Concrete`); not re-surfaceable as a closed-generic extension method and would emit an unsatisfiable protocol-group conformance at the open-generic level.";
                 return SkipReason.UnsupportedType;
             }
+            // Protocol-kind narrowing on a parent-declared generic parameter
+            // (`extension Box where Base : UIView`) — the concrete-side mirror of the
+            // pipeline gate in MemberValidationPipeline.ValidatePropertyEmissionCore.
+            // Only reached when NO ConcreteType same-type constraint exists (those return
+            // above and, for the direct variant, are re-surfaced by ConstrainedExtensionEmitter),
+            // so it fires exclusively on the `: X` shape that has no closed-generic
+            // re-surfacing path: the wrapper's unconditional conformance extension is
+            // rejected by swiftc because the accessor is only available under the
+            // where-clause. Drop it predictively rather than let the verify-recover loop
+            // withdraw the emitted-broken wrapper.
+            var accessorGenericParams = property.Accessors.SelectMany(a => a.Method.GenericParameters);
+            if (WrapperValidation.GenericParamsNarrowParentConstraints(accessorGenericParams, constrainedExtensionParent))
+            {
+                skipDetails = $"Property '{property.Name}' on generic type '{constrainedExtensionParent.Name}' declares a protocol/superclass generic constraint (e.g. `where Base : X`) narrower than its parent; the wrapper conformance extension is emitted unconditionally, so the accessor is invisible at the call site (conditional-conformance wrapper not yet supported).";
+                return SkipReason.ConstrainedExtensionWrapper;
+            }
         }
 
         // B19: Skip properties referencing SwiftUI/Combine types (unless registered in type database).

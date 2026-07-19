@@ -341,6 +341,28 @@ recorded here — the session docs are not the record.
   decision (see `not-planned.md`) and is **not** a program gate; the corpus-sweep harness at
   `/Users/wojo/Dev/internal-binding-testing/corpus-sweep/` is the sweep instrument.
 
+### Owner decisions (2026-07-19, wave-2 scope review)
+
+- **D-R5 — full wave 2 confirmed.** The owner pressure-tested wave 2's scope against wave 1's
+  corpus movement (+3 green) and reaffirmed the product goal verbatim: anyone can toss a random
+  third-party `.xcframework` at the tool and get a workable, compiling binding — skipping surface
+  with clear language beats throwing errors. All eight wave-2 sessions run as authored; a proposed
+  trim (drop 05–07) was considered and rejected. Time/token cost is not a constraint on this
+  program.
+- **D-R6 — OD-W2-2 resolved: ship degenerate bindings while any usable surface remains.** A module
+  whose Swift wrapper surface strips to nothing (or that never had one) ships as an honest
+  degenerate binding **as long as the settled binding still exposes usable public surface**; the
+  report says exactly what was withdrawn. Fail closed **only** when the settled binding would
+  expose no usable surface at all — and that error must say so in clear language ("nothing could
+  be emitted; without it the binding is unusable, so this is an error"). The precise
+  usable-surface predicate is delegated to session 06's judgment within that principle.
+- **D-R7 — OD-W2-3 resolved in direction: ingestion follow-up program.** The residual red
+  population expected after the soak (InputConfiguration causes, convert-stage failures) is not
+  accepted as out of scope: after wave 2 closes, a follow-up ingestion-hardening program is
+  planned — a stranger's random framework hits ingestion first. Session 08 routes the soak's cause
+  tally as that program's seed evidence rather than presenting a disposition fork; program shape
+  and roadmap placement remain owner calls at that point.
+
 ### Wave map
 
 | Wave | Sessions | Stages (§7) | Highlights |

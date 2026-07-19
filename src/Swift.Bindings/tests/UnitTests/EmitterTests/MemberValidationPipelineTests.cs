@@ -722,6 +722,150 @@ public class MemberValidationPipelineTests
             Assert.DoesNotContain("dependent-member same-type constraint", result.Details);
     }
 
+    [Fact]
+    public void ValidatePropertyEmission_ConstrainedExtensionProtocolNarrowing_ReturnsConstrainedExtensionWrapperSkip()
+    {
+        // A property declared on `extension Box where Base : UIView` — a `:`-style
+        // superclass/protocol constraint that NARROWS a parent generic parameter the
+        // parent type itself leaves unconstrained. The generated instance-class-dispatch
+        // wrapper emits an UNCONDITIONAL `extension Box: _SBW_PG_<hash> {}` conformance,
+        // which swiftc rejects because the property's getter is only available under the
+        // extension's where-clause. This is the property-side analogue of the method gate
+        // (WouldGenericStaticDispatchSkipForNarrowerConstraint) — it must fire at planning
+        // time so the pipeline never promotes an SBW_ symbol the wrapper build later
+        // withdraws (a loop-time EmitterFault). The same-type (`where T == Concrete`)
+        // shape is caught one gate earlier by HasParentExtensionSameTypeConstraint; this
+        // gate catches the Protocol-kind narrowing that gate misses.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+
+        var parent = BuildGenericParentWithRawParam("Box",
+            parentConformances: new List<GenericParameterConformance>());
+        var property = BuildConstrainedExtensionNarrowingProperty(
+            "cornerRadius", parent, "UIKit.UIView", ConformanceKind.Protocol);
+        parent.Properties.Add(property);
+
+        var result = pipeline.ValidatePropertyEmission(property, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.ConstrainedExtensionWrapper, result.Reason);
+    }
+
+    [Fact]
+    public void ValidatePropertyEmission_ConstraintMatchesParent_NotGatedByNarrowing()
+    {
+        // The parent type ITSELF declares `Base : UIView` on its own generic signature
+        // (not just on the extension). The wrapper conformance extension is then faithful
+        // and the property is bindable — the narrowing gate must NOT fire. Distinguishes
+        // "narrows the parent" from "restates a constraint the parent already declares".
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+
+        var parent = BuildGenericParentWithRawParam("Box",
+            parentConformances: new List<GenericParameterConformance>
+            {
+                new(new[] { "τ_0_0" }, SwiftTypeName.FromModuleQualifiedName("UIKit.UIView"), ConformanceKind.Protocol)
+            });
+        var property = BuildConstrainedExtensionNarrowingProperty(
+            "cornerRadius", parent, "UIKit.UIView", ConformanceKind.Protocol);
+        parent.Properties.Add(property);
+
+        var result = pipeline.ValidatePropertyEmission(property, null!);
+
+        Assert.NotEqual(SkipReason.ConstrainedExtensionWrapper, result.Reason);
+    }
+
+    [Fact]
+    public void ValidatePropertyEmission_ConstrainedExtensionNarrowing_NonGenericParent_NotGated()
+    {
+        // Sanity: the narrowing gate sits inside the generic-parent branch. A property
+        // whose getter happens to carry a narrowing conformance on a NON-generic parent
+        // must not hit this branch (a non-generic type has no unconstrained parent param
+        // to narrow, so there is no unsatisfiable unconditional conformance to guard).
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+
+        var parent = BuildBareStructDecl("Plain", isGeneric: false);
+        var property = BuildConstrainedExtensionNarrowingProperty(
+            "cornerRadius", parent, "UIKit.UIView", ConformanceKind.Protocol);
+        parent.Properties.Add(property);
+
+        var result = pipeline.ValidatePropertyEmission(property, null!);
+
+        Assert.NotEqual(SkipReason.ConstrainedExtensionWrapper, result.Reason);
+    }
+
+    /// <summary>
+    /// Builds a generic parent whose single generic parameter uses the raw ABI name
+    /// <c>τ_0_0</c> (sugared <c>Base</c>) — matching how the digester emits a generic
+    /// type's own signature. <paramref name="parentConformances"/> lets a test place a
+    /// constraint on the PARENT's own signature (vs. only on a constrained extension's
+    /// members).
+    /// </summary>
+    private static StructDecl BuildGenericParentWithRawParam(
+        string typeName, List<GenericParameterConformance> parentConformances)
+    {
+        var parent = BuildBareStructDecl(typeName, isGeneric: true);
+        parent.GenericParameters.Clear();
+        parent.GenericParameters.Add(new GenericArgumentDecl(
+            TypeName: "τ_0_0",
+            SugaredTypeName: "Base",
+            GenericConformances: parentConformances,
+            AssosiatedTypeConformances: new List<GenericParameterConformance>()));
+        return parent;
+    }
+
+    /// <summary>
+    /// Builds a property whose getter accessor carries a constraint (<c>where Base : X</c>
+    /// or <c>where Base == X</c>) on the parent-declared generic parameter <c>τ_0_0</c>.
+    /// The constraint lands on the accessor's OWN generic signature — the digester copies
+    /// the accessor's GenericSig, which for a constrained-extension member includes the
+    /// extension's where-clause — NOT on the parent TypeDecl's generic parameters, which
+    /// stay unconstrained. Mirrors the Kingfisher/Lottie/Hero constrained-extension
+    /// property shape.
+    /// </summary>
+    private static PropertyDecl BuildConstrainedExtensionNarrowingProperty(
+        string name, TypeDecl parent, string conformanceTarget, ConformanceKind kind)
+    {
+        var conformance = new GenericParameterConformance(
+            new[] { "τ_0_0" },
+            SwiftTypeName.FromModuleQualifiedName(conformanceTarget),
+            kind);
+
+        var getterMethod = new MethodDecl
+        {
+            Name = name,
+            ParentDecl = parent,
+            ModuleDecl = null,
+            MangledName = $"$s10TestModule3BoxV{name}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new("τ_0_0", "Base",
+                    new List<GenericParameterConformance> { conformance },
+                    new List<GenericParameterConformance>())
+            },
+            CSSignature = new List<ArgumentDecl>(),
+            AvailabilityAnnotations = null
+        };
+
+        return new PropertyDecl
+        {
+            Name = name,
+            ParentDecl = parent,
+            ModuleDecl = null,
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            HasStorage = false,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getterMethod } },
+            AvailabilityAnnotations = null
+        };
+    }
+
     /// <summary>
     /// Builds a property whose getter carries a dependent-member same-type constraint
     /// (<c>where Value.ValueType == Concrete</c>) — mirrors the AppIntents
