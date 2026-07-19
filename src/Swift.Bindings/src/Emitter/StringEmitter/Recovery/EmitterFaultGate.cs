@@ -50,4 +50,23 @@ internal static class EmitterFaultGate
         details = string.Empty;
         return false;
     }
+
+    /// <summary>
+    /// True when the coarse sub-declaration <paramref name="unit"/> is poisoned, with the detail string
+    /// for the tombstone/report row. The unit-keyed counterpart to
+    /// <see cref="IsDenied(in DeclId, out string)"/> — a coarse emission boundary (the reverse
+    /// -conformance seam, the shared-helper bundle emitters, the conformance-edge site) queries this so a
+    /// withdrawal of its surface does not require poisoning, and thereby collapsing, the whole type.
+    /// </summary>
+    public static bool IsDenied(in RecoveryUnitId unit, out string details)
+    {
+        if (EmissionAttempt.TryGetFault(unit, out var fault))
+        {
+            details = fault.Details;
+            return true;
+        }
+
+        details = string.Empty;
+        return false;
+    }
 }

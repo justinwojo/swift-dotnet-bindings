@@ -38,6 +38,7 @@ public sealed class RecoveryGraphBuilder
 
     private readonly Dictionary<RecoveryUnitId, PendingUnit> _units = new();
     private readonly Dictionary<ArtifactId, RecoveryUnitId> _artifactOwners = new();
+    private readonly List<RecoveryEdge> _edges = new();
 
     /// <summary>
     /// Declares the module unit — the escalation terminus every chain ends at.
@@ -208,10 +209,26 @@ public sealed class RecoveryGraphBuilder
     }
 
     /// <summary>
-    /// Records that <paramref name="dependent"/> cannot remain without <paramref name="dependency"/>.
+    /// Records that <paramref name="dependent"/> cannot remain without <paramref name="dependency"/>,
+    /// without stating why. The edge is recorded as <see cref="RecoveryEdgeKind.Unspecified"/> — which
+    /// is treated as non-witnessable, so an edge added through this overload can never authorize a
+    /// coarse withdrawal. Production capture should prefer the kinded overload.
     /// </summary>
     /// <exception cref="ArgumentException">A unit is undeclared, or a unit requires itself.</exception>
-    public RecoveryGraphBuilder AddRequires(RecoveryUnitId dependent, RecoveryUnitId dependency)
+    public RecoveryGraphBuilder AddRequires(RecoveryUnitId dependent, RecoveryUnitId dependency) =>
+        AddRequires(dependent, dependency, RecoveryEdgeKind.Unspecified);
+
+    /// <summary>
+    /// Records that <paramref name="dependent"/> cannot remain without <paramref name="dependency"/>,
+    /// tagging the edge with <paramref name="kind"/> so the completeness gate knows whether it can be
+    /// witnessed. The id-only adjacency dedups per (dependent, dependency) pair as before; the typed
+    /// edge dedups per (dependent, dependency, kind) triple, so one pair may carry several kinds.
+    /// </summary>
+    /// <exception cref="ArgumentException">A unit is undeclared, or a unit requires itself.</exception>
+    public RecoveryGraphBuilder AddRequires(
+        RecoveryUnitId dependent,
+        RecoveryUnitId dependency,
+        RecoveryEdgeKind kind)
     {
         if (!_units.TryGetValue(dependent, out var pending))
             throw new ArgumentException($"Unit '{dependent.Canonical}' has not been declared.", nameof(dependent));
@@ -222,6 +239,10 @@ public sealed class RecoveryGraphBuilder
 
         if (!pending.Requires.Contains(dependency))
             pending.Requires.Add(dependency);
+
+        var edge = new RecoveryEdge { Dependent = dependent, Dependency = dependency, Kind = kind };
+        if (!_edges.Contains(edge))
+            _edges.Add(edge);
         return this;
     }
 
@@ -287,7 +308,8 @@ public sealed class RecoveryGraphBuilder
 
         return new RecoveryGraph(
             units,
-            provides.ToDictionary(kv => kv.Key, kv => kv.Value.ToImmutableArray()));
+            provides.ToDictionary(kv => kv.Key, kv => kv.Value.ToImmutableArray()),
+            _edges.ToImmutableArray());
     }
 
     private void WalkToTerminus(RecoveryUnitId start)

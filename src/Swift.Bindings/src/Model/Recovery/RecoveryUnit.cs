@@ -54,6 +54,30 @@ public sealed record RecoveryUnit
 }
 
 /// <summary>
+/// One typed dependency edge: <see cref="Dependent"/> cannot remain without <see cref="Dependency"/>,
+/// and <see cref="Kind"/> records <em>why</em> — which fixes whether the edge's completeness can be
+/// witnessed against the settled render (see <see cref="RecoveryEdgeKind"/>).
+/// </summary>
+/// <remarks>
+/// This carries the same adjacency as <see cref="RecoveryUnit.Requires"/> but keeps the kind, which
+/// the id-only <c>Requires</c>/<c>Provides</c> projections deliberately drop. A single
+/// (dependent, dependency) pair may have more than one edge when it is both, say, a
+/// <see cref="RecoveryEdgeKind.HelperCall"/> and a <see cref="RecoveryEdgeKind.PInvokeToWrapperSymbol"/>
+/// reference.
+/// </remarks>
+public readonly record struct RecoveryEdge
+{
+    /// <summary>The unit that would be stranded if <see cref="Dependency"/> were withdrawn.</summary>
+    public required RecoveryUnitId Dependent { get; init; }
+
+    /// <summary>The unit <see cref="Dependent"/> relies on.</summary>
+    public required RecoveryUnitId Dependency { get; init; }
+
+    /// <summary>Why the dependency exists — and thus whether it can be witnessed.</summary>
+    public required RecoveryEdgeKind Kind { get; init; }
+}
+
+/// <summary>
 /// The recovery graph: every unit in a module, their escalation chains, and their
 /// <c>Requires</c>/<c>Provides</c> edges.
 /// </summary>
@@ -66,13 +90,16 @@ public sealed class RecoveryGraph
 {
     private readonly IReadOnlyDictionary<RecoveryUnitId, RecoveryUnit> _units;
     private readonly IReadOnlyDictionary<RecoveryUnitId, ImmutableArray<RecoveryUnitId>> _provides;
+    private readonly ImmutableArray<RecoveryEdge> _edges;
 
     internal RecoveryGraph(
         IReadOnlyDictionary<RecoveryUnitId, RecoveryUnit> units,
-        IReadOnlyDictionary<RecoveryUnitId, ImmutableArray<RecoveryUnitId>> provides)
+        IReadOnlyDictionary<RecoveryUnitId, ImmutableArray<RecoveryUnitId>> provides,
+        ImmutableArray<RecoveryEdge> edges)
     {
         _units = units;
         _provides = provides;
+        _edges = edges.IsDefault ? ImmutableArray<RecoveryEdge>.Empty : edges;
     }
 
     /// <summary>Every unit, in insertion order.</summary>
@@ -97,6 +124,26 @@ public sealed class RecoveryGraph
     /// </summary>
     public ImmutableArray<RecoveryUnitId> Provides(RecoveryUnitId id) =>
         _provides.TryGetValue(id, out var dependents) ? dependents : ImmutableArray<RecoveryUnitId>.Empty;
+
+    /// <summary>Every typed dependency edge in the graph.</summary>
+    public ImmutableArray<RecoveryEdge> Edges => _edges;
+
+    /// <summary>
+    /// The typed edges that depend on <paramref name="id"/> — every edge whose
+    /// <see cref="RecoveryEdge.Dependency"/> is <paramref name="id"/>. The kind-carrying view of
+    /// <see cref="Provides"/>, which the completeness gate needs to tell a witnessable dependent from a
+    /// semantic one.
+    /// </summary>
+    public IEnumerable<RecoveryEdge> IncomingEdges(RecoveryUnitId id) =>
+        _edges.Where(e => e.Dependency == id);
+
+    /// <summary>
+    /// The distinct kinds of edge that depend on <paramref name="id"/> — the <em>observed</em> incoming
+    /// kinds, as opposed to <see cref="RecoveryEdgeKinds.PossibleIncomingKinds"/>'s <em>possible</em>
+    /// set. Empty for a unit nothing depends on.
+    /// </summary>
+    public IEnumerable<RecoveryEdgeKind> IncomingEdgeKinds(RecoveryUnitId id) =>
+        IncomingEdges(id).Select(e => e.Kind).Distinct();
 
     /// <summary>
     /// The escalation chain above <paramref name="id"/>, nearest first, ending at a

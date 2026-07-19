@@ -101,6 +101,57 @@ public interface IWrapperRecoveryDriver
     /// union of all failing slices' diagnostics.
     /// </summary>
     AttributionResult? RenderCompileAttribute(IReadOnlySet<RecoveryUnitId> denylist);
+
+    /// <summary>
+    /// Consulted when a round blames a culprit coarser than a leaf or accessor group — a scope no
+    /// leaf withdrawal can clear. The driver decides, against the completeness-gated recovery graph it
+    /// built during emission, whether the coarse withdrawal is <em>sound</em>: it may authorize only
+    /// when every dependent-edge kind the coarse unit could carry is witnessable and witnessed, and it
+    /// returns the full dependency closure to withdraw alongside it (which the controller adds to the
+    /// denylist). An unauthorized verdict leaves the module failing closed exactly as before.
+    /// </summary>
+    /// <remarks>
+    /// The default authorizes nothing: a driver with no populated, witness-complete recovery graph can
+    /// never soundly widen past a leaf, so the loop's coarse-culprit behavior is unchanged until a
+    /// driver overrides this seam. This is why wiring the seam is byte-neutral for every current driver
+    /// — <see cref="InEmissionDriver"/> inherits the default and keeps failing coarse culprits closed
+    /// with <see cref="WrapperRecoveryFailureCause.RequiresGraphClosure"/>.
+    /// </remarks>
+    /// <param name="blocking">The fresh coarse culprits this round could not withdraw as leaves.</param>
+    /// <param name="denylist">The units already withdrawn, so the driver's closure excludes them.</param>
+    CoarseWithdrawalAuthorization AuthorizeCoarseWithdrawal(
+        IReadOnlyList<RecoveryUnitId> blocking, IReadOnlySet<RecoveryUnitId> denylist)
+        => CoarseWithdrawalAuthorization.Unauthorized;
+}
+
+/// <summary>
+/// A driver's verdict on whether a round's coarse culprits may be withdrawn, and if so, the dependency
+/// closure to withdraw with them. Authorization is all-or-nothing per round: either the driver's graph
+/// proves the whole closure sound to withdraw, or the module fails closed — a partially-authorized
+/// closure would strand a dependent, which is the outcome the whole gate exists to prevent.
+/// </summary>
+public sealed record CoarseWithdrawalAuthorization
+{
+    /// <summary>The default: no coarse withdrawal is authorized, so the module fails closed.</summary>
+    public static readonly CoarseWithdrawalAuthorization Unauthorized = new()
+    {
+        Authorized = false,
+        Closure = ImmutableArray<RecoveryUnitId>.Empty,
+    };
+
+    /// <summary>True when the driver's graph proved the coarse withdrawal sound.</summary>
+    public required bool Authorized { get; init; }
+
+    /// <summary>
+    /// The full dependency closure to withdraw — the coarse culprits plus every unit that must go with
+    /// them. The controller adds these to the denylist; a closure that adds no fresh unit is treated as
+    /// no progress and fails closed, so it cannot spin.
+    /// </summary>
+    public required ImmutableArray<RecoveryUnitId> Closure { get; init; }
+
+    /// <summary>Builds an authorized verdict over <paramref name="closure"/>.</summary>
+    public static CoarseWithdrawalAuthorization Authorize(IEnumerable<RecoveryUnitId> closure) =>
+        new() { Authorized = true, Closure = closure.ToImmutableArray() };
 }
 
 /// <summary>
@@ -183,14 +234,41 @@ public static class WrapperRecoveryController
             // exactly that common staged-recovery shape.
             var fresh = attribution.Culprits.Where(u => !denylist.Contains(u)).ToArray();
 
-            // Any fresh culprit coarser than a leaf/accessor cannot be withdrawn soundly without the
-            // dependency closure a populated recovery graph supplies. Fail the module closed — never
-            // poison the coarse unit's declaration as if it were a leaf, which would strand its
-            // dependents (the compile-clean/runtime-wrong outcome). Checked before any withdrawal so
-            // a coarse culprit is never disabled as if it were a leaf.
+            // Any fresh culprit coarser than a leaf/accessor cannot be withdrawn as a leaf. Consult the
+            // driver's authorization seam — which decides, against its completeness-gated recovery
+            // graph, whether the coarse withdrawal is sound and, if so, returns the dependency closure
+            // to withdraw with it. The default driver has no graph and authorizes nothing, so this is
+            // the fail-closed path unchanged: without an authorized closure the module fails closed
+            // rather than poison the coarse unit's declaration as if it were a leaf, which would strand
+            // its dependents (the compile-clean/runtime-wrong outcome). Checked before any leaf
+            // withdrawal so a coarse culprit is never disabled as if it were a leaf.
             var blocking = fresh.Where(u => !IsLeafRecoverable(u.Scope)).ToArray();
             if (blocking.Length > 0)
-                return Blocked(denylistOrder, round, blocking);
+            {
+                var authorization = driver.AuthorizeCoarseWithdrawal(blocking, denylist);
+
+                // An authorized withdrawal only counts if it makes monotonic progress: an empty or
+                // fully-redundant closure would let the same coarse culprit re-block every round, so it
+                // fails closed exactly as an unauthorized culprit does. This keeps the loop's
+                // termination guarantee intact regardless of what a driver's authorizer returns.
+                var addedClosure = false;
+                if (authorization.Authorized)
+                {
+                    foreach (var unit in authorization.Closure)
+                    {
+                        if (denylist.Add(unit))
+                        {
+                            denylistOrder.Add(unit);
+                            addedClosure = true;
+                        }
+                    }
+                }
+
+                if (!addedClosure)
+                    return Blocked(denylistOrder, round, blocking);
+
+                continue;
+            }
 
             // Fresh leaves to withdraw: disable them and iterate. This is the monotonic step, and it
             // runs regardless of whether the fingerprint repeated — withdrawing a new unit is, by

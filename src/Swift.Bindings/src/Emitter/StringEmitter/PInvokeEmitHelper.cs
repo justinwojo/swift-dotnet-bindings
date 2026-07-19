@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Collections.Immutable;
+
 namespace BindingsGeneration;
 
 /// <summary>
@@ -295,7 +297,85 @@ public static class PInvokeEmitHelper
 
         lines.Add($"{visibility} static {newModifier}{unsafeModifier}partial {returnTypeStr} {info.MethodName}({paramsStr});");
 
+        // Capture the typed call plan as a side effect of rendering. BuildAbiCallPlan recomputes the plan
+        // from the same facts these lines were rendered from — the same SelectCallingConvention resolution,
+        // the same async-aware return carrier, the same combined-and-deduplicated parameter string — so the
+        // plan and the emitted declaration agree by construction, and there is one place the plan is built.
+        // Recording is gated on a threaded emission context and writes only the side table, never the
+        // returned lines, so text output is unchanged wherever a context is present. Nothing reads the
+        // plans yet — this is the foundation for typed call-plan validation.
+        info.EmissionContext?.RecordAbiCallPlan(BuildAbiCallPlan(info));
+
         return lines;
+    }
+
+    /// <summary>
+    /// Builds the typed <see cref="AbiCallPlan"/> for a P/Invoke declaration without emitting it, from the
+    /// same facts <see cref="FormatDeclarationLines"/> renders: the resolved calling convention, the async
+    /// -aware return carrier, and the combined-and-deduplicated parameter string. Pure — a function of
+    /// <paramref name="info"/> alone — so two calls with the same input yield equal plans, and a plan
+    /// equals the one <see cref="FormatDeclarationLines"/> records for the same <paramref name="info"/>.
+    /// </summary>
+    /// <exception cref="System.InvalidOperationException">
+    /// Propagated from <see cref="SelectCallingConvention"/> when the entry-point prefix contradicts the
+    /// requested convention (e.g. an <c>SBW_</c> entry point requested as Swift CC) — the same throw
+    /// <see cref="FormatDeclarationLines"/> would raise for that input.
+    /// </exception>
+    public static AbiCallPlan BuildAbiCallPlan(PInvokeEmissionInfo info)
+    {
+        var resolvedCallingConvention = SelectCallingConvention(info.EntryPoint, info.CallingConvention);
+        var returnTypeStr = info.IsAsync ? "void" : info.ReturnType;
+
+        var paramsStr = info.ParametersString;
+        if (info.MetadataParameters is { Count: > 0 } metadata)
+        {
+            var metadataParams = string.Join(", ", metadata);
+            paramsStr = string.IsNullOrEmpty(paramsStr) ? metadataParams : $"{paramsStr}, {metadataParams}";
+        }
+        paramsStr = DeduplicateCSharpParamNames(paramsStr);
+
+        return new AbiCallPlan
+        {
+            MethodName = info.MethodName,
+            EntryPoint = info.EntryPoint,
+            Library = info.LibraryPath,
+            CallingConvention = resolvedCallingConvention,
+            ReturnCarrier = returnTypeStr,
+            ParameterCarriers = ExtractParameterCarriers(paramsStr),
+            IsAsync = info.IsAsync,
+        };
+    }
+
+    /// <summary>
+    /// Extracts the lowered C# carrier of each parameter — the segment with its trailing name removed,
+    /// keeping any <c>[MarshalAs]</c> attribute and <c>ref</c>/<c>in</c>/<c>out</c> modifier — from a
+    /// rendered parameter-list string. Splits on top-level commas via the same <see cref="SplitTopLevel"/>
+    /// the dedup path uses, so generic arguments and function-pointer signatures stay intact. A segment
+    /// with no extractable trailing identifier is kept whole (its carrier is the whole segment), matching
+    /// the conservative bail-out of <see cref="DeduplicateCSharpParamNames"/>.
+    /// </summary>
+    internal static ImmutableArray<string> ExtractParameterCarriers(string paramsStr)
+    {
+        if (string.IsNullOrWhiteSpace(paramsStr))
+            return ImmutableArray<string>.Empty;
+
+        var segments = SplitTopLevel(paramsStr);
+        var carriers = ImmutableArray.CreateBuilder<string>(segments.Count);
+        foreach (var segment in segments)
+        {
+            var trimmed = segment.Trim();
+            var name = ExtractTrailingIdentifier(trimmed);
+            if (name == null)
+            {
+                carriers.Add(trimmed);
+                continue;
+            }
+
+            var carrier = trimmed.Substring(0, trimmed.Length - name.Length).Trim();
+            carriers.Add(carrier.Length == 0 ? trimmed : carrier);
+        }
+
+        return carriers.ToImmutable();
     }
 
     /// <summary>

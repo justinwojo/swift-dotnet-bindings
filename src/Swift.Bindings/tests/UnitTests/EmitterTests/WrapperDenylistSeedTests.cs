@@ -166,6 +166,68 @@ public class WrapperDenylistSeedTests : IDisposable
         Assert.Contains("recover the wrapper compile", fault.Details, StringComparison.Ordinal);
     }
 
+    // ── dual-index routing: coarse scopes never collapse their enclosing declaration ─────────────
+
+    /// <summary>
+    /// A coarse shared-helper-bundle seed lands in the unit-keyed index, queryable by its full recovery
+    /// -unit identity, and pointedly does NOT poison the bundle's bare <see cref="DeclId"/> (the module).
+    /// Poisoning the module DeclId would tell the whole-declaration skip gate the module is withdrawn; the
+    /// unit index keeps the withdrawal to the one bundle.
+    /// </summary>
+    [Fact]
+    public void Build_CoarseSharedHelperSeed_LandsInUnitIndexNotDeclIndex()
+    {
+        var helper = RecoveryUnitId.ForSharedHelper(HelperModuleDecl(),"utf8");
+        var poison = WrapperDenylistSeed.Build(new HashSet<RecoveryUnitId> { helper });
+
+        Assert.True(poison.IsPoisoned(helper), "coarse unit must be poisoned in the unit index");
+        Assert.False(poison.IsPoisoned(helper.Decl), "coarse seed must not poison its bare DeclId (the module)");
+        Assert.False(poison.IsEmpty);
+    }
+
+    /// <summary>
+    /// A leaf seed stays on the bare-DeclId index exactly as before — it is a whole-declaration
+    /// withdrawal — and is absent from the unit index. This is the routing half that keeps every existing
+    /// leaf/accessor/type poisoning byte-identical.
+    /// </summary>
+    [Fact]
+    public void Build_LeafSeed_StaysOnDeclIndexAndIsAbsentFromUnitIndex()
+    {
+        var leaf = RecoveryUnitId.Create(SomeDecl("register"), RecoveryScope.LeafApi);
+        var poison = WrapperDenylistSeed.Build(new HashSet<RecoveryUnitId> { leaf });
+
+        Assert.True(poison.IsPoisoned(leaf.Decl), "leaf must stay on the bare-DeclId index");
+        Assert.False(poison.IsPoisoned(leaf), "leaf must not appear in the coarse unit index");
+    }
+
+    /// <summary>
+    /// Directly at the poison list: recording a coarse unit and a leaf shows the two indexes are
+    /// independent — the coarse unit answers only its unit query, the leaf only its DeclId query, and
+    /// neither leaks into the other's index.
+    /// </summary>
+    [Fact]
+    public void PoisonList_RoutesCoarseAndWholeDeclarationScopesToSeparateIndexes()
+    {
+        var helper = RecoveryUnitId.ForSharedHelper(HelperModuleDecl(),"closure");
+        var leaf = RecoveryUnitId.Create(SomeDecl("m"), RecoveryScope.LeafApi);
+
+        var poison = new EmitterPoisonList();
+        Assert.True(poison.Record(helper, EmitterFaultRecord.ForRecoveryWithdrawal(
+            helper.Decl, helper.Scope, "coarse")));
+        Assert.True(poison.Record(leaf, EmitterFaultRecord.ForRecoveryWithdrawal(
+            leaf.Decl, leaf.Scope, "leaf")));
+
+        Assert.True(poison.IsPoisoned(helper));
+        Assert.False(poison.IsPoisoned(helper.Decl));
+        Assert.True(poison.IsPoisoned(leaf.Decl));
+        Assert.False(poison.IsPoisoned(leaf));
+
+        // Re-recording the same coarse unit makes no progress — the controller, not the poison list,
+        // decides a coarse unit's escalation against the recovery graph.
+        Assert.False(poison.Record(helper, EmitterFaultRecord.ForRecoveryWithdrawal(
+            helper.Decl, helper.Scope, "again")));
+    }
+
     // ── end to end: the seed drives the real re-render ──────────────────────────────────────────
 
     /// <summary>
@@ -217,6 +279,9 @@ public class WrapperDenylistSeedTests : IDisposable
 
     private static DeclId SomeDecl(string name = "member") =>
         DeclId.Create("M", "T", BindingItemKind.Method, name);
+
+    private static DeclId HelperModuleDecl() =>
+        DeclId.Create("M", string.Empty, BindingItemKind.Module, "M");
 
     private static MethodDecl RegistryMethod(string name, string parameterName)
     {

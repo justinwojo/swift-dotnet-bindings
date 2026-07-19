@@ -246,6 +246,35 @@ public class WrapperRecoveryControllerTests
         }
     }
 
+    /// <summary>
+    /// A driver whose per-round render is one delegate and whose coarse-withdrawal authorization is
+    /// another, so a test can model a driver whose recovery graph would (or would not) authorize a
+    /// coarse withdrawal, and count how often the seam was consulted.
+    /// </summary>
+    private sealed class AuthorizingDriver : IWrapperRecoveryDriver
+    {
+        private readonly Func<IReadOnlySet<RecoveryUnitId>, AttributionResult?> _policy;
+        private readonly Func<IReadOnlyList<RecoveryUnitId>, IReadOnlySet<RecoveryUnitId>, CoarseWithdrawalAuthorization> _authorize;
+        public int AuthorizeCalls { get; private set; }
+
+        public AuthorizingDriver(
+            Func<IReadOnlySet<RecoveryUnitId>, AttributionResult?> policy,
+            Func<IReadOnlyList<RecoveryUnitId>, IReadOnlySet<RecoveryUnitId>, CoarseWithdrawalAuthorization> authorize)
+        {
+            _policy = policy;
+            _authorize = authorize;
+        }
+
+        public AttributionResult? RenderCompileAttribute(IReadOnlySet<RecoveryUnitId> denylist) => _policy(denylist);
+
+        public CoarseWithdrawalAuthorization AuthorizeCoarseWithdrawal(
+            IReadOnlyList<RecoveryUnitId> blocking, IReadOnlySet<RecoveryUnitId> denylist)
+        {
+            AuthorizeCalls++;
+            return _authorize(blocking, denylist);
+        }
+    }
+
     // ---- convergence -------------------------------------------------------------------------
 
     [Fact]
@@ -460,6 +489,102 @@ public class WrapperRecoveryControllerTests
         Assert.Equal(WrapperRecoveryFailureCause.RequiresGraphClosure, result.Cause);
         Assert.Contains(coarse, result.Blocking);
         Assert.DoesNotContain(leaf, result.Blocking);
+        Assert.Empty(result.Denylist);
+    }
+
+    // ---- coarse-withdrawal authorization seam ------------------------------------------------
+
+    [Fact]
+    public void CoarseCulprit_ConsultsAuthorizationSeam_UnauthorizedStaysBlocked()
+    {
+        // A coarse culprit routes through the authorization seam, not straight to Blocked. A driver whose
+        // graph authorizes nothing (the default verdict) leaves the module failing closed exactly as the
+        // wave-1 loop did — but the seam is provably consulted, so it is live wiring, not dead code.
+        var coarse = Coarse("sharedHelper", RecoveryScope.SharedHelperBundle);
+        var driver = new AuthorizingDriver(
+            policy: _ => AttributedFailure(coarse),
+            authorize: (_, _) => CoarseWithdrawalAuthorization.Unauthorized);
+
+        var result = WrapperRecoveryController.Run(driver);
+
+        Assert.True(driver.AuthorizeCalls >= 1, "the controller must consult the authorization seam for a coarse culprit");
+        Assert.False(result.Converged);
+        Assert.Equal(WrapperRecoveryFailureCause.RequiresGraphClosure, result.Cause);
+        Assert.Contains(coarse, result.Blocking);
+        Assert.Empty(result.Denylist);
+    }
+
+    [Fact]
+    public void AuthorizedCoarseWithdrawal_WithdrawsClosureAndConverges()
+    {
+        // A driver whose graph authorizes the coarse withdrawal returns the full closure {coarse,
+        // dependent}. The controller withdraws the whole closure — not just the coarse unit — and the
+        // next render compiles clean. This is the seam's positive path: an authorized closure is a
+        // first-class withdrawal, distinct from the leaf channel.
+        var coarse = Coarse("authorizedHelper", RecoveryScope.SharedHelperBundle);
+        var dependent = Leaf("dependentOnHelper");
+        var closure = new[] { coarse, dependent };
+        var driver = new AuthorizingDriver(
+            policy: denylist => closure.All(denylist.Contains) ? null : AttributedFailure(coarse),
+            authorize: (_, _) => CoarseWithdrawalAuthorization.Authorize(closure));
+
+        var result = WrapperRecoveryController.Run(driver);
+
+        Assert.True(result.Converged);
+        Assert.Equal(WrapperRecoveryFailureCause.None, result.Cause);
+        Assert.Contains(coarse, result.Denylist);
+        Assert.Contains(dependent, result.Denylist);
+    }
+
+    [Fact]
+    public void AuthorizedButEmptyClosure_StaysBlockedRatherThanSpin()
+    {
+        // Authorized, but the closure adds no fresh unit: withdrawing nothing while re-blaming the same
+        // coarse culprit every round would spin. The controller treats a no-progress authorization as a
+        // fail-closed, preserving the loop's termination guarantee no matter what a driver returns.
+        var coarse = Coarse("emptyClosureHelper", RecoveryScope.SharedHelperBundle);
+        var driver = new AuthorizingDriver(
+            policy: _ => AttributedFailure(coarse),
+            authorize: (_, _) => CoarseWithdrawalAuthorization.Authorize(Array.Empty<RecoveryUnitId>()));
+
+        var result = WrapperRecoveryController.Run(driver);
+
+        Assert.False(result.Converged);
+        Assert.Equal(WrapperRecoveryFailureCause.RequiresGraphClosure, result.Cause);
+        Assert.Contains(coarse, result.Blocking);
+        Assert.Empty(result.Denylist);
+    }
+
+    [Fact]
+    public void DriverConsultingRealAuthorizerOnCoarseScope_StaysBlocked_EvenWithACompleteGraph()
+    {
+        // The end-to-end wiring, honest for this wave: a driver builds a COMPLETE recovery graph and asks
+        // the real RecoveryAuthorizer whether the coarse culprit is safe to drop. No coarse scope is
+        // witnessable this wave, so the authorizer refuses with NotWitnessableScope regardless of how
+        // complete the graph is, and the module stays fail-closed. This is exactly why the measured
+        // RequiresGraphClosure headroom is unchanged: the seam is wired, but production authorizes nothing
+        // coarse until a future wave closes a coarse scope's witness.
+        var coarse = Coarse("sharedHelper", RecoveryScope.SharedHelperBundle);
+        var driver = new AuthorizingDriver(
+            policy: _ => AttributedFailure(coarse),
+            authorize: (blocking, denylist) =>
+            {
+                var builder = new RecoveryGraphBuilder();
+                builder.DeclareModule(DeclId.Create("M", string.Empty, BindingItemKind.Module, "M"));
+                var graph = builder.Build();
+                var complete = RecoveryCompletenessReport.Complete;
+                var authorized = blocking.All(u =>
+                    RecoveryAuthorizer.SafeToDrop(graph, complete, u, denylist).IsAuthorized);
+                return authorized
+                    ? CoarseWithdrawalAuthorization.Authorize(blocking)
+                    : CoarseWithdrawalAuthorization.Unauthorized;
+            });
+
+        var result = WrapperRecoveryController.Run(driver);
+
+        Assert.False(result.Converged);
+        Assert.Equal(WrapperRecoveryFailureCause.RequiresGraphClosure, result.Cause);
+        Assert.Contains(coarse, result.Blocking);
         Assert.Empty(result.Denylist);
     }
 

@@ -1322,6 +1322,48 @@ public sealed class ModuleEmissionContext
     /// <summary>Snapshot of every owned wrapper symbol, for diagnostics and tests.</summary>
     public IReadOnlyDictionary<string, ArtifactId> WrapperSymbolOwners => _wrapperSymbolOwners;
 
+    // ==================== ABI call-plan side table ====================
+    //
+    // A typed descriptor per emitted native call, recorded as a side effect of rendering the P/Invoke
+    // declaration (PInvokeEmitHelper.FormatDeclarationLines) so it is populated from the exact facts the
+    // text is rendered from. This is the foundation for typed call-plan validation — the future consumer
+    // reads these plans instead of regex-scanning the emitted C# (see AbiCallPlan / AbiContractChecker).
+    // Recording here changes no rendered text; nothing reads the plans yet.
+
+    // The set dedups on the whole plan VALUE (AbiCallPlan's structural equality), not on AbiCallPlan.Key.
+    // Re-recording the same call within an attempt is a value-equal no-op — idempotent, since the plan is a
+    // pure function of the same emission facts. Keying only on Key would silently drop a plan whenever two
+    // distinct calls in different containing C# types shared a method name + entry point; value identity
+    // keeps every genuinely distinct call.
+    private readonly HashSet<AbiCallPlan> _abiCallPlans = new();
+
+    /// <summary>
+    /// Records the typed <see cref="AbiCallPlan"/> for one emitted native call. Deduped by the plan's full
+    /// value, so re-recording the same call (a re-render, or a reused context) is an idempotent no-op while
+    /// two distinct calls are both kept.
+    /// </summary>
+    public void RecordAbiCallPlan(AbiCallPlan plan)
+    {
+        if (plan is null)
+            return;
+        _abiCallPlans.Add(plan);
+    }
+
+    /// <summary>
+    /// Every recorded call plan for this module, in a total deterministic order independent of emission
+    /// order (the <see cref="AbiCallPlan.Key"/> is the primary sort, with the remaining fields breaking any
+    /// shared-key tie). Exposed for the future validator and for the tests that assert population +
+    /// determinism.
+    /// </summary>
+    public IReadOnlyList<AbiCallPlan> AbiCallPlans =>
+        _abiCallPlans
+            .OrderBy(p => p.Key, StringComparer.Ordinal)
+            .ThenBy(p => p.ReturnCarrier, StringComparer.Ordinal)
+            .ThenBy(p => (int)p.CallingConvention)
+            .ThenBy(p => p.IsAsync)
+            .ThenBy(p => string.Join('\u0001', p.ParameterCarriers), StringComparer.Ordinal)
+            .ToList();
+
     /// <summary>
     /// The one place a symbol enters the unified registry, and therefore the one place ownership
     /// can be recorded. Both <see cref="RegisterWrapperSymbolInternal"/> and

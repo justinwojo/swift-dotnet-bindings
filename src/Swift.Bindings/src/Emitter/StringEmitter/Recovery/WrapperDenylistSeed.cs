@@ -21,9 +21,11 @@ namespace BindingsGeneration;
 /// <para>
 /// The records are marked <see cref="EmitterFaultOrigin.RecoveryWithdrawal"/> so their tombstones tell
 /// the truth: the unit was withdrawn to make the wrapper compile, not that the emitter threw on it.
-/// The controller only ever hands leaf and accessor-group units to a round, so every seed record is a
-/// terminal withdrawal with no escalation rung — a wider fault fails the module closed in the
-/// controller before it could reach here.
+/// On the default (unauthorized) driver path the controller hands only leaf and accessor-group units to
+/// a round — a coarse culprit fails the module closed before it could reach here — so every seed record
+/// is a terminal withdrawal with no escalation rung. A coarse unit reaches this seed only when a driver's
+/// authorization seam returns an authorized dependency closure to withdraw; no production driver does
+/// this wave.
 /// </para>
 /// </remarks>
 internal static class WrapperDenylistSeed
@@ -58,7 +60,10 @@ internal static class WrapperDenylistSeed
         {
             var origin = originOf(unit);
             var plane = origin == EmitterFaultOrigin.CSharpRecoveryWithdrawal ? "C#" : "wrapper";
-            poison.Record(EmitterFaultRecord.ForRecoveryWithdrawal(
+            // The unit-aware Record routes by scope: a leaf/accessor/type seed lands in the bare-DeclId
+            // index exactly as before (byte-identical), while a coarse sub-declaration seed lands in the
+            // unit-keyed index so it withdraws only its own surface.
+            poison.Record(unit, EmitterFaultRecord.ForRecoveryWithdrawal(
                 unit.Decl,
                 unit.Scope,
                 $"withdrawn to recover the {plane} compile ({unit.Describe()})",

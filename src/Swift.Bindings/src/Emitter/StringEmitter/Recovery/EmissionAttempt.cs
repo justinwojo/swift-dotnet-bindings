@@ -133,6 +133,27 @@ internal sealed class EmissionAttempt : IDisposable
     }
 
     /// <summary>
+    /// True when the coarse sub-declaration <paramref name="unit"/> is denied for this attempt. This is
+    /// the unit-keyed counterpart to <see cref="IsDenied(in DeclId)"/> — a shared-helper bundle or a
+    /// conformance edge is denied by its full recovery-unit identity, so seeding one withdraws only its
+    /// own surface rather than collapsing the whole enclosing declaration.
+    /// </summary>
+    public static bool IsDenied(in RecoveryUnitId unit) => Ambient.Value?._poison.IsPoisoned(unit) ?? false;
+
+    /// <summary>The fault that denied the coarse <paramref name="unit"/>, for the tombstone's details.</summary>
+    public static bool TryGetFault(in RecoveryUnitId unit, out EmitterFaultRecord fault)
+    {
+        var current = Ambient.Value;
+        if (current is not null)
+        {
+            return current._poison.TryGet(unit, out fault);
+        }
+
+        fault = default;
+        return false;
+    }
+
+    /// <summary>
     /// Records a contained fault and marks the attempt abandoned.
     /// </summary>
     /// <returns>
