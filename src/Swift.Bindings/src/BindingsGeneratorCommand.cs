@@ -925,7 +925,83 @@ public static class BindingsGeneratorCommand
             };
         }
 
-        var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, out var depModuleCollisions, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase, descriptorAssemblyNameOverride: assemblyNameOverride, swiftRuntimeVersion: swiftRuntimeVersion, objcBridgeRecords: mixedBridgeRecords, compileWrapper: verifyRecoverCompile);
+        // C# verify-recover: extend the Swift loop above into a JOINT fixed-point over both planes.
+        // After the Swift wrapper compiles clean in a round, this delegate emits the binding csproj for
+        // the CURRENT render and runs the authoritative MSBuild+SARIF C# verifier; a C# compile error is
+        // attributed (via the C#-plane interval map) to the SAME leaf/accessor recovery unit the Swift
+        // loop withdraws and fed into the same monotonic denylist, so the next round re-renders, drops
+        // the C# culprit, and re-verifies BOTH planes. The loop converges only when the wrapper AND the
+        // C# compile clean together; the command's unchanged post-loop csproj emit + VerifyGeneratedCSharp
+        // ship gate below then run over the settled source. Enabled when the emitted C# is companion-free
+        // (CanVerifyCSharpInLoop): the in-loop verification csproj sets ObjCProjectFileName = null, so a
+        // binding whose C# references a bridged ObjC companion assembly (built only AFTER GenerateBindings
+        // returns) can't be verified in-loop and keeps the post-loop publication gate (fail-closed)
+        // unchanged. A "potential mixed" framework whose ObjC bridge filtered to zero records (an umbrella
+        // header re-exporting only Swift) emits no companion reference and IS verified in-loop.
+        Func<CSharpVerificationResult>? verifyRecoverCsharp = null;
+        if (CanVerifyCSharpInLoop(
+                verifyRecoverCompile != null, sdkMode, noVerifyCSharp, mixedObjcResolution, mixedBridgeRecords))
+        {
+            var csharpResolution = resolution!;
+            XCFrameworkMetadata? csharpMetadata = null;
+            NativeLinkage? csharpNativeLinkage = null;
+            var csharpRepoRoot = MsbuildSarifCSharpVerifier.TryFindSwiftBindingsRepoRoot();
+            var csharpCsprojPath = Path.Combine(
+                outputDirectory, $"{platformInfo.GetDefaultSwiftPackageId(csharpResolution.ModuleName)}.csproj");
+
+            verifyRecoverCsharp = () =>
+            {
+                // Metadata and native linkage are pure reads of the source framework — render-independent,
+                // so resolve them once. The supplement reference set and the emitted .cs change with each
+                // render, so re-emit the verification csproj every round from the CURRENT
+                // AppleSupplementReferences state (a withdrawal only ever shrinks it, so the reference set
+                // is a sound superset of the shipped one — no CS0234 false positive, only an unused ref).
+                csharpMetadata ??= XCFrameworkMetadataExtractor.Extract(
+                    csharpResolution.DylibPath, csharpResolution.XCFrameworkPath,
+                    csharpResolution.ModuleName, logger, platformInfo: platformInfo);
+                csharpNativeLinkage ??= NativeLinkageProbe.Detect(
+                    csharpResolution.DylibPath, new SystemCommandRunner(), logger);
+
+                var prototypeCsproj = EmitAppleSupplementPrototype(
+                    appleSupplementPrototypeDir, platformInfo, swiftRuntimeVersion,
+                    csharpMetadata.EffectiveMinimumOSVersion, logger);
+
+                var frameworkName = BindingsGenerator.InferFrameworkName(
+                    csharpResolution.DylibPath, csharpResolution.ModuleName);
+                var csharpNamespaceResolver = new NamespacePatternResolver(effectiveNamespacePattern, frameworkName);
+
+                // Verification csproj: the managed-compile-relevant inputs match the shipped csproj
+                // (dependencies, supplement reference, native linkage, metadata TFM/min-OS, namespace).
+                // The native/resource concerns that do NOT affect the managed C# compile — the
+                // wrapper/bridge NativeReferences (Exists()-guarded, and the wrapper isn't packaged yet
+                // inside the loop) and bundle resources — are left off; the C# compiles identically.
+                BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
+                {
+                    OutputDirectory = outputDirectory,
+                    ModuleName = csharpResolution.ModuleName,
+                    Metadata = csharpMetadata,
+                    SourceXCFrameworkPath = csharpResolution.XCFrameworkPath,
+                    SourceNativeLinkage = csharpNativeLinkage.Value,
+                    WrapperXCFrameworkPath = null,
+                    BridgeXCFrameworkPath = null,
+                    HasBridgeSwift = false,
+                    SwiftRuntimeVersion = swiftRuntimeVersion,
+                    Dependencies = resolvedDependencies,
+                    ResolvedNamespace = csharpNamespaceResolver.ResolveNamespace(csharpResolution.ModuleName),
+                    ObjCProjectFileName = null,
+                    PlatformInfo = platformInfo,
+                    ResourceBundleNames = null,
+                    EmitsAppleSupplementReference = AppleSupplementReferences.Any,
+                    AppleSupplementVersion = appleVersion,
+                    AppleSupplementPrototypeProjectPath = prototypeCsproj,
+                }, logger);
+
+                return MsbuildSarifCSharpVerifier.Verify(
+                    csharpCsprojPath, new SystemCommandRunner(), csharpRepoRoot, logger: logger);
+            };
+        }
+
+        var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, out var depModuleCollisions, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase, descriptorAssemblyNameOverride: assemblyNameOverride, swiftRuntimeVersion: swiftRuntimeVersion, objcBridgeRecords: mixedBridgeRecords, compileWrapper: verifyRecoverCompile, verifyRecoverCsharp: verifyRecoverCsharp);
         if (!success)
         {
             context.ExitCode = 1;
@@ -1165,31 +1241,59 @@ public static class BindingsGeneratorCommand
             }
 
             IReadOnlyList<CoGatedMember> coGated = Array.Empty<CoGatedMember>();
-            if (outcome.StrippedSymbols.Count > 0)
+            switch (ClassifyStrippedSymbols(onVerifyRecoverLoopPath: verifyRecoverCompile != null, outcome.StrippedSymbols.Count))
             {
-                try
-                {
-                    coGated = StrippedSymbolCSharpReconciler.ProcessDirectory(
-                        outputDirectory, outcome.StrippedSymbols, logger);
-                }
-                catch (StrippedSymbolReconciliationException ex)
-                {
-                    // Reconciliation could not make the surface sound. Shipping it would mean a
-                    // binding that compiles and then throws on first use. Record the fatal phase
-                    // before bailing: the manifest is the authoritative artifact record, and
-                    // returning on the exit code alone would leave it either absent or stale-green
-                    // for an output directory that must not be consumed.
-                    logger.LogError("{Message}", ex.Message);
+                case StrippedSymbolDisposition.FailClosedOnLoopPath:
+                    // Loop path (the verify-recover loop is active — wave-1 Swift-only included): the
+                    // stripped-symbol reconciler is retired here. The loop re-renders from a pristine plan
+                    // under a monotonic denylist and is the single mechanism that keeps the surface sound.
+                    // It converges on a clean wrapper compile across all slices, which is NOT the same
+                    // predicate as a zero-strip surface: the post-processor can drop an uncompilable
+                    // @_cdecl while the rest of the wrapper still compiles clean, so a converged loop can
+                    // still hand back a non-empty stripped-symbol set. Rather than claw those members back
+                    // post-hoc — the retired reconciler's job — or ship a dangling P/Invoke, fail closed.
+                    // A residual strip here is expected to be rare: the wrapper-symbol integrity gate
+                    // inside GenerateBindings already withdraws members whose emitted wrapper symbols went
+                    // missing, so this is the belt-and-braces backstop for anything it does not cover.
+                    logger.LogError(
+                        "SWIFTBIND115: the verify-recover loop settled the wrapper for {Module}, yet the " +
+                        "generated surface still carries {Count} stripped symbol(s); failing closed rather " +
+                        "than reconciling members the loop-path reconciler no longer claws back.",
+                        resolution.ModuleName, outcome.StrippedSymbols.Count);
                     BindingArtifactManifestStore.ReadModifyWrite(
                         outputDirectory,
                         resolution.ModuleName,
-                        m => m.Wrapper = WrapperSection.From(outcome, coGated, ex.Message),
+                        m => m.Wrapper = WrapperSection.From(
+                            outcome, coGated, "post-loop stripped symbols on the verify-recover path"),
                         logger);
                     context.ExitCode = 1;
                     return;
-                }
-                if (coGated.Count > 0)
-                    logger.LogInformation("Suppressed {Count} C# member(s) targeting stripped wrapper symbols.", coGated.Count);
+
+                case StrippedSymbolDisposition.Reconcile:
+                    try
+                    {
+                        coGated = StrippedSymbolCSharpReconciler.ProcessDirectory(
+                            outputDirectory, outcome.StrippedSymbols, logger);
+                    }
+                    catch (StrippedSymbolReconciliationException ex)
+                    {
+                        // Reconciliation could not make the surface sound. Shipping it would mean a
+                        // binding that compiles and then throws on first use. Record the fatal phase
+                        // before bailing: the manifest is the authoritative artifact record, and
+                        // returning on the exit code alone would leave it either absent or stale-green
+                        // for an output directory that must not be consumed.
+                        logger.LogError("{Message}", ex.Message);
+                        BindingArtifactManifestStore.ReadModifyWrite(
+                            outputDirectory,
+                            resolution.ModuleName,
+                            m => m.Wrapper = WrapperSection.From(outcome, coGated, ex.Message),
+                            logger);
+                        context.ExitCode = 1;
+                        return;
+                    }
+                    if (coGated.Count > 0)
+                        logger.LogInformation("Suppressed {Count} C# member(s) targeting stripped wrapper symbols.", coGated.Count);
+                    break;
             }
 
             BindingArtifactManifestStore.ReadModifyWrite(
@@ -2042,6 +2146,25 @@ public static class BindingsGeneratorCommand
            && ShouldAbortForFailedMixedObjC(mixedParse.ExitCode, mixedParse.Module);
 
     /// <summary>
+    /// Decides what to do with the post-loop wrapper compile's stripped-symbol set. This is the
+    /// retirement seam for <see cref="StrippedSymbolCSharpReconciler"/>: on the verify-recover loop
+    /// path the loop has already settled the surface through its own render/re-render machinery, so
+    /// the reconciler is never invoked. The loop's convergence predicate is a clean wrapper compile,
+    /// not a zero-strip surface, so a non-empty stripped-symbol set can still reach here; on the loop
+    /// path we no longer claw those members back, so any residual strip must fail closed rather than
+    /// ship a dangling P/Invoke. Off the loop path (SDK two-pass, <c>--compile-wrapper-only</c>) the
+    /// reconciler still owns the claw-back. Extracted as a pure function so the "reconciler not
+    /// invoked on the loop path" invariant is unit-testable.
+    /// </summary>
+    internal static StrippedSymbolDisposition ClassifyStrippedSymbols(
+        bool onVerifyRecoverLoopPath, int strippedSymbolCount)
+        => strippedSymbolCount <= 0
+            ? StrippedSymbolDisposition.None
+            : onVerifyRecoverLoopPath
+                ? StrippedSymbolDisposition.FailClosedOnLoopPath
+                : StrippedSymbolDisposition.Reconcile;
+
+    /// <summary>
     /// A1: persist a pure-ObjC binding's dropped-symbol diagnostics into the output directory's
     /// binding manifest (and the rederived <c>binding-report.json</c>). A pure-ObjC binding runs no
     /// Swift generation pass, so no manifest exists yet and this is the sole writer — it builds a
@@ -2267,6 +2390,32 @@ public static class BindingsGeneratorCommand
                || mixedObjcResult.Module?.Categories.Count > 0
                || mixedObjcResult.Module?.Enums.Count > 0);
 
+    /// <summary>
+    /// Whether the in-loop C# verify-recover leg can soundly verify this render's emitted C#. The
+    /// leg is sound only when the emitted C# does not reference an ObjC companion assembly: that
+    /// companion is built AFTER <c>GenerateBindings</c> returns, and the in-loop verification csproj
+    /// deliberately does not reference it (<c>ObjCProjectFileName = null</c>), so a C# member that
+    /// USES a bridged ObjC type would fail to resolve in-loop and be withdrawn on a false error.
+    /// The emitted C# references a companion type iff at least one bridged ObjC record was threaded
+    /// into generation. So two shapes both emit companion-free C# and ARE in-loop verifiable: a
+    /// framework with no ObjC surface at all (<paramref name="mixedObjcResolution"/> null), and a
+    /// "potential mixed" framework whose ObjC bridge filtered to zero records — an umbrella header
+    /// that only re-exports the Swift module (<paramref name="mixedBridgeRecords"/> empty). A
+    /// framework that actually bridges ≥1 ObjC record keeps the post-loop publication gate
+    /// (fail-closed) unchanged. Also requires the Swift wrapper loop to be active, non-SDK mode, and
+    /// C# verification not opted out.
+    /// </summary>
+    internal static bool CanVerifyCSharpInLoop(
+        bool wrapperLoopActive,
+        bool sdkMode,
+        bool noVerifyCSharp,
+        XCFrameworkResolver.ObjCFrameworkResolution? mixedObjcResolution,
+        IReadOnlyList<TypeRecord>? mixedBridgeRecords)
+        => wrapperLoopActive && !sdkMode && !noVerifyCSharp
+           && (mixedObjcResolution == null
+               || mixedBridgeRecords == null
+               || mixedBridgeRecords.Count == 0);
+
     internal static List<string>? GetDependencyModuleNamesForSwiftImports(
         IReadOnlyList<FrameworkDependencyInfo>? resolvedDependencies)
     {
@@ -2349,4 +2498,27 @@ public static class BindingsGeneratorCommand
     /// </summary>
     internal static bool IsValidInterfaceFactsProducer(string flag) =>
         flag is "auto" or "swift-syntax";
+}
+
+/// <summary>
+/// What to do with a post-loop wrapper compile's stripped-symbol set — the outcome of
+/// <see cref="BindingsGeneratorCommand.ClassifyStrippedSymbols"/>.
+/// </summary>
+internal enum StrippedSymbolDisposition
+{
+    /// <summary>No symbols were stripped; nothing to do.</summary>
+    None,
+
+    /// <summary>
+    /// Off the verify-recover loop path (SDK two-pass, <c>--compile-wrapper-only</c>): claw the
+    /// dangling C# members back through <see cref="StrippedSymbolCSharpReconciler"/>.
+    /// </summary>
+    Reconcile,
+
+    /// <summary>
+    /// On the loop path the reconciler is retired, so a non-empty stripped-symbol set is a soundness
+    /// surprise the loop did not converge; fail closed rather than reconcile or ship dangling
+    /// P/Invokes.
+    /// </summary>
+    FailClosedOnLoopPath,
 }

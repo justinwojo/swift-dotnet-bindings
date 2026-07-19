@@ -49,6 +49,27 @@ public class WrapperDenylistSeedTests : IDisposable
     }
 
     /// <summary>
+    /// A C# verify-recover withdrawal reads as its own kind of withdrawal — distinct prefix from the
+    /// wrapper one — so the tombstone and skip row tell a triager the emitted C# was withdrawn to reach
+    /// a clean C# compile, not the Swift wrapper. The two prefixes must not be interchangeable: a shared
+    /// string would collapse the two stages the report distinguishes.
+    /// </summary>
+    [Fact]
+    public void CSharpRecoveryWithdrawalRecord_ReadsAsADistinctCSharpWithdrawal()
+    {
+        var record = EmitterFaultRecord.ForRecoveryWithdrawal(
+            SomeDecl(), RecoveryScope.LeafApi, "withdrawn to recover the C# compile",
+            origin: EmitterFaultOrigin.CSharpRecoveryWithdrawal);
+
+        Assert.Equal(EmitterFaultOrigin.CSharpRecoveryWithdrawal, record.Origin);
+        Assert.Contains("Withdrawn by C# verify-recover", record.Details, StringComparison.Ordinal);
+        Assert.Contains("withdrawn to recover the C# compile", record.Details, StringComparison.Ordinal);
+        Assert.DoesNotContain("Emitter threw", record.Details, StringComparison.Ordinal);
+        // Distinct from the wrapper wording — the two withdrawal planes are not interchangeable.
+        Assert.DoesNotContain("Withdrawn by wrapper verify-recover", record.Details, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The default origin is unchanged: a record built from a live exception still reads as a throw,
     /// so the existing emitter-fault tombstones keep their fingerprint-bearing wording.
     /// </summary>
@@ -92,6 +113,57 @@ public class WrapperDenylistSeedTests : IDisposable
     public void Build_OnAnEmptyDenylist_ProducesAnEmptyPoisonList()
     {
         Assert.True(WrapperDenylistSeed.Build(new HashSet<RecoveryUnitId>()).IsEmpty);
+    }
+
+    /// <summary>
+    /// The C# verify-recover loop shares the one monotonic denylist with the Swift wrapper loop, but a
+    /// unit withdrawn to fix the C# compile must read as a C# withdrawal in its tombstone and report row,
+    /// not a wrapper one. The per-unit <c>originOf</c> overload carries that plane: the same seed builder
+    /// stamps each denied unit with the wording of the verifier that first named it, so both planes flow
+    /// through the one Gate-0 channel while staying distinguishable to a triager.
+    /// </summary>
+    [Fact]
+    public void Build_WithPerUnitOrigin_StampsEachUnitWithItsVerifiersWording()
+    {
+        var swiftUnit = RecoveryUnitId.Create(SomeDecl("swiftBroken"), RecoveryScope.LeafApi);
+        var csharpUnit = RecoveryUnitId.Create(SomeDecl("csharpBroken"), RecoveryScope.LeafApi);
+        var denylist = new HashSet<RecoveryUnitId> { swiftUnit, csharpUnit };
+
+        EmitterFaultOrigin OriginOf(RecoveryUnitId u) =>
+            u == csharpUnit ? EmitterFaultOrigin.CSharpRecoveryWithdrawal : EmitterFaultOrigin.RecoveryWithdrawal;
+
+        var poison = WrapperDenylistSeed.Build(denylist, OriginOf);
+
+        Assert.True(poison.IsPoisoned(swiftUnit.Decl));
+        Assert.True(poison.IsPoisoned(csharpUnit.Decl));
+
+        // The C#-withdrawn unit reads as a C# withdrawal — distinct prefix, distinct plane word — while
+        // the Swift-withdrawn unit keeps the wrapper wording, from the one shared builder.
+        var csharpFault = Assert.Single(poison.Faults, f => f.Origin == EmitterFaultOrigin.CSharpRecoveryWithdrawal);
+        Assert.Contains("Withdrawn by C# verify-recover", csharpFault.Details, StringComparison.Ordinal);
+        Assert.Contains("recover the C# compile", csharpFault.Details, StringComparison.Ordinal);
+        Assert.Contains(csharpUnit.Describe(), csharpFault.Details, StringComparison.Ordinal);
+
+        var swiftFault = Assert.Single(poison.Faults, f => f.Origin == EmitterFaultOrigin.RecoveryWithdrawal);
+        Assert.Contains("Withdrawn by wrapper verify-recover", swiftFault.Details, StringComparison.Ordinal);
+        Assert.Contains("recover the wrapper compile", swiftFault.Details, StringComparison.Ordinal);
+        Assert.Contains(swiftUnit.Describe(), swiftFault.Details, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The origin-agnostic <see cref="WrapperDenylistSeed.Build(IReadOnlySet{RecoveryUnitId})"/> overload
+    /// keeps the wave-1 default: every unit is a wrapper withdrawal. This pins that adding the C# plane
+    /// did not silently reclassify the Swift-only loop's withdrawals.
+    /// </summary>
+    [Fact]
+    public void Build_DefaultOverload_KeepsEveryUnitAWrapperWithdrawal()
+    {
+        var unit = RecoveryUnitId.Create(SomeDecl("member"), RecoveryScope.LeafApi);
+        var poison = WrapperDenylistSeed.Build(new HashSet<RecoveryUnitId> { unit });
+
+        var fault = Assert.Single(poison.Faults);
+        Assert.Equal(EmitterFaultOrigin.RecoveryWithdrawal, fault.Origin);
+        Assert.Contains("recover the wrapper compile", fault.Details, StringComparison.Ordinal);
     }
 
     // ── end to end: the seed drives the real re-render ──────────────────────────────────────────

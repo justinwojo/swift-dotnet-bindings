@@ -134,22 +134,30 @@ public static class SkipCauseClassifier
 
     /// <summary>
     /// Classifies a root row, refining the reason-only answer where the details disambiguate the
-    /// stage. One reason needs this today: <see cref="SkipReason.EmitterFault"/> covers both a live
-    /// emitter exception (decided at <see cref="RecoveryStage.Emit"/>) and a wrapper verify-recover
-    /// withdrawal — where the emitter lowered the declaration fine and it was withdrawn because the
-    /// compiled Swift wrapper failed, so the decision belongs to
-    /// <see cref="RecoveryStage.SwiftCompile"/>. The withdrawal's only surviving signal on the row is
-    /// its details wording, single-sourced in <see cref="EmitterFaultRecord.WithdrawalDetailsPrefix"/>.
+    /// stage. <see cref="SkipReason.EmitterFault"/> covers three cases distinguished only by the row's
+    /// details wording: a live emitter exception (decided at <see cref="RecoveryStage.Emit"/>); a
+    /// wrapper verify-recover withdrawal — the emitter lowered the declaration fine and it was
+    /// withdrawn because the compiled Swift wrapper failed, so the decision belongs to
+    /// <see cref="RecoveryStage.SwiftCompile"/>; and a C# verify-recover withdrawal — lowered fine and
+    /// withdrawn because the emitted C# failed to compile, one rung later at
+    /// <see cref="RecoveryStage.CSharpCompile"/>. Each withdrawal's only surviving signal on the row is
+    /// its details prefix, single-sourced on <see cref="EmitterFaultRecord"/>.
     /// </summary>
     public static SkipAttribution Classify(SkipReason reason, string? details)
     {
         var attribution = Classify(reason);
-        if (reason == SkipReason.EmitterFault
-            && details is not null
-            && details.StartsWith(EmitterFaultRecord.WithdrawalDetailsPrefix, StringComparison.Ordinal))
+        if (reason == SkipReason.EmitterFault && details is not null)
         {
-            attribution = SkipAttribution.Of(
-                attribution.Owner, RecoveryStage.SwiftCompile, attribution.Confidence);
+            if (details.StartsWith(EmitterFaultRecord.WithdrawalDetailsPrefix, StringComparison.Ordinal))
+            {
+                attribution = SkipAttribution.Of(
+                    attribution.Owner, RecoveryStage.SwiftCompile, attribution.Confidence);
+            }
+            else if (details.StartsWith(EmitterFaultRecord.CSharpWithdrawalDetailsPrefix, StringComparison.Ordinal))
+            {
+                attribution = SkipAttribution.Of(
+                    attribution.Owner, RecoveryStage.CSharpCompile, attribution.Confidence);
+            }
         }
 
         return attribution;

@@ -35,10 +35,13 @@ public enum DiagnosticSeverity
 /// </summary>
 /// <remarks>
 /// <para>
-/// Positions are 1-based, matching every compiler's own numbering. <see cref="Column"/> is a
-/// <em>UTF-8 byte</em> column because that is what swiftc reports; a caller resolving it against the
-/// UTF-16 interval map must convert (see <see cref="FileIntervalMap.TryResolveUtf8Column"/>), which
-/// is why the column's encoding is stated here rather than left implicit.
+/// Positions are 1-based, matching every compiler's own numbering. <see cref="Column"/>'s encoding is
+/// <em>plane-dependent</em>, because the two compilers this type carries number columns differently: a
+/// swiftc (Swift-wrapper) diagnostic reports a <em>UTF-8 byte</em> column, which a caller resolves
+/// against the interval map via <see cref="FileIntervalMap.TryResolveUtf8Column"/>; a Roslyn/SARIF
+/// (emitted-C#) diagnostic reports a <em>UTF-16 character</em> column, resolved directly via
+/// <c>FileIntervalMap.TryResolve</c>. The producer fixes which encoding applies, so it is stated here
+/// rather than left implicit.
 /// </para>
 /// <para>
 /// A diagnostic with no usable position — a linker error, a toolchain crash — carries a null
@@ -54,7 +57,11 @@ public readonly record struct CompilerDiagnostic
     /// <summary>1-based line, or 0 when there is no position.</summary>
     public int Line { get; init; }
 
-    /// <summary>1-based UTF-8 byte column, or 0 when there is no position.</summary>
+    /// <summary>
+    /// 1-based column, or 0 when there is no position. Encoding is plane-dependent — a UTF-8 byte
+    /// column for swiftc (Swift) diagnostics, a UTF-16 character column for Roslyn/SARIF (C#) ones;
+    /// see the type remarks.
+    /// </summary>
     public int Column { get; init; }
 
     /// <summary>Severity of the diagnostic.</summary>

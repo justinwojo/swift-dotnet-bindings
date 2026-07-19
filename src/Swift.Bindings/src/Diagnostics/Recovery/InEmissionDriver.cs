@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 
 using BindingsGeneration.Diagnostics;
@@ -64,10 +65,18 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
     private readonly Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics> _compileWrapper;
     private readonly WrapperRecoveryCompileRequest _request;
     private readonly Action? _preRender;
+    private readonly Func<CSharpVerificationResult>? _verifyCsharp;
 
     private readonly DeclEmissionStateSnapshot _declBaseline;
     private readonly ModuleEmissionStateSnapshot _contextBaseline;
     private readonly EmissionFactsJournal _outerJournal = new();
+
+    // Which verifier first named each denied unit, so the next round's Gate-0 seed reproduces the
+    // correct withdrawal wording (Swift wrapper vs C# compile) for its tombstone and report row. The
+    // denylist is one monotonic set shared across both planes; only the wording differs per unit.
+    // First-writer-wins: a unit the Swift compile named stays a Swift withdrawal even if a later C#
+    // error also lands on it.
+    private readonly Dictionary<RecoveryUnitId, EmitterFaultOrigin> _unitOrigin = new();
 
     /// <summary>
     /// The compilation result of the last render that compiled clean, or null until one does. The
@@ -91,7 +100,8 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
         Action rebuildCollaborators,
         Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics> compileWrapper,
         WrapperRecoveryCompileRequest request,
-        Action? preRender = null)
+        Action? preRender = null,
+        Func<CSharpVerificationResult>? verifyCsharp = null)
     {
         _decl = decl ?? throw new ArgumentNullException(nameof(decl));
         _context = context ?? throw new ArgumentNullException(nameof(context));
@@ -102,6 +112,7 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
         _compileWrapper = compileWrapper ?? throw new ArgumentNullException(nameof(compileWrapper));
         _request = request ?? throw new ArgumentNullException(nameof(request));
         _preRender = preRender;
+        _verifyCsharp = verifyCsharp;
 
         _declBaseline = DeclEmissionStateSnapshot.Capture(decl);
         _contextBaseline = ModuleEmissionStateSnapshot.Capture(context);
@@ -135,20 +146,177 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
         _rebuildCollaborators();
         _outerJournal.RestoreInto(_typeDatabase);
 
-        var seed = WrapperDenylistSeed.Build(denylist);
+        var seed = WrapperDenylistSeed.Build(denylist, OriginOf);
         ContainedModuleEmission.Run(
             _decl, _context, _typeDatabase, _logger, _newEmitter,
             prepareRetry: _rebuildCollaborators, seed: seed, retainInto: _outerJournal);
 
         var diagnostics = _compileWrapper(_request);
-        if (diagnostics.AllSlicesClean)
+        if (!diagnostics.AllSlicesClean)
+        {
+            var steps = BuildProvenanceSteps(diagnostics);
+            var swiftAttribution = new DiagnosticAttributor(steps).Attribute(diagnostics.Diagnostics);
+            RecordCulpritOrigins(swiftAttribution, EmitterFaultOrigin.RecoveryWithdrawal);
+            return swiftAttribution;
+        }
+
+        // The Swift wrapper is clean this round. With no C# verifier wired — the wave-1 Swift-only
+        // loop and every legacy leg — that is convergence. Otherwise the emitted C# must ALSO compile
+        // before the joint state is settled: a C# withdrawal removes the member's Swift wrapper too, so
+        // the next round re-renders and re-verifies Swift first, and convergence requires both planes
+        // clean in one round (the joint fixed-point).
+        if (_verifyCsharp == null)
         {
             LastConvergedOutcome = diagnostics.Result;
             return null;
         }
 
-        var steps = BuildProvenanceSteps(diagnostics);
-        return new DiagnosticAttributor(steps).Attribute(diagnostics.Diagnostics);
+        // A verifier throw is an infrastructure failure, not a C# verdict. The delegate extracts
+        // metadata, probes native slices, re-emits the verification project, and runs an external
+        // build — a command-runner timeout, a spawn failure, or an IO fault can throw from any of
+        // those, and MsbuildSarifCSharpVerifier.Verify wraps its build only in a cleanup finally, so a
+        // throw escapes rather than becoming a verdict. Fold it into an Inconclusive result so the same
+        // policy below applies: a round-0 infra fault passes through to the post-generate publication
+        // gate (SWIFTBIND114) instead of failing an otherwise healthy generation, while a fault after a
+        // withdrawal still fails the module closed.
+        CSharpVerificationResult csharp;
+        try
+        {
+            csharp = _verifyCsharp();
+        }
+        catch (Exception ex)
+        {
+            csharp = new CSharpVerificationResult(
+                CSharpVerificationOutcome.Inconclusive,
+                Array.Empty<CSharpCompileDiagnostic>(),
+                $"C# verification could not run: {ex.GetType().Name}: {ex.Message}");
+        }
+        switch (csharp.Outcome)
+        {
+            case CSharpVerificationOutcome.Clean:
+                LastConvergedOutcome = diagnostics.Result;
+                return null;
+
+            case CSharpVerificationOutcome.CompileErrors:
+                var csharpAttribution = AttributeCSharp(csharp);
+                RecordCulpritOrigins(csharpAttribution, EmitterFaultOrigin.CSharpRecoveryWithdrawal);
+                return csharpAttribution;
+
+            default:
+                // Inconclusive: the verifier could not reach a verdict (a restore/infrastructure failure
+                // or a verifier-internal error, never a genuine C# error — those are CompileErrors).
+                // With nothing yet withdrawn this is a round-0 pass-through, identical to the
+                // post-generate publication gate, which also lets an inconclusive verdict pass — so
+                // converge and leave that gate the final say. But once the loop HAS withdrawn members,
+                // an inconclusive verdict can no longer confirm the withdrawals were sound; shipping a
+                // reduced binding on an unproven compile would be an over-withdrawal we cannot see, so
+                // fail the module closed instead.
+                if (denylist.Count == 0)
+                {
+                    _logger.LogWarning(
+                        "SWIFTBIND114: C# verify-recover inconclusive ({Reason}); nothing has been " +
+                        "withdrawn, so the loop passes through to the post-generate publication gate.",
+                        csharp.InconclusiveReason);
+                    LastConvergedOutcome = diagnostics.Result;
+                    return null;
+                }
+
+                _logger.LogWarning(
+                    "SWIFTBIND114: C# verify-recover inconclusive ({Reason}) after {Count} withdrawal(s); " +
+                    "failing the module closed rather than shipping a reduced binding on an unproven C# compile.",
+                    csharp.InconclusiveReason, denylist.Count);
+                return InconclusiveFailClosed(csharp);
+        }
+    }
+
+    // The origin each denied unit was first attributed under, defaulting to the Swift-wrapper wording
+    // for any unit not yet recorded (the wave-1 Swift-only path never records, so it always defaults).
+    private EmitterFaultOrigin OriginOf(RecoveryUnitId unit) =>
+        _unitOrigin.TryGetValue(unit, out var origin) ? origin : EmitterFaultOrigin.RecoveryWithdrawal;
+
+    // Records the verifier that named each fresh culprit, first-writer-wins so a unit keeps the plane
+    // that first withdrew it. Marking every culprit (not just the not-yet-denied ones) is harmless: an
+    // already-recorded unit's TryAdd no-ops, and the origin it keeps is the one that first named it.
+    private void RecordCulpritOrigins(AttributionResult attribution, EmitterFaultOrigin origin)
+    {
+        foreach (var unit in attribution.Culprits)
+            _unitOrigin.TryAdd(unit, origin);
+    }
+
+    // Attributes a failed C# compile through the C#-plane interval map — the emitted syntax tiling, so
+    // a diagnostic's line/column lands on the exact member fragment whose owner carries the same
+    // recovery unit the Swift loop withdraws. A diagnostic the map cannot resolve (positionless, an
+    // unmapped file, or shared scaffolding rather than a member) falls through to no resolution, which
+    // the controller reads as an unattributed error and fails the module closed — the sound default
+    // until a coarse-scope authorization (a later session) can widen safely.
+    private AttributionResult AttributeCSharp(CSharpVerificationResult csharp)
+    {
+        var groups = csharp.CompilerErrors.Select(ToDiagnosticGroup).ToList();
+        var steps = BuildCSharpProvenanceSteps();
+        return new DiagnosticAttributor(steps).Attribute(groups);
+    }
+
+    private static DiagnosticGroup ToDiagnosticGroup(CSharpCompileDiagnostic diagnostic) => new()
+    {
+        Primary = new CompilerDiagnostic
+        {
+            File = diagnostic.FilePath,
+            Line = diagnostic.Line,
+            // Roslyn/SARIF report UTF-16 character columns, which the C#-plane interval map resolves
+            // directly (unlike swiftc's UTF-8 byte columns) — see CSharpIntervalMapProvenanceStep.
+            Column = diagnostic.Column,
+            Severity = DiagnosticSeverity.Error,
+            Message = string.IsNullOrEmpty(diagnostic.Id)
+                ? diagnostic.Message
+                : $"{diagnostic.Id}: {diagnostic.Message}",
+        },
+    };
+
+    private IReadOnlyList<IProvenanceStep> BuildCSharpProvenanceSteps()
+    {
+        var steps = new List<IProvenanceStep>();
+
+        // The current render's published map. On the loop path no post-publish C# rewrite intervenes,
+        // so its intervals describe the exact on-disk bytes MSBuild compiled. Gated so a hit whose
+        // artifact is not droppable alone becomes no resolution → fail closed.
+        var fragments = _context.FragmentSet;
+        if (fragments != null)
+            steps.Add(new DroppableGate(new CSharpIntervalMapProvenanceStep(fragments)));
+
+        return steps;
+    }
+
+    // Synthesizes a global input-configuration failure the controller reads as a fail-closed cause,
+    // used when the C# verifier is inconclusive AFTER at least one withdrawal — the loop cannot prove
+    // its reduction sound, so it must not converge.
+    private static AttributionResult InconclusiveFailClosed(CSharpVerificationResult csharp)
+    {
+        var reason = string.IsNullOrEmpty(csharp.InconclusiveReason)
+            ? "C# verification could not reach a verdict"
+            : csharp.InconclusiveReason;
+
+        var group = new DiagnosticGroup
+        {
+            Primary = CompilerDiagnostic.Global(
+                DiagnosticSeverity.Error,
+                $"C# verification inconclusive after withdrawals: {reason}"),
+        };
+
+        var decision = new AttributedDiagnostic
+        {
+            Diagnostic = group,
+            Kind = AttributionKind.Classification,
+            Owner = CauseOwner.InputConfiguration,
+            ClassificationDetail = reason,
+            Source = ProvenanceSource.None,
+        };
+
+        return new AttributionResult
+        {
+            Diagnostics = ImmutableArray.Create(decision),
+            Culprits = ImmutableArray<RecoveryUnitId>.Empty,
+            Fingerprint = "csharp-inconclusive",
+        };
     }
 
     private IReadOnlyList<IProvenanceStep> BuildProvenanceSteps(WrapperCompileDiagnostics diagnostics)

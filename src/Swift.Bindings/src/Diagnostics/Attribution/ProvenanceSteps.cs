@@ -56,6 +56,54 @@ public sealed class IntervalMapProvenanceStep : IProvenanceStep
 }
 
 /// <summary>
+/// The C#-plane counterpart of <see cref="IntervalMapProvenanceStep"/>: resolves a positioned C#
+/// compiler diagnostic (from the MSBuild+SARIF verifier) through the same per-render interval map,
+/// selecting the C# plane. This is the tree-based attribution the C# verify-recover loop needs — the
+/// interval map is the emitted syntax tiling, so a diagnostic's line/column lands on the exact
+/// member fragment, and the fragment owner carries the recovery unit that member belongs to (the
+/// same union-compatible id the Swift loop withdraws, by <see cref="RecoveryUnitClassifier"/>
+/// role-collapse).
+/// </summary>
+/// <remarks>
+/// Two differences from the Swift step, both load-bearing. The column is counted in UTF-16
+/// characters — Roslyn/SARIF report character columns, not swiftc's UTF-8 byte columns — so this
+/// resolves through <see cref="FileIntervalMap.TryResolve(int,int,out OutputFragment)"/>, never
+/// <c>TryResolveUtf8Column</c>. And a hit whose fragment is on the Swift plane is rejected: a C#
+/// diagnostic can only be about C#, so a Swift-plane match means the wrong file matched by leaf name.
+/// The map used here is the current render's <c>_context.FragmentSet</c>, which describes the exact
+/// bytes on disk that MSBuild compiled — no post-publish rewrite intervenes on the loop path.
+/// </remarks>
+public sealed class CSharpIntervalMapProvenanceStep : IProvenanceStep
+{
+    private readonly ModuleFragmentSet _fragments;
+
+    /// <summary>Wraps the fragment set for the compiled module.</summary>
+    public CSharpIntervalMapProvenanceStep(ModuleFragmentSet fragments) =>
+        _fragments = fragments ?? throw new ArgumentNullException(nameof(fragments));
+
+    /// <inheritdoc />
+    public bool TryResolve(CompilerDiagnostic diagnostic, out ProvenanceHit hit)
+    {
+        hit = default;
+        if (!diagnostic.HasPosition || string.IsNullOrEmpty(diagnostic.File))
+            return false;
+
+        var leaf = Path.GetFileName(diagnostic.File);
+        if (!_fragments.Files.TryGetValue(leaf, out var map))
+            return false;
+
+        if (!map.TryResolve(diagnostic.Line, diagnostic.Column, out var fragment))
+            return false;
+
+        if (fragment.Plane != OutputPlane.CSharp)
+            return false;
+
+        hit = new ProvenanceHit(fragment.Owner.Artifact, fragment.Owner.Unit, ProvenanceSource.IntervalMap);
+        return true;
+    }
+}
+
+/// <summary>
 /// Priority 2/3: resolve a positioned diagnostic to the enclosing wrapper block, then to its owner
 /// via the block's <c>@_cdecl</c>/<c>@_silgen_name</c> symbol (registry lookup) or its
 /// <c>// SBW-ORIGIN:</c> anchor (a serialized <see cref="ArtifactId"/>).

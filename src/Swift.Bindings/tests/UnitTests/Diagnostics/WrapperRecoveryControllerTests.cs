@@ -611,6 +611,50 @@ public class WrapperRecoveryControllerTests
         Assert.Equal(new[] { a }, result.Denylist);
     }
 
+    // ---- cross-verifier joint fixed-point (a C# withdrawal that breaks a Swift sibling) -------
+
+    [Fact]
+    public void CSharpWithdrawalThatBreaksASwiftSibling_ConvergesWithBothWithdrawn_WithoutOscillating()
+    {
+        // The joint fixed-point across BOTH verifiers, seen at the controller layer where it is
+        // verifier-agnostic: X is the C#-plane culprit; withdrawing X removes its Swift wrapper too,
+        // which exposes a Swift-plane sibling Y that only fails once X is gone. A non-monotonic loop
+        // that re-rendered pristine and "forgot" X when Y surfaced would re-break X on the very next
+        // render and oscillate {X} ⇄ {Y} forever. The controller holds ONE monotonic denylist across
+        // both planes, so it settles at {X, Y} — both withdrawn, clean under both verifiers.
+        var x = Leaf("cSharpCulprit");   // fails the C# compile whenever it is present
+        var y = Leaf("swiftSibling");    // fails the Swift wrapper once X is withdrawn
+        var driver = new PolicyDriver(denylist =>
+        {
+            if (!denylist.Contains(x))
+                return AttributedFailure(x);   // C#-plane failure on X
+            if (!denylist.Contains(y))
+                return AttributedFailure(y);   // withdrawing X broke the Swift sibling Y
+            return null;                       // both withdrawn ⇒ clean under both verifiers
+        });
+
+        var result = WrapperRecoveryController.Run(driver);
+
+        Assert.True(result.Converged);
+        Assert.Equal(new[] { x, y }, result.Denylist);
+        // Three renders: {} → fail(X) → {X} → fail(Y) → {X,Y} → clean. The middle render is exactly the
+        // one a non-monotonic loop would have dropped X from, re-breaking the C# compile.
+        Assert.Equal(3, result.Rounds);
+
+        // Non-oscillation is the property under test: every denylist handed to the driver grew and never
+        // re-enabled a withdrawn unit, so the C# culprit X is never rendered again once withdrawn.
+        for (int i = 1; i < driver.SeenDenylists.Count; i++)
+        {
+            var prev = driver.SeenDenylists[i - 1];
+            var curr = driver.SeenDenylists[i];
+            Assert.True(prev.Length < curr.Length, "denylist did not grow — a re-enable would oscillate");
+            Assert.True(prev.All(curr.Contains), "a withdrawn unit was re-enabled — the C# culprit would re-break");
+        }
+        // From the second render onward X stays withdrawn; the driver never sees a denylist that dropped
+        // it, which is precisely what stops the {X} ⇄ {Y} oscillation.
+        Assert.All(driver.SeenDenylists.Skip(1), d => Assert.Contains(x, d));
+    }
+
     // ---- iteration cap -----------------------------------------------------------------------
 
     [Fact]

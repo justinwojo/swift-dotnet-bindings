@@ -129,27 +129,29 @@ public class ResolveRuntimeLibraryNameTests
 
 /// <summary>
 /// <c>--apple-version</c> must flow into <c>BindingProjectEmitterOptions.AppleSupplementVersion</c>
-/// from BOTH emitter call sites in <c>BindingsGeneratorCommand.Execute</c>:
-/// the xcframework path and the direct system-framework path. If either call site drops the field,
-/// the emitted <c>SwiftBindings.Apple</c> PackageReference falls back to the hardcoded
-/// default in <c>BindingProjectEmitterOptions</c> and consumers silently target the wrong
-/// Apple SDK train. Unit tests on <c>BindingProjectEmitter</c> already cover end-to-end
-/// csproj content for a non-default version; this source-level guard catches a future
+/// from EVERY <c>BindingProjectEmitter.Emit</c> call site in <c>BindingsGeneratorCommand.Execute</c>:
+/// the xcframework path, the direct system-framework path, and the C# verify-recover verification
+/// csproj the in-emission loop emits to compile-check the generated C#. If any call site drops the
+/// field, that csproj's <c>SwiftBindings.Apple</c> PackageReference falls back to the hardcoded
+/// default in <c>BindingProjectEmitterOptions</c> — consumers silently target the wrong Apple SDK
+/// train on the two shipped paths, and the verify-recover compile gate checks the emitted C# against
+/// the wrong reference set on the third. Unit tests on <c>BindingProjectEmitter</c> already cover
+/// end-to-end csproj content for a non-default version; this source-level guard catches a future
 /// regression in the command layer without spinning up the full CLI pipeline (which
 /// requires real dylib/ABI-JSON artifacts).
 /// </summary>
 public class AppleVersionForwardingTests
 {
     [Fact]
-    public void BothEmitterCallSites_ForwardAppleVersion()
+    public void EveryEmitterCallSite_ForwardsAppleVersion()
     {
         var commandFile = LocateCommandFile();
         var source = File.ReadAllText(commandFile);
-        // Count is asserted ==2 (xcframework + direct-framework). A weaker >=1 check would
-        // have let the direct-framework regression slip through.
+        // Count is asserted ==3 (xcframework + direct-framework + C# verify-recover verification csproj).
+        // A weaker >=1 check would have let a per-call-site regression slip through.
         var occurrences = System.Text.RegularExpressions.Regex.Matches(
             source, @"AppleSupplementVersion\s*=\s*appleVersion\s*,").Count;
-        Assert.Equal(2, occurrences);
+        Assert.Equal(3, occurrences);
     }
 
     private static string LocateCommandFile()
@@ -815,6 +817,94 @@ public class IsMixedFrameworkTests
 
 #endregion
 
+#region CanVerifyCSharpInLoop
+
+/// <summary>
+/// <c>CanVerifyCSharpInLoop</c> is the gate deciding whether the C# verify-recover leg runs INSIDE
+/// the wrapper loop. It is sound only when the emitted C# references no unbuilt ObjC companion
+/// assembly — the in-loop verification csproj sets <c>ObjCProjectFileName = null</c>, so a bridged
+/// companion type in the C# would fail to resolve and be withdrawn on a false error. The
+/// companion-freeness signal available at gate time is the bridged-record set threaded into
+/// generation: no ObjC surface at all, OR a "potential mixed" framework whose bridge filtered to
+/// zero records (an umbrella header re-exporting only Swift — the CocoaMQTT/Eureka/Hero shape) both
+/// emit companion-free C# and ARE verifiable in-loop; ≥1 bridged record keeps the post-loop
+/// fail-closed gate. The env preconditions (wrapper loop active, non-SDK, verify not opted out)
+/// must all hold.
+/// </summary>
+public class CanVerifyCSharpInLoopTests
+{
+    private static XCFrameworkResolver.ObjCFrameworkResolution ObjCSurface() =>
+        new("/tmp/Fixture.xcframework/ios-arm64_x86_64-simulator", true, "Fixture", "Fixture.framework");
+
+    private static TypeRecord BridgeRecord(string name) => new()
+    {
+        CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Fixture", name),
+        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"Fixture.{name}"),
+        MetadataAccessor = $"$s7Fixture{name.Length}{name}CMa",
+        Flags = TypeRecordFlags.None,
+        Kind = TypeRecordKind.Class,
+    };
+
+    [Fact]
+    public void PureSwift_NoObjCSurface_VerifiesInLoop()
+    {
+        // mixedObjcResolution null: a framework with no modulemap/extra header at all.
+        Assert.True(BindingsGeneratorCommand.CanVerifyCSharpInLoop(
+            wrapperLoopActive: true, sdkMode: false, noVerifyCSharp: false,
+            mixedObjcResolution: null, mixedBridgeRecords: null));
+    }
+
+    [Fact]
+    public void PotentialMixed_ButZeroBridgedRecords_VerifiesInLoop()
+    {
+        // The CocoaMQTT/Eureka/Hero shape: DetectMixedFrameworkObjC returns non-null off the
+        // umbrella header, but the ObjC bridge filtered to zero records, so the emitted C# has no
+        // companion reference — it IS verifiable in-loop.
+        Assert.True(BindingsGeneratorCommand.CanVerifyCSharpInLoop(
+            wrapperLoopActive: true, sdkMode: false, noVerifyCSharp: false,
+            mixedObjcResolution: ObjCSurface(), mixedBridgeRecords: new List<TypeRecord>()));
+    }
+
+    [Fact]
+    public void GenuinelyMixed_WithBridgedRecords_DeclinesInLoop()
+    {
+        // ≥1 bridged ObjC record → the emitted C# references a companion assembly built only after
+        // GenerateBindings returns → decline the loop and keep the post-loop fail-closed gate.
+        Assert.False(BindingsGeneratorCommand.CanVerifyCSharpInLoop(
+            wrapperLoopActive: true, sdkMode: false, noVerifyCSharp: false,
+            mixedObjcResolution: ObjCSurface(),
+            mixedBridgeRecords: new List<TypeRecord> { BridgeRecord("MqttClient") }));
+    }
+
+    [Fact]
+    public void WrapperLoopInactive_DeclinesRegardlessOfObjCSurface()
+    {
+        // No Swift wrapper loop (device/all arch, or skip-wrapper-compilation) → no loop to extend.
+        Assert.False(BindingsGeneratorCommand.CanVerifyCSharpInLoop(
+            wrapperLoopActive: false, sdkMode: false, noVerifyCSharp: false,
+            mixedObjcResolution: null, mixedBridgeRecords: null));
+    }
+
+    [Fact]
+    public void SdkMode_DeclinesInLoop()
+    {
+        // SDK two-pass flow defers wrapper compilation; the loop is a non-SDK-path facility.
+        Assert.False(BindingsGeneratorCommand.CanVerifyCSharpInLoop(
+            wrapperLoopActive: true, sdkMode: true, noVerifyCSharp: false,
+            mixedObjcResolution: null, mixedBridgeRecords: null));
+    }
+
+    [Fact]
+    public void NoVerifyCSharpOptOut_DeclinesInLoop()
+    {
+        Assert.False(BindingsGeneratorCommand.CanVerifyCSharpInLoop(
+            wrapperLoopActive: true, sdkMode: false, noVerifyCSharp: true,
+            mixedObjcResolution: null, mixedBridgeRecords: null));
+    }
+}
+
+#endregion
+
 #region RecordUnresolvedDependencyDegradations
 
 /// <summary>
@@ -1124,6 +1214,58 @@ public class ObjCDependencySearchPathTests
             Array.Empty<string>(), new[] { "" });
 
         Assert.Empty(merged);
+    }
+}
+
+#endregion
+
+#region ClassifyStrippedSymbols reconciler-retirement gate
+
+/// <summary>
+/// The stripped-symbol reconciler's retirement seam. On the verify-recover loop path the loop has
+/// already settled the on-disk C# against a clean wrapper compile, so
+/// <see cref="StrippedSymbolCSharpReconciler"/> is never invoked — any post-loop stripped symbol
+/// there is a soundness surprise that must fail closed rather than be clawed back. Off the loop path
+/// (SDK two-pass, <c>--compile-wrapper-only</c>) the reconciler still owns the claw-back. These pin
+/// that policy on the pure classifier so "reconciler not invoked on the loop path" is a test failure
+/// from here on, without standing up a whole generation run.
+/// </summary>
+public class ClassifyStrippedSymbolsTests
+{
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void NoStrippedSymbols_IsAlwaysNone_RegardlessOfPath(int count)
+    {
+        Assert.Equal(
+            StrippedSymbolDisposition.None,
+            BindingsGeneratorCommand.ClassifyStrippedSymbols(onVerifyRecoverLoopPath: false, count));
+        Assert.Equal(
+            StrippedSymbolDisposition.None,
+            BindingsGeneratorCommand.ClassifyStrippedSymbols(onVerifyRecoverLoopPath: true, count));
+    }
+
+    [Fact]
+    public void OffLoopPath_WithStrippedSymbols_Reconciles()
+    {
+        // The legacy legs (SDK two-pass, --compile-wrapper-only) keep the reconciler until session 06:
+        // a stripped symbol there is clawed back through StrippedSymbolCSharpReconciler as before.
+        Assert.Equal(
+            StrippedSymbolDisposition.Reconcile,
+            BindingsGeneratorCommand.ClassifyStrippedSymbols(onVerifyRecoverLoopPath: false, strippedSymbolCount: 3));
+    }
+
+    [Fact]
+    public void OnLoopPath_WithStrippedSymbols_FailsClosed_NeverReconciles()
+    {
+        // The load-bearing retirement pin: on the loop path a stripped symbol must NOT reach the
+        // reconciler. It is a soundness surprise (the loop settled a clean simulator wrapper that the
+        // post-loop recompile then contradicted) that fails the module closed.
+        var disposition =
+            BindingsGeneratorCommand.ClassifyStrippedSymbols(onVerifyRecoverLoopPath: true, strippedSymbolCount: 1);
+
+        Assert.Equal(StrippedSymbolDisposition.FailClosedOnLoopPath, disposition);
+        Assert.NotEqual(StrippedSymbolDisposition.Reconcile, disposition);
     }
 }
 

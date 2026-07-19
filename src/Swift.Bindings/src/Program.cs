@@ -50,7 +50,7 @@ namespace BindingsGeneration
             GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibraryName, swiftInterfacePath, symbolGraphPath, bridgeHintsPath, namespacePattern, logger, loggerFactory, out _, out _, out _, out _, dependencyModuleNames: null, moduleDatabasePaths: null);
         }
 
-        internal static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, out HashSet<string>? nestedTypesInCollidingClass, out DepModuleCollisionDetector.SlicedCollisionResult depModuleCollisions, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null, bool keepBuiltinDatabaseForTargetModule = false, Producers.InterfaceFactsAggregator? factsAggregator = null, string? descriptorAssemblyNameOverride = null, string? swiftRuntimeVersion = null, IReadOnlyList<TypeRecord>? objcBridgeRecords = null, Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics>? compileWrapper = null)
+        internal static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, out HashSet<string>? nestedTypesInCollidingClass, out DepModuleCollisionDetector.SlicedCollisionResult depModuleCollisions, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null, bool keepBuiltinDatabaseForTargetModule = false, Producers.InterfaceFactsAggregator? factsAggregator = null, string? descriptorAssemblyNameOverride = null, string? swiftRuntimeVersion = null, IReadOnlyList<TypeRecord>? objcBridgeRecords = null, Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics>? compileWrapper = null, Func<CSharpVerificationResult>? verifyRecoverCsharp = null)
         {
             internalTypeNames = null;
             moduleNameForCollision = null;
@@ -637,7 +637,8 @@ namespace BindingsGeneration
                         rebuildCollaborators: rebuildCollaborators,
                         compileWrapper: compileWrapper,
                         request: request,
-                        preRender: () => CleanStaleWrapperArtifacts(outputDirectory, wrapperNamespace, logger));
+                        preRender: () => CleanStaleWrapperArtifacts(outputDirectory, wrapperNamespace, logger),
+                        verifyCsharp: verifyRecoverCsharp);
 
                     // The per-render wrapper compiles append input-resolution decisions the finalized
                     // manifest must not accumulate; snapshot before the loop and restore after so the
@@ -646,13 +647,17 @@ namespace BindingsGeneration
                     var recovery = Diagnostics.WrapperRecoveryController.Run(driver);
                     InputResolutionReport.Restore(inputResolutionBaseline);
 
+                    // When a C# verifier is wired, the loop is a joint fixed-point over both planes: it
+                    // converges only when the Swift wrapper AND the emitted C# compile clean in the same
+                    // round, so the diagnostics name both planes rather than the wrapper alone.
+                    var planes = verifyRecoverCsharp != null ? "wrapper and C#" : "wrapper";
                     if (!recovery.Converged)
                     {
                         logger.LogError(
-                            "SWIFTBIND111: wrapper verify-recover did not converge for {Module} after " +
-                            "{Rounds} round(s) ({Cause}); refusing to ship a binding whose wrapper does " +
-                            "not compile clean.",
-                            decl.Name, recovery.Rounds, recovery.Cause);
+                            "SWIFTBIND111: verify-recover did not converge for {Module} after " +
+                            "{Rounds} round(s) ({Cause}); refusing to ship a binding whose {Planes} did " +
+                            "not reach a clean compile.",
+                            decl.Name, recovery.Rounds, recovery.Cause, planes);
                         ReportCollector.Reset();
                         return false;
                     }
@@ -660,9 +665,9 @@ namespace BindingsGeneration
                     if (recovery.Denylist.Length > 0)
                     {
                         logger.LogWarning(
-                            "SWIFTBIND112: wrapper verify-recover withdrew {Count} leaf/accessor unit(s) " +
-                            "from {Module} over {Rounds} round(s) to reach a clean wrapper compile.",
-                            recovery.Denylist.Length, decl.Name, recovery.Rounds);
+                            "SWIFTBIND112: verify-recover withdrew {Count} leaf/accessor unit(s) " +
+                            "from {Module} over {Rounds} round(s) to reach a clean {Planes} compile.",
+                            recovery.Denylist.Length, decl.Name, recovery.Rounds, planes);
                     }
                 }
 

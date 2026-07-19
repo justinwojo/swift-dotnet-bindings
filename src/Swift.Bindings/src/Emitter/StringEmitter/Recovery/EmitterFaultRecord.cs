@@ -21,6 +21,14 @@ internal enum EmitterFaultOrigin
     /// exception-shaped fields are not meaningful for this origin.
     /// </summary>
     RecoveryWithdrawal,
+
+    /// <summary>
+    /// The declaration was withdrawn to make the emitted C# compile — no exception occurred. Same
+    /// verify-recover machinery as <see cref="RecoveryWithdrawal"/>, one rung later in the pipeline
+    /// (the C# plane rather than the Swift wrapper), so the tombstone/report wording names the C#
+    /// compile as the cause and <see cref="SkipCauseClassifier"/> refines the stage accordingly.
+    /// </summary>
+    CSharpRecoveryWithdrawal,
 }
 
 /// <summary>
@@ -85,20 +93,23 @@ internal readonly record struct EmitterFaultRecord
         };
 
     /// <summary>
-    /// Builds a record for a declaration withdrawn by the wrapper verify-recover loop rather than one
-    /// the emitter threw on. No exception is involved, so the exception-shaped fields are left empty and
-    /// <see cref="Details"/> reads as a withdrawal, not a throw.
+    /// Builds a record for a declaration withdrawn by a verify-recover loop rather than one the emitter
+    /// threw on. No exception is involved, so the exception-shaped fields are left empty and
+    /// <see cref="Details"/> reads as a withdrawal, not a throw. <paramref name="origin"/> selects which
+    /// verifier withdrew it — the Swift wrapper compile (the default) or the C# compile — so the
+    /// tombstone/report wording and stage refinement name the correct plane.
     /// </summary>
     public static EmitterFaultRecord ForRecoveryWithdrawal(
         DeclId subject,
         RecoveryScope scope,
         string reason,
-        DeclId? escalation = null) =>
+        DeclId? escalation = null,
+        EmitterFaultOrigin origin = EmitterFaultOrigin.RecoveryWithdrawal) =>
         new()
         {
             Subject = subject,
             Scope = scope,
-            Origin = EmitterFaultOrigin.RecoveryWithdrawal,
+            Origin = origin,
             ExceptionType = string.Empty,
             Fingerprint = string.Empty,
             Message = reason,
@@ -114,15 +125,26 @@ internal readonly record struct EmitterFaultRecord
     internal const string WithdrawalDetailsPrefix = "Withdrawn by wrapper verify-recover: ";
 
     /// <summary>
+    /// How a C#-plane recovery-withdrawal details string begins. Distinct from
+    /// <see cref="WithdrawalDetailsPrefix"/> so a triager (and <see cref="SkipCauseClassifier"/>) can
+    /// tell the two verify-recover planes apart in a skip row — the C# compile failed on this member,
+    /// not the Swift wrapper.
+    /// </summary>
+    internal const string CSharpWithdrawalDetailsPrefix = "Withdrawn by C# verify-recover: ";
+
+    /// <summary>
     /// The details string recorded on the skip row. Reads as a sentence a triager can act on. For an
     /// emitter exception it keeps the fingerprint so two rows can be compared without re-running the
     /// generator; for a recovery withdrawal it says plainly that the unit was withdrawn to make the
-    /// wrapper compile — never claiming an exception that did not occur.
+    /// wrapper (or the C#) compile — never claiming an exception that did not occur.
     /// </summary>
     public string Details =>
-        Origin == EmitterFaultOrigin.RecoveryWithdrawal
-            ? $"{WithdrawalDetailsPrefix}{Message}"
-            : $"Emitter threw {ExceptionType} at {Fingerprint}: {Message}";
+        Origin switch
+        {
+            EmitterFaultOrigin.RecoveryWithdrawal => $"{WithdrawalDetailsPrefix}{Message}",
+            EmitterFaultOrigin.CSharpRecoveryWithdrawal => $"{CSharpWithdrawalDetailsPrefix}{Message}",
+            _ => $"Emitter threw {ExceptionType} at {Fingerprint}: {Message}",
+        };
 
     private static string BuildFingerprint(Exception exception)
     {

@@ -36,16 +36,33 @@ internal static class WrapperDenylistSeed
     /// emitter gates use.
     /// </summary>
     public static EmitterPoisonList Build(IReadOnlySet<RecoveryUnitId> denylist)
+        => Build(denylist, static _ => EmitterFaultOrigin.RecoveryWithdrawal);
+
+    /// <summary>
+    /// Builds the poison list, choosing each unit's withdrawal wording from
+    /// <paramref name="originOf"/> — the same denylist can carry units the Swift wrapper compile
+    /// withdrew and units the C# compile withdrew (a joint verify-recover run reuses one monotonic
+    /// denylist across both planes). The origin drives only the tombstone/report wording; the emission
+    /// gate denies every unit identically regardless of which verifier named it. A unit
+    /// <paramref name="originOf"/> does not recognize falls back to the Swift-wrapper wording.
+    /// </summary>
+    public static EmitterPoisonList Build(
+        IReadOnlySet<RecoveryUnitId> denylist,
+        Func<RecoveryUnitId, EmitterFaultOrigin> originOf)
     {
         ArgumentNullException.ThrowIfNull(denylist);
+        ArgumentNullException.ThrowIfNull(originOf);
 
         var poison = new EmitterPoisonList();
         foreach (var unit in denylist)
         {
+            var origin = originOf(unit);
+            var plane = origin == EmitterFaultOrigin.CSharpRecoveryWithdrawal ? "C#" : "wrapper";
             poison.Record(EmitterFaultRecord.ForRecoveryWithdrawal(
                 unit.Decl,
                 unit.Scope,
-                $"withdrawn to recover the wrapper compile ({unit.Describe()})"));
+                $"withdrawn to recover the {plane} compile ({unit.Describe()})",
+                origin: origin));
         }
 
         return poison;

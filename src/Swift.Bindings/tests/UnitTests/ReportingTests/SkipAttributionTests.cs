@@ -418,6 +418,37 @@ public class SkipAttributionTests
     }
 
     /// <summary>
+    /// A C# verify-recover withdrawal is decided one rung later than a wrapper withdrawal — the wrapper
+    /// compiled clean and the emitted C# then failed to compile — so its row must place at
+    /// <see cref="RecoveryStage.CSharpCompile"/>, not <see cref="RecoveryStage.SwiftCompile"/>. The row
+    /// shares <see cref="SkipReason.EmitterFault"/> with the wrapper withdrawal and the live exception;
+    /// the only surviving signal is the details prefix that the C# origin stamps, so this pins that the
+    /// classifier learned the C# wording the same way it learned the Swift one.
+    /// </summary>
+    [Fact]
+    public void Link_PlacesACSharpRecoveryWithdrawalRowAtCSharpCompile()
+    {
+        var decl = DeclId.Create("M", "T", BindingItemKind.Method, "foo");
+        var withdrawal = EmitterFaultRecord.ForRecoveryWithdrawal(
+            decl, RecoveryScope.LeafApi, "withdrawn to recover the C# compile (M.T.foo (leaf-api))",
+            origin: EmitterFaultOrigin.CSharpRecoveryWithdrawal);
+        var item = new SkippedItem
+        {
+            Kind = BindingItemKind.Method,
+            Name = "foo",
+            Reason = SkipReason.EmitterFault,
+            Details = withdrawal.Details,
+            DeclId = decl.Canonical,
+        };
+
+        SkipAttributionLinker.Link(new[] { item });
+
+        Assert.Equal(RecoveryStage.CSharpCompile, item.RecoveryStage);
+        Assert.Equal(CauseOwner.Generator, item.CauseOwner);
+        Assert.Equal(AttributionConfidence.High, item.Confidence);
+    }
+
+    /// <summary>
     /// A live emitter exception keeps the Emit stage — the refinement must key on the withdrawal
     /// wording, not on the reason alone.
     /// </summary>
