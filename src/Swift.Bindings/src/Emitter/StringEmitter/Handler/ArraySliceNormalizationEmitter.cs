@@ -782,6 +782,10 @@ public static class ArraySliceNormalizationEmitter
             // the extension declaration itself against the deployment target. If the parent
             // type is iOS-18-only, an unannotated extension fails to compile on an iOS 16
             // floor before reaching the (also-annotated) wrapper function inside.
+            // The @_silgen_name wrapper inside is symbol-bearing, but this plain extension is not;
+            // the anchor (led ahead of the availability) pins the symbol-less extension block to the
+            // method that owns it, and the post-processor strips it with the block it names.
+            OriginAnchorEmitter.Write(swiftWriter, FragmentOwners.ForDeclWrapper(originalMethodDecl).Artifact);
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
             swiftWriter.WriteLine($"extension {swiftModuleQualifiedName} {{");
             swiftWriter.Indent++;

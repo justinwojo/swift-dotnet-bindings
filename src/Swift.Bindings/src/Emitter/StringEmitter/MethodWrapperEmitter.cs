@@ -1243,9 +1243,16 @@ public static class MethodWrapperEmitter
             }
         }
 
+        // The dispatch protocol + conformance extension carry no @_cdecl symbol; the anchor pins
+        // both symbol-less blocks to the method that owns them so a wrapper-compile failure inside
+        // either attributes to it rather than the coarse module scope, and the post-processor strips
+        // the anchor with the block it names.
+        var originAnchor = OriginAnchorEmitter.LineForWrapper(methodDecl);
+
         // Emit protocol
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
+            {{originAnchor}}
             private protocol {{protocolName}} {
                 {{protocolMethodSig}}
             }
@@ -1262,6 +1269,7 @@ public static class MethodWrapperEmitter
         var extensionAvailPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(
             extensionAvailability, "");
         swiftWriter.WriteLines($$"""
+            {{originAnchor}}
             {{extensionAvailPrefix}}extension {{moduleQualifiedSwiftName}}: {{protocolName}} {
                 {{mainActorPrefix}}static func {{dispatchMethodName}}({{string.Join(", ", protocolParams)}}){{throwsClause}}{{protocolReturnType}} {
                     {{extensionBody}}
@@ -1701,6 +1709,7 @@ public static class MethodWrapperEmitter
             methodDecl.AvailabilityAnnotations, env.ParentDecl);
         GenericProtocolEmitter.EmitProtocolAndConformance(
             swiftWriter, "P", symbolName, methodSig, moduleQualifiedSwiftName,
+            originAnchor: FragmentOwners.ForDeclWrapper(methodDecl).Artifact,
             extensionAvailability: extensionAvailability);
     }
 

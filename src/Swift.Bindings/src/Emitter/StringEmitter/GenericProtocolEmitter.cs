@@ -38,6 +38,11 @@ internal static class GenericProtocolEmitter
     /// <param name="symbolName">The mangled symbol name used for hash-based uniqueness.</param>
     /// <param name="memberDeclaration">The protocol member declaration (e.g., "func foo() -> Int", "var name: String { get }").</param>
     /// <param name="moduleQualifiedName">The module-qualified Swift type name for the conformance extension.</param>
+    /// <param name="originAnchor">
+    /// Identity of the member this dispatch protocol + conformance pair belongs to. Emitted as a
+    /// <c>// SBW-ORIGIN:</c> anchor ahead of each of the two symbol-less blocks so a wrapper-compile
+    /// diagnostic landing in either attributes to that member rather than the coarse module scope.
+    /// </param>
     /// <param name="protocolConstraint">Optional protocol constraint (e.g., "AnyObject" for class-only protocols).</param>
     /// <param name="extensionAvailability">Optional merged availability annotations applied to the conformance extension. Conformance extensions are top-level decls and don't inherit the enclosing type's availability.</param>
     /// <returns>The generated protocol name (e.g., "_SBW_P_A1B2C3D4").</returns>
@@ -47,6 +52,7 @@ internal static class GenericProtocolEmitter
         string symbolName,
         string memberDeclaration,
         string moduleQualifiedName,
+        ArtifactId originAnchor,
         string? protocolConstraint = null,
         IReadOnlyList<AvailabilityAnnotation>? extensionAvailability = null)
     {
@@ -54,12 +60,18 @@ internal static class GenericProtocolEmitter
         var constraintClause = protocolConstraint != null ? $": {protocolConstraint} " : "";
         var extensionAvailPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(
             extensionAvailability, string.Empty);
+        // The anchor leads each block, ahead of any availability prefix, so the block head stays
+        // byte-identical to the pre-anchor output (only the comment line is new) and the strip
+        // fast-path removes the whole `[anchor .. @available]` preamble with the block it names.
+        var anchor = OriginAnchorEmitter.Line(originAnchor);
 
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
+            {{anchor}}
             {{extensionAvailPrefix}}private protocol {{protocolName}}{{constraintClause}} {
                 {{memberDeclaration}}
             }
+            {{anchor}}
             {{extensionAvailPrefix}}extension {{moduleQualifiedName}}: {{protocolName}} {}
             """);
 

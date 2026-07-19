@@ -690,11 +690,19 @@ public static class SubscriptWrapperEmitter
         var extensionAvailPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(
             extensionAvailability, string.Empty);
 
+        // The dispatch protocol + conformance extension carry no @_cdecl symbol; the anchor pins
+        // both symbol-less blocks to the subscript that owns them so a wrapper-compile failure inside
+        // either attributes to it rather than the coarse module scope, and the post-processor strips
+        // the anchor with the block it names.
+        var originAnchor = OriginAnchorEmitter.LineForWrapper(subscriptDecl);
+
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
+            {{originAnchor}}
             private protocol {{protocolName}} {
                 subscript({{indexParamString}}) -> {{returnSwiftType}} { get }
             }
+            {{originAnchor}}
             {{extensionAvailPrefix}}extension {{moduleQualifiedName}}: {{protocolName}} {}
             """);
 
@@ -724,11 +732,19 @@ public static class SubscriptWrapperEmitter
         var extensionAvailPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(
             extensionAvailability, string.Empty);
 
+        // The dispatch protocol + conformance extension carry no @_cdecl symbol; the anchor pins
+        // both symbol-less blocks to the subscript that owns them so a wrapper-compile failure inside
+        // either attributes to it rather than the coarse module scope, and the post-processor strips
+        // the anchor with the block it names.
+        var originAnchor = OriginAnchorEmitter.LineForWrapper(subscriptDecl);
+
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
+            {{originAnchor}}
             private protocol {{protocolName}} {
                 subscript({{indexParamString}}) -> {{returnSwiftType}} { get set }
             }
+            {{originAnchor}}
             {{extensionAvailPrefix}}extension {{moduleQualifiedName}}: {{protocolName}} {}
             """);
 

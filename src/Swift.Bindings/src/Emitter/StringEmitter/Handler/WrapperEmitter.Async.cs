@@ -1588,7 +1588,13 @@ namespace BindingsGeneration
                 var extensionAvailabilityLines = BuildAvailabilityLines(ancestorAvailability, "");
                 var extensionWhereClause = WrapperEmitterHelpers.BuildParentSameTypeExtensionWhere(
                     _env.MethodDecl, _env.ParentDecl as TypeDecl);
+                // The async wrapper inside is symbol-bearing, but this enclosing plain extension is
+                // not — a failure on the `extension ... {` header tiles to the coarse module scope.
+                // The anchor, led ahead of the extension's availability lines, pins the symbol-less
+                // extension to the member that owns it; the post-processor strips it with the block.
+                var originAnchor = OriginAnchorEmitter.LineForWrapper(_env.MethodDecl);
                 return $$"""
+            {{originAnchor}}
             {{extensionAvailabilityLines}}extension {{parentTypeName!.ModuleQualifiedName}}{{extensionWhereClause}} {
             {{funcBody}}
             }

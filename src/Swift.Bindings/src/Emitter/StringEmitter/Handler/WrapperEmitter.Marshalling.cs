@@ -107,6 +107,14 @@ namespace BindingsGeneration
             var extensionWhereClause = WrapperEmitterHelpers.BuildParentSameTypeExtensionWhere(
                 _env.MethodDecl, _env.ParentDecl as TypeDecl);
 
+            // The @_silgen_name wrapper below is symbol-bearing, but its enclosing plain extension
+            // is not — a compile failure on the `extension ... {` header (a gated extended type, an
+            // unsatisfiable where-clause) tiles to the coarse module scope. The anchor, led ahead of
+            // the extension's availability prefix, pins that symbol-less extension block to the member
+            // that owns it; the post-processor strips it with the extension it names. The free-function
+            // branch emits no extension, so it needs none.
+            var originAnchor = OriginAnchorEmitter.LineForWrapper(_env.MethodDecl);
+
             if (parentTypeName != null)
             {
                 if (isAccessor)
@@ -117,6 +125,7 @@ namespace BindingsGeneration
                     else if (propertyName.EndsWith("_Set")) propertyName = propertyName.Substring(0, propertyName.Length - 4);
                     var staticModifier = !isInstanceMethod ? "static " : "";
                     swiftWriter.WriteLine($$"""
+            {{originAnchor}}
             {{extensionAvailabilityPrefix}}extension {{parentTypeName.ModuleQualifiedName}}{{extensionWhereClause}} {
                 {{mainActorAttr}}@_silgen_name("{{NameProvider.GetMangledName(_env.EmissionSymbol, _env.MethodDecl)}}")
                 public {{staticModifier}}var _sb_{{propertyName}}: {{anyReturnType}} {
@@ -131,6 +140,7 @@ namespace BindingsGeneration
                     var staticModifier = !isInstanceMethod ? "static " : "";
                     var callPrefix = !isInstanceMethod ? $"{parentTypeName.ModuleQualifiedName}." : "self.";
                     swiftWriter.WriteLine($$"""
+            {{originAnchor}}
             {{extensionAvailabilityPrefix}}extension {{parentTypeName.ModuleQualifiedName}}{{extensionWhereClause}} {
                 {{mainActorAttr}}@_silgen_name("{{NameProvider.GetMangledName(_env.EmissionSymbol, _env.MethodDecl)}}")
                 public {{staticModifier}}func {{NameProvider.GetPInvokeName(_env.EmissionSymbol, _env.MethodDecl)}}{{genericParams}}({{parameters}}) -> {{anyReturnType}}{{whereClause}} {

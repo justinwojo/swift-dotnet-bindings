@@ -89,31 +89,40 @@ public sealed class SymbolAnchorProvenanceStep : IProvenanceStep
     public bool TryResolve(CompilerDiagnostic diagnostic, out ProvenanceHit hit)
     {
         hit = default;
-        if (!diagnostic.HasPosition || !_index.TryResolve(diagnostic.Line, out var block))
+        if (!diagnostic.HasPosition)
             return false;
 
-        ArtifactId? artifact = null;
-        var source = ProvenanceSource.None;
-
-        if (!string.IsNullOrEmpty(block.Symbol))
+        // Walk containing blocks innermost-first. The innermost block owns the line when it resolves,
+        // but a nested @_silgen_name whose promoted symbol isn't in the registry must NOT sink the
+        // whole attribution to coarse scope — fall back to the enclosing anchored extension header,
+        // which self-describes its owner. Stop at the first block that names a resolvable unit.
+        foreach (var block in _index.ResolveChain(diagnostic.Line))
         {
-            artifact = _symbolLookup(block.Symbol!);
-            source = ProvenanceSource.SymbolAnchor;
+            ArtifactId? artifact = null;
+            var source = ProvenanceSource.None;
+
+            if (!string.IsNullOrEmpty(block.Symbol))
+            {
+                artifact = _symbolLookup(block.Symbol!);
+                source = ProvenanceSource.SymbolAnchor;
+            }
+            else if (!string.IsNullOrEmpty(block.OriginAnchor) && ArtifactId.TryParse(block.OriginAnchor, out var parsed))
+            {
+                artifact = parsed;
+                source = ProvenanceSource.OriginAnchor;
+            }
+
+            if (artifact is not { } resolvedArtifact)
+                continue;
+
+            if (_unitLookup(resolvedArtifact) is not { } unit)
+                continue;
+
+            hit = new ProvenanceHit(resolvedArtifact, unit, source);
+            return true;
         }
-        else if (!string.IsNullOrEmpty(block.OriginAnchor) && ArtifactId.TryParse(block.OriginAnchor, out var parsed))
-        {
-            artifact = parsed;
-            source = ProvenanceSource.OriginAnchor;
-        }
 
-        if (artifact is not { } resolvedArtifact)
-            return false;
-
-        if (_unitLookup(resolvedArtifact) is not { } unit)
-            return false;
-
-        hit = new ProvenanceHit(resolvedArtifact, unit, source);
-        return true;
+        return false;
     }
 }
 

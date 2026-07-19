@@ -194,6 +194,40 @@ public class DiagnosticAttributorTests
         Assert.Equal(artifact.Decl, hit.Unit.Decl);
     }
 
+    /// <summary>
+    /// A diagnostic inside a nested <c>@_silgen_name</c> whose promoted symbol isn't in the registry
+    /// must fall back to the enclosing anchored <c>extension</c> header rather than sinking to coarse
+    /// module scope. The resolve chain walks containing blocks innermost-first and stops at the first
+    /// one that names a resolvable owner — here the inner symbol block misses, so the outer anchor wins.
+    /// </summary>
+    [Fact]
+    public void SymbolAnchorStep_InnerSymbolUnregistered_FallsBackToEnclosingAnchor()
+    {
+        var artifact = AttributionFixtures.ArtifactForSymbol("DefaultedHasher");
+        var source = $$"""
+            // SBW-ORIGIN: {{artifact.Canonical}}
+            extension Module.DefaultedHasher {
+                @_silgen_name("DBW_unregistered")
+                public func _dbg_hash(value: Int) -> Int {
+                    return brokenCall(value)
+                }
+            }
+            """;
+        var step = new SymbolAnchorProvenanceStep(
+            WrapperBlockIndex.Build(source),
+            symbol => symbol == "DBW_unregistered"
+                ? (ArtifactId?)null                      // the nested wrapper symbol isn't registered
+                : AttributionFixtures.ArtifactForSymbol(symbol),
+            AttributionFixtures.SymbolUnitLookup());
+
+        // Line 5 is inside the inner @_silgen_name function body, not on the extension header.
+        var diag = ErrorAt("Mod.wrapper.swift", line: 5, "cannot find 'brokenCall' in scope").Primary;
+
+        Assert.True(step.TryResolve(diag, out var hit));
+        Assert.Equal(ProvenanceSource.OriginAnchor, hit.Source);
+        Assert.Equal(artifact.Decl, hit.Unit.Decl);
+    }
+
     // ── linker symbol is priority 4 ─────────────────────────────────────────────────────────
 
     /// <summary>

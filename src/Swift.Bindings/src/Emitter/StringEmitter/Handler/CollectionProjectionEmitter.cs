@@ -337,8 +337,15 @@ internal static class CollectionProjectionEmitter
         var availability = WrapperEmitterHelpers.MergeAvailability(
             subscriptDecl.AvailabilityAnnotations, structDecl);
 
+        // The dispatch protocol + conformance extension carry no @_cdecl symbol; the anchor pins
+        // both symbol-less blocks to the subscript that owns them so a wrapper-compile failure inside
+        // either attributes to it rather than the coarse module scope, and the post-processor strips
+        // the anchor with the block it names.
+        var originAnchor = OriginAnchorEmitter.LineForWrapper(subscriptDecl);
+
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
+            {{originAnchor}}
             private protocol {{protocolName}} {
                 static func {{countDispatchName}}(selfPtr: UnsafeRawPointer) -> Int
                 static func {{subDispatchName}}(resultPtr: UnsafeMutableRawPointer, position: Int, selfPtr: UnsafeRawPointer)
@@ -352,6 +359,7 @@ internal static class CollectionProjectionEmitter
         // (classes, nested structs with reference fields). Loading obj by value
         // copies Self — for non-move-only structs the compiler handles the reference
         // fields' retain, so this is safe.
+        OriginAnchorEmitter.Write(swiftWriter, FragmentOwners.ForDeclWrapper(subscriptDecl).Artifact);
         WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
         swiftWriter.WriteLines($$"""
             extension {{moduleQualifiedName}}: {{protocolName}} {

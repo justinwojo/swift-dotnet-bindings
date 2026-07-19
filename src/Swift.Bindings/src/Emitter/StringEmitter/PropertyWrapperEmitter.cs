@@ -1028,9 +1028,16 @@ public static class PropertyWrapperEmitter
                 propAccess, propertyDecl.SwiftTypeSpec, env.TypeDatabase, returnMapping, scalarParens: false));
         }
 
+        // The dispatch protocol + conformance extension carry no @_cdecl symbol; the anchor pins
+        // both symbol-less blocks to the property that owns them so a wrapper-compile failure inside
+        // either attributes to it rather than the coarse module scope, and the post-processor strips
+        // the anchor with the block it names.
+        var originAnchor = OriginAnchorEmitter.LineForWrapper(propertyDecl);
+
         // Emit protocol
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
+            {{originAnchor}}
             private protocol {{protocolName}} {
                 static func {{getMethodName}}({{string.Join(", ", protocolParams)}}){{protocolReturnType}}
             }
@@ -1044,6 +1051,7 @@ public static class PropertyWrapperEmitter
         var getExtensionAvailPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(
             getExtensionAvailability, "");
         swiftWriter.WriteLines($$"""
+            {{originAnchor}}
             {{getExtensionAvailPrefix}}extension {{moduleQualifiedName}}: {{protocolName}} {
                 static func {{getMethodName}}({{string.Join(", ", protocolParams)}}){{protocolReturnType}} {
                     {{extensionBody}}
@@ -1100,6 +1108,7 @@ public static class PropertyWrapperEmitter
             propertyDecl.AvailabilityAnnotations, parentTypeDecl);
         return GenericProtocolEmitter.EmitProtocolAndConformance(
             swiftWriter, "PG", symbolName, memberDecl, moduleQualifiedName,
+            originAnchor: FragmentOwners.ForDeclWrapper(propertyDecl).Artifact,
             extensionAvailability: extensionAvailability);
     }
 
@@ -1247,9 +1256,16 @@ public static class PropertyWrapperEmitter
         else
             bodyLines.Add($"selfPtr.assumingMemoryBound(to: Self.self).pointee.{propertyDecl.Name} = {valueExpr}");
 
+        // The dispatch protocol + conformance extension carry no @_cdecl symbol; the anchor pins
+        // both symbol-less blocks to the property that owns them so a wrapper-compile failure inside
+        // either attributes to it rather than the coarse module scope, and the post-processor strips
+        // the anchor with the block it names.
+        var originAnchor = OriginAnchorEmitter.LineForWrapper(propertyDecl);
+
         // Emit protocol
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
+            {{originAnchor}}
             private protocol {{protocolName}} {
                 static func {{setMethodName}}({{string.Join(", ", protocolParams)}})
             }
@@ -1261,6 +1277,7 @@ public static class PropertyWrapperEmitter
         var setExtensionAvailPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(
             setExtensionAvailability, "");
         swiftWriter.WriteLines($$"""
+            {{originAnchor}}
             {{setExtensionAvailPrefix}}extension {{moduleQualifiedName}}: {{protocolName}} {
                 static func {{setMethodName}}({{string.Join(", ", protocolParams)}}) {
                     {{extensionBody}}
@@ -1339,11 +1356,19 @@ public static class PropertyWrapperEmitter
         var extensionAvailPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(
             extensionAvailability, string.Empty);
 
+        // The dispatch protocol + conformance extension carry no @_cdecl symbol; the anchor pins
+        // both symbol-less blocks to the property that owns them so a wrapper-compile failure inside
+        // either attributes to it rather than the coarse module scope, and the post-processor strips
+        // the anchor with the block it names.
+        var originAnchor = OriginAnchorEmitter.LineForWrapper(propertyDecl);
+
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
+            {{originAnchor}}
             private protocol {{protocolName}} {
                 var {{propertyDecl.Name}}: {{propertySwiftType}} { get set }
             }
+            {{originAnchor}}
             {{extensionAvailPrefix}}extension {{moduleQualifiedName}}: {{protocolName}} {}
             """);
 

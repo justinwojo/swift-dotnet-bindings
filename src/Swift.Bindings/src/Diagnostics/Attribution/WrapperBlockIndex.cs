@@ -120,6 +120,27 @@ public sealed class WrapperBlockIndex
         return true;
     }
 
+    /// <summary>
+    /// Every block that contains a 1-based <paramref name="line"/>, innermost (smallest span) first.
+    /// A caller resolves from the innermost owner outward and stops at the first block that actually
+    /// names a resolvable owner — so a diagnostic inside a nested <c>@_silgen_name</c> function whose
+    /// symbol isn't in the registry still falls back to the enclosing anchored <c>extension</c> header
+    /// rather than dropping to coarse module scope. Ties on span keep source order (a symbol block and
+    /// its enclosing anchor never share a span, so the innermost is unambiguous).
+    /// </summary>
+    public IReadOnlyList<WrapperBlock> ResolveChain(int line)
+    {
+        var hits = new List<WrapperBlock>();
+        for (int b = 0; b < _blocks.Count; b++)
+        {
+            if (_blocks[b].Contains(line))
+                hits.Add(_blocks[b]);
+        }
+
+        hits.Sort((x, y) => x.LineSpan.CompareTo(y.LineSpan));
+        return hits;
+    }
+
     // Scans forward from a block head to the line that closes it, honoring Swift string/comment
     // rules via the shared structural scanner. Mirrors SwiftWrapperPostProcessor.FindBlockEnd: the
     // first line whose running structural depth returns to zero after an open brace was seen ends

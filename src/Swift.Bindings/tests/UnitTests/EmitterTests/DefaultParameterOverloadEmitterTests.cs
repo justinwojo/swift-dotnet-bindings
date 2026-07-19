@@ -1384,8 +1384,15 @@ public class DefaultParameterOverloadEmitterTests
 
         // The autoclosure param should be invoked with () in the call
         Assert.Contains("arg0()", output);
-        // The wrapper should strip the debug param (file)
-        Assert.DoesNotContain("file:", output);
+        // The wrapper strips the debug param (file) from the emitted callable surface. The
+        // provenance anchor comment names the owning member via its DeclId, which encodes the
+        // `file:` label — that comment is metadata, not code, so exclude it from the check.
+        foreach (var line in output.Split('\n'))
+        {
+            if (line.TrimStart().StartsWith("// SBW-ORIGIN:", System.StringComparison.Ordinal))
+                continue;
+            Assert.DoesNotContain("file:", line);
+        }
     }
 
     #endregion

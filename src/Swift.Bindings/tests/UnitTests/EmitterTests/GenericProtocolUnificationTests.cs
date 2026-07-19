@@ -4,6 +4,8 @@
 
 using Xunit;
 
+using BindingsGeneration.Diagnostics;
+
 namespace BindingsGeneration.Tests;
 
 /// <summary>
@@ -95,12 +97,57 @@ public class GenericProtocolUnificationTests
         var protocolName = GenericProtocolEmitter.EmitProtocolAndConformance(
             writer, "P", "$s_test_symbol",
             "func doSomething() -> Int",
-            "TestModule.MyClass");
+            "TestModule.MyClass",
+            AttributionFixtures.ArtifactForSymbol("doSomething"));
 
         var output = sw.ToString();
         Assert.Contains($"private protocol {protocolName}", output);
         Assert.Contains("func doSomething() -> Int", output);
         Assert.Contains($"extension TestModule.MyClass: {protocolName}", output);
+    }
+
+    /// <summary>
+    /// The two symbol-less blocks (dispatch protocol + conformance extension) are each led by a
+    /// <c>// SBW-ORIGIN:</c> anchor carrying the member's artifact identity, and a diagnostic line
+    /// inside either block round-trips through <see cref="Diagnostics.WrapperBlockIndex"/> back to
+    /// that identity — this is what pulls a wrapper-compile failure in these symbol-less blocks off
+    /// the coarse module scope and onto the member that owns them.
+    /// </summary>
+    [Fact]
+    public void EmitProtocolAndConformance_EmitsOriginAnchorAheadOfBothBlocks_AndRoundTrips()
+    {
+        var artifact = AttributionFixtures.ArtifactForSymbol("doSomething");
+        var (sw, writer) = CreateSwiftWriter();
+        var protocolName = GenericProtocolEmitter.EmitProtocolAndConformance(
+            writer, "P", "$s_test_symbol",
+            "func doSomething() -> Int",
+            "TestModule.MyClass",
+            artifact);
+
+        var output = sw.ToString();
+        var anchorLine = "// SBW-ORIGIN: " + artifact.Canonical;
+        // One anchor leads the protocol, one leads the conformance extension.
+        Assert.Equal(2, CountOccurrences(output, anchorLine));
+
+        // The anchor for each block precedes that block's head (ahead of any availability prefix).
+        var protoIdx = output.IndexOf($"private protocol {protocolName}", StringComparison.Ordinal);
+        var extIdx = output.IndexOf($"extension TestModule.MyClass: {protocolName}", StringComparison.Ordinal);
+        Assert.True(output.LastIndexOf(anchorLine, protoIdx, StringComparison.Ordinal) >= 0);
+        Assert.True(output.LastIndexOf(anchorLine, extIdx, StringComparison.Ordinal) >= 0);
+
+        // A diagnostic landing inside either block resolves to the anchored artifact.
+        var index = WrapperBlockIndex.Build(output);
+        var lines = output.Replace("\r\n", "\n").Split('\n');
+        int protoBodyLine = LineOf(lines, "func doSomething() -> Int");
+        Assert.True(index.TryResolve(protoBodyLine, out var protoBlock));
+        Assert.Null(protoBlock.Symbol);
+        Assert.Equal(artifact.Canonical, protoBlock.OriginAnchor);
+        Assert.True(ArtifactId.TryParse(protoBlock.OriginAnchor!, out var parsed));
+        Assert.Equal(artifact, parsed);
+
+        int extHeadLine = LineOf(lines, $"extension TestModule.MyClass: {protocolName}");
+        Assert.True(index.TryResolve(extHeadLine, out var extBlock));
+        Assert.Equal(artifact.Canonical, extBlock.OriginAnchor);
     }
 
     [Fact]
@@ -110,7 +157,8 @@ public class GenericProtocolUnificationTests
         var protocolName = GenericProtocolEmitter.EmitProtocolAndConformance(
             writer, "PG", "$s_test_symbol",
             "var name: String { get }",
-            "TestModule.MyClass");
+            "TestModule.MyClass",
+            AttributionFixtures.ArtifactForSymbol("name"));
 
         var output = sw.ToString();
         Assert.Contains($"private protocol {protocolName}", output);
@@ -126,6 +174,7 @@ public class GenericProtocolUnificationTests
             writer, "CI", "$s_test_symbol",
             "init(value: Int)",
             "TestModule.MyClass",
+            AttributionFixtures.ArtifactForSymbol("init"),
             protocolConstraint: "AnyObject");
 
         var output = sw.ToString();
@@ -141,7 +190,8 @@ public class GenericProtocolUnificationTests
         GenericProtocolEmitter.EmitProtocolAndConformance(
             writer, "P", "$s_test_symbol",
             "func foo()",
-            "TestModule.MyClass");
+            "TestModule.MyClass",
+            AttributionFixtures.ArtifactForSymbol("foo"));
 
         var output = sw.ToString();
         // Should NOT contain ": AnyObject" or similar constraint
@@ -157,7 +207,8 @@ public class GenericProtocolUnificationTests
         var protocolName = GenericProtocolEmitter.EmitProtocolAndConformance(
             writer, "P", "$s_test_symbol",
             "func foo()",
-            "TestModule.MyClass");
+            "TestModule.MyClass",
+            AttributionFixtures.ArtifactForSymbol("foo"));
 
         Assert.Equal(GenericProtocolEmitter.GetProtocolName("P", "$s_test_symbol"), protocolName);
     }
@@ -853,6 +904,29 @@ public class GenericProtocolUnificationTests
         var sw = new StringWriter();
         var writer = new SwiftWriter(sw);
         return (sw, writer);
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        int count = 0, idx = 0;
+        while ((idx = haystack.IndexOf(needle, idx, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            idx += needle.Length;
+        }
+        return count;
+    }
+
+    /// <summary>1-based line number of the first line containing <paramref name="fragment"/>.</summary>
+    private static int LineOf(string[] lines, string fragment)
+    {
+        for (int i = 0; i < lines.Length; i++)
+        {
+            if (lines[i].Contains(fragment, StringComparison.Ordinal))
+                return i + 1;
+        }
+        Assert.Fail($"fragment not found in emitted output: {fragment}");
+        return -1;
     }
 
     // ─── Generic dispatch test environment helpers ────────────────────

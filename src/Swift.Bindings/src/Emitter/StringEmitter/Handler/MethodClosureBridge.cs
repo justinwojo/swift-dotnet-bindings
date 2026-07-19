@@ -444,6 +444,11 @@ public static class MethodClosureBridge
             // Generic parent: emit @_silgen_name extension method.
             // Self is implicit (in x20 register via Swift calling convention).
             // C# P/Invoke uses CallConvSwift + SwiftSelf to match.
+            // The @_silgen_name wrapper inside is symbol-bearing, but this plain extension is not;
+            // the anchor (led ahead of the availability/@MainActor preamble) pins the symbol-less
+            // extension block to the method that owns it, and the post-processor strips it with the
+            // block. The non-generic branch emits a free @_cdecl function, so it needs none.
+            OriginAnchorEmitter.Write(swiftWriter, FragmentOwners.ForDeclWrapper(method).Artifact);
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
             if (needsMainActor)
                 swiftWriter.WriteLine("@MainActor");

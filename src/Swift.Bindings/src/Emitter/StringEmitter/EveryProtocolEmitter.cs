@@ -1598,6 +1598,12 @@ public class EveryProtocolEmitter
         writer.WriteLine($"// {BaseClassName} conformance to {protocolDecl.Name}");
         var availAnnotations = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
             protocolDecl.AvailabilityAnnotations, protocolDecl.ParentDecl);
+        // The conformance extension carries no @_cdecl symbol; a compile failure inside it (or on the
+        // `extension ... {` header) would tile to the coarse module scope. The anchor — led ahead of
+        // the availability, after the human-readable comment so the strip's backward scan reaches it —
+        // pins the symbol-less block to the protocol it conforms to; the post-processor strips it with
+        // the block it names.
+        OriginAnchorEmitter.Write(writer, FragmentOwners.ForDeclWrapper(protocolDecl).Artifact);
         WrapperEmitterHelpers.EmitSwiftAvailability(writer, availAnnotations);
         writer.WriteLine($"extension {BaseClassName}: {protocolName} {{");
         writer.Indent++;
@@ -2785,6 +2791,11 @@ public class EveryProtocolEmitter
             writer.WriteLine($"// {BaseClassName} conformance to {protocolDecl.Name} (composition/marker protocol)");
             var staticAvailAnnotations = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
                 protocolDecl.AvailabilityAnnotations, protocolDecl.ParentDecl);
+            // Anchor the symbol-less composition conformance to the protocol it names — led ahead of the
+            // availability, after the comment so the strip's backward scan reaches it. Inert while the
+            // block is preserved; if an Entity/ObjC-base variant is stripped (Pattern 3), the anchor
+            // goes with it.
+            OriginAnchorEmitter.Write(writer, FragmentOwners.ForDeclWrapper(protocolDecl).Artifact);
             WrapperEmitterHelpers.EmitSwiftAvailability(writer, staticAvailAnnotations);
             writer.WriteLine($"extension {BaseClassName}: {protocolName} {{");
             writer.WriteLine("}");

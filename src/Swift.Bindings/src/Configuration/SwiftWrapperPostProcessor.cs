@@ -169,6 +169,7 @@ namespace BindingsGeneration
                         {
                             ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                             subCauseCounts[refsInternal ? StripSubCause.InternalType : StripSubCause.NSInvocation]++;
+                            RemoveTrailingOriginAnchor(outputLines, cleanedLineSources);
                             removedCount++;
                             i = end + 1;
                             continue;
@@ -250,6 +251,7 @@ namespace BindingsGeneration
                     {
                         ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                         subCauseCounts[ClassifySubCause(brokenPat, refsInternal, refsUnavail)]++;
+                        RemoveTrailingOriginAnchor(outputLines, cleanedLineSources);
                         removedCount++;
                         i = end + 1;
                         continue;
@@ -272,6 +274,7 @@ namespace BindingsGeneration
                     {
                         ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                         subCauseCounts[refsInternal ? StripSubCause.InternalType : StripSubCause.NSInvocation]++;
+                        RemoveTrailingOriginAnchor(outputLines, cleanedLineSources);
                         removedCount++;
                         i = end + 1;
                         continue;
@@ -504,6 +507,53 @@ namespace BindingsGeneration
                 break;
             }
         }
+
+        /// <summary>
+        /// Removes the <c>// SBW-ORIGIN:</c> provenance anchor a symbol-less block was emitted with,
+        /// along with any availability preamble between the anchor and the (now-stripped) block head.
+        /// </summary>
+        /// <remarks>
+        /// The symbol-less patterns (EveryProtocol conformance, plain extension, <c>_SBW_</c> dispatch
+        /// protocol) emit their anchor as the first line of a <c>[anchor, @available?]</c> preamble
+        /// ahead of the head. When the block is stripped the head and body go, but that preamble is
+        /// already in <paramref name="outputLines"/>; left behind, the dangling anchor would make
+        /// <see cref="Diagnostics.WrapperBlockIndex"/> span the <em>next</em> block and misattribute a
+        /// diagnostic to it. The removal is committed only when the anchor is actually found within the
+        /// trailing preamble window, so an un-anchored block's output is left exactly as before.
+        /// </remarks>
+        internal static void RemoveTrailingOriginAnchor(List<string> outputLines, List<int> cleanedLineSources)
+        {
+            int scan = outputLines.Count - 1;
+            while (scan >= 0)
+            {
+                var trimmed = outputLines[scan].TrimStart().TrimEnd();
+                if (IsOriginAnchor(trimmed))
+                    break;
+                // Only the block's own availability / spacing may sit between its anchor and its head.
+                if (trimmed.Length == 0 ||
+                    trimmed.StartsWith("@available(", StringComparison.Ordinal) ||
+                    trimmed == "@MainActor")
+                {
+                    scan--;
+                    continue;
+                }
+                // Hit real content before any anchor — this block carried none; leave everything.
+                return;
+            }
+
+            if (scan < 0)
+                return;
+
+            int removeCount = outputLines.Count - scan;
+            outputLines.RemoveRange(scan, removeCount);
+            // outputLines and cleanedLineSources are maintained in lockstep, so the same range clears.
+            if (cleanedLineSources.Count >= scan + removeCount)
+                cleanedLineSources.RemoveRange(scan, removeCount);
+        }
+
+        /// <summary>True when a trimmed line is a <c>// SBW-ORIGIN:</c> provenance anchor.</summary>
+        private static bool IsOriginAnchor(string trimmedLine) =>
+            trimmedLine.StartsWith("// SBW-ORIGIN:", StringComparison.Ordinal);
 
         /// <summary>
         /// Returns true if the comment line matches one of the known wrapper-emitter preamble

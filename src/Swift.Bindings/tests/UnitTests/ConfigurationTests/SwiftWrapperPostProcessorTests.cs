@@ -2022,4 +2022,143 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
+    #region G3. SBW-ORIGIN Anchor Stripping
+
+    /// <summary>
+    /// Symbol-less strippable blocks (EveryProtocol conformance, plain extension, <c>_SBW_</c>
+    /// dispatch protocol) are emitted with a leading <c>// SBW-ORIGIN:</c> provenance anchor so a
+    /// wrapper-compile diagnostic landing in them attributes to the owning member. When the
+    /// post-processor strips such a block it must take the anchor with it — a dangling anchor would
+    /// make the block index span the following block and misattribute a later diagnostic.
+    /// </summary>
+    public class PostProcessorOriginAnchorTests
+    {
+        [Fact]
+        public void Process_AnchoredExtension_StrippedWithItsAnchor()
+        {
+            var internalTypes = new HashSet<string> { "InternalBox" };
+            var input = """
+                // before
+                // SBW-ORIGIN: Fixture||Struct|Widget||None|||/swift-wrapper
+                extension Widget: _SBW_P_ABCD1234 {
+                    func broken() -> InternalBox { fatalError() }
+                }
+                // after
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Contains("// before", result.CleanedContent);
+            Assert.Contains("// after", result.CleanedContent);
+            // The block and its provenance anchor are both gone — nothing dangling.
+            Assert.DoesNotContain("SBW-ORIGIN", result.CleanedContent);
+            Assert.DoesNotContain("extension Widget", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_AnchoredPrivateProtocol_StrippedWithItsAnchor()
+        {
+            var internalTypes = new HashSet<string> { "InternalBox" };
+            var input = """
+                // SBW-ORIGIN: Fixture||Struct|Widget||None|||/swift-wrapper
+                private protocol _SBW_P_ABCD1234 {
+                    func broken() -> InternalBox
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.DoesNotContain("SBW-ORIGIN", result.CleanedContent);
+            Assert.DoesNotContain("_SBW_P_ABCD1234", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_AnchoredEveryProtocolExtension_StrippedWithItsAnchor()
+        {
+            var internalTypes = new HashSet<string> { "InternalType" };
+            var input = """
+                // SBW-ORIGIN: Fixture||Protocol|EveryProtocol||None|||/swift-wrapper
+                extension EveryProtocol: SomeProtocol {
+                    var prop: InternalType { fatalError() }
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.DoesNotContain("SBW-ORIGIN", result.CleanedContent);
+            Assert.DoesNotContain("EveryProtocol", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_AnchorWithAvailabilityPreamble_WholePreambleStripped()
+        {
+            var internalTypes = new HashSet<string> { "InternalBox" };
+            var input = """
+                // keep me
+                // SBW-ORIGIN: Fixture||Struct|Widget||None|||/swift-wrapper
+                @available(iOS 15.0, *)
+                extension Widget: _SBW_P_ABCD1234 {
+                    func broken() -> InternalBox { fatalError() }
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Contains("// keep me", result.CleanedContent);
+            // The anchor AND the availability line that sat between it and the head are both gone,
+            // so no dangling `@available` decorates the following declaration.
+            Assert.DoesNotContain("SBW-ORIGIN", result.CleanedContent);
+            Assert.DoesNotContain("@available", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_AnchoredButPreservedBlock_LeavesAnchorInPlace()
+        {
+            // A clean anchored extension is NOT stripped, so its anchor must remain — removal is
+            // committed only when the block it names is actually removed.
+            var input = """
+                // SBW-ORIGIN: Fixture||Struct|Widget||None|||/swift-wrapper
+                extension Widget: _SBW_P_ABCD1234 {
+                    func healthy() -> Int { return 0 }
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("SBW-ORIGIN", result.CleanedContent);
+            Assert.Contains("extension Widget", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_PrecedingRealContentBeforeAnchor_OnlyBlockAndAnchorRemoved()
+        {
+            // A symbol-bearing wrapper sits just above the anchored, stripped block. Its closing
+            // brace is "real content" that must halt the anchor scan — only the anchor + broken
+            // block go, the healthy wrapper above is untouched.
+            var internalTypes = new HashSet<string> { "InternalBox" };
+            var input = """
+                @_cdecl("SBW_Widget_ok")
+                public func SBW_Widget_ok() -> Int { return 0 }
+                // SBW-ORIGIN: Fixture||Struct|Widget||None|||/swift-wrapper
+                extension Widget: _SBW_P_ABCD1234 {
+                    func broken() -> InternalBox { fatalError() }
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Contains("SBW_Widget_ok", result.CleanedContent);
+            Assert.DoesNotContain("SBW-ORIGIN", result.CleanedContent);
+            Assert.DoesNotContain("extension Widget", result.CleanedContent);
+        }
+    }
+
+    #endregion
+
 }

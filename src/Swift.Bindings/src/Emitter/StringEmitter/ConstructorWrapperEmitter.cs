@@ -772,6 +772,7 @@ public static class ConstructorWrapperEmitter
             methodDecl.AvailabilityAnnotations, parentTypeDecl);
         return GenericProtocolEmitter.EmitProtocolAndConformance(
             swiftWriter, "CI", symbolName, memberDecl, moduleQualifiedName,
+            originAnchor: FragmentOwners.ForDeclWrapper(methodDecl).Artifact,
             protocolConstraint: "AnyObject",
             extensionAvailability: extensionAvailability);
     }
@@ -1085,6 +1086,12 @@ public static class ConstructorWrapperEmitter
         var extensionAvailPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(
             extensionAvailability, "");
 
+        // The dispatch protocol + conformance extension carry no @_cdecl symbol, so a wrapper-compile
+        // failure inside either would tile to the coarse module scope. The anchor — led ahead of any
+        // availability prefix so the head stays byte-identical — pins both symbol-less blocks to the
+        // constructor that owns them, and the post-processor strips it with the block it names.
+        var originAnchor = OriginAnchorEmitter.LineForWrapper(env.MethodDecl);
+
         // Emit protocol declaration
         swiftWriter.WriteLine();
         string protocolMethodDecl;
@@ -1098,6 +1105,7 @@ public static class ConstructorWrapperEmitter
         }
 
         swiftWriter.WriteLines($$"""
+            {{originAnchor}}
             {{extensionAvailPrefix}}private protocol {{protocolName}} {
                 {{protocolMethodDecl}}
             }
@@ -1191,6 +1199,7 @@ public static class ConstructorWrapperEmitter
             env.MethodDecl, parentTypeDecl, includeConformanceConstraints: true);
 
         swiftWriter.WriteLines($$"""
+            {{originAnchor}}
             {{extensionAvailPrefix}}extension {{moduleQualifiedSwiftName}}: {{protocolName}}{{extensionWhereClause}} {
                 static func {{factoryMethodName}}({{protocolParamString}}){{throwsClause}}{{(isClass ? $" -> UnsafeMutableRawPointer{(isFailable ? "?" : "")}" : "")}} {
                     {{extensionBody}}

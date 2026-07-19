@@ -817,6 +817,10 @@ public static class DefaultParameterOverloadEmitter
 
             // Availability must sit on the extension itself — the `extension ... {` line
             // references the target type, so an inner-function @available is too late.
+            // The @_silgen_name wrapper inside is symbol-bearing, but this plain extension is not;
+            // the anchor (led ahead of the availability) pins the symbol-less extension to the member
+            // that owns it, and the post-processor strips it with the block it names.
+            OriginAnchorEmitter.Write(swiftWriter, FragmentOwners.ForDeclWrapper(originalMethodDecl).Artifact);
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, mergedAvailability);
             swiftWriter.WriteLine($"extension {swiftModuleQualifiedName} {{");
             swiftWriter.Indent++;
@@ -856,6 +860,10 @@ public static class DefaultParameterOverloadEmitter
 
             // Availability must sit on the extension itself — the `extension ... {` line
             // references the target type, so an inner-function @available is too late.
+            // The @_silgen_name wrapper inside is symbol-bearing, but this plain extension is not;
+            // the anchor (led ahead of the availability) pins the symbol-less extension to the member
+            // that owns it, and the post-processor strips it with the block it names.
+            OriginAnchorEmitter.Write(swiftWriter, FragmentOwners.ForDeclWrapper(originalMethodDecl).Artifact);
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, mergedAvailability);
             swiftWriter.WriteLine($"extension {swiftModuleQualifiedName} {{");
             swiftWriter.Indent++;
@@ -1148,6 +1156,10 @@ public static class DefaultParameterOverloadEmitter
             var ctorReturnClause = methodDecl.IsFailable
                 ? $" -> {ctorReturnType}?"
                 : $" -> {ctorReturnType}";
+            // The @_silgen_name wrapper inside is symbol-bearing, but this plain extension is not;
+            // the anchor pins the symbol-less extension to the member that owns it, and the
+            // post-processor strips it with the block it names.
+            OriginAnchorEmitter.Write(swiftWriter, FragmentOwners.ForDeclWrapper(methodDecl).Artifact);
             swiftWriter.WriteLine($"extension {swiftModuleQualifiedName} {{");
             swiftWriter.Indent++;
             swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
@@ -1173,6 +1185,10 @@ public static class DefaultParameterOverloadEmitter
                 && methodDecl.IsMutating
                 && !(parentTypeDecl is ClassDecl);
             var dbgMutatingKeyword = dbgNeedsMutating ? "mutating " : "";
+            // The @_silgen_name wrapper inside is symbol-bearing, but this plain extension is not;
+            // the anchor pins the symbol-less extension to the member that owns it, and the
+            // post-processor strips it with the block it names.
+            OriginAnchorEmitter.Write(swiftWriter, FragmentOwners.ForDeclWrapper(methodDecl).Artifact);
             swiftWriter.WriteLine($"extension {swiftModuleQualifiedName} {{");
             swiftWriter.Indent++;
             swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
