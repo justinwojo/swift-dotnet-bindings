@@ -17,12 +17,12 @@
          SBTD001/002/003 near-miss diagnostics can be driven directly via
          CSharpGeneratorDriver in TestDiscoveryDiagnosticsTests. PrivateAssets=all on the
          generator's own Roslyn refs means they don't flow; the Microsoft.CodeAnalysis.CSharp
-         package below (4.8.0, matching the generator's compile-time Roslyn) supplies them. -->
+         package below (matching the generator's compile-time Roslyn) supplies them. -->
     <ProjectReference Include="../../../SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" />
     <!-- Reflection-only metadata reader for the ObjC-rooted NSObject-property drift test
          (ObjCRootedInheritedPropertyDriftTests): it loads the installed Microsoft.iOS ref
          assembly without executing it, so the curated collision set in NameProvider can be

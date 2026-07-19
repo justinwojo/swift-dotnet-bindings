@@ -353,6 +353,11 @@ partial class Build
         if (platformOverride != null && platformOverride.Name != "ios")
             genArgs.Add($"--platform {platformOverride.Name}");
 
+        // The BindingTests app build (and --compile-only's compile-check) is the real C# compile
+        // gate here, so opt out of the generator's in-process C# verification build to avoid a
+        // redundant per-regen dotnet build of the binding csproj.
+        genArgs.Add("--no-verify-csharp");
+
         // Finding 50: in strict mode (explicit --strict or --compile-only's fail-closed
         // default), make the generator fail-closed on a degraded input edge — a device→sim
         // slice fallback, a missing swiftinterface, an ABI-JSON fallback, an ambiguous TBD,
@@ -424,6 +429,7 @@ partial class Build
                 depArgs.Add($"--platform {platformOverride.Name}");
             if (strict)
                 depArgs.Add("--strict-inputs");
+            depArgs.Add("--no-verify-csharp");
 
             var depProcess = ProcessTasks.StartProcess(
                 "dotnet", string.Join(" ", depArgs),

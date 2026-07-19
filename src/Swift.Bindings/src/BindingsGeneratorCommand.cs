@@ -55,6 +55,7 @@ public static class BindingsGeneratorCommand
         var linkLibraries = parseResult.GetValueForOption(options.LinkLibrary);
         var moduleDatabases = parseResult.GetValueForOption(options.ModuleDatabase);
         var noAutoDetect = parseResult.GetValueForOption(options.NoAutoDetect);
+        var noVerifyCSharp = parseResult.GetValueForOption(options.NoVerifyCSharp);
         var keepBuiltinDatabase = parseResult.GetValueForOption(options.KeepBuiltinDatabase);
         var objcForced = parseResult.GetValueForOption(options.ObjC);
         var skipWrapperCompilation = parseResult.GetValueForOption(options.SkipWrapperCompilation);
@@ -514,7 +515,21 @@ public static class BindingsGeneratorCommand
                 // pass (no manifest yet), so persist one carrying the ObjC skip section — otherwise
                 // these drops live only in an INFO log and never reach binding-report.json's gate.
                 if (objcResult.ExitCode == 0)
+                {
                     PersistPureObjCSkipReport(outputDirectory, objcResolution.ModuleName, objcResult.Diagnostics, logger);
+                    // Fail-closed C# verification, the same gate as the Swift wrapper/direct paths: a
+                    // pure-ObjC binding also emits a consumer-facing csproj (ObjCBindingProjectEmitter),
+                    // so emitted C# that doesn't compile must fail publication here rather than surface
+                    // first in the consumer's build. SDK mode and the --no-verify-csharp opt-out are
+                    // excluded to match the Swift gate; there is no wrapper-compile term because a
+                    // pure-ObjC binding builds no Swift wrapper.
+                    if (!sdkMode && !noVerifyCSharp && objcResult.ProjectPath is { } objcCsproj
+                        && !VerifyGeneratedCSharp(objcCsproj, logger))
+                    {
+                        context.ExitCode = 1;
+                        return;
+                    }
+                }
                 context.ExitCode = objcResult.ExitCode;
                 if (objcResult.ErrorMessage != null)
                     logger.LogError("{Message}", objcResult.ErrorMessage);
@@ -577,7 +592,21 @@ public static class BindingsGeneratorCommand
                 // pass (no manifest yet), so persist one carrying the ObjC skip section — otherwise
                 // these drops live only in an INFO log and never reach binding-report.json's gate.
                 if (objcResult.ExitCode == 0)
+                {
                     PersistPureObjCSkipReport(outputDirectory, objcResolution.ModuleName, objcResult.Diagnostics, logger);
+                    // Fail-closed C# verification, the same gate as the Swift wrapper/direct paths: a
+                    // pure-ObjC binding also emits a consumer-facing csproj (ObjCBindingProjectEmitter),
+                    // so emitted C# that doesn't compile must fail publication here rather than surface
+                    // first in the consumer's build. SDK mode and the --no-verify-csharp opt-out are
+                    // excluded to match the Swift gate; there is no wrapper-compile term because a
+                    // pure-ObjC binding builds no Swift wrapper.
+                    if (!sdkMode && !noVerifyCSharp && objcResult.ProjectPath is { } objcCsproj
+                        && !VerifyGeneratedCSharp(objcCsproj, logger))
+                    {
+                        context.ExitCode = 1;
+                        return;
+                    }
+                }
                 context.ExitCode = objcResult.ExitCode;
                 if (objcResult.ErrorMessage != null)
                     logger.LogError("{Message}", objcResult.ErrorMessage);
@@ -1595,6 +1624,26 @@ public static class BindingsGeneratorCommand
                     frameworkDependencies,
                     logger);
 
+                // In-generator C# verification gate. On the standalone, wrapper-compiling generation
+                // path (the same path asymmetry as the Swift wrapper verify-recover loop — the SDK
+                // two-pass and --compile-only paths are excluded because a downstream build is their
+                // C# compile gate), build the emitted csproj and fail publication when the generated
+                // C# does not compile, rather than shipping a binding whose consumer build breaks.
+                // Only a C# compiler error fails; a restore/infrastructure failure is inconclusive
+                // (the binding is not at fault) and a verifier-internal error never fails a healthy
+                // binding — the gate answers "does the emitted C# compile", nothing more.
+                if (!sdkMode && shouldCompileWrapper && !noVerifyCSharp)
+                {
+                    if (!VerifyGeneratedCSharp(
+                            Path.Combine(outputDirectory,
+                                $"{platformInfo.GetDefaultSwiftPackageId(resolution.ModuleName)}.csproj"),
+                            logger))
+                    {
+                        context.ExitCode = 1;
+                        return;
+                    }
+                }
+
                 logger.LogInformation("Binding project emitted successfully.");
             }
             catch (Exception ex)
@@ -1706,6 +1755,26 @@ public static class BindingsGeneratorCommand
                     PlatformInfo = platformInfo,
                 }, logger);
 
+                // Same fail-closed C# verification gate as the xcframework path above — direct mode
+                // is also a standalone, wrapper-compiling path that emits a consumer-facing binding
+                // csproj (via BindingProjectEmitter), so a generator bug that emits non-compiling C#
+                // must fail publication here too rather than ship a binding whose consumer build
+                // breaks. This branch is already !sdkMode, so only the wrapper-compile and opt-out
+                // conditions remain. The csproj name mirrors BindingProjectEmitter's own naming
+                // (GetDefaultSwiftPackageId(ModuleName)), not the --package-id override, so the gate
+                // finds the file it just wrote instead of soft-skipping.
+                if (shouldCompileWrapper && !noVerifyCSharp)
+                {
+                    if (!VerifyGeneratedCSharp(
+                            Path.Combine(outputDirectory,
+                                $"{platformInfo.GetDefaultSwiftPackageId(directModuleName)}.csproj"),
+                            logger))
+                    {
+                        context.ExitCode = 1;
+                        return;
+                    }
+                }
+
                 logger.LogInformation("Direct-mode binding project emitted successfully.");
             }
             catch (Exception ex)
@@ -1714,6 +1783,64 @@ public static class BindingsGeneratorCommand
                 context.ExitCode = 1;
                 return;
             }
+        }
+    }
+
+    /// <summary>
+    /// Run the C# verification gate on the emitted csproj. Returns true when publication may
+    /// proceed (the C# compiled, or verification was inconclusive for a non-C# reason), false when
+    /// the generated C# does not compile (the caller then fails publication with a non-zero exit).
+    /// The gate answers exactly "does the emitted C# compile"; restore/infrastructure failures and
+    /// verifier-internal errors are logged and pass through — a healthy binding is never failed for
+    /// a cause that is not its own C#.
+    /// </summary>
+    private static bool VerifyGeneratedCSharp(string csprojPath, ILogger logger)
+    {
+        try
+        {
+            if (!System.IO.File.Exists(csprojPath))
+            {
+                logger.LogWarning("C# verification skipped: emitted csproj not found at {Path}", csprojPath);
+                return true;
+            }
+
+            var repoRoot = MsbuildSarifCSharpVerifier.TryFindSwiftBindingsRepoRoot();
+            var verification = MsbuildSarifCSharpVerifier.Verify(
+                csprojPath, new SystemCommandRunner(), repoRoot, logger: logger);
+
+            switch (verification.Outcome)
+            {
+                case CSharpVerificationOutcome.CompileErrors:
+                    var errors = verification.CompilerErrors;
+                    logger.LogError(
+                        "SWIFTBIND113: the generated C# does not compile ({Count} error(s)); failing " +
+                        "publication rather than shipping a binding whose consumer build breaks.",
+                        errors.Count);
+                    foreach (var e in errors.Take(20))
+                        logger.LogError("  {Id} {File}({Line},{Col}): {Message}",
+                            e.Id, e.FilePath, e.Line, e.Column, e.Message);
+                    if (errors.Count > 20)
+                        logger.LogError("  … and {More} more C# error(s).", errors.Count - 20);
+                    return false;
+
+                case CSharpVerificationOutcome.Inconclusive:
+                    logger.LogWarning(
+                        "C# verification inconclusive ({Reason}); the generated C# was not proven to " +
+                        "compile in-generator. Not failing publication on a non-C# cause.",
+                        verification.InconclusiveReason);
+                    return true;
+
+                default:
+                    logger.LogInformation("C# verification passed: the generated C# compiles.");
+                    return true;
+            }
+        }
+        catch (System.Exception ex)
+        {
+            logger.LogWarning(
+                "C# verification could not run ({Message}); not failing publication on a verifier-internal error.",
+                ex.Message);
+            return true;
         }
     }
 

@@ -19,7 +19,10 @@
     </ProjectReference>
     <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.0.0" />
+    <!-- Roslyn: parses/compiles the emitted C# in the in-process verification probe. Pinned to
+         the newest released package; the SDK's own compiler is a newer preview Roslyn, so the probe
+         is deliberately a heuristic and the real MSBuild build is the publication gate. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.3" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.3" />
     <!-- Metadata-only reflection over the installed Microsoft.iOS reference assembly, to verify

@@ -165,6 +165,16 @@ public class CliOptions
                      "Wired from the CI compile gate (nuke binding-tests --compile-only / --strict).",
         getDefaultValue: () => false);
 
+    public Option<bool> NoVerifyCSharp { get; } = new(
+        aliases: new[] { "--no-verify-csharp" },
+        description: "Opt out of the in-generator C# verification gate. By default a standalone, " +
+                     "wrapper-compiling generation builds the emitted csproj and fails publication " +
+                     "(SWIFTBIND113) when the generated C# does not compile, rather than shipping a " +
+                     "binding whose consumer build breaks. Consumers that already compile the binding " +
+                     "downstream (the SDK two-pass, the BindingTests app build) pass this to skip the " +
+                     "redundant build; it is inert in SDK mode and in --compile-only (no wrapper compile).",
+        getDefaultValue: () => false);
+
     public Option<bool> KeepBuiltinDatabase { get; } = new(
         aliases: new[] { "--keep-builtin-database" },
         description: "Disable Apple-framework target mode auto-detection. By default, when the input " +
@@ -435,6 +445,7 @@ public class CliOptions
             ModuleDatabase,
             NoAutoDetect,
             StrictInputs,
+            NoVerifyCSharp,
             KeepBuiltinDatabase,
             ObjC,
             SkipWrapperCompilation,
