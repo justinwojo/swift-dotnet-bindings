@@ -481,6 +481,43 @@ public class SkipAttributionTests
     }
 
     /// <summary>
+    /// A bounded-bisection withdrawal is plane-agnostic: attribution declined to name the culprit and a
+    /// delta-debug search isolated it instead, confirming it cleared the joint render→compile without
+    /// naming which plane it was at fault on, so it cannot claim an attributed withdrawal's certainty. It
+    /// shares <see cref="SkipReason.EmitterFault"/> with the three attribution-driven withdrawals; the only
+    /// surviving signal is the bisection details prefix. Since <see cref="RecoveryStage"/> has no
+    /// plane-neutral member, the classifier buckets the row at <see cref="RecoveryStage.SwiftCompile"/> (the
+    /// loop's primary compile plane) yet caps its confidence at <see cref="AttributionConfidence.Medium"/> —
+    /// never the High the base <see cref="SkipReason.EmitterFault"/> rule and the attributed wrapper
+    /// withdrawal both carry — so a searched root reads as less certain than an attributed one in the report.
+    /// </summary>
+    [Fact]
+    public void Link_PlacesABisectionWithdrawalRowAtSwiftCompileWithMediumConfidence()
+    {
+        var decl = DeclId.Create("M", "T", BindingItemKind.Method, "foo");
+        var withdrawal = EmitterFaultRecord.ForRecoveryWithdrawal(
+            decl, RecoveryScope.LeafApi,
+            "a bounded bisection search isolated this member as the culprit for an unattributable " +
+            "compile failure (M.T.foo (leaf-api))",
+            origin: EmitterFaultOrigin.BisectionIsolatedWithdrawal);
+        var item = new SkippedItem
+        {
+            Kind = BindingItemKind.Method,
+            Name = "foo",
+            Reason = SkipReason.EmitterFault,
+            Details = withdrawal.Details,
+            DeclId = decl.Canonical,
+        };
+
+        SkipAttributionLinker.Link(new[] { item });
+
+        Assert.Equal(RecoveryStage.SwiftCompile, item.RecoveryStage);
+        Assert.Equal(CauseOwner.Generator, item.CauseOwner);
+        // Capped at Medium: the attributed wrapper withdrawal above keeps High, this one must not.
+        Assert.Equal(AttributionConfidence.Medium, item.Confidence);
+    }
+
+    /// <summary>
     /// A live emitter exception keeps the Emit stage — the refinement must key on the withdrawal
     /// wording, not on the reason alone.
     /// </summary>

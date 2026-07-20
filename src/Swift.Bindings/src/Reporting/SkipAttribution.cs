@@ -144,6 +144,17 @@ public static class SkipCauseClassifier
     /// withdrawn because typed plan-vs-descriptor validation flagged its native call, decided at
     /// <see cref="RecoveryStage.AbiValidation"/>. Each withdrawal's only surviving signal on the row is
     /// its details prefix, single-sourced on <see cref="EmitterFaultRecord"/>.
+    /// <para>
+    /// A fifth case is a bounded-bisection withdrawal: the joint render→compile failed, attribution
+    /// could not place the error on any plane, and a delta-debug search isolated this member instead. It
+    /// is bucketed at <see cref="RecoveryStage.SwiftCompile"/> (the loop's primary compile plane) because
+    /// <see cref="RecoveryStage"/> has no plane-neutral member — not because the Swift plane was proven at
+    /// fault — but its confidence is
+    /// <em>capped at</em> <see cref="AttributionConfidence.Medium"/> — the search proved withdrawing
+    /// this member clears the compile, yet unlike symbol-anchored attribution it cannot explain
+    /// <em>why</em> the member was at fault, so it must never claim High confidence even though the base
+    /// <see cref="SkipReason.EmitterFault"/> rule does.
+    /// </para>
     /// </summary>
     public static SkipAttribution Classify(SkipReason reason, string? details)
     {
@@ -165,10 +176,25 @@ public static class SkipCauseClassifier
                 attribution = SkipAttribution.Of(
                     attribution.Owner, RecoveryStage.AbiValidation, attribution.Confidence);
             }
+            else if (details.StartsWith(EmitterFaultRecord.BisectionWithdrawalDetailsPrefix, StringComparison.Ordinal))
+            {
+                // A search isolation is plane-agnostic: the bounded search confirmed this member cleared the
+                // joint render→compile without naming WHICH plane it was at fault on (its trigger was an
+                // error attribution could not place at all). RecoveryStage has no plane-neutral member, so
+                // the row is bucketed at SwiftCompile as the loop's primary compile plane — but it is marked
+                // a search isolation, not a Swift-specific fault, by its bisection details prefix and its
+                // Medium-capped confidence (never the High an attributed withdrawal carries).
+                attribution = SkipAttribution.Of(
+                    attribution.Owner, RecoveryStage.SwiftCompile, CapAtMedium(attribution.Confidence));
+            }
         }
 
         return attribution;
     }
+
+    /// <summary>Lowers a confidence to <see cref="AttributionConfidence.Medium"/> if it exceeds it.</summary>
+    private static AttributionConfidence CapAtMedium(AttributionConfidence confidence) =>
+        confidence == AttributionConfidence.High ? AttributionConfidence.Medium : confidence;
 
     private static ImmutableDictionary<SkipReason, SkipAttribution> BuildTable()
     {

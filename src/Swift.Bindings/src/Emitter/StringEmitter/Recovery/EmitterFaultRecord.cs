@@ -39,6 +39,16 @@ internal enum EmitterFaultOrigin
     /// <see cref="SkipCauseClassifier"/> refines the stage accordingly.
     /// </summary>
     AbiRecoveryWithdrawal,
+
+    /// <summary>
+    /// The declaration was withdrawn because a bounded bisection search — the verify-recover loop's
+    /// fallback when a compile failure could not be attributed to any unit — isolated it as the culprit
+    /// and confirmed the isolation with held-out probes. The withdrawal made the compile clean, but the
+    /// search cannot name <em>why</em> this member was the culprit the way symbol-anchored attribution
+    /// does, so <see cref="SkipCauseClassifier"/> caps its confidence at Medium and the tombstone/report
+    /// wording says the member was isolated by search rather than attributed.
+    /// </summary>
+    BisectionIsolatedWithdrawal,
 }
 
 /// <summary>
@@ -151,6 +161,15 @@ internal readonly record struct EmitterFaultRecord
     internal const string AbiWithdrawalDetailsPrefix = "Withdrawn by ABI validation: ";
 
     /// <summary>
+    /// How a bounded-bisection recovery-withdrawal details string begins. Distinct from the three
+    /// attribution-driven withdrawal prefixes so a triager (and <see cref="SkipCauseClassifier"/>) can
+    /// tell a search-isolated withdrawal apart: this member was not attributed to the failure by the
+    /// provenance ladder — it was isolated by a delta-debug search after attribution declined — so it
+    /// carries a lower confidence than an attributed withdrawal.
+    /// </summary>
+    internal const string BisectionWithdrawalDetailsPrefix = "Isolated by bounded bisection: ";
+
+    /// <summary>
     /// The details string recorded on the skip row. Reads as a sentence a triager can act on. For an
     /// emitter exception it keeps the fingerprint so two rows can be compared without re-running the
     /// generator; for a recovery withdrawal it says plainly that the unit was withdrawn to make the
@@ -163,6 +182,7 @@ internal readonly record struct EmitterFaultRecord
             EmitterFaultOrigin.RecoveryWithdrawal => $"{WithdrawalDetailsPrefix}{Message}",
             EmitterFaultOrigin.CSharpRecoveryWithdrawal => $"{CSharpWithdrawalDetailsPrefix}{Message}",
             EmitterFaultOrigin.AbiRecoveryWithdrawal => $"{AbiWithdrawalDetailsPrefix}{Message}",
+            EmitterFaultOrigin.BisectionIsolatedWithdrawal => $"{BisectionWithdrawalDetailsPrefix}{Message}",
             _ => $"Emitter threw {ExceptionType} at {Fingerprint}: {Message}",
         };
 

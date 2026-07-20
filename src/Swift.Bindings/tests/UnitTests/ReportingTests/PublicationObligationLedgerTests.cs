@@ -69,6 +69,10 @@ public class PublicationObligationLedgerTests
         Assert.Equal(ObligationVerdict.Unproven, Entry(failed, 4).Verdict);
         Assert.False(failed.AllDischarged);
         Assert.Contains(failed.Unproven, e => e.Number == 4);
+        // The Detail (written to the on-disk report before the fail-closed return) must not assert a
+        // successful reconciliation next to the Unproven verdict.
+        Assert.DoesNotContain("reconciled every", Entry(failed, 4).Detail ?? "");
+        Assert.Contains("fails closed", Entry(failed, 4).Detail);
     }
 
     [Fact]
@@ -105,6 +109,17 @@ public class PublicationObligationLedgerTests
         Assert.DoesNotContain("per retained P/Invoke", entry.Obligation);
         Assert.DoesNotContain("any retained P/Invoke", entry.Obligation);
         Assert.Contains("backstop", entry.Verifier);
+    }
+
+    [Fact]
+    public void Build_Obligation13_ClaimNarrowedToValidatorCovered_NotUniversalSoundness()
+    {
+        // The ABI validator is a finite rule set over the [LibraryImport] surface that treats
+        // unrecognized carriers as compatible. Obligation 13 must scope its claim to the covered calls
+        // rather than reading as residual universal ABI soundness (the same narrowing as obligation 3).
+        var entry = Entry(PublicationObligationLedgerBuilder.Build(Converged()), 13);
+        Assert.Contains("validator-covered", entry.Obligation);
+        Assert.Contains("[LibraryImport]", entry.Verifier);
     }
 
     [Fact]
@@ -222,6 +237,10 @@ public class PublicationObligationLedgerTests
         Assert.Equal(ObligationVerdict.Unproven, Entry(ledger, 5).Verdict);
         Assert.Equal(ObligationVerdict.Unproven, Entry(ledger, 12).Verdict);
         Assert.False(ledger.AllDischarged);
+        // The slice Detail must track the compile signal: a failed compile cannot read as "accepted".
+        Assert.DoesNotContain("accepted the slice", Entry(ledger, 5).Detail ?? "");
+        Assert.DoesNotContain("accepted the slice", Entry(ledger, 12).Detail ?? "");
+        Assert.Contains("did not accept the slice", Entry(ledger, 12).Detail);
     }
 
     [Fact]

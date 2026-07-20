@@ -16,6 +16,19 @@ Distilled from a now-retired `research-directions.md` discussion. Standing frami
 
 ---
 
+## Prediction-gate freeze policy (hard policy boundary)
+
+A standing rule for anyone (contributor or agent) tempted to add a new hand-coded *prediction gate* — an emission-time predicate that pre-screens a member/shape to head off a downstream failure (the `SkipReason.*` / `MemberValidationPipeline` / `WrapperValidation` family). This is policy, not a to-do; it constrains what we *add*, and it is the settled disposition of the binding-resilience program's division-of-labor question (full rationale: `binding-resilience-design.md` §2, "The prediction/verification division of labor").
+
+The line: **compiler success cannot prove ABI correctness.** swiftc and Roslyn are syntax / type-system / linkage oracles; neither proves the two sides agree on calling convention, register class, ownership, field offsets, or witness-table width. That splits every candidate gate cleanly:
+
+- **Freeze growth** of gates whose only job is predicting a *compile error*. The verify-recover loop (`WrapperRecoveryController` / `InEmissionDriver`, both Swift and C# planes) is their general backstop — it renders, compiles, attributes the failure to a droppable culprit, withdraws it, and re-renders. Existing compile-error predictors stay **only as fast-path optimizations** (they save a loop round), never as the soundness boundary. Cost, frequency, or nicer diagnostics do **not** justify a new one — that is what the loop is for.
+- **Keep hand-writing** gates for *soundness* conditions the compilers cannot see — ABI mismatch, indeterminate layout, register-convention violations, ownership/witness-table shape. No compiler backstop can replace these; a wrong one compiles clean and fails (or corrupts) at runtime, the one unacceptable outcome.
+
+**Criterion (Fable): a new prediction gate is justified iff the failure it prevents would _compile_.** If the compiler would catch it, let the loop handle it. If it would compile-clean and only break at runtime, the gate is a soundness gate and is warranted. Apply this test before adding any new emission-time skip/validation predicate.
+
+---
+
 ## Demand-driven capability backlog
 
 Real capability gaps with an active incremental trajectory — closed shape-by-shape as consumer demand or validation signal arrives, not scheduled as sessions.

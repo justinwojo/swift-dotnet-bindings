@@ -50,7 +50,7 @@ namespace BindingsGeneration
             GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibraryName, swiftInterfacePath, symbolGraphPath, bridgeHintsPath, namespacePattern, logger, loggerFactory, out _, out _, out _, out _, dependencyModuleNames: null, moduleDatabasePaths: null);
         }
 
-        internal static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, out HashSet<string>? nestedTypesInCollidingClass, out DepModuleCollisionDetector.SlicedCollisionResult depModuleCollisions, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null, bool keepBuiltinDatabaseForTargetModule = false, Producers.InterfaceFactsAggregator? factsAggregator = null, string? descriptorAssemblyNameOverride = null, string? swiftRuntimeVersion = null, IReadOnlyList<TypeRecord>? objcBridgeRecords = null, Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics>? compileWrapper = null, Func<CSharpVerificationResult>? verifyRecoverCsharp = null)
+        internal static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, out HashSet<string>? nestedTypesInCollidingClass, out DepModuleCollisionDetector.SlicedCollisionResult depModuleCollisions, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null, bool keepBuiltinDatabaseForTargetModule = false, Producers.InterfaceFactsAggregator? factsAggregator = null, string? descriptorAssemblyNameOverride = null, string? swiftRuntimeVersion = null, IReadOnlyList<TypeRecord>? objcBridgeRecords = null, Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics>? compileWrapper = null, Func<IReadOnlySet<RecoveryUnitId>, CSharpVerificationResult>? verifyRecoverCsharp = null)
         {
             internalTypeNames = null;
             moduleNameForCollision = null;
@@ -684,6 +684,21 @@ namespace BindingsGeneration
                             "SWIFTBIND112: verify-recover withdrew {Count} leaf/accessor unit(s) " +
                             "from {Module} over {Rounds} round(s) to reach a clean {Planes} compile.",
                             recovery.Denylist.Length, decl.Name, recovery.Rounds, planes);
+                    }
+
+                    // A search-isolated withdrawal is a distinct, lower-confidence outcome: attribution
+                    // could not name the culprit, so a bounded bisection isolated it by delta-debug and
+                    // confirmed it with held-out probes. Surface these separately from the attributed
+                    // withdrawals above — their skip rows already carry the Medium-confidence bisection
+                    // marker, and this line makes the searched roots visible at generation time so a
+                    // triager knows which withdrawals rest on a search rather than a symbol anchor.
+                    if (recovery.SearchIsolated.Length > 0)
+                    {
+                        logger.LogWarning(
+                            "SWIFTBIND117: {Count} of those withdrawal(s) from {Module} were isolated by " +
+                            "bounded bisection, not attributed — a searched culprit is less certain than an " +
+                            "attributed one, so each is reported at no higher than Medium confidence.",
+                            recovery.SearchIsolated.Length, decl.Name);
                     }
 
                     loopWithdrawnUnits = recovery.Denylist.Select(unit => unit.Describe()).ToList();

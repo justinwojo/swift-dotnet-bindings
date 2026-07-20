@@ -1,0 +1,7 @@
+UnattributableFileScope.wrapper.swift:9:28: error: cannot find type 'MissingScratchType' in scope
+ 7 | import Foundation
+ 8 | 
+ 9 | private let sharedScratch: MissingScratchType = makeScratch()
+   |                            `- error: cannot find type 'MissingScratchType' in scope
+10 | 
+11 | @_cdecl("SBW_Probe_alpha")

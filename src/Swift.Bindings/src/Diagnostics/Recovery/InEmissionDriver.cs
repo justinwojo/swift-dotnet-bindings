@@ -65,7 +65,7 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
     private readonly Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics> _compileWrapper;
     private readonly WrapperRecoveryCompileRequest _request;
     private readonly Action? _preRender;
-    private readonly Func<CSharpVerificationResult>? _verifyCsharp;
+    private readonly Func<IReadOnlySet<RecoveryUnitId>, CSharpVerificationResult>? _verifyCsharp;
 
     private readonly DeclEmissionStateSnapshot _declBaseline;
     private readonly ModuleEmissionStateSnapshot _contextBaseline;
@@ -77,6 +77,13 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
     // First-writer-wins: a unit the Swift compile named stays a Swift withdrawal even if a later C#
     // error also lands on it.
     private readonly Dictionary<RecoveryUnitId, EmitterFaultOrigin> _unitOrigin = new();
+
+    // Render→compile probes the bounded bisection has spent across EVERY round of this module's loop. The
+    // controller may consult the search once per unattributed round (up to the iteration cap), and each
+    // search must not restart the budget — the mandate bounds probes to a single digit PER MODULE, not
+    // per invocation. This accumulator caps the whole module's search cost: a round is handed only the
+    // budget the earlier rounds left, and a round with none left declines without probing.
+    private int _bisectionProbesUsed;
 
     /// <summary>
     /// The compilation result of the last render that compiled clean, or null until one does. The
@@ -121,7 +128,7 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
         Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics> compileWrapper,
         WrapperRecoveryCompileRequest request,
         Action? preRender = null,
-        Func<CSharpVerificationResult>? verifyCsharp = null)
+        Func<IReadOnlySet<RecoveryUnitId>, CSharpVerificationResult>? verifyCsharp = null)
     {
         _decl = decl ?? throw new ArgumentNullException(nameof(decl));
         _context = context ?? throw new ArgumentNullException(nameof(context));
@@ -230,7 +237,7 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
         CSharpVerificationResult csharp;
         try
         {
-            csharp = _verifyCsharp();
+            csharp = _verifyCsharp(denylist);
         }
         catch (Exception ex)
         {
@@ -276,6 +283,121 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
                     csharp.InconclusiveReason, denylist.Count);
                 return InconclusiveFailClosed(csharp);
         }
+    }
+
+    /// <summary>
+    /// The candidate pool the bounded bisection searches: every whole-scope artifact the current render
+    /// emitted that is a withdrawable leaf — droppable alone and leaf-recoverable — and not already denied.
+    /// Enumerated from the same FragmentSet and through the same classifier the attribution planes use, so
+    /// the search can only ever withdraw a unit an attributed round could have withdrawn. On the wave-2
+    /// production path no populated recovery graph gives a leaf any dependents, so each candidate is its own
+    /// singleton needs-closure group. Exposed to the test assembly so a driver-level test can pick a culprit
+    /// guaranteed to be in the pool the search will actually probe.
+    /// </summary>
+    internal IReadOnlyList<ImmutableArray<RecoveryUnitId>> BuildBisectionCandidateGroups(
+        IReadOnlySet<RecoveryUnitId> denylist)
+    {
+        var fragments = _context.FragmentSet;
+        if (fragments == null)
+            return Array.Empty<ImmutableArray<RecoveryUnitId>>();
+
+        var candidateGroups = new List<ImmutableArray<RecoveryUnitId>>();
+        var seen = new HashSet<RecoveryUnitId>();
+        foreach (var artifact in fragments.EmittedArtifacts)
+        {
+            var (unit, droppable) = Classify(artifact);
+            if (!droppable)
+                continue;
+            if (!WrapperRecoveryController.IsLeafRecoverable(unit.Scope))
+                continue;
+            if (denylist.Contains(unit))
+                continue;
+            if (seen.Add(unit))
+                candidateGroups.Add(ImmutableArray.Create(unit));
+        }
+
+        return candidateGroups;
+    }
+
+    /// <inheritdoc />
+    public BisectionOutcome AttemptBisection(IReadOnlySet<RecoveryUnitId> denylist)
+    {
+        ArgumentNullException.ThrowIfNull(denylist);
+
+        var candidateGroups = BuildBisectionCandidateGroups(denylist);
+        if (candidateGroups.Count == 0)
+            return BisectionOutcome.Declined();
+
+        // Per-MODULE probe budget: hand this round only what earlier rounds' searches left unspent, so the
+        // total render→compile probes across the whole loop stays single-digit. A round with the budget
+        // already exhausted declines before probing rather than restarting it at DefaultProbeBudget.
+        var remainingBudget = BoundedBisectionSearch.DefaultProbeBudget - _bisectionProbesUsed;
+        if (remainingBudget < 1)
+            return BisectionOutcome.Declined();
+
+        // Each probe is a full render→compile under the base denylist unioned with a candidate subset;
+        // "clean" means the whole round converged (RenderCompileAttribute returns null — Swift wrapper,
+        // C#, and ABI all clean) AND the convergence was not vacuous (see ProbeClean below: a probe that
+        // emptied the wrapper surface reads as NOT clean, the one deliberate divergence from the raw
+        // verdict the controller reads). Probing reuses the real
+        // render path, whose convergence side-channels and origin map would otherwise leak an
+        // intermediate probe's state, so snapshot them and restore in a finally: a probe that converges
+        // must not leave a stale NoWrapperSurface/CSharpVerifiedClean flag or a probe-attributed origin
+        // behind. The controller's next real render — with the isolated units denied — re-establishes
+        // every side-channel from the pristine baseline, byte-identically to the sufficiency probe.
+        var savedLastConverged = LastConvergedOutcome;
+        var savedNoWrapperSurface = NoWrapperSurfaceConverged;
+        var savedCSharpVerified = CSharpVerifiedClean;
+        var savedOrigins = new Dictionary<RecoveryUnitId, EmitterFaultOrigin>(_unitOrigin);
+
+        BisectionOutcome outcome;
+        try
+        {
+            bool ProbeClean(IReadOnlyCollection<RecoveryUnitId> subset)
+            {
+                var probeDenylist = new HashSet<RecoveryUnitId>(denylist);
+                probeDenylist.UnionWith(subset);
+                // RenderCompileAttribute returns null on two DISTINCT terminals: a genuine clean joint
+                // compile, and a vacuous no-wrapper-surface convergence (this subset withdrew every
+                // compilable member, so there was nothing left to compile). Only the former is evidence
+                // the subset contained the culprit; counting a vacuous convergence as clean would let the
+                // search falsely confirm an innocent leaf — a false confirmation, not a decline. Clear the
+                // flag before the probe and reject the probe if the render came back having set it, so an
+                // emptied-surface probe reads as NOT clean. The search then fails its containment/
+                // sufficiency gate and declines (fail-closed) rather than isolating on a compile that never
+                // ran. The finally below restores the flag to its pre-search value.
+                NoWrapperSurfaceConverged = false;
+                var converged = RenderCompileAttribute(probeDenylist) is null;
+                return converged && !NoWrapperSurfaceConverged;
+            }
+
+            outcome = BoundedBisectionSearch.Run(candidateGroups, ProbeClean, remainingBudget);
+        }
+        finally
+        {
+            LastConvergedOutcome = savedLastConverged;
+            NoWrapperSurfaceConverged = savedNoWrapperSurface;
+            CSharpVerifiedClean = savedCSharpVerified;
+            _unitOrigin.Clear();
+            foreach (var (unit, origin) in savedOrigins)
+                _unitOrigin[unit] = origin;
+        }
+
+        // Charge this round's probes to the per-module accumulator (BisectionOutcome carries the count for
+        // both an isolation and a decline), so a later round sees only the budget that remains.
+        _bisectionProbesUsed += outcome.ProbesUsed;
+
+        // Stamp the confirmed culprits as search-isolated (done after the side-channel restore, so only
+        // the real isolated units carry this origin). The controller's next render seeds them through
+        // OriginOf → the bounded-bisection withdrawal wording, and SkipCauseClassifier caps their skip
+        // row at Medium confidence — distinct from an attributed withdrawal, as the design requires.
+        if (outcome.DidIsolate)
+        {
+            foreach (var unit in outcome.Isolated)
+                _unitOrigin[unit] = EmitterFaultOrigin.BisectionIsolatedWithdrawal;
+        }
+
+        return outcome;
     }
 
     // The origin each denied unit was first attributed under, defaulting to the Swift-wrapper wording

@@ -91,6 +91,7 @@ Releases are cut by GitHub Actions (`.github/workflows/release.yml`), triggered 
 ## Working Guidelines
 
 - **No shortcuts.** Prefer the correct long-term solution over a patch that papers over the real issue — root-cause fixes, not symptom suppression, not "skip the failing test", not weakening an assertion to make it green. If you're unsure whether a fix addresses the root cause or whether a short-term workaround is acceptable, ask the user before proceeding.
+- **Prediction-gate freeze policy.** Before adding a new hand-coded emission-time prediction gate (a `SkipReason.*` / `MemberValidationPipeline` / `WrapperValidation` predicate), apply the criterion: a new prediction gate is justified **iff the failure it prevents would _compile_**. A compile-error-catchable shape goes to the verify-recover loop, not a new predictor; only soundness conditions the compilers can't see (ABI mismatch, indeterminate layout, register-convention violations) warrant a new gate. Full policy: `src/docs/roadmap.md` § "Prediction-gate freeze policy".
 - Do NOT commit unless the user explicitly asks. Commit messages: subject + 1–3 sentences on the *why*. No numbered sub-changes, no "Session N handoff", no "Gates passing" footers. Don't reference session/phase numbers from docs.
 - **Never `git stash`** — linter hooks detect reverted files; `stash pop` discards changes silently.
 - When fixing a bug pattern, grep the whole codebase for ALL instances before finishing.

@@ -71,6 +71,16 @@ public sealed record WrapperRecoveryResult
     /// wave cannot withdraw. Empty otherwise.
     /// </summary>
     public ImmutableArray<RecoveryUnitId> Blocking { get; init; } = ImmutableArray<RecoveryUnitId>.Empty;
+
+    /// <summary>
+    /// The subset of <see cref="Denylist"/> this run isolated by bounded bisection rather than by
+    /// attribution — culprits the symbol-anchored provenance ladder could not place, found by a
+    /// delta-debug search and confirmed by held-out probes. Reported so the caller marks these
+    /// withdrawals with a distinct cause and a confidence no higher than Medium: a search-isolated root
+    /// is less certain than an attributed one. Empty on the common path where attribution placed every
+    /// culprit.
+    /// </summary>
+    public ImmutableArray<RecoveryUnitId> SearchIsolated { get; init; } = ImmutableArray<RecoveryUnitId>.Empty;
 }
 
 /// <summary>
@@ -122,6 +132,25 @@ public interface IWrapperRecoveryDriver
     CoarseWithdrawalAuthorization AuthorizeCoarseWithdrawal(
         IReadOnlyList<RecoveryUnitId> blocking, IReadOnlySet<RecoveryUnitId> denylist)
         => CoarseWithdrawalAuthorization.Unauthorized;
+
+    /// <summary>
+    /// Consulted when a round's failure could not be attributed to any recovery unit — the point at which
+    /// the loop would otherwise fail closed as <see cref="WrapperRecoveryFailureCause.Unattributable"/>.
+    /// The driver may run a bounded, dependency-aware bisection over its withdrawable leaves to isolate a
+    /// culprit attribution could not place, confirmed by held-out probes and capped at a single-digit
+    /// probe budget. It returns the confirmed culprit set (which the controller withdraws, records as
+    /// search-isolated, and iterates), or a decline that leaves the module failing closed exactly as
+    /// before.
+    /// </summary>
+    /// <remarks>
+    /// The default declines: a driver with no candidate pool and no render→compile probe can never
+    /// confirm an isolation, so the loop's unattributable behaviour is unchanged until a driver overrides
+    /// this seam. This is why wiring the seam is byte-neutral for every current test driver — only
+    /// <see cref="InEmissionDriver"/>, which can render and compile, supplies a real search.
+    /// </remarks>
+    /// <param name="denylist">The units already withdrawn, so the search's candidate pool excludes them.</param>
+    BisectionOutcome AttemptBisection(IReadOnlySet<RecoveryUnitId> denylist)
+        => BisectionOutcome.Declined();
 }
 
 /// <summary>
@@ -206,12 +235,13 @@ public static class WrapperRecoveryController
         // target-slice-consistency guarantee; there is no per-slice denylist to drift out of sync.
         var denylist = new HashSet<RecoveryUnitId>();
         var denylistOrder = ImmutableArray.CreateBuilder<RecoveryUnitId>();
+        var searchIsolated = ImmutableArray.CreateBuilder<RecoveryUnitId>();
 
         for (int round = 1; round <= iterationCap; round++)
         {
             var attribution = driver.RenderCompileAttribute(denylist);
             if (attribution is null)
-                return Converged(denylistOrder, round);
+                return Converged(denylistOrder, round, searchIsolated);
 
             // Fail-closed *nature* checks. These fire when the failing union merely CONTAINS such an
             // error — even alongside attributed leaf culprits — because wave-1 never partially
@@ -221,10 +251,40 @@ public static class WrapperRecoveryController
             // beside them are most likely cascades of that same root, so withdrawing those leaves is
             // both futile and unsound (it would tombstone healthy members and still fail).
             if (HasGlobalInputError(attribution))
-                return Failed(denylistOrder, round, WrapperRecoveryFailureCause.InputConfiguration);
+                return Failed(denylistOrder, round, WrapperRecoveryFailureCause.InputConfiguration, searchIsolated);
 
             if (attribution.HasUnattributedError)
-                return Failed(denylistOrder, round, WrapperRecoveryFailureCause.Unattributable);
+            {
+                // Attribution named no unit for this failure — the point the loop would otherwise fail
+                // closed. Before it does, consult the driver's bounded bisection fallback: a delta-debug
+                // over withdrawable leaves that can isolate a culprit the provenance ladder could not
+                // place, confirmed by held-out probes and capped at a single-digit probe budget. The
+                // default driver declines (no candidate pool), so this is the fail-closed path unchanged
+                // for every driver but the production one. A confirmed isolation is withdrawn and recorded
+                // as search-isolated so the report marks it distinctly and at a confidence no higher than
+                // Medium — a searched root is less certain than an attributed one. The same monotonic
+                // progress guard the coarse path uses applies: an isolation that adds no fresh unit fails
+                // closed rather than spin.
+                var bisection = driver.AttemptBisection(denylist);
+                var addedIsolated = false;
+                if (bisection.DidIsolate)
+                {
+                    foreach (var unit in bisection.Isolated)
+                    {
+                        if (denylist.Add(unit))
+                        {
+                            denylistOrder.Add(unit);
+                            searchIsolated.Add(unit);
+                            addedIsolated = true;
+                        }
+                    }
+                }
+
+                if (!addedIsolated)
+                    return Failed(denylistOrder, round, WrapperRecoveryFailureCause.Unattributable, searchIsolated);
+
+                continue;
+            }
 
             // Progress is measured by fresh (not-yet-denied) culprits, never by the message
             // fingerprint. A swiftc cascade legitimately reuses identical diagnostic text across
@@ -265,7 +325,7 @@ public static class WrapperRecoveryController
                 }
 
                 if (!addedClosure)
-                    return Blocked(denylistOrder, round, blocking);
+                    return Blocked(denylistOrder, round, blocking, searchIsolated);
 
                 continue;
             }
@@ -287,11 +347,11 @@ public static class WrapperRecoveryController
             // no-progress condition): whether the round attributed nothing or re-blamed only
             // already-denied units, no leaf recovery can move the compiler. The one rung above a leaf
             // needs the recovery graph this wave lacks, so it fails closed at the module floor.
-            return Failed(denylistOrder, round, WrapperRecoveryFailureCause.NoProgress);
+            return Failed(denylistOrder, round, WrapperRecoveryFailureCause.NoProgress, searchIsolated);
         }
 
         // Still making progress (each round withdrew something new) but out of rounds: the floor.
-        return Failed(denylistOrder, iterationCap, WrapperRecoveryFailureCause.IterationCapExhausted);
+        return Failed(denylistOrder, iterationCap, WrapperRecoveryFailureCause.IterationCapExhausted, searchIsolated);
     }
 
     /// <summary>
@@ -308,27 +368,37 @@ public static class WrapperRecoveryController
             d.Kind == AttributionKind.Classification && d.Diagnostic.IsError);
 
     private static WrapperRecoveryResult Converged(
-        ImmutableArray<RecoveryUnitId>.Builder denylist, int rounds) =>
+        ImmutableArray<RecoveryUnitId>.Builder denylist,
+        int rounds,
+        ImmutableArray<RecoveryUnitId>.Builder searchIsolated) =>
         new()
         {
             Converged = true,
             Denylist = denylist.ToImmutable(),
             Rounds = rounds,
             Cause = WrapperRecoveryFailureCause.None,
+            SearchIsolated = searchIsolated.ToImmutable(),
         };
 
     private static WrapperRecoveryResult Failed(
-        ImmutableArray<RecoveryUnitId>.Builder denylist, int rounds, WrapperRecoveryFailureCause cause) =>
+        ImmutableArray<RecoveryUnitId>.Builder denylist,
+        int rounds,
+        WrapperRecoveryFailureCause cause,
+        ImmutableArray<RecoveryUnitId>.Builder searchIsolated) =>
         new()
         {
             Converged = false,
             Denylist = denylist.ToImmutable(),
             Rounds = rounds,
             Cause = cause,
+            SearchIsolated = searchIsolated.ToImmutable(),
         };
 
     private static WrapperRecoveryResult Blocked(
-        ImmutableArray<RecoveryUnitId>.Builder denylist, int rounds, IEnumerable<RecoveryUnitId> blocking) =>
+        ImmutableArray<RecoveryUnitId>.Builder denylist,
+        int rounds,
+        IEnumerable<RecoveryUnitId> blocking,
+        ImmutableArray<RecoveryUnitId>.Builder searchIsolated) =>
         new()
         {
             Converged = false,
@@ -336,5 +406,6 @@ public static class WrapperRecoveryController
             Rounds = rounds,
             Cause = WrapperRecoveryFailureCause.RequiresGraphClosure,
             Blocking = blocking.ToImmutableArray(),
+            SearchIsolated = searchIsolated.ToImmutable(),
         };
 }

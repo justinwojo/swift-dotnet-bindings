@@ -59,13 +59,22 @@ internal static class WrapperDenylistSeed
         foreach (var unit in denylist)
         {
             var origin = originOf(unit);
-            // The ABI plane is not a compile — the typed plan-vs-descriptor check rejected the call — so
-            // its wording says so honestly; the C# and wrapper compile wordings stay byte-identical.
-            var message = origin == EmitterFaultOrigin.AbiRecoveryWithdrawal
-                ? $"the plan-vs-descriptor check rejected this call ({unit.Describe()})"
-                : $"withdrawn to recover the " +
-                  $"{(origin == EmitterFaultOrigin.CSharpRecoveryWithdrawal ? "C#" : "wrapper")} compile " +
-                  $"({unit.Describe()})";
+            // Each origin's wording says honestly how the unit was removed: the ABI plane is not a compile
+            // (the typed plan-vs-descriptor check rejected the call); a bisection isolation is not an
+            // attribution (a delta-debug search found this member cleared the compile, without naming why);
+            // and the C# and wrapper compile wordings stay byte-identical.
+            var message = origin switch
+            {
+                EmitterFaultOrigin.AbiRecoveryWithdrawal =>
+                    $"the plan-vs-descriptor check rejected this call ({unit.Describe()})",
+                EmitterFaultOrigin.BisectionIsolatedWithdrawal =>
+                    $"a bounded bisection search isolated this member as the culprit for an " +
+                    $"unattributable compile failure ({unit.Describe()})",
+                _ =>
+                    $"withdrawn to recover the " +
+                    $"{(origin == EmitterFaultOrigin.CSharpRecoveryWithdrawal ? "C#" : "wrapper")} compile " +
+                    $"({unit.Describe()})",
+            };
             // The unit-aware Record routes by scope: a leaf/accessor/type seed lands in the bare-DeclId
             // index exactly as before (byte-identical), while a coarse sub-declaration seed lands in the
             // unit-keyed index so it withdraws only its own surface.

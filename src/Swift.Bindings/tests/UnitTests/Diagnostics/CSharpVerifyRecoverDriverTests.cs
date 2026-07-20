@@ -347,8 +347,10 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
                 .Select(File.ReadAllText));
 
         // The injected C# verifier. Its verdict is a pure function of the current render's denylist, so
-        // it models a real verifier watching the emitted surface change as members are withdrawn.
-        private CSharpVerificationResult VerifyCsharp()
+        // it models a real verifier watching the emitted surface change as members are withdrawn. The
+        // driver now hands the denylist to the verifier (so a caching layer can fingerprint it); the stub
+        // keeps reading _currentDenylist, which RenderCompileAttribute set to the same set.
+        private CSharpVerificationResult VerifyCsharp(IReadOnlySet<RecoveryUnitId> denylist)
         {
             CSharpVerifyCalls++;
             switch (_behavior)

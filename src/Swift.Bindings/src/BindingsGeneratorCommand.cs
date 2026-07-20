@@ -938,7 +938,7 @@ public static class BindingsGeneratorCommand
         // returns) can't be verified in-loop and keeps the post-loop publication gate (fail-closed)
         // unchanged. A "potential mixed" framework whose ObjC bridge filtered to zero records (an umbrella
         // header re-exporting only Swift) emits no companion reference and IS verified in-loop.
-        Func<CSharpVerificationResult>? verifyRecoverCsharp = null;
+        Func<IReadOnlySet<RecoveryUnitId>, CSharpVerificationResult>? verifyRecoverCsharp = null;
         if (CanVerifyCSharpInLoop(
                 verifyRecoverCompile != null, sdkMode, noVerifyCSharp, mixedObjcResolution, mixedBridgeRecords))
         {
@@ -949,7 +949,55 @@ public static class BindingsGeneratorCommand
             var csharpCsprojPath = Path.Combine(
                 outputDirectory, $"{platformInfo.GetDefaultSwiftPackageId(csharpResolution.ModuleName)}.csproj");
 
-            verifyRecoverCsharp = () =>
+            // Verification caching — the economics layer for the loop's single most expensive stage, the
+            // external dotnet build the Roslyn/MSBuild probe runs (measured ~0.9s warm / ~1.6s cold per
+            // probe, versus ~0.4s for the swiftc wrapper probe and ~0.25s to render). WHEN the fingerprint
+            // captures every input to the verify verdict, a hit returns the exact verdict a miss would, so
+            // the loop's decisions — and therefore the settled source, the published artifacts, and the
+            // report — are byte-identical whether reused or recomputed. It does NOT yet capture every
+            // inherited MSBuild input (see the opt-in note below), so a stale hit can diverge from an
+            // uncached run — which is exactly why the cache is opt-in. The authoritative post-loop
+            // publication gate always re-runs uncached, keeping the cache strictly subordinate.
+            //
+            // The cache never runs in repo/dev mode (csharpRepoRoot != null): there the verify links the
+            // IN-TREE Swift.Runtime, whose source is NOT a fingerprint input, so an edit there would change
+            // the verdict without changing the key — our own gates must always recompute. In package/
+            // consumer mode it is furthermore OPT-IN (CreateIfEnabled → non-null only when the operator sets
+            // an explicit SWIFTBINDINGS_VERIFY_CACHE root), never default-on. The reason is that even in
+            // package mode the fingerprint keys the emitted .cs, the verification csproj, and the
+            // ABI/toolchain/generator/denylist inputs, but NOT every input MSBuild inherits into the verify
+            // compile (a parent Directory.Build.props/.targets, Directory.Packages.props, nuget.config) nor
+            // the resolved runtime package body (the SwiftBindings.Runtime PackageReference version range
+            // floats across patch releases — its version text is in the csproj, its resolved contents are
+            // not). A shared cache dir could therefore serve a stale verdict across two runs differing only
+            // in one of those — never shipping a broken binding, since the authoritative post-loop
+            // publication gate always re-verifies uncached, but risking an unnecessary API withdrawal that
+            // diverges from an uncached run. Until the key provably covers those inputs, requiring an
+            // explicit root confines the cache to an operator who owns the environment and its lifetime;
+            // completing the key so it can default on is tracked in not-planned.md.
+            var verificationCache = csharpRepoRoot == null ? VerificationCache.CreateIfEnabled(logger) : null;
+            // The generator's own module version id: rebuilding the generator changes it, so any generator
+            // edit invalidates every cached verdict by key construction (no stale verdict after a rebuild).
+            var generatorVersion = System.Reflection.Assembly
+                .GetExecutingAssembly().ManifestModule.ModuleVersionId.ToString();
+            // The .NET SDK version driving the build — resolved once, lazily, only if the cache is live.
+            string? toolchainId = null;
+            string ResolveToolchainId()
+            {
+                if (toolchainId != null)
+                    return toolchainId;
+                var sdk = string.Empty;
+                try
+                {
+                    var (_, stdout, _) = new SystemCommandRunner().Run("dotnet", "--version", 30000);
+                    sdk = (stdout ?? string.Empty).Trim();
+                }
+                catch { /* an unknown SDK id just widens the key conservatively */ }
+                toolchainId = sdk + "|" + System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription;
+                return toolchainId;
+            }
+
+            verifyRecoverCsharp = denylist =>
             {
                 // Metadata and native linkage are pure reads of the source framework — render-independent,
                 // so resolve them once. The supplement reference set and the emitted .cs change with each
@@ -995,6 +1043,48 @@ public static class BindingsGeneratorCommand
                     AppleSupplementVersion = appleVersion,
                     AppleSupplementPrototypeProjectPath = prototypeCsproj,
                 }, logger);
+
+                // With the verification csproj now on disk, the fingerprint keys the dotnet build's verdict
+                // on (input ABI facts, toolchain, generator version, the emitted C# it compiles, denylist).
+                // These are the components the key captures — NOT the complete MSBuild input set (a parent
+                // Directory.Build.props/.targets, Directory.Packages.props, nuget.config, and the resolved
+                // runtime package body are inherited but unkeyed; see the opt-in note above), which is why
+                // the cache only runs when the operator opts in to a root it controls.
+                // Fingerprint those and reuse a prior verdict when they match; the settled-plan component is
+                // the emitted-source hash, which the compiler actually sees and which fully materializes the
+                // denylist (a withdrawn member is absent from it), while the explicit denylist makes that
+                // dependence direct. obj/ and bin/ intermediates are excluded — they are build outputs, not
+                // the source under test.
+                if (verificationCache != null)
+                {
+                    var abiFacts = File.Exists(swiftAbiPath)
+                        ? File.ReadAllBytes(swiftAbiPath)
+                        : System.Array.Empty<byte>();
+                    var objSep = $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}";
+                    var binSep = $"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}";
+                    var planFiles = Directory
+                        .EnumerateFiles(outputDirectory, "*.cs", SearchOption.AllDirectories)
+                        .Where(p => !p.Contains(objSep, StringComparison.Ordinal) &&
+                                    !p.Contains(binSep, StringComparison.Ordinal))
+                        .Append(csharpCsprojPath);
+                    var settledPlan = VerificationFingerprint.HashFiles(planFiles);
+                    var fingerprint = VerificationFingerprint.Compute(
+                        abiFacts, ResolveToolchainId(), generatorVersion, settledPlan,
+                        denylist.Select(u => u.ToString()));
+
+                    if (verificationCache.TryGet(fingerprint, out var cachedResult))
+                    {
+                        logger.LogInformation(
+                            "SWIFTBIND118: C# verification cache hit ({Fp}); reusing the prior verdict and " +
+                            "skipping the dotnet build.", fingerprint[..12]);
+                        return cachedResult;
+                    }
+
+                    var freshResult = MsbuildSarifCSharpVerifier.Verify(
+                        csharpCsprojPath, new SystemCommandRunner(), csharpRepoRoot, logger: logger);
+                    verificationCache.Store(fingerprint, freshResult);
+                    return freshResult;
+                }
 
                 return MsbuildSarifCSharpVerifier.Verify(
                     csharpCsprojPath, new SystemCommandRunner(), csharpRepoRoot, logger: logger);

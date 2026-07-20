@@ -73,6 +73,73 @@ public class WrapperRecoveryLoopIntegrationTests
         }
     }
 
+    /// <summary>
+    /// Extends <see cref="CaptureReplayDriver"/> with a real bounded-bisection fallback for a capture the
+    /// attributor could not place. Round 1 replays the genuine unattributable failure (proving the loop's
+    /// red fail-closed state through the real parser and attributor); when the controller consults the
+    /// bisection seam, this driver runs the <em>real</em> <see cref="BoundedBisectionSearch"/> over the
+    /// fixture's withdrawable member leaves, using a probe that models the production re-render.
+    /// </summary>
+    /// <remarks>
+    /// The stderr is a genuine file-scope failure — an error swiftc reports outside every <c>@_cdecl</c>
+    /// block, which the symbol-anchor step cannot charge to any member, so the real attribution carries
+    /// <see cref="AttributionResult.HasUnattributedError"/>. The probe models the same re-render
+    /// <see cref="CaptureReplayDriver"/> models for an attributed culprit, extended to shared scaffolding:
+    /// one member's emission is what dragged the unattributable construct into the wrapper (the planted
+    /// culprit), so a render whose denylist withdraws that member drops the scaffolding and the remainder
+    /// compiles clean. Withdrawing any other member does not. The RED baseline runs the same fixture
+    /// through the default-seam <see cref="CaptureReplayDriver"/>, which fails closed; the delta is
+    /// exactly the bounded search.
+    /// </remarks>
+    private sealed class BisectionReplayDriver : IWrapperRecoveryDriver
+    {
+        private readonly AttributionResult _capture;
+        private readonly RecoveryUnitId _planted;
+        private readonly IReadOnlyList<ImmutableArray<RecoveryUnitId>> _candidateGroups;
+
+        public int Rounds { get; private set; }
+        public int BisectCalls { get; private set; }
+        public bool CaptureIsUnattributable => _capture.HasUnattributedError;
+
+        public BisectionReplayDriver(string fixture, RecoveryUnitId planted, params RecoveryUnitId[] candidates)
+        {
+            var groups = SwiftDiagnosticParser.Parse(AttributionFixtures.Stderr(fixture));
+            var attributor = new DiagnosticAttributor(
+                new[] { AttributionFixtures.SymbolStep(AttributionFixtures.Source(fixture)) });
+            _capture = attributor.Attribute(groups);
+            _planted = planted;
+            _candidateGroups = candidates.Select(ImmutableArray.Create).ToList();
+        }
+
+        public AttributionResult? RenderCompileAttribute(IReadOnlySet<RecoveryUnitId> denylist)
+        {
+            ArgumentNullException.ThrowIfNull(denylist);
+            Rounds++;
+            // Withdrawing the member whose emission owns the unattributable scaffolding clears the compile;
+            // any other denylist replays the same genuine unattributable failure.
+            return denylist.Contains(_planted) ? null : _capture;
+        }
+
+        public BisectionOutcome AttemptBisection(IReadOnlySet<RecoveryUnitId> denylist)
+        {
+            BisectCalls++;
+            var groups = _candidateGroups
+                .Where(g => !g.Any(denylist.Contains))
+                .ToList();
+            return BoundedBisectionSearch.Run(
+                groups,
+                subset => RenderCompileAttribute(Union(denylist, subset)) is null);
+        }
+
+        private static IReadOnlySet<RecoveryUnitId> Union(
+            IReadOnlySet<RecoveryUnitId> denylist, IReadOnlyCollection<RecoveryUnitId> subset)
+        {
+            var set = new HashSet<RecoveryUnitId>(denylist);
+            set.UnionWith(subset);
+            return set;
+        }
+    }
+
     // ── converging over real captures ───────────────────────────────────────────────────────
 
     /// <summary>
@@ -155,5 +222,60 @@ public class WrapperRecoveryLoopIntegrationTests
         Assert.Empty(result.Blocking);
         // Fails closed on the first render — never spins hoping a leaf withdrawal will clear a bad input.
         Assert.Equal(1, result.Rounds);
+    }
+
+    // ── bounded-bisection fallback over a real unattributable capture ─────────────────────────
+
+    /// <summary>
+    /// The RED baseline for the bounded-bisection fallback, proven through the real chain: a genuine
+    /// file-scope swiftc error the attributor cannot charge to any member surfaces as an unattributable
+    /// failure, and a driver with no bisection seam (the default) fails the module closed. This is the
+    /// exact state the fallback exists to improve on — captured here so the GREEN test's delta is
+    /// unambiguously the search, not a change in how the failure is parsed or attributed.
+    /// </summary>
+    [Fact]
+    public void RealUnattributableCapture_WithoutBisection_FailsClosed()
+    {
+        var driver = new CaptureReplayDriver("UnattributableFileScope");
+
+        var result = WrapperRecoveryController.Run(driver);
+
+        Assert.False(result.Converged);
+        Assert.Equal(WrapperRecoveryFailureCause.Unattributable, result.Cause);
+        Assert.Empty(result.Denylist);
+        Assert.Empty(result.SearchIsolated);
+    }
+
+    /// <summary>
+    /// The GREEN outcome: the same genuine unattributable capture, but the driver's bounded-bisection
+    /// fallback runs the real <see cref="BoundedBisectionSearch"/> over the fixture's three member leaves.
+    /// The search isolates exactly the planted culprit within a single-digit probe budget, the controller
+    /// withdraws it and records it as search-isolated, and the next render compiles clean — a failure that
+    /// fails closed today converges, without any change to the parser or attributor.
+    /// </summary>
+    [Fact]
+    public void RealUnattributableCapture_WithBisection_IsolatesPlantedCulpritAndConverges()
+    {
+        var alpha = AttributionFixtures.UnitForSymbol("SBW_Probe_alpha");
+        var bravo = AttributionFixtures.UnitForSymbol("SBW_Probe_bravo");
+        var charlie = AttributionFixtures.UnitForSymbol("SBW_Probe_charlie");
+        // 'bravo' is the member whose emission owns the unattributable scaffolding in this model.
+        var driver = new BisectionReplayDriver("UnattributableFileScope", planted: bravo, alpha, bravo, charlie);
+
+        // The red state is genuinely unattributable through the real parser+attributor — not a synthetic
+        // stand-in — so the search is the only thing that turns fail-closed into convergence.
+        Assert.True(driver.CaptureIsUnattributable, "the fixture must reproduce a real unattributable failure");
+
+        var result = WrapperRecoveryController.Run(driver);
+
+        Assert.True(result.Converged);
+        Assert.Equal(WrapperRecoveryFailureCause.None, result.Cause);
+        Assert.True(driver.BisectCalls >= 1, "the unattributable failure must consult the bisection seam");
+        // Exactly the planted culprit is isolated — the healthy siblings are never withdrawn.
+        var isolated = Assert.Single(result.SearchIsolated);
+        Assert.Equal(bravo, isolated);
+        Assert.Equal(new[] { bravo }, result.Denylist);
+        Assert.DoesNotContain(alpha, result.Denylist);
+        Assert.DoesNotContain(charlie, result.Denylist);
     }
 }

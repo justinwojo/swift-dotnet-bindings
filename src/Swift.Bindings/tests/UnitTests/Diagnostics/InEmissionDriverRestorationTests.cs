@@ -5,6 +5,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 
@@ -180,6 +181,89 @@ public class InEmissionDriverRestorationTests : IDisposable
             "pairing memo would carry the previous render's state into the next.");
     }
 
+    // ── bisection soundness: a vacuous no-wrapper-surface probe must not confirm a culprit ──────
+
+    /// <summary>
+    /// A bisection probe "converges" (its render→compile returns null) on two DISTINCT terminals: a genuine
+    /// clean joint compile, and a vacuous no-wrapper-surface outcome (the probe withdrew the last compilable
+    /// member, so nothing was left to compile). Only the former is evidence the withdrawn subset contained
+    /// the culprit. This pins that the real driver does NOT count a no-wrapper-surface convergence as a clean
+    /// probe: a stub that raises no-wrapper-surface exactly when one specific candidate is withdrawn — the
+    /// non-uniform shape that slips past the search's necessity gate (retaining the culprit leaves a real,
+    /// still-failing compile) — must make the search DECLINE, never falsely isolate that innocent leaf.
+    /// Without the guard the containment/sufficiency probe reads the vacuous convergence as clean and the
+    /// search confirms a wrong culprit.
+    /// </summary>
+    [Fact]
+    public void AttemptBisection_ProbeThatEmptiesTheWrapperSurface_DeclinesRatherThanFalselyIsolating()
+    {
+        RecoveryUnitId? culprit = null;
+        var harness = new DriverHarness(this, compileOverride: req =>
+        {
+            // A candidate's withdrawal tombstone carries its Describe() text (scope token included), which
+            // appears in the emitted C# ONLY when that unit was withdrawn this render. Withdrawing the
+            // culprit empties the wrapper surface (a vacuous convergence); any other state leaves a real,
+            // still-failing compile — so retaining the culprit while withdrawing others still fails, exactly
+            // the non-uniform shape the necessity gate cannot catch on its own.
+            var emitted = string.Concat(Directory
+                .EnumerateFiles(req.OutputDirectory, "*.cs", SearchOption.AllDirectories)
+                .Select(File.ReadAllText));
+            var culpritWithdrawn = culprit is { } c && emitted.Contains(c.Describe(), StringComparison.Ordinal);
+            return culpritWithdrawn
+                ? WrapperCompileDiagnostics.NoWrapperSurfaceOutcome(
+                    "no wrapper surface", result: null, Array.Empty<WrapperFileProvenance>())
+                : WrapperCompileDiagnostics.Failed(
+                    Array.Empty<WrapperSliceDiagnostics>(), Array.Empty<WrapperFileProvenance>());
+        });
+
+        // First render (culprit unset ⇒ a real failing compile) populates the FragmentSet the search reads
+        // its candidate pool from; pick a culprit guaranteed to be in the pool the search will probe.
+        harness.RenderRaw(EmptyDenylist);
+        var pool = harness.CandidateGroups(EmptyDenylist);
+        Assert.NotEmpty(pool); // the search has something to probe — else the test proves nothing
+        culprit = pool[0][0];
+
+        var outcome = harness.AttemptBisection(EmptyDenylist);
+
+        Assert.False(
+            outcome.DidIsolate,
+            "the search isolated a leaf on a vacuous no-wrapper-surface convergence — a false confirmation, " +
+            "not a decline");
+        Assert.Empty(outcome.Isolated);
+    }
+
+    // ── bisection budget: probes are capped per MODULE, not per invocation ──────────────────────
+
+    /// <summary>
+    /// The mandate bounds bisection probes to a single digit PER MODULE. The controller may consult the seam
+    /// once per unattributed round (up to the iteration cap), so a per-invocation budget would let a handful
+    /// of rounds spend a multiple of the ceiling. This pins that the real driver accumulates probes across
+    /// <see cref="InEmissionDriver.AttemptBisection"/> calls: repeated calls stop spending once the module's
+    /// <see cref="BoundedBisectionSearch.DefaultProbeBudget"/> is exhausted, and further calls decline
+    /// without probing at all.
+    /// </summary>
+    [Fact]
+    public void AttemptBisection_ProbeBudget_IsCumulativePerModule_NotPerInvocation()
+    {
+        // A no-wrapper-surface verdict on every probe makes each search decline at its first (containment)
+        // probe, so each invocation that runs spends exactly one probe — a clean unit of budget to count.
+        var harness = new DriverHarness(this, compileOverride: _ =>
+            WrapperCompileDiagnostics.NoWrapperSurfaceOutcome(
+                "no wrapper surface", result: null, Array.Empty<WrapperFileProvenance>()));
+        harness.RenderRaw(EmptyDenylist); // populate the FragmentSet the pool is read from
+        Assert.NotEmpty(harness.CandidateGroups(EmptyDenylist));
+
+        var budget = BoundedBisectionSearch.DefaultProbeBudget;
+        var spent = 0;
+        // Consult the seam far more times than the budget allows.
+        for (int i = 0; i < budget + 5; i++)
+            spent += harness.AttemptBisection(EmptyDenylist).ProbesUsed;
+
+        Assert.Equal(budget, spent); // total probes never exceed the per-module ceiling, across every call
+        // The next call is refused outright — the budget is gone, so it declines without spending a probe.
+        Assert.Equal(0, harness.AttemptBisection(EmptyDenylist).ProbesUsed);
+    }
+
     // ── assertions ────────────────────────────────────────────────────────────────────────────
 
     private static readonly HashSet<RecoveryUnitId> EmptyDenylist = new();
@@ -236,7 +320,9 @@ public class InEmissionDriverRestorationTests : IDisposable
         /// <summary>The specialization engine the emission context carries after the latest render.</summary>
         public ConcreteSpecializationEngine? CurrentEngine => _context.SpecializationEngine;
 
-        public DriverHarness(InEmissionDriverRestorationTests owner)
+        public DriverHarness(
+            InEmissionDriverRestorationTests owner,
+            Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics>? compileOverride = null)
         {
             _scratch = Path.Combine(Path.GetTempPath(), "swiftbind-driverrestore-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(_scratch);
@@ -260,14 +346,17 @@ public class InEmissionDriverRestorationTests : IDisposable
                 };
             };
 
-            // Always-clean compile: the render (restore → rebuild → journal-undo → seed → emit) is the
-            // real production path; only the swiftc call is stubbed, so the driver converges after
-            // writing each render to disk and we can read that render's output back.
-            Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics> compileWrapper = _ =>
-                WrapperCompileDiagnostics.Clean(
-                    result: null,
-                    Array.Empty<WrapperSliceDiagnostics>(),
-                    Array.Empty<WrapperFileProvenance>());
+            // Always-clean compile by default: the render (restore → rebuild → journal-undo → seed → emit)
+            // is the real production path; only the swiftc call is stubbed, so the driver converges after
+            // writing each render to disk and we can read that render's output back. A test may inject a
+            // different compile verdict (e.g. a no-wrapper-surface or failing outcome) to exercise the
+            // bisection seam against the real driver.
+            Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics> compileWrapper =
+                compileOverride ?? (_ =>
+                    WrapperCompileDiagnostics.Clean(
+                        result: null,
+                        Array.Empty<WrapperSliceDiagnostics>(),
+                        Array.Empty<WrapperFileProvenance>()));
 
             var request = new WrapperRecoveryCompileRequest(
                 _scratch,
@@ -332,6 +421,30 @@ public class InEmissionDriverRestorationTests : IDisposable
                 .OrderBy(rel => rel, StringComparer.Ordinal)
                 .Select(rel => $"// >>> {rel}\n{File.ReadAllText(Path.Combine(_scratch, rel))}"));
         }
+
+        /// <summary>
+        /// Runs one render WITHOUT asserting convergence, returning its attribution. Used to populate the
+        /// FragmentSet under a non-clean stubbed compile before probing the bisection seam — the search's
+        /// candidate pool is read from the last render's emitted artifacts.
+        /// </summary>
+        public AttributionResult? RenderRaw(IReadOnlySet<RecoveryUnitId> denylist)
+        {
+            ReportCollector.Reset();
+            try { return _driver.RenderCompileAttribute(denylist); }
+            finally { ReportCollector.Complete(); ReportCollector.Reset(); }
+        }
+
+        /// <summary>Runs the real driver's bounded-bisection seam under an open report session.</summary>
+        public BisectionOutcome AttemptBisection(IReadOnlySet<RecoveryUnitId> denylist)
+        {
+            ReportCollector.Reset();
+            try { return _driver.AttemptBisection(denylist); }
+            finally { ReportCollector.Complete(); ReportCollector.Reset(); }
+        }
+
+        /// <summary>The candidate pool the search will actually probe for <paramref name="denylist"/>.</summary>
+        public IReadOnlyList<ImmutableArray<RecoveryUnitId>> CandidateGroups(IReadOnlySet<RecoveryUnitId> denylist)
+            => _driver.BuildBisectionCandidateGroups(denylist);
 
         private void ClearScratch()
         {

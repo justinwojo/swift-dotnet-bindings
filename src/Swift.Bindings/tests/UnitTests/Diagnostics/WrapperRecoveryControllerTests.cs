@@ -275,6 +275,34 @@ public class WrapperRecoveryControllerTests
         }
     }
 
+    /// <summary>
+    /// A driver whose per-round render is one delegate and whose bounded-bisection fallback is another,
+    /// so a test can model a driver whose search would (or would not) isolate a culprit for an
+    /// unattributable failure, and count how often the seam was consulted.
+    /// </summary>
+    private sealed class BisectingDriver : IWrapperRecoveryDriver
+    {
+        private readonly Func<IReadOnlySet<RecoveryUnitId>, AttributionResult?> _policy;
+        private readonly Func<IReadOnlySet<RecoveryUnitId>, BisectionOutcome> _bisect;
+        public int BisectCalls { get; private set; }
+
+        public BisectingDriver(
+            Func<IReadOnlySet<RecoveryUnitId>, AttributionResult?> policy,
+            Func<IReadOnlySet<RecoveryUnitId>, BisectionOutcome> bisect)
+        {
+            _policy = policy;
+            _bisect = bisect;
+        }
+
+        public AttributionResult? RenderCompileAttribute(IReadOnlySet<RecoveryUnitId> denylist) => _policy(denylist);
+
+        public BisectionOutcome AttemptBisection(IReadOnlySet<RecoveryUnitId> denylist)
+        {
+            BisectCalls++;
+            return _bisect(denylist);
+        }
+    }
+
     // ---- convergence -------------------------------------------------------------------------
 
     [Fact]
@@ -661,6 +689,111 @@ public class WrapperRecoveryControllerTests
         Assert.False(result.Converged);
         Assert.Equal(WrapperRecoveryFailureCause.Unattributable, result.Cause);
         Assert.Empty(result.Denylist);
+    }
+
+    // ---- bounded-bisection fallback for unattributable failures -------------------------------
+
+    [Fact]
+    public void UnattributableError_BisectionIsolatesCulprit_WithdrawsItAndConverges()
+    {
+        // Attribution names no unit (an unplaceable failure), the point the loop would otherwise fail
+        // closed. The driver's bounded-bisection fallback isolates the leaf that dragged in the failure;
+        // the controller withdraws it, records it as search-isolated, and the next render compiles clean.
+        var planted = Leaf("dragsInAnUnattributableFailure");
+        var driver = new BisectingDriver(
+            policy: denylist => denylist.Contains(planted) ? null : UnattributableFailure(),
+            bisect: _ => BisectionOutcome.Isolate(new[] { planted }, probesUsed: 4));
+
+        var result = WrapperRecoveryController.Run(driver);
+
+        Assert.True(driver.BisectCalls >= 1, "an unattributable failure must consult the bisection seam");
+        Assert.True(result.Converged);
+        Assert.Equal(WrapperRecoveryFailureCause.None, result.Cause);
+        Assert.Equal(new[] { planted }, result.Denylist);
+        // The withdrawal is marked search-isolated so the report flags it distinctly, at a lower confidence.
+        Assert.Equal(new[] { planted }, result.SearchIsolated);
+        Assert.Equal(2, result.Rounds);
+    }
+
+    [Fact]
+    public void UnattributableError_BisectionDeclines_FailsClosedAsUnattributable()
+    {
+        // A driver whose search cannot confirm any isolation (the default outcome) leaves the module
+        // failing closed exactly as before — but the seam is provably consulted, so the fallback is live
+        // wiring, not dead code, and a declined search adds nothing to the denylist.
+        var driver = new BisectingDriver(
+            policy: _ => UnattributableFailure(),
+            bisect: _ => BisectionOutcome.Declined(2));
+
+        var result = WrapperRecoveryController.Run(driver);
+
+        Assert.True(driver.BisectCalls >= 1, "the bisection seam is consulted before failing closed");
+        Assert.False(result.Converged);
+        Assert.Equal(WrapperRecoveryFailureCause.Unattributable, result.Cause);
+        Assert.Empty(result.Denylist);
+        Assert.Empty(result.SearchIsolated);
+    }
+
+    [Fact]
+    public void BisectionIsolatingAnAlreadyDeniedUnit_FailsClosedRatherThanSpin()
+    {
+        // Round 1 withdraws an attributed leaf; round 2 is unattributable and the search (wrongly) returns
+        // that already-denied unit. Adding no fresh unit is no progress, so the loop fails closed rather
+        // than re-isolate the same unit every round — the same monotonic-progress guard the coarse path uses.
+        var attributed = Leaf("firstAttributed");
+        var driver = new BisectingDriver(
+            policy: denylist => denylist.Contains(attributed) ? UnattributableFailure() : AttributedFailure(attributed),
+            bisect: _ => BisectionOutcome.Isolate(new[] { attributed }, probesUsed: 3));
+
+        var result = WrapperRecoveryController.Run(driver);
+
+        Assert.False(result.Converged);
+        Assert.Equal(WrapperRecoveryFailureCause.Unattributable, result.Cause);
+        // Only the legitimately-attributed unit is denied; the redundant isolation contributed nothing.
+        Assert.Equal(new[] { attributed }, result.Denylist);
+        Assert.Empty(result.SearchIsolated);
+    }
+
+    [Fact]
+    public void AttributedThenSearchIsolated_ReportsOnlyTheSearchedUnitAsIsolated()
+    {
+        // Round 1 withdraws an attributed leaf the normal way; round 2 is unattributable and bisection
+        // isolates a second leaf. Both end up denied, but only the searched one is reported as
+        // search-isolated — so the report flags exactly the lower-confidence withdrawal and no other.
+        var attributed = Leaf("attributedNormally");
+        var searched = Leaf("isolatedBySearch");
+        var driver = new BisectingDriver(
+            policy: denylist =>
+            {
+                if (!denylist.Contains(attributed))
+                    return AttributedFailure(attributed);
+                if (!denylist.Contains(searched))
+                    return UnattributableFailure();
+                return null;
+            },
+            bisect: _ => BisectionOutcome.Isolate(new[] { searched }, probesUsed: 3));
+
+        var result = WrapperRecoveryController.Run(driver);
+
+        Assert.True(result.Converged);
+        Assert.Equal(new[] { attributed, searched }, result.Denylist);
+        Assert.Equal(new[] { searched }, result.SearchIsolated);
+        Assert.DoesNotContain(attributed, result.SearchIsolated);
+        Assert.Equal(3, result.Rounds);
+    }
+
+    [Fact]
+    public void PlainAttributedRecovery_ReportsNoSearchIsolatedUnits()
+    {
+        // The common path: attribution places every culprit, so the bisection fallback never runs and the
+        // search-isolated set is empty. A non-empty set must mean the search actually isolated something.
+        var bad = Leaf("brokenMember");
+        var driver = new PolicyDriver(denylist => denylist.Contains(bad) ? null : AttributedFailure(bad));
+
+        var result = WrapperRecoveryController.Run(driver);
+
+        Assert.True(result.Converged);
+        Assert.Empty(result.SearchIsolated);
     }
 
     // ---- no progress -------------------------------------------------------------------------

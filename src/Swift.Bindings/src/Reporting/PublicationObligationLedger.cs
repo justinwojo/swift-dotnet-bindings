@@ -176,12 +176,18 @@ public static class PublicationObligationLedgerBuilder
         var wrapperSliceVerdict = evidence.HasWrapperSurface
             ? FromVerifier(evidence.WrapperVerifySliceCompiledClean)
             : ObligationVerdict.NotApplicable;
-        var wrapperSliceDetail = evidence.HasWrapperSurface
-            ? "the in-loop verify-recover wrapper compile accepted the slice it verified; the "
-                + "authoritative multi-slice fat build and the residual-strip gate run after this "
-                + "report and are the final slice/strip authority (this session does not fold them "
-                + "back into the ledger — whole-publication atomicity is deferred)"
-            : "module emitted no wrapper surface — no wrapper slice to prove";
+        // Detail must track the compile signal, not merely whether a surface exists: a success claim
+        // paired with an Unproven verdict (compile failed) would be a false statement written to the
+        // report before the module fails closed.
+        var wrapperSliceDetail = !evidence.HasWrapperSurface
+            ? "module emitted no wrapper surface — no wrapper slice to prove"
+            : evidence.WrapperVerifySliceCompiledClean
+                ? "the in-loop verify-recover wrapper compile accepted the slice it verified; the "
+                    + "authoritative multi-slice fat build and the residual-strip gate run after this "
+                    + "report and are the final slice/strip authority (this session does not fold them "
+                    + "back into the ledger — whole-publication atomicity is deferred)"
+                : "the in-loop verify-recover wrapper compile did not accept the slice it verified; the "
+                    + "module fails closed before publication";
 
         var entries = new List<ObligationLedgerEntry>
         {
@@ -245,11 +251,18 @@ public static class PublicationObligationLedgerBuilder
                 Verdict = evidence.HasWrapperSurface
                     ? FromVerifier(evidence.WrapperSymbolsIntegral == true)
                     : ObligationVerdict.NotApplicable,
-                Detail = evidence.HasWrapperSurface
-                    ? "the wrapper-symbol integrity gate reconciled every emitted P/Invoke reference "
-                        + "against an emitted wrapper definition (existence); the owner map is "
-                        + "single-valued by construction (uniqueness)"
-                    : "no wrapper surface — no wrapper-targeting P/Invoke to bind",
+                // Detail must track the gate verdict, not merely whether a surface exists. A failed gate
+                // gives an Unproven verdict AND the report is written to disk before the fail-closed
+                // return, so success prose here would be a false statement on disk.
+                Detail = !evidence.HasWrapperSurface
+                    ? "no wrapper surface — no wrapper-targeting P/Invoke to bind"
+                    : evidence.WrapperSymbolsIntegral == true
+                        ? "the wrapper-symbol integrity gate reconciled every emitted P/Invoke reference "
+                            + "against an emitted wrapper definition (existence); the owner map is "
+                            + "single-valued by construction (uniqueness)"
+                        : "the wrapper-symbol integrity gate found an emitted P/Invoke reference with no "
+                            + "emitted wrapper definition (or the gate verdict was unavailable); the module "
+                            + "fails closed before publication",
             },
             new()
             {
@@ -324,11 +337,17 @@ public static class PublicationObligationLedgerBuilder
             },
             new()
             {
-                Number = 13, Obligation = "no ABI-contract violation remains",
-                Verifier = "ABI-contract validator", Verdict = FromOptionalVerifier(evidence.AbiContractValidated),
+                Number = 13, Obligation = "no ABI-contract violation among validator-covered calls",
+                Verifier = "ABI-contract validator (finite rule set; [LibraryImport]-covered)",
+                Verdict = FromOptionalVerifier(evidence.AbiContractValidated),
+                // Narrowed like obligation 3: the checker is a finite rule set over the [LibraryImport]
+                // surface and treats unrecognized carriers as compatible (precision over recall), so a
+                // clean verdict is "no covered violation", not universal ABI soundness.
                 Detail = evidence.AbiContractValidated is true
-                    ? "the converged render raised no AbiContractViolationException (which would fail the "
-                        + "module closed before publication)"
+                    ? "the converged render raised no AbiContractViolationException on the validator's "
+                        + "covered calls — a finite rule set over the [LibraryImport] surface that treats "
+                        + "unrecognized carriers as compatible (a violation would fail the module closed "
+                        + "before publication)"
                     : null,
             },
         };
