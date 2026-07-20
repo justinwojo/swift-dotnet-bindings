@@ -368,7 +368,7 @@ namespace BindingsGeneration
                 }
                 // Handle paired operators (e.g., if == is defined but != is not)
                 // Use typeNameWithGenerics to ensure generic types have proper type parameters in operator signatures
-                operatorHandler.ValidateAndEmitPairs(csWriter, classDecl.Operators, typeNameWithGenerics, emittedOperatorSymbols, isReferenceType: true);
+                operatorHandler.ValidateAndEmitPairs(csWriter, classDecl.Operators, typeNameWithGenerics, emittedOperatorSymbols, env.TypeDatabase, isReferenceType: true);
 
                 bool hasEquality = emittedOperatorSymbols.Contains("==");
                 bool hasInequality = emittedOperatorSymbols.Contains("!=");

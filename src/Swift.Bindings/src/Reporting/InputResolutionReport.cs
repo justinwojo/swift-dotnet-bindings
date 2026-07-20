@@ -58,6 +58,16 @@ public sealed record InputResolutionDecision(
     string Detail);
 
 /// <summary>
+/// A point-in-time capture of the ambient input-resolution state — both the resolution decisions and
+/// the ingestion ledger — so the verify-recover loop can snapshot before its throwaway per-render
+/// parses/compiles and restore after, and the finalized manifest records exactly one resolution's
+/// worth of both streams rather than the loop's N× accumulation.
+/// </summary>
+public sealed record InputResolutionSnapshot(
+    IReadOnlyList<InputResolutionDecision> Decisions,
+    IReadOnlyList<IngestionLedgerEntry> Ledger);
+
+/// <summary>
 /// Finding 50: per-generation input-resolution report. The input edge of the pipeline
 /// (<see cref="XCFrameworkResolver"/>, dependency parsing) historically degraded silently —
 /// a requested device slice fell back to the simulator slice at <c>LogWarning</c>, an
@@ -80,23 +90,32 @@ public static class InputResolutionReport
     [ThreadStatic]
     private static List<InputResolutionDecision>? s_decisions;
 
-    /// <summary>Clears all recorded decisions. Call once at the start of a generation.</summary>
-    public static void Reset() => s_decisions?.Clear();
+    [ThreadStatic]
+    private static List<IngestionLedgerEntry>? s_ledger;
+
+    /// <summary>Clears all recorded decisions and ledger entries. Call once at the start of a generation.</summary>
+    public static void Reset()
+    {
+        s_decisions?.Clear();
+        s_ledger?.Clear();
+    }
 
     /// <summary>
-    /// Captures the decisions recorded so far. The verify-recover loop snapshots before its repeated
-    /// per-render wrapper compiles and <see cref="Restore"/>s after, so the finalized manifest records
-    /// exactly one resolution's worth of decisions — byte-identical to the single-render path — rather
-    /// than the loop's N× accumulation.
+    /// Captures the decisions and ingestion-ledger entries recorded so far. The verify-recover loop
+    /// snapshots before its repeated per-render wrapper compiles and <see cref="Restore"/>s after, so the
+    /// finalized manifest records exactly one resolution's worth of both streams — byte-identical to the
+    /// single-render path — rather than the loop's N× accumulation.
     /// </summary>
-    public static IReadOnlyList<InputResolutionDecision> Snapshot() => Decisions;
+    public static InputResolutionSnapshot Snapshot() => new(Decisions, Ledger);
 
-    /// <summary>Restores the recorded decisions to a prior <see cref="Snapshot"/>, discarding any added since.</summary>
-    public static void Restore(IReadOnlyList<InputResolutionDecision> snapshot)
+    /// <summary>Restores both streams to a prior <see cref="Snapshot"/>, discarding anything added since.</summary>
+    public static void Restore(InputResolutionSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         (s_decisions ??= new List<InputResolutionDecision>()).Clear();
-        s_decisions.AddRange(snapshot);
+        s_decisions.AddRange(snapshot.Decisions);
+        (s_ledger ??= new List<IngestionLedgerEntry>()).Clear();
+        s_ledger.AddRange(snapshot.Ledger);
     }
 
     /// <summary>Records a decision that used the requested input as-is.</summary>
@@ -125,4 +144,24 @@ public static class InputResolutionReport
     /// <summary>True when at least one degradation (input substitution) was recorded.</summary>
     public static bool HasDegradations =>
         s_decisions is not null && s_decisions.Exists(d => d.Severity == InputResolutionSeverity.Degradation);
+
+    /// <summary>
+    /// Records one structured ingestion-ledger entry: a losable input node with its disposition and
+    /// terminal status. Every parser drop, deform, or quarantine routes through here — the invariant is
+    /// that no input loss is ever silent, so a run's ledger is the exhaustive record of what the binding
+    /// did not (or would not) bind, and why.
+    /// </summary>
+    public static void RecordLedgerEntry(IngestionLedgerEntry entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        (s_ledger ??= new List<IngestionLedgerEntry>()).Add(entry);
+    }
+
+    /// <summary>All ingestion-ledger entries recorded since the last reset, in chronological order.</summary>
+    public static IReadOnlyList<IngestionLedgerEntry> Ledger =>
+        s_ledger is null ? Array.Empty<IngestionLedgerEntry>() : s_ledger.ToArray();
+
+    /// <summary>True when at least one ledger entry terminated <see cref="IngestionStatus.Quarantined"/>.</summary>
+    public static bool HasQuarantines =>
+        s_ledger is not null && s_ledger.Exists(e => e.Status == IngestionStatus.Quarantined);
 }

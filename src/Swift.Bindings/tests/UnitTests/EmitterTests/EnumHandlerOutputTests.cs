@@ -122,6 +122,179 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_EnumNamedTag_RenamesDiscriminatorToAvoidCS0542()
+    {
+        // A Swift enum literally named `Tag` (e.g. rive-ios RiveLog.Tag) lowers to a C# class
+        // named `Tag`. The case-discriminator property is normally also named `Tag`, which is
+        // illegal on a type of the same name (CS0542: a member cannot share the name of its
+        // enclosing type). The discriminator must be renamed deterministically, and every reader
+        // (the TryGet case guard) must reference the renamed property.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Tag", moduleDecl, isFrozen: false);
+        var customCase = CreateCase("custom");
+        customCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(customCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("class Tag", csOutput);
+        // Discriminator property renamed away from the enclosing type name. "public CaseTag Tag"
+        // is a prefix of "public CaseTag TagValue", so this Contains is satisfiable only after the
+        // rename (the pre-fix output emitted the bare "public CaseTag Tag").
+        Assert.Contains("public CaseTag TagValue", csOutput);
+        // The TryGet case guard reads the renamed property, never the bare `Tag`.
+        Assert.Contains("TagValue != CaseTag.", csOutput);
+        Assert.DoesNotContain("(Tag != CaseTag", csOutput);
+    }
+
+    [Fact]
+    public void Emit_EnumNotNamedTag_KeepsTagDiscriminator()
+    {
+        // Control: for the common case (enclosing type is NOT named `Tag`) the discriminator
+        // property keeps its canonical name `Tag` and no rename fallback leaks into the output.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Result", moduleDecl, isFrozen: false);
+        var successCase = CreateCase("success");
+        successCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(successCase);
+        enumDecl.Cases.Add(CreateCase("failure"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("public CaseTag Tag", csOutput);
+        Assert.DoesNotContain("TagValue", csOutput);
+    }
+
+    [Fact]
+    public void GetTagPropertyName_EnumNotNamedTag_ReturnsTag()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Result", moduleDecl, isFrozen: false);
+        enumDecl.Cases.Add(CreateCase("success"));
+
+        Assert.Equal("Tag", EnumHandler.GetTagPropertyName(enumDecl, "Result", null));
+    }
+
+    [Fact]
+    public void GetTagPropertyName_EnumNamedTag_ReturnsTagValue()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Tag", moduleDecl, isFrozen: false);
+        enumDecl.Cases.Add(CreateCase("custom"));
+
+        Assert.Equal("TagValue", EnumHandler.GetTagPropertyName(enumDecl, "Tag", null));
+    }
+
+    [Fact]
+    public void GetTagPropertyName_EnumNamedTag_Generic_StripsGenericListBeforeCompare()
+    {
+        // typeNameWithGenerics carries the generic parameter list (e.g. "Tag<T0>"); the simple
+        // name comparison must strip it, otherwise a generic enum named `Tag` would escape the
+        // rename and re-introduce CS0542.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Tag", moduleDecl, isFrozen: false);
+        enumDecl.Cases.Add(CreateCase("custom"));
+
+        Assert.Equal("TagValue", EnumHandler.GetTagPropertyName(enumDecl, "Tag<T0>", null));
+    }
+
+    [Fact]
+    public void GetTagPropertyName_EnumNamedTag_WithTagValueCase_DeterministicallyDodgesToTag2()
+    {
+        // Collision arm: if a case PascalCases to `TagValue` (the default fallback), the
+        // discriminator must dodge it deterministically rather than colliding with the emitted
+        // case-factory member of the same name.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Tag", moduleDecl, isFrozen: false);
+        enumDecl.Cases.Add(CreateCase("tagValue")); // GetCaseName -> "TagValue"
+
+        Assert.Equal("Tag2", EnumHandler.GetTagPropertyName(enumDecl, "Tag", null));
+    }
+
+    [Fact]
+    public void GetTagPropertyName_EnumNamedTag_WithNestedTagValueType_DodgesToTag2()
+    {
+        // Collision arm (M1): a nested type whose emitted C# leaf is `TagValue` (the default
+        // discriminator fallback) cannot take a Value-suffix rename, so the discriminator must
+        // dodge it deterministically — otherwise the nested type and the discriminator both claim
+        // `TagValue` (CS0102). The nested type is reserved via GetEmittedNestedTypeLeafName, which
+        // requires the TypeDatabase overload.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Tag", moduleDecl, isFrozen: false);
+        enumDecl.Cases.Add(CreateCase("custom"));
+        // Nested type whose leaf PascalCases to exactly the discriminator fallback name.
+        enumDecl.Types.Add(CreateEnumDecl("TagValue", moduleDecl, isFrozen: false));
+
+        Assert.Equal("Tag2", EnumHandler.GetTagPropertyName(enumDecl, "Tag", null, typeDatabase));
+    }
+
+    [Fact]
+    public void Emit_EnumNamedTag_WithCollidingTagProperty_RecoversPropertyAwayFromDiscriminator()
+    {
+        // Collision arm (H1): a Swift enum named `Tag` with an instance property named `tag`. The
+        // property projects to `TagValue` (NameProvider's CS0542 containing-type rename), which is
+        // exactly the discriminator's renamed name — so BOTH would emit a member `TagValue` (CS0102).
+        // The discriminator wins; the property is recovered with the Value-suffix idiom (TagValueValue).
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Tag", moduleDecl, isFrozen: false);
+        var customCase = CreateCase("custom");
+        customCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(customCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+        enumDecl.Properties.Add(CreateInstanceIntProperty("tag", enumDecl, moduleDecl));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Discriminator keeps the renamed name.
+        Assert.Contains("public CaseTag TagValue", csOutput);
+        // The colliding property is recovered to a distinct member — not a second `TagValue`.
+        Assert.Contains("TagValueValue", csOutput);
+    }
+
+    [Fact]
+    public void Emit_EnumNamedTag_DynamicDependencyRootsRenamedDiscriminator()
+    {
+        // M2: the NativeAOT trim root [DynamicDependency("...")] must name the ACTUAL discriminator
+        // member. For an enum named `Tag` the discriminator is `TagValue`, so a hardcoded
+        // DynamicDependency("Tag") would root a member that does not exist.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Tag", moduleDecl, isFrozen: false);
+        var customCase = CreateCase("custom");
+        customCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(customCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("DynamicDependency(\"TagValue\")", csOutput);
+        Assert.DoesNotContain("DynamicDependency(\"Tag\")", csOutput);
+    }
+
+    [Fact]
+    public void Emit_EnumNotNamedTag_DynamicDependencyRootsTag()
+    {
+        // Control for M2: an enum NOT named `Tag` keeps the canonical discriminator, so its trim
+        // root names `Tag`.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Result", moduleDecl, isFrozen: false);
+        var successCase = CreateCase("success");
+        successCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(successCase);
+        enumDecl.Cases.Add(CreateCase("failure"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("DynamicDependency(\"Tag\")", csOutput);
+    }
+
+    [Fact]
     public void Emit_EnumPayloadCaseWithIntPayload_EmitsIntConvenienceForwarder()
     {
         // A payload-case factory whose associated value is Swift.Int surfaces the ABI-accurate

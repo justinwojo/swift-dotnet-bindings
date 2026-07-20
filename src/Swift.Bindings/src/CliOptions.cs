@@ -175,6 +175,27 @@ public class CliOptions
                      "redundant build; it is inert in SDK mode and in --compile-only (no wrapper compile).",
         getDefaultValue: () => false);
 
+    public Option<string?> VerificationPackageFeed { get; } = new(
+        aliases: new[] { "--verification-package-feed" },
+        description: "A run-scoped NuGet feed directory the in-generator C# verification build restores " +
+                     "from IN ADDITION to the configured sources (passed as " +
+                     "-p:RestoreAdditionalProjectSources). Lets a multi-module run resolve an in-run " +
+                     "sibling binding's package LOCALLY during verification — an orchestrator packs each " +
+                     "sibling into this feed (in dependency order) before verifying the dependent — " +
+                     "without altering the emitted csproj's consumer-facing PackageReference. Additive: " +
+                     "an empty feed or an un-packed sibling still fails NU1101 (the honest signal), never " +
+                     "a silent pass. When set, the in-generator verification cache is disabled (the feed " +
+                     "is not part of the cache key).",
+        getDefaultValue: () => null);
+
+    public Option<string?> EmitInputGraph { get; } = new(
+        aliases: new[] { "--emit-input-graph" },
+        description: "Write the binding input graph's dependency-first module order and the real " +
+                     "(import-derived) inter-module dependencies to this JSON path. An orchestrator " +
+                     "consumes it to pack multi-module siblings into a run-scoped feed in topological " +
+                     "order. Advisory-only: never fails generation.",
+        getDefaultValue: () => null);
+
     public Option<bool> KeepBuiltinDatabase { get; } = new(
         aliases: new[] { "--keep-builtin-database" },
         description: "Disable Apple-framework target mode auto-detection. By default, when the input " +
@@ -446,6 +467,8 @@ public class CliOptions
             NoAutoDetect,
             StrictInputs,
             NoVerifyCSharp,
+            VerificationPackageFeed,
+            EmitInputGraph,
             KeepBuiltinDatabase,
             ObjC,
             SkipWrapperCompilation,

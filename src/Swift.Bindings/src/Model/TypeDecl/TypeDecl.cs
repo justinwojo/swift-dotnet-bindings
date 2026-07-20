@@ -84,6 +84,19 @@ namespace BindingsGeneration
         public bool IsSpiProtected { get; set; } = false;
 
         /// <summary>
+        /// Whether this type was quarantined at ingestion because its ABI record is malformed — a
+        /// bindable type (struct/enum/class/protocol) whose load-bearing Swift mangled name is absent.
+        /// The decl is kept in the module tree (so it carries a stable <see cref="DeclId"/> the
+        /// proven-closure withdrawal can name), but it is withheld from TypeDatabase registration — like
+        /// <see cref="IsSpiProtected"/> — so it is unresolvable, no metadata accessor is synthesized for
+        /// its absent symbol, and it never contaminates a retained sibling's layout. Emission tombstones
+        /// it (and its proven dependent closure) via an ingestion-withdrawal poison seed. When the
+        /// closure cannot be proven complete, the module fails before emission rather than shipping a
+        /// compile-clean/runtime-wrong binding.
+        /// </summary>
+        public bool IsIngestionQuarantined { get; set; } = false;
+
+        /// <summary>
         /// Whether this type is annotated with @MainActor.
         /// When true, generated Swift wrapper functions must include @MainActor annotation.
         /// </summary>

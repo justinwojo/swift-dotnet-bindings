@@ -97,6 +97,28 @@ public static class ObjCTestHelpers
     }
 
     /// <summary>
+    /// Emit an ObjCModule through StructsAndEnumsEmitter and return the main file content plus the
+    /// diagnostics recorded during emission (e.g. enum-case disambiguation skips).
+    /// </summary>
+    public static (string main, ObjCBindingDiagnostics Diagnostics) EmitStructsAndEnumsWithDiagnostics(
+        ObjCModule module, string ns = "TestLib.Binding", PlatformInfo? platformInfo = null)
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"structs_enums_test_{Guid.NewGuid():N}");
+        var diagnostics = new ObjCBindingDiagnostics();
+        try
+        {
+            var result = StructsAndEnumsEmitter.Emit(module, tempDir, ns, Logger, diagnostics: diagnostics, platformInfo: platformInfo);
+            Assert.NotNull(result);
+            return (File.ReadAllText(result!.FilePath), diagnostics);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    /// <summary>
     /// Wrap inner JSON in a TranslationUnitDecl for ClangAstParser tests.
     /// </summary>
     public static string WrapInTranslationUnit(string innerJson) =>

@@ -82,7 +82,7 @@ public static class ApiDefinitionEmitter
 
         var sb = new StringBuilder();
         var referencedAppleNamespaces =
-            ObjCUsingsEmitter.CollectReferencedApiDefinitionNamespaces(module, appleSdkTypeNamespaces);
+            ObjCUsingsEmitter.CollectReferencedNamespaces(module, appleSdkTypeNamespaces);
         ObjCUsingsEmitter.EmitApiDefinitionHeader(sb, platformInfo, referencedAppleNamespaces);
         sb.AppendLine();
         sb.AppendLine($"namespace {resolvedNamespace}");

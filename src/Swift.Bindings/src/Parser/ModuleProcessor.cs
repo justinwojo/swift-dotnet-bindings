@@ -171,6 +171,16 @@ namespace BindingsGeneration
         /// <param name="structDecl">The struct declaration.</param>
         private void ProcessStruct(NamedTypeSpec namedTypeSpec, StructDecl structDecl)
         {
+            // A type quarantined at ingestion (malformed ABI record — no mangled name) is withheld from
+            // the database entirely, like an @_spi type: not registered, so members and references that
+            // reach it fail type resolution and are naturally skipped. We also skip property processing
+            // and the metadata-accessor invoke, because its accessor symbol is derived from the very
+            // mangled name that is absent — invoking it would read a garbage symbol, and computing its
+            // layout could contaminate a retained sibling. Emission tombstones it and its proven
+            // dependent closure via the ingestion-withdrawal poison seed.
+            if (structDecl.IsIngestionQuarantined)
+                return;
+
             // Ensure that all properties are processed or known in the database.
             ProcessStructProperties(structDecl);
 
@@ -684,6 +694,11 @@ namespace BindingsGeneration
         /// <param name="enumDecl">The enum declaration node.</param>
         private void ProcessEnum(NamedTypeSpec namedTypeSpec, EnumDecl enumDecl)
         {
+            // Quarantined at ingestion (malformed ABI record) — withhold from the database and skip
+            // metadata synthesis. See ProcessStruct for the rationale.
+            if (enumDecl.IsIngestionQuarantined)
+                return;
+
             // Get metadata pointer if the enum has a metadata accessor.
             // Skip generic enums for the same reason as generic structs (see ProcessStruct).
             IntPtr metadataPtr = IntPtr.Zero;
@@ -863,6 +878,12 @@ namespace BindingsGeneration
         /// <param name="classDecl">The class declaration node.</param>
         private void ProcessClass(NamedTypeSpec namedTypeSpec, ClassDecl classDecl)
         {
+            // Quarantined at ingestion (malformed ABI record) — withhold from the database and skip the
+            // "{MangledName}Ma" metadata invoke (the mangled name is absent, so the symbol is garbage).
+            // See ProcessStruct for the rationale.
+            if (classDecl.IsIngestionQuarantined)
+                return;
+
             // Get metadata pointer if possible (may fail for cross-platform builds, e.g., iOS on macOS).
             // Skip generic classes for the same reason as generic structs (see ProcessStruct).
             IntPtr metadataPtr = IntPtr.Zero;
@@ -1336,6 +1357,11 @@ namespace BindingsGeneration
         /// <returns><c>true</c> if the protocol was processed successfully; otherwise, <c>false</c>.</returns>
         private bool ProcessProtocol(NamedTypeSpec namedTypeSpec, ProtocolDecl protocolDecl)
         {
+            // Quarantined at ingestion (malformed ABI record) — withhold from the database. See
+            // ProcessStruct for the rationale; emission tombstones it and its proven dependent closure.
+            if (protocolDecl.IsIngestionQuarantined)
+                return false;
+
             RegisterProtocolType(namedTypeSpec, protocolDecl);
             return true;
         }

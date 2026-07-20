@@ -3,6 +3,8 @@
 
 #nullable enable
 
+using System.Linq;
+
 using Xunit;
 
 namespace BindingsGeneration.Tests
@@ -195,6 +197,110 @@ namespace BindingsGeneration.Tests
             var result = AppleFrameworkImportDetector.ExtractImports(text);
 
             Assert.Empty(result);
+        }
+    }
+
+    public class AppleFrameworkImportDetectorExtractImportEdgesTests
+    {
+        // ExtractImportEdges is the structured form: every import becomes an ImportEdge carrying
+        // module name, access level, @_exported / @_implementationOnly flags, interface path, and a
+        // 1-based line number. The closure preflight keys its missing-module attribution off these
+        // fields, so a regression that drops the line number or mislabels access is caught here.
+        private const string Path = "/tmp/Test.swiftinterface";
+
+        [Fact]
+        public void ExtractImportEdges_CapturesAccessExportedImplOnlyAndLine()
+        {
+            var text =
+                "// header line 1\n" +                    // line 1
+                "import Foundation\n" +                   // line 2 — Plain, public
+                "@_exported import IngestionBase\n" +     // line 3 — Plain + exported
+                "@_implementationOnly import absl\n" +    // line 4 — impl-only
+                "public import CoreGraphics\n" +          // line 5 — Public
+                "internal import grpc\n" +                // line 6 — Internal (non-public)
+                "package import leveldb\n";               // line 7 — Package (non-public)
+
+            var edges = AppleFrameworkImportDetector.ExtractImportEdges(text, Path);
+
+            ImportEdge Edge(string module) => edges.Single(e => e.ModuleName == module);
+
+            Assert.Equal(Path, Edge("Foundation").InterfacePath);
+
+            var foundation = Edge("Foundation");
+            Assert.Equal(ImportAccess.Plain, foundation.Access);
+            Assert.False(foundation.IsExported);
+            Assert.False(foundation.IsImplementationOnly);
+            Assert.False(foundation.IsNonPublic);
+            Assert.Equal(2, foundation.Line);
+
+            var baseEdge = Edge("IngestionBase");
+            Assert.True(baseEdge.IsExported);
+            Assert.False(baseEdge.IsNonPublic); // @_exported is a public compile obligation
+            Assert.Equal(3, baseEdge.Line);
+
+            var absl = Edge("absl");
+            Assert.True(absl.IsImplementationOnly);
+            Assert.True(absl.IsNonPublic);
+            Assert.Equal(4, absl.Line);
+
+            Assert.Equal(ImportAccess.Public, Edge("CoreGraphics").Access);
+            Assert.False(Edge("CoreGraphics").IsNonPublic);
+
+            Assert.Equal(ImportAccess.Internal, Edge("grpc").Access);
+            Assert.True(Edge("grpc").IsNonPublic);
+
+            Assert.Equal(ImportAccess.Package, Edge("leveldb").Access);
+            Assert.True(Edge("leveldb").IsNonPublic);
+        }
+
+        [Fact]
+        public void ExtractImportEdges_SubmemberImport_UsesLeadingModule()
+        {
+            var edges = AppleFrameworkImportDetector.ExtractImportEdges(
+                "import struct Foundation.URL\n", Path);
+            Assert.Equal("Foundation", edges.Single().ModuleName);
+        }
+
+        [Fact]
+        public void ExtractImportEdges_EachNonPublicAccessLevelClassified()
+        {
+            var text =
+                "private import a\n" +
+                "fileprivate import b\n" +
+                "internal import c\n" +
+                "package import d\n";
+
+            var edges = AppleFrameworkImportDetector.ExtractImportEdges(text, Path);
+
+            Assert.Equal(ImportAccess.Private, edges.Single(e => e.ModuleName == "a").Access);
+            Assert.Equal(ImportAccess.FilePrivate, edges.Single(e => e.ModuleName == "b").Access);
+            Assert.Equal(ImportAccess.Internal, edges.Single(e => e.ModuleName == "c").Access);
+            Assert.Equal(ImportAccess.Package, edges.Single(e => e.ModuleName == "d").Access);
+            Assert.All(edges, e => Assert.True(e.IsNonPublic));
+        }
+
+        [Fact]
+        public void ExtractImports_IsProjectionOverEdges_DedupFirstSeen()
+        {
+            // ExtractImports is a compatibility projection: same module set, first-seen order, deduped.
+            var text =
+                "import Foundation\n" +
+                "@_exported import RealityFoundation\n" +
+                "import Foundation\n";
+
+            var names = AppleFrameworkImportDetector.ExtractImports(text);
+            var edgeNames = AppleFrameworkImportDetector.ExtractImportEdges(text, Path)
+                .Select(e => e.ModuleName).Distinct().ToList();
+
+            Assert.Equal(new[] { "Foundation", "RealityFoundation" }, names);
+            Assert.Equal(names, edgeNames);
+        }
+
+        [Fact]
+        public void ExtractImportEdges_EmptyOrNull_ReturnsEmpty()
+        {
+            Assert.Empty(AppleFrameworkImportDetector.ExtractImportEdges(string.Empty, Path));
+            Assert.Empty(AppleFrameworkImportDetector.ExtractImportEdges(null!, Path));
         }
     }
 

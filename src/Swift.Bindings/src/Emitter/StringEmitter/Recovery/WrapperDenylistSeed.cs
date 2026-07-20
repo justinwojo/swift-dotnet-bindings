@@ -70,6 +70,9 @@ internal static class WrapperDenylistSeed
                 EmitterFaultOrigin.BisectionIsolatedWithdrawal =>
                     $"a bounded bisection search isolated this member as the culprit for an " +
                     $"unattributable compile failure ({unit.Describe()})",
+                EmitterFaultOrigin.IngestionWithdrawal =>
+                    $"a malformed input node it depends on was quarantined at ingestion, and the " +
+                    $"proven-closure walk withdrew this declaration with it ({unit.Describe()})",
                 _ =>
                     $"withdrawn to recover the " +
                     $"{(origin == EmitterFaultOrigin.CSharpRecoveryWithdrawal ? "C#" : "wrapper")} compile " +

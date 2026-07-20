@@ -54,7 +54,7 @@ public class SwiftABIParserRuntimeTests
     }
 
     [Fact]
-    public void ParseModule_TypeDeclWithoutMangledName_SkipsType()
+    public void ParseModule_TypeDeclWithoutMangledName_QuarantinesType()
     {
         InputResolutionReport.Reset();
         using var fixture = CreateParserWithNodes(
@@ -68,21 +68,34 @@ public class SwiftABIParserRuntimeTests
 
         var result = parser.ParseModule();
 
-        // The type still never binds (it has no usable symbol)...
-        Assert.Empty(result.ModuleDecl.Types);
-        Assert.Empty(result.TypeDecls);
-        // ...but the loss is no longer silent (Finding 45): a bindable type missing its load-bearing
-        // mangled name is a record DROP, not a deliberate skip. It is censused under DroppedWithError
-        // (not SkippedWithReason) and recorded as an AbiJson degradation that fails closed under
-        // --strict-inputs.
-        Assert.Equal(1, result.Reconciliation.DroppedWithError);
+        // A bindable type whose load-bearing mangled name is absent is a malformed type record: every
+        // downstream binder keys off that name, so the type cannot bind. It is NOT silently dropped and
+        // NOT skipped — it is QUARANTINED. The decl is kept in the module tree (carrying a stable identity
+        // the proven-closure withdrawal can name) and marked, so the emission-time closure walk withdraws
+        // it plus its dependents (or fails the module before emission if that closure is unprovable).
+        var quarantined = Assert.Single(result.ModuleDecl.Types);
+        Assert.Equal("NoMangle", quarantined.Name);
+        Assert.True(quarantined.IsIngestionQuarantined);
+        // Kept-then-tombstoned counts as emitted, not a mid-parse record loss, and raises no coarse
+        // AbiJson degradation — the ingestion ledger, not the degradation gate, is the quarantine record.
+        Assert.Equal(0, result.Reconciliation.DroppedWithError);
         Assert.Equal(0, result.Reconciliation.SkippedWithReason);
         Assert.True(result.Reconciliation.IsBalanced);
         Assert.Contains(
+            InputResolutionReport.Ledger,
+            e => e.Cause == IngestionCause.MalformedTypeRecord
+                 && e.Disposition == IngestionDisposition.QuarantineType
+                 && e.Status == IngestionStatus.Quarantined
+                 && e.Plane == IngestionPlane.Ingest
+                 && e.Input.Module == "TestModule");
+        // The quarantine raises no mangled-name degradation (the ledger is its record). The harness does
+        // not stamp a json_format_version, so an unrelated version degradation is present — scope the
+        // negative assertion to a mangled-name detail so it proves the quarantine path specifically.
+        Assert.DoesNotContain(
             InputResolutionReport.Decisions,
             d => d.Category == InputResolutionCategory.AbiJson
                  && d.Severity == InputResolutionSeverity.Degradation
-                 && d.Detail.Contains("no mangled name"));
+                 && d.Detail.Contains("mangled", System.StringComparison.OrdinalIgnoreCase));
     }
 
     #region NO_MODULE Guard Tests
@@ -2045,8 +2058,8 @@ public class SwiftABIParserRuntimeTests
     {
         // A handler returning null without throwing (here: a recognized-but-unbound OperatorDecl) is
         // a deliberate skip — it must NOT inflate the dropped-with-error bucket. (A bindable type
-        // missing its mangled name is a record LOSS, not a skip; that path is covered by
-        // ParseModule_TypeDeclWithoutMangledName_SkipsType.)
+        // missing its mangled name is neither a skip nor a drop but a QUARANTINE; that path is covered by
+        // ParseModule_TypeDeclWithoutMangledName_QuarantinesType.)
         using var fixture = CreateParserWithNodes(
             CreateNode(kind: "OperatorDecl", moduleName: "TestModule", name: "+"));
         var recon = fixture.Parser.ParseModule().Reconciliation;

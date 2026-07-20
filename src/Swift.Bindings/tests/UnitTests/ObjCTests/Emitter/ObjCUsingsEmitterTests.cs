@@ -275,6 +275,27 @@ public class ObjCUsingsEmitterTests
 
     // --- StructsAndEnums.cs ---
 
+    /// <summary>
+    /// A module whose StructsAndEnums surface references an Apple SDK type via a struct field.
+    /// When <paramref name="reference"/> is false the type is only in the provenance map (minimal-set).
+    /// </summary>
+    static ObjCModule ModuleWithStructFieldAppleSdkProvenance(
+        string referencedTypeName, string referencedTypeNamespace, bool reference) => new()
+    {
+        ModuleName = "TestLib",
+        Structs =
+        [
+            new ObjCStructDecl
+            {
+                Name = "TLConfig",
+                Fields = reference
+                    ? [new ObjCStructField { Name = "pixelFormat", Type = new ObjCTypeRef { Name = referencedTypeName } }]
+                    : [new ObjCStructField { Name = "width", Type = new ObjCTypeRef { Name = "int" } }],
+            },
+        ],
+        AppleSdkTypeNamespaces = new Dictionary<string, string> { [referencedTypeName] = referencedTypeNamespace },
+    };
+
     [Fact]
     public void StructsAndEnums_macOS_OmitsUIKit()
     {
@@ -305,6 +326,76 @@ public class ObjCUsingsEmitterTests
         };
         var output = EmitStructsAndEnums(TrivialEnumModule(), platformInfo: pi);
         Assert.Contains("using UIKit;", output);
+    }
+
+    [Fact]
+    public void StructsAndEnums_StructField_ReferencedAppleSdkType_EmitsProvenanceUsing()
+    {
+        // Metal is NOT in the StructsAndEnums curated baseline. A struct field typed MTLPixelFormat
+        // (rive-ios SWIFTBIND113 / CS0246 root cause) must still get `using Metal;` from header
+        // provenance — same self-healing mechanism as ApiDefinition, not a hardcoded baseline entry.
+        var output = EmitStructsAndEnums(
+            ModuleWithStructFieldAppleSdkProvenance("MTLPixelFormat", "Metal", reference: true),
+            platformInfo: iOS);
+        Assert.Contains("using Metal;", output);
+    }
+
+    [Fact]
+    public void StructsAndEnums_StructField_ReferencedAppleSdkEnum_EmitsEnumChannelUsing()
+    {
+        // Proves the ENUM provenance channel (AppleSdkEnumNamespaces) drives usings when the
+        // class/protocol map (AppleSdkTypeNamespaces) is null — the real parser shape for
+        // NS_ENUM types like MTLPixelFormat. Metal is NOT in the StructsAndEnums baseline.
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Structs =
+            [
+                new ObjCStructDecl
+                {
+                    Name = "TLConfig",
+                    Fields =
+                    [
+                        new ObjCStructField
+                        {
+                            Name = "pixelFormat",
+                            Type = new ObjCTypeRef { Name = "MTLPixelFormat" },
+                        },
+                    ],
+                },
+            ],
+            AppleSdkTypeNamespaces = null,
+            AppleSdkEnumNamespaces = new Dictionary<string, string>
+            {
+                ["MTLPixelFormat"] = "Metal",
+            },
+        };
+
+        var output = EmitStructsAndEnums(module, platformInfo: iOS);
+        Assert.Contains("using Metal;", output);
+    }
+
+    [Fact]
+    public void StructsAndEnums_StructField_UnreferencedAppleSdkFramework_NotEmitted()
+    {
+        // Minimal-set: MTLPixelFormat→Metal is in the provenance map but no struct field (or other
+        // surface) references it, so `using Metal;` must not appear.
+        var output = EmitStructsAndEnums(
+            ModuleWithStructFieldAppleSdkProvenance("MTLPixelFormat", "Metal", reference: false),
+            platformInfo: iOS);
+        Assert.DoesNotContain("using Metal;", output);
+    }
+
+    [Fact]
+    public void StructsAndEnums_StructField_ReferencedBaselineFramework_NotDuplicated()
+    {
+        // A field typed by a namespace already in the StructsAndEnums baseline (UIKit) must not
+        // produce a second `using UIKit;` — the additive set excludes baseline namespaces.
+        var output = EmitStructsAndEnums(
+            ModuleWithStructFieldAppleSdkProvenance("UIView", "UIKit", reference: true),
+            platformInfo: iOS);
+        var count = output.Split("using UIKit;").Length - 1;
+        Assert.Equal(1, count);
     }
 
     // --- BgenDelegates.cs ---

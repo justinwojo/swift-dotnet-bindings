@@ -78,6 +78,13 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
     // error also lands on it.
     private readonly Dictionary<RecoveryUnitId, EmitterFaultOrigin> _unitOrigin = new();
 
+    // Units withdrawn by the ingestion-quarantine closure, unioned into EVERY render's denylist so a
+    // malformed-type dependent is tombstoned on every attempt regardless of what the compile loop
+    // withdraws. Their origin is pre-seeded IngestionWithdrawal in _unitOrigin so the seed wording tells
+    // the truth: they were removed because a malformed input node they depend on was quarantined at
+    // ingestion, not because a compile rejected them. Empty on every healthy module.
+    private readonly IReadOnlySet<RecoveryUnitId> _ingestionWithdrawals;
+
     // Render→compile probes the bounded bisection has spent across EVERY round of this module's loop. The
     // controller may consult the search once per unattributed round (up to the iteration cap), and each
     // search must not restart the budget — the mandate bounds probes to a single digit PER MODULE, not
@@ -128,7 +135,8 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
         Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics> compileWrapper,
         WrapperRecoveryCompileRequest request,
         Action? preRender = null,
-        Func<IReadOnlySet<RecoveryUnitId>, CSharpVerificationResult>? verifyCsharp = null)
+        Func<IReadOnlySet<RecoveryUnitId>, CSharpVerificationResult>? verifyCsharp = null,
+        IReadOnlySet<RecoveryUnitId>? ingestionWithdrawals = null)
     {
         _decl = decl ?? throw new ArgumentNullException(nameof(decl));
         _context = context ?? throw new ArgumentNullException(nameof(context));
@@ -140,15 +148,35 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
         _request = request ?? throw new ArgumentNullException(nameof(request));
         _preRender = preRender;
         _verifyCsharp = verifyCsharp;
+        _ingestionWithdrawals = ingestionWithdrawals ?? System.Collections.Immutable.ImmutableHashSet<RecoveryUnitId>.Empty;
+
+        // Pre-seed the origin map so each render's Gate-0 seed spells an ingestion withdrawal as such,
+        // not as a compile-driven one. First-writer-wins: if a compile plane later also names the unit,
+        // it keeps the ingestion origin (RecordCulpritOrigins uses TryAdd).
+        foreach (var unit in _ingestionWithdrawals)
+            _unitOrigin[unit] = EmitterFaultOrigin.IngestionWithdrawal;
 
         _declBaseline = DeclEmissionStateSnapshot.Capture(decl);
         _contextBaseline = ModuleEmissionStateSnapshot.Capture(context);
+    }
+
+    // Unions the always-on ingestion withdrawals into a controller-supplied denylist. Returns the input
+    // unchanged when there are none (the shape of every healthy module), so the common path allocates
+    // nothing. Every render, C# verification, and bisection probe sees the ingestion units as denied.
+    private IReadOnlySet<RecoveryUnitId> WithIngestionWithdrawals(IReadOnlySet<RecoveryUnitId> denylist)
+    {
+        if (_ingestionWithdrawals.Count == 0)
+            return denylist;
+        var unioned = new HashSet<RecoveryUnitId>(denylist);
+        unioned.UnionWith(_ingestionWithdrawals);
+        return unioned;
     }
 
     /// <inheritdoc />
     public AttributionResult? RenderCompileAttribute(IReadOnlySet<RecoveryUnitId> denylist)
     {
         ArgumentNullException.ThrowIfNull(denylist);
+        denylist = WithIngestionWithdrawals(denylist);
 
         // Drop the previous render's wrapper source and thunk-assembly files before re-emitting.
         // Emission rewrites the single per-module wrapper .swift and per-arch .s wholesale WHEN it
@@ -323,6 +351,7 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
     public BisectionOutcome AttemptBisection(IReadOnlySet<RecoveryUnitId> denylist)
     {
         ArgumentNullException.ThrowIfNull(denylist);
+        denylist = WithIngestionWithdrawals(denylist);
 
         var candidateGroups = BuildBisectionCandidateGroups(denylist);
         if (candidateGroups.Count == 0)

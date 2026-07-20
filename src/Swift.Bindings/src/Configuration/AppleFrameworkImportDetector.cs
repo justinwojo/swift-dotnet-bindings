@@ -50,9 +50,6 @@ public static class AppleFrameworkImportDetector
     // surface that way). Without consuming the modifier here, those `public import` lines
     // wouldn't match and the dep edge would silently miss the nuspec.
     private const string AccessModifiers = @"public|private|internal|fileprivate|open|package";
-    private static readonly Regex ImportRegex = new(
-        @"^\s*(?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s+)*(?:(?:" + AccessModifiers + @")\s+)?(?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s+)*import\s+(?:(?:typealias|struct|class|enum|protocol|let|var|func)\s+)?([A-Za-z_][A-Za-z0-9_]*)",
-        RegexOptions.Compiled | RegexOptions.Multiline);
 
     // Matches imports that are explicitly non-public: `@_implementationOnly`, `private`,
     // `internal`, `fileprivate`, `package`. These imports don't propagate to consumers OUTSIDE
@@ -66,6 +63,21 @@ public static class AppleFrameworkImportDetector
         @"^\s*(?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s+)*(?:@_implementationOnly|private|internal|fileprivate|package)\s+(?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s+)*import\s+(?:(?:typealias|struct|class|enum|protocol|let|var|func)\s+)?([A-Za-z_][A-Za-z0-9_]*)",
         RegexOptions.Compiled | RegexOptions.Multiline);
 
+    // Structured form used by the closure preflight (ExtractImportEdges): captures the whole
+    // attribute/access-modifier PREFIX before `import` (group "prefix") so we can read @_exported /
+    // @_implementationOnly and the access level, plus the leading module name (group "module"). The
+    // prefix is inspected separately rather than encoded as alternatives so an attribute appearing
+    // either before OR after the access modifier is handled uniformly. This is the single matcher for
+    // every `import` line: ExtractImports (the bare-name projection) and the closure-preflight edge
+    // reader both derive from it, so there is no second matcher to keep in lockstep. NonPublicImportRegex
+    // below is a deliberate SUBSET (the non-public modifiers only), not a parallel full matcher.
+    private static readonly Regex ImportEdgeRegex = new(
+        @"^[ \t]*(?<prefix>(?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s+|(?:" + AccessModifiers + @")\s+)*)import\s+(?:(?:typealias|struct|class|enum|protocol|let|var|func)\s+)?(?<module>[A-Za-z_][A-Za-z0-9_]*)",
+        RegexOptions.Compiled | RegexOptions.Multiline);
+
+    private static readonly Regex ExportedAttrRegex = new(@"@_exported\b", RegexOptions.Compiled);
+    private static readonly Regex ImplementationOnlyAttrRegex = new(@"@_implementationOnly\b", RegexOptions.Compiled);
+
     /// <summary>
     /// Parses a swiftinterface's text content and returns the set of imported module names.
     /// Deduplicates and preserves first-seen order. Drops the leading-comment lines
@@ -74,22 +86,88 @@ public static class AppleFrameworkImportDetector
     /// </summary>
     public static List<string> ExtractImports(string swiftInterfaceText)
     {
+        // Compatibility projection over the structured ExtractImportEdges: bare module names,
+        // deduplicated, first-seen order preserved. The interface path is irrelevant to this
+        // projection, so a placeholder is passed.
         if (string.IsNullOrEmpty(swiftInterfaceText))
             return new List<string>();
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var result = new List<string>();
-
-        foreach (Match match in ImportRegex.Matches(swiftInterfaceText))
+        foreach (var edge in ExtractImportEdges(swiftInterfaceText, interfacePath: string.Empty))
         {
-            var module = match.Groups[1].Value;
+            if (seen.Add(edge.ModuleName))
+                result.Add(edge.ModuleName);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Parses a swiftinterface's text content into structured <see cref="ImportEdge"/>s, one per
+    /// <c>import</c> declaration, in source order (NOT deduplicated). Each edge carries the imported
+    /// module name, the access level, whether it is <c>@_exported</c> / <c>@_implementationOnly</c>,
+    /// the originating <paramref name="interfacePath"/>, and the 1-based line number — everything the
+    /// closure preflight needs to attribute a missing-module obligation to its importer and evidence line.
+    /// </summary>
+    /// <param name="swiftInterfaceText">The full text of the <c>.swiftinterface</c>.</param>
+    /// <param name="interfacePath">Absolute path recorded on each edge (used for the structured error).</param>
+    public static List<ImportEdge> ExtractImportEdges(string swiftInterfaceText, string interfacePath)
+    {
+        var result = new List<ImportEdge>();
+        if (string.IsNullOrEmpty(swiftInterfaceText))
+            return result;
+
+        foreach (Match match in ImportEdgeRegex.Matches(swiftInterfaceText))
+        {
+            var module = match.Groups["module"].Value;
             if (string.IsNullOrEmpty(module))
                 continue;
-            if (seen.Add(module))
-                result.Add(module);
+
+            var prefix = match.Groups["prefix"].Value;
+            result.Add(new ImportEdge
+            {
+                ModuleName = module,
+                Access = ClassifyAccess(prefix),
+                IsExported = ExportedAttrRegex.IsMatch(prefix),
+                IsImplementationOnly = ImplementationOnlyAttrRegex.IsMatch(prefix),
+                InterfacePath = interfacePath,
+                Line = LineOf(swiftInterfaceText, match.Index),
+            });
         }
 
         return result;
+    }
+
+    /// <summary>Reads the first access keyword out of an import's attribute/modifier prefix.</summary>
+    private static ImportAccess ClassifyAccess(string prefix)
+    {
+        foreach (Match token in AccessTokenRegex.Matches(prefix))
+        {
+            switch (token.Value)
+            {
+                case "public":
+                case "open":       return ImportAccess.Public;
+                case "package":    return ImportAccess.Package;
+                case "internal":   return ImportAccess.Internal;
+                case "fileprivate": return ImportAccess.FilePrivate;
+                case "private":    return ImportAccess.Private;
+            }
+        }
+        return ImportAccess.Plain;
+    }
+
+    // A whole-word access keyword. Anchored on word boundaries so `@_implementationOnly` (which
+    // contains no access keyword) and attribute names never spoof one.
+    private static readonly Regex AccessTokenRegex = new(
+        @"\b(?:" + AccessModifiers + @")\b", RegexOptions.Compiled);
+
+    /// <summary>1-based line number of the character offset <paramref name="index"/> in <paramref name="text"/>.</summary>
+    private static int LineOf(string text, int index)
+    {
+        int line = 1;
+        for (int i = 0; i < index && i < text.Length; i++)
+            if (text[i] == '\n') line++;
+        return line;
     }
 
     /// <summary>

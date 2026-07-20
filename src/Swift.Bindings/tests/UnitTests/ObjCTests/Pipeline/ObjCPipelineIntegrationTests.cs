@@ -154,6 +154,155 @@ public class ObjCPipelineIntegrationTests
     }
 
     /// <summary>
+    /// End-to-end precise-109 fixture (CombineCocoa shape): the umbrella header declares a
+    /// framework-qualified #import of a public header the xcframework does NOT ship. The pipeline
+    /// must fail EARLY with a structured SWIFTBIND109 MissingHeader diagnosis that names the header
+    /// and points at the upstream packaging fix — not an opaque clang dump. Synthetic headers only.
+    /// </summary>
+    [Fact]
+    public void Pipeline_XCFrameworkFixture_MissingDeclaredHeader_SurfacesStructured109()
+    {
+        if (!HasXcode())
+            return; // Skip gracefully — CI may not have Xcode
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"objc_pipeline_test_{Guid.NewGuid():N}");
+        try
+        {
+            var (xcfwPath, fwName) = WriteFixtureXCFramework(tempDir, umbrellaBody: """
+                #import <Foundation/Foundation.h>
+                // Framework-qualified import of a header this distribution never ships (the
+                // CombineCocoa `#import <CombineCocoa/ObjcDelegateProxy.h>` shape).
+                #import <TestObjCLib/TLMissing.h>
+                """);
+
+            var outputDir = Path.Combine(tempDir, "output");
+            Directory.CreateDirectory(outputDir);
+
+            var resolution = XCFrameworkResolver.ResolveObjCFramework(
+                xcfwPath, XCFrameworkPlatformTarget.Simulator, Logger);
+            Assert.NotNull(resolution);
+
+            var result = ObjCPipeline.Run(
+                resolution!, xcfwPath, outputDir, XCFrameworkPlatformTarget.Simulator, Logger);
+
+            // Early structured failure — no partial module, a classified 109 message.
+            Assert.NotEqual(0, result.ExitCode);
+            Assert.Null(result.Module);
+            Assert.NotNull(result.ErrorMessage);
+            Assert.Contains("SWIFTBIND109", result.ErrorMessage!);
+            Assert.Contains("TLMissing.h", result.ErrorMessage!);
+            // Remediation names it as an upstream packaging problem, not a generator failure.
+            Assert.Contains("packaging", result.ErrorMessage!);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+        }
+    }
+
+    /// <summary>
+    /// End-to-end precise-109 fixture (swift-system shape): every #import resolves, but a header
+    /// uses an identifier that is undeclared on this Apple platform (a Linux-only symbol compiled
+    /// unconditionally, e.g. <c>_NSIG</c>). The pipeline must fail EARLY with a structured
+    /// SWIFTBIND109 PlatformIncompatibleHeader diagnosis naming the identifier. Synthetic only.
+    /// </summary>
+    [Fact]
+    public void Pipeline_XCFrameworkFixture_PlatformIncompatibleHeader_SurfacesStructured109()
+    {
+        if (!HasXcode())
+            return; // Skip gracefully — CI may not have Xcode
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"objc_pipeline_test_{Guid.NewGuid():N}");
+        try
+        {
+            var (xcfwPath, fwName) = WriteFixtureXCFramework(tempDir, umbrellaBody: """
+                #import <Foundation/Foundation.h>
+                // Uses a symbol undeclared on Apple platforms (the swift-system io_uring `_NSIG`
+                // shape): a header shipped for a non-Apple platform, compiled unconditionally.
+                static const int TLPlatformProbe = _NSIG;
+                """);
+
+            var outputDir = Path.Combine(tempDir, "output");
+            Directory.CreateDirectory(outputDir);
+
+            var resolution = XCFrameworkResolver.ResolveObjCFramework(
+                xcfwPath, XCFrameworkPlatformTarget.Simulator, Logger);
+            Assert.NotNull(resolution);
+
+            var result = ObjCPipeline.Run(
+                resolution!, xcfwPath, outputDir, XCFrameworkPlatformTarget.Simulator, Logger);
+
+            Assert.NotEqual(0, result.ExitCode);
+            Assert.Null(result.Module);
+            Assert.NotNull(result.ErrorMessage);
+            Assert.Contains("SWIFTBIND109", result.ErrorMessage!);
+            Assert.Contains("_NSIG", result.ErrorMessage!);
+            Assert.Contains("platform", result.ErrorMessage!);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Writes a minimal single-slice (ios simulator) ObjC xcframework fixture to <paramref name="tempDir"/>
+    /// whose umbrella header body is <paramref name="umbrellaBody"/>. Returns the xcframework path and
+    /// module name. Used by the precise-109 fixtures to inject a specific failing header surface.
+    /// </summary>
+    private static (string xcfwPath, string fwName) WriteFixtureXCFramework(string tempDir, string umbrellaBody)
+    {
+        var fwName = "TestObjCLib";
+        var xcfwPath = Path.Combine(tempDir, $"{fwName}.xcframework");
+        var sliceId = "ios-arm64_x86_64-simulator";
+        var sliceDir = Path.Combine(xcfwPath, sliceId);
+        var fwDir = Path.Combine(sliceDir, $"{fwName}.framework");
+        var headersDir = Path.Combine(fwDir, "Headers");
+        var modulesDir = Path.Combine(fwDir, "Modules");
+
+        Directory.CreateDirectory(headersDir);
+        Directory.CreateDirectory(modulesDir);
+
+        File.WriteAllText(Path.Combine(xcfwPath, "Info.plist"), $"""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict>
+                <key>AvailableLibraries</key>
+                <array>
+                    <dict>
+                        <key>BinaryPath</key><string>{fwName}.framework/{fwName}</string>
+                        <key>LibraryIdentifier</key><string>{sliceId}</string>
+                        <key>LibraryPath</key><string>{fwName}.framework</string>
+                        <key>SupportedArchitectures</key><array><string>arm64</string><string>x86_64</string></array>
+                        <key>SupportedPlatform</key><string>ios</string>
+                        <key>SupportedPlatformVariant</key><string>simulator</string>
+                    </dict>
+                </array>
+                <key>CFBundlePackageType</key><string>XFWK</string>
+                <key>XCFrameworkFormatVersion</key><string>1.0</string>
+            </dict>
+            </plist>
+            """);
+
+        File.WriteAllText(Path.Combine(modulesDir, "module.modulemap"),
+            $"framework module {fwName} {{\n  umbrella header \"{fwName}.h\"\n  export *\n  module * {{ export * }}\n}}\n");
+
+        File.WriteAllText(Path.Combine(headersDir, $"{fwName}.h"), umbrellaBody + "\n");
+
+        // Stub binary (just needs to exist for plist validation; clang doesn't use it).
+        File.WriteAllText(Path.Combine(sliceDir, $"{fwName}.framework/{fwName}"), "");
+
+        return (xcfwPath, fwName);
+    }
+
+    /// <summary>
     /// Full pipeline test: verifies that emitters produce ApiDefinition.cs, StructsAndEnums.cs, and .csproj.
     /// </summary>
     [Fact]

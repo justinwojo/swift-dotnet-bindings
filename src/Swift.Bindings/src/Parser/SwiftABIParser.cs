@@ -26,15 +26,16 @@ namespace BindingsGeneration
     /// <param name="Emitted">Nodes that produced a declaration.</param>
     /// <param name="SkippedWithReason">Nodes deliberately not bound (e.g. imports, an unsupported
     /// declaration kind, or a recognized-but-unbound kind such as <c>AssociatedType</c>/<c>OperatorDecl</c>)
-    /// — a handler returned null without throwing. A bindable type declaration that is MISSING a
-    /// load-bearing field (no mangled name) is NOT a deliberate skip; it is a record loss counted under
-    /// <see cref="DroppedWithError"/>.</param>
+    /// — a handler returned null without throwing.</param>
     /// <param name="DroppedWithError">Nodes lost without being bound — the silent-failure channel this
-    /// finding exists to expose. Three sources land here: a caught exception in <c>HandleNode</c>; an
-    /// unrecognized node kind off the dispatch allowlist (SWIFTBIND034); and a recognized bindable
-    /// declaration whose load-bearing ABI field is absent, e.g. a TypeDecl with no mangled name
-    /// (SWIFTBIND046). The latter two also record an AbiJson degradation (fail-closed under
-    /// <c>--strict-inputs</c>); a bare caught exception is logged but is not itself a degradation.</param>
+    /// finding exists to expose. Two sources land here: an unrecognized node kind off the dispatch
+    /// allowlist (SWIFTBIND034, which also records an AbiJson degradation), and a caught exception in
+    /// <c>HandleNode</c> (an unimplemented or faulted binder). Every increment records a structured
+    /// <see cref="IngestionLedgerEntry"/> through <c>RecordDropLedger</c>, so no drop is silent. A
+    /// bindable type declaration MISSING its load-bearing mangled name is a distinct case — it is NOT
+    /// dropped but QUARANTINED (kept in the tree, withheld from the type database, tombstoned at
+    /// emission with its proven dependent closure), so it counts under <see cref="Emitted"/> with a
+    /// quarantine ledger entry, not here.</param>
     /// <param name="UnknownNodeKinds">Finding 45 (ingestion contract): per-kind census of ABI node
     /// kinds that fell through the dispatch allowlist — declarations the digester emitted that the
     /// parser does not recognize at all (as opposed to recognized-but-unbound kinds such as
@@ -174,6 +175,17 @@ namespace BindingsGeneration
         /// The demangled TBD.
         /// </summary>
         private readonly DemanglingResults _demangledTbd;
+
+        /// <summary>
+        /// Resolves cross-module facts (nominal ownership / foreign-type shape, metadata-accessor
+        /// symbols, protocol-conformance descriptors). Defaults to
+        /// <see cref="LegacyCrossModuleFactResolver"/> — the order-sensitive combination of
+        /// <see cref="_demangledTbd"/> + <see cref="_typeDatabase"/> the parser used before the seam
+        /// existed — so a parse constructed via the public constructor is byte-identical to the
+        /// pre-seam generator. A graph-wide index-backed resolver can be injected via the internal
+        /// constructor to make those facts order-independent.
+        /// </summary>
+        private readonly ICrossModuleFactResolver _resolver;
 
 
         /// <summary>
@@ -902,12 +914,38 @@ namespace BindingsGeneration
             ILogger logger,
             SwiftInterfaceFacts facts,
             Dictionary<string, DocComment>? docComments = null)
+            : this(filePath, typeDatabase, demangledTbd, logger, facts,
+                   new LegacyCrossModuleFactResolver(typeDatabase, demangledTbd), docComments)
+        {
+        }
+
+        /// <summary>
+        /// Internal constructor that injects the <see cref="ICrossModuleFactResolver"/>. The public
+        /// constructor delegates here with a <see cref="LegacyCrossModuleFactResolver"/> (the
+        /// order-sensitive baseline); the two-phase orchestration injects a graph-wide index-backed
+        /// resolver so cross-module facts resolve against the whole graph instead of whatever
+        /// happened to be loaded first. Injecting the resolver is an internal migration detail — no
+        /// CLI surface exposes it.
+        /// </summary>
+        internal SwiftABIParser(
+            string filePath,
+            ITypeDatabase typeDatabase,
+            DemanglingResults demangledTbd,
+            ILogger logger,
+            SwiftInterfaceFacts facts,
+            ICrossModuleFactResolver crossModuleResolver,
+            // No default: an optional trailing param here would make the internal 7-arg ctor and the
+            // public 6-arg ctor (whose trailing param is a nullable Dictionary) both applicable to a
+            // same-assembly `new SwiftABIParser(..., facts, null)` call — a CS0121 ambiguity. Requiring
+            // docComments explicitly keeps a 6-arg call bound solely to the public ctor.
+            Dictionary<string, DocComment>? docComments)
         {
             _filePath = filePath;
             _typeDatabase = typeDatabase;
             _demangledTbd = demangledTbd;
             _logger = logger;
             _facts = facts;
+            _resolver = crossModuleResolver;
             _docComments = docComments;
 
             string jsonContent = File.ReadAllText(_filePath);
@@ -1076,20 +1114,59 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Finding 45: signals that a recognized declaration cannot be bound because a load-bearing
-        /// ABI field is absent (currently a bindable TypeDecl with no mangled name). Thrown from the
-        /// per-declaration binder and caught in <see cref="HandleNode"/>, which records it as a
-        /// DroppedWithError record loss plus an AbiJson input-resolution degradation — never a silent
-        /// null skip. A dedicated exception type (rather than returning null) keeps the drop attributed
-        /// precisely even though the offending node has otherwise cleared its earlier handler gates.
+        /// The stable ingestion identity of one ABI node: module + kind + the USR (or, absent a USR,
+        /// the mangled name, or a sentinel). Two malformed nodes never collapse onto one identity, and
+        /// the identity survives even when the very field that was lost is the mangled name.
         /// </summary>
-        private sealed class AbiRecordDroppedException : Exception
+        private static IngestionInputIdentity IdentityOf(Node node)
         {
-            public AbiRecordDroppedException(string? declName, string? moduleName, string reason)
-                : base($"declaration '{declName}' (module '{moduleName ?? "<none>"}') {reason}")
+            var symbol = !string.IsNullOrEmpty(node.usr)
+                ? node.usr!
+                : !string.IsNullOrEmpty(node.MangledName)
+                    ? node.MangledName
+                    : IngestionInputIdentity.AbsentSymbol;
+            var kind = !string.IsNullOrEmpty(node.DeclKind) ? node.DeclKind : node.Kind;
+            return new IngestionInputIdentity(node.ModuleName ?? string.Empty, kind, symbol);
+        }
+
+        /// <summary>The coarse ingestion identity of a node's declaring parent, for ledger context.</summary>
+        private static IngestionInputIdentity? ParentIdentityOf(BaseDecl? parentDecl)
+        {
+            switch (parentDecl)
             {
+                case null:
+                    return null;
+                case ModuleDecl m:
+                    return new IngestionInputIdentity(m.Name, "Module", m.Name);
+                case TypeDecl t:
+                    {
+                        var qualified = t.SwiftTypeName.ModuleQualifiedName;
+                        var firstDot = qualified.IndexOf('.');
+                        var module = firstDot < 0 ? qualified : qualified.Substring(0, firstDot);
+                        return new IngestionInputIdentity(module, "Type", qualified);
+                    }
+                default:
+                    return new IngestionInputIdentity(
+                        parentDecl.ModuleDecl?.Name ?? string.Empty, "Decl", parentDecl.Name);
             }
         }
+
+        /// <summary>
+        /// Records one structured ledger entry for a node dropped through the legacy fail-open channel
+        /// (unknown kind / unhandled shape / parse fault / absent field): the drop is reported and
+        /// generation continues, which <c>--strict-inputs</c> escalates to fatal. Every
+        /// <c>DroppedWithError</c> census increment routes through here, so no parser loss is silent.
+        /// </summary>
+        private void RecordDropLedger(Node node, BaseDecl? parentDecl, IngestionCause cause, string evidence) =>
+            InputResolutionReport.RecordLedgerEntry(new IngestionLedgerEntry(
+                Input: IdentityOf(node),
+                Parent: ParentIdentityOf(parentDecl),
+                Plane: IngestionPlane.Ingest,
+                Cause: cause,
+                Referenced: null,
+                Disposition: IngestionDisposition.ReportOnly,
+                ClosureEvidence: evidence,
+                Status: IngestionStatus.Dropped));
 
         /// <summary>
         /// Handles an ABI node and returns the corresponding declaration.
@@ -1157,36 +1234,30 @@ namespace BindingsGeneration
                         InputResolutionReport.RecordDegradation(
                             InputResolutionCategory.AbiJson,
                             $"unrecognized ABI node kind '{node.Kind}' (e.g. '{node.Name}') dropped");
+                        RecordDropLedger(
+                            node, parentDecl, IngestionCause.UnrecognizedNodeKind,
+                            $"ABI node kind '{node.Kind}' is not in the parser's dispatch allowlist; the "
+                            + "declaration was dropped and generation continued with a smaller surface.");
                         break;
                 }
-            }
-            catch (AbiRecordDroppedException e)
-            {
-                // Finding 45 (loud, not silent): a load-bearing-field-absent declaration is a record
-                // loss, not a deliberate skip. Census it as DroppedWithError and record an AbiJson
-                // degradation (fails closed under --strict-inputs) — the same observability channel
-                // the SWIFTBIND034 unrecognized-node-kind path uses. Distinct exception type so the
-                // attribution here is precise rather than folded into the generic dropped-with-error
-                // catch-all below (which would emit a "while processing node" diagnostic instead).
-                droppedWithError = true;
-                _logger.LogWarning(
-                    "SWIFTBIND046: {Detail}; a load-bearing ABI field is absent, so the declaration "
-                    + "cannot be bound and is dropped. If the digester now omits this field, the parser "
-                    + "must learn the new shape.",
-                    e.Message);
-                InputResolutionReport.RecordDegradation(
-                    InputResolutionCategory.AbiJson,
-                    $"ABI declaration dropped: {e.Message}");
             }
             catch (NotImplementedException e)
             {
                 droppedWithError = true;
                 _logger.LogWarning($"Not implemented '{node.Name}' ({node.MangledName}): {e.Message}");
+                RecordDropLedger(
+                    node, parentDecl, IngestionCause.UnhandledDeclaration,
+                    $"the parser has no binder implemented for this declaration shape ({e.Message}); it "
+                    + "was dropped and generation continued.");
             }
             catch (Exception e)
             {
                 droppedWithError = true;
                 _logger.LogWarning($"Error while processing node '{node.Name} ({node.MangledName})': {e.Message}");
+                RecordDropLedger(
+                    node, parentDecl, IngestionCause.ParseFault,
+                    $"an unclassified fault escaped the per-declaration binder ({e.Message}); it was "
+                    + "dropped and generation continued.");
             }
 
             // Finding 14a: classify this node's outcome into exactly one reconciliation bucket. A
@@ -1283,10 +1354,10 @@ namespace BindingsGeneration
                     if (isStructReceiver)
                     {
                         var probeName = GetSwiftTypeName(parentDecl, node.Name, node.ModuleName);
-                        if (_typeDatabase.TryGetTypeRecord(probeName, out var foreignRecord) &&
-                            foreignRecord.Kind == TypeRecordKind.Struct &&
-                            (!foreignRecord.Flags.HasFlag(TypeRecordFlags.Frozen) ||
-                             foreignRecord.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement)))
+                        if (_resolver.TryGetForeignTypeShape(probeName, out var foreignShape) &&
+                            foreignShape.Kind == TypeRecordKind.Struct &&
+                            (!foreignShape.Flags.HasFlag(TypeRecordFlags.Frozen) ||
+                             foreignShape.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement)))
                         {
                             _logger.LogInformation($"Skipping cross-module extension on non-frozen or non-trivial (RequiresMemoryManagement) foreign struct '{node.Name}' (canonical module: {node.ModuleName}) — only frozen value structs without managed payload are supported by the cross-module struct trampoline path.");
                             return null;
@@ -1294,7 +1365,7 @@ namespace BindingsGeneration
                     }
                     _logger.LogInformation($"Foreign {(isStructReceiver ? "struct" : "class")} '{node.Name}' carries extension members from '{moduleDecl.Name}' — routing to cross-module extension emitter.");
                 }
-                else if (!AppleFrameworkRegistry.IsSystemReexportAllowedModule(node.ModuleName))
+                else if (!_resolver.IsSystemReexportAllowedModule(node.ModuleName))
                 {
                     _logger.LogInformation($"Skipping re-exported type '{node.Name}' (canonical module: {node.ModuleName}, current module: {moduleDecl.Name}).");
                     return null;
@@ -1323,7 +1394,7 @@ namespace BindingsGeneration
             // Finding 10: the narrow registration predicate, NOT the resolvable predicate. A
             // supplement-owned same-module type must answer "no" here, or the throw below fires
             // spuriously when an Apple-framework binding re-declares a type the supplement owns.
-            bool processedByDependency = _typeDatabase.IsTypeRegistered(typeName);
+            bool processedByDependency = _resolver.IsTypeRegistered(typeName);
             if (alreadyInModulePass || (processedByDependency && moduleNameOverride == null))
             {
                 if (moduleNameOverride != null)
@@ -1334,19 +1405,16 @@ namespace BindingsGeneration
                 throw new InvalidOperationException($"Type '{node.Name}' already processed.");
             }
 
-            // Finding 45 (no silent loss of records): a bindable type declaration
-            // (Struct/Enum/Class/Protocol) REQUIRES a mangled name — it is the load-bearing ABI
-            // field every downstream binder keys off. This node has cleared the foreign-reexport
-            // and duplicate gates above, so an absent mangled name here is a type the digester
-            // declared that we cannot bind: a genuine record loss, not a benign skip. Signal a DROP
-            // (caught in HandleNode) rather than returning a bare null — a null would land in the
-            // SkippedWithReason bucket alongside imports and hide the loss. HandleNode turns this
-            // into a DroppedWithError census entry + an AbiJson degradation that fails closed under
-            // --strict-inputs, the same channel the SWIFTBIND034 unknown-kind path uses. The gate is
-            // scoped to bindable kinds so a non-bindable structural container (e.g. a "Module" node,
-            // which legitimately carries no mangled name) still falls through to the unsupported-kind
-            // skip in the DeclKind switch below rather than being mis-reported as a lost record.
+            // A bindable type declaration (Struct/Enum/Class/Protocol) REQUIRES a mangled name — it is
+            // the load-bearing ABI field every downstream binder keys off. This node has cleared the
+            // foreign-reexport and duplicate gates above, so an absent mangled name here is a type the
+            // digester declared that we cannot bind: a malformed type record. Rather than dropping it
+            // silently, QUARANTINE it — build the decl (below) so it carries a stable identity, mark it
+            // so ModuleProcessor withholds it from the type database, and record a structured ledger
+            // entry. The proven-closure walk then withdraws it plus every retained declaration that
+            // depends on it, or fails the module before emission if that closure cannot be proven.
             bool isBindableTypeKind = node.DeclKind is "Struct" or "Enum" or "Class" or "Protocol";
+            bool quarantineMalformedType = false;
             if (isBindableTypeKind && string.IsNullOrEmpty(node.MangledName))
             {
                 // An ObjC-rooted declaration — an imported/`@objc` ObjC class or a C-typedef
@@ -1357,18 +1425,16 @@ namespace BindingsGeneration
                 // such a type, when referenced, resolves through the Apple-supplement /
                 // out-of-module path, and the digester re-export node itself is never bound.
                 // Skip it cleanly (lands in SkippedWithReason) — the pre-b297b66f semantics —
-                // rather than signalling a DROP. Signalling a drop would poison the
-                // ParseReconciliation tally + InputResolutionReport on every ObjC-touching
-                // binding in normal mode, and fail closed spuriously under --strict-inputs. A
-                // Swift-defined `@objc` class keeps its `$s...` mangled name and never reaches
-                // this branch, so the exemption stays scoped to mangled-name-less ObjC identities.
+                // rather than quarantining. A Swift-defined `@objc` class keeps its `$s...` mangled
+                // name and never reaches this branch, so the exemption stays scoped to
+                // mangled-name-less ObjC identities.
                 if (IsObjCRootedIdentity(node))
                 {
                     _logger.LogDebug($"Skipping ObjC-rooted declaration '{node.Name}' with no Swift mangled name (resolved via supplement / out-of-module when referenced).");
                     return null;
                 }
 
-                throw new AbiRecordDroppedException(node.Name, node.ModuleName, "no mangled name");
+                quarantineMalformedType = true;
             }
 
             TypeDecl? decl;
@@ -1405,6 +1471,33 @@ namespace BindingsGeneration
 
             if (decl is not null)
             {
+                if (quarantineMalformedType)
+                {
+                    // Mark the built decl so ModuleProcessor withholds it from the type database, and
+                    // record the structured ledger entry. This is a proposed quarantine: the terminal
+                    // fate is decided by the proven-closure walk at emission — if that closure cannot be
+                    // proven complete the module fails fatally, so any binding that actually ships with
+                    // this entry is one where the quarantine was proven, making Quarantined accurate.
+                    decl.IsIngestionQuarantined = true;
+                    InputResolutionReport.RecordLedgerEntry(new IngestionLedgerEntry(
+                        Input: IdentityOf(node),
+                        Parent: ParentIdentityOf(parentDecl),
+                        Plane: IngestionPlane.Ingest,
+                        Cause: IngestionCause.MalformedTypeRecord,
+                        Referenced: null,
+                        Disposition: IngestionDisposition.QuarantineType,
+                        ClosureEvidence:
+                            "bindable type record missing its load-bearing Swift mangled name; "
+                            + "quarantined pending the proven-closure withdrawal walk at emission.",
+                        Status: IngestionStatus.Quarantined));
+                    _logger.LogWarning(
+                        "SWIFTBIND046: bindable type '{Name}' (module '{Module}') has no Swift mangled "
+                        + "name; quarantined at ingestion. It and every retained declaration that depends "
+                        + "on it are withdrawn from the binding; if that withdrawal closure cannot be "
+                        + "proven complete, the module fails before emission.",
+                        node.Name, node.ModuleName);
+                }
+
                 // Register immediately so duplicate cross-module re-exports are caught
                 _moduleTypes.TryAdd(new NamedTypeSpec(decl.SwiftTypeName.ModuleQualifiedName), decl);
 
@@ -1625,7 +1718,7 @@ namespace BindingsGeneration
             }
             string protocolConformanceDescriptor = string.Empty;
 
-            if (!_demangledTbd.TryGetProtocolConformanceDescriptor(typeName, protocolName, out protocolConformanceDescriptor))
+            if (!_resolver.TryGetProtocolConformanceDescriptor(typeName, protocolName, out protocolConformanceDescriptor))
             {
                 // @_originallyDefinedIn umbrella re-exports: the type decl is attributed to its
                 // CURRENT module via its USR (e.g. RealityFoundation.AnchorEntity), but the TBD's
@@ -1645,7 +1738,7 @@ namespace BindingsGeneration
                     {
                         abiParts[0] = abiModule;
                         var abiTypeName = SwiftTypeName.FromModuleQualifiedName(string.Join('.', abiParts));
-                        _demangledTbd.TryGetProtocolConformanceDescriptor(abiTypeName, protocolName, out protocolConformanceDescriptor);
+                        _resolver.TryGetProtocolConformanceDescriptor(abiTypeName, protocolName, out protocolConformanceDescriptor);
                     }
                 }
 
@@ -1771,16 +1864,16 @@ namespace BindingsGeneration
         // loudly instead of producing a broken accessor.
         private string ResolveMetadataAccessor(Node node, SwiftTypeName swiftTypeName, ModuleDecl moduleDecl)
         {
-            if (_demangledTbd.TryGetMetadataAccessor(swiftTypeName, out var symbol))
+            if (_resolver.TryGetMetadataAccessor(swiftTypeName, out var symbol))
                 return symbol;
             if (string.IsNullOrEmpty(node.ModuleName) || node.ModuleName == moduleDecl.Name)
                 return $"{node.MangledName}Ma";
             // Finding 10: registration predicate — "is the foreign type already registered in a
             // loaded dependency database" — not "resolvable via the supplement". A supplement-owned
             // foreign type must not be claimed here, so its metadata accessor comes from the TBD.
-            if (_typeDatabase.IsTypeRegistered(swiftTypeName))
+            if (_resolver.IsTypeRegistered(swiftTypeName))
                 return $"{node.MangledName}Ma";
-            return _demangledTbd.GetMetadataAccessor(swiftTypeName);
+            return _resolver.GetMetadataAccessor(swiftTypeName);
         }
 
         /// <summary>

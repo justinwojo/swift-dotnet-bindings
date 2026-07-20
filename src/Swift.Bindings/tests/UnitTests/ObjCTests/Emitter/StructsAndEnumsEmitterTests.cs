@@ -40,6 +40,129 @@ public class StructsAndEnumsEmitterTests
     }
 
     [Fact]
+    public void EmitEnum_LowercaseCases_PascalCasedToMatchReferences()
+    {
+        // Regression: ObjC NS_ENUM constants that are lowercase (or camelCase) were emitted verbatim
+        // as [Native] enum members, but every reference site (Swift-side default values / enum
+        // reference emitters) names the member via NameProvider.ToPascalCase — so `center` declared
+        // but `Center` referenced => CS0117. The declaration must use the SAME PascalCase transform.
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "RiveAlignment",
+                    Cases =
+                    [
+                        new ObjCEnumCaseDecl { Name = "topLeft" },
+                        new ObjCEnumCaseDecl { Name = "center" },
+                        new ObjCEnumCaseDecl { Name = "bottomRight" },
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("TopLeft,", output);
+        Assert.Contains("Center,", output);
+        Assert.Contains("BottomRight,", output);
+        // The verbatim lowercase declarations must NOT survive.
+        Assert.DoesNotContain("center,", output);
+        Assert.DoesNotContain("topLeft,", output);
+    }
+
+    [Fact]
+    public void EmitEnum_CaseCollidingWithEnumName_DisambiguatedAndDiagnosed()
+    {
+        // A case whose PascalCased name equals the enum's own type name would emit a member with the
+        // same name as its enclosing type (CS0542). It must be disambiguated deterministically and
+        // the disambiguation recorded as a skip diagnostic.
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "Mode",
+                    Cases =
+                    [
+                        new ObjCEnumCaseDecl { Name = "mode" },  // ToPascalCase -> "Mode" == enum name
+                        new ObjCEnumCaseDecl { Name = "other" },
+                    ]
+                }
+            ]
+        };
+
+        var (output, diagnostics) = EmitStructsAndEnumsWithDiagnostics(module);
+        Assert.Contains("Mode_2,", output);
+        Assert.Contains("Other,", output);
+        Assert.Contains(diagnostics.SkippedSymbols, s =>
+            s.SymbolName == "Mode.mode" && s.Reason == ObjCSkipReason.DuplicateSignature);
+    }
+
+    [Fact]
+    public void EmitEnum_TwoCasesCollapsingToSameIdentifier_Disambiguated()
+    {
+        // Swift/ObjC permit `case foo` alongside `case Foo`; both PascalCase to "Foo". The second
+        // must be suffixed rather than emitting two members of the same name (CS0102).
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "Kind",
+                    Cases =
+                    [
+                        new ObjCEnumCaseDecl { Name = "foo" },
+                        new ObjCEnumCaseDecl { Name = "Foo" },
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("Foo,", output);
+        Assert.Contains("Foo_2,", output);
+    }
+
+    [Fact]
+    public void EmitEnum_CaseEqualsEnumNameUnderPrefixStrip_FallsBackToFullNameNotEmpty()
+    {
+        // ShouldStripPrefix interaction: when every case starts with the enum name, the prefix is
+        // stripped. A case whose name EQUALS the enum name strips to the empty string — which would
+        // emit a nameless member. It must fall back to the full case name and then disambiguate
+        // against the reserved enum type name.
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "TLKind",
+                    Cases =
+                    [
+                        new ObjCEnumCaseDecl { Name = "TLKind" },       // strips to "" -> fallback
+                        new ObjCEnumCaseDecl { Name = "TLKindOther" },  // strips to "Other"
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("Other,", output);
+        // No nameless member (would be an indented bare comma).
+        Assert.DoesNotContain("        ,", output);
+        // The case equal to the enum name is disambiguated, not dropped or emitted as the type name.
+        Assert.Contains("TLKind_2,", output);
+    }
+
+    [Fact]
     public void EmitEnum_WithoutPrefixStripping_PartialMatch()
     {
         var module = new ObjCModule

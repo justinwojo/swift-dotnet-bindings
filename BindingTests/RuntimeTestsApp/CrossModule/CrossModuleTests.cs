@@ -144,6 +144,26 @@ public class CrossModuleTests : TestBase
         AssertEqual(8.0, scaled.Y, "Scaled Y = 4.0 * 2.0");
     }
 
+    public void TestShiftDependencyPoint()
+    {
+        // Base-type-through-Bridge, end to end: a SwiftBindingsTestLib public API takes a
+        // dependency Base type (DependencyPoint), dispatches the dependency's OWN instance method
+        // (translated(dx:dy:)), and returns the dependency Base type. Exercises the cross-module
+        // finalized struct layout in both directions plus a foreign method dispatch through the
+        // bridge — the resolution the topological dependency-finalize order protects.
+        var point = new DependencyPoint(3.0, 4.0);
+
+        var shifted = TestLibFunctions.ShiftDependencyPoint(point, 1.5);
+        AssertEqual(4.5, shifted.X, "Shifted X = 3.0 + 1.5");
+        AssertEqual(5.5, shifted.Y, "Shifted Y = 4.0 + 1.5");
+
+        // The returned foreign struct is fully usable: dispatch its OWN dependency-declared
+        // instance method (translated(dx:dy:)) on the value that came back through the bridge.
+        var again = shifted.Translated(0.5, -0.5);
+        AssertEqual(5.0, again.X, "Foreign method dispatch on returned point: 4.5 + 0.5");
+        AssertEqual(5.0, again.Y, "Foreign method dispatch on returned point: 5.5 - 0.5");
+    }
+
     public void TestUpgradeDependencyConfig()
     {
         using var config = SwiftBindingsTestLibDependency.Functions.MakeDependencyConfig("TestLib", 1);

@@ -233,6 +233,13 @@ public class ConcreteSpecializationEngine
 
     private void IndexProtocolDecls(TypeDecl typeDecl)
     {
+        // A type quarantined at ingestion is withheld from the binding and tombstoned by the
+        // ingestion-withdrawal poison seed. Never index it (or anything nested under it) as a
+        // protocol or specialization conformer, or a synthesized specialized API could reference a
+        // type the emitter is about to withdraw — a compile-clean/runtime-wrong hazard the closure
+        // proof cannot see, because synthesis happens off the retained decl graph.
+        if (typeDecl.IsIngestionQuarantined)
+            return;
         if (typeDecl is ProtocolDecl pd && pd.SwiftTypeName is { } name)
             _abiProtocols[name.ToString()] = pd;
         foreach (var nested in typeDecl.Types)
@@ -241,6 +248,10 @@ public class ConcreteSpecializationEngine
 
     private void IndexTypeConformances(TypeDecl typeDecl)
     {
+        // See IndexProtocolDecls: a quarantined type never seeds a synthesized specialization.
+        if (typeDecl.IsIngestionQuarantined)
+            return;
+
         // Skip generic types — we can't use them as concrete specializers
         // because the generated Swift wrapper would have unresolved type parameters
         // (e.g., ArraySection<Model, Element>.self without concrete type arguments)

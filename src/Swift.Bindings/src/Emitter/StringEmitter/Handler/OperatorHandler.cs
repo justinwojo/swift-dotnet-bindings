@@ -745,14 +745,14 @@ namespace BindingsGeneration
         /// <param name="csWriter">The C# code writer.</param>
         /// <param name="existingOperator">The existing operator that has been defined.</param>
         /// <param name="missingOperator">The paired operator that needs to be synthesized.</param>
-        /// <param name="typeName">The name of the containing type.</param>
-        public void EmitSynthesizedPairedOperator(CSharpWriter csWriter, OperatorDecl existingOperator, string missingOperator, string typeName, bool isReferenceType = false)
+        /// <param name="typeName">The name of the containing type (with generic parameters).</param>
+        /// <param name="typeDatabase">Type database used to project the source operator's operand types so the synthesized pair matches them. When null, the operands fall back to the containing type on both sides (correct for the common homogeneous operator; used by lightweight unit tests).</param>
+        public void EmitSynthesizedPairedOperator(CSharpWriter csWriter, OperatorDecl existingOperator, string missingOperator, string typeName, ITypeDatabase? typeDatabase = null, bool isReferenceType = false)
         {
             var existingSymbol = existingOperator.OperatorSymbol;
             var methodDecl = existingOperator.UnderlyingMethod;
 
             // Get the parameter types from the existing operator
-            var returnArg = methodDecl.CSSignature.First();
             var paramArgs = methodDecl.CSSignature.Skip(1).ToArray();
 
             if (paramArgs.Length < 2)
@@ -761,10 +761,18 @@ namespace BindingsGeneration
                 return;
             }
 
+            // The synthesized pair MUST use the SAME operand types as the source operator, or C#
+            // rejects it: a heterogeneous Swift operator (e.g. `static func ==(PayloadComparator,
+            // QuarantinedPayload)`) paired with a hardcoded homogeneous `!=(T, T)` yields CS0216
+            // (each operator's required partner has different operand types, so neither is matched).
+            // Project the operands the same way EmitOperatorWrapper does — the parent operand carries
+            // the generic form (typeName), the other operand its own projected public type.
+            var (leftType, rightType) = ResolveSynthesizedOperandTypes(existingOperator, typeName, typeDatabase);
+
             if (missingOperator == "!=" && existingSymbol == "==")
             {
                 // Synthesize != from ==: negate the result
-                csWriter.WriteLine($"public static bool operator !=({typeName} left, {typeName} right)");
+                csWriter.WriteLine($"public static bool operator !=({leftType} left, {rightType} right)");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
                 if (isReferenceType)
@@ -779,7 +787,7 @@ namespace BindingsGeneration
             else if (missingOperator == "==" && existingSymbol == "!=")
             {
                 // Synthesize == from !=: negate the result
-                csWriter.WriteLine($"public static bool operator ==({typeName} left, {typeName} right)");
+                csWriter.WriteLine($"public static bool operator ==({leftType} left, {rightType} right)");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
                 if (isReferenceType)
@@ -794,7 +802,7 @@ namespace BindingsGeneration
             else if (missingOperator == ">" && existingSymbol == "<")
             {
                 // Synthesize > from <: swap parameters
-                csWriter.WriteLine($"public static bool operator >({typeName} left, {typeName} right)");
+                csWriter.WriteLine($"public static bool operator >({leftType} left, {rightType} right)");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
                 csWriter.WriteLine("return right < left;");
@@ -804,7 +812,7 @@ namespace BindingsGeneration
             else if (missingOperator == "<" && existingSymbol == ">")
             {
                 // Synthesize < from >: swap parameters
-                csWriter.WriteLine($"public static bool operator <({typeName} left, {typeName} right)");
+                csWriter.WriteLine($"public static bool operator <({leftType} left, {rightType} right)");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
                 csWriter.WriteLine("return right > left;");
@@ -814,7 +822,7 @@ namespace BindingsGeneration
             else if (missingOperator == ">=" && existingSymbol == "<=")
             {
                 // Synthesize >= from <=: swap parameters
-                csWriter.WriteLine($"public static bool operator >=({typeName} left, {typeName} right)");
+                csWriter.WriteLine($"public static bool operator >=({leftType} left, {rightType} right)");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
                 csWriter.WriteLine("return right <= left;");
@@ -824,7 +832,7 @@ namespace BindingsGeneration
             else if (missingOperator == "<=" && existingSymbol == ">=")
             {
                 // Synthesize <= from >=: swap parameters
-                csWriter.WriteLine($"public static bool operator <=({typeName} left, {typeName} right)");
+                csWriter.WriteLine($"public static bool operator <=({leftType} left, {rightType} right)");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
                 csWriter.WriteLine("return right >= left;");
@@ -838,12 +846,42 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Projects the two operand C# type names of a binary operator exactly as
+        /// <see cref="EmitOperatorWrapper"/> renders them, so a synthesized partner operator's
+        /// operand list matches the source (a mismatch is CS0216). The parent-type operand is
+        /// rendered with generic parameters (<paramref name="typeNameWithGenerics"/>); the other
+        /// operand keeps its own projected public type.
+        /// </summary>
+        private static (string leftType, string rightType) ResolveSynthesizedOperandTypes(
+            OperatorDecl operatorDecl, string typeNameWithGenerics, ITypeDatabase? typeDatabase)
+        {
+            // No type database (lightweight unit tests): fall back to the containing type on both
+            // sides — correct for the common homogeneous operator, and the only shape those tests use.
+            if (typeDatabase == null)
+                return (typeNameWithGenerics, typeNameWithGenerics);
+
+            var methodEnv = new MethodEnvironment(operatorDecl.UnderlyingMethod, typeDatabase);
+            var wrapperParams = new SignatureHandler(methodEnv).GetWrapperSignature().Parameters.ToArray();
+
+            // The bare parent name that EmitOperatorWrapper replaces with the generic form.
+            var baseParentName = typeNameWithGenerics;
+            var lt = typeNameWithGenerics.IndexOf('<');
+            if (lt >= 0) baseParentName = typeNameWithGenerics.Substring(0, lt);
+
+            string Fix(string type) => type == baseParentName ? typeNameWithGenerics : type;
+
+            var leftType = wrapperParams.Length > 0 ? Fix(wrapperParams[0].Type.PublicTypeName) : typeNameWithGenerics;
+            var rightType = wrapperParams.Length > 1 ? Fix(wrapperParams[1].Type.PublicTypeName) : typeNameWithGenerics;
+            return (leftType, rightType);
+        }
+
+        /// <summary>
         /// Validates operators and emits any missing paired operators.
         /// </summary>
         /// <param name="csWriter">The C# code writer.</param>
         /// <param name="operators">The list of operator declarations.</param>
         /// <param name="typeName">The name of the containing type.</param>
-        public void ValidateAndEmitPairs(CSharpWriter csWriter, List<OperatorDecl> operators, string typeName, ISet<string> emittedSymbols, bool isReferenceType = false)
+        public void ValidateAndEmitPairs(CSharpWriter csWriter, List<OperatorDecl> operators, string typeName, ISet<string> emittedSymbols, ITypeDatabase? typeDatabase = null, bool isReferenceType = false)
         {
             var definedSymbols = new HashSet<string>(emittedSymbols);
 
@@ -858,7 +896,7 @@ namespace BindingsGeneration
                 {
                     // Need to synthesize the paired operator
                     _logger.LogInformation($"Synthesizing paired operator '{pairedSymbol}' from '{symbol}' for type '{typeName}'.");
-                    EmitSynthesizedPairedOperator(csWriter, op, pairedSymbol, typeName, isReferenceType);
+                    EmitSynthesizedPairedOperator(csWriter, op, pairedSymbol, typeName, typeDatabase, isReferenceType);
                     ReportCollector.RecordMemberSynthesized(BindingItemKind.Operator, pairedSymbol, op.ParentDecl);
                     // Mark as defined to avoid duplicate synthesis
                     definedSymbols.Add(pairedSymbol);

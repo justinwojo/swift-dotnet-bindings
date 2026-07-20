@@ -36,13 +36,22 @@ public static class MsbuildSarifCSharpVerifier
     /// <param name="dotnetPath">The dotnet host to invoke.</param>
     /// <param name="timeoutMs">Build timeout.</param>
     /// <param name="logger">Optional logger for the raw command.</param>
+    /// <param name="verificationPackageFeed">When set, passed as
+    /// <c>-p:RestoreAdditionalProjectSources=</c> so restore consults a run-scoped package feed IN
+    /// ADDITION to the configured sources. This is how a multi-module run resolves an in-run sibling
+    /// binding's package LOCALLY during verification — the sibling is packed into this feed before the
+    /// dependent is verified — without rewriting the emitted csproj's consumer-facing PackageReference,
+    /// which must keep its published-package shape. Additive: an empty/missing feed just yields the
+    /// same NU1101 the un-fed build would (a real, loud "sibling not built" failure), never a silent
+    /// pass.</param>
     public static CSharpVerificationResult Verify(
         string csprojPath,
         ICommandRunner runner,
         string? swiftBindingsRepoRoot = null,
         string dotnetPath = "dotnet",
         int timeoutMs = 300000,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        string? verificationPackageFeed = null)
     {
         // Unique per invocation: two concurrent verifications of same-named csprojs (e.g. a parallel
         // corpus matrix, where every module emits a "<Module>.Swift.iOS.csproj") must not share one
@@ -58,6 +67,14 @@ public static class MsbuildSarifCSharpVerifier
             ? string.Empty
             : $" -p:SwiftBindingsRepoRoot=\"{swiftBindingsRepoRoot}\"";
 
+        // RestoreAdditionalProjectSources ADDS the run-scoped feed to restore's source list without
+        // disturbing the emitted csproj (its PackageReference stays the published-package shape a real
+        // consumer sees). An in-run sibling packed into this feed then restores locally; absent the
+        // feed, or if the sibling was not packed, restore still fails NU1101 — the honest signal.
+        var feedArg = string.IsNullOrEmpty(verificationPackageFeed)
+            ? string.Empty
+            : $" -p:RestoreAdditionalProjectSources=\"{verificationPackageFeed}\"";
+
         // TreatWarningsAsErrors=false keeps this build hermetic against the *generator* repo's
         // warnings policy. The gate asks "does the emitted C# compile for a consumer?" — i.e. are
         // there genuine errors — and a real consumer builds the binding outside our tree, where
@@ -68,7 +85,7 @@ public static class MsbuildSarifCSharpVerifier
         // wins over any imported prop) narrows the gate to true compilability without hiding a real
         // break.
         var arguments =
-            $"build \"{csprojPath}\"{repoRootArg} -p:TreatWarningsAsErrors=false " +
+            $"build \"{csprojPath}\"{repoRootArg}{feedArg} -p:TreatWarningsAsErrors=false " +
             $"-p:ErrorLog=\"{sarifPath},version=2.1\" -nologo -clp:NoSummary";
 
         logger?.LogInformation("C# verification build: {Dotnet} {Args}", dotnetPath, arguments);

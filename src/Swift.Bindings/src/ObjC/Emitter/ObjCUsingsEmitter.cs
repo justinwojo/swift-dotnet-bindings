@@ -119,10 +119,10 @@ internal static class ObjCUsingsEmitter
     /// <paramref name="referencedAppleNamespaces"/> not already in the baseline, appended in sorted
     /// order. The baseline carries the namespaces of Apple value types (CGRect, CLLocationCoordinate2D)
     /// that resolve through the type mapper's known-types set and therefore have no AST provenance; the
-    /// appended set carries the namespaces of referenced Apple SDK classes/protocols derived from
-    /// authoritative header provenance, so a framework outside the baseline (e.g. StoreKit) resolves
-    /// without the list ever being hand-edited. The appended namespaces come from ground-truth
-    /// <c>.framework</c> provenance rather than a hand-maintained list, so the startup
+    /// appended set carries the namespaces of referenced Apple SDK types derived from authoritative
+    /// header provenance, so a framework outside the baseline (e.g. StoreKit) resolves without the list
+    /// ever being hand-edited. The appended namespaces come from ground-truth <c>.framework</c>
+    /// provenance rather than a hand-maintained list, so the startup
     /// <see cref="ReferencedAppleFrameworkModules"/> registry assertion (which guards the baseline
     /// against typos/staleness) does not apply to them.
     /// </summary>
@@ -130,41 +130,48 @@ internal static class ObjCUsingsEmitter
         StringBuilder sb, PlatformInfo? platformInfo, IReadOnlySet<string> referencedAppleNamespaces)
     {
         EmitFiltered(sb, ApiDefinitionUsings, platformInfo);
-
-        var baseline = new HashSet<string>(ApiDefinitionUsings, StringComparer.Ordinal);
-        foreach (var ns in referencedAppleNamespaces
-                     .Where(ns => !baseline.Contains(ns))
-                     .OrderBy(ns => ns, StringComparer.Ordinal))
-        {
-            if (IsAvailable(ns, platformInfo))
-                sb.AppendLine($"using {ns};");
-        }
+        AppendProvenanceUsings(sb, ApiDefinitionUsings, referencedAppleNamespaces, platformInfo);
     }
 
     /// <summary>
-    /// Collects the owning .NET namespaces of the Apple SDK class/protocol types referenced anywhere
-    /// in <paramref name="module"/>'s ApiDefinition surface (superclasses, conformances, property and
-    /// method signatures), using the parser's name→namespace provenance map. The walk is intentionally
-    /// a superset of what actually emits — it ignores per-member resolvability gating, because emitting
-    /// a <c>using</c> for a referenced-but-skipped type is harmless (an unused using is not an error)
-    /// while omitting one a member needs is a CS0246. Matching is raw-ObjC-name to raw-ObjC-name
-    /// (the map keys and the model type names are both pre-mapping ObjC identifiers), so it needs none
-    /// of the acronym-reversal the resolvability gate performs against mapped C# names. Returns an empty
-    /// set when no provenance is available (e.g. -fmodules mode).
+    /// Collects the owning .NET namespaces of the Apple SDK types referenced anywhere on the ObjC
+    /// module surface that can land in generated C# (ApiDefinition, StructsAndEnums, BgenDelegates):
+    /// classes/protocols/categories, free functions/constants, struct fields, enum underlying types,
+    /// and typedefs (including block params/return). Uses the parser's name→namespace provenance map.
+    /// The walk is intentionally a superset of what actually emits — it ignores per-member resolvability
+    /// gating, because emitting a <c>using</c> for a referenced-but-skipped type is harmless (an unused
+    /// using is not an error) while omitting one a member needs is a CS0246. Matching is raw-ObjC-name
+    /// to raw-ObjC-name (the map keys and the model type names are both pre-mapping ObjC identifiers),
+    /// so it needs none of the acronym-reversal the resolvability gate performs against mapped C# names.
+    /// Returns an empty set when no provenance is available (e.g. -fmodules mode).
     /// </summary>
-    internal static IReadOnlySet<string> CollectReferencedApiDefinitionNamespaces(
+    internal static IReadOnlySet<string> CollectReferencedNamespaces(
         ObjCModule module, IReadOnlyDictionary<string, string>? appleSdkTypeNamespaces)
     {
         var result = new HashSet<string>(StringComparer.Ordinal);
-        if (appleSdkTypeNamespaces is null || appleSdkTypeNamespaces.Count == 0)
+        var enumNamespaces = module.AppleSdkEnumNamespaces;
+        var hasTypeMap = appleSdkTypeNamespaces is { Count: > 0 };
+        var hasEnumMap = enumNamespaces is { Count: > 0 };
+        // Proceed when either provenance channel has entries: class/protocol map, or the
+        // usings-only enum map (e.g. MTLPixelFormat → Metal with no AppleSdkTypeNamespaces).
+        if (!hasTypeMap && !hasEnumMap)
             return result;
 
         void RecordName(string? rawName)
         {
-            if (rawName != null
-                && appleSdkTypeNamespaces.TryGetValue(rawName, out var ns)
+            if (rawName is null) return;
+            if (hasTypeMap
+                && appleSdkTypeNamespaces!.TryGetValue(rawName, out var ns)
                 && ns.Length > 0)
+            {
                 result.Add(ns);
+                return;
+            }
+            // Fallback: Apple SDK enum provenance (usings-only; not in the resolvability map).
+            if (hasEnumMap
+                && enumNamespaces!.TryGetValue(rawName, out var enumNs)
+                && enumNs.Length > 0)
+                result.Add(enumNs);
         }
 
         void RecordType(ObjCTypeRef? type)
@@ -218,18 +225,69 @@ internal static class ObjCUsingsEmitter
         foreach (var c in module.Constants)
             RecordType(c.Type);
 
+        // StructsAndEnums.cs surfaces: struct fields, enum underlying types, and typedefs
+        // (block typedefs also feed BgenDelegates.cs). Same provenance map as ApiDefinition so a
+        // field typed MTLPixelFormat (Metal) or a block param typed SKPaymentTransaction gets its
+        // owning `using` without hand-editing the baseline arrays.
+        foreach (var s in module.Structs)
+        {
+            foreach (var field in s.Fields)
+                RecordType(field.Type);
+        }
+        foreach (var e in module.Enums)
+            RecordType(e.UnderlyingType);
+        foreach (var t in module.Typedefs)
+            RecordType(t.UnderlyingType);
+
         return result;
     }
 
-    public static void EmitStructsAndEnumsHeader(StringBuilder sb, PlatformInfo? platformInfo)
-        => EmitFiltered(sb, StructsAndEnumsUsings, platformInfo);
+    /// <summary>
+    /// Emits the StructsAndEnums.cs <c>using</c> header: curated baseline plus provenance-derived
+    /// namespaces not already present, platform-gated identically to ApiDefinition.
+    /// </summary>
+    public static void EmitStructsAndEnumsHeader(
+        StringBuilder sb, PlatformInfo? platformInfo, IReadOnlySet<string> referencedAppleNamespaces)
+    {
+        EmitFiltered(sb, StructsAndEnumsUsings, platformInfo);
+        AppendProvenanceUsings(sb, StructsAndEnumsUsings, referencedAppleNamespaces, platformInfo);
+    }
 
-    public static void EmitBgenDelegatesHeader(StringBuilder sb, PlatformInfo? platformInfo)
-        => EmitFiltered(sb, BgenDelegatesUsings, platformInfo);
+    /// <summary>
+    /// Emits the BgenDelegates.cs <c>using</c> header: curated baseline plus provenance-derived
+    /// namespaces not already present, platform-gated identically to ApiDefinition.
+    /// </summary>
+    public static void EmitBgenDelegatesHeader(
+        StringBuilder sb, PlatformInfo? platformInfo, IReadOnlySet<string> referencedAppleNamespaces)
+    {
+        EmitFiltered(sb, BgenDelegatesUsings, platformInfo);
+        AppendProvenanceUsings(sb, BgenDelegatesUsings, referencedAppleNamespaces, platformInfo);
+    }
 
     private static void EmitFiltered(StringBuilder sb, string[] usings, PlatformInfo? platformInfo)
     {
         foreach (var ns in usings)
+        {
+            if (IsAvailable(ns, platformInfo))
+                sb.AppendLine($"using {ns};");
+        }
+    }
+
+    /// <summary>
+    /// Appends provenance-derived <c>using</c> directives that are not already in
+    /// <paramref name="baselineUsings"/>, sorted, and platform-gated via <see cref="IsAvailable"/>.
+    /// Shared by all three ObjC header emitters so the additive branch cannot drift.
+    /// </summary>
+    private static void AppendProvenanceUsings(
+        StringBuilder sb,
+        string[] baselineUsings,
+        IReadOnlySet<string> referencedAppleNamespaces,
+        PlatformInfo? platformInfo)
+    {
+        var baseline = new HashSet<string>(baselineUsings, StringComparer.Ordinal);
+        foreach (var ns in referencedAppleNamespaces
+                     .Where(ns => !baseline.Contains(ns))
+                     .OrderBy(ns => ns, StringComparer.Ordinal))
         {
             if (IsAvailable(ns, platformInfo))
                 sb.AppendLine($"using {ns};");

@@ -46,15 +46,63 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Computes the emitted name of the case-discriminator property (normally "Tag").
+        /// A property literally named "Tag" is illegal when the enclosing enum's own C# type
+        /// name is also "Tag" (CS0542: a member cannot share the name of its enclosing type),
+        /// which happens for a Swift enum named <c>Tag</c> (e.g. rive-ios <c>RiveLog.Tag</c>).
+        /// In that case a deterministic non-colliding fallback is chosen, guarded against the
+        /// nested <c>CaseTag</c> enum and every case-derived member name so the fallback can
+        /// never itself collide.
+        /// </summary>
+        internal static string GetTagPropertyName(EnumDecl enumDecl, string typeNameWithGenerics, Dictionary<string, string>? caseNameMap, ITypeDatabase? typeDatabase = null)
+        {
+            const string preferred = "Tag";
+
+            // The enclosing C# type's simple name is typeNameWithGenerics minus any generic list.
+            var simpleName = typeNameWithGenerics;
+            var lt = simpleName.IndexOf('<');
+            if (lt >= 0)
+                simpleName = simpleName[..lt];
+
+            if (!string.Equals(simpleName, preferred, StringComparison.Ordinal))
+                return preferred;
+
+            // CS0542 collision: the enclosing type is itself named "Tag". Choose a deterministic
+            // alternative that avoids the type name, the nested CaseTag enum, every case member name
+            // (case factories and TryGet{Case} helpers are not renamed around this property), and the
+            // emitted leaf name of every nested type (a nested type cannot take a Value-suffix rename,
+            // so the discriminator must dodge it). User properties and methods, by contrast, yield TO
+            // this name — a colliding property is recovered with the Value-suffix idiom in the caller
+            // and a colliding method is renamed via the method-name-shaping propertyNames set — so they
+            // are deliberately absent from this guard set.
+            var reserved = new HashSet<string>(StringComparer.Ordinal) { simpleName, "CaseTag" };
+            foreach (var c in enumDecl.Cases)
+            {
+                var caseName = NameProvider.GetCaseName(c.Name, caseNameMap);
+                reserved.Add(caseName);
+                if (c.HasAssociatedValues)
+                    reserved.Add($"TryGet{caseName}");
+            }
+            foreach (var nestedType in enumDecl.Types)
+                reserved.Add(NameProvider.GetEmittedNestedTypeLeafName(nestedType, typeDatabase));
+
+            var candidate = "TagValue";
+            var n = 2;
+            while (reserved.Contains(candidate))
+                candidate = $"Tag{n++}";
+            return candidate;
+        }
+
+        /// <summary>
         /// Emits the Tag property that returns the current case of the enum.
         /// Uses ValueWitnessTable->GetEnumTag to determine the case.
         /// </summary>
-        private void EmitTagProperty(CSharpWriter csWriter, EnumDecl enumDecl, string typeNameWithGenerics)
+        private void EmitTagProperty(CSharpWriter csWriter, EnumDecl enumDecl, string typeNameWithGenerics, string tagPropertyName)
         {
             csWriter.WriteLine("/// <summary>");
             csWriter.WriteLine("/// Gets the current case of this enum instance.");
             csWriter.WriteLine("/// </summary>");
-            csWriter.WriteLine("public CaseTag Tag");
+            csWriter.WriteLine($"public CaseTag {tagPropertyName}");
             csWriter.WriteLine("{");
             csWriter.Indent++;
             csWriter.WriteLine("get");
@@ -91,7 +139,7 @@ namespace BindingsGeneration
             csWriter.Indent--;
             csWriter.WriteLine("}"); // get
             csWriter.Indent--;
-            csWriter.WriteLine("}"); // Tag
+            csWriter.WriteLine($"}}"); // {tagPropertyName}
             csWriter.WriteLine();
         }
 
@@ -99,7 +147,7 @@ namespace BindingsGeneration
         /// Emits a TryGet method for an enum case with associated values.
         /// The method extracts the associated value(s) if the enum is in the specified case.
         /// </summary>
-        private void EmitTryGetMethod(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ITypeDatabase typeDatabase, string typeNameWithGenerics, Dictionary<string, string>? caseNameMap = null, ModuleEmissionContext? emissionCtx = null)
+        private void EmitTryGetMethod(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ITypeDatabase typeDatabase, string typeNameWithGenerics, string tagPropertyName, Dictionary<string, string>? caseNameMap = null, ModuleEmissionContext? emissionCtx = null)
         {
             var caseName = caseDecl.Name;
             var capitalizedName = NameProvider.GetCaseName(caseName, caseNameMap);
@@ -111,14 +159,14 @@ namespace BindingsGeneration
             // multi-value payload requires.
             if (caseDecl.AssociatedValues.Count == 1 && caseDecl.AssociatedValues[0] is TupleTypeSpec tupleSpec && tupleSpec.Elements.Count > 1)
             {
-                EmitTryGetMethodForTuple(csWriter, enumDecl, caseDecl, tupleSpec, typeDatabase, typeNameWithGenerics, caseNameMap, emissionCtx);
+                EmitTryGetMethodForTuple(csWriter, enumDecl, caseDecl, tupleSpec, typeDatabase, typeNameWithGenerics, tagPropertyName, caseNameMap, emissionCtx);
                 return;
             }
 
             if (caseDecl.AssociatedValues.Count > 1)
             {
                 var synthesizedTuple = new TupleTypeSpec(caseDecl.AssociatedValues);
-                EmitTryGetMethodForTuple(csWriter, enumDecl, caseDecl, synthesizedTuple, typeDatabase, typeNameWithGenerics, caseNameMap, emissionCtx);
+                EmitTryGetMethodForTuple(csWriter, enumDecl, caseDecl, synthesizedTuple, typeDatabase, typeNameWithGenerics, tagPropertyName, caseNameMap, emissionCtx);
                 return;
             }
 
@@ -217,7 +265,7 @@ namespace BindingsGeneration
                 csWriter.Indent++;
 
                 // Check if we're in the right case
-                csWriter.WriteLine($"if (Tag != CaseTag.{capitalizedName})");
+                csWriter.WriteLine($"if ({tagPropertyName} != CaseTag.{capitalizedName})");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
                 csWriter.WriteLine("value = default;");
@@ -318,7 +366,7 @@ namespace BindingsGeneration
         /// Generates multiple out parameters, one for each tuple element.
         /// Uses TupleTypeMetadata to get element offsets at runtime.
         /// </summary>
-        private void EmitTryGetMethodForTuple(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, TupleTypeSpec tupleSpec, ITypeDatabase typeDatabase, string typeNameWithGenerics, Dictionary<string, string>? caseNameMap = null, ModuleEmissionContext? emissionCtx = null)
+        private void EmitTryGetMethodForTuple(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, TupleTypeSpec tupleSpec, ITypeDatabase typeDatabase, string typeNameWithGenerics, string tagPropertyName, Dictionary<string, string>? caseNameMap = null, ModuleEmissionContext? emissionCtx = null)
         {
             var caseName = caseDecl.Name;
             var capitalizedName = NameProvider.GetCaseName(caseName, caseNameMap);
@@ -416,7 +464,7 @@ namespace BindingsGeneration
                 csWriter.Indent++;
 
                 // Check if we're in the right case
-                csWriter.WriteLine($"if (Tag != CaseTag.{capitalizedName})");
+                csWriter.WriteLine($"if ({tagPropertyName} != CaseTag.{capitalizedName})");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
                 foreach (var (_, _, name, _) in parameters)

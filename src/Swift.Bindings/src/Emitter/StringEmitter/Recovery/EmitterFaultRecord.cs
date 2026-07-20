@@ -49,6 +49,16 @@ internal enum EmitterFaultOrigin
     /// wording says the member was isolated by search rather than attributed.
     /// </summary>
     BisectionIsolatedWithdrawal,
+
+    /// <summary>
+    /// The declaration was withdrawn before emission began, because an input node it depends on was
+    /// quarantined at ingestion (a malformed ABI record — e.g. a bindable type missing its Swift
+    /// mangled name). No exception occurred and neither compile ran: the withdrawal is a proven-closure
+    /// consequence of a bad input, not a generator or toolchain failure. The tombstone/report wording
+    /// names the ingestion quarantine and <see cref="SkipCauseClassifier"/> attributes it to the input
+    /// configuration at the parse stage, so a degraded binding honestly reports which inputs it dropped.
+    /// </summary>
+    IngestionWithdrawal,
 }
 
 /// <summary>
@@ -170,6 +180,14 @@ internal readonly record struct EmitterFaultRecord
     internal const string BisectionWithdrawalDetailsPrefix = "Isolated by bounded bisection: ";
 
     /// <summary>
+    /// How an ingestion-quarantine withdrawal details string begins. Distinct from the verify-recover
+    /// prefixes so a triager (and <see cref="SkipCauseClassifier"/>) can tell that this member was not
+    /// withdrawn by any emit-time verifier — it was withdrawn because a malformed input node it depends
+    /// on was quarantined at ingestion, before emission ran.
+    /// </summary>
+    internal const string IngestionWithdrawalDetailsPrefix = "Withdrawn by ingestion quarantine: ";
+
+    /// <summary>
     /// The details string recorded on the skip row. Reads as a sentence a triager can act on. For an
     /// emitter exception it keeps the fingerprint so two rows can be compared without re-running the
     /// generator; for a recovery withdrawal it says plainly that the unit was withdrawn to make the
@@ -183,6 +201,7 @@ internal readonly record struct EmitterFaultRecord
             EmitterFaultOrigin.CSharpRecoveryWithdrawal => $"{CSharpWithdrawalDetailsPrefix}{Message}",
             EmitterFaultOrigin.AbiRecoveryWithdrawal => $"{AbiWithdrawalDetailsPrefix}{Message}",
             EmitterFaultOrigin.BisectionIsolatedWithdrawal => $"{BisectionWithdrawalDetailsPrefix}{Message}",
+            EmitterFaultOrigin.IngestionWithdrawal => $"{IngestionWithdrawalDetailsPrefix}{Message}",
             _ => $"Emitter threw {ExceptionType} at {Fingerprint}: {Message}",
         };
 

@@ -2603,6 +2603,62 @@ public class ClangAstParserTests
         Assert.Null(module.AppleSdkTypeNamespaces);
     }
 
+    [Fact]
+    public void Parse_AppleSdkEnumNamespaces_CollectsFromSdkHeaders_SeparateFromTypeNamespaces()
+    {
+        // Apple SDK EnumDecl (NS_ENUM) names must land in AppleSdkEnumNamespaces (usings-only),
+        // NOT AppleSdkTypeNamespaces (resolvability keys). MTLPixelFormat from Metal is the
+        // rive-ios CS0246 canary: a struct field typed MTLPixelFormat needs `using Metal;`
+        // without flipping ApiDefinition resolvability for the enum name.
+        var sdkEnum = """
+        {
+            "kind": "EnumDecl",
+            "name": "MTLPixelFormat",
+            "loc": { "file": "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk/System/Library/Frameworks/Metal.framework/Headers/MTLPixelFormat.h" },
+            "inner": [
+                {
+                    "kind": "EnumConstantDecl",
+                    "name": "MTLPixelFormatInvalid",
+                    "type": { "qualType": "MTLPixelFormat" }
+                }
+            ]
+        }
+        """;
+
+        // Framework-local struct so the TU is not empty of local surface.
+        var localStruct = $$"""
+        {
+            "kind": "RecordDecl",
+            "name": "RiveRenderConfig",
+            {{MakeLoc()}},
+            "inner": [
+                {
+                    "kind": "FieldDecl",
+                    "name": "pixelFormat",
+                    "type": { "qualType": "MTLPixelFormat" }
+                }
+            ]
+        }
+        """;
+
+        var json = WrapInTranslationUnit($"{sdkEnum},{localStruct}");
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        Assert.Single(module.Structs);
+        Assert.Equal("RiveRenderConfig", module.Structs[0].Name);
+
+        // Enum channel: MTLPixelFormat → Metal
+        Assert.NotNull(module.AppleSdkEnumNamespaces);
+        Assert.True(module.AppleSdkEnumNamespaces!.TryGetValue("MTLPixelFormat", out var metalNs));
+        Assert.Equal("Metal", metalNs);
+
+        // Resolvability map must NOT contain the enum name (separate channel).
+        Assert.True(
+            module.AppleSdkTypeNamespaces is null
+            || !module.AppleSdkTypeNamespaces.ContainsKey("MTLPixelFormat"),
+            "MTLPixelFormat must not enter AppleSdkTypeNamespaces (resolvability).");
+    }
+
     // --- NS_SWIFT_NAME capture ---
 
     [Fact]

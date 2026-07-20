@@ -35,6 +35,15 @@ public sealed record ObjCModule
     /// </summary>
     public IReadOnlyDictionary<string, string>? AppleSdkTypeNamespaces { get; init; }
 
+    /// <summary>
+    /// Apple SDK ENUM name → owning .NET namespace. A usings-only provenance channel, SEPARATE
+    /// from <see cref="AppleSdkTypeNamespaces"/> (whose keys drive ApiDefinition resolvability):
+    /// enum names must NOT affect resolvability, only supply the owning <c>using</c> for a struct
+    /// field / function surface that references an Apple SDK enum (e.g. MTLPixelFormat → Metal).
+    /// Null when none.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? AppleSdkEnumNamespaces { get; init; }
+
     public int TotalDeclarations =>
         Classes.Count + Protocols.Count + Enums.Count + Structs.Count +
         Functions.Count + Constants.Count + Typedefs.Count;

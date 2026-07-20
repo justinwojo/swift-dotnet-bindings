@@ -322,6 +322,12 @@ namespace BindingsGeneration
                 }
             }
 
+            // Name of the case-discriminator property. Normally "Tag", but renamed deterministically
+            // when the enclosing enum's own C# type name is "Tag" (CS0542 — a member cannot share the
+            // enclosing type's name). Computed once so the property, its TryGet readers, and the
+            // name-reservation sets below all agree.
+            var tagPropertyName = GetTagPropertyName(enumDecl, typeNameWithGenerics, caseNameMap, env.TypeDatabase);
+
             // Recover enum INSTANCE computed properties whose projected C# name collides with an
             // emitted case-constructor name. Swift legally allows a case and a same-named computed
             // property in one enum (e.g. SharePhoto.Source's `.image` case + instance `image`
@@ -337,7 +343,12 @@ namespace BindingsGeneration
             // accessors, and static recovery has no runtime coverage — the fail-closed skip at the
             // property loop below still fires for it because no rename is recorded here).
             var enumPropertyRenames = new Dictionary<string, string>();
-            if (emittedCaseConstructorNames.Count > 0)
+            // Runs whenever the enum lowers to a class carrying members that a property can collide
+            // with: emitted case constructors (the Value-suffix case recovery) OR the synthesized
+            // case-discriminator property (emitted for any enum with cases — the `tag`-property
+            // recovery). A no-payload class-enum has zero case constructors but still emits the
+            // discriminator, so gate on cases, not on the case-constructor count.
+            if (emittedCaseConstructorNames.Count > 0 || enumDecl.Cases.Any())
             {
                 // Names already claimed by cases, tags, TryGet helpers, nested types, and other
                 // properties — the disambiguated property name must avoid every one of them.
@@ -347,7 +358,7 @@ namespace BindingsGeneration
                 if (enumDecl.Cases.Any())
                 {
                     reservedNames.Add("CaseTag");
-                    reservedNames.Add("Tag");
+                    reservedNames.Add(tagPropertyName);
                 }
                 foreach (var assocCase in enumDecl.Cases.Where(c => c.HasAssociatedValues))
                     reservedNames.Add($"TryGet{NameProvider.GetCaseName(assocCase.Name, caseNameMap)}");
@@ -374,7 +385,13 @@ namespace BindingsGeneration
                         continue;
                     var collidingName = NameProvider.GetFinalMemberName(
                         NameProvider.GetPropertyName(propertyDecl.Name, enumDecl.Name), propertyRenames);
-                    if (!emittedCaseConstructorNames.Contains(collidingName))
+                    // Recover a property whose projected C# name collides with an emitted case
+                    // constructor OR with the synthesized case-discriminator property. The latter is
+                    // the `tag`-property-on-an-enum shape: an enum property named `tag` projects to
+                    // the discriminator's name ("Tag", or "TagValue" when the enum itself is named
+                    // Tag), which the discriminator claims and never yields — so the property must take
+                    // the Value suffix or both emit the same member (CS0102).
+                    if (!emittedCaseConstructorNames.Contains(collidingName) && collidingName != tagPropertyName)
                         continue;
                     var candidate = $"{collidingName}Value";
                     var suffix = 2;
@@ -422,13 +439,13 @@ namespace BindingsGeneration
             if (enumDecl.Cases.Any())
             {
                 EmitCaseTagEnum(csWriter, enumDecl, caseNameMap);
-                EmitTagProperty(csWriter, enumDecl, typeNameWithGenerics);
+                EmitTagProperty(csWriter, enumDecl, typeNameWithGenerics, tagPropertyName);
             }
 
             // Emit TryGet methods for cases with associated values
             foreach (var caseDecl in enumDecl.Cases.Where(c => c.HasAssociatedValues))
             {
-                EmitTryGetMethod(csWriter, enumDecl, caseDecl, env.TypeDatabase, typeNameWithGenerics, caseNameMap, context.GetEmissionContext());
+                EmitTryGetMethod(csWriter, enumDecl, caseDecl, env.TypeDatabase, typeNameWithGenerics, tagPropertyName, caseNameMap, context.GetEmissionContext());
             }
 
             // Add a blank line between cases and other members
@@ -496,7 +513,7 @@ namespace BindingsGeneration
             }
 
             // Emit ISwiftObject implementation
-            var iSwiftObjectWriter = new EnumISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, enumDecl, typeNameWithGenerics, pinvokeHelperContext, swiftWriter, context.GetEmissionContext(), hasBoxable: interfaces.Contains("Swift.Runtime.IExistentialBoxable"));
+            var iSwiftObjectWriter = new EnumISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, enumDecl, typeNameWithGenerics, tagPropertyName, pinvokeHelperContext, swiftWriter, context.GetEmissionContext(), hasBoxable: interfaces.Contains("Swift.Runtime.IExistentialBoxable"));
             iSwiftObjectWriter.WriteEnumImplementation();
 
             // Collect all emitted member names for method/property collision detection.
@@ -519,7 +536,7 @@ namespace BindingsGeneration
             if (enumDecl.Cases.Any())
             {
                 propertyNames.Add("CaseTag");
-                propertyNames.Add("Tag");
+                propertyNames.Add(tagPropertyName);
             }
             foreach (var caseDecl in enumDecl.Cases.Where(c => c.HasAssociatedValues))
                 propertyNames.Add($"TryGet{NameProvider.GetCaseName(caseDecl.Name, caseNameMap)}");

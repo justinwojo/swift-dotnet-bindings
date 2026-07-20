@@ -994,6 +994,13 @@ partial class Build
                 // not just the happy generation. Fail-closed on every assertion by construction.
                 RunResilienceKitchenGate();
 
+                // Input-graph closure preflight gate: build a two-module fixture (IngestionBridge, which
+                // @_exported-imports IngestionBase) and assert that a CLOSED graph binds while a MISSING
+                // transitive fails EARLY with a structured SWIFTBIND119 obligation (no SWIFTBIND111, no
+                // artifacts). Runs unconditionally on every --compile-only so CI proves the primary
+                // module's import graph is closed before ABI parsing. Fail-closed on every assertion.
+                RunIngestionKitchenGate();
+
                 // Layer B trend gate: parse skip markers from generated `.cs`
                 // and diff against `build/baselines/skip-surface-baseline.json`. Gated on
                 // --skip-surface so it runs only when explicitly requested

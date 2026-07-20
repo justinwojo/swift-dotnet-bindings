@@ -82,6 +82,8 @@ public static class ClangAstParser
         var categories = new List<ObjCCategoryDecl>();
         // Apple SDK class/protocol name → owning .NET namespace (empty when none derivable).
         var appleSdkTypeNamespaces = new Dictionary<string, string>(StringComparer.Ordinal);
+        // Apple SDK ENUM name → owning .NET namespace. Usings-only — never feeds resolvability.
+        var appleSdkEnumNamespaces = new Dictionary<string, string>(StringComparer.Ordinal);
 
         // Normalize headers path for comparison
         frameworkHeadersPath = frameworkHeadersPath.TrimEnd('/');
@@ -167,6 +169,17 @@ public static class ClangAstParser
                         else
                             appleSdkTypeNamespaces.TryAdd(name, "");
                     }
+                    continue;
+                }
+                else if (kind == "EnumDecl" && IsAppleSdkPath(nodeResolvedFile))
+                {
+                    // Usings-only channel: Apple SDK enums (e.g. MTLPixelFormat from Metal) are
+                    // referenced from struct fields / free functions but must NOT enter
+                    // appleSdkTypeNamespaces — those keys drive ApiDefinition resolvability.
+                    var name = GetName(node);
+                    if (name != null
+                        && AppleFrameworkRegistry.TryResolveFrameworkNamespaceFromHeaderPath(nodeResolvedFile, out var ns))
+                        appleSdkEnumNamespaces[name] = ns;
                     continue;
                 }
                 else
@@ -372,7 +385,8 @@ public static class ClangAstParser
             // when a system header defines the same alias name.
             ResolutionTypedefs = [.. systemTypedefs, .. typedefs],
             Categories = dedupedCategories,
-            AppleSdkTypeNamespaces = appleSdkTypeNamespaces.Count > 0 ? appleSdkTypeNamespaces : null
+            AppleSdkTypeNamespaces = appleSdkTypeNamespaces.Count > 0 ? appleSdkTypeNamespaces : null,
+            AppleSdkEnumNamespaces = appleSdkEnumNamespaces.Count > 0 ? appleSdkEnumNamespaces : null,
         };
 
         } // try

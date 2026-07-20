@@ -47,6 +47,99 @@ public class OperatorHandlerOutputTests
     }
 
     [Fact]
+    public void ValidateAndEmitPairs_HeterogeneousEquality_SynthesizedInequalityMatchesOperandTypes()
+    {
+        // Regression: a heterogeneous `static func ==(lhs: Point, rhs: Other) -> Bool` previously
+        // synthesized a MISMATCHED `!=(Point left, Point right)` because both operands were hardcoded
+        // to the containing type. C# requires operator != to declare the SAME operand types as ==,
+        // so the mismatch is CS0216 — a hard error that breaks every consumer of the binding. The
+        // synthesized partner must project the SOURCE operator's operand types, not the parent twice.
+        var typeDatabase = CreateTypeDatabaseWithTwoStructs();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateStructDecl("Point", moduleDecl);
+        var op = CreateBinaryOperator("==", parentType, moduleDecl, "Swift.Bool",
+            "TestModule.Point", "TestModule.Other");
+        var handler = new OperatorHandler(new NullLogger<OperatorHandler>());
+
+        var writer = new StringWriter();
+        var csWriter = new CSharpWriter(writer);
+        handler.ValidateAndEmitPairs(csWriter, new List<OperatorDecl> { op }, "Point",
+            new HashSet<string> { "==" }, typeDatabase);
+
+        var output = writer.ToString();
+        // The synthesized != must carry the heterogeneous operand list, matching the source ==.
+        // Operands are rendered with their projected (module-qualified) public type name, exactly as
+        // the primary operator renders them (OperatorHandler.EmitOperatorWrapper), so == and != agree.
+        Assert.Contains("public static bool operator !=(TestModule.Point left, TestModule.Other right)", output);
+        // It must NOT collapse the second operand to the parent type (the CS0216 bug).
+        Assert.DoesNotContain("operator !=(TestModule.Point left, TestModule.Point right)", output);
+        Assert.Contains("return !(left == right);", output);
+    }
+
+    [Fact]
+    public void ValidateAndEmitPairs_HomogeneousEquality_WithTypeDatabase_StillMatchesParentOnBothSides()
+    {
+        // The common homogeneous operator must be unchanged by the operand-projection path: a
+        // `==(Point, Point)` still synthesizes `!=(Point left, Point right)` when a type database
+        // is threaded through (the path real bindings take).
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateStructDecl("Point", moduleDecl);
+        var op = CreateBinaryOperator("==", parentType, moduleDecl, "Swift.Bool");
+        var handler = new OperatorHandler(new NullLogger<OperatorHandler>());
+
+        var writer = new StringWriter();
+        var csWriter = new CSharpWriter(writer);
+        handler.ValidateAndEmitPairs(csWriter, new List<OperatorDecl> { op }, "Point",
+            new HashSet<string> { "==" }, typeDatabase);
+
+        var output = writer.ToString();
+        Assert.Contains("public static bool operator !=(TestModule.Point left, TestModule.Point right)", output);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithTwoStructs()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+                MetadataAccessor = "$sSbMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        // Both operand types live in the same TestModule the operator names.
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Point"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+                MetadataAccessor = "$s10TestModule5PointVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Other"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Other"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Other"),
+                MetadataAccessor = "$s10TestModule5OtherVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(module);
+        return typeDatabase;
+    }
+
+    [Fact]
     public void EmitOperator_UnsupportedSymbol_EmitsNothing()
     {
         var typeDatabase = CreateTypeDatabase();

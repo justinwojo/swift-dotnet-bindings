@@ -56,6 +56,8 @@ public static class BindingsGeneratorCommand
         var moduleDatabases = parseResult.GetValueForOption(options.ModuleDatabase);
         var noAutoDetect = parseResult.GetValueForOption(options.NoAutoDetect);
         var noVerifyCSharp = parseResult.GetValueForOption(options.NoVerifyCSharp);
+        var verificationPackageFeed = parseResult.GetValueForOption(options.VerificationPackageFeed);
+        var emitInputGraphPath = parseResult.GetValueForOption(options.EmitInputGraph);
         var keepBuiltinDatabase = parseResult.GetValueForOption(options.KeepBuiltinDatabase);
         var objcForced = parseResult.GetValueForOption(options.ObjC);
         var skipWrapperCompilation = parseResult.GetValueForOption(options.SkipWrapperCompilation);
@@ -975,7 +977,13 @@ public static class BindingsGeneratorCommand
             // diverges from an uncached run. Until the key provably covers those inputs, requiring an
             // explicit root confines the cache to an operator who owns the environment and its lifetime;
             // completing the key so it can default on is tracked in not-planned.md.
-            var verificationCache = csharpRepoRoot == null ? VerificationCache.CreateIfEnabled(logger) : null;
+            // A run-scoped verification feed is NOT part of the fingerprint key (the key covers the emitted
+            // .cs, the csproj, and the ABI/toolchain/generator/denylist inputs — not the feed's contents),
+            // so a cached verdict could go stale the moment a sibling is (re)packed into the feed. Disable
+            // the cache whenever a feed is in play rather than serve a verdict the key cannot vouch for.
+            var verificationCache = csharpRepoRoot == null && string.IsNullOrEmpty(verificationPackageFeed)
+                ? VerificationCache.CreateIfEnabled(logger)
+                : null;
             // The generator's own module version id: rebuilding the generator changes it, so any generator
             // edit invalidates every cached verdict by key construction (no stale verdict after a rebuild).
             var generatorVersion = System.Reflection.Assembly
@@ -1081,14 +1089,33 @@ public static class BindingsGeneratorCommand
                     }
 
                     var freshResult = MsbuildSarifCSharpVerifier.Verify(
-                        csharpCsprojPath, new SystemCommandRunner(), csharpRepoRoot, logger: logger);
+                        csharpCsprojPath, new SystemCommandRunner(), csharpRepoRoot, logger: logger,
+                        verificationPackageFeed: verificationPackageFeed);
                     verificationCache.Store(fingerprint, freshResult);
                     return freshResult;
                 }
 
                 return MsbuildSarifCSharpVerifier.Verify(
-                    csharpCsprojPath, new SystemCommandRunner(), csharpRepoRoot, logger: logger);
+                    csharpCsprojPath, new SystemCommandRunner(), csharpRepoRoot, logger: logger,
+                    verificationPackageFeed: verificationPackageFeed);
             };
+        }
+
+        // Advisory-only sidecar: the dependency-first module order + real import edges for an
+        // orchestrator that packs multi-module siblings into a run-scoped verification feed. Never
+        // fails generation — a write error is logged and ignored.
+        if (!string.IsNullOrEmpty(emitInputGraphPath))
+        {
+            WriteInputGraphSidecar(
+                emitInputGraphPath,
+                primaryModuleName: resolution?.ModuleName ?? directModuleName,
+                primarySwiftInterfacePath: swiftInterface,
+                primaryDylibPath: dylibPath,
+                primaryAbiJsonPath: swiftAbiPath,
+                primaryTbdPath: tbdPath,
+                primaryXcframeworkPath: xcframeworkPath,
+                resolvedDependencies: resolvedDependencies,
+                logger: logger);
         }
 
         var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, out var depModuleCollisions, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase, descriptorAssemblyNameOverride: assemblyNameOverride, swiftRuntimeVersion: swiftRuntimeVersion, objcBridgeRecords: mixedBridgeRecords, compileWrapper: verifyRecoverCompile, verifyRecoverCsharp: verifyRecoverCsharp);
@@ -1831,7 +1858,7 @@ public static class BindingsGeneratorCommand
                     if (!VerifyGeneratedCSharp(
                             Path.Combine(outputDirectory,
                                 $"{platformInfo.GetDefaultSwiftPackageId(resolution.ModuleName)}.csproj"),
-                            logger))
+                            logger, verificationPackageFeed))
                     {
                         context.ExitCode = 1;
                         return;
@@ -1962,7 +1989,7 @@ public static class BindingsGeneratorCommand
                     if (!VerifyGeneratedCSharp(
                             Path.Combine(outputDirectory,
                                 $"{platformInfo.GetDefaultSwiftPackageId(directModuleName)}.csproj"),
-                            logger))
+                            logger, verificationPackageFeed))
                     {
                         context.ExitCode = 1;
                         return;
@@ -1988,7 +2015,7 @@ public static class BindingsGeneratorCommand
     /// verifier-internal errors are logged and pass through — a healthy binding is never failed for
     /// a cause that is not its own C#.
     /// </summary>
-    private static bool VerifyGeneratedCSharp(string csprojPath, ILogger logger)
+    private static bool VerifyGeneratedCSharp(string csprojPath, ILogger logger, string? verificationPackageFeed = null)
     {
         try
         {
@@ -2000,7 +2027,8 @@ public static class BindingsGeneratorCommand
 
             var repoRoot = MsbuildSarifCSharpVerifier.TryFindSwiftBindingsRepoRoot();
             var verification = MsbuildSarifCSharpVerifier.Verify(
-                csprojPath, new SystemCommandRunner(), repoRoot, logger: logger);
+                csprojPath, new SystemCommandRunner(), repoRoot, logger: logger,
+                verificationPackageFeed: verificationPackageFeed);
 
             switch (verification.Outcome)
             {
@@ -2035,6 +2063,72 @@ public static class BindingsGeneratorCommand
                 "C# verification could not run ({Message}); not failing publication on a verifier-internal error.",
                 ex.Message);
             return true;
+        }
+    }
+
+    /// <summary>
+    /// Writes the advisory input-graph sidecar: the supplied modules in dependency-first order and their
+    /// real (import-derived) inter-module dependencies, as JSON. An orchestrator that runs the generator
+    /// once per module unions these across a corpus to order a run-scoped verification feed — pack each
+    /// binding feed-first, then verify the dependent against a populated feed. Advisory only: any failure
+    /// is logged and swallowed so it can never fail a generation.
+    /// </summary>
+    private static void WriteInputGraphSidecar(
+        string sidecarPath,
+        string? primaryModuleName,
+        string? primarySwiftInterfacePath,
+        string? primaryDylibPath,
+        string? primaryAbiJsonPath,
+        string? primaryTbdPath,
+        string? primaryXcframeworkPath,
+        System.Collections.Generic.IReadOnlyList<FrameworkDependencyInfo>? resolvedDependencies,
+        ILogger logger)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(primaryModuleName))
+            {
+                logger.LogWarning(
+                    "Input-graph sidecar skipped: the primary module name could not be resolved.");
+                return;
+            }
+
+            var inventory = InputInventory.FromCliInvocation(
+                primaryModuleName: primaryModuleName,
+                primarySwiftInterfacePath: primarySwiftInterfacePath,
+                primaryDylibPath: primaryDylibPath,
+                primaryAbiJsonPath: primaryAbiJsonPath,
+                primaryTbdPath: primaryTbdPath,
+                primaryXcframeworkPath: primaryXcframeworkPath,
+                resolvedDependencies: resolvedDependencies);
+
+            // An SDK/runtime module is never built by this run, so it never gates a sibling's order —
+            // classify every unsupplied module as unresolved (isSdkModuleResolved: _ => false), keeping
+            // it out of the supplied set the order and edges are computed over.
+            var graph = BindingInputClosurePreflight.BuildGraph(inventory, isSdkModuleResolved: _ => false);
+
+            var document = new InputGraphSidecarDocument
+            {
+                PrimaryModule = primaryModuleName,
+                TopologicalOrder = graph.TopologicalOrder(logger).ToList(),
+                ImportDependencies = graph.SuppliedImportDependencies()
+                    .ToDictionary(kv => kv.Key, kv => kv.Value.ToList(), StringComparer.Ordinal),
+            };
+
+            var json = System.Text.Json.JsonSerializer.Serialize(
+                document, InputGraphSidecarJsonContext.Default.InputGraphSidecarDocument);
+
+            var dir = Path.GetDirectoryName(Path.GetFullPath(sidecarPath));
+            if (!string.IsNullOrEmpty(dir))
+                Directory.CreateDirectory(dir);
+            File.WriteAllText(sidecarPath, json);
+            logger.LogInformation("Wrote input-graph sidecar: {Path}", sidecarPath);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                "Input-graph sidecar could not be written ({Message}); continuing — it is advisory only.",
+                ex.Message);
         }
     }
 
@@ -2611,4 +2705,31 @@ internal enum StrippedSymbolDisposition
     /// P/Invokes.
     /// </summary>
     FailClosedOnLoopPath,
+}
+
+/// <summary>
+/// On-disk shape of the advisory input-graph sidecar (<c>--emit-input-graph</c>): the supplied modules
+/// in dependency-first order and their real (import-derived) inter-module dependencies. An orchestrator
+/// unions these across a corpus to topologically order a run-scoped verification feed.
+/// </summary>
+public sealed class InputGraphSidecarDocument
+{
+    /// <summary>The primary module this generation targeted.</summary>
+    [System.Text.Json.Serialization.JsonPropertyName("primaryModule")]
+    public string PrimaryModule { get; set; } = "";
+
+    /// <summary>The supplied modules (primary + supplied dependencies), dependency-first.</summary>
+    [System.Text.Json.Serialization.JsonPropertyName("topologicalOrder")]
+    public List<string> TopologicalOrder { get; set; } = new();
+
+    /// <summary>For each supplied module, the supplied modules it imports (real, pruned edges).</summary>
+    [System.Text.Json.Serialization.JsonPropertyName("importDependencies")]
+    public Dictionary<string, List<string>> ImportDependencies { get; set; } = new();
+}
+
+/// <summary>Source-generated, AOT/trim-safe serializer context for the input-graph sidecar.</summary>
+[System.Text.Json.Serialization.JsonSourceGenerationOptions(WriteIndented = true)]
+[System.Text.Json.Serialization.JsonSerializable(typeof(InputGraphSidecarDocument))]
+internal partial class InputGraphSidecarJsonContext : System.Text.Json.Serialization.JsonSerializerContext
+{
 }

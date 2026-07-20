@@ -17,12 +17,13 @@ namespace BindingsGeneration
         private readonly EnumDecl _enumDecl;
         private readonly string _typeNameWithGenerics;
         private readonly string _constructorName;
+        private readonly string _tagPropertyName;
         private readonly PInvokeHelperContext? _pinvokeHelperContext;
         private readonly SwiftWriter? _swiftWriter;
         private readonly ModuleEmissionContext? _emissionCtx;
         private readonly bool _hasBoxable;
 
-        public EnumISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, EnumDecl enumDecl, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext, SwiftWriter? swiftWriter = null, ModuleEmissionContext? emissionCtx = null, bool hasBoxable = false)
+        public EnumISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, EnumDecl enumDecl, string typeNameWithGenerics, string tagPropertyName, PInvokeHelperContext? pinvokeHelperContext, SwiftWriter? swiftWriter = null, ModuleEmissionContext? emissionCtx = null, bool hasBoxable = false)
         {
             _writer = csWriter;
             _typeDatabase = typeDatabase;
@@ -31,6 +32,7 @@ namespace BindingsGeneration
             _typeNameWithGenerics = typeNameWithGenerics;
             var angleBracket = typeNameWithGenerics.IndexOf('<');
             _constructorName = angleBracket >= 0 ? typeNameWithGenerics.Substring(0, angleBracket) : typeNameWithGenerics;
+            _tagPropertyName = tagPropertyName;
             _pinvokeHelperContext = pinvokeHelperContext;
             _swiftWriter = swiftWriter;
             _emissionCtx = emissionCtx;
@@ -206,12 +208,14 @@ namespace BindingsGeneration
         /// </summary>
         private void WriteNewFromPayload()
         {
-            // NativeAOT trimming: preserve Tag property and CaseTag nested enum for
-            // reflection-based access patterns. CaseTag is preserved transitively as
-            // the return type of Tag. NewFromPayload is rooted via SwiftObjectReflectionHelper
-            // (preserved in ILLink.Descriptors.xml), making it a reliable anchor.
+            // NativeAOT trimming: preserve the case-discriminator property and CaseTag nested enum for
+            // reflection-based access patterns. CaseTag is preserved transitively as the return type
+            // of the discriminator. NewFromPayload is rooted via SwiftObjectReflectionHelper (preserved
+            // in ILLink.Descriptors.xml), making it a reliable anchor. The discriminator is normally
+            // "Tag" but is renamed when the enum's own C# type is named Tag (CS0542), so root the
+            // computed name — a hardcoded "Tag" would preserve a member that does not exist.
             if (_enumDecl.Cases.Any())
-                _writer.WriteLine("""[global::System.Diagnostics.CodeAnalysis.DynamicDependency("Tag")]""");
+                _writer.WriteLine($$"""[global::System.Diagnostics.CodeAnalysis.DynamicDependency("{{_tagPropertyName}}")]""");
             // Wrap the raw IntPtr in a SwiftHandle explicitly so the call resolves to the
             // private SwiftHandle-taking constructor, avoiding CS0121 ambiguity against any
             // public single-arg constructor whose parameter accepts an implicit IntPtr conversion.

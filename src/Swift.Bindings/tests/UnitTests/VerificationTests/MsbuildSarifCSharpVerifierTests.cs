@@ -242,6 +242,49 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void Verify_WithPackageFeed_ThreadsRestoreAdditionalProjectSources()
+        {
+            // A run-scoped verification feed must reach restore as an ADDITIONAL source so an in-run
+            // sibling binding's package resolves locally, without disturbing the emitted csproj.
+            var dir = Path.Combine(Path.GetTempPath(), $"sarif_verify_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var csproj = Path.Combine(dir, "Widget.Swift.iOS.csproj");
+                File.WriteAllText(csproj, "<Project/>");
+                const string emptySarif = """{ "version": "2.1.0", "runs": [ { "results": [] } ] }""";
+                var runner = new FakeBuildRunner(emptySarif, exitCode: 0);
+
+                MsbuildSarifCSharpVerifier.Verify(
+                    csproj, runner, logger: NullLogger.Instance,
+                    verificationPackageFeed: "/run/feed");
+
+                Assert.Contains("-p:RestoreAdditionalProjectSources=\"/run/feed\"", runner.CapturedArguments);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Verify_WithoutPackageFeed_OmitsRestoreAdditionalProjectSources()
+        {
+            // Default single-module runs must not carry the additive feed source at all.
+            var dir = Path.Combine(Path.GetTempPath(), $"sarif_verify_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var csproj = Path.Combine(dir, "Widget.Swift.iOS.csproj");
+                File.WriteAllText(csproj, "<Project/>");
+                const string emptySarif = """{ "version": "2.1.0", "runs": [ { "results": [] } ] }""";
+                var runner = new FakeBuildRunner(emptySarif, exitCode: 0);
+
+                MsbuildSarifCSharpVerifier.Verify(csproj, runner, logger: NullLogger.Instance);
+
+                Assert.DoesNotContain("RestoreAdditionalProjectSources", runner.CapturedArguments);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
         public void Verify_EmptySarif_ExitZero_IsClean()
         {
             var dir = Path.Combine(Path.GetTempPath(), $"sarif_verify_{Guid.NewGuid():N}");

@@ -115,6 +115,36 @@ public class AbiIngestionContractTests
                  && d.Detail.Contains("__UnmodeledFutureKind"));
     }
 
+    /// <summary>
+    /// The drop-with-error census is backed by a structured ledger entry, not just a warning + a
+    /// degradation decision: an unrecognized ABI node kind records an <see cref="IngestionPlane.Ingest"/>
+    /// / <see cref="IngestionCause.UnrecognizedNodeKind"/> / <see cref="IngestionDisposition.ReportOnly"/>
+    /// / <see cref="IngestionStatus.Dropped"/> entry. This is the machine-readable half of "no parser
+    /// loss is ever silent" — every <c>DroppedWithError</c> increment routes through <c>RecordDropLedger</c>.
+    /// </summary>
+    [Fact]
+    public void ParseModule_UnknownNodeKind_RecordsIngestPlaneDropLedgerEntry()
+    {
+        InputResolutionReport.Reset();
+        var logger = new CapturingLogger();
+        using var fixture = CreateParser(
+            jsonFormatVersion: ExpectedVersion, logger,
+            CreateNode("__UnmodeledFutureKind", name: "ghost", moduleName: "TestModule",
+                mangledName: "$s10TestModule5ghostV"));
+
+        fixture.Parser.ParseModule();
+
+        var entry = Assert.Single(
+            InputResolutionReport.Ledger,
+            e => e.Cause == IngestionCause.UnrecognizedNodeKind);
+        Assert.Equal(IngestionPlane.Ingest, entry.Plane);
+        Assert.Equal(IngestionDisposition.ReportOnly, entry.Disposition);
+        Assert.Equal(IngestionStatus.Dropped, entry.Status);
+        Assert.Equal("TestModule", entry.Input.Module);
+        Assert.Equal("__UnmodeledFutureKind", entry.Input.Kind);
+        Assert.False(string.IsNullOrWhiteSpace(entry.ClosureEvidence));
+    }
+
     // ---- ABI node-kind golden (Finding 58, amendment C) ----
     // The committed KnownAbiNodeKinds vocabulary stays in lockstep with the HandleNode dispatch
     // switch. This is the compile-time guard; it does NOT duplicate the SWIFTBIND034 runtime arm
@@ -216,23 +246,28 @@ public class AbiIngestionContractTests
     // ---- missing load-bearing field: record drop (SWIFTBIND046) ----
 
     /// <summary>
-    /// Finding 45 (no silent loss of records): a bindable type declaration whose load-bearing mangled
-    /// name is absent is not a benign skip — the binder cannot produce a record for it. It is dropped
-    /// LOUDLY: warned (SWIFTBIND046), censused as a DroppedWithError record loss in the reconciliation
-    /// (NOT folded into SkippedWithReason next to imports), and recorded as an AbiJson degradation so
-    /// <c>--strict-inputs</c> fails closed rather than binding a module that quietly lost a type. This
-    /// is the same fail-closed channel the SWIFTBIND034 unknown-kind gate uses.
+    /// No silent loss of records: a bindable type declaration whose load-bearing mangled name is
+    /// absent is a malformed type record — every downstream binder keys off that name, so the type
+    /// cannot be bound. It is NOT dropped; it is QUARANTINED. The decl is kept in the module tree (so
+    /// it carries a stable identity the proven-closure withdrawal can name) with
+    /// <see cref="TypeDecl.IsIngestionQuarantined"/> set, warned (SWIFTBIND046), and recorded as a
+    /// structured ingestion-ledger entry (<see cref="IngestionCause.MalformedTypeRecord"/> /
+    /// <see cref="IngestionDisposition.QuarantineType"/> / <see cref="IngestionStatus.Quarantined"/>).
+    /// Because it is emitted-then-tombstoned rather than lost mid-parse, it counts under <c>Emitted</c>,
+    /// NOT <c>DroppedWithError</c>, and does not raise a coarse AbiJson degradation — the ledger, not the
+    /// degradation gate, is the record of a proven quarantine (the emission-time closure walk withdraws
+    /// it plus its dependents, or fails the module before emission if that closure is unprovable).
     /// </summary>
     [Theory]
     [InlineData("Struct")]
     [InlineData("Enum")]
     [InlineData("Class")]
     [InlineData("Protocol")]
-    public void ParseModule_BindableTypeMissingMangledName_DropsLoudly_Swiftbind046_AndDegrades(string bindableKind)
+    public void ParseModule_BindableTypeMissingMangledName_QuarantinedLoudly_Swiftbind046_AndLedgered(string bindableKind)
     {
         InputResolutionReport.Reset();
         var logger = new CapturingLogger();
-        // Every bindable type kind in the gate must drop loudly — a theory so dropping any one kind
+        // Every bindable type kind in the gate must quarantine — a theory so dropping any one kind
         // from the SwiftABIParser allowlist would turn a case red instead of leaving the test green.
         var ghostType = CreateNode(
             "TypeDecl", declKind: bindableKind, name: "Ghost", moduleName: "TestModule", mangledName: "");
@@ -240,35 +275,43 @@ public class AbiIngestionContractTests
 
         var result = fixture.Parser.ParseModule();
 
-        // Not bound...
-        Assert.DoesNotContain(result.ModuleDecl.Types, t => t.Name == "Ghost");
-        Assert.DoesNotContain(result.ModuleDecl.Protocols, p => p.Name == "Ghost");
+        // Kept in the tree and marked (ProtocolDecl is a TypeDecl, so all four kinds land in Types)...
+        var ghost = result.ModuleDecl.Types.FirstOrDefault(t => t.Name == "Ghost");
+        Assert.NotNull(ghost);
+        Assert.True(ghost!.IsIngestionQuarantined);
         // ...warned with the dedicated diagnostic...
         Assert.Contains(logger.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("SWIFTBIND046"));
-        // ...counted as a record loss, not a deliberate skip...
-        Assert.Equal(1, result.Reconciliation.DroppedWithError);
+        // ...counted as emitted-then-tombstoned, not a mid-parse record loss...
+        Assert.Equal(0, result.Reconciliation.DroppedWithError);
         Assert.Equal(0, result.Reconciliation.SkippedWithReason);
         Assert.True(result.Reconciliation.IsBalanced);
-        // ...and recorded as a fail-closed AbiJson degradation naming the lost type.
+        // ...recorded as a structured quarantine ledger entry naming the malformed type...
         Assert.Contains(
+            InputResolutionReport.Ledger,
+            e => e.Cause == IngestionCause.MalformedTypeRecord
+                 && e.Disposition == IngestionDisposition.QuarantineType
+                 && e.Status == IngestionStatus.Quarantined
+                 && e.Plane == IngestionPlane.Ingest
+                 && e.Input.Module == "TestModule"
+                 && e.Input.Kind == bindableKind);
+        // ...and NOT surfaced as a coarse AbiJson degradation (the ledger is the quarantine record).
+        Assert.DoesNotContain(
             InputResolutionReport.Decisions,
-            d => d.Category == InputResolutionCategory.AbiJson
-                 && d.Severity == InputResolutionSeverity.Degradation
-                 && d.Detail.Contains("Ghost")
-                 && d.Detail.Contains("no mangled name"));
+            d => d.Category == InputResolutionCategory.AbiJson && d.Severity == InputResolutionSeverity.Degradation);
     }
 
     /// <summary>
-    /// Finding 45's actual motivating shape: the swift-api-digester OMITS the field entirely rather
-    /// than emitting an empty string. Newtonsoft 13.0.3 sets members by reflection and does NOT honor
+    /// The actual motivating shape: the swift-api-digester OMITS the field entirely rather than
+    /// emitting an empty string. Newtonsoft 13.0.3 sets members by reflection and does NOT honor
     /// C# 11 <c>required</c>, so an absent <c>mangledName</c> deserializes to null (not a parse error) —
     /// the silent gap this change closes. This test strips the property from the serialized document so
-    /// the field is genuinely absent, then asserts the drop still fires (the gate's <c>IsNullOrEmpty</c>
-    /// must cover null, not just empty). If Newtonsoft ever started enforcing <c>required</c>, the
-    /// parser would throw on load and this test would surface that regression instead of mis-binding.
+    /// the field is genuinely absent, then asserts the quarantine still fires (the gate's
+    /// <c>IsNullOrEmpty</c> must cover null, not just empty). If Newtonsoft ever started enforcing
+    /// <c>required</c>, the parser would throw on load and this test would surface that regression
+    /// instead of mis-binding.
     /// </summary>
     [Fact]
-    public void ParseModule_BindableTypeWithOmittedMangledNameField_DropsLoudly_Swiftbind046()
+    public void ParseModule_BindableTypeWithOmittedMangledNameField_QuarantinedLoudly_Swiftbind046()
     {
         InputResolutionReport.Reset();
         var logger = new CapturingLogger();
@@ -301,13 +344,18 @@ public class AbiIngestionContractTests
             var result = parser.ParseModule();
 
             Assert.Contains(logger.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("SWIFTBIND046"));
-            Assert.Equal(1, result.Reconciliation.DroppedWithError);
-            Assert.Equal(0, result.Reconciliation.SkippedWithReason);
+            Assert.Equal(0, result.Reconciliation.DroppedWithError);
+            var ghostDecl = result.ModuleDecl.Types.FirstOrDefault(t => t.Name == "Ghost");
+            Assert.NotNull(ghostDecl);
+            Assert.True(ghostDecl!.IsIngestionQuarantined);
             Assert.Contains(
+                InputResolutionReport.Ledger,
+                e => e.Cause == IngestionCause.MalformedTypeRecord
+                     && e.Disposition == IngestionDisposition.QuarantineType
+                     && e.Status == IngestionStatus.Quarantined);
+            Assert.DoesNotContain(
                 InputResolutionReport.Decisions,
-                d => d.Category == InputResolutionCategory.AbiJson
-                     && d.Severity == InputResolutionSeverity.Degradation
-                     && d.Detail.Contains("no mangled name"));
+                d => d.Category == InputResolutionCategory.AbiJson && d.Severity == InputResolutionSeverity.Degradation);
         }
         finally
         {

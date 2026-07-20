@@ -23,6 +23,17 @@ public func toggleDependencyService(_ service: DependencyService) -> String {
     return service.status()
 }
 
+/// Bridge API that takes a dependency Base type, dispatches one of ITS OWN methods
+/// (`translated(dx:dy:)`, declared in SwiftBindingsTestLibDependency), and returns the dependency
+/// Base type. This exercises the full cross-module round-trip the
+/// topological dependency-finalize order protects: the dependency module's struct layout must be
+/// finalized before this main-module member emits, or `point` would degrade to AnyType and the
+/// foreign method call could not bind. Distinct from `transformDependencyPoint`, which only reads
+/// the foreign struct's stored fields — this one calls through a foreign instance method.
+public func shiftDependencyPoint(_ point: DependencyPoint, by delta: Double) -> DependencyPoint {
+    return point.translated(dx: delta, dy: delta)
+}
+
 // MARK: - Cross-Module Protocol Conformance
 
 /// A local struct that conforms to DependencyProtocol from the dependency module.

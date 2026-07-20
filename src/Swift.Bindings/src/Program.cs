@@ -160,115 +160,374 @@ namespace BindingsGeneration
                 }
             }
 
+            // Prove the primary module's compile-import graph is closed BEFORE ABI parsing. A module
+            // imported by a supplied public interface but absent from both the inputs and the SDK becomes
+            // an early, structured SWIFTBIND119 obligation — naming the missing module, its importer, the
+            // evidence line, and the searched roots — instead of a late, opaque SWIFTBIND111 non-convergence
+            // after a wasted parse+emit. The probe adjudicates only the candidates the registry cannot vouch
+            // for and fails open, so an incomplete registry can never manufacture a false early failure.
+            if (currentModuleName != null && platform != null && !string.IsNullOrEmpty(swiftInterfacePath))
+            {
+                var inputInventory = InputInventory.FromCliInvocation(
+                    primaryModuleName: currentModuleName,
+                    primarySwiftInterfacePath: swiftInterfacePath,
+                    primaryDylibPath: dylibPath,
+                    primaryAbiJsonPath: swiftAbiPath,
+                    primaryTbdPath: tbdPath,
+                    primaryXcframeworkPath: null,
+                    resolvedDependencies: resolvedDependencies);
+
+                var importProbe = new SwiftFrontendImportProbe(
+                    PlatformInfoFactory.Create(platform.Value), new SystemCommandRunner(), logger);
+
+                if (!BindingInputClosurePreflight.RunOrFail(
+                        inputInventory,
+                        isSdkModuleResolved: m => typeDatabase.IsModuleLoaded(m) || AppleFrameworkRegistry.IsKnownModule(m),
+                        probe: importProbe,
+                        logger: logger))
+                {
+                    return false;
+                }
+            }
+
             // Accumulator for dependency-module ProtocolDecls. Threaded onto the bound
             // module's ModuleDecl after parse so EveryProtocol emission can flatten
             // cross-module parent witnesses into the child's vtable
             // (justinwojo/swift-dotnet-bindings#40 cross-module variant).
             var dependencyProtocols = new Dictionary<string, List<ProtocolDecl>>(StringComparer.Ordinal);
 
-            // Load dependency type databases from framework dependency ABI JSON files.
-            // This enables cross-module type resolution: dependency types resolve to concrete
-            // projections instead of falling back to AnyType.
+            // Module-qualified names of dependency-module types quarantined at ingestion (a malformed ABI
+            // record withheld from the type database). A primary construct that inherits, conforms to, or
+            // names one of these across the module boundary is as indeterminate as one reaching a
+            // locally-quarantined type — it must be dragged into the ingestion-quarantine closure, not
+            // emitted against the malformed dependency record by name. Collected here and fed to
+            // IngestionQuarantineClosure.Compute so the closure walk withdraws the dependent primary
+            // constructs and their edges (the DEGRADE plane's cross-module seed).
+            var dependencyQuarantinedTypeNames = new HashSet<string>(StringComparer.Ordinal);
+
+            // Stage-2 cross-module fact preload. Demangle every resolved dependency's TBD up front
+            // and fold its metadata-accessor and conformance-descriptor symbols into one immutable,
+            // graph-wide index BEFORE any parser is built. A single-module parse then recovers a
+            // foreign fact regardless of which siblings were finalized before it — the source of the
+            // order-dependent losses ("metadata accessor not found", "protocol conformance descriptor
+            // not found") the sequential loop below cannot otherwise avoid. The demangled results are
+            // cached so the loop reuses each dependency's own TBD rather than demangling it twice; the
+            // loop's parse/finalize ORDER is unchanged, only the resolver each parser receives gains
+            // an index-then-legacy view.
+            var preloadedDependencyTbds = new Dictionary<string, Demangling.DemanglingResults>(StringComparer.Ordinal);
+            var factIndexes = new List<ModuleFactIndex>();
             if (resolvedDependencies != null)
             {
                 foreach (var dep in resolvedDependencies)
                 {
-                    // Skip ObjC-only deps (no Swift ABI) and deps without ABI JSON
                     if (dep.IsObjCOnly || string.IsNullOrEmpty(dep.AbiJsonPath) || string.IsNullOrEmpty(dep.TbdPath))
                         continue;
-
-                    // Skip self-reference
                     if (currentModuleName != null && dep.ModuleName == currentModuleName)
                         continue;
+                    if (typeDatabase.IsModuleLoaded(dep.ModuleName))
+                        continue;
+                    if (preloadedDependencyTbds.ContainsKey(dep.ModuleName))
+                        continue;
+                    try
+                    {
+                        var depTbd = Demangling.DemanglingResults.FromTbd(dep.TbdPath, loggerFactory);
+                        preloadedDependencyTbds[dep.ModuleName] = depTbd;
+                        factIndexes.Add(ModuleFactIndex.FromDemangledTbd(dep.ModuleName, depTbd));
+                    }
+                    catch (Exception ex)
+                    {
+                        // A dependency whose TBD cannot be demangled contributes no index facts. The
+                        // sequential loop below still attempts its own parse and applies the existing
+                        // auto-detected-vs-explicit failure policy; preload is purely additive and must
+                        // never change that decision, so swallow here and let the loop decide.
+                        logger.LogDebug("Cross-module fact preload: skipping '{Module}' ({Message}).",
+                            dep.ModuleName, ex.InnerException?.Message ?? ex.Message);
+                    }
+                }
+            }
+            var crossModuleFactIndex = new ModuleFactIndexSet(factIndexes);
 
-                    // Skip if already loaded (built-in XML or --module-database)
+            // Load dependency type databases from framework dependency ABI JSON files.
+            // This enables cross-module type resolution: dependency types resolve to concrete
+            // projections instead of falling back to AnyType.
+            //
+            // Finalize order is decoupled from the order dependencies were supplied: a module that
+            // another dependency references (through a stored property, superclass, or inherited
+            // protocol) is finalized BEFORE it, so the layout/hierarchy finalizer always reads an
+            // already-finalized foreign record instead of a missing one. A cheap, side-effect-free
+            // pre-pass parses each dependency ONLY to read the modules it references (its parse
+            // output is discarded); the plan is then a STABLE topological order — for an already-
+            // valid supplied order it is the identity permutation, so finalize order and generated
+            // output are unchanged, and reordering happens only where the supplied order violated a
+            // real reference edge (reverse CLI order, umbrella/re-export graphs) — exactly where the
+            // sequential loop used to lose a cross-module layout fact.
+            //
+            // The skeleton index is a graph-wide, pre-layout identity plane (owner + kind, never a
+            // layout verdict). It is populated as each dependency finalizes (the hook session 07's
+            // quarantine activates on) and, for a genuine module cycle, seeded before any member of
+            // the cycle finalizes. It is deliberately kept OUT of the type-database lookup path.
+            var crossModuleSkeletons = new NominalSkeletonIndex();
+            if (resolvedDependencies != null && resolvedDependencies.Count > 0)
+            {
+                var finalizableDeps = new List<FrameworkDependencyInfo>();
+                foreach (var dep in resolvedDependencies)
+                {
+                    // Skip ObjC-only deps (no Swift ABI), deps without ABI JSON, self-reference, and
+                    // modules already loaded (built-in XML or --module-database).
+                    if (dep.IsObjCOnly || string.IsNullOrEmpty(dep.AbiJsonPath) || string.IsNullOrEmpty(dep.TbdPath))
+                        continue;
+                    if (currentModuleName != null && dep.ModuleName == currentModuleName)
+                        continue;
                     if (typeDatabase.IsModuleLoaded(dep.ModuleName))
                     {
                         logger.LogInformation("Dependency module '{Module}' already loaded, skipping ABI parse.", dep.ModuleName);
                         continue;
                     }
+                    finalizableDeps.Add(dep);
+                }
 
+                // Pre-pass: read each dependency's referenced modules (edges only; output discarded).
+                // ParseModule() records ABI-format info + any drop/degradation into the ambient
+                // InputResolutionReport, and the REAL finalize loop below re-parses every dependency —
+                // so without guarding, each dependency's decisions would be recorded twice and pollute
+                // the artifact manifest. Snapshot the report before the throwaway parses and restore it
+                // after, discarding everything the pre-pass added; the finalize loop then records each
+                // decision exactly once. The unresolved-owner degradations below are recorded AFTER the
+                // restore, so they survive.
+                var reportBeforePrePass = InputResolutionReport.Snapshot();
+                var referencedByDep = new Dictionary<FrameworkDependencyInfo, IReadOnlyCollection<string>>();
+                var moduleNameByDep = new Dictionary<FrameworkDependencyInfo, string>();
+                foreach (var dep in finalizableDeps)
+                {
+                    string moduleKey = dep.ModuleName;
+                    IReadOnlyCollection<string> refs = Array.Empty<string>();
                     try
                     {
-                        var depDemangledTbd = Demangling.DemanglingResults.FromTbd(dep.TbdPath, loggerFactory);
-                        var depParser = new SwiftABIParser(
-                            dep.AbiJsonPath, typeDatabase, depDemangledTbd,
-                            loggerFactory.CreateLogger<SwiftABIParser>(),
-                            SwiftInterfaceFacts.Empty);
-
-                        // An empty dependency shim (zero ABI declarations — a re-export/namespace-only
-                        // module) has no types to contribute and no resolvable module name; its
-                        // GetModuleName() would throw on the empty child set and, for an explicit
-                        // --framework-dependency, hard-fail SWIFTBIND073. Skip it with a warning
-                        // instead. This is deliberately BENIGN-only: a malformed ABI that fails to
-                        // deserialize still throws in the parser constructor above and is caught below
-                        // as before, so fail-closed behaviour for genuinely broken input is preserved.
-                        if (depParser.HasNoDeclChildren)
+                        var preTbd = preloadedDependencyTbds.TryGetValue(dep.ModuleName, out var pt)
+                            ? pt
+                            : Demangling.DemanglingResults.FromTbd(dep.TbdPath!, loggerFactory);
+                        var preParser = new SwiftABIParser(
+                            dep.AbiJsonPath!, typeDatabase, preTbd,
+                            Microsoft.Extensions.Logging.Abstractions.NullLogger<SwiftABIParser>.Instance,
+                            SwiftInterfaceFacts.Empty,
+                            new IndexBackedCrossModuleFactResolver(
+                                crossModuleFactIndex,
+                                new LegacyCrossModuleFactResolver(typeDatabase, preTbd)),
+                            docComments: null);
+                        if (!preParser.HasNoDeclChildren)
                         {
-                            logger.LogWarning(
-                                "Dependency '{Module}' has an empty ABI (no declarations); skipping. " +
-                                "It contributes no types.",
-                                dep.ModuleName);
-                            continue;
+                            moduleKey = preParser.GetModuleName();
+                            var preResult = preParser.ParseModule();
+                            refs = DependencyReferenceScanner.ReferencedModules(preResult.ModuleDecl);
                         }
-
-                        var depModuleName = depParser.GetModuleName();
-                        var depParseResult = depParser.ParseModule();
-
-                        var depProcessor = new ModuleProcessor(
-                            depModuleName, dep.DylibPath ?? dep.AbiJsonPath, dep.DylibPath ?? dep.AbiJsonPath,
-                            depParseResult.TypeDecls, typeDatabase,
-                            loggerFactory.CreateLogger<ModuleProcessor>());
-                        var depModuleDb = depProcessor.FinalizeTypeProcessingAndCreateModuleDatabase().ModuleDatabase;
-                        typeDatabase.AddModuleDatabase(depModuleDb);
-
-                        // Apply nested-type rename pass to the dep module so cross-module
-                        // references in the bound module's emit resolve to the renamed C# name
-                        // (e.g., Parent.AlertType enum → Parent.AlertTypeKind when the parent has a
-                        // colliding property). Without this, dep TypeRecords keep the raw Swift
-                        // leaf name and the consumer emits `Dep.Parent.AlertType` which C#
-                        // resolves to the property rather than the type — CS0426.
-                        // When the dep XML is pre-loaded via --module-database, the renamed
-                        // managedTypeName is already in the XML; the ABI re-parse branch is the
-                        // gap (BindingTests path uses --framework-dependency without --module-database).
-                        NameProvider.PrecomputeNestedTypeRenames(depParseResult.ModuleDecl, typeDatabase);
-
-                        // Retain the dependency's parsed ModuleDecl so consumer-side emitters can
-                        // walk constructor shapes the TypeRecord projection discards (e.g. the
-                        // KeyPath-init factory emitter needs a dep class's `init<G: P>(KeyPath<G, V>)`).
-                        typeDatabase.AddDependencyModuleDecl(depParseResult.ModuleDecl);
-
-                        // Stash dep ProtocolDecls so the bound module's EveryProtocol emission
-                        // can resolve cross-module parents to their full member list.
-                        if (depParseResult.ModuleDecl.Protocols is { Count: > 0 } depProtos)
-                            dependencyProtocols[depModuleName] = depProtos;
-
-                        logger.LogInformation("Loaded dependency types from ABI JSON: {Module}", depModuleName);
                     }
-                    catch (Exception ex)
+                    catch
                     {
-                        if (dep.IsAutoDetected)
+                        // Best-effort: a dependency that cannot be pre-parsed contributes no ordering
+                        // edges and keeps its xcframework module name as the plan key. The real loop
+                        // below re-parses it and applies the auto-detected-vs-explicit failure policy
+                        // — the decision is made once, on the finalize path.
+                    }
+                    moduleNameByDep[dep] = moduleKey;
+                    referencedByDep[dep] = refs;
+                }
+                // Discard every InputResolutionReport decision the throwaway pre-pass parses recorded;
+                // the finalize loop below is the single authoritative recorder per dependency.
+                InputResolutionReport.Restore(reportBeforePrePass);
+
+                var dependencyFinalizeOrder = DependencyFinalizationPlanner.Plan(
+                    finalizableDeps,
+                    keyOf: d => moduleNameByDep[d],
+                    referencedModulesOf: d => referencedByDep[d]);
+
+                // Structured missing-input observation: a module a dependency references that is not
+                // among the supplied inputs, not already loaded, and not a recognized SDK/runtime
+                // module has no canonical owner in this run. Record it as a named degradation and a
+                // skeleton whose owner is unresolved, rather than leaving it to surface later as an
+                // opaque caught-exception node drop. (Session 07 migrates this into the ledger.)
+                var knownModuleNames = new HashSet<string>(moduleNameByDep.Values, StringComparer.Ordinal);
+                var reportedUnresolvedOwners = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var dep in finalizableDeps)
+                {
+                    foreach (var referenced in referencedByDep[dep])
+                    {
+                        if (knownModuleNames.Contains(referenced) ||
+                            typeDatabase.IsModuleLoaded(referenced) ||
+                            AppleFrameworkRegistry.IsKnownModule(referenced) ||
+                            (currentModuleName != null && referenced == currentModuleName))
+                            continue;
+                        if (!reportedUnresolvedOwners.Add(referenced))
+                            continue;
+                        crossModuleSkeletons.Register(new NominalSkeleton(
+                            SwiftTypeName.FromModuleQualifiedName($"{referenced}.<module>"),
+                            TypeRecordKind.Struct, referenced, mangledName: null,
+                            isDeclaredFrozen: false, SkeletonOwnershipState.UnresolvedOwner));
+                        InputResolutionReport.RecordDegradation(
+                            InputResolutionCategory.Dependency,
+                            $"Module '{referenced}' is referenced by dependency '{moduleNameByDep[dep]}' but its canonical owner " +
+                            $"is not among the supplied inputs; types owned by it will resolve to AnyType.");
+                    }
+                }
+
+                foreach (var group in dependencyFinalizeOrder)
+                {
+                    // A genuine module cycle has no valid sequential finalize order; seed identity
+                    // skeletons for every member before finalizing any, so intra-cycle references are
+                    // at least identity-known. (Swift forbids value-type storage cycles, so a real
+                    // SCC is a reference-type cycle whose layout is not order-sensitive.)
+                    if (group.IsCycle)
+                    {
+                        foreach (var dep in group.Members)
+                            SeedCycleSkeletons(dep, moduleNameByDep[dep], crossModuleSkeletons,
+                                preloadedDependencyTbds, crossModuleFactIndex, typeDatabase, loggerFactory);
+                    }
+
+                    foreach (var dep in group.Members)
+                    {
+                        try
                         {
-                            // Auto-detected dependencies are best-effort — warn and continue.
-                            // Finding 50: this shrinks the API surface (dependency types resolve to
-                            // AnyType, secondary gates then prune members), so record it as a degraded
-                            // input that --strict-inputs can escalate to a hard failure.
-                            InputResolutionReport.RecordDegradation(
-                                InputResolutionCategory.Dependency,
-                                $"Auto-detected dependency '{dep.ModuleName}' failed to parse; its types will resolve to AnyType " +
-                                $"({ex.InnerException?.Message ?? ex.Message}).");
-                            logger.LogWarning(
-                                "Could not load dependency types for auto-detected module '{Module}': {Message}. " +
-                                "Dependency types will resolve to AnyType.",
-                                dep.ModuleName, ex.InnerException?.Message ?? ex.Message);
+                            var depDemangledTbd = preloadedDependencyTbds.TryGetValue(dep.ModuleName, out var preTbd)
+                                ? preTbd
+                                : Demangling.DemanglingResults.FromTbd(dep.TbdPath!, loggerFactory);
+                            var depParser = new SwiftABIParser(
+                                dep.AbiJsonPath!, typeDatabase, depDemangledTbd,
+                                loggerFactory.CreateLogger<SwiftABIParser>(),
+                                SwiftInterfaceFacts.Empty,
+                                new IndexBackedCrossModuleFactResolver(
+                                    crossModuleFactIndex,
+                                    new LegacyCrossModuleFactResolver(typeDatabase, depDemangledTbd)),
+                                docComments: null);
+
+                            // An empty dependency shim (zero ABI declarations — a re-export/namespace-only
+                            // module) has no types to contribute and no resolvable module name; its
+                            // GetModuleName() would throw on the empty child set and, for an explicit
+                            // --framework-dependency, hard-fail SWIFTBIND073. Skip it with a warning
+                            // instead. This is deliberately BENIGN-only: a malformed ABI that fails to
+                            // deserialize still throws in the parser constructor above and is caught below
+                            // as before, so fail-closed behaviour for genuinely broken input is preserved.
+                            if (depParser.HasNoDeclChildren)
+                            {
+                                logger.LogWarning(
+                                    "Dependency '{Module}' has an empty ABI (no declarations); skipping. " +
+                                    "It contributes no types.",
+                                    dep.ModuleName);
+                                continue;
+                            }
+
+                            var depModuleName = depParser.GetModuleName();
+
+                            // A module whose database is already present (e.g. two supplied
+                            // dependencies expose the same module name) has nothing to add; the
+                            // historical loop reached AddModuleDatabase's "already exists" throw here.
+                            if (typeDatabase.IsModuleProcessed(depModuleName))
+                                continue;
+
+                            var depParseResult = depParser.ParseModule();
+
+                            var depProcessor = new ModuleProcessor(
+                                depModuleName, dep.DylibPath ?? dep.AbiJsonPath!, dep.DylibPath ?? dep.AbiJsonPath!,
+                                depParseResult.TypeDecls, typeDatabase,
+                                loggerFactory.CreateLogger<ModuleProcessor>());
+                            var depModuleDb = depProcessor.FinalizeTypeProcessingAndCreateModuleDatabase().ModuleDatabase;
+                            typeDatabase.AddModuleDatabase(depModuleDb);
+
+                            // Apply nested-type rename pass to the dep module so cross-module
+                            // references in the bound module's emit resolve to the renamed C# name
+                            // (e.g., Parent.AlertType enum → Parent.AlertTypeKind when the parent has a
+                            // colliding property). Without this, dep TypeRecords keep the raw Swift
+                            // leaf name and the consumer emits `Dep.Parent.AlertType` which C#
+                            // resolves to the property rather than the type — CS0426.
+                            // When the dep XML is pre-loaded via --module-database, the renamed
+                            // managedTypeName is already in the XML; the ABI re-parse branch is the
+                            // gap (BindingTests path uses --framework-dependency without --module-database).
+                            NameProvider.PrecomputeNestedTypeRenames(depParseResult.ModuleDecl, typeDatabase);
+
+                            // Retain the dependency's parsed ModuleDecl so consumer-side emitters can
+                            // walk constructor shapes the TypeRecord projection discards (e.g. the
+                            // KeyPath-init factory emitter needs a dep class's `init<G: P>(KeyPath<G, V>)`).
+                            typeDatabase.AddDependencyModuleDecl(depParseResult.ModuleDecl);
+
+                            // Record every dependency type quarantined at ingestion by its module-qualified
+                            // name, so the primary module's quarantine closure withdraws the primary
+                            // constructs that reach it across the boundary.
+                            CollectQuarantinedTypeNames(depParseResult.ModuleDecl.Types, dependencyQuarantinedTypeNames);
+
+                            // Stash dep ProtocolDecls so the bound module's EveryProtocol emission
+                            // can resolve cross-module parents to their full member list — but NEVER a
+                            // quarantined protocol. Its ABI record is malformed and it was withheld from the
+                            // type database; a by-name consumer (cross-module-parent vtable layout, interface
+                            // impl, reverse-dispatch) that laid out slots against it would emit against the
+                            // bad record and crash at runtime. The dependent primary constructs are instead
+                            // withdrawn whole through the ingestion-quarantine closure above.
+                            if (depParseResult.ModuleDecl.Protocols is { Count: > 0 } depProtos)
+                            {
+                                var healthyProtos = depProtos.Where(p => !p.IsIngestionQuarantined).ToList();
+                                if (healthyProtos.Count > 0)
+                                    dependencyProtocols[depModuleName] = healthyProtos;
+                            }
+
+                            // Record the finalized nominals' identity skeletons (owner + kind, no
+                            // layout). Write-only: nothing reads these into generated output — they
+                            // are the pre-layout identity plane session 07 activates its quarantine on.
+                            RegisterResolvedSkeletons(depParseResult.ModuleDecl, depModuleName, crossModuleSkeletons);
+
+                            logger.LogInformation("Loaded dependency types from ABI JSON: {Module}", depModuleName);
                         }
-                        else
+                        catch (Exception ex)
                         {
-                            // Explicit --framework-dependency — fail hard (matches existing fail-fast behavior)
-                            logger.LogError(
-                                "SWIFTBIND073: Failed to parse dependency ABI for '{Module}': {Message}",
-                                dep.ModuleName, ex.InnerException?.Message ?? ex.Message);
-                            return false;
+                            var depIdentity = new IngestionInputIdentity(
+                                dep.ModuleName, "Module", IngestionInputIdentity.AbsentSymbol);
+                            var depDetail = ex.InnerException?.Message ?? ex.Message;
+                            if (dep.IsAutoDetected)
+                            {
+                                // Auto-detected dependencies are best-effort — warn and continue.
+                                // This shrinks the API surface (dependency types resolve to AnyType,
+                                // secondary gates then prune members), so record it as a degraded input
+                                // that --strict-inputs can escalate to a hard failure, and as a Resolve-plane
+                                // ledger entry so the loss is never silent. Escalating an unresolved required
+                                // dependency to an unconditional fatal is gated on the closure verdict (which
+                                // knows whether a public API actually needs this dependency); until then the
+                                // degrade path is preserved so a genuinely-optional auto-detected dependency
+                                // does not fail an otherwise-healthy module.
+                                InputResolutionReport.RecordDegradation(
+                                    InputResolutionCategory.Dependency,
+                                    $"Auto-detected dependency '{dep.ModuleName}' failed to parse; its types will resolve to AnyType " +
+                                    $"({depDetail}).");
+                                InputResolutionReport.RecordLedgerEntry(new IngestionLedgerEntry(
+                                    Input: depIdentity,
+                                    Parent: null,
+                                    Plane: IngestionPlane.Resolve,
+                                    Cause: IngestionCause.UnresolvedRequiredDependency,
+                                    Referenced: dep.ModuleName,
+                                    Disposition: IngestionDisposition.ReportOnly,
+                                    ClosureEvidence:
+                                        $"auto-detected dependency failed to parse ({depDetail}); its types resolve to " +
+                                        "AnyType and dependent members are pruned by the secondary gates",
+                                    Status: IngestionStatus.Dropped));
+                                logger.LogWarning(
+                                    "Could not load dependency types for auto-detected module '{Module}': {Message}. " +
+                                    "Dependency types will resolve to AnyType.",
+                                    dep.ModuleName, depDetail);
+                            }
+                            else
+                            {
+                                // Explicit --framework-dependency — fail hard (matches existing fail-fast behavior)
+                                InputResolutionReport.RecordLedgerEntry(new IngestionLedgerEntry(
+                                    Input: depIdentity,
+                                    Parent: null,
+                                    Plane: IngestionPlane.Resolve,
+                                    Cause: IngestionCause.UnresolvedRequiredDependency,
+                                    Referenced: dep.ModuleName,
+                                    Disposition: IngestionDisposition.ReportOnlyFatal,
+                                    ClosureEvidence:
+                                        $"explicit --framework-dependency failed to parse ({depDetail}); the graph " +
+                                        "cannot be closed, so the module fails before emission",
+                                    Status: IngestionStatus.Fatal));
+                                logger.LogError(
+                                    "SWIFTBIND073: Failed to parse dependency ABI for '{Module}': {Message}",
+                                    dep.ModuleName, depDetail);
+                                return false;
+                            }
                         }
                     }
                 }
@@ -316,7 +575,13 @@ namespace BindingsGeneration
             }
 
             // Initialize the Swift ABI parser
-            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), facts, docComments);
+            var swiftParser = new SwiftABIParser(
+                swiftAbiPath, typeDatabase, demangledTbdFile,
+                loggerFactory.CreateLogger<SwiftABIParser>(), facts,
+                new IndexBackedCrossModuleFactResolver(
+                    crossModuleFactIndex,
+                    new LegacyCrossModuleFactResolver(typeDatabase, demangledTbdFile)),
+                docComments);
             var moduleName = swiftParser.GetModuleName();
             var frameworkName = InferFrameworkName(dylibPath, moduleName);
             var namespaceResolver = new NamespacePatternResolver(namespacePattern, frameworkName);
@@ -590,6 +855,29 @@ namespace BindingsGeneration
                     }
                 }
 
+                // Compute the ingestion-quarantine withdrawal closure before emission. The parser marks a
+                // malformed bindable type (absent mangled name) IsIngestionQuarantined and withholds it
+                // from the type database; this proves the full retained closure that depends on it. A
+                // proven closure seeds the FIRST render's poison list (origin IngestionWithdrawal) so the
+                // type and its dependents are tombstoned like any withdrawn unit; an unprovable closure
+                // fails the module closed — a compile-clean/runtime-wrong binding is worse than an early,
+                // precise failure.
+                var ingestionClosure = IngestionQuarantineClosure.Compute(
+                    decl, moduleName, logger, dependencyQuarantinedTypeNames);
+                if (!ingestionClosure.ProvenComplete)
+                {
+                    logger.LogError(
+                        "SWIFTBIND120: module '{Module}' has an ingestion-quarantined type whose withdrawal " +
+                        "closure cannot be proven complete, so it cannot be safely degraded: {Reason}",
+                        moduleName, ingestionClosure.UnprovenReason);
+                    return false;
+                }
+                EmitterPoisonList? ingestionSeed = ingestionClosure.Withdrawals.Count > 0
+                    ? WrapperDenylistSeed.Build(
+                        ingestionClosure.Withdrawals,
+                        static _ => EmitterFaultOrigin.IngestionWithdrawal)
+                    : null;
+
                 // Emit the C# bindings under containment: an emitter that throws on one declaration
                 // denies it and re-emits the module from scratch, rather than taking the whole binding
                 // down with it. Returns the declarations that had to be denied — empty for a healthy
@@ -633,7 +921,8 @@ namespace BindingsGeneration
                     // Emission stays a one-shot: emit once, containment denies any throwing declaration.
                     ContainedModuleEmission.Run(
                         decl, emissionContext, typeDatabase, logger,
-                        newEmitter: newEmitter, prepareRetry: rebuildCollaborators);
+                        newEmitter: newEmitter, prepareRetry: rebuildCollaborators,
+                        seed: ingestionSeed);
                 }
                 else
                 {
@@ -654,7 +943,8 @@ namespace BindingsGeneration
                         compileWrapper: compileWrapper,
                         request: request,
                         preRender: () => CleanStaleWrapperArtifacts(outputDirectory, wrapperNamespace, logger),
-                        verifyCsharp: verifyRecoverCsharp);
+                        verifyCsharp: verifyRecoverCsharp,
+                        ingestionWithdrawals: ingestionClosure.Withdrawals);
 
                     // The per-render wrapper compiles append input-resolution decisions the finalized
                     // manifest must not accumulate; snapshot before the loop and restore after so the
@@ -2072,6 +2362,119 @@ namespace BindingsGeneration
         /// Fails open: with no readable interface the caller keeps the pre-existing
         /// nominal-type-only answer, which is what every module without an alias needs anyway.
         /// </summary>
+        /// <summary>
+        /// Registers identity skeletons (owner + kind, never a layout verdict) for every nominal a
+        /// finalized dependency module declares. Write-only with respect to generated output — the
+        /// skeleton plane is not consulted by any type-database lookup — so this cannot change a
+        /// byte of emitted C#; it exists as the pre-layout identity hook session 07 activates on.
+        /// </summary>
+        private static void RegisterResolvedSkeletons(ModuleDecl moduleDecl, string owningModule, NominalSkeletonIndex index)
+        {
+            foreach (var type in moduleDecl.Types)
+                RegisterSkeletonTree(type, owningModule, index);
+        }
+
+        private static void RegisterSkeletonTree(TypeDecl type, string owningModule, NominalSkeletonIndex index)
+        {
+            var (kind, hasKind) = type switch
+            {
+                StructDecl => (TypeRecordKind.Struct, true),
+                EnumDecl => (TypeRecordKind.Enum, true),
+                ClassDecl => (TypeRecordKind.Class, true),
+                ProtocolDecl => (TypeRecordKind.Protocol, true),
+                _ => (default(TypeRecordKind), false),
+            };
+            if (hasKind)
+            {
+                bool declaredFrozen = type switch
+                {
+                    StructDecl s => s.IsFrozen,
+                    EnumDecl e => e.IsFrozen,
+                    _ => false,
+                };
+                index.Register(new NominalSkeleton(
+                    type.SwiftTypeName, kind, owningModule, type.MangledName,
+                    declaredFrozen, SkeletonOwnershipState.Resolved));
+            }
+
+            foreach (var nested in type.Types)
+                RegisterSkeletonTree(nested, owningModule, index);
+        }
+
+        /// <summary>
+        /// Recursively collects the module-qualified names of every ingestion-quarantined type in a
+        /// dependency module (including nested types). These seed the primary module's quarantine closure
+        /// so a primary construct reaching a malformed dependency record across the module boundary is
+        /// withdrawn, never emitted against the bad record by name. Module-qualified form only — a
+        /// cross-module inheritance/conformance reference is matched by its full qualified name.
+        /// </summary>
+        private static void CollectQuarantinedTypeNames(IEnumerable<TypeDecl> types, HashSet<string> sink)
+        {
+            foreach (var type in types)
+            {
+                if (type.IsIngestionQuarantined)
+                {
+                    var qualified = type.SwiftTypeName?.ModuleQualifiedName;
+                    if (!string.IsNullOrEmpty(qualified))
+                        sink.Add(qualified!);
+                }
+                CollectQuarantinedTypeNames(type.Types, sink);
+            }
+        }
+
+        /// <summary>
+        /// Best-effort identity-skeleton seeding for the members of a module cycle, done before any
+        /// member is layout-finalized so intra-cycle references are identity-known. Swift forbids
+        /// value-type storage cycles, so a genuine SCC is a reference-type cycle whose layout is not
+        /// order-sensitive; a parse failure here simply forgoes the seed and the member is finalized
+        /// as before. Never reached for an acyclic graph (the entire real-world corpus).
+        /// </summary>
+        private static void SeedCycleSkeletons(
+            FrameworkDependencyInfo dep,
+            string owningModule,
+            NominalSkeletonIndex index,
+            Dictionary<string, Demangling.DemanglingResults> preloadedDependencyTbds,
+            ModuleFactIndexSet crossModuleFactIndex,
+            ITypeDatabase typeDatabase,
+            ILoggerFactory loggerFactory)
+        {
+            try
+            {
+                var tbd = preloadedDependencyTbds.TryGetValue(dep.ModuleName, out var pt)
+                    ? pt
+                    : Demangling.DemanglingResults.FromTbd(dep.TbdPath!, loggerFactory);
+                var parser = new SwiftABIParser(
+                    dep.AbiJsonPath!, typeDatabase, tbd,
+                    Microsoft.Extensions.Logging.Abstractions.NullLogger<SwiftABIParser>.Instance,
+                    SwiftInterfaceFacts.Empty,
+                    new IndexBackedCrossModuleFactResolver(
+                        crossModuleFactIndex,
+                        new LegacyCrossModuleFactResolver(typeDatabase, tbd)),
+                    docComments: null);
+                if (parser.HasNoDeclChildren)
+                    return;
+                // This parse exists only to register skeleton identities for a cycle member; the
+                // authoritative finalize parse below records the module's InputResolutionReport
+                // decisions. Snapshot/restore around the throwaway parse so an SCC member's ABI
+                // decisions are not recorded twice (same discipline as the ordering pre-pass).
+                var reportBeforeSeed = InputResolutionReport.Snapshot();
+                ModuleDecl seededModule;
+                try
+                {
+                    seededModule = parser.ParseModule().ModuleDecl;
+                }
+                finally
+                {
+                    InputResolutionReport.Restore(reportBeforeSeed);
+                }
+                RegisterResolvedSkeletons(seededModule, owningModule, index);
+            }
+            catch
+            {
+                // Seeding is best-effort; the member finalizes without it.
+            }
+        }
+
         private static bool TryDetectModuleSelfAliasCollision(ModuleDecl decl, string moduleName, ILogger logger)
         {
             if (string.IsNullOrEmpty(decl.SwiftInterfacePath) || !File.Exists(decl.SwiftInterfacePath))

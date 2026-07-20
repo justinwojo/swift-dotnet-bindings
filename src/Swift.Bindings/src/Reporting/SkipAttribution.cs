@@ -187,6 +187,18 @@ public static class SkipCauseClassifier
                 attribution = SkipAttribution.Of(
                     attribution.Owner, RecoveryStage.SwiftCompile, CapAtMedium(attribution.Confidence));
             }
+            else if (details.StartsWith(EmitterFaultRecord.IngestionWithdrawalDetailsPrefix, StringComparison.Ordinal))
+            {
+                // An ingestion withdrawal is not a generator, compile, or ABI fault at all: the emitter
+                // lowered nothing wrong — a malformed INPUT node this declaration depends on was
+                // quarantined at parse time, and the proven-closure walk withdrew this declaration with
+                // it. The honest owner is the input configuration (whoever supplied the malformed ABI
+                // record), decided at the Parse stage — so both the owner AND the stage are re-attributed
+                // away from the base EmitterFault(Generator, Emit) rule, at High confidence because the
+                // details prefix is an exact signal of the ingestion origin.
+                attribution = SkipAttribution.Of(
+                    CauseOwner.InputConfiguration, RecoveryStage.Parse, AttributionConfidence.High);
+            }
         }
 
         return attribution;
