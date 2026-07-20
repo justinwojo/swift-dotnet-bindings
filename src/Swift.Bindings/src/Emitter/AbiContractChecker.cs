@@ -69,10 +69,23 @@ public sealed record AbiCheckResult
 public sealed class AbiContractViolationException : Exception
 {
     public AbiContractViolationException(string moduleName, ImmutableArray<AbiCheckViolation> violations)
-        : base(BuildMessage(moduleName, violations))
+        : this(moduleName, violations.Select(v => new AbiAttributedViolation(v, null)).ToImmutableArray())
+    {
+    }
+
+    /// <summary>
+    /// Owner-carrying constructor. Each violation is paired with the declaring artifact typed validation
+    /// resolved it to (null for a text-only backstop violation on a call no plan backs), so the
+    /// verify-recover loop can attribute a droppable culprit and withdraw it; a null-owner violation
+    /// resolves to nothing and fails the module closed, the sound default.
+    /// </summary>
+    internal AbiContractViolationException(
+        string moduleName, ImmutableArray<AbiAttributedViolation> attributed)
+        : base(BuildMessage(moduleName, attributed.Select(a => a.Violation).ToImmutableArray()))
     {
         ModuleName = moduleName;
-        Violations = violations;
+        Violations = attributed.Select(a => a.Violation).ToImmutableArray();
+        Attributed = attributed;
     }
 
     /// <summary>The Swift module whose emitted binding failed validation.</summary>
@@ -80,6 +93,12 @@ public sealed class AbiContractViolationException : Exception
 
     /// <summary>Every violation that caused the failure, in detection order.</summary>
     public ImmutableArray<AbiCheckViolation> Violations { get; }
+
+    /// <summary>
+    /// Each violation paired with the artifact that owns it (null when unattributed). Consumed by the
+    /// verify-recover loop to resolve a droppable culprit; not part of the public surface.
+    /// </summary>
+    internal ImmutableArray<AbiAttributedViolation> Attributed { get; }
 
     private static string BuildMessage(string moduleName, ImmutableArray<AbiCheckViolation> violations)
     {
@@ -91,6 +110,72 @@ public sealed class AbiContractViolationException : Exception
                Environment.NewLine + detail;
     }
 }
+
+/// <summary>
+/// Thrown when the one-directional disagreement invariant fires: the text scan flagged a violation on a
+/// P/Invoke that IS backed by a typed <see cref="AbiCallPlan"/>, yet typed plan-vs-descriptor validation
+/// passed it. During the transition the text scan is a completeness cross-check over the plan-backed
+/// subset, so text-fail / typed-pass is never a recoverable binding fault — it means the generator's own
+/// machinery disagrees with itself, and exactly one of three things is wrong: session-04 plan population
+/// (the plan does not describe the call it should), the typed comparison (it missed a fault text caught),
+/// or the text scan itself (a false positive). Any of those is a generator bug, so this fails the module
+/// closed loudly and is never auto-resolved — distinct from <see cref="AbiContractViolationException"/>,
+/// which the verify-recover loop may recover by withdrawing the affected member. This type is never caught
+/// by that loop.
+/// </summary>
+public sealed class AbiValidationInvariantException : Exception
+{
+    public AbiValidationInvariantException(
+        string moduleName, ImmutableArray<AbiCheckViolation> disagreements)
+        : base(BuildMessage(moduleName, disagreements))
+    {
+        ModuleName = moduleName;
+        Disagreements = disagreements;
+    }
+
+    /// <summary>The Swift module whose emitted binding tripped the invariant.</summary>
+    public string ModuleName { get; }
+
+    /// <summary>The text-scan violations on plan-backed calls that typed validation did not confirm.</summary>
+    public ImmutableArray<AbiCheckViolation> Disagreements { get; }
+
+    private static string BuildMessage(
+        string moduleName, ImmutableArray<AbiCheckViolation> disagreements)
+    {
+        var detail = string.Join(Environment.NewLine, disagreements.Select(v => "  " + v.Describe()));
+        return $"SWIFTBIND096: ABI validation disagreement invariant fired for '{moduleName}': the text scan " +
+               $"reported {disagreements.Length} violation(s) on P/Invoke(s) that a typed AbiCallPlan backs, " +
+               $"but typed plan-vs-descriptor validation passed them. On the plan-backed subset the text scan " +
+               $"is a cross-check that must agree, so this is a generator invariant failure — one of the plan " +
+               $"population, the typed comparison, or the text scan is wrong. Failing closed; this is never " +
+               $"auto-resolved. Report this as a generator bug." + Environment.NewLine + detail;
+    }
+}
+
+/// <summary>
+/// The outcome of validating a whole module: the recoverable violations (typed, plus text-only backstop
+/// violations on calls no plan backs), each paired with its owning artifact for the verify-recover loop.
+/// A firing of the one-directional disagreement invariant is signalled out-of-band via
+/// <see cref="AbiValidationInvariantException"/> rather than returned here.
+/// </summary>
+public sealed record AbiValidationResult
+{
+    /// <summary>All recoverable violations, deduplicated, in detection order.</summary>
+    public required ImmutableArray<AbiCheckViolation> Violations { get; init; }
+
+    /// <summary>Number of P/Invokes the text scan analysed.</summary>
+    public int PInvokeCount { get; init; }
+
+    /// <summary>True if no recoverable violation was found.</summary>
+    public bool IsClean => Violations.IsEmpty;
+
+    /// <summary>Each recoverable violation paired with its owning artifact (null when unattributed).</summary>
+    internal ImmutableArray<AbiAttributedViolation> Attributed { get; init; } =
+        ImmutableArray<AbiAttributedViolation>.Empty;
+}
+
+/// <summary>A violation paired with the declaring artifact that owns it, or null when unattributed.</summary>
+internal readonly record struct AbiAttributedViolation(AbiCheckViolation Violation, ArtifactId? Owner);
 
 /// <summary>
 /// A single ABI contract violation detected in generated output.
@@ -213,29 +298,13 @@ public static class AbiContractChecker
         string csOutput, string moduleName, ILogger logger, string? wrapperLibraryName = null)
     {
         var pinvokes = ExtractPInvokes(csOutput, moduleName, wrapperLibraryName);
-        var violations = new List<AbiCheckViolation>();
 
         // Equivalent to GenerationMode.XCFramework: a wrapper library name is configured
         // exactly when a companion wrapper carries the @_cdecl thunks. CC-003 is the one
         // rule whose premise depends on that wrapper existing.
         var hasWrapperLibrary = !string.IsNullOrEmpty(wrapperLibraryName);
 
-        foreach (var pinvoke in pinvokes)
-        {
-            violations.AddRange(CheckCC001_NonBlittableParams(pinvoke));
-            violations.AddRange(CheckCC002_NonBlittableReturn(pinvoke));
-            violations.AddRange(CheckCC003_CdeclTargetsWrongLib(pinvoke, hasWrapperLibrary));
-            violations.AddRange(CheckCC004_CdeclMangledSymbol(pinvoke));
-        }
-
-        // Tj thunk library pairing (operates on the full set)
-        violations.AddRange(CheckTjThunkCrossModule(pinvokes));
-
-        // Refinement 1: De-duplicate by (RuleId, MethodName)
-        var deduplicated = violations
-            .GroupBy(v => (v.RuleId, v.MethodName))
-            .Select(g => g.First())
-            .ToImmutableArray();
+        var deduplicated = ComputeViolations(pinvokes, hasWrapperLibrary);
 
         // Log warnings for each violation
         foreach (var violation in deduplicated)
@@ -247,6 +316,182 @@ public static class AbiContractChecker
         {
             Violations = deduplicated,
             PInvokeCount = pinvokes.Length,
+        };
+    }
+
+    /// <summary>
+    /// Runs every ABI rule over a set of extracted P/Invokes and returns the deduplicated violations —
+    /// the shared core of the text scan, so <see cref="Validate"/> and <see cref="ValidateModule"/> can
+    /// never drift in what they flag. Dedup is by (RuleId, MethodName, EntryPoint): the same C# method name
+    /// may legally recur across containing types under different entry points, and collapsing those to a
+    /// single hit would silently drop a distinct text violation before <see cref="ValidateModule"/> can
+    /// reconcile it against the typed oracle at the same granularity — starving the disagreement-invariant
+    /// and no-plan-backstop checks of a call they must see.
+    /// </summary>
+    internal static ImmutableArray<AbiCheckViolation> ComputeViolations(
+        ImmutableArray<PInvokeInfo> pinvokes, bool hasWrapperLibrary)
+    {
+        var violations = new List<AbiCheckViolation>();
+
+        foreach (var pinvoke in pinvokes)
+        {
+            violations.AddRange(CheckCC001_NonBlittableParams(pinvoke));
+            violations.AddRange(CheckCC002_NonBlittableReturn(pinvoke));
+            violations.AddRange(CheckCC003_CdeclTargetsWrongLib(pinvoke, hasWrapperLibrary));
+            violations.AddRange(CheckCC004_CdeclMangledSymbol(pinvoke));
+            violations.AddRange(CheckTjThunkCrossModule(pinvoke));
+        }
+
+        // De-duplicate by (RuleId, MethodName, EntryPoint) — the same identity ValidateModule reconciles on,
+        // so a distinct text violation is never collapsed away before the invariant/backstop checks run.
+        return violations
+            .GroupBy(v => (v.RuleId, v.MethodName, v.EntryPoint))
+            .Select(g => g.First())
+            .ToImmutableArray();
+    }
+
+    /// <summary>
+    /// Validates a whole module: typed plan-vs-descriptor validation over the plan-backed subset (the
+    /// primary oracle) reconciled against the text scan (a completeness cross-check and a defense-in-depth
+    /// backstop for the calls no plan yet backs). Every rule the text scan runs, typed validation runs
+    /// too, from the recorded <see cref="AbiCallPlan"/>s rather than by re-parsing the emitted C#.
+    /// </summary>
+    /// <remarks>
+    /// The one-directional disagreement invariant: on the plan-backed subset a text-flagged violation
+    /// typed did not confirm (text-fail / typed-pass) is a generator invariant failure — thrown as
+    /// <see cref="AbiValidationInvariantException"/>, loud and never auto-resolved. The opposite polarity
+    /// (typed-fail / text-pass) is NOT an invariant failure: it is new recall working as designed, so the
+    /// typed violation is reported (attributable via its owner) and the text scan's silence is only
+    /// logged. Text violations on calls NO plan backs are reported as backstop violations with no owner.
+    /// </remarks>
+    public static AbiValidationResult ValidateModule(
+        string csOutput,
+        IReadOnlyCollection<AbiCallPlan> plans,
+        string moduleName,
+        ILogger logger,
+        string? wrapperLibraryName = null)
+    {
+        var hasWrapperLibrary = !string.IsNullOrEmpty(wrapperLibraryName);
+
+        // Typed validation over the plan-backed subset — the primary oracle. Each violation carries the
+        // plan's owning artifact for loop attribution.
+        var typed = ValidatePlans(plans, moduleName, wrapperLibraryName);
+        var typedKeys = new HashSet<(string, string, string)>();
+        foreach (var t in typed)
+            typedKeys.Add((t.Violation.RuleId, t.Violation.MethodName, t.Violation.EntryPoint));
+
+        // Text scan over the whole emitted module — the cross-check and backstop.
+        var textPinvokes = ExtractPInvokes(csOutput, moduleName, wrapperLibraryName);
+        var textViolations = ComputeViolations(textPinvokes, hasWrapperLibrary);
+
+        // A call is plan-backed when a recorded plan shares its (MethodName, EntryPoint).
+        var planBacked = new HashSet<(string, string)>();
+        foreach (var p in plans)
+            planBacked.Add((p.MethodName, p.EntryPoint));
+
+        var recoverable = new List<AbiAttributedViolation>(typed);
+        var invariantFirings = new List<AbiCheckViolation>();
+
+        foreach (var vx in textViolations)
+        {
+            if (!planBacked.Contains((vx.MethodName, vx.EntryPoint)))
+            {
+                // No plan backs this call — the text scan is the only oracle. Report it as a backstop
+                // violation with no owner (attribution resolves to nothing → fails the module closed).
+                recoverable.Add(new AbiAttributedViolation(vx, null));
+                continue;
+            }
+
+            if (typedKeys.Contains((vx.RuleId, vx.MethodName, vx.EntryPoint)))
+                continue; // agreement — already covered by the typed violation
+
+            // Plan-backed, text flagged it, typed did not: the disagreement invariant.
+            invariantFirings.Add(vx);
+        }
+
+        if (invariantFirings.Count > 0)
+            throw new AbiValidationInvariantException(moduleName, invariantFirings.ToImmutableArray());
+
+        // Dedup at the finest correct granularity — (RuleId, MethodName, EntryPoint) — preferring the
+        // owner-carrying (typed) copy so the loop keeps an attributable culprit when a typed violation and
+        // a text backstop coincide.
+        var deduped = recoverable
+            .GroupBy(a => (a.Violation.RuleId, a.Violation.MethodName, a.Violation.EntryPoint))
+            .Select(g => g.OrderByDescending(a => a.Owner.HasValue).First())
+            .ToImmutableArray();
+
+        foreach (var a in deduped)
+            logger.LogWarning("{Detail}", a.Violation.Describe());
+
+        return new AbiValidationResult
+        {
+            Violations = deduped.Select(a => a.Violation).ToImmutableArray(),
+            Attributed = deduped,
+            PInvokeCount = textPinvokes.Length,
+        };
+    }
+
+    /// <summary>
+    /// Runs every ABI rule over the typed <see cref="AbiCallPlan"/>s — building a <see cref="PInvokeInfo"/>
+    /// from each plan's recorded facts (resolved convention, lowered carriers, library, entry point)
+    /// rather than by re-parsing emitted text — and pairs each violation with its plan's owning artifact.
+    /// CC-004 ($s symbol under Cdecl) is structurally unreachable here: a plan's convention is already
+    /// resolved through <see cref="PInvokeEmitHelper.SelectCallingConvention"/>, which coerces a $s symbol
+    /// to Swift CC, so the 91-false-positive CC-004 class cannot fire on a plan.
+    /// </summary>
+    internal static ImmutableArray<AbiAttributedViolation> ValidatePlans(
+        IReadOnlyCollection<AbiCallPlan> plans, string moduleName, string? wrapperLibraryName)
+    {
+        var hasWrapperLibrary = !string.IsNullOrEmpty(wrapperLibraryName);
+        var wrapperLibName = moduleName + "SwiftBindings";
+
+        var attributed = new List<AbiAttributedViolation>();
+        foreach (var plan in plans)
+        {
+            var info = ToPInvokeInfo(plan, wrapperLibName, wrapperLibraryName);
+            foreach (var v in CheckCC001_NonBlittableParams(info))
+                attributed.Add(new AbiAttributedViolation(v, info.Owner));
+            foreach (var v in CheckCC002_NonBlittableReturn(info))
+                attributed.Add(new AbiAttributedViolation(v, info.Owner));
+            foreach (var v in CheckCC003_CdeclTargetsWrongLib(info, hasWrapperLibrary))
+                attributed.Add(new AbiAttributedViolation(v, info.Owner));
+            foreach (var v in CheckCC004_CdeclMangledSymbol(info))
+                attributed.Add(new AbiAttributedViolation(v, info.Owner));
+            foreach (var v in CheckTjThunkCrossModule(info))
+                attributed.Add(new AbiAttributedViolation(v, info.Owner));
+        }
+
+        return attributed.ToImmutableArray();
+    }
+
+    /// <summary>
+    /// Builds a <see cref="PInvokeInfo"/> from a typed <see cref="AbiCallPlan"/>, so the same Check* rules
+    /// the text scan runs can be applied to the plan. The convention is the plan's already-resolved
+    /// convention rendered as the attribute type name the rules compare; the parameters carry synthetic
+    /// positional names (the rules judge the carrier type only).
+    /// </summary>
+    internal static PInvokeInfo ToPInvokeInfo(
+        AbiCallPlan plan, string wrapperLibName, string? configuredWrapperLibrary)
+    {
+        var convention = plan.CallingConvention == PInvokeCallingConvention.Swift
+            ? "CallConvSwift"
+            : "CallConvCdecl";
+
+        var parameters = plan.ParameterCarriers
+            .Select((carrier, i) => new PInvokeParamInfo { CSharpType = carrier, Name = "p" + i })
+            .ToImmutableArray();
+
+        return new PInvokeInfo
+        {
+            MethodName = plan.MethodName,
+            EntryPoint = plan.EntryPoint,
+            CallingConvention = convention,
+            TargetLibrary = ClassifyLibrary(plan.Library, wrapperLibName, configuredWrapperLibrary),
+            LibraryName = plan.Library,
+            ReturnType = plan.ReturnCarrier,
+            Parameters = parameters,
+            ContainingClass = null,
+            Owner = plan.Owner,
         };
     }
 
@@ -393,44 +638,51 @@ public static class AbiContractChecker
         ImmutableArray<PInvokeInfo> pinvokes)
     {
         var violations = new List<AbiCheckViolation>();
-
         foreach (var pinvoke in pinvokes)
-        {
-            // Only check mangled symbols targeting original library
-            if (!pinvoke.EntryPoint.StartsWith(ManglingProbes.StablePrefix))
-                continue;
-            if (pinvoke.TargetLibrary != TargetLibraryKind.OriginalLibrary)
-                continue;
-
-            // Must be a Tj dispatch thunk
-            if (!pinvoke.EntryPoint.EndsWith(ManglingProbes.DispatchThunkSuffix))
-                continue;
-
-            // Extract module name from mangled symbol
-            var extractedModule = ExtractModuleFromMangledSymbol(pinvoke.EntryPoint);
-            if (extractedModule == null)
-                continue;
-
-            if (!LibraryIdentityMatchesModule(pinvoke.LibraryName, extractedModule))
-            {
-                violations.Add(new AbiCheckViolation
-                {
-                    DiagnosticCode = "SWIFTBIND092",
-                    RuleId = "Tj-XM",
-                    MethodName = pinvoke.MethodName,
-                    EntryPoint = pinvoke.EntryPoint,
-                    Explanation = $"'{pinvoke.MethodName}' binds the dispatch thunk '{pinvoke.EntryPoint}', which " +
-                        $"module '{extractedModule}' declares and therefore exports, against library " +
-                        $"'{pinvoke.LibraryName}'. That library does not contain the symbol, so the call would " +
-                        $"throw EntryPointNotFoundException on first use. Report this as a generator bug.",
-                    AffectedElements = ImmutableArray.Create(
-                        $"symbol module: {extractedModule}",
-                        $"bound library: {pinvoke.LibraryName}"),
-                });
-            }
-        }
-
+            violations.AddRange(CheckTjThunkCrossModule(pinvoke));
         return violations.ToImmutableArray();
+    }
+
+    /// <summary>
+    /// The Tj cross-module rule for a single P/Invoke. The check is entirely per-call — the earlier
+    /// whole-set form only looped this — so the same rule runs identically whether it reaches here from
+    /// the text scan (<see cref="ComputeViolations"/>) or from typed plan validation
+    /// (<see cref="ValidatePlans"/>).
+    /// </summary>
+    internal static ImmutableArray<AbiCheckViolation> CheckTjThunkCrossModule(PInvokeInfo pinvoke)
+    {
+        // Only check mangled symbols targeting original library
+        if (!pinvoke.EntryPoint.StartsWith(ManglingProbes.StablePrefix))
+            return ImmutableArray<AbiCheckViolation>.Empty;
+        if (pinvoke.TargetLibrary != TargetLibraryKind.OriginalLibrary)
+            return ImmutableArray<AbiCheckViolation>.Empty;
+
+        // Must be a Tj dispatch thunk
+        if (!pinvoke.EntryPoint.EndsWith(ManglingProbes.DispatchThunkSuffix))
+            return ImmutableArray<AbiCheckViolation>.Empty;
+
+        // Extract module name from mangled symbol
+        var extractedModule = ExtractModuleFromMangledSymbol(pinvoke.EntryPoint);
+        if (extractedModule == null)
+            return ImmutableArray<AbiCheckViolation>.Empty;
+
+        if (LibraryIdentityMatchesModule(pinvoke.LibraryName, extractedModule))
+            return ImmutableArray<AbiCheckViolation>.Empty;
+
+        return ImmutableArray.Create(new AbiCheckViolation
+        {
+            DiagnosticCode = "SWIFTBIND092",
+            RuleId = "Tj-XM",
+            MethodName = pinvoke.MethodName,
+            EntryPoint = pinvoke.EntryPoint,
+            Explanation = $"'{pinvoke.MethodName}' binds the dispatch thunk '{pinvoke.EntryPoint}', which " +
+                $"module '{extractedModule}' declares and therefore exports, against library " +
+                $"'{pinvoke.LibraryName}'. That library does not contain the symbol, so the call would " +
+                $"throw EntryPointNotFoundException on first use. Report this as a generator bug.",
+            AffectedElements = ImmutableArray.Create(
+                $"symbol module: {extractedModule}",
+                $"bound library: {pinvoke.LibraryName}"),
+        });
     }
 
     // ── P/Invoke text extraction ──
@@ -629,7 +881,7 @@ public static class AbiContractChecker
     /// classified as correctly-wrapper-bound and CC-003 stays silent on a genuine
     /// EntryPointNotFoundException.
     /// </remarks>
-    private static TargetLibraryKind ClassifyLibrary(
+    internal static TargetLibraryKind ClassifyLibrary(
         string libraryName, string wrapperLibName, string? configuredWrapperLibrary)
     {
         if (libraryName.Contains("libswiftCore") || libraryName.Contains("SwiftCore"))
@@ -897,6 +1149,13 @@ public static class AbiContractChecker
         public required string ReturnType { get; init; }
         public required ImmutableArray<PInvokeParamInfo> Parameters { get; init; }
         public string? ContainingClass { get; init; }
+
+        /// <summary>
+        /// The declaring artifact this P/Invoke hangs off, when it was built from a typed
+        /// <see cref="AbiCallPlan"/> (via <see cref="ToPInvokeInfo"/>). Null for a text-extracted
+        /// P/Invoke, which carries no owner — the text scan cannot know it.
+        /// </summary>
+        public ArtifactId? Owner { get; init; }
     }
 
     internal sealed record PInvokeParamInfo

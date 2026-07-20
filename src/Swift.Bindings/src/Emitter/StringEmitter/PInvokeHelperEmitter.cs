@@ -858,6 +858,14 @@ public class PInvokeDeclaration
     public bool EnforceWrapperContract { get; init; }
 
     /// <summary>
+    /// The declaring artifact this hoisted P/Invoke hangs off, forwarded into
+    /// <see cref="PInvokeEmissionInfo.Owner"/> so the typed <see cref="AbiCallPlan"/> a generic-type
+    /// member records is attributable to the recovery unit the verify-recover loop withdraws. Null for a
+    /// pure infrastructure declaration (e.g. a generic-type metadata accessor) that no single member owns.
+    /// </summary>
+    public ArtifactId? Owner { get; init; }
+
+    /// <summary>
     /// Emits the P/Invoke declaration.
     /// </summary>
     /// <param name="csWriter">The C# code writer.</param>
@@ -875,7 +883,8 @@ public class PInvokeDeclaration
             IsAsync = IsAsync,
             MetadataParameters = MetadataParameters,
             EmissionContext = EmissionContext,
-            EnforceWrapperContract = EnforceWrapperContract
+            EnforceWrapperContract = EnforceWrapperContract,
+            Owner = Owner
         });
     }
 }

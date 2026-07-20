@@ -68,6 +68,25 @@ public sealed record AbiCallPlan
     public bool IsAsync { get; init; }
 
     /// <summary>
+    /// The declaring artifact this call hangs off — the same owner the fragment interval map stamps for
+    /// the member's C# surface (<see cref="FragmentOwners.ForDecl"/>), so typed validation can resolve a
+    /// violation to the exact recovery unit the verify-recover loop withdraws, identically to how the C#
+    /// verify plane attributes a compile error. Null when the emission site does not know the owner (the
+    /// generic-helper path and the raw-<c>LibraryImport</c> sinks that do not yet capture it); a
+    /// null-owner plan is still typed-validated, but a violation on it cannot be recovered and fails the
+    /// module closed — the sound default, matching how ABI violations have always been terminal.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately excluded from <see cref="Equals(AbiCallPlan?)"/> / <see cref="GetHashCode"/>: the
+    /// owner is attribution provenance, not part of the call's ABI identity, and the session-04
+    /// determinism/dedup contract (double-emit yields an identical plan VALUE set) is keyed on the ABI
+    /// facts alone. Two structurally-identical calls from different owners collapse to one plan whose
+    /// owner is whichever was recorded first; if that owner's withdrawal leaves the sibling's identical
+    /// call behind, the next render's validation re-catches it, so the collision is self-correcting.
+    /// </remarks>
+    public ArtifactId? Owner { get; init; }
+
+    /// <summary>
     /// A stable diagnostic identity for this call: its C# method name and its entry-point symbol, separated
     /// by a space. Within one containing C# type two P/Invoke declarations sharing both would be a duplicate
     /// declaration (<c>CS0111</c>); across different containing types they can legally coincide, so this is

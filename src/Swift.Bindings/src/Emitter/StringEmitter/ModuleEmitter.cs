@@ -145,16 +145,21 @@ namespace BindingsGeneration
                     .Select(t => new FragmentAssembly.TileLeaf(t.Owner, t.Start, t.End, t.IsWholeScope, t.Depth))
                     .ToList();
 
-                // Post-generation ABI contract validation, over the whole module. This runs before
-                // any file is written so a violation leaves nothing on disk to consume: every
-                // violation means an emitted member binds a native symbol in a way that compiles
-                // and then breaks when called, and no part of the module is worth shipping past
-                // that. Failing here is the interim posture — once the emitter can re-emit against
-                // a denylist, these violations drop the affected members instead.
-                var abiResult = AbiContractChecker.Validate(
-                    wholeOutput, moduleDecl.Name, _logger, _typeDatabase.AsyncLibraryName);
+                // Post-generation ABI contract validation, over the whole module. Typed
+                // plan-vs-descriptor validation over the recorded AbiCallPlans is the primary oracle;
+                // the text scan of the emitted C# is demoted to a completeness cross-check and a
+                // defense-in-depth backstop for calls no plan yet backs. This runs before any file is
+                // written so a violation leaves nothing on disk to consume: every violation means an
+                // emitted member binds a native symbol in a way that compiles and then breaks when
+                // called. A recoverable violation carries the owning artifact so the verify-recover
+                // loop can withdraw just that member; a text-fail / typed-pass disagreement on a
+                // plan-backed call throws AbiValidationInvariantException (a generator invariant
+                // failure, never auto-resolved) rather than surfacing here.
+                var abiResult = AbiContractChecker.ValidateModule(
+                    wholeOutput, emissionContext.AbiCallPlans, moduleDecl.Name, _logger,
+                    _typeDatabase.AsyncLibraryName);
                 if (!abiResult.IsClean)
-                    throw new AbiContractViolationException(moduleDecl.Name, abiResult.Violations);
+                    throw new AbiContractViolationException(moduleDecl.Name, abiResult.Attributed);
 
                 // Split the combined output into one file per top-level type (prelude keeps the
                 // historical {namespace}.cs name). Byte-for-byte a repackaging of wholeOutput —

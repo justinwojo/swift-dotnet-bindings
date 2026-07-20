@@ -1358,6 +1358,7 @@ public sealed class ModuleEmissionContext
     public IReadOnlyList<AbiCallPlan> AbiCallPlans =>
         _abiCallPlans
             .OrderBy(p => p.Key, StringComparer.Ordinal)
+            .ThenBy(p => p.Library, StringComparer.Ordinal)
             .ThenBy(p => p.ReturnCarrier, StringComparer.Ordinal)
             .ThenBy(p => (int)p.CallingConvention)
             .ThenBy(p => p.IsAsync)

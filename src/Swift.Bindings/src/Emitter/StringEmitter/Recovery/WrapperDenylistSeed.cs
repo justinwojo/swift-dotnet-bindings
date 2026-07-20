@@ -59,14 +59,20 @@ internal static class WrapperDenylistSeed
         foreach (var unit in denylist)
         {
             var origin = originOf(unit);
-            var plane = origin == EmitterFaultOrigin.CSharpRecoveryWithdrawal ? "C#" : "wrapper";
+            // The ABI plane is not a compile — the typed plan-vs-descriptor check rejected the call — so
+            // its wording says so honestly; the C# and wrapper compile wordings stay byte-identical.
+            var message = origin == EmitterFaultOrigin.AbiRecoveryWithdrawal
+                ? $"the plan-vs-descriptor check rejected this call ({unit.Describe()})"
+                : $"withdrawn to recover the " +
+                  $"{(origin == EmitterFaultOrigin.CSharpRecoveryWithdrawal ? "C#" : "wrapper")} compile " +
+                  $"({unit.Describe()})";
             // The unit-aware Record routes by scope: a leaf/accessor/type seed lands in the bare-DeclId
             // index exactly as before (byte-identical), while a coarse sub-declaration seed lands in the
             // unit-keyed index so it withdraws only its own surface.
             poison.Record(unit, EmitterFaultRecord.ForRecoveryWithdrawal(
                 unit.Decl,
                 unit.Scope,
-                $"withdrawn to recover the {plane} compile ({unit.Describe()})",
+                message,
                 origin: origin));
         }
 

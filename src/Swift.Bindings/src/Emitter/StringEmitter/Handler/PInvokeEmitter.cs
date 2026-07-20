@@ -1200,6 +1200,29 @@ namespace BindingsGeneration
         /// <param name="csWriter">The IndentedTextWriter instance.</param>
         /// <param name="methodEnv">The method environment.</param>
         /// <param name="signatureHandler">The signature handler.</param>
+        /// <summary>
+        /// The owner a recorded <see cref="AbiCallPlan"/> carries so a typed ABI violation resolves to the
+        /// recovery unit the verify-recover loop actually withdraws.
+        /// </summary>
+        /// <remarks>
+        /// For a property/subscript accessor this is NOT the accessor method's own leaf. The enclosing type
+        /// handler opens ONE fragment for the whole property/subscript — its <c>AccessorGroup</c> unit — and
+        /// emits both accessors' C# surface inside it; <c>MethodHandler.Emit</c> opens no fragment of its
+        /// own, so the interval map stamps the accessor bytes to that enclosing fragment. Gate 0 withdraws
+        /// the <c>AccessorGroup</c>, not the accessor method leaf, so the plan owner must match the enclosing
+        /// fragment — otherwise a droppable accessor violation would re-blame an already-denied leaf and fail
+        /// the module closed instead of converging degraded-green. Reading the innermost open fragment (the
+        /// same identity the tiling will stamp) keeps the plan owner and the interval map from drifting. A
+        /// non-accessor method is dispatched under its own <see cref="FragmentOwners.ForDecl(BaseDecl)"/>
+        /// fragment, so the two already coincide; the synthesized/operator paths that emit a method with no
+        /// per-member fragment would wrongly coarsen to the type if routed through the stack, so the fragment
+        /// route is taken for accessors only.
+        /// </remarks>
+        internal static ArtifactId ResolvePlanOwner(CSharpWriter csWriter, MethodDecl methodDecl) =>
+            methodDecl.IsAccessor && csWriter.Fragments.InnermostOwner is { } enclosing
+                ? enclosing.Artifact
+                : FragmentOwners.ForDecl(methodDecl).Artifact;
+
         public static void EmitPInvoke(CSharpWriter csWriter, MethodEnvironment methodEnv, SignatureHandler signatureHandler)
         {
             var methodDecl = (MethodDecl)methodEnv.MethodDecl;
@@ -1255,6 +1278,10 @@ namespace BindingsGeneration
                     // applies based on the resolved calling convention.
                     EmissionContext = methodEnv.EmissionContext,
                     EnforceWrapperContract = methodEnv.EmissionContext != null,
+                    // Carry the declaring owner so the generic-type member's hoisted P/Invoke records an
+                    // attributable AbiCallPlan (the same artifact the fragment interval map stamps for this
+                    // member's C# surface), matching the non-generic sink below.
+                    Owner = ResolvePlanOwner(csWriter, methodDecl),
                     // Methods with GenericParameters already have per-param TypeMetadata in the
                     // P/Invoke signature via HandleGenericMetadata(). Skip PInvokeHelperContext
                     // trailing metadata to avoid duplicate TypeMetadata params (ABI mismatch).
@@ -1286,7 +1313,15 @@ namespace BindingsGeneration
                     ParametersString = pInvokeParams,
                     IsAsync = methodDecl.IsAsync,
                     IsUnsafe = pInvokeParams.Contains("void*") || pInvokeParams.Contains("delegate*") || pInvokeParams.Contains("IntPtr*"),
-                    CallingConvention = WrapperValidation.GetCallingConvention(methodDecl)
+                    CallingConvention = WrapperValidation.GetCallingConvention(methodDecl),
+                    // Thread the emission context so this — the primary non-generic method P/Invoke
+                    // surface — records a typed AbiCallPlan (side table only; text output is unchanged
+                    // because EnforceWrapperContract stays false, so the in-band contract check does not
+                    // fire). Carry the declaring owner too, the same artifact the fragment interval map
+                    // stamps for this member's C# surface, so typed ABI validation can resolve a violation
+                    // to the recovery unit the verify-recover loop withdraws.
+                    EmissionContext = methodEnv.EmissionContext,
+                    Owner = ResolvePlanOwner(csWriter, methodDecl),
                 });
             }
         }

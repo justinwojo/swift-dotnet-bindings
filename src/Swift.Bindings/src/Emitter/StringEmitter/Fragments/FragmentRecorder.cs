@@ -46,6 +46,15 @@ public sealed class FragmentRecorder
     /// <summary>Number of scopes currently open.</summary>
     public int OpenDepth => _open.Count;
 
+    /// <summary>
+    /// The owner of the innermost currently-open scope, or <c>null</c> when no scope is open. This is the
+    /// exact owner <see cref="BuildTiling"/> attributes text written at this moment to, so an emitter
+    /// capturing provenance for bytes it is about to write — a P/Invoke recording its typed call plan's
+    /// owner — can read the same identity the interval map will stamp rather than re-deriving it and risking
+    /// drift.
+    /// </summary>
+    public FragmentOwner? InnermostOwner => _open.Count > 0 ? _open[^1].Owner : null;
+
     /// <summary>True when nothing has been recorded — the recorder is inert for this render.</summary>
     public bool IsEmpty => _events.Count == 0;
 

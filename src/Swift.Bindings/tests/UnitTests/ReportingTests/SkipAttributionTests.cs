@@ -449,6 +449,38 @@ public class SkipAttributionTests
     }
 
     /// <summary>
+    /// An ABI plan-vs-descriptor withdrawal is decided at neither compile — the emitter lowered the
+    /// declaration fine and the wrapper would compile; the typed call plan disagreed with the descriptor,
+    /// so the member was withdrawn before any compile ran. It shares <see cref="SkipReason.EmitterFault"/>
+    /// with the wrapper and C# withdrawals and the live exception, so the only surviving signal is the
+    /// ABI details prefix. This pins that the classifier learned the ABI wording the same way it learned
+    /// the Swift and C# ones, and places the row at <see cref="RecoveryStage.AbiValidation"/> — a report
+    /// that placed it at a compile stage would point a triager at a compile that never failed.
+    /// </summary>
+    [Fact]
+    public void Link_PlacesAnAbiRecoveryWithdrawalRowAtAbiValidation()
+    {
+        var decl = DeclId.Create("M", "T", BindingItemKind.Method, "foo");
+        var withdrawal = EmitterFaultRecord.ForRecoveryWithdrawal(
+            decl, RecoveryScope.LeafApi, "the plan-vs-descriptor check rejected this call (M.T.foo (leaf-api))",
+            origin: EmitterFaultOrigin.AbiRecoveryWithdrawal);
+        var item = new SkippedItem
+        {
+            Kind = BindingItemKind.Method,
+            Name = "foo",
+            Reason = SkipReason.EmitterFault,
+            Details = withdrawal.Details,
+            DeclId = decl.Canonical,
+        };
+
+        SkipAttributionLinker.Link(new[] { item });
+
+        Assert.Equal(RecoveryStage.AbiValidation, item.RecoveryStage);
+        Assert.Equal(CauseOwner.Generator, item.CauseOwner);
+        Assert.Equal(AttributionConfidence.High, item.Confidence);
+    }
+
+    /// <summary>
     /// A live emitter exception keeps the Emit stage — the refinement must key on the withdrawal
     /// wording, not on the reason alone.
     /// </summary>

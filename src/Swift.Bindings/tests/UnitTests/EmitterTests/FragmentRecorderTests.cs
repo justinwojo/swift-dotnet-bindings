@@ -272,6 +272,30 @@ public class FragmentRecorderTests
         Assert.Equal(30, scope.End);
     }
 
+    /// <summary>
+    /// The innermost-open-scope read the ABI plan owner resolver leans on: an accessor's recorded plan owner
+    /// is the property fragment enclosing it, which is whatever scope is innermost-open at emit time. Null
+    /// with nothing open, the top of the open stack otherwise, and it tracks pushes and pops.
+    /// </summary>
+    [Fact]
+    public void InnermostOwner_ReportsTheTopOfTheOpenStack_AndNullWhenNothingIsOpen()
+    {
+        var recorder = new FragmentRecorder();
+        Assert.Null(recorder.InnermostOwner);
+
+        var outer = recorder.Open(Owner("outer"), 0);
+        Assert.Equal(Owner("outer"), recorder.InnermostOwner);
+
+        var inner = recorder.Open(Owner("inner"), 5);
+        Assert.Equal(Owner("inner"), recorder.InnermostOwner);
+
+        recorder.Close(inner, 8);
+        Assert.Equal(Owner("outer"), recorder.InnermostOwner);
+
+        recorder.Close(outer, 10);
+        Assert.Null(recorder.InnermostOwner);
+    }
+
     private static FragmentOwner Owner(string name) =>
         FragmentOwners.ForModule(DeclIdFactory.ForModule(name));
 }

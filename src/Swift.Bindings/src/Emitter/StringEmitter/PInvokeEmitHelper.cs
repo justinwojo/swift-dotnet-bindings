@@ -85,6 +85,14 @@ public record PInvokeEmissionInfo
     /// chokepoint-by-chokepoint.
     /// </summary>
     public bool EnforceWrapperContract { get; init; }
+
+    /// <summary>
+    /// The declaring artifact this P/Invoke hangs off, carried onto the recorded
+    /// <see cref="AbiCallPlan.Owner"/> so typed ABI validation can resolve a violation to the recovery
+    /// unit the verify-recover loop withdraws. Null when the emission site does not know the owner — a
+    /// null-owner plan is still validated, but a violation on it fails closed rather than recovering.
+    /// </summary>
+    public ArtifactId? Owner { get; init; }
 }
 
 /// <summary>
@@ -343,6 +351,7 @@ public static class PInvokeEmitHelper
             ReturnCarrier = returnTypeStr,
             ParameterCarriers = ExtractParameterCarriers(paramsStr),
             IsAsync = info.IsAsync,
+            Owner = info.Owner,
         };
     }
 

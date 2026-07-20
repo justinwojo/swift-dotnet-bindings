@@ -134,13 +134,15 @@ public static class SkipCauseClassifier
 
     /// <summary>
     /// Classifies a root row, refining the reason-only answer where the details disambiguate the
-    /// stage. <see cref="SkipReason.EmitterFault"/> covers three cases distinguished only by the row's
+    /// stage. <see cref="SkipReason.EmitterFault"/> covers four cases distinguished only by the row's
     /// details wording: a live emitter exception (decided at <see cref="RecoveryStage.Emit"/>); a
     /// wrapper verify-recover withdrawal — the emitter lowered the declaration fine and it was
     /// withdrawn because the compiled Swift wrapper failed, so the decision belongs to
-    /// <see cref="RecoveryStage.SwiftCompile"/>; and a C# verify-recover withdrawal — lowered fine and
+    /// <see cref="RecoveryStage.SwiftCompile"/>; a C# verify-recover withdrawal — lowered fine and
     /// withdrawn because the emitted C# failed to compile, one rung later at
-    /// <see cref="RecoveryStage.CSharpCompile"/>. Each withdrawal's only surviving signal on the row is
+    /// <see cref="RecoveryStage.CSharpCompile"/>; and an ABI verify-recover withdrawal — lowered fine and
+    /// withdrawn because typed plan-vs-descriptor validation flagged its native call, decided at
+    /// <see cref="RecoveryStage.AbiValidation"/>. Each withdrawal's only surviving signal on the row is
     /// its details prefix, single-sourced on <see cref="EmitterFaultRecord"/>.
     /// </summary>
     public static SkipAttribution Classify(SkipReason reason, string? details)
@@ -157,6 +159,11 @@ public static class SkipCauseClassifier
             {
                 attribution = SkipAttribution.Of(
                     attribution.Owner, RecoveryStage.CSharpCompile, attribution.Confidence);
+            }
+            else if (details.StartsWith(EmitterFaultRecord.AbiWithdrawalDetailsPrefix, StringComparison.Ordinal))
+            {
+                attribution = SkipAttribution.Of(
+                    attribution.Owner, RecoveryStage.AbiValidation, attribution.Confidence);
             }
         }
 

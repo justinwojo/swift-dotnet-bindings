@@ -70,6 +70,29 @@ public class WrapperDenylistSeedTests : IDisposable
     }
 
     /// <summary>
+    /// An ABI plan-vs-descriptor withdrawal reads as its own kind of withdrawal — a distinct prefix from
+    /// both compile wordings — because it is decided at neither compile: the typed call plan disagreed
+    /// with the wrapper descriptor, so the member was withdrawn before any compile ran. The tombstone and
+    /// skip row must say "plan-vs-descriptor", never "Emitter threw" and never a compile withdrawal, so a
+    /// triager reads the true stage. The three prefixes must not be interchangeable.
+    /// </summary>
+    [Fact]
+    public void AbiRecoveryWithdrawalRecord_ReadsAsADistinctAbiWithdrawal()
+    {
+        var record = EmitterFaultRecord.ForRecoveryWithdrawal(
+            SomeDecl(), RecoveryScope.LeafApi, "the plan-vs-descriptor check rejected this call",
+            origin: EmitterFaultOrigin.AbiRecoveryWithdrawal);
+
+        Assert.Equal(EmitterFaultOrigin.AbiRecoveryWithdrawal, record.Origin);
+        Assert.Contains("Withdrawn by ABI validation", record.Details, StringComparison.Ordinal);
+        Assert.Contains("the plan-vs-descriptor check rejected this call", record.Details, StringComparison.Ordinal);
+        Assert.DoesNotContain("Emitter threw", record.Details, StringComparison.Ordinal);
+        // Distinct from both compile wordings — the ABI plane is not a compile.
+        Assert.DoesNotContain("Withdrawn by wrapper verify-recover", record.Details, StringComparison.Ordinal);
+        Assert.DoesNotContain("Withdrawn by C# verify-recover", record.Details, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The default origin is unchanged: a record built from a live exception still reads as a throw,
     /// so the existing emitter-fault tombstones keep their fingerprint-bearing wording.
     /// </summary>
@@ -148,6 +171,35 @@ public class WrapperDenylistSeedTests : IDisposable
         Assert.Contains("Withdrawn by wrapper verify-recover", swiftFault.Details, StringComparison.Ordinal);
         Assert.Contains("recover the wrapper compile", swiftFault.Details, StringComparison.Ordinal);
         Assert.Contains(swiftUnit.Describe(), swiftFault.Details, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// An ABI-plane withdrawal flows through the SAME per-unit <c>originOf</c> seam the C# and Swift planes
+    /// use, and reads as an ABI withdrawal — the honest "plan-vs-descriptor" wording — while a co-denied
+    /// wrapper unit in the same seed keeps the wrapper wording. This pins that the one Gate-0 channel
+    /// carries all three planes and that the ABI wording is not a compile wording.
+    /// </summary>
+    [Fact]
+    public void Build_WithPerUnitOrigin_StampsAbiUnitWithAbiWording()
+    {
+        var abiUnit = RecoveryUnitId.Create(SomeDecl("abiRejected"), RecoveryScope.LeafApi);
+        var swiftUnit = RecoveryUnitId.Create(SomeDecl("swiftBroken"), RecoveryScope.LeafApi);
+        var denylist = new HashSet<RecoveryUnitId> { abiUnit, swiftUnit };
+
+        EmitterFaultOrigin OriginOf(RecoveryUnitId u) =>
+            u == abiUnit ? EmitterFaultOrigin.AbiRecoveryWithdrawal : EmitterFaultOrigin.RecoveryWithdrawal;
+
+        var poison = WrapperDenylistSeed.Build(denylist, OriginOf);
+
+        var abiFault = Assert.Single(poison.Faults, f => f.Origin == EmitterFaultOrigin.AbiRecoveryWithdrawal);
+        Assert.Contains("Withdrawn by ABI validation", abiFault.Details, StringComparison.Ordinal);
+        Assert.Contains("plan-vs-descriptor", abiFault.Details, StringComparison.Ordinal);
+        Assert.Contains(abiUnit.Describe(), abiFault.Details, StringComparison.Ordinal);
+        // The ABI wording is not a compile wording.
+        Assert.DoesNotContain("compile", abiFault.Details, StringComparison.Ordinal);
+
+        var swiftFault = Assert.Single(poison.Faults, f => f.Origin == EmitterFaultOrigin.RecoveryWithdrawal);
+        Assert.Contains("recover the wrapper compile", swiftFault.Details, StringComparison.Ordinal);
     }
 
     /// <summary>

@@ -29,6 +29,16 @@ internal enum EmitterFaultOrigin
     /// compile as the cause and <see cref="SkipCauseClassifier"/> refines the stage accordingly.
     /// </summary>
     CSharpRecoveryWithdrawal,
+
+    /// <summary>
+    /// The declaration was withdrawn because typed ABI plan-vs-descriptor validation found the emitted
+    /// P/Invoke binds its native symbol in a way that compiles but is wrong at the call boundary — no
+    /// exception occurred and both compiles would have passed. The decision belongs to
+    /// <see cref="RecoveryStage.AbiValidation"/>, a distinct plane from the Swift wrapper and C#
+    /// compiles, so the tombstone/report wording names ABI validation and
+    /// <see cref="SkipCauseClassifier"/> refines the stage accordingly.
+    /// </summary>
+    AbiRecoveryWithdrawal,
 }
 
 /// <summary>
@@ -133,16 +143,26 @@ internal readonly record struct EmitterFaultRecord
     internal const string CSharpWithdrawalDetailsPrefix = "Withdrawn by C# verify-recover: ";
 
     /// <summary>
+    /// How an ABI-validation recovery-withdrawal details string begins. Distinct from the Swift and C#
+    /// withdrawal prefixes so a triager (and <see cref="SkipCauseClassifier"/>) can tell the three
+    /// verify-recover planes apart in a skip row — typed ABI validation withdrew this member because its
+    /// P/Invoke would have bound a native symbol wrongly, not because either compile failed.
+    /// </summary>
+    internal const string AbiWithdrawalDetailsPrefix = "Withdrawn by ABI validation: ";
+
+    /// <summary>
     /// The details string recorded on the skip row. Reads as a sentence a triager can act on. For an
     /// emitter exception it keeps the fingerprint so two rows can be compared without re-running the
     /// generator; for a recovery withdrawal it says plainly that the unit was withdrawn to make the
-    /// wrapper (or the C#) compile — never claiming an exception that did not occur.
+    /// wrapper (or the C#) compile, or because typed ABI validation rejected it — never claiming an
+    /// exception that did not occur.
     /// </summary>
     public string Details =>
         Origin switch
         {
             EmitterFaultOrigin.RecoveryWithdrawal => $"{WithdrawalDetailsPrefix}{Message}",
             EmitterFaultOrigin.CSharpRecoveryWithdrawal => $"{CSharpWithdrawalDetailsPrefix}{Message}",
+            EmitterFaultOrigin.AbiRecoveryWithdrawal => $"{AbiWithdrawalDetailsPrefix}{Message}",
             _ => $"Emitter threw {ExceptionType} at {Fingerprint}: {Message}",
         };
 

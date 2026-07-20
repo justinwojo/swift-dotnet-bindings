@@ -116,6 +116,21 @@ internal static class ContainedModuleEmission
             {
                 abandoned = true;
             }
+            catch
+            {
+                // Any other fault — including the fail-closed ABI gates (AbiContractViolationException,
+                // AbiValidationInvariantException) EmitModule throws after the whole render settles —
+                // leaves this attempt's type-database emission stamps applied, so they must be rewound
+                // before the exception escapes or the next render emits from a dirty database. The two ABI
+                // gates then diverge above this frame: the verify-recover loop CATCHES
+                // AbiContractViolationException and re-renders with the culprit withdrawn, while
+                // AbiValidationInvariantException is deliberately NOT caught — it is a generator invariant
+                // failure that escapes the loop untouched (NonRecoverableFault). The rewind here applies to
+                // both regardless, since a rethrow past a dirty database would corrupt whatever runs next.
+                // Dispose only pops the ambient scope; it does not undo the journal, so rewind explicitly.
+                attempt.Journal.RestoreInto(typeDatabase);
+                throw;
+            }
 
             // The flag, not just the signal. Abandonment travels through emitter code that catches
             // broadly in places, so a normal return does not by itself prove the attempt was clean;

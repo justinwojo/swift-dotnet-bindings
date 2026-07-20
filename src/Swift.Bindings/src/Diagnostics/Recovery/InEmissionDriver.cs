@@ -147,9 +147,27 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
         _outerJournal.RestoreInto(_typeDatabase);
 
         var seed = WrapperDenylistSeed.Build(denylist, OriginOf);
-        ContainedModuleEmission.Run(
-            _decl, _context, _typeDatabase, _logger, _newEmitter,
-            prepareRetry: _rebuildCollaborators, seed: seed, retainInto: _outerJournal);
+        try
+        {
+            ContainedModuleEmission.Run(
+                _decl, _context, _typeDatabase, _logger, _newEmitter,
+                prepareRetry: _rebuildCollaborators, seed: seed, retainInto: _outerJournal);
+        }
+        catch (AbiContractViolationException abi)
+        {
+            // The ABI gate fired while this render settled — before any wrapper compile — so this round's
+            // failure IS the ABI violation set, attributed through each violation's plan owner exactly as
+            // the Swift and C# planes attribute a compile error: a droppable owner becomes a leaf culprit
+            // the loop withdraws (its RecoveryStage reads AbiValidation via the seed wording), while a
+            // null owner (a text-only backstop violation on a call no plan backs) or a non-droppable owner
+            // becomes an unattributed error the controller reads as fail-closed. ContainedModuleEmission
+            // has already rewound this render's type-database stamps, so the next round re-renders from the
+            // pristine baseline. AbiValidationInvariantException is deliberately NOT caught — it is a
+            // generator invariant failure that must escape the loop untouched (NonRecoverableFault).
+            var abiAttribution = AttributeAbi(abi);
+            RecordCulpritOrigins(abiAttribution, EmitterFaultOrigin.AbiRecoveryWithdrawal);
+            return abiAttribution;
+        }
 
         var diagnostics = _compileWrapper(_request);
         if (!diagnostics.AllSlicesClean)
@@ -254,6 +272,72 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
         var groups = csharp.CompilerErrors.Select(ToDiagnosticGroup).ToList();
         var steps = BuildCSharpProvenanceSteps();
         return new DiagnosticAttributor(steps).Attribute(groups);
+    }
+
+    // Attributes an ABI-contract failure through each violation's plan owner. There is no interval map to
+    // consult — a typed violation already carries the declaring artifact the plan recorded — so this
+    // resolves owners directly rather than through the provenance ladder, then applies the SAME droppable
+    // gate the Swift/C# planes apply: a violation whose owner is droppable-alone becomes a leaf culprit;
+    // one with no owner (a text-only backstop violation on a call no plan backs) or a non-droppable owner
+    // becomes an unattributed error the controller reads as fail-closed. Culprits are deduplicated by
+    // unit, first-seen order, matching the batched one-increment-per-unit contract.
+    // Internal (not private) so the ABI-plane loop integration can be pinned directly: this is the exact
+    // transform whose output the WrapperRecoveryController consumes, and a test drives the real controller
+    // with it rather than re-deriving the mapping.
+    internal static AttributionResult AttributeAbi(AbiContractViolationException abi)
+    {
+        var decisions = ImmutableArray.CreateBuilder<AttributedDiagnostic>();
+        var culprits = ImmutableArray.CreateBuilder<RecoveryUnitId>();
+        var seenCulprits = new HashSet<RecoveryUnitId>();
+
+        foreach (var attributed in abi.Attributed)
+        {
+            var group = new DiagnosticGroup
+            {
+                Primary = CompilerDiagnostic.Global(
+                    DiagnosticSeverity.Error, attributed.Violation.Describe()),
+            };
+
+            if (attributed.Owner is { } owner)
+            {
+                var (unit, droppable) = Classify(owner);
+                if (droppable)
+                {
+                    decisions.Add(new AttributedDiagnostic
+                    {
+                        Diagnostic = group,
+                        Kind = AttributionKind.Unit,
+                        Artifact = owner,
+                        Unit = unit,
+                        Source = ProvenanceSource.None,
+                    });
+                    if (seenCulprits.Add(unit))
+                        culprits.Add(unit);
+                    continue;
+                }
+            }
+
+            // No owner, or an owner not droppable alone: an unattributed error → the controller fails the
+            // module closed, the sound default (ABI violations have always been terminal).
+            decisions.Add(new AttributedDiagnostic
+            {
+                Diagnostic = group,
+                Kind = AttributionKind.Unattributed,
+                Source = ProvenanceSource.None,
+            });
+        }
+
+        // Position-independent by construction: Describe() carries no line/column, only rule + member +
+        // symbol + explanation, so the fingerprint is stable across renders of the same failure.
+        var fingerprint = "abi:" + string.Join(
+            "\n", abi.Attributed.Select(a => a.Violation.Describe()).OrderBy(x => x, StringComparer.Ordinal));
+
+        return new AttributionResult
+        {
+            Diagnostics = decisions.ToImmutable(),
+            Culprits = culprits.ToImmutable(),
+            Fingerprint = fingerprint,
+        };
     }
 
     private static DiagnosticGroup ToDiagnosticGroup(CSharpCompileDiagnostic diagnostic) => new()

@@ -41,6 +41,11 @@ internal static class NonRecoverableFault
         // them through the poison list would convert a deliberate block into a silent partial success.
         AbiContractViolationException => true,
 
+        // The ABI validation disagreement invariant. text-fail / typed-pass on a plan-backed call is a
+        // generator invariant failure — one of plan population, typed comparison, or the text scan is
+        // wrong — and is never auto-resolved: it must escape the verify-recover loop untouched.
+        AbiValidationInvariantException => true,
+
         _ => false,
     };
 }

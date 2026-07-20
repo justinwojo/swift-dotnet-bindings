@@ -113,6 +113,33 @@ public class AbiCallPlanTests
     }
 
     [Fact]
+    public void PlansDifferingOnlyByLibrary_AreTotallyOrdered_RegardlessOfRecordingOrder()
+    {
+        // Two calls that share method name, entry point, convention, return, and carriers but bind
+        // different libraries are distinct plan values (library is part of equality). The ordered snapshot
+        // must place them in a stable, content-derived order — library included — so a downstream
+        // owner-preference dedup keyed on (RuleId, MethodName, EntryPoint) can never attribute to a
+        // different owner merely because emission recorded the two in a different order.
+        var a = MakeInfo(methodName: "Do", entryPoint: "SBW_dup", parametersString: "int x"); // libTest.dylib
+        var b = a with { LibraryPath = "libOther.dylib" };
+
+        var first = new ModuleEmissionContext();
+        var second = new ModuleEmissionContext();
+        PInvokeEmitHelper.FormatDeclarationLines(a with { EmissionContext = first });
+        PInvokeEmitHelper.FormatDeclarationLines(b with { EmissionContext = first });
+        // Reverse the recording order into the second context.
+        PInvokeEmitHelper.FormatDeclarationLines(b with { EmissionContext = second });
+        PInvokeEmitHelper.FormatDeclarationLines(a with { EmissionContext = second });
+
+        Assert.Equal(first.AbiCallPlans, second.AbiCallPlans);
+        Assert.Equal(2, first.AbiCallPlans.Count);
+        // Library breaks the tie in ordinal order both times.
+        Assert.Equal(
+            new[] { "libOther.dylib", "libTest.dylib" },
+            first.AbiCallPlans.Select(p => p.Library));
+    }
+
+    [Fact]
     public void ReEmittingSameCall_IntoOneContext_IsIdempotent()
     {
         var ctx = new ModuleEmissionContext();
