@@ -28,6 +28,16 @@
 //      never emitted SWIFTBIND108;
 //   6. the positive-control type is emitted (the binding is a genuine PARTIAL success, not a shell).
 //
+// It also encodes the localized-construct RATCHET directly: a library may degrade only via localized
+// (leaf/accessor) withdrawals and may never be turned whole-binding-red by a localized construct. So the
+// gate asserts the loop ENGAGED and contained the hostile members (SWIFTBIND112 present in the log) and
+// NEVER escalated to a module-scoped fail-closed cause (no SWIFTBIND111), and that EVERY recovery-loop
+// withdrawal in the report — from ANY of the four planes (Swift-wrapper, C#, typed ABI validation, or
+// bounded bisection) — resolved to a localized (leaf-api / accessor-group) scope, never a coarser one. The
+// SWIFTBIND112-present check is what
+// makes the SWIFTBIND111-absent check non-vacuous: it proves the generator's diagnostic channel is
+// captured here, so an escalation genuinely could not slip through unread.
+//
 // It is fail-closed on all of the above.
 
 using System;
@@ -111,11 +121,35 @@ partial class Build
         if (hostileLog.Any(l => l.Contains("SWIFTBIND108", StringComparison.Ordinal)))
             throw new Exception("resilience-kitchen: generator log contains SWIFTBIND108 (dangling wrapper EntryPoint) — integrity must stay hard.");
 
+        // Ratchet — the loop must have ENGAGED and contained the hostile members: SWIFTBIND112 (the
+        // verify-recover leaf/accessor withdrawal signal) must be present. This is also what makes the
+        // no-escalation check below non-vacuous — it proves the generator's diagnostic channel is captured
+        // in `hostileLog`, so an absence check reads a real, populated stream rather than an empty one.
+        if (!hostileLog.Any(l => l.Contains("SWIFTBIND112", StringComparison.Ordinal)))
+            throw new Exception("resilience-kitchen: generator log has no SWIFTBIND112 — the verify-recover loop did not "
+                + "record a leaf/accessor withdrawal, so this gate is not actually exercising the loop (the hostile members "
+                + "must be withdrawn by the loop, not predicted-skipped before emission or silently dropped).");
+
+        // Ratchet — a localized construct must NEVER escalate the whole binding to red: SWIFTBIND111
+        // (verify-recover did not converge; the module-scoped fail-closed cause) must be absent. Generator
+        // exit 0 already implies non-escalation (SWIFTBIND111 returns false → non-zero exit), but assert the
+        // log too so a future refactor that decouples the escalation signal from the exit code can never slip
+        // a whole-binding failure past this gate — the same defense-in-depth rationale as the SWIFTBIND108
+        // check above.
+        if (hostileLog.Any(l => l.Contains("SWIFTBIND111", StringComparison.Ordinal)))
+            throw new Exception("resilience-kitchen: generator log contains SWIFTBIND111 (verify-recover did not converge) — "
+                + "a localized hostile member escalated to a module-scoped fail-closed cause. The ratchet forbids a localized "
+                + "construct turning the whole binding red; it must be contained at leaf/accessor scope.");
+
         // (2) The emitted C# of the hostile fixture must compile.
         AssertResilienceKitchenCompiles(hostileOut);
 
         // (3) Every hostile member carries a correct withdrawal row.
         AssertResilienceWithdrawalRows(hostileOut / "binding-report.json");
+
+        // (3b) Ratchet — EVERY verify-recover withdrawal in the report (Swift-wrapper plane OR C# plane)
+        //      must resolve to a localized (leaf-api / accessor-group) scope, never a coarser one.
+        AssertResilienceWithdrawalsAllLocalized(hostileOut / "binding-report.json");
 
         // (4) Healthy siblings survive with names + collision suffixes identical to the control run.
         AssertResilienceHealthySiblingsStable(hostileOut, controlOut);
@@ -269,6 +303,69 @@ partial class Build
 
             Log.Information("  ✓ withdrawal row: {Member} — {Reason}/{Stage}, root {Root}", member, reason, stage, rootCauseId);
         }
+    }
+
+    // Localized (recoverable) recovery-scope tokens: the RootCauseId of any verify-recover withdrawal ends
+    // in `!<scope-token>`; only these two are the leaf-grained scopes the loop actuates. A withdrawal that
+    // resolved to any coarser scope (conformance-edge, shared-helper-bundle, type-surface, module, …) would
+    // be a degradation the loop must NOT have performed at this scope — the ratchet forbids it.
+    static readonly string[] ResilienceLocalizedScopeSuffixes = { "!leaf-api", "!accessor-group" };
+
+    // The Details wordings the verify-recover loop stamps on a withdrawal row — one per recovery plane: the
+    // Swift-wrapper compile, the C# compile, typed ABI plan-vs-descriptor validation, and bounded-bisection
+    // isolation. A row is a recovery-loop withdrawal iff its Details carry one of these. Matching only the
+    // bare "verify-recover" substring would recognize the wrapper and C# planes but MISS the ABI and
+    // bisection planes (whose wordings don't contain that word), letting a future coarse-scoped withdrawal on
+    // either of those planes slip past the scope invariant below — so the invariant spans all four wordings.
+    static readonly string[] ResilienceWithdrawalDetailsMarkers =
+    {
+        "Withdrawn by wrapper verify-recover",
+        "Withdrawn by C# verify-recover",
+        "Withdrawn by ABI validation",
+        "Isolated by bounded bisection",
+    };
+
+    // (3b) Ratchet at the binding level: EVERY recovery-loop withdrawal in the report must be localized.
+    //      Assertion (3) checks the two NAMED hostile members; this asserts the GENERAL invariant over the
+    //      whole report — that the binding degraded ONLY through localized (leaf/accessor) withdrawals and
+    //      that at least one such withdrawal exists. It spans all four withdrawal channels — the Swift-wrapper
+    //      loop, the wave-2 C# plane, typed ABI plan-vs-descriptor validation, and bounded-bisection isolation
+    //      (see ResilienceWithdrawalDetailsMarkers) — so a future regression where ANY channel emits a COARSER
+    //      withdrawal (escalating past leaf/accessor scope) is caught here rather than shipping a wrongly-scoped drop.
+    void AssertResilienceWithdrawalsAllLocalized(AbsolutePath reportPath)
+    {
+        using var doc = JsonDocument.Parse(File.ReadAllText(reportPath));
+        var root = doc.RootElement;
+        if (!root.TryGetProperty("SkippedItems", out var items) || items.ValueKind != JsonValueKind.Array)
+            throw new Exception("resilience-kitchen: binding-report.json has no SkippedItems array — cannot verify withdrawal scopes.");
+
+        int recoveryWithdrawalRows = 0;
+        foreach (var row in items.EnumerateArray())
+        {
+            if (row.ValueKind != JsonValueKind.Object) continue;
+            string Str(string prop) => row.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString()! : "";
+
+            // A recovery-loop withdrawal is an EmitterFault row whose Details carry one of the loop's four
+            // withdrawal wordings (wrapper compile / C# compile / ABI validation / bounded bisection). Non-loop
+            // skips (unsupported signatures, by-design suppressions) are out of scope for this scope-invariant.
+            if (Str("Reason") != "EmitterFault") continue;
+            if (!ResilienceWithdrawalDetailsMarkers.Any(m => Str("Details").Contains(m, StringComparison.Ordinal))) continue;
+
+            recoveryWithdrawalRows++;
+            var name = Str("Name");
+            var rootCauseId = Str("RootCauseId");
+            if (!ResilienceLocalizedScopeSuffixes.Any(s => rootCauseId.EndsWith(s, StringComparison.Ordinal)))
+                throw new Exception($"resilience-kitchen: recovery-loop withdrawal '{name}' resolved to a NON-localized scope "
+                    + $"(RootCauseId='{rootCauseId}'; expected a '!leaf-api' or '!accessor-group' root). The ratchet requires "
+                    + "every degradation to be a localized leaf/accessor withdrawal — a coarser withdrawal means the loop "
+                    + "dropped more than a single member/accessor to keep the binding compiling.");
+        }
+
+        if (recoveryWithdrawalRows == 0)
+            throw new Exception("resilience-kitchen: no recovery-loop withdrawal rows found in the report — the scope invariant "
+                + "asserted nothing (the loop must have withdrawn the hostile members).");
+
+        Log.Information("  ✓ all {Count} recovery-loop withdrawal(s) resolved to a localized (leaf/accessor) scope.", recoveryWithdrawalRows);
     }
 
     // (4) The healthy surviving surface must be byte-for-byte the same set of public declarations as a

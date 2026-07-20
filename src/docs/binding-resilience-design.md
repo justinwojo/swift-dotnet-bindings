@@ -376,8 +376,15 @@ recorded here — the session docs are not the record.
   **15,214/0** (from 14,772), BindingTests sim **3,242/0/0** (37 skips, from 3,238), device
   **3,255/0/0** (verified on hardware), `--compile-only` exit 0, corpus **42/120 green** (from
   39/120).
-- Wave 2: **planned** — session docs authored by wave-1 closeout in
-  `src/docs/sessions/2026-07-binding-resilience-wave2/` (per D-R3); not yet run.
+- Wave 2: **done, sim-verified** (run 2026-07-19/20, eight sessions). Gates at closeout: unit
+  **15,459/0** (from 15,214), BindingTests sim **3,242/0/0** (37 skips, unchanged), `--compile-only`
+  exit 0 (the ResilienceKitchen ratchet gate is green), corpus **46/120 green** (from 42/120). The
+  NativeAOT device leg is pending — see the wave-2 outcome record.
+- **Program status: implementation complete, sim-verified.** All eight wave-2 sessions landed and the
+  localized-construct ratchet holds across the full 120-lib soak (0 localized-escalated reds). The
+  release hold (D-R1) can lift once the device leg runs: the deferred contract-and-ship 06/07 sessions
+  (device legs + the 0.18.0 cut) resume unchanged. No further resilience machinery is planned; the
+  residual red population is routed to the ingestion-hardening follow-up program (D-R7).
 
 ### Wave-1 outcome record (2026-07-19)
 
@@ -431,6 +438,84 @@ withdrawal-origin `EmitterFault` rows now classify at `SwiftCompile`.
 ABI-as-loop-input, strip-as-iteration-0, consume-converged-outcome + convergence-predicate
 precision, loop path parity, BindingTests resilience fixture); near-term intent lives in the wave-2
 session docs; roadmap carries policy only.
+
+### Wave-2 outcome record (2026-07-20)
+
+**Corpus movement, decomposed** (120-lib soak vs the wave-2-start 42/120 set — the wave-1 closeout
+green set; four-way accounting):
+
+| Bucket | Count | Libraries |
+|---|---|---|
+| Recovered (loop-attributable green) | 4 | FloatingPanel (2 accessor-group), Hero (3 accessor-group), OAuthSwift (1 accessor-group), Resolver (4 leaf-api) — **all** via the C#-plane verify-recover loop (session 03 / Stage 4), every withdrawal at the CSharpCompile stage, every root localized. Hero was wave-1's "honest advancement / Family B" waypoint (Swift wrapper settled, C#-stage red) — Stage 4 closed it, exactly as designed. |
+| Honest red (module-scoped) | 59 | cause tally below; every terminal cause is intrinsically module-scoped — none is red on a localized construct (the ratchet) |
+| Degraded-green | 7 | CSV.swift, PromiseKit, ReSwift (wave-1 recoveries, 1 withdrawal each) + the 4 recovered above — green bindings carrying honest localized withdrawal tombstones |
+| Regression | 0 | worsened bucket empty (zero-tolerance) |
+
+**Honest-red cause tally (59, all module-scoped originating cause):** 18 convert_failed (ingestion
+could not produce a swiftinterface/ABI), 14 SWIFTBIND111 RequiresGraphClosure (coarse type/conformance
+root), 9 SWIFTBIND111 InputConfiguration (missing module/toolchain input), 8 no_primary_products (no
+public bindable surface), 5 SWIFTBIND109 (ObjC-mixed fail-closed on upstream packaging defects — a
+missing/invalid public ObjC header), 4 escalation-symptom, and 1 cross-module metadata/conformance
+resolution. The 4 escalation-symptom reds — 2 Unattributable / 1 NoProgress / 1 IterationCapExhausted
+— each carry a terminal enum that *looks* localized but whose **originating** error is a module-level
+ingestion failure the loop could not attribute to any unit: Amplitude-Swift = "missing required
+modules 'AmplitudeCore', 'AnalyticsConnector'"; Euclid = cross-module "Metadata accessor not found"
+across RealityFoundation / SIMD / Range; combine-schedulers + CasePathsCore = cross-module
+conformance/type resolution ("should have been processed in a previous module"). Zero of the 74 reds
+carries a synthesized-wrapper per-member compile error.
+
+**Environmental drift, excluded from the movement claim:** 15 NU1101 compile_failed — missing
+dependency-binding packages in the harness feed (Macaw, MessageKit, Moya, Needle, SwiftDraw, SwiftOTP,
+YPImagePicker, analytics-swift, dd-sdk-ios, epoxy-ios, swift-argument-parser, swift-clocks,
+swift-concurrency-extras, swift-dependencies, swift-identified-collections). These are harness-feed
+artifacts, not generator results; none was green at wave-2-start, and regression=0 confirms no
+start-green library regressed.
+
+**The localized-construct ratchet — HOLDS.** A library may be red only for an intrinsically
+module-scoped cause, never because one member/accessor/type defeated a compiler. The verdict keys on
+the **originating** cause, not the terminal enum: any gated SWIFTBIND111 cause — an escalation
+(NoProgress/IterationCapExhausted/Unattributable), a *dependency escalation* (RequiresGraphClosure),
+or an input-config report (InputConfiguration) — is cleared as module-scoped only with positive
+module-level ingestion evidence (a marker) AND zero synthesized-wrapper per-member errors; a
+per-member error under it is a *proven* localized escalation, and a cause with neither signal is
+*unresolved* — both fail the ratchet (fail-closed). Because a dependency escalation gets the **same**
+originating-cause test as the escalation enums, "the escalation ladder relabeled it module-scoped" is
+never an exemption. Across all 74 reds: **0 localized-escalated, 0 unclassified** (every gated red
+carries a module-origin marker and zero per-member wrapper errors). Encoded durably in two places:
+(1) the corpus-harness classifier (`corpus-sweep/scripts/ratchet_compare.py`, exit 2 on any
+localized-escalated red, exit 3 on any unresolved red, exit 4 on an incomplete soak — the soak
+instrument, local scaffolding); (2) the in-repo `nuke binding-tests --compile-only` ResilienceKitchen
+gate (`build/Build.BindingTests.ResilienceKitchen.cs`), which asserts the loop engaged (SWIFTBIND112
+present), never escalated (SWIFTBIND111 absent), and that **every** recovery-loop withdrawal in the
+report — across all four planes (Swift-wrapper, C#, typed ABI validation, bounded bisection) —
+resolved to a leaf-api / accessor-group scope.
+
+**Decisions that changed during execution** (plan vs landed reality):
+
+- **Stage 4 (C# verify loop) is the sole source of wave-2 recovery.** All 4 recovered libs moved green
+  through the C#-plane joint fixed-point (10 localized withdrawals: 6 accessor-group + 4 leaf-api), all
+  at the CSharpCompile stage. The loop still consumes only LeafApi + AccessorGroup; RecoveryGraph /
+  RecoveryPolicy remain trigger-gated with no production callers, unchanged from wave 1.
+- **Stage 5 (typed `AbiCallPlan`) unblocked no library.** Validating call plans against typed
+  descriptors (demoting the text scan to a backstop) is a soundness / defense-in-depth layer, not a
+  recovery expander — zero corpus libs moved green because of it. Typed-vs-text disagreement is an
+  invariant failure, as designed.
+- **Stage 7 (bounded bisection, SWIFTBIND117) fired on no soak library.** Every recovery came from
+  direct attribution; no unattributable failure needed the dependency-aware bisection fallback.
+  Verification caching stays opt-in (explicit root, package-mode only). Fragment-transaction migration
+  measured NOT WARRANTED (mandatory recompile dominates) → routed to `not-planned.md`.
+
+**Device leg — PENDING.** Wave 2's recovery machinery is generator-side emission that only engages on
+hostile shapes; the sim BindingTests are unchanged (3,242/0/0) because the main test lib contains no
+loop-triggering member (the ResilienceKitchen fixture exercises the loop in the compile gate). A
+NativeAOT device leg re-proving the wave-2 emission path is owner-attended and deferred — run when the
+phone is free, before the 0.18.0 cut; tracked as a trigger-gated row in `not-planned.md`.
+
+**Leftover routing:** the soak cause tally above is packaged as the ingestion-hardening follow-up
+program's seed evidence (D-R7 / OD-W2-3) — recorded here and pointer-linked from `not-planned.md`;
+machine-readable per-library detail lives in the corpus-sweep harness
+(`logs/wave2-ratchet-s8.json`, local scaffolding). Remaining wave-2 residuals stay as trigger-gated
+rows in `not-planned.md`.
 
 ---
 
