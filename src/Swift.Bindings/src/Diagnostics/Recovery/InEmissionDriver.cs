@@ -87,6 +87,26 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
     public SwiftWrapperCompilationResult? LastConvergedOutcome { get; private set; }
 
     /// <summary>
+    /// True when the loop converged because the module had no compilable wrapper surface at all (the
+    /// no-wrapper-surface outcome), rather than because every promised slice compiled clean. The caller
+    /// reads this to gate the usable-surface check (SWIFTBIND116) to exactly that degenerate path: a
+    /// binding with a clean wrapper is usable by construction, so the check runs only when there is no
+    /// wrapper to vouch for the surface.
+    /// </summary>
+    public bool NoWrapperSurfaceConverged { get; private set; }
+
+    /// <summary>
+    /// True only when the loop converged on a round in which the wired C# verifier actually ran and
+    /// returned a <see cref="CSharpVerificationOutcome.Clean"/> verdict — the sole state that honestly
+    /// proves the emitted C# compiled. It stays false when no C# verifier was wired, when convergence
+    /// came from the no-wrapper-surface signal (the verifier never ran), and when a round-0 inconclusive
+    /// verdict passed through to the post-generate publication gate (the verifier ran but reached no
+    /// verdict). The publication ledger reads this — not the mere presence of a verifier delegate — so a
+    /// C#-compile obligation is marked proven only when the compile was genuinely proven.
+    /// </summary>
+    public bool CSharpVerifiedClean { get; private set; }
+
+    /// <summary>
     /// Captures the pristine pre-loop baseline. Must be constructed after all pre-emission setup and
     /// injectors have run and before the first render, so the baseline is the state a first render
     /// would have started from.
@@ -170,6 +190,16 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
         }
 
         var diagnostics = _compileWrapper(_request);
+        if (diagnostics.NoWrapperSurface)
+        {
+            // The module emitted no compilable wrapper surface at all — there is nothing to verify, so
+            // this is convergence, not a failure to attribute. Whether a wrapper-less binding is
+            // shippable is decided downstream from the emitted C# surface (the usable-surface gate),
+            // which is the correct authority for "is there anything to ship" — not the wrapper compile.
+            LastConvergedOutcome = diagnostics.Result;
+            NoWrapperSurfaceConverged = true;
+            return null;
+        }
         if (!diagnostics.AllSlicesClean)
         {
             var steps = BuildProvenanceSteps(diagnostics);
@@ -213,6 +243,7 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
         {
             case CSharpVerificationOutcome.Clean:
                 LastConvergedOutcome = diagnostics.Result;
+                CSharpVerifiedClean = true;
                 return null;
 
             case CSharpVerificationOutcome.CompileErrors:
@@ -327,10 +358,14 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
             });
         }
 
-        // Position-independent by construction: Describe() carries no line/column, only rule + member +
-        // symbol + explanation, so the fingerprint is stable across renders of the same failure.
-        var fingerprint = "abi:" + string.Join(
-            "\n", abi.Attributed.Select(a => a.Violation.Describe()).OrderBy(x => x, StringComparer.Ordinal));
+        // Fingerprint the ABI plane through the SAME FNV-1a hash the Swift and C# planes use
+        // (DiagnosticFingerprint.Compute over the error groups: paths elided, whitespace collapsed,
+        // sorted multiset), under an "abi:" plane discriminator so an ABI failure can never share a
+        // fingerprint with a Swift/C# failure of the same normalized text. Position-independent by
+        // construction: Describe() carries no line/column, only rule + member + symbol + explanation,
+        // so the hash is stable across renders of the same failure.
+        var groups = decisions.Select(d => d.Diagnostic).ToList();
+        var fingerprint = "abi:" + DiagnosticFingerprint.Compute(groups);
 
         return new AttributionResult
         {
@@ -473,21 +508,10 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
     // mapping FragmentOwners uses when it stamps the owner during emission.
     private static RecoveryUnitId? UnitLookup(ArtifactId artifact) => Classify(artifact).Unit;
 
-    private static (RecoveryUnitId Unit, bool Droppable) Classify(ArtifactId artifact)
-    {
-        var kind = RecoveryUnitClassifier.FromArtifact(artifact.Role, artifact.Decl.Kind);
-        var classification = RecoveryUnitClassifier.Classify(kind);
-        var unit = classification.Scope switch
-        {
-            RecoveryScope.AccessorGroup => RecoveryUnitId.ForAccessorGroup(artifact.Decl),
-            // These two scopes need a qualifier the artifact does not carry; FragmentOwners falls back
-            // to the declaration's own leaf surface for them, and this must match so the units agree.
-            RecoveryScope.ConformanceEdge or RecoveryScope.SharedHelperBundle =>
-                RecoveryUnitId.Create(artifact.Decl, RecoveryScope.LeafApi),
-            _ => RecoveryUnitId.Create(artifact.Decl, classification.Scope),
-        };
-        return (unit, classification.DroppableAlone);
-    }
+    // The artifact→(unit, droppable) resolution lives in RecoveryUnitClassifier so the strip-to-withdrawal
+    // classifier reads the identical mapping and the two sides can never disagree on a symbol's unit.
+    private static (RecoveryUnitId Unit, bool Droppable) Classify(ArtifactId artifact) =>
+        RecoveryUnitClassifier.ClassifyArtifact(artifact);
 
     /// <summary>
     /// Wraps a provenance step so a hit whose artifact is not droppable alone resolves to nothing. The

@@ -232,6 +232,28 @@ public static class RecoveryUnitClassifier
     public static RecoveryArtifactKind FromArtifact(ArtifactRole role, BindingItemKind declKind) =>
         TryFromArtifact(role, declKind, out var kind) ? kind : RecoveryArtifactKind.Unclassified;
 
+    /// <summary>
+    /// Resolves an artifact owner to the recovery unit its fragment owner would carry and whether that
+    /// unit is droppable alone. This is the single classification the verify-recover attribution path
+    /// AND the strip-to-withdrawal classifier both read, so a symbol's owning unit — and the decision to
+    /// withdraw it versus fail closed — is identical on both sides and cannot drift.
+    /// </summary>
+    public static (RecoveryUnitId Unit, bool Droppable) ClassifyArtifact(ArtifactId artifact)
+    {
+        var kind = FromArtifact(artifact.Role, artifact.Decl.Kind);
+        var classification = Classify(kind);
+        var unit = classification.Scope switch
+        {
+            RecoveryScope.AccessorGroup => RecoveryUnitId.ForAccessorGroup(artifact.Decl),
+            // These two scopes need a qualifier the artifact does not carry; FragmentOwners falls back
+            // to the declaration's own leaf surface for them, and this must match so the units agree.
+            RecoveryScope.ConformanceEdge or RecoveryScope.SharedHelperBundle =>
+                RecoveryUnitId.Create(artifact.Decl, RecoveryScope.LeafApi),
+            _ => RecoveryUnitId.Create(artifact.Decl, classification.Scope),
+        };
+        return (unit, classification.DroppableAlone);
+    }
+
     private static RecoveryClassification Leaf(AbiFootprint footprint) => new()
     {
         Scope = RecoveryScope.LeafApi,

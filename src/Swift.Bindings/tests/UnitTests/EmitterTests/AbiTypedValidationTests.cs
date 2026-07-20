@@ -508,6 +508,51 @@ public sealed partial class TestClass
         Assert.Equal(FragmentOwners.ForDecl(accessor).Artifact, resolved);
     }
 
+    // ── fingerprint: the ABI plane hashes through the same FNV-1a as Swift/C# ──────────────────────
+
+    [Fact]
+    public void AttributeAbi_Fingerprint_UsesTheSharedFnvHashUnderTheAbiPlaneDiscriminator()
+    {
+        // The ABI plane must fingerprint through the SAME DiagnosticFingerprint.Compute (FNV-1a over the
+        // normalized, sorted error messages) the Swift and C# planes use — under an "abi:" discriminator
+        // so an ABI failure can never share a fingerprint with a Swift/C# failure of the same normalized
+        // text. Previously it built a bespoke unhashed "abi:" + join(Describe()) string, out of step with
+        // the other two planes.
+        var plan = Plan("TakeString", "SBW_take", "libTest.dylib",
+            PInvokeCallingConvention.Swift, parameters: new[] { "string" }, owner: Owner("brokenMember"));
+        var attributed = AbiContractChecker.ValidatePlans(new[] { plan }, "Mod", wrapperLibraryName: null);
+        var abi = new AbiContractViolationException("Mod", attributed);
+
+        var attribution = InEmissionDriver.AttributeAbi(abi);
+
+        var groups = abi.Attributed
+            .Select(a => new DiagnosticGroup
+            {
+                Primary = CompilerDiagnostic.Global(DiagnosticSeverity.Error, a.Violation.Describe()),
+            })
+            .ToList();
+        Assert.StartsWith("abi:", attribution.Fingerprint);
+        Assert.Equal("abi:" + DiagnosticFingerprint.Compute(groups), attribution.Fingerprint);
+    }
+
+    [Fact]
+    public void AttributeAbi_Fingerprint_DiffersAcrossDistinctViolationSets()
+    {
+        // Distinct ABI failures must fingerprint differently, or the no-progress detector could
+        // false-positive a stall between two genuinely different failures.
+        AttributionResult AttributeFor(string member, string entry)
+        {
+            var plan = Plan(member, entry, "libTest.dylib",
+                PInvokeCallingConvention.Swift, parameters: new[] { "string" }, owner: Owner(member));
+            var attributed = AbiContractChecker.ValidatePlans(new[] { plan }, "Mod", wrapperLibraryName: null);
+            return InEmissionDriver.AttributeAbi(new AbiContractViolationException("Mod", attributed));
+        }
+
+        Assert.NotEqual(
+            AttributeFor("TakeString", "SBW_take").Fingerprint,
+            AttributeFor("TakeOther", "SBW_other").Fingerprint);
+    }
+
     /// <summary>Decides each round from the denylist it is handed — the same fake-driver shape the wave-1
     /// controller tests use, so the real controller drives the real ABI attribution.</summary>
     private sealed class AbiPolicyDriver : IWrapperRecoveryDriver

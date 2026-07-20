@@ -1337,6 +1337,15 @@ public sealed class ModuleEmissionContext
     // keeps every genuinely distinct call.
     private readonly HashSet<AbiCallPlan> _abiCallPlans = new();
 
+    // The side table lives on the static Default context (see the class-level note), which unit tests
+    // reach concurrently through TypeHandlerContext.Empty when xUnit runs emitter test classes in
+    // parallel. A bare HashSet.Add throws "concurrent update corrupted its state" under that race, so
+    // the public RecordAbiCallPlan/AbiCallPlans access paths serialize on this lock. (The reflective
+    // recovery snapshot enumerates the set without it, but only ever on a private, single-threaded
+    // recovery context — never the shared Default — so that path cannot race.) Production emission is
+    // single-threaded, so the lock is uncontended and the rendered text is unchanged.
+    private readonly object _abiCallPlansLock = new();
+
     /// <summary>
     /// Records the typed <see cref="AbiCallPlan"/> for one emitted native call. Deduped by the plan's full
     /// value, so re-recording the same call (a re-render, or a reused context) is an idempotent no-op while
@@ -1346,7 +1355,8 @@ public sealed class ModuleEmissionContext
     {
         if (plan is null)
             return;
-        _abiCallPlans.Add(plan);
+        lock (_abiCallPlansLock)
+            _abiCallPlans.Add(plan);
     }
 
     /// <summary>
@@ -1355,8 +1365,16 @@ public sealed class ModuleEmissionContext
     /// shared-key tie). Exposed for the future validator and for the tests that assert population +
     /// determinism.
     /// </summary>
-    public IReadOnlyList<AbiCallPlan> AbiCallPlans =>
-        _abiCallPlans
+    public IReadOnlyList<AbiCallPlan> AbiCallPlans
+    {
+        get
+        {
+            // Snapshot under the lock (enumerating the HashSet while another thread Adds throws too),
+            // then sort the private copy outside it.
+            AbiCallPlan[] snapshot;
+            lock (_abiCallPlansLock)
+                snapshot = _abiCallPlans.ToArray();
+            return snapshot
             .OrderBy(p => p.Key, StringComparer.Ordinal)
             .ThenBy(p => p.Library, StringComparer.Ordinal)
             .ThenBy(p => p.ReturnCarrier, StringComparer.Ordinal)
@@ -1364,6 +1382,8 @@ public sealed class ModuleEmissionContext
             .ThenBy(p => p.IsAsync)
             .ThenBy(p => string.Join('\u0001', p.ParameterCarriers), StringComparer.Ordinal)
             .ToList();
+        }
+    }
 
     /// <summary>
     /// The one place a symbol enters the unified registry, and therefore the one place ownership

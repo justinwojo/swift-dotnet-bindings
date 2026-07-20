@@ -44,6 +44,14 @@ public sealed record WrapperSliceDiagnostics(
 /// staging tree is dropped and <see cref="Result"/> is null, so the only artifact that ever reaches
 /// the canonical path is one every promised slice accepted.
 /// </para>
+/// <para>
+/// <see cref="NoWrapperSurface"/> is a THIRD terminal outcome, distinct from both clean and failed: the
+/// module emitted no compilable wrapper surface at all (no wrapper source files were produced), so there
+/// was nothing to verify — not a clean compile of zero slices. Keeping it separate is what stops a
+/// recorded-zero-slices compile from silently folding to "clean" (<see cref="AllSlicesClean"/>) and
+/// shipping an unverified wrapper. Whether a no-wrapper-surface binding is shippable is decided
+/// downstream from the emitted C# surface (the usable-surface gate), not from the wrapper compile.
+/// </para>
 /// </remarks>
 public sealed record WrapperCompileDiagnostics(
     bool AllSlicesClean,
@@ -52,6 +60,16 @@ public sealed record WrapperCompileDiagnostics(
     SwiftWrapperCompilationResult? Result,
     IReadOnlyList<WrapperFileProvenance> FileProvenance)
 {
+    /// <summary>
+    /// True when the module had no compilable wrapper surface to verify (no wrapper source files were
+    /// emitted). Mutually exclusive with <see cref="AllSlicesClean"/> and with any recorded slice: the
+    /// compile never reached a slice. The driver converges on this without attributing a failure.
+    /// </summary>
+    public bool NoWrapperSurface { get; init; }
+
+    /// <summary>The reason a no-wrapper-surface outcome was raised, for the report; null otherwise.</summary>
+    public string? NoWrapperSurfaceReason { get; init; }
+
     /// <summary>Builds a clean (all-slices-passed) outcome carrying the promoted compilation result.</summary>
     public static WrapperCompileDiagnostics Clean(
         SwiftWrapperCompilationResult? result,
@@ -73,6 +91,22 @@ public sealed record WrapperCompileDiagnostics(
         var union = slices.Where(s => !s.Succeeded).SelectMany(s => s.Diagnostics).ToList();
         return new WrapperCompileDiagnostics(false, union, slices, null, fileProvenance);
     }
+
+    /// <summary>
+    /// Builds the no-wrapper-surface outcome: the module needed no wrapper, so there is nothing to
+    /// compile and nothing failed. <see cref="AllSlicesClean"/> is false (it is not a clean compile of
+    /// slices), <see cref="NoWrapperSurface"/> is set, and <see cref="Slices"/> is empty. The result is
+    /// carried through unchanged so a caller can still record whatever the degenerate producer returned.
+    /// </summary>
+    public static WrapperCompileDiagnostics NoWrapperSurfaceOutcome(
+        string reason,
+        SwiftWrapperCompilationResult? result,
+        IReadOnlyList<WrapperFileProvenance> fileProvenance) =>
+        new(false, Array.Empty<DiagnosticGroup>(), Array.Empty<WrapperSliceDiagnostics>(), result, fileProvenance)
+        {
+            NoWrapperSurface = true,
+            NoWrapperSurfaceReason = reason,
+        };
 }
 
 /// <summary>
@@ -126,6 +160,22 @@ public sealed class WrapperSliceCollector
     /// <summary>True once any promised slice has been recorded as failed.</summary>
     public bool AnyFailed { get; private set; }
 
+    private string? _noWrapperSurfaceReason;
+
+    /// <summary>
+    /// True once <see cref="MarkNoWrapperSurface"/> recorded that this module has no compilable wrapper
+    /// surface to verify — no wrapper source files were emitted, so the compile bailed before any slice.
+    /// </summary>
+    public bool NoWrapperSurface => _noWrapperSurfaceReason != null;
+
+    /// <summary>
+    /// Records that the compile found no wrapper surface to build — a genuine no-source bail point, not
+    /// a strip-to-empty (that keeps zero slices and fails closed). First-writer-wins so the earliest
+    /// reason survives. This is what lets <see cref="ToDiagnostics"/> report a distinct no-wrapper-surface
+    /// outcome instead of folding a zero-slice compile to "clean".
+    /// </summary>
+    public void MarkNoWrapperSurface(string reason) => _noWrapperSurfaceReason ??= reason;
+
     /// <summary>Records that <paramref name="sliceId"/> compiled clean.</summary>
     public void RecordSuccess(string sliceId) =>
         _slices.Add(new WrapperSliceDiagnostics(sliceId, true, Array.Empty<DiagnosticGroup>()));
@@ -165,16 +215,54 @@ public sealed class WrapperSliceCollector
     }
 
     /// <summary>
-    /// Folds the recorded slices into the union outcome the verify-recover driver consumes:
-    /// <see cref="WrapperCompileDiagnostics.Failed"/> when any promised slice failed (dropping
-    /// <paramref name="result"/>, since a failed compile has no promotable wrapper), otherwise
-    /// <see cref="WrapperCompileDiagnostics.Clean"/> carrying the promoted result.
+    /// Folds the recorded slices into the union outcome the verify-recover driver consumes. The clean
+    /// verdict now requires POSITIVE evidence — at least one recorded successful slice and no failures —
+    /// so a collector that recorded nothing can no longer fold to "clean". The four terminal shapes:
+    /// <list type="bullet">
+    /// <item>an explicit no-wrapper-surface signal → the distinct no-wrapper-surface outcome;</item>
+    /// <item>any recorded failure → <see cref="WrapperCompileDiagnostics.Failed"/> (result dropped);</item>
+    /// <item>zero recorded slices with no signal → failed with a synthesized diagnostic, because there is
+    /// no evidence any promised slice was accepted (the strip-to-empty producer and any bug that skips
+    /// every <see cref="RecordSuccess"/> land here — refusing to ship an unverified wrapper);</item>
+    /// <item>otherwise → <see cref="WrapperCompileDiagnostics.Clean"/> carrying the promoted result.</item>
+    /// </list>
     /// </summary>
     public WrapperCompileDiagnostics ToDiagnostics(SwiftWrapperCompilationResult? result)
     {
         var fileProvenance = FileProvenance.ToList();
-        return AnyFailed
-            ? WrapperCompileDiagnostics.Failed(Slices, fileProvenance)
-            : WrapperCompileDiagnostics.Clean(result, Slices, fileProvenance);
+
+        // A no-wrapper-surface signal is a terminal outcome that must not coexist with recorded slices:
+        // the compile raises it only at a genuine no-source bail point, before any slice is attempted.
+        // A signal alongside a recorded slice (or a failure) is a contradiction — fail closed rather
+        // than trust an inconsistent record.
+        if (NoWrapperSurface)
+        {
+            if (_slices.Count != 0 || AnyFailed)
+                return WrapperCompileDiagnostics.Failed(Slices, fileProvenance);
+            return WrapperCompileDiagnostics.NoWrapperSurfaceOutcome(_noWrapperSurfaceReason!, result, fileProvenance);
+        }
+
+        if (AnyFailed)
+            return WrapperCompileDiagnostics.Failed(Slices, fileProvenance);
+
+        if (_slices.Count == 0)
+            return WrapperCompileDiagnostics.Failed(NoRecordedSlices(), fileProvenance);
+
+        return WrapperCompileDiagnostics.Clean(result, Slices, fileProvenance);
+    }
+
+    // A synthetic failed slice for the "recorded nothing, signalled nothing" case: a coherent,
+    // unattributable global error the controller reads as an unattributed failure and fails the module
+    // closed — never a silent fold to clean. Names why in the diagnostic so the report explains it.
+    private static IReadOnlyList<WrapperSliceDiagnostics> NoRecordedSlices()
+    {
+        var group = new DiagnosticGroup
+        {
+            Primary = CompilerDiagnostic.Global(
+                DiagnosticSeverity.Error,
+                "wrapper compilation recorded no slice results and raised no no-wrapper-surface signal; " +
+                "refusing to treat an unverified wrapper as clean"),
+        };
+        return new[] { new WrapperSliceDiagnostics("<none>", false, new[] { group }) };
     }
 }

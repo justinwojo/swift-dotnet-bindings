@@ -84,6 +84,23 @@ public class EmissionReport
     /// </summary>
     [JsonProperty("degradedReverseDispatchReceivers")]
     public List<string> DegradedReverseDispatchReceivers { get; set; } = new();
+
+    /// <summary>
+    /// The verify-recover loop's settled disabled set: recovery units withdrawn to reach a clean compile
+    /// (<c>RecoveryUnitId.Describe()</c> form). Empty on the non-loop path. These withdrawals were
+    /// previously surfaced only as a transient SWIFTBIND112 log line; recording them here gives the
+    /// settled disabled set an on-disk home. Sorted for deterministic output.
+    /// </summary>
+    [JsonProperty("withdrawnUnits")]
+    public List<string> WithdrawnUnits { get; set; } = new();
+
+    /// <summary>
+    /// The adapted publication obligation ledger, present only on the verify-recover loop path. Each
+    /// entry names an obligation, the verifier that discharges it, and the verdict for this module. A
+    /// record of what was proven and how — not a second gate.
+    /// </summary>
+    [JsonProperty("publicationObligations")]
+    public List<ObligationLedgerEntry> PublicationObligations { get; set; } = new();
 }
 
 /// <summary>
@@ -132,7 +149,13 @@ public class ConformanceDecisionsSummary
 /// </summary>
 public static class EmissionReportEmitter
 {
-    public static void Emit(ModuleEmissionContext emissionContext, string moduleName, string outputDirectory, ILogger logger)
+    public static void Emit(
+        ModuleEmissionContext emissionContext,
+        string moduleName,
+        string outputDirectory,
+        ILogger logger,
+        IReadOnlyList<string>? withdrawnUnits = null,
+        PublicationObligationLedger? publicationObligations = null)
     {
         ArgumentNullException.ThrowIfNull(emissionContext);
         ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);
@@ -140,7 +163,7 @@ public static class EmissionReportEmitter
 
         AssertSilentTombstoneInvariant(emissionContext, moduleName);
 
-        var report = BuildReport(emissionContext, moduleName);
+        var report = BuildReport(emissionContext, moduleName, withdrawnUnits, publicationObligations);
 
         var reportPath = Path.Combine(outputDirectory, "binding-emission-report.json");
         var json = JsonConvert.SerializeObject(report, Formatting.Indented);
@@ -307,7 +330,11 @@ public static class EmissionReportEmitter
             + $"Divergent types: {string.Join(", ", divergent)}");
     }
 
-    internal static EmissionReport BuildReport(ModuleEmissionContext emissionContext, string moduleName)
+    internal static EmissionReport BuildReport(
+        ModuleEmissionContext emissionContext,
+        string moduleName,
+        IReadOnlyList<string>? withdrawnUnits = null,
+        PublicationObligationLedger? publicationObligations = null)
     {
         var report = new EmissionReport { Module = moduleName };
 
@@ -352,6 +379,18 @@ public static class EmissionReportEmitter
         report.DegradedReverseDispatchReceivers = emissionContext.DegradedReverseDispatchReceivers
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToList();
+
+        // Settled disabled set + publication obligation ledger, both computed by the verify-recover
+        // loop path after convergence and passed in as report inputs (they are post-loop outputs, not
+        // per-iteration emission state, so they do not live on the snapshot-restored emission context).
+        // The withdrawn set is sorted for deterministic output; the ledger keeps its obligation-number
+        // order. Empty/absent on the non-loop path.
+        report.WithdrawnUnits = (withdrawnUnits ?? Array.Empty<string>())
+            .OrderBy(unit => unit, StringComparer.Ordinal)
+            .ToList();
+        report.PublicationObligations = publicationObligations is { } ledger
+            ? ledger.Entries.ToList()
+            : new List<ObligationLedgerEntry>();
 
         // CSM conformer rejections (multi-constraint intersection filter). The engine
         // is the source of truth — it accumulates rejections across every

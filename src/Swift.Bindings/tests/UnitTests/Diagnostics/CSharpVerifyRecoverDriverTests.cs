@@ -71,6 +71,24 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
         // Convergence is JOINT, not Swift-only: the C# verifier ran on the clean Swift round and agreed.
         Assert.Equal(1, harness.SwiftCompileCalls);
         Assert.Equal(1, harness.CSharpVerifyCalls);
+        // The ledger's honest C#-compile proof: the verifier actually returned Clean, so the signal the
+        // publication ledger reads is true here (obligations 9/11 proven by verifier).
+        Assert.True(harness.CSharpVerifiedClean);
+    }
+
+    [Fact]
+    public void InconclusiveCSharp_RoundZeroPassThrough_DoesNotClaimTheCSharpWasVerified()
+    {
+        // A round-0 inconclusive verdict converges (pass-through to the post-generate gate) but the C#
+        // was NEVER proven clean — so the ledger signal must stay false. This is the exact path the
+        // pre-fix code mislabeled proven from the mere presence of a verifier delegate.
+        using var harness = new JointDriverHarness(this, CSharpBehavior.AlwaysInconclusive);
+
+        var result = WrapperRecoveryController.Run(harness);
+
+        Assert.True(result.Converged);
+        Assert.Equal(1, harness.CSharpVerifyCalls); // the verifier ran...
+        Assert.False(harness.CSharpVerifiedClean);  // ...but never reached Clean, so no proof is claimed.
     }
 
     // ── the joint fixed-point through the real driver: C# error → withdraw → re-verify Swift ────
@@ -229,6 +247,10 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
         public int SwiftCompileCalls { get; private set; }
         public int CSharpVerifyCalls { get; private set; }
         public bool CSharpErrored { get; private set; }
+
+        /// <summary>The driver's honest C# verdict signal — true only when the verifier ran and returned
+        /// Clean at convergence. The publication ledger reads exactly this.</summary>
+        public bool CSharpVerifiedClean => _inner.CSharpVerifiedClean;
 
         public JointDriverHarness(CSharpVerifyRecoverDriverTests owner, CSharpBehavior behavior)
         {

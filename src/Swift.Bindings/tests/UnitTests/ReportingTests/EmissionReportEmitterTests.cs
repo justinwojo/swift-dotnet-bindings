@@ -3,6 +3,8 @@
 
 #nullable enable
 
+using System.Linq;
+
 using Microsoft.Extensions.Logging;
 using Xunit;
 
@@ -105,6 +107,66 @@ public class EmissionReportEmitterTests
         var report = EmissionReportEmitter.BuildReport(ctx, "TestModule");
 
         Assert.Empty(report.SilentTombstones);
+    }
+
+    [Fact]
+    public void BuildReport_WithdrawnUnits_SortedFromParameter()
+    {
+        var report = EmissionReportEmitter.BuildReport(
+            new ModuleEmissionContext(),
+            "TestModule",
+            withdrawnUnits: new[] { "Mod.T.foo() (leaf)", "Mod.T.bar (accessor-group)" });
+
+        // Sorted for deterministic output.
+        Assert.Equal(new[] { "Mod.T.bar (accessor-group)", "Mod.T.foo() (leaf)" }, report.WithdrawnUnits);
+    }
+
+    [Fact]
+    public void BuildReport_NoLoopPath_LeavesLedgerAndWithdrawalsEmpty()
+    {
+        // The non-loop path stashes nothing; the additive report fields must stay empty, not null.
+        var report = EmissionReportEmitter.BuildReport(new ModuleEmissionContext(), "TestModule");
+
+        Assert.Empty(report.WithdrawnUnits);
+        Assert.Empty(report.PublicationObligations);
+    }
+
+    [Fact]
+    public void BuildReport_PublicationLedger_CopiedFromParameter()
+    {
+        var ledger = PublicationObligationLedgerBuilder.Build(new PublicationEvidence
+        {
+            HasWrapperSurface = true,
+            WrapperVerifySliceCompiledClean = true,
+            CSharpVerified = true,
+            AbiContractValidated = true,
+        });
+
+        var report = EmissionReportEmitter.BuildReport(
+            new ModuleEmissionContext(), "TestModule", publicationObligations: ledger);
+
+        Assert.Equal(13, report.PublicationObligations.Count);
+        Assert.Equal(Enumerable.Range(1, 13), report.PublicationObligations.Select(e => e.Number));
+    }
+
+    [Fact]
+    public void BuildReport_PublicationLedger_SerializesVerdictAsString()
+    {
+        var ledger = PublicationObligationLedgerBuilder.Build(new PublicationEvidence
+        {
+            HasWrapperSurface = true,
+            WrapperVerifySliceCompiledClean = true,
+            CSharpVerified = true,
+            AbiContractValidated = true,
+        });
+
+        var report = EmissionReportEmitter.BuildReport(
+            new ModuleEmissionContext(), "TestModule", publicationObligations: ledger);
+        var json = Newtonsoft.Json.JsonConvert.SerializeObject(report);
+
+        // The verdict must serialize as its name, not its integer ordinal, so the JSON is auditable.
+        Assert.Contains("ProvenByConstruction", json);
+        Assert.DoesNotContain("\"verdict\":0", json);
     }
 
     [Fact]

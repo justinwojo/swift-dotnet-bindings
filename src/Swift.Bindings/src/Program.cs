@@ -609,6 +609,22 @@ namespace BindingsGeneration
                     };
                 };
 
+                // Set by the verify-recover loop when it converged with no compilable wrapper surface at
+                // all — the one path the usable-surface gate (SWIFTBIND116) evaluates. A binding with a
+                // clean wrapper is usable by construction, so the gate never second-guesses one.
+                bool convergedWithNoWrapperSurface = false;
+
+                // The verify-recover loop's settled disabled set, hoisted out of the loop branch so the
+                // emission report can record it as the on-disk settled disabled set. Empty on every
+                // non-loop path.
+                IReadOnlyList<string> loopWithdrawnUnits = System.Array.Empty<string>();
+
+                // True only when the loop's wired C# verifier actually ran and returned Clean — the sole
+                // honest proof the emitted C# compiled. Hoisted out so the publication ledger keys the
+                // C#-compile obligations on the real verdict, never on the mere presence of a verifier
+                // delegate (which stays true even when convergence bypassed the verifier).
+                bool loopCSharpVerifiedClean = false;
+
                 if (compileWrapper == null)
                 {
                     // Ordinary single render. This is the path for the CI compile gate
@@ -669,10 +685,34 @@ namespace BindingsGeneration
                             "from {Module} over {Rounds} round(s) to reach a clean {Planes} compile.",
                             recovery.Denylist.Length, decl.Name, recovery.Rounds, planes);
                     }
+
+                    loopWithdrawnUnits = recovery.Denylist.Select(unit => unit.Describe()).ToList();
+                    convergedWithNoWrapperSurface = driver.NoWrapperSurfaceConverged;
+                    loopCSharpVerifiedClean = driver.CSharpVerifiedClean;
                 }
 
                 var report = ReportCollector.Complete();
                 ReportCollector.Reset();
+
+                // D-R6 usable-surface gate: a binding the loop settled with NO wrapper surface must still
+                // expose something callable — at least one usable member or one non-tombstone type — or it
+                // is an empty shell. Ship the degenerate-but-usable binding (value-type-only, direct-native
+                // P/Invokes) with an honest report; fail closed only when nothing usable could be emitted,
+                // because without anything to call the binding is unusable. Scoped to the no-wrapper-surface
+                // path: a binding with a clean wrapper surface is usable by construction.
+                if (report != null && convergedWithNoWrapperSurface)
+                {
+                    var usable = UsableSurfaceEvaluator.Evaluate(report, emissionContext.SilentTombstones.Count);
+                    if (!usable.HasUsableSurface)
+                    {
+                        logger.LogError(
+                            "SWIFTBIND116: {Module} emitted no usable public surface ({Reason}) and has no " +
+                            "wrapper surface either; without anything to call the binding is unusable — failing " +
+                            "closed rather than shipping an empty binding.",
+                            moduleName, usable.Reason);
+                        return false;
+                    }
+                }
 
                 // Finding 18: surface UNDOCUMENTED demangle reducer rule-misses as one loud
                 // SWIFTBIND058 line. A miss means a node kind reached the reducer with no rule, so
@@ -732,8 +772,60 @@ namespace BindingsGeneration
                     : descriptorAssemblyNameOverride;
                 TrimmerDescriptorEmitter.Emit(emissionContext, outputDirectory, descriptorAssemblyName, logger);
 
+                // Settled publication (verify-recover loop path only): compute the settled disabled set
+                // and the adapted obligation ledger as report INPUTS. These are post-loop outputs —
+                // computed once after convergence, never mutated during emission — so they thread into the
+                // report writers as parameters rather than living on the snapshot-restored emission
+                // context (a per-iteration-state field that no verify-recover rollback ever touches would
+                // be dead weight there). The ledger is a RECORD, not a gate — the obligations are
+                // discharged by the gates that own them (convergence proved the wrapper slices and, when a
+                // C# verifier was wired, the emitted C#; a surviving render proved the ABI validator raised
+                // no violation). The non-loop legacy legs keep their standalone MSBuild/SARIF gate and emit
+                // no ledger. Building the ledger is total — it cannot throw and regress a module.
+                IReadOnlyList<string> settledWithdrawnUnits = System.Array.Empty<string>();
+                PublicationObligationLedger? publicationLedger = null;
+                // Reconcile every emitted wrapper-symbol P/Invoke reference against the wrapper functions
+                // this generation emitted. This is the verifier that discharges obligation 4's existence
+                // half (a referenced wrapper symbol has a definition) — construction only proves the
+                // owner map is single-valued (uniqueness). Compute it here so the ledger records the
+                // gate's real verdict rather than presenting a runtime-checked property as proven by
+                // construction; the same verdict fails the module closed further below, after the report
+                // is written (so a failing module still leaves an honest report on disk). A no-wrapper
+                // module has no wrapper-targeting P/Invoke, so the gate is not applicable there.
+                bool? wrapperSymbolsIntegral = null;
+                if (compileWrapper != null && !convergedWithNoWrapperSurface)
+                {
+                    wrapperSymbolsIntegral = !WrapperSymbolIntegrityGate.HasViolations(outputDirectory, logger);
+                }
+                if (compileWrapper != null)
+                {
+                    settledWithdrawnUnits = loopWithdrawnUnits;
+                    var hasWrapperSurface = !convergedWithNoWrapperSurface;
+                    publicationLedger = PublicationObligationLedgerBuilder.Build(
+                        new PublicationEvidence
+                        {
+                            HasWrapperSurface = hasWrapperSurface,
+                            // Convergence proved the in-loop verify slice compiled clean; the authoritative
+                            // multi-slice fat build and residual-strip gate run after this report.
+                            WrapperVerifySliceCompiledClean = hasWrapperSurface,
+                            // Obligation 4's existence half: the integrity gate reconciled every emitted
+                            // wrapper-symbol reference against an emitted definition.
+                            WrapperSymbolsIntegral = wrapperSymbolsIntegral,
+                            // Proven only when the loop's wired C# verifier actually returned Clean — not
+                            // when a verifier was merely configured. Null (not-applicable) when no verifier
+                            // was wired, when convergence bypassed it (no wrapper surface), or on a round-0
+                            // inconclusive pass-through; the standalone compile-only gate owns those.
+                            CSharpVerified = loopCSharpVerifiedClean ? true : (bool?)null,
+                            // Reaching this point means the converged render raised no
+                            // AbiContractViolationException (which fails the module closed before here).
+                            AbiContractValidated = true,
+                            SilentTombstoneCount = emissionContext.SilentTombstones.Count,
+                        });
+                }
+
                 // Emit emission-level metrics (wrapper strategies, conformance decisions)
-                EmissionReportEmitter.Emit(emissionContext, moduleName, outputDirectory, logger);
+                EmissionReportEmitter.Emit(
+                    emissionContext, moduleName, outputDirectory, logger, settledWithdrawnUnits, publicationLedger);
 
                 // Build and write the binding artifact manifest. The main generation pass
                 // owns this output directory and replaces any prior artifact wholesale —
@@ -747,7 +839,8 @@ namespace BindingsGeneration
                     // the ambient collector populated during emission.
                     EmissionReportEmitter.EmitDegradationDiagnostics(report, logger);
 
-                    var emissionReport = EmissionReportEmitter.BuildReport(emissionContext, moduleName);
+                    var emissionReport = EmissionReportEmitter.BuildReport(
+                        emissionContext, moduleName, settledWithdrawnUnits, publicationLedger);
                     var manifest = new BindingArtifactManifest
                     {
                         Module = moduleName,
@@ -806,8 +899,14 @@ namespace BindingsGeneration
                 // was never emitted) is a generator defect that would throw
                 // EntryPointNotFoundException at runtime — turn it into a hard non-zero exit now.
                 // Runs after all emission and after the binding report is written (so the report
-                // survives), independent of the per-emit WrapperSymbolContractGate flag.
-                if (WrapperSymbolIntegrityGate.HasViolations(outputDirectory, logger))
+                // survives), independent of the per-emit WrapperSymbolContractGate flag. When the
+                // ledger path already reconciled the symbols above, reuse that verdict rather than
+                // re-scanning; the non-loop single render and the no-wrapper-surface loop path did not,
+                // so they reconcile here.
+                var wrapperSymbolViolations = wrapperSymbolsIntegral is { } integral
+                    ? !integral
+                    : WrapperSymbolIntegrityGate.HasViolations(outputDirectory, logger);
+                if (wrapperSymbolViolations)
                 {
                     ReportCollector.Reset();
                     return false;

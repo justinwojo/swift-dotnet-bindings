@@ -191,6 +191,10 @@ namespace BindingsGeneration
             if (swiftFiles.Count == 0 && !hasAssemblyFiles)
             {
                 logger.LogInformation("No Swift wrapper files or thunk assembly files found in {Dir} — skipping wrapper compilation.", outputDirectory);
+                // No wrapper surface at all — a genuine no-source bail, distinct from a strip-to-empty.
+                // Signal it explicitly so the recovery driver converges on a no-wrapper-surface outcome
+                // instead of a recorded-zero-slices compile silently folding to "clean".
+                collector?.MarkNoWrapperSurface("no wrapper source files or thunk assembly were emitted");
                 return null;
             }
 
@@ -728,6 +732,10 @@ namespace BindingsGeneration
             if (swiftFiles.Count == 0 && !hasAssemblyFiles)
             {
                 logger.LogInformation("No Swift wrapper files or thunk assembly files found in {Dir} — skipping wrapper compilation.", outputDirectory);
+                // No wrapper surface at all — a genuine no-source bail, distinct from a strip-to-empty.
+                // Signal it explicitly so the recovery driver converges on a no-wrapper-surface outcome
+                // instead of a recorded-zero-slices compile silently folding to "clean".
+                collector?.MarkNoWrapperSurface("no wrapper source files or thunk assembly were emitted");
                 return null;
             }
 
