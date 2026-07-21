@@ -164,4 +164,39 @@ public static class InputResolutionReport
     /// <summary>True when at least one ledger entry terminated <see cref="IngestionStatus.Quarantined"/>.</summary>
     public static bool HasQuarantines =>
         s_ledger is not null && s_ledger.Exists(e => e.Status == IngestionStatus.Quarantined);
+
+    /// <summary>
+    /// Rewrites every <see cref="IngestionStatus.Quarantined"/> ledger entry to
+    /// <see cref="IngestionStatus.Fatal"/> (with <see cref="IngestionDisposition.ReportOnlyFatal"/>),
+    /// appending <paramref name="reason"/> to each entry's evidence. Called when the run has decided the
+    /// module fails before emission (e.g. the ingestion closure could not be proven complete): a node that
+    /// was optimistically quarantined is, in a failing run, a fatal loss — leaving it stamped
+    /// <c>Quarantined</c> would let <see cref="HasQuarantines"/> and any in-process reader of the ledger
+    /// report a tombstoned-but-shipped withdrawal for a binding that never shipped. This normalizes the
+    /// in-memory ledger only; a run that fails here writes no manifest, so the durable record of the failure
+    /// is the logged SWIFTBIND120 error, not an on-disk projection. Idempotent for entries already terminal
+    /// at another status.
+    /// </summary>
+    public static void EscalateQuarantinesToFatal(string reason)
+    {
+        if (s_ledger is null)
+            return;
+        for (var i = 0; i < s_ledger.Count; i++)
+        {
+            var entry = s_ledger[i];
+            if (entry.Status != IngestionStatus.Quarantined)
+                continue;
+            var evidence = string.IsNullOrEmpty(reason)
+                ? entry.ClosureEvidence
+                : string.IsNullOrEmpty(entry.ClosureEvidence)
+                    ? reason
+                    : $"{entry.ClosureEvidence} — {reason}";
+            s_ledger[i] = entry with
+            {
+                Status = IngestionStatus.Fatal,
+                Disposition = IngestionDisposition.ReportOnlyFatal,
+                ClosureEvidence = evidence,
+            };
+        }
+    }
 }

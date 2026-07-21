@@ -40,8 +40,9 @@ public enum ObligationVerdict
 /// </summary>
 public sealed record ObligationLedgerEntry
 {
-    /// <summary>The obligation number, following the sol-report numbering (1–13) so the ledger reads
-    /// against the design's obligation table.</summary>
+    /// <summary>The obligation number, following the sol-report numbering (1–15) so the ledger reads
+    /// against the design's obligation table — obligations 14 and 15 (input-graph closure and complete
+    /// parse coverage) extend the original 1–13 table.</summary>
     public required int Number { get; init; }
 
     /// <summary>What must hold before the binding may be published.</summary>
@@ -134,6 +135,19 @@ public readonly record struct PublicationEvidence
     /// <summary>The count of types that shipped as silent tombstones — recorded on the type-surface
     /// obligation's detail so a degenerate shape is visible in the ledger.</summary>
     public int SilentTombstoneCount { get; init; }
+
+    /// <summary>True when the input dependency graph resolved with no unresolved REQUIRED edge
+    /// (obligation 14). A required <c>--framework-dependency</c> that fails to parse, or an
+    /// ingestion-quarantine withdrawal closure that cannot be proven complete, fails the module closed
+    /// before publication, so at the record point this is true; a best-effort auto-detected dependency
+    /// that drops is a recorded input degradation, not a graph-closure failure, and does not clear this.</summary>
+    public bool InputGraphClosed { get; init; }
+
+    /// <summary>The parser's node-level reconciliation balance (obligation 15): true when every attempted
+    /// declaration node landed in exactly one bucket (emitted / skipped-with-reason / dropped-with-error)
+    /// so no input was lost outside the ledger; false when it does not balance (a silent swallow); null
+    /// when no reconciliation verdict was available in this pass.</summary>
+    public bool? RetainedDeclarationsFullyParsed { get; init; }
 }
 
 /// <summary>
@@ -349,6 +363,49 @@ public static class PublicationObligationLedgerBuilder
                         + "unrecognized carriers as compatible (a violation would fail the module closed "
                         + "before publication)"
                     : null,
+            },
+            new()
+            {
+                // The graph-closure obligation. A required edge that fails to resolve is a soundness
+                // condition the C# compiler cannot see — a member bound against an AnyType-degraded
+                // dependency compiles clean and is wrong at runtime — so it fails the module closed before
+                // publication. Best-effort auto-detected dependency drops are a recorded input degradation
+                // (surfaced on the input-resolution ledger), not a graph-closure failure, so they do NOT
+                // clear this obligation.
+                Number = 14, Obligation = "the input dependency graph is closed — no required edge left unresolved",
+                Verifier = "dependency-closure resolution (a required-edge failure fails the module closed pre-publication)",
+                Verdict = FromVerifier(evidence.InputGraphClosed),
+                Detail = evidence.InputGraphClosed
+                    ? "every required dependency edge resolved; a required --framework-dependency that fails "
+                        + "to parse, or an ingestion-quarantine withdrawal closure that cannot be proven "
+                        + "complete, fails the module closed before this point (a best-effort auto-detected "
+                        + "dependency that drops is recorded as an input degradation, not a graph-closure failure)"
+                    : "the input dependency graph carries an unresolved required edge (a fatal ingestion-ledger "
+                        + "entry); the module fails closed before publication",
+            },
+            new()
+            {
+                // The no-unledgered-loss obligation. The parser's node-level reconciliation balances iff every
+                // declaration node that reached disposition landed in exactly one bucket — so an unbalanced
+                // reconciliation is a silent HandleNode swallow, a counted node lost outside the three buckets.
+                // The balance verifies bucket-completeness; that each dropped node also carries a structured
+                // ingestion-ledger entry holds by construction at the drop site (DroppedWithError is only
+                // incremented alongside a RecordLedgerEntry), it is not re-proven by this count. A compiler
+                // cannot see a missing declaration, so this fails the module closed.
+                Number = 15, Obligation = "every retained declaration parsed completely — no unledgered input loss",
+                Verifier = "parse-reconciliation balance (Parsed == Emitted + SkippedWithReason + DroppedWithError)",
+                Verdict = FromOptionalVerifier(evidence.RetainedDeclarationsFullyParsed),
+                Detail = evidence.RetainedDeclarationsFullyParsed switch
+                {
+                    true => "the parser's node-level reconciliation balances — every declaration node that "
+                        + "reached disposition landed in exactly one bucket (emitted, skipped-with-reason, or "
+                        + "dropped-with-error), so no counted declaration vanished silently; each dropped node "
+                        + "records a structured ingestion-ledger entry at its drop site by construction",
+                    false => "the parser's node-level reconciliation does not balance — a declaration node was "
+                        + "lost outside the emitted/skipped/dropped buckets (a silent swallow); the module fails "
+                        + "closed before publication",
+                    null => "no parse-reconciliation verdict was available in this pass",
+                },
             },
         };
 

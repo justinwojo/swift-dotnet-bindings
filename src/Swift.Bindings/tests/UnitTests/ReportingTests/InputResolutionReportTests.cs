@@ -96,4 +96,61 @@ public class InputResolutionReportTests
         Assert.Single(snapshot);
         Assert.Equal(2, InputResolutionReport.Decisions.Count);
     }
+
+    private static IngestionLedgerEntry LedgerEntry(string symbol, IngestionStatus status) =>
+        new(
+            Input: new IngestionInputIdentity("Demo", "Struct", symbol),
+            Parent: null,
+            Plane: IngestionPlane.Ingest,
+            Cause: IngestionCause.MalformedTypeRecord,
+            Referenced: null,
+            Disposition: status == IngestionStatus.Quarantined
+                ? IngestionDisposition.QuarantineType
+                : IngestionDisposition.ReportOnly,
+            ClosureEvidence: "closure proven complete",
+            Status: status);
+
+    [Fact]
+    public void EscalateQuarantinesToFatal_RewritesQuarantinedToFatal()
+    {
+        InputResolutionReport.Reset();
+        InputResolutionReport.RecordLedgerEntry(LedgerEntry("QuarantinedRoot", IngestionStatus.Quarantined));
+        InputResolutionReport.RecordLedgerEntry(LedgerEntry("QuarantinedDependent", IngestionStatus.Quarantined));
+        Assert.True(InputResolutionReport.HasQuarantines);
+
+        InputResolutionReport.EscalateQuarantinesToFatal("SWIFTBIND120: closure unprovable");
+
+        // No entry may still read Quarantined — a failing run never reports a tombstoned-but-shipped
+        // withdrawal.
+        Assert.False(InputResolutionReport.HasQuarantines);
+        Assert.All(InputResolutionReport.Ledger, e => Assert.Equal(IngestionStatus.Fatal, e.Status));
+        Assert.All(InputResolutionReport.Ledger,
+            e => Assert.Equal(IngestionDisposition.ReportOnlyFatal, e.Disposition));
+        // The escalation reason is appended to each entry's evidence so the ledger stays auditable.
+        Assert.All(InputResolutionReport.Ledger,
+            e => Assert.Contains("SWIFTBIND120: closure unprovable", e.ClosureEvidence));
+    }
+
+    [Fact]
+    public void EscalateQuarantinesToFatal_LeavesNonQuarantinedEntriesUntouched()
+    {
+        InputResolutionReport.Reset();
+        InputResolutionReport.RecordLedgerEntry(LedgerEntry("Dropped", IngestionStatus.Dropped));
+        InputResolutionReport.RecordLedgerEntry(LedgerEntry("Quarantined", IngestionStatus.Quarantined));
+
+        InputResolutionReport.EscalateQuarantinesToFatal("reason");
+
+        var ledger = InputResolutionReport.Ledger;
+        Assert.Equal(IngestionStatus.Dropped, ledger[0].Status);
+        Assert.Equal("closure proven complete", ledger[0].ClosureEvidence); // unchanged
+        Assert.Equal(IngestionStatus.Fatal, ledger[1].Status);
+    }
+
+    [Fact]
+    public void EscalateQuarantinesToFatal_EmptyLedger_IsNoOp()
+    {
+        InputResolutionReport.Reset();
+        InputResolutionReport.EscalateQuarantinesToFatal("reason");
+        Assert.Empty(InputResolutionReport.Ledger);
+    }
 }

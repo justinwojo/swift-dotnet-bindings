@@ -369,6 +369,12 @@ partial class Build
         //     re-attributed to the input configuration at the Parse stage.
         AssertIngestionWithdrawalRows(output / "binding-report.json");
 
+        // (2b) The structured ingestion ledger projects onto the artifact manifest's input-resolution
+        //      section: every withdrawn node appears with its identity, disposition, terminal status, and
+        //      evidence — so a consumer of the degraded binding can read exactly what was withdrawn and why
+        //      from the manifest, not only the human-facing report's SkippedItems.
+        AssertIngestionManifestLedger(output / "binding-artifact-manifest.json");
+
         // (3) HealthyControl — sharing no edge with the quarantined type — survives byte-identically to
         //     the leg-1 control run: the dependent-edge closure never reached it.
         AssertIngestionHealthyControlStable(controlOutput, output, "Control", "leg 3");
@@ -725,6 +731,77 @@ partial class Build
         Log.Information("  ✓ {Count} ingestion-withdrawal row(s), all InputConfiguration/Parse; both dependent free "
             + "functions (return-edge + parameter-edge), the enum-payload whole-withdrawal, and the operator leaf "
             + "(host retained) all present.", ingestionRows);
+    }
+
+    // (2b) The structured ingestion ledger projects onto the artifact manifest. Reads
+    //      binding-artifact-manifest.json → InputResolution → Ledger and asserts: the projection is total
+    //      (LedgerEntryCount == Ledger.Count, QuarantinedCount == the number of Quarantined rows), every row
+    //      carries its identity + terminal status + evidence, and the malformed root plus its dependent
+    //      closure (the quarantined free functions, the enum-payload whole-withdrawal) are all named. This is
+    //      the manifest-side counterpart to the report's SkippedItems: a degraded binding must publish WHY it
+    //      is degraded in the structured manifest, not only the human report.
+    void AssertIngestionManifestLedger(AbsolutePath manifestPath)
+    {
+        if (!File.Exists(manifestPath))
+            throw new Exception($"ingestion-kitchen leg 3: binding-artifact-manifest.json missing at {manifestPath} — "
+                + "the ingestion ledger has no manifest projection to audit.");
+
+        using var doc = JsonDocument.Parse(File.ReadAllText(manifestPath));
+        var root = doc.RootElement;
+        if (!root.TryGetProperty("InputResolution", out var ir) || ir.ValueKind != JsonValueKind.Object)
+            throw new Exception("ingestion-kitchen leg 3: manifest has no InputResolution section — the ingestion ledger "
+                + "was not projected onto the artifact manifest.");
+        if (!ir.TryGetProperty("Ledger", out var ledger) || ledger.ValueKind != JsonValueKind.Array)
+            throw new Exception("ingestion-kitchen leg 3: manifest InputResolution has no Ledger array — the structured "
+                + "ingestion ledger was not projected (only the aggregate decision counts would be visible).");
+
+        int rows = 0, quarantined = 0;
+        var inputs = new List<string>();
+        foreach (var e in ledger.EnumerateArray())
+        {
+            if (e.ValueKind != JsonValueKind.Object) continue;
+            string Str(string p) => e.TryGetProperty(p, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString()! : "";
+            rows++;
+            var input = Str("Input");
+            if (string.IsNullOrEmpty(input))
+                throw new Exception("ingestion-kitchen leg 3: a manifest ledger row has an empty Input identity — a losable "
+                    + "node was projected without a stable identity.");
+            if (string.IsNullOrEmpty(Str("Evidence")))
+                throw new Exception($"ingestion-kitchen leg 3: manifest ledger row '{input}' has empty Evidence — the row "
+                    + "does not record why the node was withdrawn.");
+            var status = Str("Status");
+            if (status.Length == 0)
+                throw new Exception($"ingestion-kitchen leg 3: manifest ledger row '{input}' has no terminal Status.");
+            if (status == "Quarantined") quarantined++;
+            inputs.Add($"{input}|{Str("Disposition")}|{status}|{Str("Referenced")}");
+        }
+
+        if (rows == 0)
+            throw new Exception("ingestion-kitchen leg 3: the manifest ledger projection is empty — the withdrawn nodes did "
+                + "not project onto the manifest even though the report recorded withdrawal rows.");
+
+        int Count(string prop) => ir.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : -1;
+        if (Count("LedgerEntryCount") != rows)
+            throw new Exception($"ingestion-kitchen leg 3: manifest LedgerEntryCount ({Count("LedgerEntryCount")}) disagrees "
+                + $"with the projected Ledger row count ({rows}) — the projection is not total.");
+        if (Count("QuarantinedCount") != quarantined)
+            throw new Exception($"ingestion-kitchen leg 3: manifest QuarantinedCount ({Count("QuarantinedCount")}) disagrees "
+                + $"with the number of Quarantined ledger rows ({quarantined}).");
+        if (quarantined == 0)
+            throw new Exception("ingestion-kitchen leg 3: no Quarantined rows in the manifest ledger — the proven-closure "
+                + "withdrawal did not surface as a quarantine on the manifest.");
+
+        // The malformed root and its signature-reaching dependents must all be named in the manifest ledger,
+        // matching the report's SkippedItems closure — the manifest is a losable-node record, not a summary.
+        foreach (var expected in new[] { "QuarantinedPayload", "makeQuarantinedPayload", "inspectQuarantined", "PayloadCarrier" })
+        {
+            if (!inputs.Any(i => i.IndexOf(expected, StringComparison.Ordinal) >= 0))
+                throw new Exception($"ingestion-kitchen leg 3: the manifest ledger does not name '{expected}' — the closure "
+                    + "that the report recorded did not project fully onto the manifest.");
+        }
+
+        Log.Information("  ✓ manifest ledger projects {Rows} node(s) ({Quarantined} quarantined), all with identity + "
+            + "status + evidence; malformed root and dependent closure all named.", rows, quarantined);
     }
 
     // (3) The healthy control surface is byte-for-byte identical between the pristine (leg-1) and degraded

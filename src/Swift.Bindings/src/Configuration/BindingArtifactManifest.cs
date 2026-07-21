@@ -245,9 +245,13 @@ public sealed record AppleSupplementReferenceEntry(string Identity, List<string>
 /// <summary>
 /// Finding 50: input-resolution snapshot. Captures the ordered list of decisions
 /// <see cref="InputResolutionReport"/> accumulated during <see cref="XCFrameworkResolver"/>
-/// resolution and dependency parsing. <see cref="PhaseStatus.Warning"/> when at least one
-/// decision was a degradation (a fallback substituted a different input than requested);
-/// <see cref="PhaseStatus.Success"/> when every input was found and used as-is.
+/// resolution and dependency parsing, together with the structured ingestion ledger (every input
+/// node lost, deformed, or withdrawn). <see cref="PhaseStatus.Fatal"/> when the ledger carries a
+/// fatal loss (a required edge that could not be closed); <see cref="PhaseStatus.Warning"/> when a
+/// decision degraded or a node was quarantined/dropped; <see cref="PhaseStatus.Success"/> when every
+/// input was found and used as-is. Projecting the ledger here is what lets a consumer of a DEGRADED
+/// binding read exactly which declarations it is missing and why, rather than only the aggregate
+/// decision counts.
 /// </summary>
 public sealed class InputResolutionSection
 {
@@ -258,7 +262,30 @@ public sealed class InputResolutionSection
     public int DegradationCount { get; init; }
     public List<InputResolutionDecisionEntry> Decisions { get; init; } = new();
 
-    public static InputResolutionSection From(IReadOnlyList<InputResolutionDecision> decisions)
+    /// <summary>Total structured ingestion-ledger entries projected here (== <see cref="Ledger"/>.Count).</summary>
+    public int LedgerEntryCount { get; init; }
+
+    /// <summary>Ledger entries that terminated <see cref="IngestionStatus.Quarantined"/> — withdrawn,
+    /// tombstoned, and reported; the binding still shipped. This is the count an
+    /// <c>IngestionWithdrawal</c> consumer reads to know how much surface a degraded binding dropped.</summary>
+    public int QuarantinedCount { get; init; }
+
+    /// <summary>Ledger entries that terminated <see cref="IngestionStatus.Dropped"/> — a recorded loss with
+    /// no proven withdrawal closure (the legacy fail-open drop channel).</summary>
+    public int DroppedCount { get; init; }
+
+    /// <summary>Ledger entries that terminated <see cref="IngestionStatus.Fatal"/> — a loss that failed the
+    /// module before emission. A published manifest never carries one (a fatal run does not publish); the
+    /// field exists so the projection is total and a fatal is never silently absent.</summary>
+    public int FatalCount { get; init; }
+
+    /// <summary>The projected ingestion ledger: one row per input node lost, deformed, or withdrawn, with
+    /// its identity, disposition, terminal status, and human-readable evidence.</summary>
+    public List<IngestionLedgerEntryProjection> Ledger { get; init; } = new();
+
+    public static InputResolutionSection From(
+        IReadOnlyList<InputResolutionDecision> decisions,
+        IReadOnlyList<IngestionLedgerEntry>? ledger = null)
     {
         ArgumentNullException.ThrowIfNull(decisions);
         var entries = new List<InputResolutionDecisionEntry>(decisions.Count);
@@ -270,12 +297,44 @@ public sealed class InputResolutionSection
             entries.Add(new InputResolutionDecisionEntry(
                 decision.Category, decision.Severity, decision.Detail));
         }
+
+        var ledgerEntries = new List<IngestionLedgerEntryProjection>();
+        var quarantined = 0;
+        var dropped = 0;
+        var fatal = 0;
+        if (ledger is not null)
+        {
+            foreach (var entry in ledger)
+            {
+                switch (entry.Status)
+                {
+                    case IngestionStatus.Quarantined: quarantined++; break;
+                    case IngestionStatus.Dropped: dropped++; break;
+                    case IngestionStatus.Fatal: fatal++; break;
+                }
+                ledgerEntries.Add(IngestionLedgerEntryProjection.From(entry));
+            }
+        }
+
+        // Status escalates with the worst outcome present: a fatal loss dominates, then any degradation
+        // or quarantine/drop is a Warning, else Success.
+        var status = fatal > 0
+            ? PhaseStatus.Fatal
+            : degradationCount > 0 || quarantined > 0 || dropped > 0
+                ? PhaseStatus.Warning
+                : PhaseStatus.Success;
+
         return new InputResolutionSection
         {
-            Status = degradationCount > 0 ? PhaseStatus.Warning : PhaseStatus.Success,
+            Status = status,
             DecisionCount = decisions.Count,
             DegradationCount = degradationCount,
             Decisions = entries,
+            LedgerEntryCount = ledgerEntries.Count,
+            QuarantinedCount = quarantined,
+            DroppedCount = dropped,
+            FatalCount = fatal,
+            Ledger = ledgerEntries,
         };
     }
 }
@@ -289,6 +348,39 @@ public sealed record InputResolutionDecisionEntry(
     InputResolutionCategory Category,
     InputResolutionSeverity Severity,
     string Detail);
+
+/// <summary>
+/// One ingestion-ledger entry projected onto the manifest — a losable input node with its identity,
+/// disposition, terminal status, and evidence. A manifest-owned mirror of <see cref="IngestionLedgerEntry"/>
+/// (same pattern as <see cref="InputResolutionDecisionEntry"/>) so the on-disk shape is independent of the
+/// in-memory collector type. <see cref="Input"/> is the node's stable identity string (module.kind:symbol,
+/// where symbol is the USR/mangled name or the <c>&lt;absent&gt;</c> sentinel); <see cref="Parent"/> is the
+/// declaring parent's identity when it had one.
+/// </summary>
+public sealed record IngestionLedgerEntryProjection(
+    string Input,
+    string? Parent,
+    IngestionPlane Plane,
+    IngestionCause Cause,
+    string? Referenced,
+    IngestionDisposition Disposition,
+    IngestionStatus Status,
+    string Evidence)
+{
+    public static IngestionLedgerEntryProjection From(IngestionLedgerEntry entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        return new IngestionLedgerEntryProjection(
+            Input: entry.Input.ToString(),
+            Parent: entry.Parent?.ToString(),
+            Plane: entry.Plane,
+            Cause: entry.Cause,
+            Referenced: entry.Referenced,
+            Disposition: entry.Disposition,
+            Status: entry.Status,
+            Evidence: entry.ClosureEvidence);
+    }
+}
 
 /// <summary>
 /// Wrapper-compilation-phase snapshot. Populated by both <c>RunCompileWrapperOnly</c>

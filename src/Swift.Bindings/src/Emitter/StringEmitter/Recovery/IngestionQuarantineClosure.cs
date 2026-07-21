@@ -555,6 +555,17 @@ internal static class IngestionQuarantineClosure
             if (withdrawnNames.Contains(protocol.Name))
                 return protocol.Name;
         }
+        // Stored-field layout edge — mirrors the StructurallyReaches stored-property branch so a struct or
+        // class withdrawn because a stored field's declared type embeds a withdrawn type reports the
+        // specific type it reaches, rather than an anonymous '?'. A computed property is a signature edge
+        // (withdrawn as a leaf), not a layout edge, so only stored properties count here.
+        foreach (var property in type.Properties)
+        {
+            if (!property.HasStorage)
+                continue;
+            if (FirstWithdrawnNameInSpec(property.SwiftTypeSpec, withdrawnNames) is { } fieldName)
+                return fieldName;
+        }
         if (type is EnumDecl enumDecl)
         {
             foreach (var enumCase in enumDecl.Cases)

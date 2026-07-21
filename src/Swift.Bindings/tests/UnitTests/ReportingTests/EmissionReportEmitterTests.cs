@@ -140,13 +140,15 @@ public class EmissionReportEmitterTests
             WrapperVerifySliceCompiledClean = true,
             CSharpVerified = true,
             AbiContractValidated = true,
+            InputGraphClosed = true,
+            RetainedDeclarationsFullyParsed = true,
         });
 
         var report = EmissionReportEmitter.BuildReport(
             new ModuleEmissionContext(), "TestModule", publicationObligations: ledger);
 
-        Assert.Equal(13, report.PublicationObligations.Count);
-        Assert.Equal(Enumerable.Range(1, 13), report.PublicationObligations.Select(e => e.Number));
+        Assert.Equal(15, report.PublicationObligations.Count);
+        Assert.Equal(Enumerable.Range(1, 15), report.PublicationObligations.Select(e => e.Number));
     }
 
     [Fact]
@@ -158,6 +160,8 @@ public class EmissionReportEmitterTests
             WrapperVerifySliceCompiledClean = true,
             CSharpVerified = true,
             AbiContractValidated = true,
+            InputGraphClosed = true,
+            RetainedDeclarationsFullyParsed = true,
         });
 
         var report = EmissionReportEmitter.BuildReport(

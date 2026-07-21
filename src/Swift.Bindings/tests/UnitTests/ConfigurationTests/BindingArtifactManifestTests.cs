@@ -581,6 +581,121 @@ public class BindingArtifactManifestTests
         Assert.Equal(InputResolutionSeverity.Info, ir.Decisions[1].Severity);
     }
 
+    private static IngestionLedgerEntry LedgerEntry(
+        string symbol,
+        IngestionStatus status,
+        IngestionDisposition disposition = IngestionDisposition.QuarantineType,
+        string? referenced = null,
+        string module = "Demo",
+        string kind = "Struct") =>
+        new(
+            Input: new IngestionInputIdentity(module, kind, symbol),
+            Parent: null,
+            Plane: IngestionPlane.Ingest,
+            Cause: IngestionCause.MalformedTypeRecord,
+            Referenced: referenced,
+            Disposition: disposition,
+            ClosureEvidence: "closure proven complete",
+            Status: status);
+
+    [Fact]
+    public void InputResolutionSection_From_ProjectsLedgerAndCountsPerStatus()
+    {
+        var section = InputResolutionSection.From(
+            System.Array.Empty<InputResolutionDecision>(),
+            new List<IngestionLedgerEntry>
+            {
+                LedgerEntry("QuarantinedPayload", IngestionStatus.Quarantined, referenced: "MissingType"),
+                LedgerEntry("makeQuarantinedPayload", IngestionStatus.Quarantined, IngestionDisposition.DegradeLeaf),
+                LedgerEntry("droppedLeaf", IngestionStatus.Dropped, IngestionDisposition.ReportOnly),
+                // Retained is a completeness record, not a loss — it is projected but counts toward none of
+                // the loss buckets.
+                LedgerEntry("boundAfterAll", IngestionStatus.Retained),
+            });
+
+        Assert.Equal(4, section.LedgerEntryCount);
+        Assert.Equal(4, section.Ledger.Count);
+        Assert.Equal(2, section.QuarantinedCount);
+        Assert.Equal(1, section.DroppedCount);
+        Assert.Equal(0, section.FatalCount);
+        // Any quarantine or drop makes the section a Warning even with no degraded decisions.
+        Assert.Equal(PhaseStatus.Warning, section.Status);
+
+        var first = section.Ledger[0];
+        Assert.Equal("Demo.Struct:QuarantinedPayload", first.Input);
+        Assert.Equal("MissingType", first.Referenced);
+        Assert.Equal(IngestionStatus.Quarantined, first.Status);
+        Assert.Equal(IngestionDisposition.QuarantineType, first.Disposition);
+        Assert.Equal("closure proven complete", first.Evidence);
+    }
+
+    [Fact]
+    public void InputResolutionSection_From_FatalLedgerEntry_EscalatesStatusToFatal()
+    {
+        // A fatal loss dominates the section status even when the decision stream is clean — a published
+        // manifest never carries one, but the projection must be total so a fatal is never silently absent.
+        var section = InputResolutionSection.From(
+            System.Array.Empty<InputResolutionDecision>(),
+            new List<IngestionLedgerEntry>
+            {
+                LedgerEntry("Unclosable", IngestionStatus.Fatal, IngestionDisposition.ReportOnlyFatal),
+            });
+
+        Assert.Equal(1, section.FatalCount);
+        Assert.Equal(PhaseStatus.Fatal, section.Status);
+    }
+
+    [Fact]
+    public void InputResolutionSection_From_NoLedger_IsEmptyProjectionNotNull()
+    {
+        var section = InputResolutionSection.From(System.Array.Empty<InputResolutionDecision>());
+        Assert.Equal(0, section.LedgerEntryCount);
+        Assert.Empty(section.Ledger);
+        Assert.Equal(0, section.QuarantinedCount);
+        Assert.Equal(PhaseStatus.Success, section.Status);
+    }
+
+    [Fact]
+    public void JsonRoundTrip_PreservesIngestionLedgerProjection()
+    {
+        var section = InputResolutionSection.From(
+            System.Array.Empty<InputResolutionDecision>(),
+            new List<IngestionLedgerEntry>
+            {
+                LedgerEntry("QuarantinedPayload", IngestionStatus.Quarantined, referenced: "MissingType"),
+            });
+        var manifest = new BindingArtifactManifest
+        {
+            Module = "Demo",
+            Generation = GenerationSection.From(NewReport()),
+            InputResolution = section,
+        };
+
+        var settings = new JsonSerializerSettings
+        {
+            Formatting = Formatting.Indented,
+            Converters = new List<JsonConverter> { new StringEnumConverter() },
+        };
+        var json = JsonConvert.SerializeObject(manifest, settings);
+        var parsed = JsonConvert.DeserializeObject<BindingArtifactManifest>(json, settings)!;
+
+        // Enum members serialize as names, not integers.
+        Assert.Contains("Quarantined", json);
+        Assert.Contains("MalformedType", json);
+
+        var ir = parsed.InputResolution!;
+        Assert.Equal(1, ir.LedgerEntryCount);
+        Assert.Equal(1, ir.QuarantinedCount);
+        var entry = Assert.Single(ir.Ledger);
+        Assert.Equal("Demo.Struct:QuarantinedPayload", entry.Input);
+        Assert.Equal(IngestionStatus.Quarantined, entry.Status);
+        Assert.Equal(IngestionDisposition.QuarantineType, entry.Disposition);
+        Assert.Equal(IngestionPlane.Ingest, entry.Plane);
+        Assert.Equal(IngestionCause.MalformedTypeRecord, entry.Cause);
+        Assert.Equal("MissingType", entry.Referenced);
+        Assert.Equal("closure proven complete", entry.Evidence);
+    }
+
     [Fact]
     public void Store_WriteThenRead_ProducesEquivalentManifest()
     {

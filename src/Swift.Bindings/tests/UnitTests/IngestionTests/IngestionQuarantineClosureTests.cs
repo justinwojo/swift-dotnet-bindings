@@ -124,6 +124,29 @@ public class IngestionQuarantineClosureTests
     }
 
     [Fact]
+    public void StoredFieldWithdrawal_LedgersReferencedNamesWithdrawnFieldType()
+    {
+        // A type withdrawn ONLY because a stored field embeds the withdrawn type must record which type
+        // it reaches on the ledger's Referenced field — the layout edge that made it indeterminate. The
+        // evidence walk previously covered superclass/conformance/enum-payload but not stored fields, so
+        // this row read an anonymous '?'; a consumer of the degraded binding could not tell which field
+        // poisoned the type.
+        var module = MakeModule();
+        var quarantined = MakeStruct("QuarantinedPayload", quarantined: true);
+        var wrapper = MakeStruct("Wrapper", storedFields: new[] { ("field", "QuarantinedPayload") });
+        AttachTypes(module, quarantined, wrapper);
+
+        InputResolutionReport.Reset();
+        var result = IngestionQuarantineClosure.Compute(module, Module, NullLogger.Instance);
+
+        Assert.True(result.ProvenComplete);
+        var entry = Assert.Single(InputResolutionReport.Ledger);
+        Assert.Contains("Wrapper", entry.Input.Symbol);
+        Assert.Equal("QuarantinedPayload", entry.Referenced);
+        Assert.NotEqual("?", entry.Referenced);
+    }
+
+    [Fact]
     public void SuperclassEdge_WithdrawsWholeDerivedClass()
     {
         var module = MakeModule();

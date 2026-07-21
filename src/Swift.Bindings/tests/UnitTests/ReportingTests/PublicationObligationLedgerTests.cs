@@ -25,17 +25,69 @@ public class PublicationObligationLedgerTests
         CSharpVerified = csharp,
         AbiContractValidated = true,
         SilentTombstoneCount = 0,
+        InputGraphClosed = true,
+        RetainedDeclarationsFullyParsed = true,
     };
 
     private static ObligationLedgerEntry Entry(PublicationObligationLedger ledger, int number) =>
         ledger.Entries.Single(e => e.Number == number);
 
     [Fact]
-    public void Build_ProducesAllThirteenObligationsInOrder()
+    public void Build_ProducesAllFifteenObligationsInOrder()
     {
         var ledger = PublicationObligationLedgerBuilder.Build(Converged());
-        Assert.Equal(Enumerable.Range(1, 13), ledger.Entries.Select(e => e.Number));
+        Assert.Equal(Enumerable.Range(1, 15), ledger.Entries.Select(e => e.Number));
         Assert.All(ledger.Entries, e => Assert.False(string.IsNullOrWhiteSpace(e.Verifier)));
+    }
+
+    [Fact]
+    public void Build_Obligation14_InputGraphClosed_ProvenByVerifier()
+    {
+        var ledger = PublicationObligationLedgerBuilder.Build(Converged() with { InputGraphClosed = true });
+        Assert.Equal(ObligationVerdict.ProvenByVerifier, Entry(ledger, 14).Verdict);
+        Assert.Contains("required edge", Entry(ledger, 14).Obligation);
+    }
+
+    [Fact]
+    public void Build_Obligation14_UnresolvedEdge_IsUnprovenAndFailsDischarge()
+    {
+        // A fatal ingestion-ledger entry (an unresolved required edge) leaves the graph open. It must
+        // surface Unproven, fail AllDischarged, and its Detail must not read as a closed graph.
+        var ledger = PublicationObligationLedgerBuilder.Build(Converged() with { InputGraphClosed = false });
+        Assert.Equal(ObligationVerdict.Unproven, Entry(ledger, 14).Verdict);
+        Assert.False(ledger.AllDischarged);
+        Assert.Contains(ledger.Unproven, e => e.Number == 14);
+        Assert.Contains("fails closed", Entry(ledger, 14).Detail);
+        Assert.DoesNotContain("every required dependency edge resolved", Entry(ledger, 14).Detail ?? "");
+    }
+
+    [Fact]
+    public void Build_Obligation15_ParseBalances_ProvenByVerifier()
+    {
+        var ledger = PublicationObligationLedgerBuilder.Build(Converged() with { RetainedDeclarationsFullyParsed = true });
+        Assert.Equal(ObligationVerdict.ProvenByVerifier, Entry(ledger, 15).Verdict);
+        Assert.Contains("no unledgered", Entry(ledger, 15).Obligation);
+    }
+
+    [Fact]
+    public void Build_Obligation15_UnbalancedParse_IsUnprovenAndFailsDischarge()
+    {
+        // An unbalanced parse reconciliation is a silent declaration swallow. It must surface Unproven,
+        // fail AllDischarged, and its Detail must not read as a balanced parse.
+        var ledger = PublicationObligationLedgerBuilder.Build(Converged() with { RetainedDeclarationsFullyParsed = false });
+        Assert.Equal(ObligationVerdict.Unproven, Entry(ledger, 15).Verdict);
+        Assert.False(ledger.AllDischarged);
+        Assert.Contains(ledger.Unproven, e => e.Number == 15);
+        Assert.Contains("silent swallow", Entry(ledger, 15).Detail);
+    }
+
+    [Fact]
+    public void Build_Obligation15_NoParseVerdict_IsNotApplicable()
+    {
+        // A pass with no reconciliation available (null) is not-applicable, never rounded up to proven.
+        var ledger = PublicationObligationLedgerBuilder.Build(Converged() with { RetainedDeclarationsFullyParsed = null });
+        Assert.Equal(ObligationVerdict.NotApplicable, Entry(ledger, 15).Verdict);
+        Assert.Contains("no parse-reconciliation verdict", Entry(ledger, 15).Detail);
     }
 
     [Theory]

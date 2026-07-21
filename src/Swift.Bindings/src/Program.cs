@@ -870,6 +870,13 @@ namespace BindingsGeneration
                         "SWIFTBIND120: module '{Module}' has an ingestion-quarantined type whose withdrawal " +
                         "closure cannot be proven complete, so it cannot be safely degraded: {Reason}",
                         moduleName, ingestionClosure.UnprovenReason);
+                    // The run fails before emission, so a node that was optimistically stamped Quarantined is,
+                    // in this failing run, a fatal loss. Rewrite those ledger entries to Fatal so the in-memory
+                    // ledger (HasQuarantines and any in-process reader) never reports a tombstoned-but-shipped
+                    // withdrawal for a binding that never shipped. This path writes no manifest — the durable
+                    // record of the failure is the SWIFTBIND120 error logged above.
+                    InputResolutionReport.EscalateQuarantinesToFatal(
+                        $"SWIFTBIND120: ingestion closure unprovable — {ingestionClosure.UnprovenReason}");
                     return false;
                 }
                 EmitterPoisonList? ingestionSeed = ingestionClosure.Withdrawals.Count > 0
@@ -1125,6 +1132,18 @@ namespace BindingsGeneration
                             // AbiContractViolationException (which fails the module closed before here).
                             AbiContractValidated = true,
                             SilentTombstoneCount = emissionContext.SilentTombstones.Count,
+                            // Obligation 14: the input graph is closed when the ingestion ledger carries no
+                            // fatal loss. A fatal (an unresolvable required edge) fails the module before
+                            // this point, so a published binding always observes true; recording it keeps
+                            // the obligation an evidence-backed verdict rather than an assumed constant.
+                            InputGraphClosed = !InputResolutionReport.Ledger.Any(
+                                e => e.Status == IngestionStatus.Fatal),
+                            // Obligation 15: every retained declaration was parsed completely when the
+                            // node-level parse balance holds (Parsed == Emitted + SkippedWithReason +
+                            // DroppedWithError) — i.e. no declaration vanished between counting and
+                            // dispositioning. The SWIFTBIND121 gate below fails the module closed when this
+                            // is false, so a published binding always observes true.
+                            RetainedDeclarationsFullyParsed = parseReconciliation.IsBalanced,
                         });
                 }
 
@@ -1155,8 +1174,12 @@ namespace BindingsGeneration
                         // Finding 50: the input-resolution decisions accumulated during
                         // XCFrameworkResolver.Resolve (slice/arch/artifact selection) and
                         // dependency parsing on this same call chain, captured before the
-                        // ambient collector is reset for the next generation.
-                        InputResolution = InputResolutionSection.From(InputResolutionReport.Decisions),
+                        // ambient collector is reset for the next generation. The structured ingestion
+                        // ledger rides alongside so a consumer of a degraded binding can read exactly which
+                        // declarations were withdrawn/dropped and why (name/USR/disposition/status/evidence),
+                        // not merely the aggregate decision counts.
+                        InputResolution = InputResolutionSection.From(
+                            InputResolutionReport.Decisions, InputResolutionReport.Ledger),
                     };
                     BindingArtifactManifestStore.Write(manifest, outputDirectory, logger);
 
@@ -1213,6 +1236,28 @@ namespace BindingsGeneration
                     : WrapperSymbolIntegrityGate.HasViolations(outputDirectory, logger);
                 if (wrapperSymbolViolations)
                 {
+                    ReportCollector.Reset();
+                    return false;
+                }
+
+                // Fail-closed parse-completeness net (obligation 15): the node-level parse balance
+                // (Parsed == Emitted + SkippedWithReason + DroppedWithError) must hold. It is an invariant
+                // the parser upholds today — every recognized declaration is counted into exactly one bucket
+                // — so this gate is zero-regression on healthy input. Its purpose is to catch a FUTURE
+                // regression where a declaration is silently lost between counting and dispositioning: an
+                // unbalanced ledger means the binding retained fewer declarations than it ingested with no
+                // recorded reason, exactly the silent-loss soundness failure the ingestion program exists to
+                // end. Runs after the report/manifest are written (so the honest artifact survives) and
+                // fails the module closed rather than shipping a silently-narrowed surface.
+                if (!parseReconciliation.IsBalanced)
+                {
+                    logger.LogError(
+                        "SWIFTBIND121: module '{Module}' parse ledger is unbalanced — parsed {Parsed} " +
+                        "declarations but accounted for {Emitted} emitted + {Skipped} skipped-with-reason + " +
+                        "{Dropped} dropped-with-error. A declaration was lost with no recorded disposition; " +
+                        "failing closed rather than shipping a silently-narrowed binding.",
+                        moduleName, parseReconciliation.Parsed, parseReconciliation.Emitted,
+                        parseReconciliation.SkippedWithReason, parseReconciliation.DroppedWithError);
                     ReportCollector.Reset();
                     return false;
                 }
