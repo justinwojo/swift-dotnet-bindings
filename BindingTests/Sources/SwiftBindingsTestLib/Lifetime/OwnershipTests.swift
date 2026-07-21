@@ -14,6 +14,25 @@ private var _deallocationCounter: Int32 = 0
 /// Thread-safe access to allocation counter.
 private let counterLock = NSLock()
 
+/// Per-allocation identity for tracked objects that opt into the registry (currently
+/// `TrackedRef`), so a leak probe that never balances can NAME the survivors instead of
+/// reporting only a count. Keyed by a monotonic serial; an entry is inserted at allocation
+/// and removed at deallocation, so whatever remains after a drain is exactly what leaked.
+/// The info is a pure value (no reference to the tracked object) — the registry must never
+/// retain a tracked object, or it would itself prevent the deinit it exists to observe.
+/// Guarded by the same `counterLock` as the counters, so the registry and the counts can
+/// never disagree. Only registry-aware callers populate this; the plain counter-only
+/// `recordTrackedAllocation()` / `recordTrackedDeallocation()` overloads leave it empty.
+private struct TrackedLiveInfo {
+    let serial: Int64
+    let category: String
+    let tag: Int32
+    let allocOrder: Int32
+}
+
+private var _liveTracked: [Int64: TrackedLiveInfo] = [:]
+private var _nextTrackedSerial: Int64 = 0
+
 /// Resets the allocation counters for testing.
 @_cdecl("SwiftBindingsTestLib_ResetAllocationCounters")
 public func resetAllocationCounters() {
@@ -21,6 +40,8 @@ public func resetAllocationCounters() {
     defer { counterLock.unlock() }
     _allocationCounter = 0
     _deallocationCounter = 0
+    _liveTracked.removeAll(keepingCapacity: true)
+    _nextTrackedSerial = 0
 }
 
 /// Gets the current allocation count.
@@ -61,6 +82,68 @@ func recordTrackedDeallocation() {
     counterLock.lock()
     _deallocationCounter += 1
     counterLock.unlock()
+}
+
+/// Registry-aware allocation record: bumps the same counters AND registers per-allocation
+/// identity, returning the serial the caller must hand back at deallocation. Used by
+/// `TrackedRef` so a leak survivor can be named. `category`/`tag`/`allocOrder` are all the
+/// registry keeps — never a reference to the object — so registration cannot pin it alive.
+func recordTrackedAllocation(category: String, tag: Int32) -> Int64 {
+    counterLock.lock()
+    defer { counterLock.unlock() }
+    _allocationCounter += 1
+    _nextTrackedSerial += 1
+    let serial = _nextTrackedSerial
+    _liveTracked[serial] = TrackedLiveInfo(
+        serial: serial, category: category, tag: tag, allocOrder: _allocationCounter)
+    return serial
+}
+
+/// Registry-aware deallocation record: bumps the same counters AND drops the live entry the
+/// matching `recordTrackedAllocation(category:tag:)` registered.
+func recordTrackedDeallocation(serial: Int64) {
+    counterLock.lock()
+    defer { counterLock.unlock() }
+    _deallocationCounter += 1
+    _liveTracked.removeValue(forKey: serial)
+}
+
+/// Describes the tracked objects still live, for a leak probe that never balanced. Returns a
+/// `strdup`'d C string the caller must free with `SwiftBindingsTestLib_FreeString`. When the
+/// registry is empty the live count is still reported so the caller can distinguish "leaked
+/// in an un-instrumented category" (live > 0, no survivors listed) from "balanced" (live 0).
+@_cdecl("SwiftBindingsTestLib_DumpLiveTrackedObjects")
+public func dumpLiveTrackedObjects() -> UnsafeMutablePointer<CChar>? {
+    counterLock.lock()
+    let survivors = _liveTracked.values.sorted { $0.allocOrder < $1.allocOrder }
+    let live = _allocationCounter - _deallocationCounter
+    counterLock.unlock()
+
+    if survivors.isEmpty {
+        return strdup(
+            "live=\(live); no registry-tracked survivors "
+                + "(any leak is in a category that does not register per-object identity)")
+    }
+
+    // Cap the listing so a large leak can't build an unbounded string.
+    let cap = 32
+    let listed = survivors.prefix(cap).map {
+        "{serial=\($0.serial) category=\($0.category) tag=\($0.tag) allocOrder=\($0.allocOrder)}"
+    }
+    var summary = "live=\(live); registry-tracked survivors=\(survivors.count): "
+        + listed.joined(separator: ", ")
+    if survivors.count > cap {
+        summary += ", …(+\(survivors.count - cap) more)"
+    }
+    return strdup(summary)
+}
+
+/// Frees a C string returned by `SwiftBindingsTestLib_DumpLiveTrackedObjects`.
+@_cdecl("SwiftBindingsTestLib_FreeString")
+public func freeTrackedString(_ ptr: UnsafeMutablePointer<CChar>?) {
+    if let ptr = ptr {
+        free(ptr)
+    }
 }
 
 // MARK: - Tracked Classes

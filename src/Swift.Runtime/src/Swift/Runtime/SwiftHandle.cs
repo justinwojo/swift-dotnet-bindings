@@ -280,6 +280,7 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
         catch
         {
             // Swallow exceptions - ReleaseHandle must not throw per SafeHandle contract.
+            ReleasePathDiagnostics.OnDisposeReleaseCatch();
         }
 
         // Free the .NET-allocated buffer
@@ -304,12 +305,20 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
             // The Cdecl trampoline is a [DllImport] resolved by the runtime loader —
             // no JIT compilation, no generic resolution, safe from the finalizer thread.
             if (_metadataHandle != IntPtr.Zero)
+            {
                 VwtDestroyTrampoline.Destroy(handle, _metadataHandle);
+                ReleasePathDiagnostics.OnFinalizerVwtDestroyInvoked();
+            }
+            else
+            {
+                ReleasePathDiagnostics.OnFinalizerMetadataZeroSkip();
+            }
         }
         catch
         {
             // Swallow exceptions - ReleaseHandle must not throw per SafeHandle contract.
             // DllNotFoundException if the SwiftBindingsRuntime native framework is not loaded (e.g., unit tests).
+            ReleasePathDiagnostics.OnFinalizerReleaseCatch();
         }
 
         // Free the .NET-allocated buffer
@@ -333,6 +342,11 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
         if (metadata.IsValid)
         {
             metadata.ValueWitnessTable->Destroy((void*)handle, metadata);
+            ReleasePathDiagnostics.OnDisposeVwtDestroyInvoked();
+        }
+        else
+        {
+            ReleasePathDiagnostics.OnDisposeMetadataInvalidSkip();
         }
     }
 }

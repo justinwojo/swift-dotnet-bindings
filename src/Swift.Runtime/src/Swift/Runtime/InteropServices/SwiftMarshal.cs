@@ -241,6 +241,7 @@ public static class SwiftMarshal
             // Metadata unavailable — generator-emitted ISwiftObject types always
             // resolve metadata in production, but unit-test mock types may not.
             // Skip the destroy; the caller still frees the carrier.
+            ReleasePathDiagnostics.OnWireDestroyMetadataUnavailable();
             return;
         }
         DestroyWireBufferRetains(buffer, metadata);
@@ -264,8 +265,13 @@ public static class SwiftMarshal
         if (buffer == IntPtr.Zero)
             return;
         if (!metadata.IsValid)
+        {
+            ReleasePathDiagnostics.OnWireDestroySkippedInvalid();
             return;
+        }
+        ReleasePathDiagnostics.OnWireDestroyEntered();
         metadata.ValueWitnessTable->Destroy((void*)buffer, metadata);
+        ReleasePathDiagnostics.OnWireDestroyCompleted();
     }
 
     /// <summary>
@@ -311,8 +317,13 @@ public static class SwiftMarshal
         if (buffer == IntPtr.Zero)
             return;
         if (!metadata.IsValid)
+        {
+            ReleasePathDiagnostics.OnWireDestroySkippedInvalid();
             return;
+        }
+        ReleasePathDiagnostics.OnWireDestroyEntered();
         VwtDestroyTrampoline.Destroy(buffer, metadata.Handle);
+        ReleasePathDiagnostics.OnWireDestroyCompleted();
     }
 
     /// <summary>

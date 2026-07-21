@@ -209,13 +209,18 @@ public func passThroughGenericValue<T>(a: T) -> T {
 public final class TrackedRef: Hashable {
     public let tag: Int32
 
-    public init(tag: Int32) {
+    /// Serial from the registry-aware allocation record, handed back at deinit so the live
+    /// entry is dropped. Stored on the class (a heap ref) — the embedding structs hold only a
+    /// pointer to this instance, so the extra field does not change any struct's wire layout.
+    private let trackedSerial: Int64
+
+    public init(tag: Int32, category: String = "TrackedRef") {
         self.tag = tag
-        recordTrackedAllocation()
+        self.trackedSerial = recordTrackedAllocation(category: category, tag: tag)
     }
 
     deinit {
-        recordTrackedDeallocation()
+        recordTrackedDeallocation(serial: trackedSerial)
     }
 
     // Identity-based Hashable so the type can be an element of a Swift Set
@@ -238,7 +243,7 @@ public struct TrackedRefStruct {
     public var value: Int32
 
     public init(value: Int32) {
-        self.ref = TrackedRef(tag: value)
+        self.ref = TrackedRef(tag: value, category: "NonFrozenStructWithRef")
         self.value = value
     }
 }
@@ -252,7 +257,7 @@ public struct FrozenTrackedRefStruct {
     public var value: Int32
 
     public init(value: Int32) {
-        self.ref = TrackedRef(tag: value)
+        self.ref = TrackedRef(tag: value, category: "FrozenStructWithRef")
         self.value = value
     }
 }
@@ -295,11 +300,11 @@ public struct LargeFrozenTrackedRefStruct {
     public var e: TrackedRef
 
     public init(value: Int32) {
-        self.a = TrackedRef(tag: value)
-        self.b = TrackedRef(tag: value)
-        self.c = TrackedRef(tag: value)
-        self.d = TrackedRef(tag: value)
-        self.e = TrackedRef(tag: value)
+        self.a = TrackedRef(tag: value, category: "LargeFrozenStructWithRef")
+        self.b = TrackedRef(tag: value, category: "LargeFrozenStructWithRef")
+        self.c = TrackedRef(tag: value, category: "LargeFrozenStructWithRef")
+        self.d = TrackedRef(tag: value, category: "LargeFrozenStructWithRef")
+        self.e = TrackedRef(tag: value, category: "LargeFrozenStructWithRef")
     }
 }
 
