@@ -85,6 +85,7 @@ public class PatParentAsyncVoidMethodsTests : TestBase
         AssertEqual("ok", sink.Last, "DonateOrThrowAsync(\"ok\") — success path round-trips the name");
     }
 
+    [SkipOnMonoJit("Mono arm64 JIT exception-unwinder crash (SIGSEGV in mono_arch_unwind_frame; assertion 'should not be reached' at mini-exceptions.c:488) when a managed exception is rethrown by TaskAwaiter.GetResult out of a faulted non-generic (void) Task on the main-thread NSAsyncSynchronizationContext continuation, under full-suite JIT load. Void-throwing-error variant of the same upstream unwinder family as the OCE case on PatParentAsyncMethodsTests; zero Swift/binding/P-Invoke frame on the faulting stack (the CallConvCdecl error callback already returned and the Task is faulted before the crash). Layout/load heisenbug: passes in isolation, did not recur in a 12-run soak. Mono-only (Simulator); macOS CoreCLR + device NativeAOT keep running it.")]
     public async Task TestStringDonator_DonateOrThrowAsync_VoidThrowingErrorPath()
     {
         // Throwing async void, error path. `name == "fail"` drives the catch arm

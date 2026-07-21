@@ -1,5 +1,5 @@
 {
-  "git_sha": "22dac441",
+  "git_sha": "2a99d0cd",
   "platforms": {
     "simulator": {
       "pass_count": 3242,
@@ -157,6 +157,11 @@
         {
           "class": "PatParentAsyncMethodsTests",
           "method": "TestAsyncBagMockStringItem_CancelRespondAsyncSurfacesCancellation",
+          "reason": ""
+        },
+        {
+          "class": "PatParentAsyncVoidMethodsTests",
+          "method": "TestStringDonator_DonateOrThrowAsync_VoidThrowingErrorPath",
           "reason": ""
         },
         {

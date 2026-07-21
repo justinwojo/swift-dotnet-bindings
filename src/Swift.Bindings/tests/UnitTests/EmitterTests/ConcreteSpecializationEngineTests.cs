@@ -1185,6 +1185,87 @@ public class ConcreteSpecializationEngineTests
     }
 
     [Fact]
+    public void EmitConcreteSpecializations_ParentOnlyAsyncMethod_PreCancelledTokenShortCircuitsWithoutLaunch()
+    {
+        // Pre-cancel short-circuit: launching the Swift producer on an ALREADY-cancelled token
+        // spins up the reverse-P/Invoke completion callback on a foreign Swift-concurrency executor
+        // thread whose managed transition races the main-thread OperationCanceledException unwind —
+        // the Mono arm64 JIT unwinder then walks a mis-tagged LMF and SIGSEGVs (the deterministic
+        // sim crash this fix closes). The parent-only async CSM specialization was the sole async
+        // emitter that did NOT short-circuit here; the live emitters (WrapperEmitter.Async,
+        // AsyncMethodGenericBridgeEmitter, CrossModuleExtensionEmitter) all do. This asserts the
+        // guard is emitted, returns Task.FromCanceled<Int64> for the value shape, and sits BEFORE
+        // any TCS/GCHandle allocation so the no-launch path has nothing to clean up.
+        var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.Int"), "System", "Int64");
+
+        var engine = new ConcreteSpecializationEngine(db);
+
+        var typeDecl = CreateGenericStructWithParentOnlyAsyncMethod(
+            "Producer", "produce", "SwiftBindingsTestLib.AsyncBagItem", "Swift.Int");
+
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializationsForGenericParent(
+            csWriter, swiftWriter, typeDecl, db, new ModuleEmissionContext(), engine, NullLogger.Instance);
+
+        var cs = csOutput.ToString();
+
+        // The pre-cancel guard is present and returns a GENERIC cancelled task whose type argument
+        // is EXACTLY the same T the TaskCompletionSource<T> uses — a plain generic-open assertion
+        // (`FromCanceled<`) would pass even if the emitter cancelled to the wrong type, so pin the
+        // invariant that Task.FromCanceled<T>, Task<T>, and TaskCompletionSource<T> agree on T.
+        Assert.Contains("if (cancellationToken.IsCancellationRequested)", cs);
+        var tcsGeneric = System.Text.RegularExpressions.Regex.Match(
+            cs, @"new global::System\.Threading\.Tasks\.TaskCompletionSource<(?<t>.+?)>\(");
+        Assert.True(tcsGeneric.Success, "expected a generic TaskCompletionSource<T> allocation in the value-shape output");
+        var t = tcsGeneric.Groups["t"].Value;
+        Assert.Contains(
+            $"return global::System.Threading.Tasks.Task.FromCanceled<{t}>(cancellationToken);", cs);
+
+        // Ordering invariant: the short-circuit must precede the first TCS allocation, otherwise it
+        // would have allocated (and would need to free) the resources the no-launch path skips.
+        var guardIndex = cs.IndexOf("if (cancellationToken.IsCancellationRequested)", System.StringComparison.Ordinal);
+        var tcsIndex = cs.IndexOf("new global::System.Threading.Tasks.TaskCompletionSource<", System.StringComparison.Ordinal);
+        Assert.True(guardIndex >= 0 && tcsIndex >= 0, "expected both the pre-cancel guard and a TCS allocation in the output");
+        Assert.True(guardIndex < tcsIndex, "pre-cancel guard must be emitted before the TaskCompletionSource allocation");
+    }
+
+    [Fact]
+    public void EmitConcreteSpecializations_ParentOnlyAsyncVoidMethod_PreCancelledTokenShortCircuitsWithNonGenericFromCanceled()
+    {
+        // Void-return sibling of the pre-cancel short-circuit (the DonateAfterDelayAsync/void shape
+        // where the deterministic crash was observed). A void parent-only async method must emit the
+        // guard with a NON-generic Task.FromCanceled(...) — the value shape uses Task.FromCanceled<T>.
+        var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
+
+        var engine = new ConcreteSpecializationEngine(db);
+
+        var voidMethod = CreateParentOnlyAsyncVoidMethodDecl(
+            "Donator", "donate", throws: false, withStringParam: false);
+        var typeDecl = CreateGenericStructWithParentOnlyAsyncVoidMethods(
+            "Donator", "SwiftBindingsTestLib.AsyncBagItem", voidMethod);
+
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializationsForGenericParent(
+            csWriter, swiftWriter, typeDecl, db, new ModuleEmissionContext(), engine, NullLogger.Instance);
+
+        var cs = csOutput.ToString();
+
+        Assert.Contains("if (cancellationToken.IsCancellationRequested)", cs);
+        Assert.Contains("return global::System.Threading.Tasks.Task.FromCanceled(cancellationToken);", cs);
+        // Void must NOT emit the generic overload.
+        Assert.DoesNotContain("Task.FromCanceled<", cs);
+    }
+
+    [Fact]
     public void EmitConcreteSpecializations_ParentOnlyAsyncVoidMethod_NonGenericTaskAndContextOnlyCompletion()
     {
         // Void-return parent-only async (`func donate() async` on a generic struct parent —

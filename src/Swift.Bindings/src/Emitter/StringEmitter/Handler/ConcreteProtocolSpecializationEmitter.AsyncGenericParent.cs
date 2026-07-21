@@ -1087,6 +1087,22 @@ public static partial class ConcreteProtocolSpecializationEmitter
         AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(
             csWriter, mergedAvailability,
             $"{parentCsName}.{method.Name}");
+        // Pre-cancel short-circuit: if the token is ALREADY cancelled, return a cancelled Task
+        // WITHOUT launching the Swift producer. Launching on a pre-cancelled token spins up the
+        // reverse-P/Invoke completion callback on a foreign (unattached) Swift-concurrency executor
+        // thread whose managed transition races the main-thread OperationCanceledException unwind —
+        // the Mono arm64 JIT unwinder then walks a mis-tagged LMF and SIGSEGVs. Every other async
+        // emitter (WrapperEmitter.Async, AsyncMethodGenericBridgeEmitter, CrossModuleExtensionEmitter)
+        // already short-circuits here; this parent-only specialization was the sole omission. Placed
+        // before any allocation (TCS, result buffer, cancel key, GCHandle) so there is nothing to
+        // clean up — the exact no-launch shape proven crash-free.
+        var fromCanceledParam = isVoid ? "" : $"<{returnCsType}>";
+        csWriter.WriteLines($$"""
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return global::System.Threading.Tasks.Task.FromCanceled{{fromCanceledParam}}(cancellationToken);
+            }
+            """);
         // Finding 39: RunContinuationsAsynchronously so the continuation does not run inline on
         // Swift's executor (the textbook reverse-deadlock setup); matches every other async TCS site.
         csWriter.WriteLine(
