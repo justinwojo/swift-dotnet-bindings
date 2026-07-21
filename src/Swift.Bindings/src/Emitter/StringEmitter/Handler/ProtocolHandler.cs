@@ -712,6 +712,14 @@ namespace BindingsGeneration
                 // RecordTypeEmitted was already called for the interface — the proxy is a
                 // sub-artifact of the type.
                 case ProxyEmissionDecision.SkippedUnsupportedModule:
+                    // Record the suppression so a retained consumer that projects `any P` downgrades its
+                    // reference instead of emitting a dangling `new {P}Proxy(…)`. The SwiftUI/Combine case
+                    // usually has no such consumer, but the ingestion-quarantine case (SWIFTBIND046
+                    // withdraws the protocol's methods yet keeps the protocol + a `consume(base: any P)`)
+                    // does — the SwiftRichString StyleProtocol CS0246. `?.` because this arm can be reached
+                    // with a null EmissionContext (unlike SuppressedByConformance, which requires ctx);
+                    // the precompute pass records the same name up front on the real emission path.
+                    context.EmissionContext?.RecordSuppressedProxy(ProtocolProxyEmissionPolicy.ProxyClassName(protocolDecl));
                     ReportCollector.RecordMemberSkipped(BindingItemKind.Type, ProtocolProxyEmissionPolicy.ProxyClassName(protocolDecl),
                         protocolDecl, SkipReason.SwiftUIConstraint,
                         "Protocol proxy skipped: required members reference unsupported module types.");

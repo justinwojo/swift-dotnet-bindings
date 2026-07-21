@@ -22,9 +22,17 @@ internal enum ProxyEmissionDecision
     SuppressedByConformance,
 
     /// <summary>
-    /// Proxy skipped because a required member references an unsupported module (SwiftUI/Combine);
-    /// the EveryProtocol conformance is also skipped, so emitting the proxy would call non-existent
-    /// Swift symbols. NOT recorded as a suppressed proxy (its references are handled elsewhere).
+    /// Proxy skipped because a required member references an unsupported module — a genuinely
+    /// unsupported SwiftUI/Combine type, OR a type withheld from the database by ingestion quarantine
+    /// (SWIFTBIND046, e.g. a mangled-name-less <c>Foundation._NSRange</c>). The EveryProtocol
+    /// conformance is also skipped, so emitting the proxy would call non-existent Swift symbols.
+    /// This IS recorded as a suppressed proxy: the SwiftUI/Combine case usually leaves no retained
+    /// consumer (the offending member is itself skipped), but the quarantine case withdraws the
+    /// protocol's methods while KEEPING the protocol, its interface, and any retained
+    /// <c>consume(base: any P)</c> consumer — whose existential projection would otherwise construct a
+    /// dangling <c>new {P}Proxy(…)</c>. Recording it lets the proven consumer-downgrade machinery
+    /// (CONSUME drops the wrap fallback; PRODUCE stubs) fire exactly as it does for
+    /// <see cref="SuppressedByConformance"/>.
     /// </summary>
     SkippedUnsupportedModule,
 }
@@ -99,7 +107,12 @@ internal static class SuppressedProxyPrecomputer
     {
         foreach (var protocolDecl in moduleDecl.Protocols)
         {
-            if (ProtocolProxyEmissionPolicy.Decide(protocolDecl, typeDatabase, emissionContext) == ProxyEmissionDecision.SuppressedByConformance)
+            // Record EVERY non-Emit decision. Both suppression arms leave the `{Protocol}Proxy` class
+            // unemitted, so any retained consumer that projects `any P` must have its reference
+            // downgraded — the completeness invariant. Recording only SuppressedByConformance let a
+            // quarantine-suppressed (SkippedUnsupportedModule) proxy's retained consumer ship a dangling
+            // `new {P}Proxy(…)` (the SwiftRichString StyleProtocol CS0246).
+            if (ProtocolProxyEmissionPolicy.Decide(protocolDecl, typeDatabase, emissionContext) != ProxyEmissionDecision.Emit)
                 emissionContext.RecordSuppressedProxy(ProtocolProxyEmissionPolicy.ProxyClassName(protocolDecl));
         }
     }

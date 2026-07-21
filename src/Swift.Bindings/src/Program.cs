@@ -1240,6 +1240,21 @@ namespace BindingsGeneration
                     return false;
                 }
 
+                // Fail-closed proxy-reference integrity net: reconcile every bare `new {X}Proxy(…)`
+                // construction against the `class {X}Proxy` definitions this generation emitted. A
+                // dangling construction (a suppressed proxy whose retained existential consumer was not
+                // downgraded) fails the binding compile with CS0246 — the SwiftRichString
+                // StyleProtocolProxy regression. Unlike the emitted-C# verify-recover loop this runs on
+                // EVERY path including the single render (the corpus-soak path that has no C# compile
+                // leg and let the regression ship), so an incomplete suppression closure fails the module
+                // closed here rather than surfacing downstream.
+                if (ProxyReferenceIntegrityGate.HasViolations(
+                        outputDirectory, emissionContext.SuppressedProxyClassNames, logger))
+                {
+                    ReportCollector.Reset();
+                    return false;
+                }
+
                 // Fail-closed parse-completeness net (obligation 15): the node-level parse balance
                 // (Parsed == Emitted + SkippedWithReason + DroppedWithError) must hold. It is an invariant
                 // the parser upholds today — every recognized declaration is counted into exactly one bucket
