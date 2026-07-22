@@ -4,7 +4,7 @@ This is the standing contract the generator upholds at its **input edge**: the g
 malformed, incomplete, or partially-unreadable input either produces a sound binding that honestly
 records what it dropped, or fails closed with an auditable reason — never a binding that compiles
 clean and is wrong at runtime, and never a silent loss of surface. It is the input-side complement
-to `binding-resilience-design.md` (which governs the emission edge: regenerate-from-plan with a
+to `Design/binding-resilience-design.md` (which governs the emission edge: regenerate-from-plan with a
 disabled-unit set). Where that doc's recovery primitive keeps *emission* sound, this contract keeps
 *ingestion* sound: every input node that is lost, deformed, or withdrawn becomes a structured ledger
 entry, and no whole-binding decision rests on a prediction the compilers could have verified.

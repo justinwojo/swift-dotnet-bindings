@@ -232,8 +232,8 @@ public class ClosureHandler
     /// - Escaping closures with concrete types
     /// - Async closures - mapped to Func&lt;..., Task&gt; or Func&lt;..., Task&lt;T&gt;&gt;
     /// - Throwing closures - mapped to Func&lt;..., SwiftResult&lt;T, SwiftError&gt;&gt;
-    /// - Async+throwing closures - mapped to Func&lt;..., Task&lt;SwiftResult&lt;T, SwiftError&gt;&gt;&gt;
-    ///   via Swift continuation wrapper pattern
+    /// - Async+throwing closures - mapped to Func&lt;..., Task&gt; or Func&lt;..., Task&lt;T&gt;&gt;;
+    ///   errors surface through the Swift continuation's error callback, not a SwiftResult
     /// All must have concrete (non-generic) argument/return types.
     /// Return types must be primitive/blittable (complex return type marshalling not yet implemented).
     /// </summary>
@@ -841,7 +841,8 @@ public class ClosureHandler
     /// Translates a Swift closure type to a C# delegate type string for wrapper methods.
     /// Async closures are mapped to Func&lt;..., Task&gt; or Func&lt;..., Task&lt;T&gt;&gt;.
     /// Throwing closures are mapped to Func&lt;..., SwiftResult&lt;T, SwiftError&gt;&gt;.
-    /// Async+throwing closures are mapped to Func&lt;..., Task&lt;SwiftResult&lt;T, SwiftError&gt;&gt;&gt;.
+    /// Async+throwing closures are mapped to Func&lt;..., Task&gt; or Func&lt;..., Task&lt;T&gt;&gt;
+    /// (errors surface through the Swift continuation's error callback, not a SwiftResult).
     /// </summary>
     /// <param name="closureTypeSpec">The closure type specification.</param>
     /// <returns>The C# delegate type name (Action&lt;&gt; or Func&lt;&gt;).</returns>

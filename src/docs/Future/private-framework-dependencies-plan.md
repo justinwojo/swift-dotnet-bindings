@@ -1,6 +1,6 @@
 # Private framework dependencies — SDK feature plan (DEFERRED)
 
-> **Status: deferred 2026-05-02.** Stripe ships through the simpler standalone-NuGet route instead. See `swift-dotnet-packages/PRIVATE-FRAMEWORK-DEPENDENCIES.md` for the postponement note. Revisit this doc when we have 2–3 real vendor cases (Firebase, Facebook SDK, etc.) — designing the SDK feature against one Stripe-shaped hypothetical risks the wrong abstraction.
+> **Status: deferred 2026-05-02.** Stripe ships through the simpler standalone-NuGet route instead. See `swift-dotnet-packages/PRIVATE-FRAMEWORK-DEPENDENCIES.md` (not on main; recover via git history/worktrees) for the postponement note. Revisit this doc when we have 2–3 real vendor cases (Firebase, Facebook SDK, etc.) — designing the SDK feature against one Stripe-shaped hypothetical risks the wrong abstraction.
 
 ## Why this is deferred (not abandoned)
 
@@ -27,9 +27,9 @@ Let multi-product Swift libraries declare a build/runtime framework dependency o
 
 Codex's round-1 review surfaced this as the lower-risk shape, and round-2 reaffirmed it. Why metadata over a new item type:
 
-- Existing dedup against `@(SwiftFrameworkDependency)` in `_DiscoverProjectReferenceDependencies` (Sdk.targets:155) and `_ResolveSwiftAutoDetectedDependencies` (Sdk.targets:966) already sees the entry, so auto-detection won't re-warn about a dep we declared explicitly. A separate item type would have required parallel changes at both sites and any future site that joins them.
-- Build-time framework search path, fingerprint identity (Sdk.targets:342), and local NativeReference resolution (Sdk.targets:1485-1524) all already iterate `@(SwiftFrameworkDependency)` — no parallel-iteration code needed.
-- Pack-time validation `_ValidateSwiftDependencyMetadata` (Sdk.targets:1608-1621) just adds a `BundleInPackage != 'true'` clause to its existing condition.
+- Existing dedup against `@(SwiftFrameworkDependency)` in `_DiscoverProjectReferenceDependencies` and `_ResolveSwiftAutoDetectedDependencies` in `Sdk.targets` already sees the entry, so auto-detection won't re-warn about a dep we declared explicitly. A separate item type would have required parallel changes at both sites and any future site that joins them.
+- Build-time framework search path, fingerprint identity, and local NativeReference resolution in `Sdk.targets` all already iterate `@(SwiftFrameworkDependency)` — no parallel-iteration code needed.
+- Pack-time validation `_ValidateSwiftDependencyMetadata` in `Sdk.targets` just adds a `BundleInPackage != 'true'` clause to its existing condition.
 - Rewriter changes in `swift-dotnet-packages` shrink to "set one attribute" instead of "switch element name."
 
 Naming: `BundleInPackage="true"` reads as the SDK behavior (vs. `Visibility="Private"` which collides with `PrivateAssets` semantics on `PackageReference`).
@@ -40,13 +40,13 @@ Concentrated changes — fewer integration points than the original new-item-typ
 
 ### SDK changes (`swift-bindings`)
 
-1. **`_ValidateSwiftDependencyMetadata` (Sdk.targets:1608-1621)** — skip `PackageId`/`PackageVersion` requirement when `%(BundleInPackage)' == 'true'`. SWIFTBIND040 message updates to mention the `BundleInPackage` opt-out.
-2. **`_ConfigureSwiftBindingPack` (Sdk.targets:1806-1889)** — add a `TfmSpecificPackageFile` entry that packs the entire xcframework directory into `runtimes/<rid>/native/<name>.xcframework/` for each SFD with `BundleInPackage=true`. Verify per-item `%(...)/**` glob expansion actually pack-walks every entry; fall back to materializing into an intermediate item if it misbehaves. Add a pre-pack existence guard (new SWIFTBIND042).
-3. **Slicer (Sdk.targets:1790-1801)** — extend `_SliceSourceXcframework` (or add a parallel `_SlicePrivateXcframework`) so bundled xcframeworks ship per-RID, parity with source xcframeworks. Round-1 review flagged unsliced shipping as avoidable bloat.
+1. **`_ValidateSwiftDependencyMetadata` in `Sdk.targets`** — skip `PackageId`/`PackageVersion` requirement when `%(BundleInPackage)' == 'true'`. SWIFTBIND040 message updates to mention the `BundleInPackage` opt-out.
+2. **`_ConfigureSwiftBindingPack` in `Sdk.targets`** — add a `TfmSpecificPackageFile` entry that packs the entire xcframework directory into `runtimes/<rid>/native/<name>.xcframework/` for each SFD with `BundleInPackage=true`. Verify per-item `%(...)/**` glob expansion actually pack-walks every entry; fall back to materializing into an intermediate item if it misbehaves. Add a pre-pack existence guard (a new SWIFTBINDxxx — next free id).
+3. **Slicer in `Sdk.targets`** — extend `_SliceSourceXcframework` (or add a parallel `_SlicePrivateXcframework`) so bundled xcframeworks ship per-RID, parity with source xcframeworks. Round-1 review flagged unsliced shipping as avoidable bloat.
 4. **`ConsumerTargetsEmitter.cs`** — emit a `NativeReference` for each bundled private xcframework so consumers auto-link when they restore the pkg. Today's emitter handles source/wrapper/bridge; add private-bundled to the same path. Per-RID path matches whatever slicer ships.
-5. **Generator metadata flow** — pass the bundle flag through to the generator so `binding-metadata.props` (via `EmitMetadataProps` in `BindingsGeneratorCommand.cs:958` / `XCFrameworkMetadataExtractor.cs:286`) and `ConsumerTargetsEmitter` know which deps are bundled. Single CLI flag (e.g. `--bundled-framework-dependency` or `--framework-dependency` with a key:value form), not two parallel flags.
-6. **`GetSwiftFrameworkSearchPaths` (Sdk.targets:1234)** — return bundled deps too so multi-hop ProjectReference graphs (C → B → A where A is bundled in B) get A on `-F` during C's wrapper compile.
-7. **Diagnostics** — sharpen SWIFTBIND040 message; tighten the duplicate-declaration check (SWIFTBIND043) to compare normalized absolute paths, not filenames; update existing `SwiftFrameworkDependency`-mention strings in `Program.cs:1551` and `SwiftWrapperCompiler.cs:1369` to mention the new attribute.
+5. **Generator metadata flow** — pass the bundle flag through to the generator so `binding-metadata.props` (via `EmitMetadataProps` in `BindingsGeneratorCommand` / `XCFrameworkMetadataExtractor`) and `ConsumerTargetsEmitter` know which deps are bundled. Single CLI flag (e.g. `--bundled-framework-dependency` or `--framework-dependency` with a key:value form), not two parallel flags.
+6. **`GetSwiftFrameworkSearchPaths` in `Sdk.targets`** — return bundled deps too so multi-hop ProjectReference graphs (C → B → A where A is bundled in B) get A on `-F` during C's wrapper compile.
+7. **Diagnostics** — sharpen SWIFTBIND040 message; tighten the duplicate-declaration check (a new diagnostic id) to compare normalized absolute paths, not filenames; update existing `SwiftFrameworkDependency`-mention strings in `Program.cs` and `SwiftWrapperCompiler.cs` to mention the new attribute.
 
 ### Rewriter changes (`swift-dotnet-packages`)
 
@@ -55,7 +55,7 @@ Concentrated changes — fewer integration points than the original new-item-typ
 
 ### Tests
 
-Multi-product fixture: project A (`IsPackable=false`, builds an xcframework, no NuGet metadata), project B (`IsPackable=true`, declares `<SwiftFrameworkDependency Include="../A/A.xcframework" BundleInPackage="true" />`). Pack B; assert: pack succeeds, nupkg ships `runtimes/<rid>/native/A.xcframework/`, `B.targets` inside the nupkg references it as `NativeReference`. Negative cases: missing file → SWIFTBIND042; declared as both bundled and public → SWIFTBIND043.
+Multi-product fixture: project A (`IsPackable=false`, builds an xcframework, no NuGet metadata), project B (`IsPackable=true`, declares `<SwiftFrameworkDependency Include="../A/A.xcframework" BundleInPackage="true" />`). Pack B; assert: pack succeeds, nupkg ships `runtimes/<rid>/native/A.xcframework/`, `B.targets` inside the nupkg references it as `NativeReference`. Negative cases: missing file → a new SWIFTBINDxxx (next free id); declared as both bundled and public → a new diagnostic id.
 
 ## Open questions for revisit
 
@@ -70,7 +70,7 @@ Codex's round-1 review of an earlier new-item-type version of this plan flagged 
 1. **Auto-detect dedup miss** — explicit private deps wouldn't suppress `_AutoFrameworkDependency` warnings unless the dedup sites learn about the new item. Resolved by the metadata-attribute shape above (existing dedup already iterates `SwiftFrameworkDependency`).
 2. **Generator-flag double-feed** — passing the same xcframework as both `--framework-dependency` and a new `--private-framework-dependency` would write it into `binding-metadata.props` twice and re-trigger auto-detection. Resolved by single-flag-with-metadata.
 3. **Consumer-target wiring** — `runtimes/<rid>/native/` placement alone doesn't auto-link in .NET iOS; the generated `$(PackageId).targets` must explicitly add `NativeReference`. Captured in step 4 above.
-4. **SDK-mode emitter coverage** — `ConsumerTargetsEmitter.Emit` is called even in SDK xcframework mode (`BindingsGeneratorCommand.cs:1011`), distinct from Apple-framework mode's `_SynthesizeAppleFrameworkConsumerTargets` path (`Sdk.targets:1669`). The future implementation must cover xcframework-mode bindings — Apple-framework mode is out-of-scope (Apple frameworks have no internal-dep graph).
+4. **SDK-mode emitter coverage** — `ConsumerTargetsEmitter.Emit` is called even in SDK xcframework mode (`BindingsGeneratorCommand`), distinct from Apple-framework mode's `_SynthesizeAppleFrameworkConsumerTargets` path in `Sdk.targets`. The future implementation must cover xcframework-mode bindings — Apple-framework mode is out-of-scope (Apple frameworks have no internal-dep graph).
 
 ## Round-2 strategic call (why we deferred)
 

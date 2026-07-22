@@ -9,11 +9,11 @@ Companion: [`apple-swift-types-architecture.md`](apple-swift-types-architecture.
 ## The shape that ships
 
 1. **ABI source**: `swift-api-digester -dump-sdk -module <X>` against the iPhoneOS / iPhoneSimulator SDK, **not** a wrapper Swift package.
-2. **Generator runs in direct mode** (`-a/-d/-t -l '\@rpath/<X>.framework/<X>'`) with the `--apple-framework-target` auto-detect path enabled — `*Database.xml` stub for the target module is dropped before parse-and-emit so the framework can be a target rather than a dependency.
-3. **Generator emits** `<Module>.cs`, `<Module>.Wrapper.swift`, and a packable `<Module>.Swift.iOS.csproj` referencing `SwiftBindings.Runtime` at the published version (passed via `--swift-runtime-version`).
+2. **Generator runs in direct mode** (`-a/-d/-t -l '\@rpath/<X>.framework/<X>'`) with Apple-framework target auto-detection: when the ABI module name matches a built-in `*Database.xml`, that stub is dropped before parse-and-emit so the framework can be a target rather than a dependency (disable via `--keep-builtin-database`). The SDK item is `SwiftAppleFrameworkTarget`.
+3. **Generator emits** `<Module>.cs`, `<Module>.Wrapper.swift`, and a packable project (default name `{Module}.Swift.iOS.csproj`) referencing `SwiftBindings.Runtime` at the published version (passed via `--swift-runtime-version`). Published Apple packages override `PackageId` to `SwiftBindings.Apple.<Framework>`.
 4. **Wrapper compiles** into `<Module>SwiftBindings.xcframework` (one slice per platform/target) which is bundled into the NuGet at `runtimes/<rid>/native/`.
 5. **P/Invokes resolve through `SwiftFrameworkResolver`**, which treats `@rpath/`, `@executable_path/`, `@loader_path/`, and absolute filesystem paths as dyld-resolvable and passes them verbatim to `NativeLibrary.TryLoad`. The wrapper dylib's own load commands link the system framework via `/System/Library/Frameworks/<X>.framework/<X>`, so dyld pulls the framework into the process transitively before any P/Invoke fires.
-6. **Consumers reference the package** and route through an `extern alias` because Microsoft.iOS already exposes most Apple-framework namespaces.
+6. **Consumers reference the package** and use an `extern alias` **only where the C# namespace collides with Microsoft.iOS** (e.g. StoreKit). Pure-Swift frameworks (CryptoKit, WeatherKit, TipKit, MusicKit, …) need none.
 
 ---
 
@@ -29,11 +29,16 @@ Don't retry these — each one was tried, falsified, and produced a confusing fa
 
 ## NuGet package layout
 
-One Apple framework, one NuGet package, `<Module>.Swift.iOS` (e.g. `StoreKit.Swift.iOS`). Package contents — where `iosX.Y` is the explicit Apple-workload platform version the binding was generated against:
+One Apple framework, one NuGet package. Two naming truths:
+
+- **Generator / project default:** `{Module}.Swift.<Platform>` (e.g. `CryptoKit.Swift.iOS`) via `GetDefaultSwiftPackageId` — the emitted csproj / assembly stem unless overridden.
+- **Published Apple portfolio packages:** `SwiftBindings.Apple.<Framework>` (e.g. `SwiftBindings.Apple.CryptoKit`, `SwiftBindings.Apple.StoreKit2`). The `SwiftBindings.*` prefix is required on NuGet; bare `Swift.*` is reserved by Microsoft. StoreKit ships under the **StoreKit2** naming (package + namespace pattern), not bare `StoreKit.Swift.iOS`.
+
+Package contents — where `iosX.Y` is the explicit Apple-workload platform version the binding was generated against, and `<PackageId>` is the published id (or the generator default when packing a local snapshot):
 
 ```
-lib/net10.0-iosX.Y/<Module>.Swift.iOS.dll                                    # Generated C# bindings
-buildTransitive/net10.0-iosX.Y/<Module>.Swift.iOS.targets                    # Consumer-side targets (extern alias hints, etc.)
+lib/net10.0-iosX.Y/<PackageId>.dll                                           # Generated C# bindings
+buildTransitive/net10.0-iosX.Y/<PackageId>.targets                           # Consumer-side targets (extern alias hints, etc.)
 runtimes/ios-arm64/native/<Module>SwiftBindings.xcframework/Info.plist       # Wrapper xcframework root
 runtimes/ios-arm64/native/<Module>SwiftBindings.xcframework/<slice>/<Module>SwiftBindings.framework/<Module>SwiftBindings
 ```
@@ -71,7 +76,7 @@ Why: the `<Reference HintPath>` shape reintroduces a stale-AOT `load_aot_module`
 
 Smoke tests also gate on (a) a per-framework compile symbol (`STOREKIT_SMOKE`, `WEATHERKIT_SMOKE`, …), (b) an explicit MSBuild opt-in property (`$(EnableStoreKitSmoke)=true`, …), and (c) `Exists()` checks on the in-tree snapshot at `BindingTests/obj/<Framework>Snapshot/` (gitignored) plus simulator RID. The csproj emits a loud `<Error>` when the opt-in is set but prerequisites are missing.
 
-Snapshot regeneration lives in nuke as a first-class target (`nuke regenerate-<framework>-snapshot`) and shells out to `xcrun swift-api-digester -dump-sdk` against the active Xcode SDK to produce the ABI JSON, then runs the generator in direct mode to produce `<Framework>.Swift.iOS.csproj` + wrapper xcframework + `.ProjectReference.targets`. Incremental: skips the regen when output files are all newer than the Xcode SDK inputs (swiftinterface + TBD mtimes).
+Snapshot regeneration lives in nuke as first-class targets: `nuke regenerate-apple-snapshot --framework <name>` (e.g. `--framework CryptoKit`) and the StoreKit special-case `nuke regenerate-storekit-snapshot`. Both shell out to `xcrun swift-api-digester -dump-sdk` against the active Xcode SDK to produce the ABI JSON, then run the generator in direct mode to produce the snapshot csproj + wrapper xcframework + `.ProjectReference.targets`. Incremental: skips the regen when output files are all newer than the Xcode SDK inputs (swiftinterface + TBD mtimes).
 
 ---
 
@@ -85,10 +90,10 @@ Per-case enum availability propagation lives alongside the type-level annotation
 
 ## Naming convention
 
-- **NuGet package id**: `<Module>.Swift.<Platform>` (e.g. `StoreKit.Swift.iOS`, `Nuke.Swift.iOS`). Suffix is `.Swift.<Platform>` rather than `.SwiftBindings.<Platform>` because (a) it matches the third-party convention, (b) shorter is better for a name consumers type into csprojs, (c) `Swift` already disambiguates from Microsoft.iOS's ObjC bindings.
+- **Generator / project default package id**: `{Module}.Swift.<Platform>` (e.g. `CryptoKit.Swift.iOS`, `Nuke.Swift.iOS`) — `GetDefaultSwiftPackageId`. Suffix is `.Swift.<Platform>` rather than `.SwiftBindings.<Platform>` because (a) it matches the third-party binding convention, (b) shorter is better for local snapshot project names, (c) `Swift` already disambiguates from Microsoft.iOS's ObjC bindings.
+- **Published Apple portfolio NuGet id**: `SwiftBindings.Apple.<Framework>` (e.g. `SwiftBindings.Apple.CryptoKit`, `SwiftBindings.Apple.StoreKit2`). The `SwiftBindings.*` prefix is required on NuGet; bare `Swift.*` is reserved by Microsoft. Override via `--package-id` / csproj `PackageId`. StoreKit ships as **StoreKit2** naming, not bare StoreKit.
 - **Wrapper xcframework / dylib**: `<Module>SwiftBindings`.
-- **C# namespace**: `<Module>` (matches the Swift module name).
-- **No `Apple.` infix.** Microsoft.iOS uses bare framework names; the precedent is well-established.
+- **C# namespace**: typically `<Module>` (matches the Swift module name); StoreKit2 uses the StoreKit2 namespace pattern.
 
 ---
 

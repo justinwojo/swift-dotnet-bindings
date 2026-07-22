@@ -14,13 +14,23 @@ The layout is:
 - storeEnumTagSinglePayload - `void (*storeEnumTagSinglePayload)(T *enumInst, unsigned int whichCase, int numEmptyCases, SwiftMetadata *metadata)` - sets the current discriminator for an enum with a single payload using the supplied type metadata.
 - Size - machine word representing the size of the type in bytes
 - Stride - machine word representing the stride of the type in bytes
-- Flags - 32 bit unsigned int - contains flags that describe how to work with the time including the memory alignment
+- Flags - 32 bit unsigned int - contains flags that describe how to work with the type including the memory alignment (including `HasEnumWitnesses`)
 - ExtraInhabitantCount - 32 bit unsigned int - the number of extra inhabitants (free bits) in the type
+- getEnumTag - `unsigned int (*getEnumTag)(T *enumInst, SwiftMetadata *metadata)` - tag for a multi-payload enum (payload cases first, then no-payload cases)
+- destructiveProjectEnumData - `void (*destructiveProjectEnumData)(T *enumInst, SwiftMetadata *metadata)` - strip tag bits, leaving the payload in place
+- destructiveInjectEnumTag - `void (*destructiveInjectEnumTag)(T *enumInst, unsigned int tag, SwiftMetadata *metadata)` - inject a tag into an enum instance
+
+The enum-witness triple is always present in the C# layout mirror; it is meaningful when `HasEnumWitnesses` is set on `Flags` (used heavily by `SwiftOptional`, `SwiftResult`, `SwiftDictionary`, etc.).
 
 ## Getting the value witness table
 
 There are two ways to get the value witness table for a type. The first is to get the address of memory using `dlsym` with the entry point for the value witness table. The second is get it relative to the type metadata. In Swift there is extended metadata information that always precedes the type metadata. One machine word back from the type metadata is a pointer to the ValueWitnessTable (see Apple documentation [here](https://github.com/swiftlang/swift/blob/main/docs/ABI/TypeMetadata.rst#common-metadata-layout))
 
-Probably the most efficient way to get the value witness table is to always go from the Swift Type Metadata.
+Probably the most efficient way to get the value witness table is to always go from the Swift Type Metadata. This repository only uses that path: VWT at `metadata - 1` word (`TypeMetadata.ValueWitnessTable` / `SwiftMetadata.ValueWitnessTable`). It does **not** read a deinit slot at `metadata - 2`; class teardown, when needed, uses other class-metadata fields rather than a value-type VWT layout assumption.
 
-It should also be noted that in the case of a heap allocated type, there will be a pointer to the deallocating deinit for the type two machine words behind back from the type metadata. This field is present in value types but is always 0.
+## As built in this repo
+
+- C# mirror: `Swift.Runtime.ValueWitnessTable` in `src/Swift.Runtime/src/Swift/Runtime/ValueWitnessTable.cs` (`LayoutKind.Sequential` `ref struct`)
+- Access: `TypeMetadata.ValueWitnessTable` (normal paths; not `dlsym`)
+- Function pointers are PascalCase (`InitializeWithCopy`, `Destroy`, `GetEnumTag`, …) and take `TypeMetadata`, not a C `SwiftMetadata *`
+- Related consumers and non-frozen / async buffer patterns are cross-linked from `async-non-frozen-types.md`

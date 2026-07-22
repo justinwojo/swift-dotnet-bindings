@@ -1,105 +1,243 @@
 # Binding Structs
 
-Structs in Swift are value types that can have a number of forms each of which requires a certain amount of consideration: frozen/non-frozen and blittable and non-blittable ([.NET definitions here](https://learn.microsoft.com/en-us/dotnet/framework/interop/blittable-and-non-blittable-types)).
+**Status:** as-built — three-way struct projection.
 
-Structs that are frozen are guaranteed not to change. They have a fixed layout and can be passed by value lowered up until the point when the size of the struct exceeds the number of registers dedicated for value types in Swift (currently 4 and unlikely to change).
+Swift structs are value types whose layout and ownership rules vary by **frozenness** (ABI-stable layout under library evolution) and by whether the value **requires memory management** (reference-holding fields such as classes or `String`). C# has no automatic Swift value-witness teardown when a stack value is overwritten or goes out of scope, so the generator cannot always project a Swift struct as a C# `struct`.
 
-Non-frozen structs are passed by reference since the layout and size are not guaranteed.
+The generator implements a **three-way model**. Informal labels used throughout the codebase and BindingTests:
 
-Similarly when calling members on frozen structs, the instance is passed by value as they can fit into registers. However for non-frozen structs the instance is passed by reference in the self pointer.
+| Label | When | C# surface |
+|---|---|---|
+| **Struct** (blittable frozen) | `@frozen` + no managed payload | real C# `struct` |
+| **ClassWithBufferStruct** | `@frozen` + reference-ish fields | C# `class` with nested `.Buffer` |
+| **ClassWithOpaquePayload** | not effectively frozen | C# `class` with SafeHandle opaque payload |
 
-Blittable structs are structs that can be correctly copied with `memcpy`. Essentially, if a struct contains a field which is heap allocated or contains a non-blittable data type, it will have issues with regards to reference counting. In addition, generic structs need to be considered non-blittable since they *may* contain non-blittable types, but we can't know that ahead of time.
+Ownership details (when to `InitializeWithCopy` / VWT `Destroy`, dispose vs finalizer) live in [memory-management.md](memory-management.md). Value-witness table layout lives in [binding-value-witness-table.md](binding-value-witness-table.md). This document is the **classification + C# surface + P/Invoke boundary** design only.
 
-Structs in Swift are encouraged to be immutable. To help along with this, the compiler enforces a number of rules to prevent you from trying to mutate an immutable value. All arguments to a method are considered to be `let` bindings. The compiler won't let you modify public fields of struct that is defined with a `let` binding. Similarly, you cannot call a `mutating` method on a struct that is bound with `let`.
+---
 
-Every value type in Swift comes with a compiler-generated Value Witness Table. Unlike other function tables in Swift (Protocol witness tables, vtables etc), the layout of value witness tables are well-defined. The value witness table is documented [here](binding-value-witness-table.md).
+## Classification
 
-## Language Parity Mismatches
+### Effective frozenness and flags
 
-Structs in C# and Swift are very similar. They both represent value types with a concrete memory layout. The primary difference is that structs in Swift will execute code whenever it goes out of scope.
+Parser initially sets `StructDecl.IsFrozen` from the `@frozen` attribute (`SwiftABIParser`). After property processing, `ModuleProcessor` recomputes flags in `CacluateFlags` and **rewrites** `structDecl.IsFrozen` to the **effective** frozen bit:
 
-Given the following Swift code:
+1. **Non-copyable** (`~Copyable`): if the type lists `Swift.Escapable` without `Swift.Copyable`, set `TypeRecordFlags.NonCopyable`.
+2. **Not `@frozen`**: return early — no `Frozen` flag (non-frozen path).
+3. **`@frozen`**: set `TypeRecordFlags.Frozen`, then walk **instance** stored properties:
+   - Nested **non-frozen struct** field → clear `Frozen` (struct is not effectively frozen).
+   - Field with `RequiresMemoryManagement`, or `TypeRecordKind.Class` → set `RequiresMemoryManagement`.
+   - Unregistered field type (e.g. some generics) → clear `Frozen` and set `RequiresMemoryManagement` (fail safe).
+   - Float / Bool field classification also sets `HasFloatFields` / `HasBoolFields` (CallConvSwift register safety), using the same field classifier as ABI layout.
 
-```swift
-public class Named {
-    private let name: String
-    public init(name n: String)
-    {
-        name = n
-    }
-    deinit
-    {
-        print("\(name) left the building.")
-    }
-}
+Registered as a `TypeRecord` via `RegisterStructType` (`ModuleProcessor`). Predicate helpers in `MarshallingHelpers`:
 
-public struct NamedHolder {
-    public init (name n: String) {
-        name = Named(name: n);
-    }
-    public var name: Named
-}
+- `IsTypeFrozen` — `TypeRecordFlags.Frozen`
+- `RequiresMemoryManagement` — `TypeRecordFlags.RequiresMemoryManagement`
+- `IsFrozenStructProjectedAsClass` — `Kind == Struct && Frozen && RequiresMemoryManagement`
 
-public func runIt()
-{
-    var n1:NamedHolder = NamedHolder(name: "Corey")
-    let n2:NamedHolder = NamedHolder(name: "Ian")
-    n1 = n2
-}
-runIt()
-print("all done")
+### Handler dispatch
+
+| Factory | Predicate | Emitter |
+|---|---|---|
+| `FrozenStructHandlerFactory` | `StructDecl.IsFrozen` (effective) | `FrozenStructHandler` |
+| `NonFrozenStructHandlerFactory` | `!StructDecl.IsFrozen` | `NonFrozenStructHandler` |
+
+Inside `FrozenStructHandler`, `isProjectedAsClass = MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord)` splits shapes 1 and 2.
+
+### Projection dispatch
+
+`TypeProjectionFactory.CreateProjectionForTypeRecord` (after ObjC / enum / class special cases):
+
+```
+!IsTypeFrozen          → NonFrozenStructProjection
+!RequiresMemoryManagement → BlittableProjection
+else                   → FrozenWithMemoryProjection
 ```
 
-It will generate the following output:
+Complex (non-simple) enums reuse `NonFrozenStructProjection` with `useMarshalFromSwift: true` — same opaque-handle shape, not covered further here.
+
+---
+
+## Shape 1 — Frozen blittable → C# `struct`
+
+**Decision:** effectively frozen and **not** `RequiresMemoryManagement` (all fields are frozen value types with no heap payload).
+
+**Emitter:** `FrozenStructHandler` with `isProjectedAsClass == false`.
+
+**C# surface:**
+
+- `public unsafe partial struct T : ISwiftObject, …`
+- Backing fields mirror Swift instance storage (typed fields or `IntPtr` words for sizes that need word packing). Static stored properties are **not** laid out in the instance (they would oversize the type).
+- Optional `[StructLayout(LayoutKind.Sequential, Size = …)]` when live Swift metadata is available.
+- `ISwiftObject.NewFromPayload` is a bitwise read: `return *(T*)handle`.
+- `PayloadConstructionSemantics.Inline` — no SafeHandle, no buffer ownership.
+- `Dispose()` is a no-op (no managed resources).
+
+**Projection:** `BlittableProjection` — `PublicType` and `PInvokeType` are the same type; parameter/return plans are pass-through.
+
+**P/Invoke / self:**
+
+- Arguments and returns cross the boundary as the C# struct value (or stack buffer for large / indirect-result constructors).
+- Instance methods use `SwiftSelfKind.FrozenStructValue`: `new SwiftSelf<T>(this)`.
+- Mutating / fixed-block paths use a pointer to `this` when required (`SwiftSelfKind.FixedBlock`).
+
+**Ownership:** no VWT destroy on C# dispose. `MarshalToSwift` may still `InitializeWithCopy` into a destination span when the runtime needs a Swift-owned copy of the value bytes.
+
+---
+
+## Shape 2 — Frozen with memory management → ClassWithBufferStruct
+
+**Decision:** effectively frozen **and** `RequiresMemoryManagement` (e.g. a class field, `String`, or nested type that itself requires memory management). Layout is ABI-stable and known, but Swift still runs VWT destroy for refcounted fields — a bare C# `struct` assignment would leak or double-free.
+
+**Emitter:** `FrozenStructHandler` with `isProjectedAsClass == true`.
+
+**C# surface:**
+
+- `public partial class T : ISwiftObject, ISwiftStruct, IDisposable, …`
+- Private `SwiftSafeHandle<T> _payload` owns a `NativeMemory.Alloc`'d buffer holding the Swift value bytes.
+- Nested **`public struct Buffer`** with the same field layout as shape 1 (typed fields / `IntPtr` words). Used only as the **blittable P/Invoke carrier**.
+- `public unsafe PayloadBuffer<T.Buffer> PayloadBuffer` — pins the SafeHandle and exposes `Buffer` / `BufferRef` for by-value / `inout` lowering (`Swift.Runtime.PayloadBuffer<T>`).
+- `Dispose()` disposes `_payload` (no separate wrapper finalizer — the SafeHandle is the finalizable owner).
+
+**`NewFromPayload` (Copy semantics):**
 
 ```text
-Corey left the building.
-Ian left the building.
-all done
+Alloc(metadata.Size)
+VWT.InitializeWithCopy(dest, wireHandle, metadata)   // +1 for the wrapper
+_payload = new SwiftSafeHandle<T>(dest)
 ```
 
-This shows how the destructor in the class gets executed when a struct gets overwritten ("Corey left the building.") and when it goes out of scope. C# will do neither of this things.
+`ISwiftObject.PayloadConstructionSemantics` → `PayloadConstructionSemantics.Copy`. The wire temporary's retains are **not** adopted; call sites that own the wire buffer must destroy it after construction (see below).
 
-Swift allows 0-length structs, whereas C# does not.
-Swift allows structs to be non-copyable by adding the pseudo inheritance `: ~Copyable` to the type declaration. These types may present issues when
-being bound. The value witness table contains functions that will execute an illegal instruction if they are called to copy the type and all mechanisms
-within swift to get the address of an non-copyable instance are forbidden.
+**Projection:** `FrozenWithMemoryProjection`
 
-## ABI Differences
+| Direction | Behavior |
+|---|---|
+| Public type | `T` (the class) |
+| P/Invoke type | `T.Buffer` |
+| Parameter | `using PayloadBuffer<T.Buffer>` → pass `.Buffer` by value |
+| Return (direct / by-value register) | `SwiftMarshal.MarshalFromSwiftObjectConsuming<T>(&result)` — `NewFromPayload` then VWT destroy of the stack temporary |
+| Return (indirect / out buffer) | `SwiftMarshal.MarshalFromSwiftObject<T>(…)` — copy construction; wire cleanup is the marshal seam's responsibility per `Copy` semantics |
 
-Swift has very specific rules for packing structs which Apple has laid out [here](https://github.com/swiftlang/swift/blob/main/docs/ABI/TypeLayout.rst).
+**P/Invoke / self (`MethodMarshalPlanBuilder`):**
 
-Structs are passed to functions in one of two ways depending on whether or not they are frozen under `enable-module-evolution` rules.
-If the struct is frozen and bitwise-copyable, it is lowered into up to 4 registers, otherwise it is passed by reference. This is usually done by copying it onto the stack and taking the address into a register. If the func is an instance method the struct will be passed by reference in the self register.
+- Non-setter: `SwiftSelfKind.FrozenStructBuffer` — `new SwiftSelf<T.Buffer>(*(T.Buffer*)_payload.DangerousGetHandle())`.
+- Setter: `SwiftSelfKind.FrozenStructSetter` — `new SwiftSelf((void*)_payload.DangerousGetHandle())` (pointer to payload, not a by-value buffer copy).
+- Constructors that need an indirect result allocate `NativeMemory.Alloc(sizeof(T.Buffer))` and assign the handle into `_payload` after the call.
 
-## Runtime Differences
+**Ownership destroy path:** `SwiftSafeHandle<T>.ReleaseHandle` runs VWT `Destroy` on the payload buffer (direct on explicit `Dispose`; `SBW_VWTDestroy` cdecl trampoline from the GC finalizer), then `NativeMemory.Free`. See [memory-management.md](memory-management.md).
 
-None beyond the fact that the value witness table's `destroy` function will get executed when the value type goes out of scope.
+**Note (historical):** projecting every non-blittable struct as an opaque class simplifies emission but forces a heap allocation even when layout is frozen. The Buffer split keeps a **real by-value ABI** at the P/Invoke boundary while still owning ARC via a SafeHandle.
 
-## Idiomatic Differences
+---
 
-The main issue that we'll run into is non-blittable structs. Consider the C# binding of the previous example:
+## Shape 3 — Non-frozen → ClassWithOpaquePayload
 
-```csharp
-public struct NamedHolder {
-    // would need space for the private payload
-    public NamedHolder(SwiftString name)
-    {
-        PInvokeNamedHolderInit(ref this, name);
-    }
-}
+**Decision:** not effectively frozen (no `@frozen`, or nested non-frozen content, or fail-safe demotion). Layout size/stride may change across library versions; Swift passes the value **by reference** (buffer pointer), not as a lowered multi-register value type.
 
-// ...
-// Consuming code, which seems totally reasonable for C#
-var n1 = new NamedHolder(SwiftString.FromString("Corey"));
-var n2 = new NamedHolder(SwiftString.FromString("Ian"));
-n1 = n2; // memory leak.
+**Emitter:** `NonFrozenStructHandler`.
+
+**C# surface:**
+
+- `public partial class T : ISwiftObject, ISwiftStruct, IDisposable, …`
+- `static nuint _payloadSize` from type metadata (eager register path for generics / NativeAOT factory registration; lazy when OS-availability gates require it).
+- `SwiftSafeHandle<T> _payload` — the handle **is** the opaque value buffer (size from metadata, not a compile-time C# layout).
+- No nested `.Buffer` type — layout is not mirrored in managed fields.
+- Public properties go through Swift accessors / P/Invoke, not field offsets.
+- `Dispose()` → `_payload.Dispose()`.
+
+**`NewFromPayload` (Adopt semantics):**
+
+```text
+_payload = new SwiftSafeHandle<T>(handle)   // wraps the wire buffer; no InitializeWithCopy
 ```
 
-## Accessibility
+`PayloadConstructionSemantics.Adopt` — the wrapper owns the temporary's `+1`; cleanup must **not** destroy the same buffer again.
 
-The main problem that we have is with non-blittable structs. We would either need our users to manually destroy structs when they're no longer needed (this a really bad idea - people are awful at memory management - that's why we have garbage collection and `IDisposable`) or we would need to have the types implement `IDisposable`.
+**Projection:** `NonFrozenStructProjection`
 
-The way this was handled in BTfS was to make no distinction between blittable and non-blittable structs and to implement them as a class with a byte array payload that implemented `IDisposable`. This would give the effect of having the destroy method called when the class gets disposed. The downside to this is that all structs, regardless of blitability, incur a cost in terms of heap allocation and at GC time. The up side is that the code to do the binding is simpler and handled uniformly.
+| Direction | Behavior |
+|---|---|
+| Public type | `T` |
+| P/Invoke type | `IntPtr` |
+| Parameter | `param.Payload.DangerousGetHandle()` |
+| Return | `SwiftMarshal.MarshalFromSwiftObject<T>(…)` |
+| Swift containers (`SwiftArray` / etc.) | `SwiftContainerGenericType` is `T` itself (inline value slots use `ISwiftObject.MarshalToSwift` / VWT copy, not raw `IntPtr` slots) |
 
-Moving forward I think that non-blittable structs should be bound by a class with an opaque payload.
+**P/Invoke / self:**
+
+- `SwiftSelfKind.NonFrozenStruct`: `new SwiftSelf((void*)_payload.DangerousGetHandle())` — the buffer pointer **is** the struct data.
+- Async / CallConvSwift paths that cannot take `SafeHandle` lower parameters to `IntPtr` with `DangerousAddRef` / `DangerousRelease` lifetime pinning (see [async-non-frozen-types.md](async-non-frozen-types.md)).
+
+**Ownership:** same SafeHandle VWT destroy + free as shape 2, but **Adopt** means `NewFromPayload` does not allocate a second buffer. `MarshalToSwift` uses `InitializeWithCopy` from the payload into the destination span.
+
+---
+
+## Summary table
+
+| | Blittable frozen | Frozen + memory mgmt | Non-frozen |
+|---|---|---|---|
+| **Handler** | `FrozenStructHandler` | `FrozenStructHandler` | `NonFrozenStructHandler` |
+| **Projection** | `BlittableProjection` | `FrozenWithMemoryProjection` | `NonFrozenStructProjection` |
+| **C# kind** | `struct` | `class` + nested `Buffer` | `class` |
+| **Marker** | `ISwiftObject` | `ISwiftObject`, `ISwiftStruct` | `ISwiftObject`, `ISwiftStruct` |
+| **Payload** | value bits in the struct | `SwiftSafeHandle` → layout buffer | `SwiftSafeHandle` → opaque buffer |
+| **P/Invoke type** | `T` | `T.Buffer` | `IntPtr` |
+| **NewFromPayload** | `*(T*)handle` | Alloc + `InitializeWithCopy` | adopt handle |
+| **Semantics** | `Inline` | `Copy` | `Adopt` |
+| **Destroy** | none (no-op Dispose) | VWT Destroy on SafeHandle release | VWT Destroy on SafeHandle release |
+| **Self (typical)** | `SwiftSelf<T>(this)` | `SwiftSelf<T.Buffer>(*(…))` | `SwiftSelf((void*)handle)` |
+
+---
+
+## Fail-closed type skips
+
+Type-level refusal is centralized in `TypeSkipConditions.FirstMatch` (shared by handlers, `TypeSkipPrePass`, and silent-tombstone registration). Struct-relevant arms:
+
+| Condition | Applies to | Why fail closed |
+|---|---|---|
+| `IndeterminateBufferLayout` | ClassWithBufferStruct (`HasIndeterminateBufferLayout`) | A stored field's inline size is not derivable cross-compile (e.g. generic value-type field without size). Guessing Buffer size corrupts the heap. |
+| `SubWordOptionalLayoutMismatch` | By-value frozen (`HasSubWordOptionalLayoutMismatch`) | Emitted `IntPtr`-word optional fields shift a later field off Swift's packed offset → wrong bytes at the cdecl boundary. |
+| `UnsupportedGenericConstraint` | any | Unsupported framework protocol constraint (e.g. SwiftUI/Combine). |
+| `VariadicGenericParameterPack` | any | `each T` has no C# equivalent. |
+| `IndeterminatePwtShape` | generic types | Conformance witness tables cannot be lowered into metadata-accessor PWT args. |
+| `EmitterFault` | any | Prior emission fault denylisted the type for regenerate-from-plan recovery. |
+
+Inside a frozen Buffer emission loop, an indeterminate field that somehow reaches emission throws rather than emit a wrong-sized field (`ClassifyFrozenStructField` → `FrozenFieldLayoutKind.Indeterminate`).
+
+### Cross-module extensions
+
+Cross-module `extension ForeignModule.ForeignType { … }` receivers are re-routed through `CrossModuleExtensionEmitter` (both handlers). The foreign trampoline path supports **frozen value structs without managed payload** only — non-frozen or `RequiresMemoryManagement` foreign receivers are skipped (`SwiftABIParser` + emitter gates). Nested types declared *inside* a cross-module extension still emit on the normal path (owned by the current module).
+
+---
+
+## Open edges
+
+These are real limits in the current code, not proposals:
+
+1. **Codable JSON helpers** — emitted for ClassWithOpaquePayload (`NonFrozenStructHandler`) via `_payloadSize` / `NewFromPayloadCore`. **Not** emitted for ClassWithBufferStruct (comment in `FrozenStructHandler`: Buffer path lacks those primitives).
+2. **Frozen-with-memory as container element (parameter conversion)** — `FrozenWithMemoryProjection.GetParameterElementConversion` returns `null` (no safe LINQ-style `PayloadBuffer` extraction). Accidental composition fails at C# compile time rather than leaking handles. No validated library currently depends on this composition.
+3. **Non-copyable (`~Copyable`)** — flagged as `TypeRecordFlags.NonCopyable` and special-cased in wrapper self-reconstruction / metadata paths (`WrapperValidation.IsNonCopyableStructParent`). Full binding of non-copyable value types remains constrained (Swift forbids ordinary copy witnesses).
+4. **Async + non-blittable** — CallConvSwift cannot pass `SafeHandle`; non-frozen (and similar) parameters lower to `IntPtr` with pin/release. Documented separately in [async-non-frozen-types.md](async-non-frozen-types.md).
+5. **`inout` residual (non-cdecl)** — cdecl blittable-frozen `inout` writeback is implemented; some non-cdecl / projection paths may still lack post-call readback. Tracked as residual work outside this design surface.
+
+---
+
+## Related code map
+
+| Concern | Location |
+|---|---|
+| Flag computation | `src/Swift.Bindings/src/Parser/ModuleProcessor.cs` (`CacluateFlags`, `RegisterStructType`) |
+| Predicates | `src/Swift.Bindings/src/Marshaler/MarshallingHelpers.cs` |
+| Frozen emission | `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/FrozenStructHandler.cs` |
+| Non-frozen emission | `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/NonFrozenStructHandler.cs` |
+| `NewFromPayload` / `MarshalToSwift` | `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/TypeHandlerHelpers.cs` (`ISwiftObjectMethodWriter`) |
+| Projection selection | `src/Swift.Bindings/src/Marshaler/Projection/TypeProjectionFactory.cs` |
+| Projections | `BlittableProjection.cs`, `FrozenWithMemoryProjection.cs`, `NonFrozenStructProjection.cs` |
+| Self / param plans | `src/Swift.Bindings/src/Marshaler/Projection/MethodMarshalPlanBuilder.cs` |
+| Type skips | `src/Swift.Bindings/src/Emitter/StringEmitter/TypeSkipConditions.cs` |
+| Ownership enum | `src/Swift.Runtime/src/Swift/Runtime/PayloadConstructionSemantics.cs` |
+| SafeHandle + VWT destroy | `src/Swift.Runtime/src/Swift/Runtime/SwiftHandle.cs` (`SwiftSafeHandle<T>`, `VwtDestroyTrampoline`) |
+| Consuming direct return | `src/Swift.Runtime/src/Swift/Runtime/InteropServices/SwiftMarshal.cs` (`MarshalFromSwiftObjectConsuming`, `DestroyWireBufferRetains`) |
+| Runtime tests | `BindingTests/RuntimeTestsApp/MemoryManagement/` (`DisposeTests`, `StructVwtDestroyLeakTests`, `LeakDetectionTests`) |

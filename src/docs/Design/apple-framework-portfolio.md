@@ -35,7 +35,7 @@ The generator ships an automated SwiftUI bridge (`SwiftUIBridgeEmitter.cs`, `Swi
 - **Generic Views with `View` constraints** (e.g. `JournalingSuggestionsPicker<Label>`). Skip reason: `SwiftUIConstraint`.
 - **`@ViewBuilder` parameters.** No representation in C#.
 - **View modifier extensions** (`.translationTask(...)`, `.familyActivityPicker(...)`). Modifiers apply to `some View` and return opaque modifier chains.
-- **`Binding<Struct>` (non-optional).** Deferred — needs two-way lifetime management (one-time generator enhancement, not a fundamental limit).
+- **`Binding<BoundType>` and non-Codable `Binding<BoundStruct>` (non-optional).** Deferred — need more complex two-way lifetime management (one-time generator enhancement, not a fundamental limit). `Binding<CodableStruct>` for non-frozen, non-generic Codable structs is already implemented in the SwiftUI bridge.
 - **Widget extensions.** Widgets run in a separate process/bundle the OS loads independently. No `UIHostingController` in the main app process can produce widget UI. OS architectural constraint, not solvable by any SwiftUI bridge.
 - **SwiftData `@Model`, Swift Charts `Chart`, Observation `@Observable`.** Macro-driven declarative DSLs with no runtime representation.
 
@@ -101,10 +101,6 @@ The public API is a generic SwiftUI picker plus a rich content struct:
 
 Feasible via a hand-written Swift wrapper using `JournalingSuggestionsPicker<Text>` internally and a fixed JSON schema for content types. The shipped hosting bridge now absorbs the concrete-`View` half of that wrapper (it auto-wraps a `JournalingSuggestionsPicker<Text>` shim in a `UIHostingController` with a typed `ViewController` accessor), so the remaining work is just the content-bag marshalling. Still deprioritized for the same reason: the Journal app is iPhone-only and unavailable on iPad/simulator, so there is no automated end-to-end gate.
 
-### ProximityReader, LiveCommunicationKit (on-demand pure bindings)
-
-Both ship cleanly when a customer asks. Entitlement-gated (ProximityReader) or narrow-audience (VoIP / default-dialer apps).
-
 ---
 
 ## iOS 26 framework scan (May 2026)
@@ -152,7 +148,7 @@ No shipped framework was obsoleted by new macios Swift coverage. No hard-skip wa
 Reopen this doc when:
 
 - **A new iOS release adds a Swift-only framework.** Re-scan Apple's WWDC framework list against the Scope Rules above.
-- **`Binding<Codable Struct>` ships in the SwiftUI bridge.** Re-scan the SDK for framework Views previously skipped due to `Binding<Struct>` params — they become candidates.
+- **`Binding<CodableStruct>` already ships in the SwiftUI bridge.** Re-scan the SDK for framework Views previously skipped due to non-Codable `Binding<BoundStruct>` / `Binding<BoundType>` params when those remaining Binding shapes land; for Codable-struct Views, re-evaluate pure-binding conversion product decisions (capability is no longer the blocker).
 - **A specific customer asks for a deferred candidate.** Move it from Deferred to a sized binding task.
 - **Microsoft publishes Swift-only bindings in macios** for a framework we ship. Evaluate whether to maintain or deprecate.
 - **iOS makes a deferred candidate's API simpler.** E.g., a previously product-shaped framework gets a public initializer that removes the SwiftUI-modifier-only access pattern.
@@ -163,11 +159,12 @@ Reopen this doc when:
 
 Recorded for "why we said no" continuity. If a future evaluator wants to revisit, they should read these first.
 
-- **AuthenticationServices, CoreSpotlight, SoundAnalysis** — dropped from the published portfolio. Microsoft's macios bindings are complete and actively maintained. Shipping parallel packages forced consumers to disambiguate with `extern alias`, created ongoing maintenance burden, and provided zero new capability. Soft-landing: kept in `build/validation-libraries.json` as compile-gate targets so the generator keeps exercising those surfaces.
-- **StoreKit 2** — flagship binding. macios binds exactly one method (`AppStore.RequestReview`); the rest of the StoreKit 2 surface (`Product`, `Transaction`, `VerificationResult<T>`, async sequences, `AppTransaction.shared`, external purchase APIs) only exists here. StoreKit 1 is deprecated and broken on iOS 18 (macios#21565), so this is the only path to correct in-app purchase on .NET MAUI.
+- **AuthenticationServices, CoreSpotlight, SoundAnalysis** — dropped from the published portfolio. Microsoft's macios bindings are complete and actively maintained. Shipping parallel packages forced consumers to disambiguate with `extern alias`, created ongoing maintenance burden, and provided zero new capability. A soft-landing that kept them in `build/validation-libraries.json` as compile-gate targets was planned so the generator would keep exercising those surfaces; that soft-landing lapsed — none of the three is in the validation-libraries list today, and they are not re-added.
+- **StoreKit 2** — flagship binding. macios binds exactly one method (`AppStore.RequestReview`); the rest of the StoreKit 2 surface (`Product`, `Transaction`, `VerificationResult<T>`, async sequences, `AppTransaction.shared`, external purchase APIs) only exists here. StoreKit 1 is deprecated and broken on iOS 18 (macios#21565), so this is the only path to correct in-app purchase on .NET MAUI. Published package identity uses the StoreKit2 naming (`SwiftBindings.Apple.StoreKit2`).
 - **ActivityKit** — shipped as a *product-shaped* offering, not a pure binding. `ActivityAttributes` is a Swift protocol with an `associatedtype ContentState`, and Live Activities require a SwiftUI widget extension that runs in a separate process. The binding ships a pre-baked generic `ActivityAttributes` conformance carrying JSON-shaped state plus C# wrapper methods; the consumer still has to write a SwiftUI widget extension declaring `ActivityConfiguration`. This is unavoidable — the OS requires the widget extension to render anything.
-- **FamilyControls bundle** — `FamilyActivityPicker` is `public struct FamilyActivityPicker : SwiftUICore.View` and is the only API that produces `FamilyActivitySelection` tokens. There is no UIKit path. Currently bound via a hand-written Swift wrapper (concrete View holding `@State var selection`). Will simplify to a pure binding once `Binding<Codable Struct>` ships in the SwiftUI bridge. The programmatic surface (`AuthorizationCenter`, `ManagedSettingsStore`, `DeviceActivityMonitor`, shields, schedules) is a standard binding.
-- **Translation** — currently product-shaped (hand-written `Color.clear` host view wrapper with `.translationTask` applied, capturing `TranslationSession` into a wrapper class). iOS 26 added `TranslationSession(installedSource:target:)`, so this simplifies to a pure binding once `net10.0-ios26` becomes the baseline.
+- **ProximityReader, LiveCommunicationKit** — shipped tier-1 pure bindings (also listed in the README pre-built portfolio). Entitlement-gated (ProximityReader) or narrow-audience (VoIP / default-dialer apps), so consumer uptake is expected to be small — but both bindings shipped cleanly; nothing in the binding path was blocked.
+- **FamilyControls bundle** — `FamilyActivityPicker` is `public struct FamilyActivityPicker : SwiftUICore.View` and is the only API that produces `FamilyActivitySelection` tokens. There is no UIKit path. Currently bound via a hand-written Swift wrapper (concrete View holding `@State var selection`). `Binding<CodableStruct>` already exists in the SwiftUI bridge; pure-binding conversion of the FamilyControls picker shim is a product decision, not blocked on a missing bridge capability. The programmatic surface (`AuthorizationCenter`, `ManagedSettingsStore`, `DeviceActivityMonitor`, shields, schedules) is a standard binding.
+- **Translation** — currently product-shaped (hand-written `Color.clear` host view wrapper with `.translationTask` applied, capturing `TranslationSession` into a wrapper class). iOS 26 added `TranslationSession(installedSource:target:)`, and the in-repo Apple TFM baseline is already `net10.0-ios26.2` (validation + packaged Apple tags `apple-v26.2.*`), so the pure-binding conversion is **unblocked**. Whether Translation should convert from product-shaped to pure is an open owner decision — not declared here.
 
 ---
 

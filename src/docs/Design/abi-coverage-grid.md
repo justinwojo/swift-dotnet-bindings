@@ -284,12 +284,19 @@ must be green on its declared runtimes.
 
 ### Phase 2 decision point — generics corner is **clean**
 
-The generics corner graded clean on both runtimes:
+The generics corner graded clean on both runtimes. **Phase-2 closeout grade (historical):**
+`expect-green` **41/41 green on sim+device (100%)** for the non-enum generics set then under
+gate. **Current living inventory** (`BindingTests/abi-grid-manifest.json`): **57 cells total —
+46 `expect-green` / 4 `supported-low-priority` / 7 `by-design-gray`**. The +5 since Phase-2
+closeout are the post–Phase-2 generic-enum cells
+(`generics.enum.nested-generic.unverified.*` / `.verified.roundtrip`, all `expect-green` —
+the §8 worked example). Of the 14 non-enum generics cells dispositioned in Phase 2: **11**
+`expect-green` (CSM composition inline/where-clause × struct/class; constrained free functions
+single / composition / multi-where / two-type-param same-id / distinct-id) and **3**
+`by-design-gray` (listed below). Living totals including the +5 enum cells: **16** green
+generics cells.
 
-- `expect-green`: **41/41 green on sim+device (100%)** — including all 14 new generics cells
-  (CSM composition inline/where-clause × struct/class; constrained free functions single /
-  composition / multi-where / two-type-param same-id / distinct-id).
-- `supported-low-priority`: 4/4 green (reported, not gated).
+- `supported-low-priority`: 4/4 green (reported, not gated) — count still current.
 - `by-design-gray`: 7, each citing an out-of-scope rationale — notably
   `generics.freefunc.constraint.self-requirement` (Self-requirement protocols erase Self→AnyType;
   conformer value types aren't emitted as the C# interface, so the open-generic free function is

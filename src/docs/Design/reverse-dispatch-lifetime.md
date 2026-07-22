@@ -5,12 +5,12 @@ per-module metadata, the `@objc optional`-before-required slot fix, and the flag
 invariant — plus the existential-lifetime fold-in (owned-mint + borrowed-keepAlive) and
 tuple-of-convertible-element parameter marshalling; each cleared its Grok/Codex design review and
 post-hoc pair review. **This doc is now the permanent design reference for the runtime's
-reverse-dispatch lifetime model** — cited from `ProxyLifetimeTracker.cs`, `EveryProtocol.cs`,
-`AsyncHelpers.cs`, and `ExistentialContainer.cs` as the home for "Design B2" and design change 4,
-so it is kept (not archived), not a disposable session log. ⚠device: the runtime fixtures run on
+reverse-dispatch lifetime model** — cited from `ExistentialContainer.cs` and `ProxyLifetimeTracker.cs`
+as the home for "Design B2" and design change 4, so it is kept (not archived), not a disposable
+session log. ⚠device: the runtime fixtures run on
 `--sim` (Mono JIT) **and** `--device` (NativeAOT). One residual unit stays deferred (latent, no
 reachable fixture today): the EC2+ composition collection-element carrier owned-mint — tracked in
-`roadmap.md` (*Latent* → "Owned existential collection-element carrier fall-through") and under
+`src/docs/not-planned.md` → "Owned existential collection-element carrier fall-through" and under
 "Deferred / split-out units" below.
 
 Scope (four items from the Session 1 gameplan):
@@ -39,8 +39,9 @@ and will NOT pick up a freshly-added fixture — validate new fixtures with a fu
   `ProxyLifetimeTracker`, keyed **weakly by impl** via a `ConditionalWeakTable`. It is released on
   **impl-GC** (`ProxyCleanup.~ProxyCleanup → ReleaseAll → SwiftReleaseTrampoline.Release(handle)`,
   the Mono-safe Cdecl trampoline).
-- `OnEveryProtocolDeinit` (Swift deinit, Cdecl): `Unregister` + `NotifyDeinit` (marks the entry
-  `Released`; does **not** itself call native release).
+- `OnEveryProtocolDeinit` (Swift deinit, Cdecl) → `OnEveryProtocolDeinitCore`: free the
+  handle-keyed impl GCHandle / `SwiftObjectRegistry.Unregister` / scrub the R0 entry; does
+  **not** itself call native release of R0. (There is no `NotifyDeinit` API.)
 - Receivers resolve the impl with `SwiftObjectRegistry.TryGetProxy<IProtocolProxyImpl<IFace>>(handle)`
   then `proxy.UserImpl` (the weak unwrap). On a null impl they **fabricate** a return value
   (`AllocZeroedSwiftBuffer`, `SwiftOptional.NewNone`, empty collection, `string.Empty`).
@@ -369,49 +370,42 @@ must be a distinct fixture with optional-first ordering.
 
 ## Defect F — vtable property-slot membership divergence + Finding 31 invariant
 
-Three predicates decide "does this protocol property get a vtable slot?" and they diverge on the
-`IsProtocolRequirement` axis:
+**As built:** membership is one oracle — `VtableLayoutBuilder.Classify*` (layout walks use
+`VtableLayout.IncludedSlots`). `ProtocolVtableMembers.Includes{Property,Subscript,Method}` is a thin
+`Classify* == Included` view and cannot drift from the model. Non-requirement properties are
+excluded (`!IsProtocolRequirement`). Finding 31 / `ProtocolVtableMembersInvariantTests` pin the
+flag matrix so the sites cannot re-diverge.
 
-- Vtable **struct** emitter `EveryProtocolEmitter.cs:503`: `IsStatic || IsObjCOptional` (no
-  `!IsProtocolRequirement`).
-- `ProtocolVtableMembers.IncludesProperty:22` (the documented "single source of truth", used by the
-  cross-module parent scaffolding): `IsStatic || IsObjCOptional` (no `!IsProtocolRequirement`).
-- Plan/fan-out builders `EveryProtocolEmitter.cs:680, 703, 774`:
-  `IsStatic || IsObjCOptional || !IsProtocolRequirement`.
-
-A non-requirement property (e.g. a protocol-extension default-impl property) is therefore *included*
-in the struct layout + `IncludesProperty` but *excluded* by the populators → a struct slot the
-populator never fills, and since Swift copies the vtable positionally, populated fields land in the
-wrong Swift slots (Finding-8 corruption). Correct direction: a non-requirement property has no C#
-override to dispatch to (Swift owns the default impl), so it should have **no** slot — **exclude** it
-everywhere.
-
-**Fix.** Make `ProtocolVtableMembers.IncludesProperty` authoritative for the `!IsProtocolRequirement`
-exclusion and route the struct emitter (`:503`) through it (or add `|| !property.IsProtocolRequirement`
-to both `:503` and `IncludesProperty:22`). Note the plan builders apply only a *subset* of
-`IncludesProperty`'s conditions (they do not exclude closure/Self/mixed-generic properties), so full
-predicate unification is not a literal merge — the invariant test pins the intended relationship
-rather than asserting byte-identity.
+**Historical defect (pre-fix):** three predicates once decided "does this protocol property get a
+vtable slot?" and diverged on the `IsProtocolRequirement` axis — the vtable **struct** emitter and
+`ProtocolVtableMembers.IncludesProperty` lacked `!IsProtocolRequirement`, while plan/fan-out
+builders excluded non-requirements. A non-requirement property was therefore *included* in the
+struct layout but *excluded* by the populators → a struct slot the populator never fills, and since
+Swift copies the vtable positionally, populated fields land in the wrong Swift slots (Finding-8
+corruption). Correct direction (shipped): a non-requirement property has no C# override to dispatch
+to (Swift owns the default impl), so it has **no** slot — **exclude** it everywhere via
+`VtableLayoutBuilder.ClassifyProperty`.
 
 **Finding 31 invariant test.** A unit test that constructs synthetic `PropertyDecl`s across the flag
 matrix `IsStatic × IsObjCOptional × IsProtocolRequirement × IsFromExtension` and asserts
-`ProtocolVtableMembers.IncludesProperty` agrees with the plan-builder predicate on slot membership
-for every combination — locking the three sites together so they cannot re-diverge.
+slot-membership agreement for every combination — locking the oracle and consumers together so they
+cannot re-diverge.
 
 **Fixture (red-first) — reachability finding (2026-06-13).** The originally-planned end-to-end
 fixture (a required property + a *protocol-extension* non-requirement property) is **unreachable**:
 the parser strips protocol-extension non-requirement members at the population site
-(`SwiftABIParser.cs:1085` keeps `!(IsFromExtension && !IsProtocolRequirement)`), so an
+(`SwiftABIParser` keeps only members that are not both `IsFromExtension` and
+`!IsProtocolRequirement`), so an
 `IsFromExtension && !IsProtocolRequirement` property never reaches the emitter — a BindingTests
 fixture of that shape would pass *pre-fix* (the divergent property is gone before any emitter
 predicate sees it), i.e. green-for-the-wrong-reason. The only row that survives the parser to trigger
 the emitter-layer divergence is `!IsFromExtension && !IsProtocolRequirement` (a body property the ABI
 digester marks `protocolReq=false`), which normal Swift source does not produce on demand. The
 durable gate is therefore the **emitter-layer invariant test** (`Finding 31`), which constructs the
-divergent `PropertyDecl` directly (bypassing the parser) and pins `IncludesProperty`, the struct
-emitter, and the plan populators together — verified red (reverting the `IncludesProperty` guard fails
+divergent `PropertyDecl` directly (bypassing the parser) and pins membership oracle, struct
+emitter, and plan populators together — verified red (reverting the non-requirement exclusion fails
 the `static=False objcOpt=False req=False ext=False` row) → green. The emitter fix is therefore
-defense-in-depth: it keeps the three predicates consistent so *any* future path that lands a
+defense-in-depth: it keeps membership consistent so *any* future path that lands a
 non-requirement property at the emitter (parser-filter change, a `protocolReq=false` body property,
 or a synthetic decl) cannot shift the vtable layout.
 

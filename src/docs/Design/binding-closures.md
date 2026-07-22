@@ -154,16 +154,27 @@ This eliminates the need for the "heavy-handed" approach described in the Runtim
 
 ### Closure Cdecl compatibility
 
-Not all closure signatures can be represented as `@convention(c)`. The generator checks each closure parameter for Cdecl compatibility (`IsCdeclCompatibleType` in `ClosureEmitter.SwiftWrapper.cs`):
-- Primitive types, pointers, and `OpaquePointer` are Cdecl-compatible
-- Coverage extends to frozen structs (including `Swift.String`, via dedicated string-callback marshalling), non-frozen structs, complex enums, and protocol existentials (bridged as heap pointers)
+Not all closure signatures can be represented as `@convention(c)`. The generator checks each closure parameter for Cdecl compatibility (`IsCdeclCompatibleType` in `ClosureEmitter.SwiftWrapper.cs`). That gate is the full set; the main admitted categories are:
+
+- Primitive types, `Swift.Bool`, pointers, and `OpaquePointer`
+- Classes and ObjC-bridged classes (pointer ABI)
+- Simple enums (underlying integer ABI)
+- Frozen structs (including `Swift.String`), non-frozen structs, and complex enums (heap-pointer ABI where needed)
+- Protocol existentials (bridged as heap pointers), except well-known-protocol wrapping cases that stay on the non-Cdecl path
+- Selected `Optional<…>` shapes: reference types (nil-pointer ABI); numeric primitives / `Bool` / simple enums / frozen structs (heap or nil-for-none ABI)
 
 A method gets a **standalone closure wrapper** only when *all* of its thunk closures are Cdecl-compatible (`NeedsClosureCdeclWrapper`). Methods with any closure that can't be Cdecl-adapted fall back to **direct `CallConvSwift` P/Invoke** with the original Swift thick closure ABI.
 
 ### Delegate projection
 
-Closure types are projected to C# as `Action<>` and `Func<>` delegates. The generated marshalling code handles the conversion between .NET delegates and Swift closure representations at the P/Invoke boundary.
+Closure types are projected to C# as BCL `Action<>` / `Func<>` delegates (`ClosureHandler.GetCSharpDelegateType` / `ClosureProjection.BuildDelegateType`):
+
+- Plain closures → `Action<…>` or `Func<…, T>`
+- Throwing (non-async) → `Func<…, SwiftResult<T, SwiftError>>` (or `SwiftResult<SwiftVoid, SwiftError>` for void success)
+- Async → `Func<…, Task>` / `Func<…, Task<T>>` (async+throwing surfaces errors via the continuation, not a nested `SwiftResult`)
+
+The generated marshalling code handles the conversion between those .NET delegates and Swift closure representations at the P/Invoke boundary. Custom per-signature `delegate` type declarations are a non-goal (historical alternative only).
 
 ## Accessibility
 
-The main decision in presenting Swift closure types to C# programmers is how to present the types to the user. We can use the types `Func<>` and `Action<>`, but they create an artificial distinction between closures that have or lack return values and that end ups complicating adapting code. Or we can create `delegate` type declarations that match the closure definition.
+As built, Swift closure types are presented to C# as BCL `Action<>` / `Func<>` (with the `SwiftResult` / `Task` wrappers above). Custom `delegate` type declarations matching each Swift signature were considered early on but were not adopted — they would avoid the Action/Func return-vs-void split, at the cost of a larger generated surface, and the generator settled on the BCL forms.

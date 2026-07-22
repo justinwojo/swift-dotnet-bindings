@@ -142,11 +142,10 @@ implicitly converts to `Span<byte>` is supported:
 - A `Memory<byte>.Span` slice — the underlying `MemoryManager<byte>`
   controls pinning; the projection is agnostic.
 
-The `fixed` statement uses `Span<byte>.GetPinnableReference()`, which
-returns a managed reference even for empty spans (a sentinel reference
-to a zero-length region). The Swift `@_cdecl` thunk reconstructs an
-`UnsafeMutableRawBufferPointer(start: nil, count: 0)` for empty spans —
-matching the read-only path.
+The `fixed` statement pins via `Span<byte>.GetPinnableReference()`.
+Empty spans pin to a null pointer; the Swift `@_cdecl` thunk reconstructs
+`UnsafeMutableRawBufferPointer(start: nil, count: 0)` — matching the
+read-only path.
 
 ## Pinning
 
@@ -216,9 +215,9 @@ public func SBW_TestLib_ImageDecoder_fill_<hash>(
 
 The pointer half is `UnsafeMutableRawPointer?` (optional) — not
 `UnsafePointer<UInt8>?` — because `UnsafeMutableRawBufferPointer.init(start:count:)`
-takes an optional mutable raw pointer, and an empty C# span pins to a
-non-null sentinel that we want Swift to interpret as
-`UnsafeMutableRawBufferPointer(start: nil, count: 0)` when count is zero.
+takes an optional mutable raw pointer, and empty C# spans pin to a **null**
+pointer (`WrapperEmitter` / `CdeclParamMapper`), which Swift reconstructs as
+`UnsafeMutableRawBufferPointer(start: nil, count: 0)`.
 (The read-only path uses the same convention with the immutable
 counterparts.)
 
@@ -245,18 +244,17 @@ metadata.
 
 ## SWIFTBIND104
 
-When a method's signature contains an `UnsafeMutableRawBufferPointer`
-in an out-of-scope position, the generator skips the member and emits
-`SWIFTBIND104`:
+When a method's signature contains an `UnsafeRawBufferPointer` or
+`UnsafeMutableRawBufferPointer` in an out-of-scope position, the generator
+skips the member and emits `SWIFTBIND104`. Both variants share the same
+gates (`IsAnyUnsafeRawBufferPointer`). The live message templates in
+`MemberEmissionValidator` are:
 
-> **SWIFTBIND104**: Skipping `<member>` because
-> `UnsafeRawBufferPointer` / `UnsafeMutableRawBufferPointer` appears in
-> an unsupported position (return type, async method parameter, or
-> escaping closure parameter). v1 supports synchronous, nonescaping
-> parameters only. See
-> `src/docs/Design/unsafe-mutable-raw-buffer-pointer.md`.
+- Return: `SWIFTBIND104: '{returnTypeName}' is not supported as a return type. v1 supports synchronous, nonescaping parameters only.`
+- Async parameter: `SWIFTBIND104: '{bufTypeName}' is not supported as a parameter on async methods. v1 supports synchronous, nonescaping parameters only.`
+- Inout parameter: `SWIFTBIND104: 'inout {bufTypeName}' is not supported as a parameter. v1 supports synchronous, nonescaping by-value raw-buffer parameters only.`
 
-The validator emits SWIFTBIND104 in two places:
+The validator emits SWIFTBIND104 in three places:
 
 1. Return-position — any method whose return type is one of the buffer
    pointer variants.
@@ -264,17 +262,20 @@ The validator emits SWIFTBIND104 in two places:
    parameter (the `fixed` block scopes only the synchronous P/Invoke
    start; an awaiting continuation would leave Swift with a dangling
    pointer).
+3. Inout parameter — any `inout` raw-buffer parameter (the C# side splits
+   raw buffers into `(IntPtr, nint)`, but the inout cdecl mapper would
+   produce a single pointer reconstructed as a buffer-pointer struct —
+   an ABI mismatch until both sides agree on a split/writeback shape).
 
 Escaping-closure parameter rejection happens upstream in
 `MethodClosureBridge.IsSwiftPointerType`, which excludes both buffer
 pointer variants from closure bridging — those methods are skipped
 before reaching the SWIFTBIND104 gate.
 
-`UnsafeRawBufferPointer` (read-only) shares the same constraints, but
-its existing emission path silently falls through to "Unsupported" for
-out-of-scope shapes. v1 does not retroactively add a warning for the
-read-only path — that is a separate cleanup. The new warning is scoped
-to the writable variant introduced here.
+**Note:** diagnostic id `SWIFTBIND104` is also used for an unrelated
+failure in `XCFrameworkResolver` (static-archive symbol enumeration).
+The id is not unique to the raw-buffer feature; treat the full message
+text, not the number alone, as the discriminator.
 
 ## Implementation map
 
@@ -305,8 +306,8 @@ Existing patterns we reuse rather than re-invent:
 
 ## v2 — deferred
 
-These are explicitly out of scope for v1. Each lives in
-`src/docs/roadmap.md`:
+These are explicitly out of scope for v1. Deferred — recorded in this
+doc only, not scheduled (not listed in `roadmap.md` / `not-planned.md`):
 
 - **Escaping closure parameter**: requires `Span<byte>` lifetime to
   outlive the synchronous frame. Likely solution: native-allocated

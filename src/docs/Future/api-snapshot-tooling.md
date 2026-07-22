@@ -12,12 +12,12 @@ No mechanism to detect when a generator change alters the public API surface of 
 
 - Script that extracts public API surface from generated `.cs` files
 - Baseline snapshot checked into repo
-- `build-and-test.sh` optionally compares against baseline
+- An optional nuke/CI step compares against baseline
 - Clear diff output showing added/removed/changed members
 
 ## Consideration
 
-Potentially noisy during active development. May be better gated on releases or opt-in. Could feed into CI integration (roadmap task 2) as an optional comparison step.
+Potentially noisy during active development. May be better gated on releases or opt-in. Tracked as deferred tooling in `src/docs/not-planned.md`; could feed into an optional CI comparison step when picked up.
 
 ## Key Files
 

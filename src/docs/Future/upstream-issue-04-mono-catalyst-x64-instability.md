@@ -32,7 +32,7 @@ A binding generator that emits C# P/Invokes against Swift libraries via `CallCon
 
 On **`maccatalyst-x64` (Mono x64 workload under Rosetta on Apple Silicon)**, the same exact build crashes with **at least four distinct, deterministic per-ordering crash classes** at unrelated call sites:
 
-1. **First crash** — sync managed `throw` after an out-error-pointer P/Invoke (`SwiftMarshal.ThrowSwiftError` → `throw new SwiftException(...)` inside `try { } finally { releaseError(...) }`). Fault is inside `mono_handle_exception_internal` (NULL deref during exception unwinder traversal). Crashes deterministically at test #387 (`BasicThrowingTests.TestDivideByZeroThrows`). Inserting trivial pure-managed warmup `throw`s earlier in the suite pushes this crash past the warmup point.
+1. **First crash** — sync managed `throw` after an out-error-pointer P/Invoke (`SwiftMarshal.ThrowSwiftError` → ownership of the error pointer transfers into `SwiftException`, then `throw` with **no** release on the throw path — release is deferred to finalization, so there is no try/finally + P/Invoke around the throw). Fault is inside `mono_handle_exception_internal` (NULL deref during exception unwinder traversal). Crashes deterministically at test #387 (`BasicThrowingTests.TestDivideByZeroThrows`). Inserting trivial pure-managed warmup `throw`s earlier in the suite pushes this crash past the warmup point.
 
 2. **Second crash** — JIT-compiled wrapper for the auto-generated 2-arg trim overload of an async-throwing instance method (`DefaultedAsyncRoster.AppendOrThrowAsync(source, shouldThrow)`). Fault is in JITted code, fault address near null (observed values: `0x2`, `0x4`, `0x44`) via a `cmp [rax], al` instruction with rax holding a near-null pointer. Hits both call sites of the 2-arg trim variant — `TrimDropsBoth_FillsSwiftDefaults` and `TrimDropsBoth_ThrowsFaultsTask`. The 3-arg primary `AppendOrThrowAsync(source, shouldThrow, options)` on the same fixture passes. The no-throws 2-arg trim `AppendAsync(source)` also passes. The crash is specific to the **async + throws + trim-overload** combination on this fixture.
 
@@ -70,7 +70,7 @@ For **end-user consumers** of a SwiftBindings binding nupkg, the same workaround
 
 Defensive workarounds left in tree (helpful for future `--catalyst-x64-jit` probes and a no-op under interpreter):
 
-- `SwiftMarshal.ThrowSwiftError` (`src/Swift.Runtime/.../InteropServices/SwiftMarshal.cs`) releases the Swift error pointer **before** the managed `throw new SwiftException(...)` rather than via a `finally` wrapping the throw. Avoids the "throw inside try/finally with a P/Invoke in the cleanup block" shape, which is fragile under any Mono x64 unwinder.
+- `SwiftMarshal.ThrowSwiftError` (`src/Swift.Runtime/.../InteropServices/SwiftMarshal.cs`) transfers ownership of the Swift error pointer into `SwiftException` and throws with **no** release on the throw path (release is deferred to finalization). Avoids the "throw inside try/finally with a P/Invoke in the cleanup block" shape, which is fragile under any Mono x64 unwinder.
 - `BasicSyncThrowProbeTests` (4 pure-managed-throw probes inserted alphabetically before `BasicThrowingTests`) — original warmup for class 1; kept as scaffolding for `--catalyst-x64-jit` verification runs and as a generic Mono x64 warmup probe.
 - `SkipOnCatalystX64` attribute infrastructure (`BindingTests/RuntimeTestsApp/Infrastructure/TestResults.cs`) plumbed through `TestDiscoveryGenerator` + `TestBase`, runtime-detected via `OperatingSystem.IsMacCatalyst() && RuntimeInformation.ProcessArchitecture == Architecture.X64`. Zero call sites today (all 3 prior-annotated tests pass cleanly under interpreter), but retained as a generic RID-specific escape hatch.
 
@@ -119,7 +119,7 @@ The crashing trim and the two passing variants share the exact same emission mac
 
 **Only emitter-side oddity surfaced:**
 
-`DefaultParameterOverloadEmitter` emits an unused `_dbw_` `@_silgen_name` shim per async trim (`DefaultParameterOverloadEmitter.cs:622`-ish, gated on `!overloadDecl.IsAsync` only for the *cdecl method wrapper* path, not for the silgen-wrapper path). The async harness never calls this shim — it `@_cdecl`s the real Swift method directly. This is dead code in the emitted Swift wrapper, not a crash source: no symbol the runtime resolves points at it, and removing it would not change either passing variant's behavior or the crashing variant's behavior.
+`DefaultParameterOverloadEmitter` emits an unused `_dbw_` `@_silgen_name` shim per async trim (the `!overloadDecl.IsAsync` gate on the cdecl method-wrapper path in `DefaultParameterOverloadEmitter.cs` skips the *cdecl method wrapper* for async, not the silgen-wrapper path). The async harness never calls this shim — it `@_cdecl`s the real Swift method directly. This is dead code in the emitted Swift wrapper, not a crash source: no symbol the runtime resolves points at it, and removing it would not change either passing variant's behavior or the crashing variant's behavior.
 
 **Why this is confirmed upstream, not a generator bug:**
 

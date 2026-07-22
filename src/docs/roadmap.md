@@ -2,7 +2,7 @@
 
 This doc covers work we actually intend to do, confirmed-upstream blocked items, and hard scope boundaries. Acknowledged-but-not-planned items — trigger-gated latents, deferred designs, pending owner decisions — live in [`not-planned.md`](not-planned.md); route new leftovers there, not here. Live baseline counts live in `build/baselines/validation-baseline.json`; per-library status lives with each package.
 
-> **Every skipped test is guilty until proven innocent.** There are exactly 4 confirmed upstream .NET runtime behaviours — see `Blocked` section below + memory `feedback_mono_jit_blame.md`. If a crash doesn't match one of these, it's our bug.
+> **Every skipped test is guilty until proven innocent.** There are exactly 5 confirmed upstream .NET runtime behaviours — see `Blocked` section below + memory `feedback_mono_jit_blame.md`. If a crash doesn't match one of these, it's our bug.
 
 ---
 
@@ -11,14 +11,14 @@ This doc covers work we actually intend to do, confirmed-upstream blocked items,
 Distilled from a now-retired `research-directions.md` discussion. Standing framing for "what's next" decisions; revisit a point only if a new signal contradicts it.
 
 - **We are input-poor, not bug-poor.** Nearly every parked item (see `not-planned.md`) is "no active repro / not reached by any current corpus library." More internal bug-chasing and re-scanning the same validation libraries has sharply diminishing returns — it rediscovers known latents that already have "no emission site." The highest-value *remaining* bug source is **new real consumer inputs**, not internal sweeps. Don't launch another broad internal audit/refactor expecting a yield; lower the barrier to real inputs instead.
-- **The thin ABI corners are now exercised and graded.** The ABI coverage grid (`src/docs/Design/abi-coverage-grid.md`, `BindingTests/abi-grid-manifest.json`, `nuke binding-tests --abi-grid`) manufactured the under-tested corners the real-library corpus structurally can't reach — closures, inout, tuples, constrained generics — and grades each cell on its declared+exercised runtimes (sim = Mono JIT, device = NativeAOT). Of the 52 cells, **41 are expect-green** (release-gating — confirmed safe on sim + device), **4 are supported-low-priority** (reported, not gated), and **7 are by-design-gray** (intentionally unsupported, each citing a roadmap rationale — e.g. `@autoclosure`, the async closure-param fan-out leg). So the expect-green latents are "confirmed safe," not "unknown"; the gray cells are documented non-goals, not gaps — don't read the grid as "all corners green." The grid is a standing artifact; its cells are ordinary BindingTests gated by the everyday pass-count, so no separate baseline is needed. Widen to a new corner (actors / PATs / composition) only if a real consumer report or validation red motivates it.
+- **The thin ABI corners are now exercised and graded.** The ABI coverage grid (`src/docs/Design/abi-coverage-grid.md`, `BindingTests/abi-grid-manifest.json`, `nuke binding-tests --abi-grid`) manufactured the under-tested corners the real-library corpus structurally can't reach — closures, inout, tuples, constrained generics — and grades each cell on its declared+exercised runtimes (sim = Mono JIT, device = NativeAOT). Of the 57 cells, **46 are expect-green** (release-gating — confirmed safe on sim + device), **4 are supported-low-priority** (reported, not gated), and **7 are by-design-gray** (intentionally unsupported, each citing a roadmap rationale — e.g. `@autoclosure`, the async closure-param fan-out leg). So the expect-green latents are "confirmed safe," not "unknown"; the gray cells are documented non-goals, not gaps — don't read the grid as "all corners green." The grid is a standing artifact; its cells are ordinary BindingTests gated by the everyday pass-count, so no separate baseline is needed. Widen to a new corner (actors / PATs / composition) only if a real consumer report or validation red motivates it.
 - **Async-emitter consolidation: investigated, not pursued.** The "merge the diverged async emitters" idea was audited and rejected. Reality is ~10 files / ~8,980 LOC, not 3; ~40% is genuinely-different jobs that must not merge (SwiftUI async-View, AsyncStream, AsyncSequence, async-closure inversion, the CSM generic-parent 2-param error ABI), and most remaining divergence is *intentional* — a naive merge would introduce a new ABI bug against working marshalling code. The divergence bugs are real (≥7 in 12 months) but were caught by *new input shapes reaching the path*, never by structure review — reinforcing the input-poor thesis. Only survivor is optional Tier-1 exact-duplicate extraction (`BuildMethodOwnGenericParams` ×2, the `SBW_CancelTask`/`SBW_Free` P/Invoke blocks, the Swift catch-body builder); everything above that is not worth the risk. Don't re-open without a new motivating signal.
 
 ---
 
 ## Prediction-gate freeze policy (hard policy boundary)
 
-A standing rule for anyone (contributor or agent) tempted to add a new hand-coded *prediction gate* — an emission-time predicate that pre-screens a member/shape to head off a downstream failure (the `SkipReason.*` / `MemberValidationPipeline` / `WrapperValidation` family). This is policy, not a to-do; it constrains what we *add*, and it is the settled disposition of the binding-resilience program's division-of-labor question (full rationale: `binding-resilience-design.md` §2, "The prediction/verification division of labor").
+A standing rule for anyone (contributor or agent) tempted to add a new hand-coded *prediction gate* — an emission-time predicate that pre-screens a member/shape to head off a downstream failure (the `SkipReason.*` / `MemberValidationPipeline` / `WrapperValidation` family). This is policy, not a to-do; it constrains what we *add*, and it is the settled disposition of the binding-resilience program's division-of-labor question (full rationale: `Design/binding-resilience-design.md` §2, "The prediction/verification division of labor").
 
 The line: **compiler success cannot prove ABI correctness.** swiftc and Roslyn are syntax / type-system / linkage oracles; neither proves the two sides agree on calling convention, register class, ownership, field offsets, or witness-table width. That splits every candidate gate cleanly:
 
@@ -42,14 +42,15 @@ Real capability gaps with an active incremental trajectory — closed shape-by-s
 
 ## Blocked (Confirmed Upstream Only)
 
-These are the **only** confirmed upstream issues. There are exactly 4 (reproduced in standalone repro at `/Users/wojo/Dev/swift-interop-repro/`). If a crash doesn't match one of these, it's our bug. See `feedback_mono_jit_blame.md` for the full investigation checklist.
+These are the **only** confirmed upstream issues. There are exactly 5 — issues 1–4 are reproduced in the standalone repro at `/Users/wojo/Dev/swift-interop-repro/`; issue 5 is proven upstream via a pure-managed A/B substitution inside BindingTests (standalone reduction still pending, owner files it). If a crash doesn't match one of these, it's our bug. See `feedback_mono_jit_blame.md` for the full investigation checklist.
 
 | Filing | Issue | Blocked By |
 |--------|-------|-----------|
 | 1 | **Mono: JIT assertion `!ji->async` on CallConvSwift P/Invoke** | Fatal `jit-info.c:918` during stack unwinding through a `wrapper_managed_to_native_*` frame after a native crash in a `CallConvSwift` callee. Workaround: `@_silgen_name` Swift wrappers / avoid native crashes through `CallConvSwift` |
-| 2 | **Non-blittable type rejection with CallConvSwift** | .NET runtime design limitation. Workaround: `@_cdecl` wrappers (already covers 78.5% of P/Invokes) |
+| 2 | **Non-blittable type rejection with CallConvSwift** | .NET runtime design limitation. Workaround: `@_cdecl` wrappers (~67% of P/Invokes require them — see `Future/upstream-issue-02-non-blittable-callconvswift.md`) |
 | 3 | **Mono: `Cannot transition thread from STARTING with DONE_BLOCKING` on `(Bool, @out via x0)` tuple-return CallConvSwift** | Specific to `Set<T>.insert` ABI shape. `Set.contains` (no `@out`) passes. Workaround: `@_cdecl` Swift wrapper |
-| 4 | **Mono: Mac Catalyst x64 instability** | Mono-JIT instability specific to the Mac Catalyst x64 runtime. See `Future/upstream-issue-04-mono-catalyst-x64-instability.md`. Workaround: `[SkipOnCatalystX64]` on affected tests |
+| 4 | **Mono: Mac Catalyst x64 instability** | Mono-JIT instability specific to the Mac Catalyst x64 runtime. See `Future/upstream-issue-04-mono-catalyst-x64-instability.md`. Workaround: Mono interpreter is the default for `--catalyst-x64` (`[SkipOnCatalystX64]` retained as escape hatch, no call sites) |
+| 5 | **Mono (ios-sim arm64): exception-unwinder PAC fault on canceled shared-ref-generic `Task<T>`** | `EXC_BAD_ACCESS` in `mono_arch_unwind_frame` throwing `OperationCanceledException` out of a canceled `Task<T>` (reference-type `T`) on a UIKit sync-context continuation; zero Swift/P-Invoke frames on the faulting stack. See `Future/upstream-issue-05-mono-unwinder-oce-pac.md`. Workaround: `[SkipOnMonoJit]` on the two affected cancellation tests |
 | comment | **Mono: SafeHandle async lifetime** (tracking-issue comment, no standalone filing) | GC may collect SafeHandle during async suspension. Workaround: manual ARC retain/release or singleton pattern |
 
 | Other | Status |
@@ -60,16 +61,18 @@ These are the **only** confirmed upstream issues. There are exactly 4 (reproduce
 
 ## Not Worth Addressing
 
+Counts are from `build/baselines/validation-baseline.json` `skip_metrics.skip_reasons` (baseline frozen 2026-06-28) — re-read the baseline for current figures rather than trusting this table.
+
 | Skip Reason | Count | Why Not |
 |-------------|------:|---------|
-| @_spi / internal members | ~750 | Correct behavior — private API should not be bound |
-| Synthesized Codable | ~730 | .NET consumers use own serialization (`System.Text.Json`, etc.) |
-| AnyTypeFallback (`Any`, `[Any]`, `Optional<Any>`, ObjC delegate protocols, PAT subscripts) | ~614 | PAT classification + by-design Swift `Any` + ObjC protocols + cross-library — fully architecturally-deferred. In-scope single-module gaps measure 0 hits. |
-| Unsupported signatures (associated types, bare generics) | ~611 | Swift patterns with no C# equivalent |
-| Generic protocol constraints / PATs | ~453 | Architecturally blocked by associated type erasure |
-| SwiftUI/Combine dependencies | ~181 | Framework boundary — consumers use SwiftUI bridge instead (`SwiftUIConstraint` + `SwiftUIView`) |
-| Unsupported existential (opaque generics) | ~90 | Fundamental limitation of Swift's type system vs C# generics |
-| UnsatisfiedGenericConstraint (remaining) | ~76 | Fundamental type system constraints, not relaxable gates |
+| @_spi / internal members (`ModuleInternal`) | ~874 | Correct behavior — private API should not be bound |
+| Synthesized Codable | ~971 | .NET consumers use own serialization (`System.Text.Json`, etc.) |
+| AnyTypeFallback (`Any`, `[Any]`, `Optional<Any>`, ObjC delegate protocols, PAT subscripts) | ~420 | PAT classification + by-design Swift `Any` + ObjC protocols + cross-library — fully architecturally-deferred. In-scope single-module gaps measure 0 hits. |
+| Unsupported signatures (associated types, bare generics) | ~1420 | Swift patterns with no C# equivalent |
+| Generic protocol constraints / PATs | ~392 | Architecturally blocked by associated type erasure |
+| SwiftUI/Combine dependencies | ~177 | Framework boundary — consumers use SwiftUI bridge instead (`SwiftUIConstraint` + `SwiftUIView`) |
+| Unsupported existential (opaque generics) | ~95 | Fundamental limitation of Swift's type system vs C# generics |
+| UnsatisfiedGenericConstraint (remaining) | ~272 | Fundamental type system constraints, not relaxable gates |
 
 ---
 
@@ -117,7 +120,7 @@ and found patterns BindingTests had no coverage for.
 | Full Swift type graph infrastructure | Over-engineered for current needs |
 | Deep generic signature / associated type constraint emission | C# generics can't express Swift's full type system |
 | Result builder (`@resultBuilder`) projection | Compile-time Swift feature, no ABI JSON representation |
-| Broad `@dynamicMemberLookup` reification (beyond targeted Apple Supplement shims) | Affects <5 types across 53 validation libraries. `AttributedString` is covered narrowly via a hand-rolled partial layered on the Apple Supplement xcframework (Session 7 — `LanguageIdentifier` shipped; `link`/`foregroundColor`/etc. follow the same shape on demand). The general "walk every `@dynamicMemberLookup` host and reify per-key C# properties" pass is still out of scope. |
+| Broad `@dynamicMemberLookup` reification (beyond targeted Apple Supplement shims) | Affects <5 types across 66 validation libraries. `AttributedString` is covered narrowly via a hand-rolled partial layered on the Apple Supplement xcframework (Session 7 — `LanguageIdentifier` shipped; `link`/`foregroundColor`/etc. follow the same shape on demand). The general "walk every `@dynamicMemberLookup` host and reify per-key C# properties" pass is still out of scope. |
 | Composing SwiftUI view trees from C# | Result builders are a compiler feature |
 | Structs projected as C# value types | Only safe for frozen+blittable subset; marginal benefit |
 
@@ -133,7 +136,7 @@ Framework-specific consequences of the result-builder / source-gen / PAT boundar
 | **RC-SB0003 reverse witness dispatch** | Case-by-case; many are by-design Swift limits. The forward (C#-implements) path works and is the supported mechanism. |
 | **`@autoclosure`** (RC-CLOSURE) | No shipping-framework consumer; revisit only if one needs it. |
 | **App-defined PAT conformers** (RC-PAT; e.g. ProximityReader `requestDocument`) | CSM only works for Apple-finite conformer sets; app-defined conformers are source-gen territory. |
-| **RealityKit detached-setter `willSet` trap** (RC-WILLSET) | Framework `willSet` precondition; no ABI route bypasses a Swift property observer. A best-effort preflight guard + doc note shipped; nothing more is generator-fixable. |
+| **RealityKit detached-setter `willSet` trap** (RC-WILLSET) | Framework `willSet` precondition; no ABI route bypasses a Swift property observer, so nothing is generator-fixable here — the setter must be called on an attached entity per the framework's own contract. |
 | **General `Measurement<T>` value-only projection** | Foundation type behavior, not a binding defect. The targeted `Measurement<T>(double, T)` ctor (WorkoutKit range alerts) is a deliberate narrow surface, not a general round-trippable `Measurement<T>`. |
 | **BlinkIDUX raw `events` stream** (RC-PAT; third-party) | `BlinkIDAnalyzer.events` getter stays a produce-throw (compile-poisoned SB0006): its root proxy `EventStreamProxy` is blocked by a PAT (`associatedtype Event`), which is not forward-safe, so it correctly stays fail-closed. Supported path: the concrete `BlinkIDEventStream.Stream` `IAsyncEnumerable`, which works. |
 | **Authoring brand-new C# conformers behind forward-only proxies** (RC-SB0003 instance) | After the EveryProtocol proxy rescue, RealityFoundation `IMaterial`/`ISynchronizationService` project through forward-only proxies with no reverse-dispatch impl ctor — writing a from-scratch C# conformer and packing it into the framework stays unsupported. Consuming and round-tripping framework-produced instances works. |

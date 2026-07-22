@@ -13,24 +13,31 @@ managed definition anywhere. The supplement is the central,
 identity-preserving home for those generated types.
 
 Hand-rolling them into `SwiftBindings.Runtime` — the pre-Phase-2 pattern
-for legacy canonicals (`Foundation.Date`, `.Data`, `.URL`, `.Decimal`,
-`.Measurement<T>`, `.AnyError`, `ManagedSettings.Token<T>`,
-`SwiftUI.Text`) — doesn't scale: every iOS version adds types, every
-hand-roll needs VWT/mangled-symbol/frozen analysis, and it couples
-`Runtime` version to iOS SDK version.
+for a handful of legacy canonicals — doesn't scale: every iOS version
+adds types, every hand-roll needs VWT/mangled-symbol/frozen analysis,
+and it couples `Runtime` version to iOS SDK version. Those Foundation /
+ManagedSettings / SwiftUI hand-rolls have since moved into
+`SwiftBindings.Apple` (see decision 2); Runtime keeps only a few stdlib
+pins.
 
 ## Decision summary
 
 1. **One package: `SwiftBindings.Apple`**, versioned per Apple SDK train
    (iOS 26 → `26.x.x`). Internal CLR namespacing per Swift module
    (`Swift.Foundation.*`, `Swift.ManagedSettings.*`, …).
-2. **Supplement contains only NEWLY-generated Apple Swift-only types.**
-   Legacy Runtime-owned canonicals stay in `SwiftBindings.Runtime`
-   indefinitely. `[TypeForwardedTo]` migration was rejected because it
-   would require `Runtime` to reference `Apple` (cycle / violates
-   runtime SDK-agnosticism) and cannot rename types, so namespace
-   migration would break consumers. Revisit at a deliberate
-   major-version cleanup.
+2. **Supplement owns the Apple Swift-only surface (generated + moved
+   hand-rolls).** Legacy Foundation / ManagedSettings / SwiftUI hand-rolls
+   that once lived in Runtime now ship from `SwiftBindings.Apple`
+   (`Foundation.Data`, `.URL`, `.AnyError`, `.Measurement<T>`,
+   `ManagedSettings.Token<T>`, `SwiftUI.Text`, …). `Foundation.Date` and
+   `Decimal` are projections (to `double` / `NSDecimalNumber`), not Runtime
+   hand-rolls. `SwiftBindings.Runtime` retains only the stdlib pins in
+   `TypeOwnerRegistry.s_legacyRuntimeCanonicals`: `Swift.AnyHashable`,
+   `Swift.Hasher`, `Swift.DispatchQueue`, `Swift.String`. A broader
+   `[TypeForwardedTo]` migration for remaining identity cleanups was
+   rejected because it would require `Runtime` to reference `Apple`
+   (cycle / violates runtime SDK-agnosticism) and cannot rename types.
+   Revisit at a deliberate major-version cleanup.
 3. **VWT-backed opaque storage is the default for ALL supplement types.**
    `[StructLayout(Sequential)]` is emitted only via explicit per-type
    whitelist after metadata size/alignment verification and runtime
@@ -38,10 +45,10 @@ hand-roll needs VWT/mangled-symbol/frozen analysis, and it couples
    not sufficient — memory-corruption risk is too high to trust a
    single flag.
 4. **Authoritative metadata lives in a third artifact.** Embedded under
-   `src/Swift.Bindings.Sdk/tools/apple-types-manifest/` for 0.8 — one
-   NuGet coordination surface instead of two. Format designed so it
-   can later be extracted into a standalone data package without
-   reformatting.
+   `src/Swift.Bindings.Sdk/tools/apple-types-manifest/` (still current in
+   the SDK tools tree) — one NuGet coordination surface instead of two.
+   Format designed so it can later be extracted into a standalone data
+   package without reformatting.
 5. **Package-version invariant:**
    - **Package major = Apple SDK train major.** One release per train.
    - **Cross-major additive-only.** Every new major is a strict superset
@@ -127,8 +134,8 @@ Swift-only types, and release notes (not version digits) tell consumers
 ### Decoupling from `SwiftBindings.Runtime` / `SwiftBindings.Sdk`
 
 `SwiftBindings.Runtime` and `SwiftBindings.Sdk` version on generator
-cadence (currently `0.8.x`). `SwiftBindings.Apple` versions on Apple
-SDK train (currently `26.x.x`). These are semantically unrelated and
+cadence (currently `0.17.x`). `SwiftBindings.Apple` versions on Apple
+SDK train (currently `26.2.x`). These are semantically unrelated and
 MUST NOT share a version stamp.
 
 `build/Helpers/VersionScope.cs` + `Build.Pack.cs` accept both
@@ -137,8 +144,8 @@ independently.
 
 ## Implementation specifics
 
-1. **Package name:** `SwiftBindings.Apple`. First ship:
-   `SwiftBindings.Apple 26.0.0`, built against iOS 26.2 SDK.
+1. **Package name:** `SwiftBindings.Apple`. First ship train:
+   `26.2.x` (e.g. `26.2.0`), built against iOS 26.2 SDK.
 2. **CLR namespaces:** `Swift.Foundation.*`, `Swift.ManagedSettings.*`,
    `Swift.CryptoKit.*`, etc. — mirror Apple's module organization.
 3. **Generation modes:**
@@ -173,11 +180,12 @@ Short rationale for the non-obvious decisions, for future-maintainer
 context. Full reviewer history was pruned from this doc in a
 post-Phase-2 cleanup.
 
-- **Q: Why not migrate legacy canonicals (Date, URL, Decimal, …) to
-  the supplement via `[TypeForwardedTo]`?** The forwarding mechanism
-  requires `SwiftBindings.Runtime` to depend on `SwiftBindings.Apple`
-  (cycle; violates runtime SDK-agnosticism), and cannot rename types.
-  Revisit at a deliberate major-version cleanup.
+- **Q: Why not migrate remaining identity cleanups via
+  `[TypeForwardedTo]`?** The hand-rolls (Data, URL, AnyError, …) were
+  moved into `SwiftBindings.Apple` directly; a broader TypeForwardedTo
+  migration would still require `Runtime` to depend on `Apple` (cycle;
+  violates runtime SDK-agnosticism) and cannot rename types. Revisit at
+  a deliberate major-version cleanup.
 - **Q: Why default to VWT-backed opaque storage?** `frozen=true` is
   necessary but not sufficient for sequential layout. Memory-corruption
   risk from a bad frozen-bit is too high to trust a single flag;

@@ -169,16 +169,16 @@ ret void, !dbg !333
 
 ## Memory handling
 
-To handle native memory in the scenarios above, the projections should use the value witness table to invoke `InitWithCopy` for copy operations and `Destroy` for finalization. These functions manage reference counts at any level of nesting.
+To handle native memory in the scenarios above, the projections should use the value witness table to invoke `InitializeWithCopy` for copy operations and `Destroy` for finalization (field names on `Swift.Runtime.ValueWitnessTable`). These functions manage reference counts at any level of nesting.
 
 To ensure correct memory handling:
  - Swift value types that contain reference properties should be projected as C# classes
  - When a type goes out of the block the finalizer/dispose should invoke `Destroy` function
- - When a type is marshalled to Swift as a function parameter, `InitWithCopy` should be invoked to create the copy
- - When a type is marshalled to Swift as an `inout` function parameters, an instance reference is passed. If the projected Swift instance in C# remains in C# beyond the lifetime of the callee, `InitWithCopy` should be invoked to create the copy
- - When a type is marshalled to Swift as a return parameter, `InitWithCopy` should be invoked to create the copy
- - When a type is marshalled from Swift as a return paramter, no reference counters are updated
- - When using a private "copy" constructor on the C# side for marshalling from Swift, `InitWithCopy` should be invoked
+ - When a type is marshalled to Swift as a function parameter, `InitializeWithCopy` should be invoked to create the copy
+ - When a type is marshalled to Swift as an `inout` function parameters, an instance reference is passed. If the projected Swift instance in C# remains in C# beyond the lifetime of the callee, `InitializeWithCopy` should be invoked to create the copy
+ - When a type is marshalled to Swift as a return parameter, `InitializeWithCopy` should be invoked to create the copy
+ - When a type is marshalled from Swift as a return parameter, C# takes ownership of the returned value; for by-value non-POD / buffer structs that usually means `InitializeWithCopy` into the managed wrapper plus `Destroy` of any owned stack/wire temporary (e.g. `SwiftMarshal.MarshalFromSwiftObjectConsuming` → `NewFromPayload` then `DestroyWireBufferRetains`) — not “no refcount updates”
+ - Marshalling from Swift on the C# side goes through `ISwiftObject.NewFromPayload` / `NewFromPayloadCore` paths that emit `InitializeWithCopy` into an owned buffer (not a private “copy” constructor)
 
 ## Diagnostics: trap attribution
 

@@ -14,7 +14,7 @@ actually still open.
 
 **Status: FIXED 2026-07-08.** Root-caused, fixed at the generator, covered by a BindingTests fixture +
 unit tests, and verified: RealityFoundation now compiles its wrapper clean under the final 0.17.0 SDK
-(`RealityFoundationSwiftBindings.xcframework` produced, `Build succeeded, 0 Error(s)`, no SWIFTBIND050/051).
+(`RealityFoundationSwiftBindings.xcframework` produced, `Build succeeded, 0 Error(s)`, no SWIFTBIND051; SWIFTBIND050 is XCFrameworkSlicer-only and unrelated).
 
 **Root cause.** A read-only Swift protocol-extension-default **property** surfaced on a **generic** conforming
 type (RealityKit's `FromToByAction<Value>.isReversible` / `.isAdditive`, extension defaults on an
@@ -42,7 +42,7 @@ specialization (sim-green). Unit tests pin the read-not-call body and the non-ov
 pre-flight.
 
 **Symptom.** `RegressionValidate` pre-flight rebuilds the cross-framework Apple supplements from source with
-the new SDK (`PackCrossFrameworkDependencies` → `BuildAndPackAppleFramework`, `Build.RegressionValidate.cs:664`).
+the new SDK (`PackCrossFrameworkDependencies` → `BuildAndPackAppleFramework`, `swift-dotnet-packages/build/Build.RegressionValidate.cs:664`).
 `Matter` packed OK; **`RealityFoundation` failed** on TFM `net10.0-ios26.2` with:
 
 ```
@@ -52,12 +52,14 @@ error SWIFTBIND051: Swift wrapper compilation failed for 'RealityFoundationSwift
 The whole run exited 255; no `artifacts/regression-validate-0.17.0.json` was written, and Step 3
 (internal-binding-testing) never ran.
 
-**Detail not yet captured.** The underlying `SWIFTBIND050` swiftc errors are **not** surfaced by the SDK even
-at `-v normal` — only the `SWIFTBIND051` give-up prints. The emitted wrapper source is at
+**Detail not yet captured (historical).** At the time of the 0.17.0 investigation, the underlying swiftc
+errors were not always easy to see from the SDK give-up alone. The generator throws
+`InvalidOperationException` with a filtered `error:`-line preview embedded in the message
+(`"Swift wrapper compilation failed (exit code …): {errorPreview}"` — no diagnostic code; SWIFTBIND050 is
+XCFrameworkSlicer RID/slice failures only). The SDK-side give-up is SWIFTBIND051. The emitted wrapper source is at
 `…/apple-frameworks/RealityFoundation/obj/Release/net10.0-ios26.2/swift-binding/RealityFoundation.Wrapper.swift`.
 Standalone repro:
 `dotnet build apple-frameworks/RealityFoundation/SwiftBindings.Apple.RealityFoundation.csproj -c Release -f net10.0-ios26.2`.
-Root-causing needs a way to see the swiftc stderr the wrapper-compile step swallows.
 
 **Strong evidence this is a 0.17.0 regression, not pre-existing.** A `SwiftBindings.Apple.RealityFoundation.26.2.8`
 nupkg built successfully under the 0.16.0-era generator (local nupkg dated 2026-06-27, the 0.16.0 /
@@ -72,17 +74,16 @@ republished. Broadly, it proves the 0.17.0 generator can't build a real framewor
 harness can't complete to clear the rest of the matrix regardless. Either way the gate did not pass.
 
 **Resolution.** Option (a) — root-caused and fixed at the generator (see above); no owner trade-off needed. The
-final 0.17.0 SDK-lane nupkgs were repacked and RealityFoundation rebuilt clean against them. Re-run
-`/regression-validation --version 0.17.0 --apple-version 26.2.8` to clear the rest of the matrix — the RF
-pre-flight rebuild no longer aborts.
+final 0.17.0 SDK-lane nupkgs were repacked and RealityFoundation rebuilt clean against them. The RF pre-flight
+rebuild no longer aborts. Remaining ship mechanics for the *next* cut (0.18.0) are in §B — 0.17.0 already
+shipped to NuGet, so this item is historical rather than a re-run target.
 
-**Diagnostic-surfacing follow-up (separable, not blocking).** Root-causing this needed the emitted wrapper
-source / the `<binary>.swiftc-stderr.txt` dump because the SDK's two-pass `_CompileSwiftWrapper` catches the
-generator's non-zero exit and prints only the SWIFTBIND051 give-up — the generator's SWIFTBIND050 (which
-already carries a filtered `error:`-line preview, `SwiftWrapperCompiler.cs:~1915`) is not echoed to normal
-build verbosity. A durability win for the *next* wrapper regression would be to surface that preview at
-`-v normal`. It's an SDK wrapper-compile-path change (delicate — see `.claude/rules/constraints.md`), so it's
-scoped as its own task, not folded into the CSM fix.
+**Diagnostic-surfacing follow-up (separable, not blocking) — RESOLVED.** Wrapper failure is now uniformly
+fatal (historical SDK soft-fail 050 usage removed in commit `ea6b6f11`, 2026-07-18). The generator embeds a
+filtered `error:`-line preview in the `InvalidOperationException` message; that surfaces via LogError and
+routes to stderr at normal verbosity (`LogToStandardErrorThreshold = LogLevel.Error`). The old soft-fail /
+stdout-echo path is gone. (SWIFTBIND050 remains XCFrameworkSlicer-only; the SDK-side wrapper give-up is
+SWIFTBIND051.)
 
 ---
 

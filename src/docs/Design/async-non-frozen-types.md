@@ -1,231 +1,160 @@
-# Async Methods with Non-Frozen Type Parameters
+# Async Members with Non-Frozen Types
 
-## Status: Partially Implemented
+Status: **as-built**. Both the parameter copy-buffer path and the return-value carrier path for non-frozen (and complex-enum) value types across an async boundary are implemented. This document is the design reference for that machinery.
 
-This document describes the current state and known limitations of async Swift methods that take non-frozen type parameters.
+## Problem
 
-## Background
+Non-frozen Swift structs (and complex enums) have opaque, resilient layouts. On the C# side they project as managed classes with a `SafeHandle`/`SwiftSafeHandle` payload, not as blittable register values.
 
-Swift async methods with non-frozen type parameters require special handling in the binding generator because:
+Async members cannot pass that projection straight through a Swift-convention P/Invoke:
 
-1. **Swift calling convention limitation**: P/Invoke with `[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]` only supports blittable (unmanaged) types. `SafeHandle` is a managed type and cannot be used.
+1. **Calling convention** — `[UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]` rejects non-blittable managed types (`SafeHandle` → `InvalidProgramException`).
+2. **Indirect layout** — the value must cross the boundary as a pointer to properly initialized Swift memory, not as a bitwise memcpy of opaque bits.
+3. **Lifetime** — the Swift async wrapper runs the real `async` work inside a `Task { }`. The C# foreground frame has already returned `tcs.Task` when the continuation reads parameters or deposits a return into a carrier. Stackalloc buffers, short-lived `using` containers, and “borrow the original payload until the call returns” are all wrong.
 
-2. **Async wrapper architecture**: Async Swift methods use a generated Swift wrapper that bridges C#'s `Task<T>` to Swift's `async`/`await`. The wrapper receives a callback function pointer and task handle from C#.
+The binding therefore always:
 
-## What's Implemented (Commit e3575a3)
+- lowers non-frozen / complex-enum async parameters to `IntPtr` (marker `MarshalledType.NonFrozenIntPtr`);
+- owns independent VWT copies for values that must outlive the foreground frame;
+- frees those copies only from the async completion path (typed `SwiftAsyncCallHolder.Cleanup`).
 
-The initial fix addresses the `InvalidProgramException` that occurred at runtime:
+## Architecture overview
 
-```
-InvalidProgramException: Passing non-blittable types to a P/Invoke
-with the Swift calling convention is unsupported.
-```
+| Concern | Where it lives |
+|---|---|
+| Detect params that need async copy buffers; emit C# `InitializeWithCopy` + Swift `.pointee` / `.load` | `WrapperEmitter.EmitAsync` in `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/WrapperEmitter.Async.cs` |
+| Async success/error callbacks, holder construction helpers, return marshalling | `AsyncHarnessEmitter` in `…/Handler/AsyncHarnessEmitter.cs` |
+| Method-level generic async bridge (same return ownership algebra) | `AsyncMethodGenericBridgeEmitter` in `…/Handler/AsyncMethodGenericBridgeEmitter.cs` |
+| Return carrier ownership decision (`CallbackTakesOwnership` / `CarrierNeedsDestroy`) | `AsyncResultPlanner` / `AsyncResultPlan` in `…/Handler/AsyncResultPlan.cs` |
+| P/Invoke param markers (`NonFrozenIntPtr` vs `NonFrozenSafeHandle`) | `PInvokeEmitter` + `MarshalledType` / `MethodSignature` |
+| Typed holder, copy-buffer cleanup, deferred container dispose | `SwiftAsyncCallHolder`, `CopyBufferWithType`, `AsyncDeferredDisposeList` in `src/Swift.Runtime/src/Swift/Runtime/AsyncHelpers.cs` |
+| VWT entry points | `ValueWitnessTable.InitializeWithCopy` / `Destroy` in `src/Swift.Runtime/src/Swift/Runtime/ValueWitnessTable.cs` |
 
-### Changes Made
+## Parameter path (non-frozen / complex enum)
 
-1. **P/Invoke signature**: For async methods, non-frozen type parameters use `IntPtr` instead of `SafeHandle` in the P/Invoke signature (via `IntPtrFromNonFrozen` marker type).
+### C# foreground (`WrapperEmitter.EmitAsync`)
 
-2. **Parameter handling**: Added `IntPtrFromNonFrozen` case to `Parameter.SignatureString()` and `GetCallArgumentString()`.
+For each parameter whose type record is non-frozen or a non-simple enum (ObjC-bridged/rooted/bridgeable types and simple enums are excluded):
 
-3. **Lifetime management**: Added `DangerousAddRef`/`DangerousGetHandle`/`DangerousRelease` pattern to manage SafeHandle lifetime during async calls.
+1. Resolve metadata via `SwiftObjectHelper<T>.GetTypeMetadata()`.
+2. `NativeMemory.Alloc(metadata.Size)`.
+3. `metadata.ValueWitnessTable->InitializeWithCopy(dest, src, metadata)` from the original payload:
+   - **Class payload** — source is `&selfPtr` where `selfPtr` is the object pointer from the handle.
+   - **Struct / complex-enum payload** — source is `(void*)param.Payload.DangerousGetHandle()`.
+4. Pass the copy buffer as `IntPtr {name}Handle` into the P/Invoke (`MethodSignature.GetCallArgumentString` maps `NonFrozenIntPtr` → `{name}Handle`).
+5. Wrap the buffer as `CopyBufferWithType` and store it on `SwiftAsyncCallHolder.CopyBuffers`.
+6. Keep the **original** managed parameter object (and receiver `this` for instance methods) in `SwiftAsyncCallHolder.KeepAlives` so GC cannot run `Destroy` on the source while the copy still shares internal storage under COW.
 
-### Generated Code Pattern
+Frozen blittable struct params on a cdecl async wrapper take a related path: heap `NativeMemory.Alloc` + `SwiftMarshal.MarshalToSwift` instead of stackalloc, also cleaned via `CopyBufferWithType`.
 
-```csharp
-public async Task<UIImage> image(ImageRequest _for)
-{
-    TaskCompletionSource<UIImage> task = new TaskCompletionSource<UIImage>();
-    GCHandle handle = GCHandle.Alloc(task, GCHandleType.Normal);
-    bool _forSuccess = false;
-    _for.Payload.DangerousAddRef(ref _forSuccess);
-    IntPtr _forHandle = _for.Payload.DangerousGetHandle();
-    try
-    {
-        var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-        PInvoke_image(..., _forHandle, self, out var error);
-        // ...
-        return task.Task;
-    }
-    finally
-    {
-        if (_forSuccess)
-            _for.Payload.DangerousRelease();
-    }
-}
+### Swift wrapper (same `EmitAsync` render)
 
-[DllImport("...", EntryPoint = "...")]
-private static extern void PInvoke_image(..., IntPtr _for, ...);  // IntPtr, not SafeHandle
-```
-
-## Return-Value Ownership (Resolved)
-
-The return-value side of the same problem — async methods that *return* a non-frozen struct
-— was resolved by keeping ownership on both sides explicit. The Swift wrapper places a
-properly-initialized value in the carrier via `initializeMemory(as: T.self, repeating: _result, count: 1)`,
-which runs the type's copy witness (retains internal references) — matching the constraint
-that non-trivial Swift value types must not be carried as raw bit copies. The C# callback
-allocates a managed buffer via `NativeMemory.Alloc`, calls `ValueWitnessTable->InitializeWithCopy`
-into it, then calls `ValueWitnessTable->Destroy` on the Swift carrier before `SBW_Free`
-reclaims the raw allocation. The managed wrapper's `SwiftSafeHandle.ReleaseHandle` later
-runs `PerformVwtDestroy` + `NativeMemory.Free` against the allocator-matched buffer.
-
-This mirrors the synchronous frozen-as-class pattern in `TypeHandlerHelpers.WriteNewFromPayloadFrozenStruct`
-and applies to non-frozen structs and complex (non-simple) enums returned from async
-methods. Covered end-to-end by `AsyncComplexTypeTests.TestAsyncGetReport_*` and
-`TestAsyncGetUsageMetadata_NestedNonFrozen` / `TestAsyncGetStatus*` in `BindingTests`.
-
-## Known Limitation: Value Copy Semantics (Parameter Side)
-
-### The Problem
-
-While the P/Invoke signature issue is fixed, there's a deeper problem when actually calling async methods with non-frozen types at runtime.
-
-The Swift wrapper receives a raw pointer (`IntPtr`) to the non-frozen type's memory. To call the actual Swift async method, it needs to:
-1. Interpret the pointer as the Swift type
-2. Pass the value to the async method
-
-The current approach uses `.assumingMemoryBound(to:).pointee` to load the value:
+Before entering `Task { }`, each non-frozen param is reified:
 
 ```swift
-extension Nuke.ImagePipeline {
-    @_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageCAA0B7RequestV_tYaKF_async")
-    public func PInvoke_image(callback: @escaping (UIKit.UIImage, Int64) -> Void,
-                               task: Int64,
-                               _for: UnsafeRawPointer) {
-        let _forValue = _for.assumingMemoryBound(to: Nuke.ImageRequest.self).pointee
-        Task {
-            let result = try! await image(for: _forValue)
-            callback(result, task)
-        }
-    }
-}
+// Typical non-frozen / complex-enum param
+let fooValue = foo.assumingMemoryBound(to: Module.Foo.self).pointee
+// Existential param uses load(as:) instead
+let barValue = bar.load(as: any SomeProtocol.self)
 ```
 
-### Why It Crashes
+**Design intent:** C# already performed a correct VWT copy into the buffer. `.pointee` / `.load(as:)` is a bitwise load that does **not** bump reference counts. The copy buffer remains the owner of the `+1` from `InitializeWithCopy`. The Swift method is called with `fooValue` (and siblings). C# destroys and frees the buffer only after the async callback runs.
 
-The `.pointee` access performs a **bitwise copy** of the memory. For Swift value types with:
-- Reference-counted fields (strings, arrays, class references)
-- Indirect storage
-- Complex internal structure
+### Cleanup
 
-A bitwise copy doesn't properly:
-- Retain reference-counted fields
-- Update value witness table metadata
-- Handle copy-on-write semantics
+`SwiftAsyncCallHolder.Cleanup` (success, fault, cancel, and launch-catch paths via `AsyncHarnessEmitter.BuildHolderCleanupCode`):
 
-When the copied value is later used (e.g., when Nuke's `image(for:)` accesses the URL inside `ImageRequest`), it may access freed or invalid memory, causing a crash.
+1. For each `CopyBufferWithType`: `ValueWitnessTable->Destroy` then `NativeMemory.Free`.
+2. Clear keep-alives (no native release — pure GC roots).
+3. Release retained class self / deferred struct self / existential heaps / deferred dispose list / cancellation registration as applicable.
 
-### Stack Trace Example
+Idempotent and exception-safe: each field is cleared after processing so a second pass cannot double-free.
 
-```
-SIGSEGV in:
-$s4Nuke13ImagePipelineC011makeStartedB4Task...
-$s4Nuke13ImagePipelineC5image3forSo7UIImageCAA0B7RequestV_tYaKFTY0_
-```
+### Collections of non-frozen elements
 
-## Potential Solutions
+`Array` / `Set` / `Dictionary` parameters are not copy-buffered as opaque non-frozen scalars. They are serialized into managed containers (`SwiftArray<T>`, etc.) whose lifetime must extend past the foreground `using`. Those containers are appended to `AsyncDeferredDisposeList` on the holder and disposed only in callback cleanup — see the comments on deferred dispose in `WrapperEmitter.Async` and `AsyncHelpers.AsyncDeferredDisposeList`. Covered end-to-end by:
 
-### 1. Use Swift's Value Witness Table
+- `BindingTests/Sources/SwiftBindingsTestLib/Async/AsyncNonFrozenStructArrayParams.swift`
+- `…/AsyncNonFrozenStructDictionaryParams.swift`
+- matching `RuntimeTestsApp/Async/AsyncNonFrozenStruct*ParamTests.cs`
 
-Swift's ABI includes a value witness table for each type that provides functions for:
-- `initializeWithCopy`: Properly copy a value
-- `assignWithCopy`: Assign with proper semantics
-- `destroy`: Clean up a value
+## Return path (non-frozen / complex enum)
 
-The Swift wrapper could use these functions to properly copy the value:
+### Swift carrier
+
+For complex value returns, the generated Swift wrapper allocates a carrier and writes the result with a real copy witness (not `storeBytes` / raw `copyMemory`):
 
 ```swift
-// Conceptual - requires access to value witness table
-let metadata = type(of: _for).metadata
-let vwt = metadata.valueWitnessTable
-let copy = vwt.initializeWithCopy(dest, source)
+let _rawPtr = UnsafeMutableRawPointer.allocate(
+    byteCount: MemoryLayout<T>.size,
+    alignment: MemoryLayout<T>.alignment)
+_rawPtr.initializeMemory(as: T.self, repeating: result, count: 1)
+// hand OpaquePointer(_rawPtr) to the C# callback; free via SBW_Free after C# is done
 ```
 
-### 2. Keep Value Alive Without Copying
+That `initializeMemory` leaves the carrier holding its own `+1` on internal references. Class / ObjC-bridgeable returns use a different pointer-bit path (`Unmanaged.passRetained` / bridge) and do not use this algebra.
 
-Instead of copying, keep the original value alive throughout the async operation:
+### Ownership algebra (`AsyncResultPlanner`)
 
-```swift
-public func PInvoke_image(..., _for: UnsafeRawPointer) {
-    // Don't copy - pass the pointer and ensure C# keeps it alive
-    withExtendedLifetime(_for) {
-        Task {
-            // Use the value directly through the pointer
-        }
-    }
-}
-```
+Both `AsyncHarnessEmitter` and `AsyncMethodGenericBridgeEmitter` route the carrier decision through `AsyncResultPlanner.ClassifyCarrierOwnership(TypeRecord)` so the two renderers cannot drift:
 
-This requires coordination with C# to not release the reference until the callback fires.
+| Return shape | `CallbackTakesOwnership` | `CarrierNeedsDestroy` | C# callback action |
+|---|---|---|---|
+| Non-frozen struct | true | true | `NativeMemory.Alloc` + `InitializeWithCopy` into managed buffer → `MarshalFromSwift` (SafeHandle owns buffer); `Destroy` carrier; `SBW_Free` |
+| Complex (non-simple) enum | true | true | same as non-frozen |
+| Frozen-as-class (`RequiresMemoryManagement`) | false | true | `MarshalFromSwift` from carrier (NewFromPayload does its own copy); `Destroy` carrier; `SBW_Free` |
+| Frozen blittable / simple enum | false | false | value-copy `MarshalFromSwift`; raw `SBW_Free` only |
+| Class / ObjC-bridged (separate paths) | n/a | n/a | pointer / `GetNSObject` paths, not this planner |
 
-### 3. Serialize/Deserialize
+`WidenDestroyForOptionalPayload` extends `CarrierNeedsDestroy` for `Optional<T>` when `T` is non-frozen, complex enum, or frozen-as-class (carrier holds `+1` on the embedded payload; `SwiftOptional<T>`’s own `NewFromPayload` takes an independent copy).
 
-For some types, serialize to a format (JSON, property list) that can be safely passed and reconstructed:
+**Two live copies on the callback-owned path:** briefly during the success callback the Swift carrier and the C#-owned VWT copy both exist. The managed wrapper adopts the C# buffer; the carrier’s `+1` is released with `Destroy` before `SBW_Free`. On marshal throw, a `catch` destroys and frees the not-yet-adopted C# buffer so it cannot leak alongside the carrier release in `finally`.
 
-```swift
-// C# serializes ImageRequest to JSON
-// Swift wrapper deserializes and creates new ImageRequest
-```
+### `AsyncMethodGenericBridgeEmitter`
 
-This is type-specific and may not preserve all semantics.
+Method-own generic async methods (class-bound protocol constraints without Self / associated types) use a separate `@_cdecl` bridge but the **same** complex-value ownership algebra for non-frozen / complex-enum returns. V1 of that bridge still excludes some return shapes (tuple, string, array-of-string, generic collection, ObjC-bridgeable, optional-class) that the main harness already supports — those exclusions are bridge-surface limits, not a reopening of the non-frozen copy problem.
 
-### 4. Synchronous Bridge
+## P/Invoke surface
 
-Instead of passing the value to the async task, call a synchronous Swift function that:
-1. Receives the pointer
-2. Starts the async operation
-3. Returns immediately
-4. Calls back when complete
+In `PInvokeEmitter`:
 
-```swift
-public func PInvoke_image_sync(..., _for: UnsafeRawPointer) {
-    let request = _for.assumingMemoryBound(to: Nuke.ImageRequest.self)
-    // Start async operation with pointer still valid
-    startAsyncImage(request: request.pointee) { result in
-        callback(result, task)
-    }
-}
-```
+- **Async** non-frozen struct / class and complex enum params → `MarshalledType.NonFrozenIntPtr` (`IntPtr` in the extern signature).
+- **Sync** same shapes → `NonFrozenSafeHandle` / `EnumSafeHandle` (SafeHandle-backed).
 
-## Current Workarounds
+`WrapperValidation` treats async non-frozen params as blittable at the P/Invoke boundary precisely because they lower to `IntPtr` after the copy-buffer setup (`NonFrozenIntPtr` path).
 
-### Use Frozen Types
+## Lifetime of related resources (receiver / containers)
 
-Frozen types (marked with `@frozen` in Swift) have a fixed memory layout and can be safely copied bitwise. If possible, use frozen type parameters for async methods.
+Orthogonal to the non-frozen value copy, but part of the same holder:
 
-### Use Foundation.URL Instead
+- **Swift class self** — `Arc.UnknownObjectRetain` before launch; `RetainedSelfPtr` + `UnknownObjectRelease` in cleanup (isa-dispatched so `@objc` self is not over-released).
+- **Struct self** — `DeferredSafeHandleRelease` (`DangerousAddRef` balanced by `DangerousRelease` in cleanup).
+- **Existential param heaps** — `ExistentialContainerHeap` entries freed (and optionally destroyed when owned) in cleanup, not in a foreground `finally` that would race the continuation.
+- **Cancellation** — process-wide keys from `SwiftAsyncCancellation.NextCancelKey()` (not recyclable GCHandle cookies).
 
-For Nuke specifically, there's an `image(for: URL)` overload that takes a `Foundation.URL` instead of `ImageRequest`. URL is a frozen type and works correctly:
+## End-to-end coverage
 
-```csharp
-var url = Swift.URL.FromString(new SwiftString("https://example.com/image.jpg"));
-var image = await pipeline.image(url);  // Works with URL
-```
+| Shape | BindingTests |
+|---|---|
+| Non-frozen struct **return** (property read, dispose, concurrent, nested) | `AsyncComplexTypeTests` + `AsyncComplexTypes.swift` (`AsyncReport`, `AsyncUsageMetadata`) |
+| Complex enum async return | same class (`AsyncStatus`) |
+| Frozen-with-memory async return (carrier destroy leak guard) | `TestAsyncGetResult_RepeatedCalls_NoCarrierLeak` |
+| `Array<NonFrozenStruct>` async param / return | `AsyncNonFrozenStructArrayParamTests` |
+| `Dictionary<String, NonFrozenStruct>` async param | `AsyncNonFrozenStructDictionaryParamTests` |
 
-## Files Involved
+Unit pins: `AsyncResultPlannerTests`, async harness / AMGBE emitter tests under `src/Swift.Bindings/tests/UnitTests/EmitterTests/`, and P/Invoke marker tests (`Parameter_NonFrozenStructAsync_UsesIntPtrFromNonFrozen`).
 
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs`
-  - `Parameter.SignatureString()`: Lines 172-179
-  - `GetCallArgumentString()`: Lines 195-212
-  - `PInvokeSignatureBuilder.HandleArguments()`: Lines 539-548
-  - `EmitSafeHandleAddRef()`: Lines 1095-1128
-  - `EmitSafeHandleRelease()`: Lines 1130-1188
-  - `EmitAsync()`: Lines 890-967 (Swift wrapper generation)
+## Remaining gaps (genuinely open or out of scope)
 
-## Testing
+Nothing in the generator still treats “async + non-frozen scalar parameter/return” as an unfixed crash. What remains limited is adjacent surface area:
 
-The Nuke test app (now in `swift-dotnet-packages`) tests this scenario:
-- Creates an `ImageRequest` from a URL string
-- Calls `ImagePipeline.image(ImageRequest)` async method
-- Currently crashes due to the value copy issue
+1. **Module-internal async** — async members on `@usableFromInline internal` parents (or internal free functions) are skipped (`SkipReason.ParentModuleInternalNoFallback` / `ModuleInternal` in `MemberValidationPipeline`): there is no direct CallConvSwift fallback for async.
+2. **ABI-unsafe direct async P/Invoke** — method-own generic, top-level existential, or non-cdecl closure params without a proper bridge are fail-closed rather than emitted as direct CallConvSwift trampolines (`AsyncSkipPolicyShapes.swift` / `WrapperValidation.IsSkippedWrapperDirectPInvoke`).
+3. **AMGBE V1 return exclusions** — listed above; main harness handles those shapes for non-generic async.
+4. **CSM / supplement-owned non-frozen returns** — separate product gap (e.g. CryptoKit NIST ECDSA) tracked outside this design; not a failure of the generic async non-frozen copy model.
 
-## Related Issues
+## Related docs
 
-- Original issue: Async methods with non-frozen parameters throw `InvalidProgramException`
-- Remaining issue: Async methods with non-frozen parameters crash at runtime due to improper value copying
-
-## References
-
-- [Swift ABI Stability Manifesto](https://github.com/apple/swift/blob/main/docs/ABIStabilityManifesto.md)
-- [Swift Value Witness Table](https://github.com/apple/swift/blob/main/docs/ABI/TypeMetadata.rst)
-- [Swift Calling Convention](https://github.com/apple/swift/blob/main/docs/ABI/CallingConvention.rst)
+- `binding-value-witness-table.md` — VWT operations used here (`initializeWithCopy`, `destroy`).
+- `binding-structs.md` — frozen vs non-frozen projection.
+- `memory-management.md` — general retain/release expectations for projected value types.

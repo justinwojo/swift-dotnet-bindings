@@ -21,7 +21,7 @@ Last verified: **2026-04-30** on .NET 10.0.103, Microsoft.iOS.Sdk 26.2.10197, Xc
 ## Not filed as standalone bug reports
 
 - **`SwiftSelf<SafeHandle>` lifetime across async P/Invoke (Mono-only)** is a supportability question rather than a confirmed runtime bug. Post as a comment on the Swift interop tracking issue (successor to [#108662](https://github.com/dotnet/runtime/issues/108662)), not a standalone filing. Full comment text below under [Tracking-issue comment: `SwiftSelf<T>` async lifetime](#tracking-issue-comment-swiftselft-async-lifetime).
-- **Issue 8 (NativeAOT 2-type-param `CallConvSwift` SIGSEGV)** — closed 2026-04-30. Wrong P/Invoke shape on our side, not a runtime bug. Multi-result tuple returns use `(x0=res1, x1=res2, x2=pay1, x3=pay2, x4=Tmeta, x5=Umeta)`, not `(x8=SwiftIndirectResult, x0=pay1, x1=Tmeta, x2=Umeta, …)`. Generator now emits the correct shape for fully bare-generic tuples (`pair<T, U> -> (T, U)`); mixed/bound-generic shapes are tracked in `roadmap.md` *Lower Priority*. Disassembly evidence is in commit 1d0c5569.
+- **Issue 8 (NativeAOT 2-type-param `CallConvSwift` SIGSEGV)** — closed 2026-04-30. Wrong P/Invoke shape on our side, not a runtime bug. Multi-result tuple returns use `(x0=res1, x1=res2, x2=pay1, x3=pay2, x4=Tmeta, x5=Umeta)`, not `(x8=SwiftIndirectResult, x0=pay1, x1=Tmeta, x2=Umeta, …)`. Generator now emits the correct shape for fully bare-generic tuples (`pair<T, U> -> (T, U)`); mixed/bound-generic shapes are tracked in `not-planned.md` (Mixed-indirect generic tuple returns). Disassembly evidence is in commit 1d0c5569.
 
 ## Pre-flight checks before filing
 
@@ -41,7 +41,7 @@ For each issue file:
 3. **Issue 3** as a Mono bug — also Mono-only and well-scoped to one `CallConvSwift` ABI shape; cross-link to Issue 1 since both involve Mono's `CallConvSwift` trampoline.
 
 After filing, link the dotnet/runtime issue numbers back into:
-- `src/docs/roadmap.md` (Theme C — upstream tracking)
+- `src/docs/roadmap.md` (Blocked — Confirmed Upstream Only section)
 - `/Users/wojo/.claude/projects/-Users-wojo-Dev-swift-bindings/memory/feedback_mono_jit_blame.md` (the authoritative confirmed-issues list)
 - `/Users/wojo/Dev/swift-interop-repro/README.md` (Reproduced Issues table)
 
@@ -62,7 +62,7 @@ Our reading of the marshalling code is that this might be by-design rather than 
 - The standard CoreCLR P/Invoke `SafeHandle` lifetime guarantee is *call-scoped*: `ILSafeHandleMarshaler::ArgumentOverride` (`coreclr/vm/ilmarshalers.cpp:~2899`) emits an `AddRef` before dispatch and `Release` in the cleanup block of the generated stub (`coreclr/vm/dllimport.cpp:~2280`). It guarantees liveness for the duration of the native call, not across an arbitrary Swift async suspension that continues after the P/Invoke returns.
 - Mono's `CallConvSwift` path *bypasses* the normal `SafeHandle → IntPtr + AddRef/Release` marshalling for `SwiftSelf` (special-cased at `marshal.c:~3725` before the blittable check), so even on runtimes that *do* run `SafeHandle` marshalling, `SwiftSelf` doesn't go through it today.
 
-Our current workaround is to generate Swift wrapper functions that use `Unmanaged` to recover the instance from a raw pointer, and on the C# side, explicitly `DangerousAddRef` → read pointer → `Arc.Retain` (Swift-side retain) → `DangerousRelease`, with a holder that releases the retained pointer when the async operation completes:
+Our current workaround is to generate Swift wrapper functions that use `Unmanaged` to recover the instance from a raw pointer, and on the C# side, explicitly `DangerousAddRef` → read pointer → `Arc.UnknownObjectRetain` (Swift-side retain) → `DangerousRelease`, with a holder that releases the retained pointer when the async operation completes:
 
 ```swift
 @_silgen_name("MyClass_asyncMethod_wrapper")
@@ -80,7 +80,7 @@ public async Task AsyncMethod()
     {
         _handle.DangerousAddRef(ref addedRef);              // pin SafeHandle
         var ptr = _handle.DangerousGetHandle();             // safe to read after AddRef
-        Arc.Retain(ptr);                                    // Swift-side ARC retain
+        Arc.UnknownObjectRetain(ptr);                       // Swift-side ARC retain
         try { await MyClass_asyncMethod_wrapper(ptr); }
         finally { Arc.Release(ptr); }
     }
@@ -91,11 +91,11 @@ public async Task AsyncMethod()
 }
 ```
 
-The `DangerousAddRef` / `DangerousRelease` bracket avoids a finalizer race between reading the handle and retaining it on the Swift side; the Swift-side `Arc.Retain` keeps the underlying object alive even if the C# `SafeHandle` is collected after the P/Invoke returns. The repo's generator emits this pattern (see `WrapperEmitter.Async.cs`).
+The `DangerousAddRef` / `DangerousRelease` bracket avoids a finalizer race between reading the handle and retaining it on the Swift side; the Swift-side `Arc.UnknownObjectRetain` keeps the underlying object alive even if the C# `SafeHandle` is collected after the P/Invoke returns. The repo's generator emits this pattern (see `WrapperEmitter.Async.cs`).
 
 **Questions:**
 1. Is async P/Invoke with `CallConvSwift` + `SwiftSelf<T>` (where `T` carries a managed lifetime) a supported scenario on Mono today, or is it explicitly out of scope for current `SwiftSelf` semantics?
-2. If supported, what is the recommended pattern for ensuring the underlying handle stays alive across Swift async suspension points? Is there a runtime mechanism we're missing, or is the `DangerousAddRef` + Swift-side `Arc.Retain` pattern above the expected approach?
+2. If supported, what is the recommended pattern for ensuring the underlying handle stays alive across Swift async suspension points? Is there a runtime mechanism we're missing, or is the `DangerousAddRef` + Swift-side `Arc.UnknownObjectRetain` pattern above the expected approach?
 3. If unsupported today, is extending `SwiftSelf<T>` to a Task-scoped lifetime contract on the roadmap? It's required for calling any async instance method on a Swift class from .NET without per-method Swift wrapper generation.
 
 This affects every async Swift instance method we bind — libraries like StoreKit 2 and Nuke rely heavily on async instance methods. Currently every such method requires an `@_silgen_name` Swift wrapper, which adds significant build complexity.

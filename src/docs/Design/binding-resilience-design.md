@@ -1,6 +1,7 @@
 # Binding resilience design — always emit a sound, compiling, usable binding
 
-**Status:** design synthesis, not yet scheduled work. Product goal: a user throws an arbitrary
+**Status:** as-built — waves 1–2 complete; §8 is the outcome record, including where the landed
+implementation deliberately drifted from this plan. Product goal: a user throws an arbitrary
 `.xcframework` at the generator and *always* gets a clean, compiling, usable binding containing
 everything bindable, with everything else tombstoned and reported — never a whole-binding failure
 from one localized construct we didn't anticipate. Hard constraint: a degraded binding must be
@@ -127,43 +128,43 @@ offsets, or witness-table width. Therefore:
 
 ---
 
-## 3. The three live soundness holes — fix these first (Stage 0)
+## 3. The three soundness holes (Stage 0) — *were* live; closed in wave 1
 
-Both models independently flagged the **same three** places where the generator ships a
-compile-successful binding that is unsound *today*. These are bugs, largely independent of the
-larger architecture, and are the highest immediate risk-reduction per line.
+Both models independently flagged the **same three** places where the generator could ship a
+compile-successful binding that was unsound. At design time these were live bugs, largely
+independent of the larger architecture, and the highest immediate risk-reduction per line.
+**Wave 1 closed all three** (see §8 outcome record). The historical problem statements and the
+landed sites:
 
-**H1 — `AbiContractChecker` result is discarded.** `ModuleEmitter.cs:131` calls `Validate(...)`
-and drops the return value; it detects CC-001..004 (non-blittable `CallConvSwift` params/returns,
-wrapper targeting the wrong library, Cdecl-on-mangled-symbol) with structured records including a
-ready-made `EntryPoint` attribution key. Make violations actionable (at minimum, skip the
-attributable member). *Caveat: its own comment claims ~83% precision and it assumes unknown custom
-types are blittable — treat it as a blocking linter now, not a soundness proof; the real fix is
-typed-plan validation, Stage 5.*
+**H1 — `AbiContractChecker` result was discarded.** Pre-wave-1, `ModuleEmitter` called the
+validator and dropped the return value; it detected CC-001..004 (non-blittable `CallConvSwift`
+params/returns, wrapper targeting the wrong library, Cdecl-on-mangled-symbol) with structured
+records including a ready-made `EntryPoint` attribution key. **Landed:** `ModuleEmitter` runs
+`AbiContractChecker.ValidateModule(...)` and throws `AbiContractViolationException` when the
+result is unclean — violations fail closed before files are written. *Caveat retained: treat the
+checker as a blocking linter, not a soundness proof; typed-plan validation is Stage 5 / wave 2.*
 
-**H2 — SDK-mode ships a binding whose wrapper surface crashes.** `SwiftWrapperCompiler.cs:94-107`
-(`EffectiveOutcome`) downgrades a **fatal** wrapper-compile failure to a Warning in SDK mode, with
-the explicit comment that wrapper-backed methods get `DllNotFoundException` at runtime
-(`Program.cs:2350`). That is exactly the compile-clean/runtime-broken outcome the constraint
-forbids. Until recovery exists, wrapper failure must **fail publication.**
+**H2 — SDK-mode shipped a binding whose wrapper surface crashed.** Pre-wave-1, wrapper-compile
+failure could be downgraded to a Warning in SDK mode, so wrapper-backed methods hit
+`DllNotFoundException` at runtime — the compile-clean/runtime-broken outcome the constraint
+forbids. **Landed:** `SwiftWrapperCompiler.EvaluateResult` returns `Fatal` whenever
+`XCFrameworkPath` is empty, in every mode (no SDK-mode soft-downgrade).
 
-**H3 — the reconciler keeps a dead P/Invoke to satisfy an interface.** `StrippedSymbolCSharpReconciler`
-Step A3 (`:101-110`, `FindExemptedPInvokes :548`) *exempts* a P/Invoke whose public caller
-implements an interface member, to dodge CS0535 — but the wrapper symbol was just stripped, so the
-call throws `EntryPointNotFoundException` at first use. Replace with a **loud throwing stub**
-(`throw new SwiftBindingUnavailableException(...)`, the `PlatformNotSupportedException` pattern) or
-fail-closed at the enclosing conformance. Never preserve a dead native call to satisfy a managed
-interface.
+**H3 — the reconciler kept a dead P/Invoke to satisfy an interface.** Pre-wave-1,
+`StrippedSymbolCSharpReconciler` exempted a P/Invoke whose public caller implemented an
+interface member (`FindExemptedPInvokes`) to dodge CS0535 — but the wrapper symbol was stripped,
+so the call threw `EntryPointNotFoundException` at first use. **Landed:** exempted / interface-
+protected members are rewritten to loud throwing stubs
+(`throw new SwiftBindingUnavailableException(...)`) rather than preserved as dead native calls.
 
-> **Tension to surface to the owner:** fixing H1–H3 will make some corpus libraries that currently
-> report "green" turn red — because those greens were *false* (compile-clean, runtime-broken).
-> This is correct (the "no shortcuts / root-cause" policy), but it means the headline
-> "39/120 green" number may *drop* before the recovery loop brings it back up soundly. That is a
-> real, honest movement, not a regression.
+> **Tension (design-time, accepted under D-R2):** closing H1–H3 would make some corpus libraries
+> that reported "green" turn red — because those greens were *false* (compile-clean,
+> runtime-broken). That honest green-drop was accepted; wave-1/2 corpus movement is recorded in
+> §8.
 
-Also in Stage 0: a **double-emit byte-identity determinism test** (the regenerate loop's
-foundational assumption), and move `Checkpoint`/`RollbackTo` onto `IndentedTextWriter` so
-`SwiftWriter` gets it (today a rolled-back C# member can orphan its wrapper block).
+Also in Stage 0 (and landed with the wave): a **double-emit byte-identity determinism test**
+(the regenerate loop's foundational assumption), and checkpoint/rollback support so a rolled-back
+C# member cannot orphan its wrapper block.
 
 ---
 
@@ -240,8 +241,8 @@ Both models rejected the brief's three alternatives:
 
 - **Emit-everything-then-tree-shake** — strictly worse; maximizes reliance on sound post-hoc
   removal (the thing that's only achievable via regeneration anyway) and abandons the gate catalog's
-  soundness knowledge. The 2,437-line reconciler is the evidence of how fast text tree-shaking
-  becomes a second fragile compiler.
+  soundness knowledge. The ~2.7k-line reconciler (`StrippedSymbolCSharpReconciler`) is the evidence
+  of how fast text tree-shaking becomes a second fragile compiler.
 - **Probe-build / maximal-compiling-subset (ddmin)** — the compiler-as-only-oracle fallacy.
   "Maximal *compiling* subset" ≠ "maximal *sound* subset," and soundness is invisible to the
   compilers. Combinatorial, nonmonotonic, not unique. Valuable only as fallback attribution.
@@ -331,7 +332,8 @@ recorded here — the session docs are not the record.
   greens are false (compile-clean, runtime-broken). Baselines are ratcheted honestly in both
   directions with the reason recorded. No session may "fix" a red by weakening a gate.
 - **D-R3 — two waves, separate session folders.** Wave 1 = Stages 0–3 (minimum viable resilience),
-  planned in full now in `src/docs/sessions/2026-07-binding-resilience-wave1/`. Wave 2 = Stages 4–7,
+  planned in full in the wave-1 session folder (executed; archived at
+  `/Users/wojo/Dev/SB-Backup-Docs/2026-07-sessions-cleanup/`). Wave 2 = Stages 4–7,
   whose session docs are **authored by wave 1's closeout session** from landed reality (folder
   `…-wave2/`), because their real shape depends on what Stages 1–3 actually build. Each wave is one
   session-runner invocation.
@@ -507,9 +509,11 @@ resolved to a leaf-api / accessor-group scope.
 
 **Device leg — PENDING.** Wave 2's recovery machinery is generator-side emission that only engages on
 hostile shapes; the sim BindingTests are unchanged (3,242/0/0) because the main test lib contains no
-loop-triggering member (the ResilienceKitchen fixture exercises the loop in the compile gate). A
-NativeAOT device leg re-proving the wave-2 emission path is owner-attended and deferred — run when the
-phone is free, before the 0.18.0 cut; tracked as a trigger-gated row in `not-planned.md`.
+loop-triggering member (the ResilienceKitchen fixture exercises the loop in the compile gate). The
+NativeAOT device re-prove of the wave-2 emission path is **owner-attended before the 0.18.0 cut and
+recorded here** (not a separate not-planned tracker). The related not-planned row is
+**"Loop path parity (SDK two-pass / device / all)"** — that row is about deferred *loop wiring* on
+device/all paths, not this BindingTests device re-run.
 
 **Leftover routing:** the soak cause tally above is packaged as the ingestion-hardening follow-up
 program's seed evidence (D-R7 / OD-W2-3) — recorded here and pointer-linked from `not-planned.md`;

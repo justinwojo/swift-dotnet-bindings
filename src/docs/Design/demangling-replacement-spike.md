@@ -2,7 +2,7 @@
 
 **Outcome**: NO-GO. The managed demangler stays.
 
-This document records a one-session investigation into replacing the ~5,800 LOC managed Swift demangler (`Swift5Demangler.cs`, `Swift5Reducer.cs`, `DemanglingResults.cs` and ancillary types) with a producer driven by `swift-symbolgraph-extract` plus a small forward suffix mangler. The investigation was the kill-gate for "M3" in `architecture-gameplan-v2.md`; it failed decisively, and the gameplan's M3 milestone closed without a code change.
+This document records a one-session investigation into replacing the ~5,800 LOC managed Swift demangler (`Swift5Demangler.cs`, `Swift5Reducer.cs`, `DemanglingResults.cs` and ancillary types) with a producer driven by `swift-symbolgraph-extract` plus a small forward suffix mangler. The investigation was the kill-gate for "M3" in `architecture-gameplan-v2.md` (since deleted; recover via git history); it failed decisively, and the gameplan's M3 milestone closed without a code change.
 
 The summary: forward-constructing `Mc` (protocol conformance descriptor) and `WP` (witness pattern) symbols from symbol-graph `conformsTo` edges hits ~61% / ~33% of TBD-exported symbols under an A–Z word-substitution heuristic, vs the ≥99% required to skip implementing Swift mangling substitutions. Closing the gap requires ~335 LOC of stateful forward-mangling logic — a state machine, not a rule list — which is the territory the redesign was specifically trying to avoid.
 
@@ -99,7 +99,7 @@ These are fixable with a known filter. They do not, on their own, decide pass/fa
 
 ## 6. Tuple-based coverage check (alternative)
 
-The TBD-parsing layer surfaces `(ImplementingType, ProtocolType, Module)` tuples through `ProtocolConformanceDescriptorReduction`, but the **emitted bindings consume the mangled symbol string directly at runtime** — `ProtocolConformanceDescriptor.LoadFromSymbol(libPath, symbolName)` does a `dlsym` against the dylib (`Emitter/StringEmitter/Handler/ClassHandler.cs:973`, populated via `TypeHandlerHelpers.cs:1027` from `Model/TypeDecl/ProtocolConformance.cs:15` whose `ProtocolConformanceDescriptor` field comes from `Demangler/DemanglingResults.cs:152`). The symbol string is therefore load-bearing, not a debug artefact. A tuple-only producer would still owe the rest of the toolchain a way to *get* that exported symbol back.
+The TBD-parsing layer surfaces `(ImplementingType, ProtocolType, Module)` tuples through `ProtocolConformanceDescriptorReduction`, but the **emitted bindings consume the mangled symbol string directly at runtime** — `ProtocolConformanceDescriptor.LoadFromSymbol(libPath, symbolName)` does a `dlsym` against the dylib (emit sites in `Emitter/StringEmitter/Handler/ClassHandler.cs` and `TypeHandlerHelpers.cs`; the descriptor string is the `ProtocolConformanceDescriptor` field on `Model/TypeDecl/ProtocolConformance.cs`, populated via `Demangler/DemanglingResults.GetProtocolConformanceDescriptor`). The symbol string is therefore load-bearing, not a debug artefact. A tuple-only producer would still owe the rest of the toolchain a way to *get* that exported symbol back.
 
 Two candidate paths exist for keeping the symbol-string contract while sourcing facts from the symbol graph:
 
