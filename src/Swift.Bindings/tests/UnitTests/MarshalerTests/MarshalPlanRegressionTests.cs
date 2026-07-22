@@ -777,6 +777,47 @@ public class MarshalPlanRegressionTests
     }
 
     [Fact]
+    public void ObjCExistential_ReturnPlan_SuppressedProxy_FailsClosed()
+    {
+        // Forward PRODUCE (Swift -> C#) scalar @objc return: a suppressed @objc proxy has no emitted
+        // class, so the return cannot construct `new {Proxy}(...)`. It must fail closed via the
+        // suppressed-proxy throw (the member is re-stubbed at the emit boundary), exactly like the
+        // non-@objc scalar return does. GetReturnPlan's early @objc branch builds its expression through
+        // GetObjCReturnExpression, which is the shared PRODUCE chokepoint the guard lives at — before it,
+        // that branch adopted Payload0 unconditionally and shipped a dangling `new {P}Proxy(...)` for a
+        // never-emitted class (an @objc-existential-returning method whose content protocol's proxy was
+        // suppressed). Pairs with ObjCExistential_ReturnPlan_AdoptsPayload0 (the non-suppressed baseline).
+        var proj = new ExistentialProjection(
+            "Swift.Runtime.ExistentialContainer1", "IObjCContent", "ObjCContentProxy",
+            proxyIsSuppressed: true, isObjCExistential: true);
+
+        Assert.Throws<SuppressedProxyReferenceException>(
+            () => proj.GetReturnPlan("result", ReturnStrategy.Direct));
+    }
+
+    [Fact]
+    public void OptionalObjCExistential_ReturnPlan_SuppressedProxy_FailsClosed()
+    {
+        // `(any P)?` for an @objc P whose proxy is suppressed. The optional return's nullable ternary
+        // delegates its non-nil construction to the inner @objc projection's GetObjCReturnExpression —
+        // the SAME PRODUCE chokepoint as the scalar return — so it too must fail closed rather than emit
+        // `result == IntPtr.Zero ? null : new {P}Proxy(...)` for a class that was never emitted. This is
+        // the exact optional-@objc-existential-returning-method shape that dangled CS0246 (an early
+        // consumer of a suppressed @objc content proxy's optional return).
+        var inner = new ExistentialProjection(
+            "Swift.Runtime.ExistentialContainer1", "IObjCContent", "ObjCContentProxy",
+            proxyIsSuppressed: true, isObjCExistential: true);
+        // isExistentialInner:true routes GetReturnPlan into the @objc nullable-ternary branch that
+        // delegates to the inner's GetObjCReturnExpression (the DGCharts optional-return path). Without
+        // it the projection takes an unrelated branch that already throws, and the test would not
+        // exercise the actual gap.
+        var proj = new OptionalProjection(inner, isExistentialInner: true);
+
+        Assert.Throws<SuppressedProxyReferenceException>(
+            () => proj.GetReturnPlan("result", ReturnStrategy.Direct));
+    }
+
+    [Fact]
     public void OptionalObjCExistential_ParameterPlan_DelegatesGuardToInner()
     {
         // (any P)? for an @objc P is a nullable ObjC pointer. The non-nil handle extraction

@@ -2767,6 +2767,84 @@ public class EnumHandlerOutputTests
         return typeDatabase;
     }
 
+    // Mirror of CreateTypeDatabaseWithProtocol but the protocol carries a Self/associated-type
+    // requirement, so its TypeRecord is Kind=Protocol (AllProtocolsHaveTypeRecords stays true) yet
+    // ProtocolProxyEmitter never writes a `{P}Proxy` class for it (EmitProxyClass early-returns on
+    // HasSelfRequirement/HasAssociatedTypes). This is the `any Encodable` shape: a stdlib existential
+    // the consuming module never declares — so it is also absent from the suppressed-proxy name set.
+    // The flag is parameterized because the real stdlib `Encodable` TypeRecord carries
+    // HasAssociatedTypes, while other Self-requirement stdlib protocols carry HasSelfRequirement; the
+    // degrade predicate is `HasSelfRequirement || HasAssociatedTypes`, so both arms must be pinned.
+    private static TypeDatabase CreateTypeDatabaseWithSelfRequirementProtocol(
+        string protocolModule, string protocolName, TypeRecordFlags selfOrAssociatedFlag)
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.NIntType,
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var testModuleDb = new ModuleTypeDatabase(protocolModule, $"/tmp/{protocolModule}.dylib");
+        testModuleDb.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName($"{protocolModule}.{protocolName}"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName($"Swift.{protocolModule}", $"I{protocolName}"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{protocolModule}.{protocolName}"),
+                MetadataAccessor = $"$s{protocolModule}{protocolName}Ma",
+                Flags = selfOrAssociatedFlag,
+                Kind = TypeRecordKind.Protocol
+            });
+        typeDatabase.AddModuleDatabase(testModuleDb);
+
+        return typeDatabase;
+    }
+
+    [Theory]
+    // Real stdlib `Encodable` carries HasAssociatedTypes; other Self-requirement stdlib protocols
+    // carry HasSelfRequirement. The degrade predicate ORs the two, so pin both arms end-to-end.
+    [InlineData(TypeRecordFlags.HasSelfRequirement)]
+    [InlineData(TypeRecordFlags.HasAssociatedTypes)]
+    public void Emit_TryGetWithSelfRequirementExistential_DegradesInsteadOfDanglingProxy(
+        TypeRecordFlags selfOrAssociatedFlag)
+    {
+        // The Moya `Task.requestJSONEncodable(any Encodable)` shape. `Encodable` carries an
+        // associated-type/Self requirement, so ProtocolProxyEmitter.EmitProxyClass emits NO
+        // `EncodableProxy` class and GetPublicExistentialType degrades the TryGet out-parameter to
+        // `object`. But the payload still has a Kind=Protocol TypeRecord, so AllProtocolsHaveTypeRecords
+        // is true and — because the stdlib protocol is never in the module's suppressed-proxy set —
+        // IsProxyReferenceSuppressed reads false. Before the reconciliation the marshalling body
+        // therefore shipped a live `new EncodableProxy(` for a class that is never emitted (a dangling
+        // CS0246). The body must instead degrade to the proxy-suppressed throw stub, exactly as an
+        // in-module suppressed proxy does.
+        var typeDatabase = CreateTypeDatabaseWithSelfRequirementProtocol(
+            "TestModule", "Encodable", selfOrAssociatedFlag);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Task", moduleDecl, isFrozen: true);
+
+        var jsonCase = CreateCase("requestJSONEncodable");
+        jsonCase.AssociatedValues.Add(new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Encodable") }));
+        enumDecl.Cases.Add(jsonCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Reference-closure: the never-emitted proxy must NOT be constructed anywhere in the body.
+        Assert.DoesNotContain("new EncodableProxy(", csOutput);
+        // And the member must visibly degrade (compile-time poison + runtime backstop), not silently
+        // drop — so a consumer reading it gets the honest "proxy could not be generated" signal.
+        Assert.Contains("SB0006", csOutput);
+        Assert.Contains("NotSupportedException", csOutput);
+    }
+
     [Fact]
     public void Emit_ExistentialWithKnownProxy_FactoryUsesInterfaceType()
     {

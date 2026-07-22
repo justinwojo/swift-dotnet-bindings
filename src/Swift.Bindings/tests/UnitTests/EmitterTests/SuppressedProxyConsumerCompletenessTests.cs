@@ -90,6 +90,56 @@ public class SuppressedProxyConsumerCompletenessTests : IDisposable
         Assert.DoesNotContain("new StylableProxy(", csOutput);
     }
 
+    [Fact]
+    public void Precompute_NestedSuppressedProxy_IsRecordedSuppressed()
+    {
+        // The precompute pass exists to make the suppressed-name set complete BEFORE any member emits,
+        // so earlier-declared consumers see the suppression. But it iterated only moduleDecl.Protocols
+        // (top-level; the parser fills it from decls.OfType<ProtocolDecl>()). A protocol NESTED inside a
+        // type lives under TypeDecl.Types and was never visited, so its proxy stayed unrecorded — an
+        // early consumer then shipped a live `new {P}Proxy(` for a class that is never emitted (the
+        // rive-ios RiveLog.Logger / LoggerProxy CS0246). Before the nested-recursion fix this asserts RED:
+        // the nested protocol's proxy name is absent from the suppressed set.
+        var nested = BuildProxyWithUnsupportedMember("Logger");
+        var moduleDecl = BuildModuleWithNestedProtocol("TestModule", nested, hostType: "RiveLog");
+
+        var ctx = new ModuleEmissionContext();
+        SuppressedProxyPrecomputer.Precompute(moduleDecl, BuildTypeDatabase("TestModule"), ctx);
+
+        Assert.Contains("LoggerProxy", ctx.SuppressedProxyClassNames);
+    }
+
+    [Fact]
+    public void Decide_AssociatedTypeProtocol_WithEmittedConformance_SuppressesProxy()
+    {
+        // Dual-oracle parity guard. ProtocolProxyEmitter.EmitProxyClass unconditionally early-returns
+        // (emits NO class) for a protocol with associated types — [UnmanagedCallersOnly]/[DllImport] can't
+        // live in a generic type. Decide() must agree with that structural withdrawal on its own terms.
+        // Under the current ModuleHandler an AT protocol is filtered out of the suitable set before
+        // EveryProtocol runs, so its conformance is never recorded and Decide() already suppresses via the
+        // !WasConformanceEmitted path — so this test MANUFACTURES the one state where the two oracles could
+        // diverge (carrier emitted AND a conformance recorded true for the AT protocol), under which the
+        // pre-fix Decide() answered Emit while EmitProxyClass wrote no class (RED). The AT/Self arm in
+        // Decide() closes that divergence independent of conformance/carrier state.
+        var atProtocol = BuildAssociatedTypeProtocol("Chartable");
+        var ctx = new ModuleEmissionContext();
+        ctx.MarkEveryProtocolCarrierEmitted();
+        ctx.RecordConformanceDecision("TestModule.Chartable", emitted: true, skipReason: null);
+
+        Assert.Equal(
+            ProxyEmissionDecision.SuppressedByConformance,
+            ProtocolProxyEmissionPolicy.Decide(atProtocol, BuildTypeDatabase("TestModule"), ctx));
+
+        // ...and the precompute pass, given the same state, records the name so consumers downgrade.
+        var moduleDecl = BuildModule("TestModule", atProtocol, consumerType: null, consumerProtocol: null);
+        var precomputeCtx = new ModuleEmissionContext();
+        precomputeCtx.MarkEveryProtocolCarrierEmitted();
+        precomputeCtx.RecordConformanceDecision("TestModule.Chartable", emitted: true, skipReason: null);
+        SuppressedProxyPrecomputer.Precompute(moduleDecl, BuildTypeDatabase("TestModule"), precomputeCtx);
+
+        Assert.Contains("ChartableProxy", precomputeCtx.SuppressedProxyClassNames);
+    }
+
     // --- helpers -------------------------------------------------------------------------------
 
     // A proxy-eligible protocol (implementable void `ping()`) plus a `decorate(view:)` requirement whose
@@ -267,6 +317,95 @@ public class SuppressedProxyConsumerCompletenessTests : IDisposable
         if (consumerType is not null && consumerProtocol is not null)
             moduleDecl.Types.Add(BuildRetainedConsumerType(consumerType, consumerProtocol, moduleDecl));
         return moduleDecl;
+    }
+
+    // A module whose only suppressed protocol is NESTED inside a top-level type (its parent's
+    // TypeDecl.Types), with moduleDecl.Protocols left EMPTY — the parser shape for `enum RiveLog {
+    // protocol Logger { ... } }`. The precompute pass must recurse into nested types to see it.
+    private static ModuleDecl BuildModuleWithNestedProtocol(string moduleName, ProtocolDecl nested, string hostType)
+    {
+        var moduleDecl = new ModuleDecl
+        {
+            Name = moduleName,
+            Dependencies = new List<string>(),
+            Types = new List<TypeDecl>(),
+            Methods = new List<MethodDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+        var host = new ClassDecl
+        {
+            Name = hostType,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleName}.{hostType}"),
+            MangledName = $"$s10{moduleName}{hostType.Length}{hostType}CN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { nested },
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(host);
+        return moduleDecl;
+    }
+
+    // A proxy-eligible protocol (implementable void `ping()`) that additionally carries an associated
+    // type. EmitProxyClass early-returns for AssociatedTypes.Count > 0 (no [UnmanagedCallersOnly] in a
+    // generic type) — a structural withdrawal Decide() must mirror. Used to manufacture the one state
+    // where Decide() could diverge from that withdrawal (a conformance recorded true for the AT protocol).
+    private static ProtocolDecl BuildAssociatedTypeProtocol(string name)
+    {
+        var protocol = new ProtocolDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}P",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl> { new() { Name = "Entry" } },
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            HasSelfRequirement = false,
+            IsClassBound = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        protocol.Methods.Add(new MethodDecl
+        {
+            Name = "ping",
+            MangledName = $"$s10TestModule{name.Length}{name}4pingyyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = "",
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        });
+
+        return protocol;
     }
 
     private static TypeDatabase BuildTypeDatabase(string moduleName, string? consumerType = null, string protocolName = "Stylable")

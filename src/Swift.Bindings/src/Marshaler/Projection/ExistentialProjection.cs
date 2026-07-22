@@ -176,8 +176,24 @@ public class ExistentialProjection : ITypeProjection
     /// unknown-object ARC on Dispose/finalize). The proxy's class-bound layout reads/releases Payload0
     /// only and never runs a value-witness destroy, so the otherwise-zero container is safe.
     /// </summary>
-    internal string GetObjCReturnExpression(string ptrExpr) =>
-        $"new {_proxyClassName}(new Swift.Runtime.ExistentialContainer1 {{ Payload0 = {ptrExpr} }}, ownsContainer: true)";
+    /// <remarks>
+    /// PRODUCE chokepoint for EVERY <c>@objc</c>-existential forward return: the scalar arm
+    /// (<see cref="GetReturnPlan"/>'s early <c>@objc</c> branch) and the optional arm
+    /// (<see cref="OptionalProjection"/>'s nullable <c>@objc</c> ternary, Direct + sret) both build their
+    /// return expression HERE — neither routes through <see cref="GetReturnPlan"/>'s non-<c>@objc</c>
+    /// suppressed-proxy throw. So the same fail-closed guard must live at this shared site, or a member
+    /// returning <c>(any P)?</c> / <c>any P</c> for an <c>@objc</c> <c>P</c> whose EveryProtocol
+    /// conformance was suppressed ships a <c>new {P}Proxy(…)</c> for a class that was never emitted (a
+    /// dangling CS0246). Throwing rolls the partial body back at the member-emit boundary and re-stubs the
+    /// whole member, exactly as the non-<c>@objc</c> PRODUCE path does in <see cref="GetReturnPlan"/>.
+    /// </remarks>
+    internal string GetObjCReturnExpression(string ptrExpr)
+    {
+        if (_proxyClassName != null && _proxyIsSuppressed)
+            throw new SuppressedProxyReferenceException(_proxyClassName);
+
+        return $"new {_proxyClassName}(new Swift.Runtime.ExistentialContainer1 {{ Payload0 = {ptrExpr} }}, ownsContainer: true)";
+    }
 
     // Class-bound existentials are read out of Swift arrays at a 16-byte [classRef][witnessTable]
     // stride. The opaque ExistentialContainer1 carrier (40 bytes) over-reads and crashes on the first

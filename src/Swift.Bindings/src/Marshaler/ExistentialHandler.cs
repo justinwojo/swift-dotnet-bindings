@@ -904,7 +904,55 @@ public class ExistentialHandler
         if (!EffectiveProtocolsHaveTypeRecords(protocolList))
             return "object";
 
+        // Mirror the single-protocol branch's Self/associated-type degrade (lines 824-825) for
+        // compositions. A constituent protocol with a Self requirement or associated types emits
+        // its C# interface GENERICALLY — `I{Name}<TSelf>` / `I{Name}<T{Assoc}, …>`
+        // (ProtocolHandler.GetInterfaceNameWithGenerics) — or, for a stdlib/database-only protocol
+        // like Swift.Encodable (no ProtocolDecl), emits NO interface at all. GetCompositionInterfaceName
+        // builds a BARE, non-generic `I{Name}` base for every constituent, so such a participant yields
+        // an interface base-list (`IEncodableAndSomeProtocol : IEncodable, …`) referencing an interface
+        // that is never emitted under that name — a dangling CS0246 the *Proxy-only
+        // ProxyReferenceIntegrityGate cannot see (it reconciles proxy-class identifiers, not interface
+        // bases). Collapse the whole composition to `object`. This can only make an already-broken
+        // Self/AT composition compilable — an ordinary composition (all constituents flag-free) is
+        // untouched, since neither flag is set on a plain protocol's TypeRecord.
+        if (EffectiveCompositionHasSelfOrAssociatedType(protocolList))
+            return "object";
+
         return GetCompositionInterfaceName(protocolList);
+    }
+
+    /// <summary>
+    /// True when any protocol in <paramref name="protocolList"/>'s effective (marker/ObjC-filtered)
+    /// set carries <see cref="TypeRecordFlags.HasSelfRequirement"/> or
+    /// <see cref="TypeRecordFlags.HasAssociatedTypes"/>. Such a protocol has no bare non-generic
+    /// <c>I{Name}</c> interface — it emits generic (<c>I{Name}&lt;…&gt;</c>) or, for a stdlib/database-only
+    /// protocol, nothing — so a composition base-list built from bare names would dangle. The
+    /// composition-branch counterpart to the single-protocol Self/associated-type gate in
+    /// <see cref="GetPublicExistentialType"/>. Reads <see cref="TypeRecord.Flags"/> directly so it
+    /// works for stdlib/database-only protocols (e.g. <c>Swift.Encodable</c>) that never get a
+    /// <c>ProtocolDecl</c>. Only reached after <see cref="EffectiveProtocolsHaveTypeRecords"/> has
+    /// confirmed every effective protocol has a <see cref="TypeRecordKind.Protocol"/> record.
+    /// </summary>
+    private bool EffectiveCompositionHasSelfOrAssociatedType(ProtocolListTypeSpec protocolList)
+    {
+        foreach (var protocol in GetEffectiveProtocols(protocolList))
+        {
+            try
+            {
+                var swiftTypeName = SwiftTypeName.FromTypeSpec(protocol);
+                if (_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord) &&
+                    (typeRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement) ||
+                     typeRecord.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes)))
+                    return true;
+            }
+            catch
+            {
+                // Malformed name — EffectiveProtocolsHaveTypeRecords already collapsed such a
+                // composition to object before this method is called.
+            }
+        }
+        return false;
     }
 
     /// <summary>
@@ -1140,6 +1188,48 @@ public class ExistentialHandler
     {
         var bareName = GetProxyClassName(protocolList);
         return IsProxyNameSuppressed(bareName, QualifyProxyClassName(bareName, protocolList), ctx);
+    }
+
+    /// <summary>
+    /// True when a marshalling site that reaches its proxy branch through
+    /// <see cref="AllProtocolsHaveTypeRecords"/> must NOT construct a <c>new {P}Proxy(…)</c> for
+    /// <paramref name="protocolList"/>, because that proxy class is not present in the emitted output.
+    /// Broader than <see cref="IsProxyReferenceSuppressed"/> by one structural reason the suppressed-name
+    /// set never records: a protocol with a Self requirement or associated types, for which
+    /// <c>ProtocolProxyEmitter.EmitProxyClass</c> unconditionally early-returns without writing any class.
+    /// Such a protocol still carries a Kind=Protocol TypeRecord — so <see cref="AllProtocolsHaveTypeRecords"/>
+    /// is true and the proxy branch would otherwise fire — yet it is never in the suppressed-name set (a
+    /// Swift stdlib protocol like <c>Encodable</c> that the consuming module never declares, so the
+    /// precompute pass never visits it). Degrading here keeps the marshalling body consistent with the
+    /// signature <see cref="GetPublicExistentialType"/> already emits for the same existential — <c>object</c>,
+    /// not <c>I{P}</c> — and is always sound: the class provably does not exist, so this can only remove a
+    /// dangling reference, never suppress a proxy that would otherwise be emitted. Mirrors the identical
+    /// Self/AT withdrawal in <c>ProtocolProxyEmissionPolicy.Decide</c>.
+    /// </summary>
+    public bool IsProxyReferenceUnavailable(ProtocolListTypeSpec protocolList, ModuleEmissionContext? ctx)
+    {
+        if (IsProxyReferenceSuppressed(protocolList, ctx))
+            return true;
+
+        // Over the same non-marker set AllProtocolsHaveTypeRecords already verified has TypeRecords,
+        // mirror EmitProxyClass's Self/AT early-return: any such protocol yields no `{P}Proxy` class.
+        foreach (var protocol in GetNonMarkerProtocols(protocolList))
+        {
+            try
+            {
+                var swiftTypeName = SwiftTypeName.FromTypeSpec(protocol);
+                if (_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord) &&
+                    (typeRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement) ||
+                     typeRecord.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes)))
+                    return true;
+            }
+            catch
+            {
+                // FromTypeSpec throws only on a malformed name, which resolves to no proxy anyway; the
+                // AllProtocolsHaveTypeRecords gate every caller passes first already excluded that case.
+            }
+        }
+        return false;
     }
 
     /// <summary>

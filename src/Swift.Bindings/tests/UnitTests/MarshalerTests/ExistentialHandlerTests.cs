@@ -749,6 +749,58 @@ public class ExistentialHandlerTests
         Assert.DoesNotContain("Swift.", result);
     }
 
+    [Theory]
+    // Real stdlib `Encodable` carries HasAssociatedTypes; other Self-requirement stdlib protocols
+    // carry HasSelfRequirement. EffectiveCompositionHasSelfOrAssociatedType ORs the two, so pin both.
+    [InlineData(TypeRecordFlags.HasSelfRequirement)]
+    [InlineData(TypeRecordFlags.HasAssociatedTypes)]
+    public void GetPublicExistentialType_CompositionWithSelfRequirementProtocol_DegradesToObject(
+        TypeRecordFlags selfOrAssociatedFlag)
+    {
+        // A composition `any Encodable & SomeProtocol` where Encodable carries a Self/associated-type
+        // requirement has no bare `IEncodable` interface — Self/associated-type protocols emit generic
+        // `I{Name}<…>`, or (stdlib/database-only) nothing — so a composition interface base-list
+        // built from bare names (`IEncodableAndSomeProtocol : IEncodable, ISomeProtocol`) would
+        // dangle (CS0246), a break the *Proxy-only ProxyReferenceIntegrityGate cannot see. The
+        // oracle must collapse the whole composition to `object`, mirroring its single-protocol
+        // Self/AT degrade.
+        var db = new MockTypeDatabaseWithProtocols();
+        db.AddProtocol("TestModule", "Encodable", selfOrAssociatedFlag);
+        db.AddProtocol("TestModule", "SomeProtocol");
+        var handler = new ExistentialHandler(db) { CurrentModuleName = "TestModule" };
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.Encodable"),
+            new NamedTypeSpec("TestModule.SomeProtocol")
+        });
+
+        var result = handler.GetPublicExistentialType(protocolList);
+
+        Assert.Equal("object", result);
+    }
+
+    [Fact]
+    public void GetPublicExistentialType_CompositionOfPlainProtocols_ReturnsCompositionInterface()
+    {
+        // Guardrail against over-degradation: a composition of two ordinary protocols (neither
+        // carrying a Self requirement or associated types) must STILL project a real composition
+        // interface, not collapse to `object`.
+        var db = new MockTypeDatabaseWithProtocols();
+        db.AddProtocol("TestModule", "AlphaProtocol");
+        db.AddProtocol("TestModule", "BetaProtocol");
+        var handler = new ExistentialHandler(db) { CurrentModuleName = "TestModule" };
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.AlphaProtocol"),
+            new NamedTypeSpec("TestModule.BetaProtocol")
+        });
+
+        var result = handler.GetPublicExistentialType(protocolList);
+
+        Assert.NotEqual("object", result);
+        Assert.Contains("And", result); // composition interface name, e.g. IAlphaProtocolAndBetaProtocol
+    }
+
     [Fact]
     public void TypeProjectionFactory_CrossModuleExistential_QualifiesName()
     {
@@ -1119,6 +1171,45 @@ public class ExistentialHandlerTests
                     Kind = TypeRecordKind.Protocol,
                     EmittedMemberCount = 0
                 }
+            };
+        }
+
+        public bool IsTypeProcessed(SwiftTypeName swiftTypeName) =>
+            _types.ContainsKey(swiftTypeName.ModuleQualifiedName);
+
+        public bool TryGetTypeRecord(SwiftTypeName swiftTypeName, out TypeRecord record) =>
+            _types.TryGetValue(swiftTypeName.ModuleQualifiedName, out record!);
+
+        public string GetLibraryPath(string moduleName) => "";
+        public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record) { }
+    }
+
+    #endregion
+
+    #region MockTypeDatabaseWithProtocols
+
+    /// <summary>
+    /// Registers an arbitrary set of protocol TypeRecords, each with caller-chosen
+    /// <see cref="TypeRecordFlags"/>. Used to build a multi-protocol composition where one
+    /// participant carries a Self requirement / associated types (which has no bare
+    /// <c>I{Name}</c> interface) alongside an ordinary protocol.
+    /// </summary>
+    private class MockTypeDatabaseWithProtocols : ITypeDatabase
+    {
+        private readonly Dictionary<string, TypeRecord> _types = new();
+        public string AsyncLibraryName => null!;
+
+        public void AddProtocol(string moduleName, string protocolName, TypeRecordFlags extraFlags = TypeRecordFlags.None)
+        {
+            var fqn = $"{moduleName}.{protocolName}";
+            _types[fqn] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(moduleName, $"I{protocolName}"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(fqn),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen | extraFlags,
+                Kind = TypeRecordKind.Protocol,
+                EmittedMemberCount = 0
             };
         }
 

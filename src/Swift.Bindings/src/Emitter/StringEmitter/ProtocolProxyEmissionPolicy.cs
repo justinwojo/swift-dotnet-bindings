@@ -57,6 +57,29 @@ internal static class ProtocolProxyEmissionPolicy
         if (ModuleHandler.HasMembersReferencingUnsupportedModule(protocolDecl, typeDatabase))
             return ProxyEmissionDecision.SkippedUnsupportedModule;
 
+        // Dual-oracle parity with the proxy-class emitter. ProtocolProxyEmitter.EmitProxyClass
+        // early-returns UNCONDITIONALLY — emitting NO class — for a protocol with a Self requirement or
+        // associated types: [UnmanagedCallersOnly]/[DllImport] cannot live in the generic proxy those
+        // shapes would need. That early-return is a structural fact, not a prediction. This oracle must
+        // agree on its own terms, or the two can diverge: Decide answers Emit (via the WasConformanceEmitted
+        // path below) while no proxy class is ever written, and a retained constrained-existential consumer
+        // then projects a dangling `new {P}Proxy(…)` for a class that does not exist.
+        //
+        // Under the current ModuleHandler this arm changes no output: the suitable-protocol filter already
+        // excludes Self/AT BEFORE EveryProtocol emission, so no conformance is ever recorded for them and
+        // the WasConformanceEmitted path below already returns SuppressedByConformance. Making the
+        // withdrawal explicit HERE keeps the single oracle self-consistent with EmitProxyClass directly,
+        // rather than depending on that second, coincidental filter to reach the same verdict — so a future
+        // suitable-filter change, or any state that records a conformance for an AT/Self protocol, cannot
+        // reopen the divergence. Because EmitProxyClass never emits for these flags, this can only ADD
+        // suppression bookkeeping — it can never remove a proxy that would otherwise exist; the report row
+        // is attributed to the associated-type/Self shape via ForDroppedProtocol. Guarded on ctx != null so
+        // the invariant the emit-time switch relies on (SuppressedByConformance ⇒ a ModuleEmissionContext is
+        // available for the non-null RecordSuppressedProxy deref) still holds; the null-ctx unit path
+        // direct-emits and EmitProxyClass no-ops for these anyway.
+        if (ctx != null && (protocolDecl.HasSelfRequirement || protocolDecl.AssociatedTypes.Count > 0))
+            return ProxyEmissionDecision.SuppressedByConformance;
+
         // A read-only (Swift-vended-only) proxy reads `any P` through the existential's own witness
         // table and never calls the EveryProtocol carrier, so it emits regardless of carrier state.
         if (ctx != null && !ctx.IsReadOnlyProxy(protocolDecl.Name))
@@ -105,7 +128,7 @@ internal static class SuppressedProxyPrecomputer
 {
     public static void Precompute(ModuleDecl moduleDecl, ITypeDatabase typeDatabase, ModuleEmissionContext emissionContext)
     {
-        foreach (var protocolDecl in moduleDecl.Protocols)
+        foreach (var protocolDecl in EnumerateProtocolsForSuppression(moduleDecl))
         {
             // Record EVERY non-Emit decision. Both suppression arms leave the `{Protocol}Proxy` class
             // unemitted, so any retained consumer that projects `any P` must have its reference
@@ -114,6 +137,39 @@ internal static class SuppressedProxyPrecomputer
             // `new {P}Proxy(…)` (the SwiftRichString StyleProtocol CS0246).
             if (ProtocolProxyEmissionPolicy.Decide(protocolDecl, typeDatabase, emissionContext) != ProxyEmissionDecision.Emit)
                 emissionContext.RecordSuppressedProxy(ProtocolProxyEmissionPolicy.ProxyClassName(protocolDecl));
+        }
+    }
+
+    // Top-level protocols live in moduleDecl.Protocols; a protocol NESTED inside a type (declared in
+    // `enum RiveLog { protocol Logger { … } }`) lives under its parent's TypeDecl.Types and is absent
+    // from moduleDecl.Protocols. Its proxy still needs its suppressed name front-loaded so an
+    // earlier-declared consumer of `any RiveLog.Logger` sees the suppression instead of shipping a live
+    // `new LoggerProxy(…)` for a class that is never emitted (the rive-ios LoggerProxy CS0246). The
+    // emitter already reaches nested protocols this way (ProtocolHandler.CollectProtocolDecls); the
+    // precompute pass must too, or it defeats its own order-independence guarantee for nested shapes.
+    private static IEnumerable<ProtocolDecl> EnumerateProtocolsForSuppression(ModuleDecl moduleDecl)
+    {
+        foreach (var protocolDecl in moduleDecl.Protocols)
+            yield return protocolDecl;
+
+        foreach (var type in moduleDecl.Types)
+            foreach (var nested in EnumerateNestedProtocols(type))
+                yield return nested;
+    }
+
+    // Yields protocols declared inside <paramref name="type"/> at any depth (a nested type's own
+    // nested protocols included). Deliberately does NOT yield <paramref name="type"/> itself — a
+    // top-level protocol is already yielded by moduleDecl.Protocols, so recursing only its children
+    // avoids re-deciding it.
+    private static IEnumerable<ProtocolDecl> EnumerateNestedProtocols(TypeDecl type)
+    {
+        foreach (var nested in type.Types)
+        {
+            if (nested is ProtocolDecl nestedProtocol)
+                yield return nestedProtocol;
+
+            foreach (var deeper in EnumerateNestedProtocols(nested))
+                yield return deeper;
         }
     }
 }

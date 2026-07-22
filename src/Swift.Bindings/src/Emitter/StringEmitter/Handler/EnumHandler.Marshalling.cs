@@ -314,12 +314,17 @@ namespace BindingsGeneration
                         // buffer that is never value-witness-destroyed, so the proxy adopts the
                         // existential's +1 and releases it via the container's metadata on Dispose/finalize.
                         var proxyClassName = existentialHandler.GetProxyClassName(protocolList);
-                        // Predict-before-emit suppression gate (Mechanism A, PRODUCE arm): if the
-                        // EveryProtocol conformance backing this proxy was not emitted, abandon the whole
-                        // TryGet member body. The throw unwinds to the checkpoint/catch the TryGet emitter
-                        // wraps around the body, which replaces it with the proxy-suppressed throw stub —
-                        // the in-emission rollback that replaces the old generate-then-regex-strip post-pass.
-                        if (existentialHandler.IsProxyReferenceSuppressed(protocolList, emissionCtx))
+                        // Predict-before-emit availability gate (Mechanism A, PRODUCE arm): abandon the whole
+                        // TryGet member body when the `{P}Proxy` this branch is about to construct is not in
+                        // the emitted output. IsProxyReferenceUnavailable covers BOTH a suppressed proxy (its
+                        // EveryProtocol conformance was not emitted) AND a structurally non-emitted one — a
+                        // Self-requirement / associated-type protocol (e.g. stdlib `any Encodable`) that HAS a
+                        // Kind=Protocol TypeRecord, so AllProtocolsHaveTypeRecords let us in here, yet for which
+                        // EmitProxyClass writes no class and which no precompute pass ever recorded suppressed.
+                        // The throw unwinds to the checkpoint/catch the TryGet emitter wraps around the body,
+                        // which replaces it with the proxy-suppressed throw stub — the in-emission rollback that
+                        // replaces the old generate-then-regex-strip post-pass.
+                        if (existentialHandler.IsProxyReferenceUnavailable(protocolList, emissionCtx))
                             throw new SuppressedProxyReferenceException(proxyClassName);
                         var ownsProxyArg = ExistentialHandler.IsOwnedExistentialContainerType(containerType) ? ", ownsContainer: true" : string.Empty;
                         // A class-bound (single AnyObject-/superclass-constrained) existential is a compact
@@ -501,9 +506,10 @@ namespace BindingsGeneration
                         // buffer that is never value-witness-destroyed, so the proxy adopts the
                         // existential's +1 and releases it via the container's metadata on Dispose/finalize.
                         var proxyClassName = existentialHandler.GetProxyClassName(protocolList);
-                        // Predict-before-emit suppression gate (Mechanism A, PRODUCE arm): see
-                        // EmitPayloadMarshalWithOffset. Unwinds to the TryGet body checkpoint/catch.
-                        if (existentialHandler.IsProxyReferenceSuppressed(protocolList, emissionCtx))
+                        // Predict-before-emit availability gate (Mechanism A, PRODUCE arm): see
+                        // EmitPayloadMarshalWithOffset. Covers a suppressed proxy AND a structurally
+                        // non-emitted Self/AT one. Unwinds to the TryGet body checkpoint/catch.
+                        if (existentialHandler.IsProxyReferenceUnavailable(protocolList, emissionCtx))
                             throw new SuppressedProxyReferenceException(proxyClassName);
                         var ownsProxyArg = ExistentialHandler.IsOwnedExistentialContainerType(containerType) ? ", ownsContainer: true" : string.Empty;
                         // A class-bound (single AnyObject-/superclass-constrained) existential is a compact
@@ -744,9 +750,10 @@ namespace BindingsGeneration
                         // buffer that is never value-witness-destroyed, so the proxy adopts the
                         // existential's +1 and releases it via the container's metadata on Dispose/finalize.
                         var proxyClassName = existentialHandler.GetProxyClassName(protocolList);
-                        // Predict-before-emit suppression gate (Mechanism A, PRODUCE arm): see
-                        // EmitPayloadMarshalWithOffset. Unwinds to the TryGet body checkpoint/catch.
-                        if (existentialHandler.IsProxyReferenceSuppressed(protocolList, emissionCtx))
+                        // Predict-before-emit availability gate (Mechanism A, PRODUCE arm): see
+                        // EmitPayloadMarshalWithOffset. Covers a suppressed proxy AND a structurally
+                        // non-emitted Self/AT one. Unwinds to the TryGet body checkpoint/catch.
+                        if (existentialHandler.IsProxyReferenceUnavailable(protocolList, emissionCtx))
                             throw new SuppressedProxyReferenceException(proxyClassName);
                         var ownsProxyArg = ExistentialHandler.IsOwnedExistentialContainerType(containerType) ? ", ownsContainer: true" : string.Empty;
                         // A class-bound (single AnyObject-/superclass-constrained) existential is a compact
