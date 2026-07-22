@@ -723,6 +723,175 @@ public class CrossModuleExtensionEmitterTests
 
     #endregion
 
+    #region Emit / EmitStruct: absent-Apple surface ingress withdrawal
+
+    // A cross-module extension whose signature references an Apple-framework type absent from the
+    // .NET binding surface (e.g. SwiftDate's `Date.dateAtStartOf(_: Calendar.Component)`, whose
+    // Foundation.Calendar.Component flattens to a phantom Foundation.CalendarComponent). The coarse
+    // ClassifyParameterType classifier treats any Foundation type as a marshalable ObjC-class
+    // pointer, so pre-fix the emitter printed a `Foundation.CalendarComponent` parameter reference
+    // that dangles as CS0234. The surface-authoritative ingress gate must withdraw the member — a
+    // structured skip row AND a tombstone — rather than leak the phantom type or drop it silently.
+
+    [Fact]
+    public void EmitStruct_MethodWithAbsentAppleParam_WithdrawnAndReported()
+    {
+        var (csWriter, swiftWriter, csOutput, _, moduleDecl, structDecl, conductor, env)
+            = CreateStructSetup(frozen: true, requiresMemoryManagement: false);
+        RegisterAbsentAppleType(env.TypeDatabase);
+        structDecl.Methods.Add(CreateMethodWithAbsentAppleParam("dateAtStartOf", "TestModule", structDecl));
+
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, Logger);
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        var result = csOutput.ToString();
+        // The phantom Apple type is never referenced ...
+        Assert.DoesNotContain("Foundation.CalendarComponent", result);
+        // ... the lone member was withdrawn, so the empty shell rolls back ...
+        Assert.DoesNotContain("public static partial class", result);
+        // ... and the withdrawal is reported, not silent.
+        Assert.Contains(report!.SkippedItems, s => s.Reason == SkipReason.AbsentFrameworkType);
+    }
+
+    [Fact]
+    public void EmitStruct_AbsentAppleAmongGoodMembers_WithdrawnWithTombstoneKeepsShell()
+    {
+        var (csWriter, swiftWriter, csOutput, _, moduleDecl, structDecl, conductor, env)
+            = CreateStructSetup(frozen: true, requiresMemoryManagement: false);
+        RegisterAbsentAppleType(env.TypeDatabase);
+        // A good sibling keeps the extension class shell alive so the withdrawn member's tombstone
+        // is observable in the output (not rolled back with an all-unemittable empty shell).
+        structDecl.Methods.Add(CreateMethodDecl("doMath", "TestModule", structDecl));
+        structDecl.Methods.Add(CreateMethodWithAbsentAppleParam("dateAtStartOf", "TestModule", structDecl));
+
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, Logger);
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        var result = csOutput.ToString();
+        // Good sibling still emits its shell ...
+        Assert.Contains("OrigPointTestModuleExtensions", result);
+        // ... the withdrawn member leaves an // Unsupported: tombstone ...
+        Assert.Contains(result.Split('\n'), l => l.Contains("// Unsupported:") && l.Contains("dateAtStartOf"));
+        // ... and the phantom type name appears ONLY in that tombstone comment, never as emitted
+        // code (a leaked `Foundation.CalendarComponent units` parameter or a `.Handle` marshal).
+        var phantomLines = result.Split('\n').Where(l => l.Contains("Foundation.CalendarComponent"));
+        Assert.All(phantomLines, l => Assert.StartsWith("//", l.TrimStart()));
+        // ... and lands a structured skip row.
+        Assert.Contains(report!.SkippedItems, s => s.Reason == SkipReason.AbsentFrameworkType);
+    }
+
+    [Fact]
+    public void Emit_ClassMethodWithAbsentAppleParam_WithdrawnAndReported()
+    {
+        var (csWriter, swiftWriter, csOutput, moduleDecl, classDecl, conductor, env) = CreateSetup();
+        RegisterAbsentAppleType(env.TypeDatabase);
+        classDecl.Methods.Add(CreateMethodWithAbsentAppleParam("configure", "TestModule", classDecl));
+
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger);
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        var result = csOutput.ToString();
+        Assert.DoesNotContain("Foundation.CalendarComponent", result);
+        // The withdrawn method must not leave an orphan native P/Invoke either.
+        Assert.DoesNotContain("public static partial class", result);
+        Assert.Contains(report!.SkippedItems, s => s.Reason == SkipReason.AbsentFrameworkType);
+    }
+
+    [Fact]
+    public void Emit_ClassPropertyWithAbsentAppleType_WithdrawnAndReported()
+    {
+        var (csWriter, swiftWriter, csOutput, moduleDecl, classDecl, conductor, env) = CreateSetup();
+        RegisterAbsentAppleType(env.TypeDatabase);
+
+        var ownerModuleDecl = CreateFullModuleDecl("TestModule");
+        var getterMethod = CreateMethodDecl("get_component", "TestModule", classDecl,
+            mangledName: "$s10TestModule9component_getter");
+        getterMethod.IsAccessor = true;
+        var property = new PropertyDecl
+        {
+            Name = "component",
+            SwiftTypeSpec = new NamedTypeSpec(AbsentAppleTypeName),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getterMethod } },
+            ParentDecl = classDecl,
+            ModuleDecl = ownerModuleDecl
+        };
+        classDecl.Properties.Add(property);
+
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger);
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        var result = csOutput.ToString();
+        Assert.DoesNotContain("Foundation.CalendarComponent", result);
+        Assert.DoesNotContain("GetComponent", result);
+        Assert.Contains(report!.SkippedItems, s => s.Reason == SkipReason.AbsentFrameworkType);
+    }
+
+    [Fact]
+    public void EmitStruct_PrimitiveParam_StillEmitsUnderRegisteredAbsentAppleType()
+    {
+        // Surgical-fix guard: registering an absent Apple type must not withdraw a member whose own
+        // signature is all known-good. A primitive-only sibling still emits its shell.
+        var (csWriter, swiftWriter, csOutput, _, moduleDecl, structDecl, conductor, env)
+            = CreateStructSetup(frozen: true, requiresMemoryManagement: false);
+        RegisterAbsentAppleType(env.TypeDatabase);
+        structDecl.Methods.Add(CreateMethodDecl("doMath", "TestModule", structDecl));
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, Logger);
+
+        var result = csOutput.ToString();
+        Assert.Contains("OrigPointTestModuleExtensions", result);
+    }
+
+    // The shared detector must reach an absent Apple type carried inside a container shape (tuple
+    // element, closure argument/return, protocol composition), not just a bare or generic-parameter
+    // position. The classifier's own AbsentAppleProjection catch is bypassed for a registered
+    // absent type (its cheap outer-name precheck short-circuits), so the direct-flag arm is the only
+    // thing that can withdraw it — and it must recurse the same container shapes the classifier does.
+    [Fact]
+    public void ReferencesAbsentAppleType_AbsentTypeNestedInTuple_Detected()
+    {
+        var typeDatabase = new TypeDatabase();
+        RegisterAbsentAppleType(typeDatabase);
+        var tuple = new TupleTypeSpec(new TypeSpec[]
+        {
+            new NamedTypeSpec(AbsentAppleTypeName),
+            new NamedTypeSpec("Swift.Int")
+        });
+
+        Assert.True(ExtensionMarshallingHelper.ReferencesAbsentAppleType(tuple, typeDatabase, out var offending));
+        Assert.Equal(AbsentAppleTypeName, offending);
+    }
+
+    [Fact]
+    public void ReferencesAbsentAppleType_AbsentTypeInClosureReturn_Detected()
+    {
+        var typeDatabase = new TypeDatabase();
+        RegisterAbsentAppleType(typeDatabase);
+        // (Int) -> Foundation.CalendarComponent — the absent type is the closure's return.
+        var closure = new ClosureTypeSpec(
+            arguments: new TupleTypeSpec(new NamedTypeSpec("Swift.Int")),
+            returnType: new NamedTypeSpec(AbsentAppleTypeName));
+
+        Assert.True(ExtensionMarshallingHelper.ReferencesAbsentAppleType(closure, typeDatabase, out var offending));
+        Assert.Equal(AbsentAppleTypeName, offending);
+    }
+
+    #endregion
+
     #region Helpers
 
     private static (CSharpWriter csWriter, SwiftWriter swiftWriter, StringWriter csOutput,
@@ -1128,6 +1297,75 @@ public class CrossModuleExtensionEmitterTests
             });
         typeDatabase.AddModuleDatabase(origModule);
         return typeDatabase;
+    }
+
+    private const string AbsentAppleTypeName = "Foundation.CalendarComponent";
+
+    // Registers an Apple-framework type the .NET binding surface does not declare, synthesized as an
+    // ObjC-bridged class record flagged AbsentAppleProjection — exactly what
+    // TypeDatabaseExtensions.CreateAbsentAppleRecord produces for a surface-absent type such as
+    // Foundation.Calendar.Component. Because ClassifyParameterType treats any Foundation type as a
+    // marshalable ObjC-class pointer, without the ingress gate the emitter would print a reference
+    // to a type Microsoft.iOS never declares (CS0234).
+    private static void RegisterAbsentAppleType(ITypeDatabase typeDatabase)
+    {
+        var foundation = new ModuleTypeDatabase("Foundation", "/usr/lib/swift/libswiftFoundation.dylib");
+        foundation.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName(AbsentAppleTypeName),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "CalendarComponent"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(AbsentAppleTypeName),
+                MetadataAccessor = string.Empty,
+                Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement | TypeRecordFlags.AbsentAppleProjection,
+                Kind = TypeRecordKind.Class
+            });
+        ((TypeDatabase)typeDatabase).AddModuleDatabase(foundation);
+    }
+
+    // An instance method returning void with a single parameter typed as the absent Apple type.
+    // Mirrors the shape of SwiftDate's Date.dateAtStartOf(_: Calendar.Component) extension.
+    private static MethodDecl CreateMethodWithAbsentAppleParam(string name, string ownerModule, TypeDecl parentDecl)
+    {
+        var ownerModuleDecl = CreateFullModuleDecl(ownerModule);
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10{ownerModule}{name.Length}{name}yyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                // Return type at index 0 — void.
+                new ArgumentDecl
+                {
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = ownerModuleDecl
+                },
+                // Single absent-Apple-typed parameter.
+                new ArgumentDecl
+                {
+                    Name = "units",
+                    PrivateName = "units",
+                    SwiftTypeSpec = new NamedTypeSpec(AbsentAppleTypeName),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = ownerModuleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = ownerModuleDecl,
+            IsSynthesizedAccessor = false
+        };
     }
 
     #endregion

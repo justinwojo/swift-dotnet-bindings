@@ -462,10 +462,24 @@ public static class TypeDatabaseExtensions
             var dotIdx = netName.IndexOf('.');
             if (dotIdx > 0)
             {
+                var regNamespace = netName.Substring(0, dotIdx);
+                var regName = netName.Substring(dotIdx + 1);
+
+                // Surface-verify the hand-authoritative remap against what the binding actually ships:
+                // project an integer enum as a value type, or withdraw a name the binding declares as a
+                // struct/static-constants/absent shape a Handle-bearing class can't stand in for. The
+                // registry name is the sole candidate (usr null) and a no-hit keeps the registry record
+                // (withdrawOnNoHit: false) — the remap is trusted; only a definitive wrong-kind hit
+                // overrides it.
+                var regVerified = TryProjectViaAppleSurface(
+                    swiftTypeName, usr: null, regNamespace, regName,
+                    AppleTypeSurfaceIndex.Default, withdrawOnNoHit: false);
+                if (regVerified is not null)
+                    return regVerified;
+
                 return new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName(
-                        netName.Substring(0, dotIdx), netName.Substring(dotIdx + 1)),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName(regNamespace, regName),
                     SwiftTypeName = swiftTypeName,
                     MetadataAccessor = string.Empty,
                     Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
@@ -524,17 +538,26 @@ public static class TypeDatabaseExtensions
     /// </summary>
     private static TypeRecord? TryProjectViaAppleSurface(
         SwiftTypeName swiftTypeName, string? usr, string synthNamespace, string synthName)
-        => TryProjectViaAppleSurface(swiftTypeName, usr, synthNamespace, synthName, AppleTypeSurfaceIndex.Default);
+        => TryProjectViaAppleSurface(swiftTypeName, usr, synthNamespace, synthName,
+            AppleTypeSurfaceIndex.Default, withdrawOnNoHit: true);
 
     /// <summary>
     /// Core decision tree with the surface <paramref name="index"/> injected, so it can be exercised
-    /// against a hand-built index without the installed iOS workload. A null index models the
+    /// against a hand-built index without the installed Apple workload. A null index models the
     /// workload-absent case (graceful degradation to name synthesis). The production entry point reads
-    /// the process-wide singleton.
+    /// the platform-matched singleton.
+    /// <para>
+    /// <paramref name="withdrawOnNoHit"/> chooses what a genuine no-hit means. On the synthesis path
+    /// the candidate name is the generator's own guess: when the platform-authoritative index has no
+    /// match at all, the synthesized qualified name is provably absent (the qualified lookup ran
+    /// first), so an emitted bridged class would dangle — withdraw the referencing member. On the
+    /// registry-verify path the name is a hand-authoritative remap, so a no-hit keeps that record (the
+    /// index may simply not cover it) and only a definitive wrong-kind hit corrects or withdraws it.
+    /// </para>
     /// </summary>
     internal static TypeRecord? TryProjectViaAppleSurface(
         SwiftTypeName swiftTypeName, string? usr, string synthNamespace, string synthName,
-        AppleTypeSurfaceIndex? index)
+        AppleTypeSurfaceIndex? index, bool withdrawOnNoHit = false)
     {
         // A bridged NSError reference (Swift's NS_ERROR_ENUM import) is a struct, not a raw enum,
         // and cannot be reconstructed from a raw integer — skip any member that takes/returns one.
@@ -582,10 +605,17 @@ public static class TypeDatabaseExtensions
                 return CreateAbsentAppleRecord(swiftTypeName, synthNamespace, synthName);
         }
 
-        // No reliable match. A clang value-type reference (integer enum, typedef, or C struct) that
-        // Microsoft.iOS doesn't declare would dangle as a phantom class → skip. Object references
-        // (ObjC class USR, or no USR) keep the synthesized class projection.
+        // A clang value-type reference (integer enum, typedef, or C struct) the binding doesn't
+        // declare would dangle as a phantom class → skip, regardless of caller trust.
         if (IsClangImportedValueTypeUsr(usr))
+            return CreateAbsentAppleRecord(swiftTypeName, synthNamespace, synthName);
+
+        // A genuine no-hit — no candidate matched any name — under a platform-authoritative index the
+        // caller trusts (synthesis path): the synthesized qualified name is absent from the binding, so
+        // an emitted bridged class would be a CS0234/CS0246 dangling reference. Withdraw the member.
+        // A bare cross-namespace hit we declined to correct above is NOT a no-hit (hit is set) — it is
+        // left to synthesis, keeping a name that may already compile.
+        if (hit is null && withdrawOnNoHit)
             return CreateAbsentAppleRecord(swiftTypeName, synthNamespace, synthName);
 
         return null;

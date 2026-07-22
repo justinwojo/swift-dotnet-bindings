@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 
@@ -32,8 +33,10 @@ internal sealed record AppleTypeSurfaceEntry(
     bool IsFlags);
 
 /// <summary>
-/// A name→shape index of the public Microsoft.iOS binding surface, built once by reading the
-/// installed reference assembly with a metadata-only <see cref="MetadataLoadContext"/>.
+/// A name→shape index of the public Apple binding surface for the target platform, built once by
+/// reading the installed reference assembly (Microsoft.iOS / Microsoft.macOS / Microsoft.tvOS /
+/// Microsoft.MacCatalyst, selected by <see cref="SetAmbientPlatform"/>) with a metadata-only
+/// <see cref="MetadataLoadContext"/>.
 /// <para>
 /// The ObjC-bridging synthesis fabricates a .NET name and a Handle-bearing class shape for every
 /// Apple type it can't find in the hand-maintained database. For nested enums, value types, and
@@ -44,9 +47,9 @@ internal sealed record AppleTypeSurfaceEntry(
 /// value type, and skip a member whose type genuinely isn't in the binding rather than emit a
 /// dangling reference.
 /// </para>
-/// The reference assemblies live on disk in the installed iOS workload; the index is built at most
-/// once per process (a <see cref="Lazy{T}"/> singleton). When the workload isn't present the
-/// singleton is null and callers fall back to name synthesis, so generation never depends on it.
+/// The reference assemblies live on disk in the installed Apple workload; the index is built at most
+/// once per target platform (a per-platform cache). When the platform's workload isn't present the
+/// entry is null and callers fall back to name synthesis, so generation never depends on it.
 /// </summary>
 internal sealed class AppleTypeSurfaceIndex
 {
@@ -72,27 +75,102 @@ internal sealed class AppleTypeSurfaceIndex
     internal bool TryResolveBare(string name, [NotNullWhen(true)] out AppleTypeSurfaceEntry? entry)
         => _byBareName.TryGetValue(name, out entry);
 
-    private static readonly Lazy<AppleTypeSurfaceIndex?> s_default =
-        new(BuildFromInstalledRefPack, LazyThreadSafetyMode.ExecutionAndPublication);
+    // The current generation's target platform, set once at generation start (BindingsGeneratorCommand)
+    // so Default resolves the reference assembly that actually ships for it — a macOS binding must be
+    // verified against Microsoft.macOS, not Microsoft.iOS. AsyncLocal mirrors ReportCollector's ambient
+    // pattern: the index is read from static call sites with no threaded platform, and a plain static
+    // field would leak one run's platform across the parallel emitter tests. Unset → iOS (the CLI's
+    // own --platform default and the historical behavior).
+    private static readonly AsyncLocal<ApplePlatform?> s_ambientPlatform = new();
 
-    /// <summary>The process-wide index, or null when the Microsoft.iOS reference assembly isn't installed.</summary>
-    internal static AppleTypeSurfaceIndex? Default => s_default.Value;
+    /// <summary>
+    /// Records the target Apple platform for the current generation so <see cref="Default"/> resolves
+    /// the reference assembly that ships for it. Set once at generation start; unset resolves to iOS.
+    /// </summary>
+    internal static void SetAmbientPlatform(ApplePlatform platform) => s_ambientPlatform.Value = platform;
+
+    /// <summary>Clears the ambient platform so a later read falls back to iOS (test isolation).</summary>
+    internal static void ResetAmbientPlatform() => s_ambientPlatform.Value = null;
+
+    // One index per platform, each built at most once. GetOrAdd caches a null result too, so a platform
+    // whose reference pack isn't installed degrades to name synthesis without re-probing every lookup.
+    private static readonly ConcurrentDictionary<ApplePlatform, AppleTypeSurfaceIndex?> s_byPlatform = new();
+
+    // A test-installed override of the resolved index for the current async flow. Production never sets
+    // this — Default falls through to the per-platform reference-pack cache below. It exists so
+    // synthesis/emitter tests can drive the real ingress path (ObjC-bridging synthesis →
+    // TryProjectViaAppleSurface → ClassifyUnsupportedReference) against a hand-built surface — or a
+    // deterministically *absent* surface (Index null, modelling the workload-not-installed fallback) —
+    // without depending on whatever reference assemblies happen to be installed. A null AsyncLocal value
+    // means "no override"; a present box carries the forced index, which may itself be null (the box is
+    // what distinguishes "force surface-unavailable" from "no override"). AsyncLocal — like
+    // s_ambientPlatform and ReportCollector's session — so one test's override never leaks into a
+    // parallel test's Default read.
+    private sealed class SurfaceOverride
+    {
+        internal AppleTypeSurfaceIndex? Index { get; }
+        internal SurfaceOverride(AppleTypeSurfaceIndex? index) => Index = index;
+    }
+
+    private static readonly AsyncLocal<SurfaceOverride?> s_overrideForCurrentFlow = new();
+
+    /// <summary>
+    /// The index for the current generation's target platform (see <see cref="SetAmbientPlatform"/>), or
+    /// null when that platform's reference assembly isn't installed.
+    /// </summary>
+    internal static AppleTypeSurfaceIndex? Default =>
+        s_overrideForCurrentFlow.Value is { } o
+            ? o.Index
+            : GetForPlatform(s_ambientPlatform.Value ?? ApplePlatform.iOS);
+
+    /// <summary>
+    /// Test-only: installs <paramref name="index"/> as <see cref="Default"/> for the current async flow
+    /// and returns a scope that restores the previous value on dispose. Passing a real index exercises
+    /// the surface-verification path; passing null forces the surface-unavailable fallback
+    /// deterministically (independent of which reference assemblies are installed).
+    /// </summary>
+    internal static IDisposable OverrideDefaultForTest(AppleTypeSurfaceIndex? index)
+    {
+        var previous = s_overrideForCurrentFlow.Value;
+        s_overrideForCurrentFlow.Value = new SurfaceOverride(index);
+        return new DefaultOverrideScope(previous);
+    }
+
+    private sealed class DefaultOverrideScope : IDisposable
+    {
+        private readonly SurfaceOverride? _previous;
+        private bool _disposed;
+
+        internal DefaultOverrideScope(SurfaceOverride? previous) => _previous = previous;
+
+        public void Dispose()
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+            s_overrideForCurrentFlow.Value = _previous;
+        }
+    }
+
+    /// <summary>The index for a specific platform, or null when its reference assembly isn't installed.</summary>
+    internal static AppleTypeSurfaceIndex? GetForPlatform(ApplePlatform platform)
+        => s_byPlatform.GetOrAdd(platform, BuildFromInstalledRefPack);
 
     [UnconditionalSuppressMessage("AOT", "IL3050",
         Justification = "MetadataLoadContext reads metadata only and never executes code; the generator never runs under NativeAOT.")]
-    private static AppleTypeSurfaceIndex? BuildFromInstalledRefPack()
+    private static AppleTypeSurfaceIndex? BuildFromInstalledRefPack(ApplePlatform platform)
     {
         try
         {
-            var iosRefAssembly = FindMicrosoftIosRefAssembly();
-            if (iosRefAssembly is null)
+            var appleRefAssembly = FindMicrosoftRefAssembly(platform);
+            if (appleRefAssembly is null)
                 return null;
 
             var coreRefDir = FindNetCoreAppRefDir();
             if (coreRefDir is null)
                 return null;
 
-            var refDir = Path.GetDirectoryName(iosRefAssembly)!;
+            var refDir = Path.GetDirectoryName(appleRefAssembly)!;
             var assemblies = Directory.GetFiles(refDir, "*.dll")
                 .Concat(Directory.GetFiles(coreRefDir, "*.dll"))
                 .GroupBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
@@ -100,11 +178,11 @@ internal sealed class AppleTypeSurfaceIndex
                 .ToArray();
 
             var resolver = new PathAssemblyResolver(assemblies);
-            // The iOS ref pack defines its own types but pulls core types (System.Object, …) from the
+            // The Apple ref pack defines its own types but pulls core types (System.Object, …) from the
             // framework ref pack, whose runtime-facing assembly name is "System.Runtime".
             using var mlc = new MetadataLoadContext(resolver, "System.Runtime");
-            var iosAsm = mlc.LoadFromAssemblyPath(iosRefAssembly);
-            return BuildFromAssembly(iosAsm);
+            var appleAsm = mlc.LoadFromAssemblyPath(appleRefAssembly);
+            return BuildFromAssembly(appleAsm);
         }
         catch
         {
@@ -213,16 +291,35 @@ internal sealed class AppleTypeSurfaceIndex
         };
     }
 
-    private static string? FindMicrosoftIosRefAssembly()
+    /// <summary>
+    /// The Microsoft.* reference-pack token for a target platform. The pack directory
+    /// (<c>{token}.Ref*</c>) and the ref assembly (<c>{token}.dll</c>) both derive from it — e.g.
+    /// <c>Microsoft.iOS.Ref.net10.0_26.2/…/ref/net10.0/Microsoft.iOS.dll</c>. Casing matches the
+    /// installed packs exactly (<c>macOS</c>/<c>tvOS</c>/<c>MacCatalyst</c>).
+    /// </summary>
+    internal static string RefPackName(ApplePlatform platform) => platform switch
     {
+        ApplePlatform.iOS => "Microsoft.iOS",
+        ApplePlatform.macOS => "Microsoft.macOS",
+        ApplePlatform.tvOS => "Microsoft.tvOS",
+        ApplePlatform.MacCatalyst => "Microsoft.MacCatalyst",
+        _ => "Microsoft.iOS",
+    };
+
+    private static string? FindMicrosoftRefAssembly(ApplePlatform platform)
+    {
+        var token = RefPackName(platform);
+        var packGlob = $"{token}.Ref*";
+        var dllName = $"{token}.dll";
+
         foreach (var root in DotNetRoots())
         {
             var packsDir = Path.Combine(root, "packs");
             if (!Directory.Exists(packsDir))
                 continue;
 
-            var best = Directory.GetDirectories(packsDir, "Microsoft.iOS.Ref*")
-                .SelectMany(packDir => Directory.GetFiles(packDir, "Microsoft.iOS.dll", SearchOption.AllDirectories))
+            var best = Directory.GetDirectories(packsDir, packGlob)
+                .SelectMany(packDir => Directory.GetFiles(packDir, dllName, SearchOption.AllDirectories))
                 .Where(IsRefAssemblyPath)
                 .OrderByDescending(VersionFromRefPath)
                 .FirstOrDefault();

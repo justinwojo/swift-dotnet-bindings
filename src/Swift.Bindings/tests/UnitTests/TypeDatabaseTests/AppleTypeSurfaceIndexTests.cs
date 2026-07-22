@@ -76,6 +76,18 @@ public class AppleTypeSurfaceIndexTests
     public void TryResolveQualified_UnknownName_ReturnsFalse()
         => Assert.False(FixtureIndex.TryResolveQualified(Ns, "TotallyAbsentType", out _));
 
+    [Theory]
+    [InlineData(ApplePlatform.iOS, "Microsoft.iOS")]
+    [InlineData(ApplePlatform.macOS, "Microsoft.macOS")]
+    [InlineData(ApplePlatform.tvOS, "Microsoft.tvOS")]
+    [InlineData(ApplePlatform.MacCatalyst, "Microsoft.MacCatalyst")]
+    public void RefPackName_SelectsPerPlatformReferenceAssembly(ApplePlatform platform, string expected)
+    {
+        // The surface index is verified against the reference assembly for the target platform, not
+        // always Microsoft.iOS — so a macOS/tvOS/MacCatalyst run resolves its own ref pack + dll token.
+        Assert.Equal(expected, AppleTypeSurfaceIndex.RefPackName(platform));
+    }
+
     [Fact]
     public void TryResolveBare_FirstRegisteredWins_AcrossNamespaces()
     {

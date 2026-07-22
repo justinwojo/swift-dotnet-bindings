@@ -140,9 +140,13 @@ public class ValidationRuleSetClassificationTests
     [Fact]
     public void Classify_ClassUsr_SameBridgedRecord_IsNotAbsentBridgedValueType()
     {
-        // A class USR (suffix C) is legitimately bridgeable — the guard must not fire, otherwise it
-        // would suppress every real ObjC class reference. Same type, same synthesized record; only
-        // the USR kind differs.
+        // A class USR (suffix C) is legitimately bridgeable — the USR discriminator must not fire,
+        // otherwise it would suppress every real ObjC class reference. Same type, same synthesized
+        // record; only the USR kind differs. The surface is forced unavailable so this isolates the
+        // USR discriminator: when the platform surface index can't confirm the type is absent, the
+        // class USR alone must not trip the guard. (The surface-authoritative withdrawal of a
+        // genuinely-absent type is pinned by Classify_ClassUsr_AbsentFromPresentSurface_* below.)
+        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(index: null);
         var db = new TypeDatabase();
         var spec = new NamedTypeSpec(StoreKitTransaction) { Usr = StoreKitTransactionClassUsr };
 
@@ -154,8 +158,11 @@ public class ValidationRuleSetClassificationTests
     [Fact]
     public void Classify_ValueTypeUsr_NoUsr_IsNotAbsentBridgedValueType()
     {
-        // Without a USR the discriminator has no signal, so the guard cannot fire — this preserves
-        // the pre-fix behavior for every reference the parser does not carry a USR for.
+        // Without a USR the discriminator has no signal, so the USR guard cannot fire — this
+        // preserves the pre-fix behavior for every reference the parser does not carry a USR for.
+        // Surface forced unavailable so the assertion isolates the USR discriminator from the
+        // separate surface-authoritative withdrawal path (pinned below).
+        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(index: null);
         var db = new TypeDatabase();
         var spec = new NamedTypeSpec(StoreKitTransaction);
 
@@ -163,6 +170,33 @@ public class ValidationRuleSetClassificationTests
 
         Assert.NotEqual(ValidationRuleSet.UnsupportedReferenceKind.AbsentBridgedValueType, kind);
     }
+
+    [Fact]
+    public void Classify_ClassUsr_AbsentFromPresentSurface_IsAbsentBridgedValueType()
+    {
+        // Surface authority closes the gap the USR discriminator leaves: when the platform surface
+        // index IS available and does not declare the type (StoreKit.Transaction is a Swift-only
+        // StoreKit 2 struct with no Microsoft.iOS binding), the synthesized bridged class would
+        // dangle — so the reference is withdrawn regardless of USR kind, including a class USR that
+        // the USR discriminator alone would pass through. A present-but-empty surface models the
+        // "type genuinely not in the binding" case deterministically.
+        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(EmptySurface());
+        var db = new TypeDatabase();
+        var spec = new NamedTypeSpec(StoreKitTransaction) { Usr = StoreKitTransactionClassUsr };
+
+        var kind = ValidationRuleSet.ClassifyUnsupportedReference(spec, db, out var offending);
+
+        Assert.Equal(ValidationRuleSet.UnsupportedReferenceKind.AbsentBridgedValueType, kind);
+        Assert.Equal(StoreKitTransaction, offending);
+    }
+
+    // A present, non-null surface index that declares no types — models "the reference assembly is
+    // installed but genuinely does not contain the referenced type," so the withdraw-on-no-hit path
+    // fires deterministically (distinct from the null/surface-unavailable fallback).
+    private static AppleTypeSurfaceIndex EmptySurface()
+        => new(
+            new Dictionary<string, AppleTypeSurfaceEntry>(System.StringComparer.Ordinal),
+            new Dictionary<string, AppleTypeSurfaceEntry>(System.StringComparer.Ordinal));
 
     [Fact]
     public void Classify_ValueTypeUsr_NullDb_IsNotAbsentBridgedValueType()

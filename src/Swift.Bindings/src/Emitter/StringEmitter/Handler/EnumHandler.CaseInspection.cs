@@ -183,6 +183,23 @@ namespace BindingsGeneration
                 var enumGenericParams = enumDecl.IsGeneric ? enumDecl.GenericParameters : null;
                 var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, enumGenericParams, enumDecl.ModuleDecl);
 
+                // Parity with EmitEnumCaseWithAssociatedValues: an Apple-framework payload the binding
+                // declares as a value/static/absent shape has no reconstructable representation. The
+                // case factory already skips it, but the TryGet accessor would still emit an `out`
+                // parameter of a nonexistent (CS0234/CS0246) or static-constants (CS0721) type. Checked
+                // first — an absent Apple type is unconditionally unbindable — so the withdrawal is
+                // always reported rather than being masked by the ObjC-bridge skip below.
+                if (ValidationRuleSet.ClassifyUnsupportedReference(typeSpec, typeDatabase, out var absentTryGetType)
+                        == ValidationRuleSet.UnsupportedReferenceKind.AbsentBridgedValueType)
+                {
+                    _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has associated value '{absentTryGetType}', an Apple-framework type with no reconstructable representation. Skipping TryGet method.");
+                    ReportCollector.RecordMemberSkipped(
+                        BindingItemKind.Method, $"TryGet{capitalizedName}", enumDecl,
+                        SkipReason.AbsentFrameworkType,
+                        $"Associated value '{absentTryGetType}' is an Apple-framework type absent from the .NET binding surface; the case cannot be reconstructed.");
+                    return;
+                }
+
                 // Skip when the resolved payload type contains AnyType in any position —
                 // direct AnyType cannot round-trip (AnyType.GetTypeMetadata and MarshalToSwift
                 // both throw; SwiftSafeHandle<AnyType> would NativeMemory.Free stack memory on
@@ -385,6 +402,22 @@ namespace BindingsGeneration
             for (int i = 0; i < tupleSpec.Elements.Count; i++)
             {
                 var element = tupleSpec.Elements[i];
+
+                // Same absent-Apple-payload gate as the single-value path, checked first: a tuple element
+                // the binding declares as a value/static/absent shape can't be reconstructed, and its
+                // `out` parameter would reference a nonexistent (CS0234/CS0246) or static-constants
+                // (CS0721) type. Run ahead of the ObjC-bridge skip below so an absent Apple type is
+                // reported as such rather than silently dropped as an unsupported bridge.
+                if (ValidationRuleSet.ClassifyUnsupportedReference(element, typeDatabase, out var absentTupleType)
+                        == ValidationRuleSet.UnsupportedReferenceKind.AbsentBridgedValueType)
+                {
+                    _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has tuple element '{absentTupleType}' at index {i}, an Apple-framework type with no reconstructable representation. Skipping TryGet method.");
+                    ReportCollector.RecordMemberSkipped(
+                        BindingItemKind.Method, $"TryGet{capitalizedName}", enumDecl,
+                        SkipReason.AbsentFrameworkType,
+                        $"Tuple associated value '{absentTupleType}' is an Apple-framework type absent from the .NET binding surface; the case cannot be reconstructed.");
+                    return;
+                }
 
                 // Check if element is a nested tuple (not supported)
                 if (element is TupleTypeSpec)

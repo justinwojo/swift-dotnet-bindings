@@ -560,6 +560,136 @@ public class ForeignTypeExtensionEmitterTests
 
     #endregion
 
+    #region ProcessForeignTypeExtensions: absent-Apple surface ingress
+
+    // A present, non-null surface index that declares no types models "the reference assembly is
+    // installed but genuinely does not contain the referenced type" — so the synthesis
+    // withdraw-on-no-hit path marks the type AbsentAppleProjection deterministically (distinct from
+    // the null/surface-unavailable fallback, which degrades to name synthesis and withdraws nothing).
+    private static AppleTypeSurfaceIndex EmptySurface()
+        => new(
+            new Dictionary<string, AppleTypeSurfaceEntry>(System.StringComparer.Ordinal),
+            new Dictionary<string, AppleTypeSurfaceEntry>(System.StringComparer.Ordinal));
+
+    [Fact]
+    public void ProcessForeignTypeExtensions_MethodWithRequiredAbsentAppleParam_WithdrawnAndReported()
+    {
+        // UIKit.UIWindowLevel is an auto-bridge module type absent from the .NET binding surface.
+        // The coarse IsCdeclCompatibleType classifier treats ANY auto-bridge module type as a
+        // compatible ObjC-class pointer, so pre-fix this method emitted a phantom
+        // `UIKit.UIWindowLevel` parameter reference (CS0234). The surface-authoritative gate must
+        // withdraw the member — the ForeignTypeExtensionEmitter twin of the class-path withdrawal
+        // MemberValidationPipeline already performs — and record a report row rather than dropping
+        // it silently.
+        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(EmptySurface());
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+
+        var method = CreateExtMethod("configure", "public func configure(level: UIKit.UIWindowLevel)");
+        var extensions = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["UIKit.UIView"] = new() { method }
+        };
+
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
+            moduleDecl, extensions, typeDatabase, Logger, ctx);
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        // The phantom reference is not produced ...
+        Assert.Equal(0, ctx.ForeignExtEmittedCount);
+        // ... and the withdrawal is reported, not silent.
+        Assert.Contains(report!.SkippedItems, s => s.Reason == SkipReason.AbsentFrameworkType);
+    }
+
+    [Fact]
+    public void ProcessForeignTypeExtensions_MethodWithAbsentAppleReturn_WithdrawnAndReported()
+    {
+        // A return type absent from the .NET surface would emit a dangling `UIKit.UIWindowLevel`
+        // return reference (CS0234). Withdraw + report rather than emit the phantom type.
+        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(EmptySurface());
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+
+        var method = CreateExtMethod("makeLevel", "public func makeLevel() -> UIKit.UIWindowLevel");
+        var extensions = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["UIKit.UIView"] = new() { method }
+        };
+
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
+            moduleDecl, extensions, typeDatabase, Logger, ctx);
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        Assert.Equal(0, ctx.ForeignExtEmittedCount);
+        Assert.Contains(report!.SkippedItems, s => s.Reason == SkipReason.AbsentFrameworkType);
+    }
+
+    [Fact]
+    public void ProcessForeignTypeExtensions_PropertyWithAbsentAppleType_WithdrawnAndReported()
+    {
+        // A property whose type is absent from the .NET surface would emit a dangling getter return
+        // reference. Withdraw + report at the property ingress too.
+        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(EmptySurface());
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+
+        var property = CreateExtMethod("level", "public var level: UIKit.UIWindowLevel { get }");
+        property.IsProperty = true;
+        var extensions = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["UIKit.UIView"] = new() { property }
+        };
+
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
+            moduleDecl, extensions, typeDatabase, Logger, ctx);
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        Assert.Equal(0, ctx.ForeignExtEmittedCount);
+        Assert.Contains(report!.SkippedItems, s => s.Reason == SkipReason.AbsentFrameworkType);
+    }
+
+    [Fact]
+    public void ProcessForeignTypeExtensions_PrimitiveParam_StillEmitsUnderPresentSurface()
+    {
+        // Surgical-fix guard: the surface-authoritative gate must not withdraw a member whose types
+        // are all known-good. A primitive parameter is unaffected by the absent-Apple withdrawal even
+        // when a present-but-empty surface is installed.
+        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(EmptySurface());
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+
+        var method = CreateExtMethod("setAlpha", "public func setAlpha(value: Swift.Double)");
+        var extensions = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["UIKit.UIView"] = new() { method }
+        };
+
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
+            moduleDecl, extensions, typeDatabase, Logger, ctx);
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        Assert.Equal(1, ctx.ForeignExtEmittedCount);
+        Assert.DoesNotContain(report!.SkippedItems, s => s.Reason == SkipReason.AbsentFrameworkType);
+    }
+
+    #endregion
+
     #region Helpers
 
     private static ModuleDecl CreateModuleDecl()

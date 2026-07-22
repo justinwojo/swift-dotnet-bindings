@@ -14,7 +14,7 @@ namespace BindingsGeneration.Tests;
 /// synthesized ObjC-bridged reference against the real Microsoft.iOS surface and either corrects the
 /// name, projects an integer enum as a value type, or skip-marks a value/static/absent/bridged-error
 /// type the referencing member can't marshal. The tree is exercised through
-/// <see cref="TypeDatabaseExtensions.TryProjectViaAppleSurface(SwiftTypeName, string?, string, string, AppleTypeSurfaceIndex?)"/>
+/// <see cref="TypeDatabaseExtensions.TryProjectViaAppleSurface(SwiftTypeName, string?, string, string, AppleTypeSurfaceIndex?, bool)"/>
 /// with a hand-built index, so the decisions are observed without the installed iOS workload. The
 /// pure USR helpers that feed it are covered directly.
 /// </summary>
@@ -169,9 +169,49 @@ public class AppleTypeProjectionTests
     [Theory]
     [InlineData("c:objc(cs)SomeClass")] // ObjC class reference
     [InlineData(null)]                   // no USR at all
-    public void Project_NoHit_ObjectReference_KeepsSynthesizedClass(string? usr)
+    public void Project_NoHit_ObjectReference_RegistryPath_KeepsSynthesizedClass(string? usr)
     {
+        // Registry-verify mode (withdrawOnNoHit: false) trusts the caller's record: a no-hit returns
+        // null so the caller keeps it — the surface index may simply not cover a remapped type.
         var r = Project("Foo.SomeClass", usr, "Foo", "SomeClass", IndexOf());
+        Assert.Null(r);
+    }
+
+    [Theory]
+    [InlineData("c:objc(cs)SomeClass")] // ObjC class reference
+    [InlineData(null)]                   // no USR at all
+    public void Project_NoHit_ObjectReference_SynthesisPath_SkipMarked(string? usr)
+    {
+        // Synthesis mode (withdrawOnNoHit: true): a genuine no-hit under a populated,
+        // platform-authoritative index means the synthesized qualified name is provably absent — an
+        // emitted bridged class would be a CS0234/CS0246 dangling reference, so withdraw the member.
+        var r = Project("Foo.SomeClass", usr, "Foo", "SomeClass",
+            IndexOf(Class("UIKit", "Unrelated")), withdrawOnNoHit: true);
+        Assert.NotNull(r);
+        Assert.True(Has(r!, TypeRecordFlags.AbsentAppleProjection));
+        Assert.Equal(TypeRecordKind.Class, r.Kind);
+    }
+
+    [Fact]
+    public void Project_NoIndex_SynthesisPath_StillDegradesToSynthesis()
+    {
+        // The withdraw is gated on an authoritative surface being present. With the workload absent
+        // (null index) there is nothing to prove the reference absent, so even synthesis mode must
+        // degrade to name synthesis rather than withdraw — the non-iOS-target soundness guard.
+        var r = Project("UIKit.UIView", "c:objc(cs)UIView", "UIKit", "UIView",
+            index: null, withdrawOnNoHit: true);
+        Assert.Null(r);
+    }
+
+    [Fact]
+    public void Project_BareClassHit_SynthesisPath_NotWithdrawn()
+    {
+        // The withdraw refinement gates on `hit is null`. A bare (cross-namespace) class match is a
+        // hit, not a no-hit, so even in synthesis mode it is left to synthesis (null) — never
+        // withdrawn — keeping a name that may already compile.
+        var index = IndexOf(Class("RealFramework", "SomeClass"));
+        var r = Project("SomeModule.SomeClass", "c:objc(cs)SomeClass", "SomeModule", "SomeClass",
+            index, withdrawOnNoHit: true);
         Assert.Null(r);
     }
 
@@ -203,9 +243,10 @@ public class AppleTypeProjectionTests
 
     private static TypeRecord? Project(
         string moduleQualified, string? usr, string synthNamespace, string synthName,
-        AppleTypeSurfaceIndex? index)
+        AppleTypeSurfaceIndex? index, bool withdrawOnNoHit = false)
         => TypeDatabaseExtensions.TryProjectViaAppleSurface(
-            SwiftTypeName.FromModuleQualifiedName(moduleQualified), usr, synthNamespace, synthName, index);
+            SwiftTypeName.FromModuleQualifiedName(moduleQualified), usr, synthNamespace, synthName,
+            index, withdrawOnNoHit);
 
     private static bool Has(TypeRecord record, TypeRecordFlags flag) => (record.Flags & flag) != 0;
 

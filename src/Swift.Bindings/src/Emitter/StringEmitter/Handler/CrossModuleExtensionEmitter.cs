@@ -166,10 +166,22 @@ public static partial class CrossModuleExtensionEmitter
             // Methods routed through the trampoline path — tracked so the NativeMethods
             // pass below can skip emitting their direct Swift-conv P/Invoke as well.
             var methodsRoutedToTrampoline = new HashSet<MethodDecl>();
+            // Members withdrawn for referencing an absent Apple type — tracked so the NativeMethods
+            // pass below does not emit an orphan P/Invoke for a member whose wrapper never emitted.
+            var withdrawnMethods = new HashSet<MethodDecl>();
+            var withdrawnProperties = new HashSet<PropertyDecl>();
 
             // Emit properties as Get/Set methods
             foreach (var property in properties)
             {
+                // Withdraw before classification: an Apple type absent from the .NET surface would
+                // resolve to a phantom bridged record and dangle in the getter/setter body.
+                if (TryWithdrawAbsentAppleProperty(csWriter, property, typeDatabase))
+                {
+                    withdrawnProperties.Add(property);
+                    continue;
+                }
+
                 if (TryEmitPropertyExtension(csWriter, property, classDecl, origCSharpType, moduleLibPath, wrapperLibPath, typeDatabase, emittedSignatures, logger))
                     emittedCount++;
             }
@@ -180,6 +192,16 @@ public static partial class CrossModuleExtensionEmitter
             {
                 if (method.IsAccessor)
                     continue; // Property accessors handled above
+
+                // Withdraw before any TryEmit path: an absent Apple type in the return or a
+                // parameter is unmarshalable by every path (direct, async, or closure trampoline),
+                // and the coarse cdecl classifier below would otherwise accept it as an ObjC-class
+                // pointer and emit a dangling reference.
+                if (TryWithdrawAbsentAppleMethod(csWriter, method, typeDatabase))
+                {
+                    withdrawnMethods.Add(method);
+                    continue;
+                }
 
                 if (TryEmitMethodExtension(csWriter, method, classDecl, origCSharpType, moduleLibPath, wrapperLibPath, typeDatabase, emittedSignatures, logger))
                 {
@@ -221,6 +243,8 @@ public static partial class CrossModuleExtensionEmitter
 
                 foreach (var property in properties)
                 {
+                    if (withdrawnProperties.Contains(property))
+                        continue;
                     EmitPropertyNativeMethods(csWriter, property, classDecl, moduleLibPath, wrapperLibPath, typeDatabase, emissionContext, logger);
                 }
 
@@ -229,6 +253,8 @@ public static partial class CrossModuleExtensionEmitter
                     if (method.IsAccessor)
                         continue;
                     if (methodsRoutedToTrampoline.Contains(method))
+                        continue;
+                    if (withdrawnMethods.Contains(method))
                         continue;
                     EmitMethodNativeMethod(csWriter, method, classDecl, moduleLibPath, wrapperLibPath, typeDatabase, emissionContext, logger);
                 }
@@ -309,6 +335,57 @@ public static partial class CrossModuleExtensionEmitter
             logger.LogInformation("Emitted {Count} cross-module nested types for {Type} from {Module}",
                 nestedTypes.Count, classDecl.Name, currentModule);
         }
+    }
+
+    // ==================== Absent-Apple ingress gate ====================
+
+    /// <summary>
+    /// Absent-Apple ingress gate for a cross-module extension method. When the signature (return or
+    /// any parameter) references an Apple-framework type absent from the .NET binding surface, the
+    /// coarse cdecl classifier accepts it as a marshalable ObjC-class pointer and the emitter would
+    /// print a reference to a type Microsoft.iOS never declares (e.g. the flattened
+    /// <c>Foundation.CalendarComponent</c> → CS0234). Withdraw the whole member — a structured skip
+    /// row (SWIFTBIND049) AND an <c>// Unsupported:</c> tombstone (SWIFTBIND025) — since neither the
+    /// direct-dispatch nor the trampoline path can marshal an absent type. Both cross-module method
+    /// emitters already reject a method on any incompatible param (no defaulted-param omission), so
+    /// withdrawing on any absent-Apple signature type never suppresses an otherwise-emittable overload.
+    /// </summary>
+    private static bool TryWithdrawAbsentAppleMethod(
+        CSharpWriter csWriter, MethodDecl method, ITypeDatabase typeDatabase)
+    {
+        foreach (var arg in method.CSSignature)
+        {
+            if (!ReferencesAbsentAppleType(arg.SwiftTypeSpec, typeDatabase, out var offending))
+                continue;
+
+            var details = $"Method signature references framework type '{offending}' which is absent from the .NET binding surface; the member cannot be bound.";
+            ReportCollector.RecordMemberSkipped(method, SkipReason.AbsentFrameworkType, details);
+            UnsupportedCommentEmitter.EmitMemberSkipped(
+                csWriter, method.Name, BindingItemKind.Method, SkipReason.AbsentFrameworkType,
+                details, method.ParentDecl);
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Absent-Apple ingress gate for a cross-module extension property — the getter/setter body
+    /// resolves the property type straight off the (possibly absent) TypeRecord, so an absent Apple
+    /// type dangles just as a method signature type would. Withdraws the member via the same
+    /// report-row + tombstone path.
+    /// </summary>
+    private static bool TryWithdrawAbsentAppleProperty(
+        CSharpWriter csWriter, PropertyDecl property, ITypeDatabase typeDatabase)
+    {
+        if (!ReferencesAbsentAppleType(property.SwiftTypeSpec, typeDatabase, out var offending))
+            return false;
+
+        var details = $"Property type references framework type '{offending}' which is absent from the .NET binding surface; the member cannot be bound.";
+        ReportCollector.RecordMemberSkipped(property, SkipReason.AbsentFrameworkType, details);
+        UnsupportedCommentEmitter.EmitMemberSkipped(
+            csWriter, property.Name, BindingItemKind.Property, SkipReason.AbsentFrameworkType,
+            details, property.ParentDecl);
+        return true;
     }
 
     // ==================== Method Extension Emission ====================

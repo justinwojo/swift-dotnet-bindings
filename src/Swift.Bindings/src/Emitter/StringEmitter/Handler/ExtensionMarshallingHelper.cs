@@ -245,6 +245,88 @@ public static class ExtensionMarshallingHelper
     }
 
     /// <summary>
+    /// True when <paramref name="typeSpec"/> resolves to an Apple-framework type that is absent
+    /// from the .NET binding surface — one that flattens to a synthesized ObjC-bridged class record
+    /// marked <see cref="TypeRecordFlags.AbsentAppleProjection"/> (or an absent frozen value type the
+    /// classifier reports as <see cref="ValidationRuleSet.UnsupportedReferenceKind.AbsentBridgedValueType"/>),
+    /// or contains such a type in a generic argument. Emitting a reference to one dangles as a
+    /// CS0234/CS0721/CS1061 against a type Microsoft.iOS never declares.
+    /// <para>
+    /// This is the shared absent-Apple ingress gate for the extension emitters
+    /// (<see cref="ForeignTypeExtensionEmitter"/> and <see cref="CrossModuleExtensionEmitter"/>),
+    /// which resolve foreign param/return/property C# type names straight off the TypeRecord. The
+    /// coarse cdecl-compatibility classifiers (<see cref="ClassifyParameterType"/> /
+    /// <see cref="ClassifyReturnType"/>) are blind to this — they treat any auto-bridge module type as
+    /// a marshalable ObjC-class pointer — so each ingress must gate here and withdraw the member.
+    /// </para>
+    /// <para>
+    /// The direct flag check closes the nested-type gap the classifier's cheap SwiftTypeName precheck
+    /// leaves: a nested Apple type whose OUTER name is a registered bridged type — e.g.
+    /// <c>Foundation.Calendar.Component</c>, whose outer <c>Foundation.Calendar</c> is the bridged
+    /// NSCalendar — short-circuits that precheck, so the classifier reports the reference as supported
+    /// even though emission still resolves the full nested spec to the flattened, surface-absent
+    /// <c>Foundation.CalendarComponent</c> record. Gating on the record emission resolves keeps the
+    /// withdrawal decision identical to what would be printed.
+    /// </para>
+    /// </summary>
+    public static bool ReferencesAbsentAppleType(TypeSpec? typeSpec, ITypeDatabase typeDatabase, out string? offendingType)
+    {
+        offendingType = null;
+        if (typeSpec == null)
+            return false;
+
+        if (ValidationRuleSet.ClassifyUnsupportedReference(typeSpec, typeDatabase, out offendingType)
+                == ValidationRuleSet.UnsupportedReferenceKind.AbsentBridgedValueType)
+            return true;
+
+        // The direct-flag arm must recurse through the SAME container shapes the classifier walks
+        // (tuple / closure / protocol-composition / generic parameters). The classifier's own
+        // AbsentAppleProjection catch is bypassed for a nested Apple type whose outer name resolves
+        // (the cheap SwiftTypeName precheck short-circuits), so a nested-absent type carried inside a
+        // tuple or closure element would slip past unless this arm re-walks those elements too.
+        switch (typeSpec)
+        {
+            case NamedTypeSpec namedType:
+                if (namedType.HasModule() &&
+                    typeDatabase.TryGetTypeRecord(namedType, out var record) &&
+                    record.Flags.HasFlag(TypeRecordFlags.AbsentAppleProjection))
+                {
+                    offendingType = namedType.ToString();
+                    return true;
+                }
+                foreach (var genericParam in namedType.GenericParameters)
+                {
+                    if (ReferencesAbsentAppleType(genericParam, typeDatabase, out offendingType))
+                        return true;
+                }
+                return false;
+
+            case TupleTypeSpec tupleType:
+                foreach (var element in tupleType.Elements)
+                {
+                    if (ReferencesAbsentAppleType(element, typeDatabase, out offendingType))
+                        return true;
+                }
+                return false;
+
+            case ClosureTypeSpec closureType:
+                return ReferencesAbsentAppleType(closureType.Arguments, typeDatabase, out offendingType)
+                    || ReferencesAbsentAppleType(closureType.ReturnType, typeDatabase, out offendingType);
+
+            case ProtocolListTypeSpec protocolList:
+                foreach (var protocol in protocolList.Protocols.Keys)
+                {
+                    if (ReferencesAbsentAppleType(protocol, typeDatabase, out offendingType))
+                        return true;
+                }
+                return false;
+
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
     /// Resolves the P/Invoke return type for a given return kind.
     /// </summary>
     public static string ResolvePInvokeReturnType(TypeSpec? typeSpec, ReturnKind category, ITypeDatabase typeDatabase, bool usesIndirectResult)

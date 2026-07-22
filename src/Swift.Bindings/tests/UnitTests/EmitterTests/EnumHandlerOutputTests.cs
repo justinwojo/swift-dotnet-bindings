@@ -917,6 +917,97 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_EnumWithAbsentApplePayload_WithdrawsTryGetAndReportsRow()
+    {
+        // A payload case whose associated value is an Apple-framework type absent from the .NET
+        // surface (the UIWindowLevel shape: a StaticConstants type used as a value payload) cannot be
+        // reconstructed — its `out UIKit.UIWindowLevel value` would be a CS0234/CS0721 dangling
+        // reference. The TryGet accessor must be withdrawn AND the withdrawal reported. A sibling
+        // Int-payload case proves the enum still went class-based and the TryGet path ran.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("WindowConfig", moduleDecl, isFrozen: true);
+
+        var windowCase = CreateCase("window");
+        windowCase.AssociatedValues.Add(new NamedTypeSpec("UIKit.UIWindowLevel"));
+        enumDecl.Cases.Add(windowCase);
+        var codeCase = CreateCase("code");
+        codeCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(codeCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        using var surface = InstallAbsentAppleSurface("UIKit", "UIWindowLevel");
+        ReportCollector.Start(moduleDecl);
+        BindingReport? report;
+        string csOutput;
+        try
+        {
+            (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+            report = ReportCollector.Complete();
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+
+        // The absent-payload accessor is withdrawn; the sibling Int-payload accessor still emits.
+        Assert.DoesNotContain("TryGetWindow", csOutput);
+        Assert.Contains("TryGetCode", csOutput);
+        // The withdrawal is reported as an absent-framework-type skip, not silently dropped.
+        Assert.NotNull(report);
+        Assert.Contains(report!.SkippedItems, i =>
+            i.Name == "TryGetWindow" && i.Reason == SkipReason.AbsentFrameworkType);
+    }
+
+    [Fact]
+    public void Emit_EnumWithAbsentAppleTupleElement_WithdrawsTryGetAndReportsRow()
+    {
+        // Parity for the tuple TryGet path: a tuple element that is an absent Apple type can't be
+        // reconstructed, so the whole accessor is withdrawn and reported. Run ahead of the
+        // ObjC-bridge skip so an absent Apple type reports as AbsentFrameworkType rather than being
+        // dropped as an unsupported bridge. A clean tuple sibling proves the tuple path ran.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Layout", moduleDecl, isFrozen: true);
+
+        var pairCase = CreateCase("pair");
+        pairCase.AssociatedValues.Add(new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("UIKit.UIWindowLevel"),
+            new NamedTypeSpec("Swift.Int")
+        }));
+        enumDecl.Cases.Add(pairCase);
+        var okCase = CreateCase("ok");
+        okCase.AssociatedValues.Add(new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool")
+        }));
+        enumDecl.Cases.Add(okCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        using var surface = InstallAbsentAppleSurface("UIKit", "UIWindowLevel");
+        ReportCollector.Start(moduleDecl);
+        BindingReport? report;
+        string csOutput;
+        try
+        {
+            (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+            report = ReportCollector.Complete();
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+
+        Assert.DoesNotContain("TryGetPair", csOutput);
+        Assert.Contains("TryGetOk", csOutput);
+        Assert.NotNull(report);
+        Assert.Contains(report!.SkippedItems, i =>
+            i.Name == "TryGetPair" && i.Reason == SkipReason.AbsentFrameworkType);
+    }
+
+    [Fact]
     public void Emit_EnumWithAssociatedValueCaseAndMatchingStaticProperty_SkipsDuplicateStaticProperty()
     {
         // A STATIC property colliding with a case-constructor name keeps the pre-existing
@@ -1606,6 +1697,27 @@ public class EnumHandlerOutputTests
         var typeDatabase = CreateTypeDatabase();
         typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
         return typeDatabase;
+    }
+
+    // Installs a fixture Apple surface index in which {module}.{name} is a StaticConstants type — the
+    // UIWindowLevel shape (a static-constants class) the surface-index verifier withdraws because no
+    // Handle-bearing class can stand in for it. The returned scope must wrap the emission: the type is
+    // deliberately NOT registered in the type database, so the on-demand ObjC-bridging synthesis reads
+    // this surface, marks the record AbsentAppleProjection, and the withdrawal gate fires exactly as it
+    // does in real generation. Registering the record directly would defeat the gate's own guard, which
+    // only trips for a type absent from the direct DB lookup but synthesized as absent by the verifier.
+    private static IDisposable InstallAbsentAppleSurface(string module, string name)
+    {
+        var entry = new AppleTypeSurfaceEntry(name, module, AppleTypeSurfaceKind.StaticConstants, null, false);
+        var byFullName = new Dictionary<string, AppleTypeSurfaceEntry>(StringComparer.Ordinal)
+        {
+            [$"{module}.{name}"] = entry,
+        };
+        var byBareName = new Dictionary<string, AppleTypeSurfaceEntry>(StringComparer.Ordinal)
+        {
+            [name] = entry,
+        };
+        return AppleTypeSurfaceIndex.OverrideDefaultForTest(new AppleTypeSurfaceIndex(byFullName, byBareName));
     }
 
     private static ModuleDecl CreateModuleDecl(string name)

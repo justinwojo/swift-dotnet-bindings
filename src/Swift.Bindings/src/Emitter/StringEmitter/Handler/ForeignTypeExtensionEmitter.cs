@@ -297,6 +297,19 @@ public static class ForeignTypeExtensionEmitter
         if (propertyTypeSpec == null)
             return;
 
+        // Surface-verify the property type against the .NET Apple-framework surface before any other
+        // classification (same rationale as the method return/parameter gates): an Apple type absent
+        // from the binding surface would emit a dangling getter/setter reference. Withdraw the member
+        // with a report row instead of leaking a phantom type.
+        if (ReferencesAbsentAppleType(propertyTypeSpec, typeDatabase, out var absentPropType))
+        {
+            ReportCollector.RecordMemberSkipped(
+                BindingItemKind.Property, extMethod.MethodName, moduleDecl,
+                SkipReason.AbsentFrameworkType,
+                $"Foreign extension on '{foreignTypeQualifiedName}': property type '{absentPropType}' is an Apple-framework type absent from the .NET binding surface; the member cannot be bound.");
+            return;
+        }
+
         // Determine return category
         var returnCategory = ClassifyReturnType(propertyTypeSpec, typeDatabase);
         // FrozenStruct has no arm in this emitter's wrapper or C# body switches —
@@ -397,6 +410,22 @@ public static class ForeignTypeExtensionEmitter
 
         var (allParameters, returnTypeSpec, returnTypeName) = parseResult.Value;
 
+        // Surface-verify the return type against the real .NET Apple-framework surface before any
+        // other classification. An Apple type absent from the binding surface resolves only to a
+        // synthesized ObjC-bridged class record marked AbsentAppleProjection; emitting it would
+        // dangle as a CS0234/CS0721 reference. The coarse cdecl-compatibility classifier below is
+        // blind to this (it treats any auto-bridge module type as a marshalable ObjC-class pointer),
+        // so gate here — withdraw the member with a report row instead of leaking a phantom type or
+        // silently dropping it on a null return classification.
+        if (ReferencesAbsentAppleType(returnTypeSpec, typeDatabase, out var absentReturnType))
+        {
+            ReportCollector.RecordMemberSkipped(
+                BindingItemKind.Method, extMethod.MethodName, moduleDecl,
+                SkipReason.AbsentFrameworkType,
+                $"Foreign extension on '{foreignTypeQualifiedName}': return type '{absentReturnType}' is an Apple-framework type absent from the .NET binding surface; the member cannot be bound.");
+            return;
+        }
+
         // Classify return type
         ReturnKind returnCategory;
         if (returnTypeSpec == null || (returnTypeSpec is TupleTypeSpec tuple && tuple.IsEmptyTuple))
@@ -422,9 +451,27 @@ public static class ForeignTypeExtensionEmitter
         // Apply default parameter reduction: emit with only compatible params
         var compatibleParams = new List<(string label, TypeSpec typeSpec, string swiftType, bool hasDefault)>();
         bool hasIncompatibleNonDefault = false;
+        string? absentParamType = null;
 
         foreach (var (label, typeSpec, swiftType, hasDefault) in allParameters)
         {
+            // Surface-verify each parameter against the .NET Apple-framework surface BEFORE the
+            // coarse cdecl-compatibility classification, which would accept an absent Apple type as
+            // a generic ObjC-class pointer and emit a dangling CS0234 reference. A required absent
+            // type withdraws the whole member (with a report row); a defaulted one is omitted, since
+            // Swift fills its default and the wrapper never mentions the phantom type.
+            if (ReferencesAbsentAppleType(typeSpec, typeDatabase, out var absentType))
+            {
+                if (!hasDefault)
+                {
+                    hasIncompatibleNonDefault = true;
+                    absentParamType = absentType;
+                    break;
+                }
+                // Absent Apple type with a default — omit (Swift fills the default).
+                continue;
+            }
+
             if (IsCdeclCompatibleType(typeSpec, typeDatabase))
             {
                 compatibleParams.Add((label, typeSpec, swiftType, hasDefault));
@@ -440,8 +487,20 @@ public static class ForeignTypeExtensionEmitter
 
         if (hasIncompatibleNonDefault)
         {
-            logger.LogDebug("Skipping foreign extension method {Type}.{Method}: incompatible non-default parameter",
-                foreignTypeQualifiedName, extMethod.MethodName);
+            if (absentParamType != null)
+            {
+                // An absent Apple-framework parameter is a surface gap, not an unmarshalable shape:
+                // report it so the withdrawal is observable rather than a silent LogDebug drop.
+                ReportCollector.RecordMemberSkipped(
+                    BindingItemKind.Method, extMethod.MethodName, moduleDecl,
+                    SkipReason.AbsentFrameworkType,
+                    $"Foreign extension on '{foreignTypeQualifiedName}': parameter type '{absentParamType}' is an Apple-framework type absent from the .NET binding surface; the member cannot be bound.");
+            }
+            else
+            {
+                logger.LogDebug("Skipping foreign extension method {Type}.{Method}: incompatible non-default parameter",
+                    foreignTypeQualifiedName, extMethod.MethodName);
+            }
             return;
         }
 

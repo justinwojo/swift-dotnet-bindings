@@ -151,6 +151,11 @@ public static partial class CrossModuleExtensionEmitter
 
             foreach (var property in properties)
             {
+                // Withdraw before classification: an Apple type absent from the .NET surface would
+                // resolve to a phantom bridged record and dangle in the getter/setter body.
+                if (TryWithdrawAbsentAppleProperty(csWriter, property, typeDatabase))
+                    continue;
+
                 if (TryEmitStructPropertyExtension(csWriter, swiftWriter, property, structDecl,
                     origCSharpType, origSwiftTypeQualified, wrapperLibPath, currentModule,
                     typeDatabase, emittedSignatures, pinvokeDecls, logger))
@@ -162,6 +167,12 @@ public static partial class CrossModuleExtensionEmitter
             foreach (var method in methods)
             {
                 if (method.IsAccessor)
+                    continue;
+
+                // Withdraw before the trampoline path: an absent Apple type in the return or a
+                // parameter has no marshalling; the coarse cdecl classifier would otherwise accept it
+                // as an ObjC-class pointer and emit `units.Handle` against a phantom type (CS0234).
+                if (TryWithdrawAbsentAppleMethod(csWriter, method, typeDatabase))
                     continue;
 
                 if (TryEmitStructMethodExtension(csWriter, swiftWriter, method, structDecl,

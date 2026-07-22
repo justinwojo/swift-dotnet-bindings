@@ -312,6 +312,12 @@ public static class BindingsGeneratorCommand
 
         var platformInfo = PlatformInfoFactory.Create(parsedPlatform.Value, platformVersionOverride);
 
+        // The Apple-type surface index verifies every ObjC-bridged reference against the reference
+        // assembly that actually ships for the target platform. Record the platform now, before any
+        // downstream ingest can read AppleTypeSurfaceIndex.Default, so a macOS/tvOS/MacCatalyst run
+        // is checked against its own surface rather than Microsoft.iOS.
+        AppleTypeSurfaceIndex.SetAmbientPlatform(platformInfo.Platform);
+
         // Validate --platform + --platform-target combinations
         if (!platformInfo.HasSimulatorVariant &&
             string.Equals(platformTargetStr, "simulator", StringComparison.OrdinalIgnoreCase))

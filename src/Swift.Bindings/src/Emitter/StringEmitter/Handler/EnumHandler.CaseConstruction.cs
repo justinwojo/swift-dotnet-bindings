@@ -53,6 +53,10 @@ namespace BindingsGeneration
                         == ValidationRuleSet.UnsupportedReferenceKind.AbsentBridgedValueType)
                 {
                     _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has associated value '{absentType}', an Apple-framework type with no reconstructable representation. Skipping case.");
+                    ReportCollector.RecordMemberSkipped(
+                        BindingItemKind.Method, capitalizedName, enumDecl,
+                        SkipReason.AbsentFrameworkType,
+                        $"Associated value '{absentType}' is an Apple-framework type absent from the .NET binding surface; the case cannot be reconstructed.");
                     return false;
                 }
 
