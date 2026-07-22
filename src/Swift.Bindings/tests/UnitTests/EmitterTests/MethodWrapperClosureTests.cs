@@ -184,6 +184,66 @@ public class MethodWrapperClosureTests
     }
 
     [Fact]
+    public void EmitWrapper_AutoClosureParam_DirectCall_InvokesAdapterWithParens()
+    {
+        // An @autoclosure () -> Bool param: when the wrapper calls the real Swift API directly
+        // (no _dbw_ shim), the Swift signature expects the autoclosure's VALUE (Bool), so the call
+        // site must forward it by invoking the adapted closure — `_adapted_callback()`.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var closureType = CreateEscapingClosure(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Bool"));
+        closureType.Attributes.Add(new TypeSpecAttribute("autoclosure"));
+
+        var method = CreateMethodWithParam("doWork", closureType, "callback", parentDecl, moduleDecl, mangledName: "SBW_TestModule_MyType_doWork_abc12345");
+        method.UsesCdeclMethodWrapper = true;
+        method.UsesWrapperLibrary = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+
+        var output = sw.ToString();
+        Assert.Contains("_adapted_callback()", output);
+    }
+
+    [Fact]
+    public void EmitWrapper_AutoClosureParam_ThroughSilgenShim_PassesAdapterWithoutParens()
+    {
+        // Routing the SAME @autoclosure param through a _dbw_ default-param shim
+        // (silgenTarget != null): the shim already redeclares the param as `@escaping () -> Bool`
+        // and invokes it inside its own body, so the outer wrapper must PASS the closure value, not
+        // invoke it. `_adapted_callback()` here would hand the shim a Bool where it expects
+        // () -> Bool (swiftc "cannot convert value of type 'Bool' to expected '() -> Bool'").
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var closureType = CreateEscapingClosure(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Bool"));
+        closureType.Attributes.Add(new TypeSpecAttribute("autoclosure"));
+
+        var method = CreateMethodWithParam("doWork", closureType, "callback", parentDecl, moduleDecl, mangledName: "SBW_TestModule_MyType_doWork_abc12345");
+        method.UsesCdeclMethodWrapper = true;
+        method.UsesWrapperLibrary = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx, silgenTarget: "_dbw_doWork_ABCD1234_1");
+
+        var output = sw.ToString();
+        Assert.Contains("_dbw_doWork_ABCD1234_1(", output);
+        Assert.Contains("_adapted_callback", output);
+        Assert.DoesNotContain("_adapted_callback()", output);
+    }
+
+    [Fact]
     public void EmitWrapper_OptionalClosure_EmitsNilCheck()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
@@ -371,6 +431,69 @@ public class MethodWrapperClosureTests
         Assert.Contains("handlerContext: UnsafeMutableRawPointer?", output);
         Assert.Contains("_adapted_handler", output);
         Assert.Contains("@convention(c)", output);
+    }
+
+    [Fact]
+    public void Constructor_EmitWrapper_AutoClosureParam_DirectCall_InvokesAdapterWithParens()
+    {
+        // Constructor mirror of EmitWrapper_AutoClosureParam_DirectCall_InvokesAdapterWithParens.
+        // ConstructorWrapperEmitter shares the @autoclosure `()` gate (silgenTarget == null): when
+        // the wrapper calls the real Swift init directly (no _dbw_init_ default-param shim), the init
+        // signature expects the autoclosure's VALUE (Bool), so the call site must forward it by
+        // invoking the adapted closure — `_adapted_handler()`.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var closureType = CreateEscapingClosure(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Bool"));
+        closureType.Attributes.Add(new TypeSpecAttribute("autoclosure"));
+
+        var method = CreateConstructorWithParam(closureType, "handler", parentDecl, moduleDecl, mangledName: "SBW_TestModule_MyType_init_abc12345");
+        method.UsesCdeclConstructorWrapper = true;
+        method.UsesWrapperLibrary = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(swiftWriter, env, ctx);
+
+        var output = sw.ToString();
+        Assert.Contains("_adapted_handler()", output);
+    }
+
+    [Fact]
+    public void Constructor_EmitWrapper_AutoClosureParam_ThroughSilgenShim_PassesAdapterWithoutParens()
+    {
+        // Constructor mirror of EmitWrapper_AutoClosureParam_ThroughSilgenShim_PassesAdapterWithoutParens.
+        // Routing the SAME @autoclosure init param through a _dbw_init_ default-param shim
+        // (silgenTarget != null): the shim already redeclares the param as `@escaping () -> Bool`
+        // and invokes it inside its own body, so the outer wrapper must PASS the closure value, not
+        // invoke it. `_adapted_handler()` here would hand the shim a Bool where it expects
+        // () -> Bool. ConstructorWrapperEmitter suppresses the `()` suffix when silgenTarget != null.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var closureType = CreateEscapingClosure(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Bool"));
+        closureType.Attributes.Add(new TypeSpecAttribute("autoclosure"));
+
+        var method = CreateConstructorWithParam(closureType, "handler", parentDecl, moduleDecl, mangledName: "SBW_TestModule_MyType_init_abc12345");
+        method.UsesCdeclConstructorWrapper = true;
+        method.UsesWrapperLibrary = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(swiftWriter, env, ctx, silgenTarget: "_dbw_init_ABCD1234_1");
+
+        var output = sw.ToString();
+        Assert.Contains("_dbw_init_ABCD1234_1(", output);
+        Assert.Contains("_adapted_handler", output);
+        Assert.DoesNotContain("_adapted_handler()", output);
     }
 
     #endregion

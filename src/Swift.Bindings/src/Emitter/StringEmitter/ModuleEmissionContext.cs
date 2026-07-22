@@ -1571,6 +1571,30 @@ public sealed class ModuleEmissionContext
     public bool WasGetterProduceThrow(PropertyDecl propertyDecl) =>
         _produceThrowGetters.Contains(propertyDecl);
 
+    // A subscript whose PUBLIC indexer getter was compile-poisoned (SB0006) because its suppressed-proxy
+    // read can only throw. Set at BOTH poison sites in SubscriptHandler.EmitIndexerGetter — the scalar
+    // existential early-return (WasAccessorProduceThrow) AND the collection/optional element projection
+    // catch. Read by the deferred int/uint convenience-overload pass (NativeIntOverloadEmitter
+    // .TryEmitIndexerOverload): a convenience `this[int]` overload must NOT forward `this[(nint)i]` to a
+    // poisoned primary getter (that read is CS0619/SB0006), so it mirrors the poison — a throwing,
+    // [Obsolete(error:true)] getter — while keeping its setter forward where the primary has one. Keyed by
+    // reference identity, off the same SubscriptDecl instance the second pass sees.
+    private readonly HashSet<SubscriptDecl> _produceThrowSubscriptGetters = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// Records that <paramref name="subscriptDecl"/>'s public indexer getter was compile-poisoned (SB0006),
+    /// so the deferred int/uint convenience overload mirrors the poison instead of forwarding into it.
+    /// </summary>
+    public void RecordSubscriptGetterProduceThrow(SubscriptDecl subscriptDecl) =>
+        _produceThrowSubscriptGetters.Add(subscriptDecl);
+
+    /// <summary>
+    /// Returns true if <paramref name="subscriptDecl"/>'s public indexer getter carries the SB0006 poison,
+    /// so its convenience overload must emit a throwing getter rather than a forward to the poisoned primary.
+    /// </summary>
+    public bool WasSubscriptGetterProduceThrow(SubscriptDecl subscriptDecl) =>
+        _produceThrowSubscriptGetters.Contains(subscriptDecl);
+
     // A member (method / property / subscript) that CONSUME-degraded: a setter/parameter position where
     // a C#-authored conformer of an existential can no longer be marshalled in, because the referenced
     // {Protocol}Proxy's EveryProtocol reverse-dispatch conformance was suppressed. The member still works

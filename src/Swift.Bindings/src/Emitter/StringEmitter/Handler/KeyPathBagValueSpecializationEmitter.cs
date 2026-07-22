@@ -124,6 +124,10 @@ internal static class KeyPathBagValueSpecializationEmitter
             foreach (var conformer in conformers)
             {
                 if (conformer.SwiftType is null) continue;
+                // A conformer TypeSkipPrePass withdrew stays in the type-decl index; naming it
+                // would emit a global::<type> reference with no C# declaration (CS0234). Withdraw
+                // it here — the same shared oracle the CSM conformer gates use.
+                if (ConcreteProtocolSpecializationEmitter.ConformerReferencesWithdrawnType(conformer)) continue;
                 var conformerKey = conformer.SwiftQualifiedName;
                 if (!typeDeclByName.TryGetValue(conformerKey, out var conformerDecl)) continue;
                 if (!byConformer.TryGetValue(conformerKey, out var bucket))

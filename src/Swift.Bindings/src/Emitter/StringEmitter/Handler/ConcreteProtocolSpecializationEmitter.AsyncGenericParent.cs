@@ -405,6 +405,14 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     || MarshallingHelpers.IsObjCBridged(conformerRecord)
                     || MarshallingHelpers.IsObjCRooted(conformerRecord)))
                 return false;
+
+            // Withdrawal-consistency guard — parity with the sync structural gate and the
+            // closed-conformer async path (IsEmittableAsyncPairing). A hint conformer whose
+            // concrete type was withdrawn/skipped is never declared; naming it here emits a
+            // dangling C# reference (CS0234). Consults the SAME umbrella-remap-aware oracle so the
+            // parallel admission mechanisms cannot disagree on withdrawal.
+            if (ConformerReferencesWithdrawnType(conformer))
+                return false;
         }
 
         // Build conformer TypeSpecs once. Mirrors TryBuildEmissionPlan in

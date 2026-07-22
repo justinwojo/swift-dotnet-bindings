@@ -1644,6 +1644,239 @@ public class ConcreteSpecializationEngineTests
         }
     }
 
+    [Fact]
+    public void ClassifyConformerStructurally_WithdrawnConformer_ReturnsWithdrawnType()
+    {
+        // The RealityFoundation regression: a conformer whose concrete type was withdrawn by the
+        // ingestion-quarantine proven-closure walk (here recorded skipped) is never declared. A
+        // CSM overload naming it as a type argument would reference a non-existent C# type
+        // (CS0234). The structural gate must reject it up front with WithdrawnType. The narrow
+        // blittable-value-struct arm alone misses class-/non-frozen-struct-projected conformers —
+        // exactly how RealityFoundation's withdrawn Transform slipped through every other arm.
+        var moduleDecl = BuildEmptyModule("TestModule");
+        var withdrawn = BuildFrozenStruct(moduleDecl, "Withdrawn", "TestModule.Withdrawn");
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: "TestModule.Withdrawn",
+            CSharpType: "Withdrawn",
+            SwiftType: SwiftTypeName.FromModuleQualifiedName("TestModule.Withdrawn"));
+
+        ReportCollector.Start(moduleDecl);
+        try
+        {
+            // Active session but NOT yet skipped: the gate does not return WithdrawnType, proving
+            // an active ReportCollector session is not itself what flips the classification.
+            Assert.NotEqual(
+                ConcreteProtocolSpecializationEmitter.StructuralEmitReject.WithdrawnType,
+                ConcreteProtocolSpecializationEmitter.ClassifyConformerStructurally(conformer, CreateEmptyTypeDatabase()));
+
+            ReportCollector.RecordTypeSkipped(withdrawn, SkipReason.Unknown);
+
+            Assert.Equal(
+                ConcreteProtocolSpecializationEmitter.StructuralEmitReject.WithdrawnType,
+                ConcreteProtocolSpecializationEmitter.ClassifyConformerStructurally(conformer, CreateEmptyTypeDatabase()));
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+    }
+
+    [Fact]
+    public void ClassifyConformerStructurally_WithdrawnGenericConformerNullSwiftType_ReturnsWithdrawnType()
+    {
+        // A generic conformer (e.g. Array<UInt8>) has a null SwiftType and carries its identity
+        // only in SwiftQualifiedName. The withdrawal check's second OR-arm keys off that string,
+        // so a conformer whose SwiftQualifiedName was recorded skipped is still caught even with a
+        // null SwiftType. Guards the OR from silently degrading to only the SwiftType path.
+        var moduleDecl = BuildEmptyModule("TestModule");
+        var withdrawn = BuildFrozenStruct(moduleDecl, "Withdrawn", "TestModule.Withdrawn");
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: "TestModule.Withdrawn",
+            CSharpType: "Withdrawn",
+            SwiftType: null);
+
+        ReportCollector.Start(moduleDecl);
+        try
+        {
+            ReportCollector.RecordTypeSkipped(withdrawn, SkipReason.Unknown);
+
+            Assert.Equal(
+                ConcreteProtocolSpecializationEmitter.StructuralEmitReject.WithdrawnType,
+                ConcreteProtocolSpecializationEmitter.ClassifyConformerStructurally(conformer, CreateEmptyTypeDatabase()));
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+    }
+
+    [Fact]
+    public void ClassifyConformerStructurally_WithdrawnConformerUmbrellaSpelled_ReturnsWithdrawnType()
+    {
+        // Apple compileImportModule shape: RealityFoundation declares compileImportModule=RealityKit,
+        // so a type withdrawn under its SOURCE-module declaration key (RealityFoundation.Widget) is
+        // referenced by a conformer under the UMBRELLA spelling (RealityKit.Widget). The bare
+        // IsTypeSkipped key would miss it and the CSM overload would name a non-existent C# type
+        // (CS0234). The umbrella-remap-aware oracle re-attaches the source module and matches.
+        var moduleDecl = BuildEmptyModule("RealityFoundation");
+        var withdrawn = BuildFrozenStruct(moduleDecl, "Widget", "RealityFoundation.Widget");
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: "RealityKit.Widget",
+            CSharpType: "RealityKit.Widget",
+            SwiftType: SwiftTypeName.FromModuleQualifiedName("RealityKit.Widget"));
+
+        // Precondition: the umbrella reverse-map is loaded so the test fails loudly if the registry
+        // isn't initialized, rather than passing for the wrong reason.
+        Assert.Contains("RealityFoundation",
+            AppleFrameworkRegistry.GetCompileImportSourceModules("RealityKit"));
+
+        ReportCollector.Start(moduleDecl);
+        try
+        {
+            ReportCollector.RecordTypeSkipped(withdrawn, SkipReason.Unknown);
+
+            Assert.Equal(
+                ConcreteProtocolSpecializationEmitter.StructuralEmitReject.WithdrawnType,
+                ConcreteProtocolSpecializationEmitter.ClassifyConformerStructurally(conformer, CreateEmptyTypeDatabase()));
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+    }
+
+    [Fact]
+    public void ClassifyConformerStructurally_UnrelatedUmbrellaSkip_DoesNotReject()
+    {
+        // Negative control for the umbrella remap: a DIFFERENT source-module type is withdrawn
+        // (RealityFoundation.Widget), but the conformer names RealityKit.Other. Re-attaching the
+        // source module yields RealityFoundation.Other, which is NOT skipped, so the gate must not
+        // over-fire and suppress a valid conformer just because some sibling umbrella type was
+        // withdrawn.
+        var moduleDecl = BuildEmptyModule("RealityFoundation");
+        var withdrawn = BuildFrozenStruct(moduleDecl, "Widget", "RealityFoundation.Widget");
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: "RealityKit.Other",
+            CSharpType: "RealityKit.Other",
+            SwiftType: SwiftTypeName.FromModuleQualifiedName("RealityKit.Other"));
+
+        ReportCollector.Start(moduleDecl);
+        try
+        {
+            ReportCollector.RecordTypeSkipped(withdrawn, SkipReason.Unknown);
+
+            Assert.NotEqual(
+                ConcreteProtocolSpecializationEmitter.StructuralEmitReject.WithdrawnType,
+                ConcreteProtocolSpecializationEmitter.ClassifyConformerStructurally(conformer, CreateEmptyTypeDatabase()));
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+    }
+
+    [Fact]
+    public void ClassifyConformerStructurally_WithdrawnInnerGenericArg_ReturnsWithdrawnType()
+    {
+        // A real shipped hint conformer is `Swift.Array<MusicKit.Album>` (SwiftType == null because
+        // generic names don't parse to a single SwiftTypeName). Its identity string names an INNER
+        // type. When that inner type is withdrawn, the CSM overload still spells
+        // `SwiftArray<...Withdrawn>` and references a non-existent C# type (CS0234). The withdrawal
+        // check must recurse into the conformer's generic arguments — not only probe the whole
+        // qualified name — to catch it.
+        var moduleDecl = BuildEmptyModule("TestModule");
+        var withdrawn = BuildFrozenStruct(moduleDecl, "Withdrawn", "TestModule.Withdrawn");
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: "Swift.Array<TestModule.Withdrawn>",
+            CSharpType: "Swift.SwiftArray<TestModule.Withdrawn>",
+            SwiftType: null);
+
+        ReportCollector.Start(moduleDecl);
+        try
+        {
+            // The whole qualified name "Swift.Array<TestModule.Withdrawn>" is NOT itself a skip key —
+            // only the inner "TestModule.Withdrawn" is — so this must catch the INNER arg.
+            ReportCollector.RecordTypeSkipped(withdrawn, SkipReason.Unknown);
+
+            Assert.Equal(
+                ConcreteProtocolSpecializationEmitter.StructuralEmitReject.WithdrawnType,
+                ConcreteProtocolSpecializationEmitter.ClassifyConformerStructurally(conformer, CreateEmptyTypeDatabase()));
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+    }
+
+    [Fact]
+    public void ConformerReferencesWithdrawnType_SharedOracle_UmbrellaAndGenericAndLive()
+    {
+        // Pins the shared oracle that the sync structural gate AND both async pairing gates
+        // (IsEmittableAsyncPairing / IsEmittableParentOnlyAsyncPairing) consult, so the parallel
+        // admission mechanisms cannot disagree on withdrawal. Covers: umbrella-spelled match,
+        // withdrawn inner generic arg, and a live conformer (no over-fire).
+        var moduleDecl = BuildEmptyModule("RealityFoundation");
+        var withdrawn = BuildFrozenStruct(moduleDecl, "Widget", "RealityFoundation.Widget");
+
+        var umbrella = new ConcreteSpecializationEngine.ConcreteConformer(
+            "RealityKit.Widget", "RealityKit.Widget",
+            SwiftType: SwiftTypeName.FromModuleQualifiedName("RealityKit.Widget"));
+        var genericInner = new ConcreteSpecializationEngine.ConcreteConformer(
+            "Swift.Array<RealityKit.Widget>", "Swift.SwiftArray<RealityKit.Widget>", SwiftType: null);
+        var live = new ConcreteSpecializationEngine.ConcreteConformer(
+            "RealityKit.Other", "RealityKit.Other",
+            SwiftType: SwiftTypeName.FromModuleQualifiedName("RealityKit.Other"));
+
+        ReportCollector.Start(moduleDecl);
+        try
+        {
+            ReportCollector.RecordTypeSkipped(withdrawn, SkipReason.Unknown);
+
+            Assert.True(ConcreteProtocolSpecializationEmitter.ConformerReferencesWithdrawnType(umbrella));
+            Assert.True(ConcreteProtocolSpecializationEmitter.ConformerReferencesWithdrawnType(genericInner));
+            Assert.False(ConcreteProtocolSpecializationEmitter.ConformerReferencesWithdrawnType(live));
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+    }
+
+    [Fact]
+    public void ConformerReferencesWithdrawnType_PlainConcreteStructConformer_FlipsOnWithdrawal()
+    {
+        // The KeyPath-family emitters (KeyPathSingletonEmitter, KeyPathBagValueSpecializationEmitter,
+        // AppEntityKeyPathSingletonEmitter, ConformerKeyPathInitFactoryEmitter) draw conformers from
+        // the SAME ConcreteSpecializationEngine.GetConformers source as the CSM gates and, before this
+        // fix, named a withdrawn conformer as `global::Module.Type` with no C# declaration (CS0234),
+        // failing the whole binding closed. They now gate each conformer on ConformerReferencesWithdrawnType
+        // — the same shared oracle — exactly as the CSM gates do. This pins that the predicate they call
+        // flips for the plain concrete-struct conformer shape a KeyPath Root actually is (end-to-end
+        // emission of the eligible conformer is pinned by the MockBook AppEntity BindingTests).
+        var moduleDecl = BuildEmptyModule("TestModule");
+        var withdrawn = BuildFrozenStruct(moduleDecl, "MockBook", "TestModule.MockBook");
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: "TestModule.MockBook",
+            CSharpType: "MockBook",
+            SwiftType: SwiftTypeName.FromModuleQualifiedName("TestModule.MockBook"));
+
+        ReportCollector.Start(moduleDecl);
+        try
+        {
+            // Live conformer: the KeyPath emitters keep it.
+            Assert.False(ConcreteProtocolSpecializationEmitter.ConformerReferencesWithdrawnType(conformer));
+
+            ReportCollector.RecordTypeSkipped(withdrawn, SkipReason.Unknown);
+
+            // Withdrawn conformer: the KeyPath emitters must drop it.
+            Assert.True(ConcreteProtocolSpecializationEmitter.ConformerReferencesWithdrawnType(conformer));
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+    }
+
     private static ModuleDecl BuildEmptyModule(string name) => new ModuleDecl
     {
         Name = name,

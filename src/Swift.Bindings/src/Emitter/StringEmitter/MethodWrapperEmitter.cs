@@ -445,9 +445,15 @@ public static class MethodWrapperEmitter
 
                             var adapterName = $"_adapted_{csName}";
                             var argLabel = omitLabels ? "" : ClosureEmitter.GetSwiftArgLabelForCdecl(arg);
-                            // @autoclosure parameters: the adapted closure must be called with ()
-                            // to forward the autoclosure value, not the closure itself.
-                            var autoClosureSuffix = closureTypeSpec.IsAutoClosure ? "()" : "";
+                            // @autoclosure parameters: forward the value by invoking the adapted
+                            // closure with () — but ONLY when calling the real Swift API directly.
+                            // When routing through a _dbw_ default-param shim (silgenTarget != null),
+                            // the shim has already redeclared the param as an explicit
+                            // `@escaping () -> T` and invokes it inside its own body, so the outer
+                            // wrapper must pass the closure itself. Invoking it here would pass a `T`
+                            // where the shim expects `() -> T` (swiftc "cannot convert value of type
+                            // 'T' to expected argument type '() -> T'").
+                            var autoClosureSuffix = closureTypeSpec.IsAutoClosure && silgenTarget == null ? "()" : "";
                             callArgs.Add($"{argLabel}{adapterName}{autoClosureSuffix}");
                             continue;
                         }

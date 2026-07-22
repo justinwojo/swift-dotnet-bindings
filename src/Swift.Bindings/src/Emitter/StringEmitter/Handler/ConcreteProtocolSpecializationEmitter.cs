@@ -2093,7 +2093,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         ITypeDatabase typeDatabase) =>
         ClassifyConformerForSwiftParam(conformer, typeDatabase);
 
-    internal enum StructuralEmitReject { None, NestedType, ObjCBridged, NonISwiftObjectConformer, BlittableStructProjection }
+    internal enum StructuralEmitReject { None, NestedType, ObjCBridged, NonISwiftObjectConformer, BlittableStructProjection, WithdrawnType }
 
     // Per-conformer structural gate used by TryEmitConcreteOverload's preflight AND by
     // IsCsmSyncEligibleForGenericParent. Keeping this single source of truth means the
@@ -2103,6 +2103,20 @@ public static partial class ConcreteProtocolSpecializationEmitter
         ConcreteSpecializationEngine.ConcreteConformer conformer,
         ITypeDatabase typeDatabase)
     {
+        // A conformer whose concrete type was withdrawn/skipped is never declared, so any CSM
+        // overload naming it as a type argument references a non-existent C# type (CS0234). This
+        // enforces the same "if a type is skipped, every use of it must be skipped too" invariant
+        // the member gate applies (ValidationRuleSet.SpecReferencesSkippedType) — the blittable-
+        // struct arm below consults IsTypeSkipped only for its own narrow category, so a class- or
+        // non-frozen-struct-projected withdrawn conformer (e.g. one dropped by the ingestion-
+        // quarantine proven-closure walk) would otherwise slip through every arm and be emitted.
+        // Checked first so a withdrawn nested type is caught here too. The shared oracle is
+        // umbrella-remap-aware (an Apple compileImportModule re-export spelling matches the source-
+        // module skip key) and recurses into generic arguments (Swift.Array<MusicKit.Album> is
+        // withdrawn when its element MusicKit.Album is).
+        if (ConformerReferencesWithdrawnType(conformer))
+            return StructuralEmitReject.WithdrawnType;
+
         // A nested-type conformer (module-qualified name with >2 dot segments, e.g.
         // `KeyVault.Agreement.PublicKey` — HPKE's `Curve25519.KeyAgreement.PublicKey` shape)
         // is emittable iff its C# projection has a resolvable, referenceable name. Nested
@@ -2172,6 +2186,28 @@ public static partial class ConcreteProtocolSpecializationEmitter
     }
 
     /// <summary>
+    /// True when a conformer's concrete type — or any nested generic argument (e.g. the element of
+    /// <c>Swift.Array&lt;MusicKit.Album&gt;</c>) — was withdrawn/skipped and is therefore never
+    /// declared, so naming it in a CSM overload would emit a dangling reference (CS0234/CS0426).
+    /// Umbrella-remap-aware (an Apple <c>compileImportModule</c> re-export spelling matches the
+    /// source-module skip key) via <see cref="ValidationRuleSet.SpecReferencesSkippedType"/>, and
+    /// shared by the synchronous structural gate and both async pairing gates so the parallel
+    /// admission mechanisms agree on withdrawal. The conformer's TypeSpec carries its generic
+    /// arguments (built by <see cref="TryBuildConformerTypeSpec"/>), so a withdrawn INNER type is
+    /// caught even when the conformer's own <see cref="ConcreteSpecializationEngine.ConcreteConformer.SwiftType"/>
+    /// is null (generic names don't parse to a single <see cref="SwiftTypeName"/>).
+    /// </summary>
+    internal static bool ConformerReferencesWithdrawnType(
+        ConcreteSpecializationEngine.ConcreteConformer conformer)
+    {
+        if (TryBuildConformerTypeSpec(conformer, out var spec) &&
+            ValidationRuleSet.SpecReferencesSkippedType(spec))
+            return true;
+        // Defensive: an unparseable qualified name still gets a direct umbrella-aware probe.
+        return ValidationRuleSet.IsTypeSkippedWithUmbrellaRemap(conformer.SwiftQualifiedName, null);
+    }
+
+    /// <summary>
     /// Single-source-of-truth preflight: decides whether this (method × pairing) combination
     /// can produce valid Swift @_cdecl + C# overload code. Consulted by
     /// <see cref="TryEmitConcreteOverload"/> AND by <c>IsCsmSyncEligibleForGenericParent</c> so
@@ -2195,6 +2231,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
         {
             switch (ClassifyConformerStructurally(conformer, typeDatabase))
             {
+                case StructuralEmitReject.WithdrawnType:
+                    rejectReason = $"conformer '{conformer.SwiftQualifiedName}' was withdrawn/skipped and is never declared";
+                    return false;
                 case StructuralEmitReject.NestedType:
                     rejectReason = $"nested type conformer '{conformer.SwiftQualifiedName}'";
                     return false;

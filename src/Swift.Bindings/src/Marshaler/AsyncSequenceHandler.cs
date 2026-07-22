@@ -138,6 +138,18 @@ public sealed class AsyncSequenceHandler
         var elementSpec = optNamed.GenericParameters[0];
         isElementOptional = elementSpec is NamedTypeSpec innerNamed && IsSwiftOptional(innerNamed);
 
+        // If the resolved Element type was withdrawn/skipped (e.g. dropped by the
+        // ingestion-quarantine proven-closure walk, or any other type-skip), it is never
+        // declared — emitting `IAsyncEnumerable<Element>` as a base interface plus the
+        // GetAsyncEnumerator method and the async-iterator helper over it references a
+        // non-existent C# type (CS0426/CS0234). Drop the whole AsyncSequence bridge in that
+        // case, the same "if a type is skipped, every use of it must be skipped too" invariant
+        // the member gate enforces. This predicate is the single gate consulted by the
+        // base-interface decl, the raw-iterator hider, and the bridge body, so failing here
+        // keeps all three in lockstep.
+        if (ElementReferencesSkippedType(elementSpec))
+            return false;
+
         // The nested-Optional bridge yields `SwiftOptional<X>.Some` directly into
         // `IAsyncEnumerable<Element>`. SwiftOptional<X>'s implicit operator targets
         // `X?` — so this only works when the inner X (the type held by the
@@ -206,6 +218,17 @@ public sealed class AsyncSequenceHandler
     {
         return named.Name == "Swift.Optional" || named.Name == "Optional";
     }
+
+    /// <summary>
+    /// True when <paramref name="spec"/> (or any of its generic arguments, e.g. the inner
+    /// type of an Optional Element) names a type the emitter skipped/withdrew and therefore
+    /// never declares. Delegates to <see cref="ValidationRuleSet.SpecReferencesSkippedType"/> —
+    /// the same umbrella-remap-aware oracle the member-signature gate consults, so an Apple
+    /// <c>compileImportModule</c> re-export spelling (<c>RealityKit.X</c>) still matches the
+    /// source-module skip key (<c>RealityFoundation.X</c>).
+    /// </summary>
+    private static bool ElementReferencesSkippedType(TypeSpec spec)
+        => ValidationRuleSet.SpecReferencesSkippedType(spec);
 
     private static TypeDecl? FindIteratorDecl(TypeDecl asyncSequenceType, NamedTypeSpec iteratorNamed)
     {

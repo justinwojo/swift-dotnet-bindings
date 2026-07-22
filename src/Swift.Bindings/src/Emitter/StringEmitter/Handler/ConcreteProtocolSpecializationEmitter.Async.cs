@@ -723,6 +723,20 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 return false;
             }
 
+            // Withdrawal-consistency guard — parity with the sync structural gate
+            // (ClassifyConformerStructurally.WithdrawnType). A hint-registered conformer whose
+            // concrete type was withdrawn/skipped (indeterminate layout, ingestion quarantine,
+            // unresolved nested type) is never declared; naming it in an async CSM overload emits a
+            // dangling reference (CS0234). The two admission mechanisms must agree, so this async
+            // path consults the SAME umbrella-remap-aware oracle rather than re-deriving skip state.
+            if (ConformerReferencesWithdrawnType(conformer))
+            {
+                logger?.LogDebug(
+                    "CSM-async: Skipping {Method} for {Conformer} — conformer type was withdrawn/skipped.",
+                    methodNameForLog, conformer.SwiftQualifiedName);
+                return false;
+            }
+
             // Nested-conformer guard. Unlike the synchronous CSM path — which resolves
             // nested-type conformers and emits them by their post-rename C# name — the async
             // path hard-rejects them. Async CSM specializes only hint-registered conformers,

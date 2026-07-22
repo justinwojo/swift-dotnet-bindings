@@ -1401,9 +1401,11 @@ namespace BindingsGeneration
             if (_classDecl.GenericParameters.Count > 0)
                 return null;
 
-            // Skip for module-internal classes — the wrapper library can't name them.
-            // Same guard as metadata wrapper emission (WriteGetTypeMetadata).
-            if (_classDecl.IsModuleInternal)
+            // Skip for module-internal classes, and classes nested in an internal type — the
+            // wrapper library can't name them, so the @_cdecl wrapper would fail to compile and
+            // be stripped, leaving a dangling C# PInvoke_eq (SWIFTBIND108). Same guard as
+            // metadata wrapper emission (WriteGetTypeMetadata) and the enum/struct equality paths.
+            if (WrapperValidation.IsTypeOrEnclosingModuleInternal(_classDecl))
                 return null;
 
             var symbolName = GetEqualitySymbolName(_classDecl);

@@ -199,7 +199,8 @@ internal static class NativeIntOverloadEmitter
         SubscriptDecl subscriptDecl,
         string returnTypeName,
         List<(string typeName, string paramName, ITypeProjection? projection)> paramInfos,
-        HashSet<string>? emittedIndexerKeys = null)
+        HashSet<string>? emittedIndexerKeys = null,
+        ModuleEmissionContext? emissionContext = null)
     {
         // Detect nint/nuint params
         var conversions = new List<(int index, string nativeType, string convType)>();
@@ -271,7 +272,25 @@ internal static class NativeIntOverloadEmitter
         AvailabilityAttributeEmitter.EmitAvailabilityAttributes(
             csWriter, subscriptDecl, subscriptDecl.ParentDecl, emitObsolete: false);
 
-        if (hasGetter && hasSetter)
+        // The primary this[nint] getter was SB0006-poisoned (its suppressed-proxy read can only throw), so
+        // its getter is [Obsolete(error:true)] with a throwing body. Forwarding `this[(nint)i]` from a
+        // convenience overload would read that poisoned getter (CS0619). Mirror the poison instead — a
+        // throwing, poisoned getter — while keeping the setter forward where the primary has a usable setter.
+        bool getterPoisoned = hasGetter && emissionContext?.WasSubscriptGetterProduceThrow(subscriptDecl) == true;
+
+        if (getterPoisoned)
+        {
+            csWriter.WriteLine($"public {returnTypeName} this[{paramStr}]");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            WrapperEmitter.EmitSuppressedProxyReadPoison(csWriter);
+            csWriter.WriteLine($"get => throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
+            if (hasSetter)
+                csWriter.WriteLine($"set => this[{castArgStr}] = value;");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+        }
+        else if (hasGetter && hasSetter)
         {
             csWriter.WriteLine($"public {returnTypeName} this[{paramStr}]");
             csWriter.WriteLine("{");

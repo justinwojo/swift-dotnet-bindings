@@ -1229,8 +1229,8 @@ namespace BindingsGeneration
             var moduleDecl = methodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(methodDecl.ModuleDecl));
 
             var pInvokeName = NameProvider.GetPInvokeName(GetPromotedSymbol(methodEnv), methodDecl);
-            var moduleLibPath = methodEnv.TypeDatabase.GetLibraryPath(moduleDecl.Name);
             var (entryPoint, needsWrapperLib) = ComputeEntryPoint(methodEnv);
+            var moduleLibPath = ResolveModuleLibraryPath(methodEnv, moduleDecl, entryPoint);
             var libPath = needsWrapperLib && methodEnv.TypeDatabase.AsyncLibraryName != null
                 ? methodEnv.TypeDatabase.AsyncLibraryName
                 : moduleLibPath;
@@ -1324,6 +1324,58 @@ namespace BindingsGeneration
                     Owner = ResolvePlanOwner(csWriter, methodDecl),
                 });
             }
+        }
+
+        /// <summary>
+        /// Picks the P/Invoke library for a member's native entry point. Normally this is the
+        /// currently-generated module's library. But a type surfaced into a module via a
+        /// cross-module concreteClassFallback / compileImportModule re-export (e.g. RealityKit's
+        /// TextureResource on RealityFoundation) can carry a member whose dispatch thunk is
+        /// declared — and therefore exported — by the OTHER module. Its stable mangled entry point
+        /// still names that owning module ($s10RealityKit…FTj), so binding it against the current
+        /// module's library points the P/Invoke at a dylib that does not contain the symbol →
+        /// EntryPointNotFoundException on first call, which the Tj-XM ABI check (SWIFTBIND092)
+        /// rejects, failing the whole generation.
+        ///
+        /// When the entry point is exactly that shape — a stable-mangled Tj dispatch thunk whose
+        /// decoded module differs from the current one — re-target the library to the owning module
+        /// so the emitted binding matches what a standalone binding of that module would produce.
+        /// The re-target is deliberately scoped to the same trigger the checker flags, so any
+        /// P/Invoke it changes was, by definition, already a hard SWIFTBIND092 failure; it can never
+        /// regress a currently-passing binding. It is applied only under the bare-module-name
+        /// library convention (system frameworks, where library name == module name) — the one
+        /// context where the owning module's bare name is the correct library string; third-party
+        /// dylib-path libraries are left unchanged so the checker still fails closed rather than the
+        /// emitter silently guessing a path.
+        /// </summary>
+        private static string ResolveModuleLibraryPath(
+            MethodEnvironment methodEnv, ModuleDecl moduleDecl, string entryPoint)
+        {
+            var moduleLibPath = methodEnv.TypeDatabase.GetLibraryPath(moduleDecl.Name);
+            return ResolveModuleLibraryPathCore(moduleLibPath, moduleDecl.Name, entryPoint);
+        }
+
+        /// <summary>
+        /// Pure decision core of <see cref="ResolveModuleLibraryPath"/>, split out so the
+        /// cross-module Tj re-target can be unit-tested without a full MethodEnvironment.
+        /// Given the current module's resolved library path, the current module name, and the
+        /// member's native entry point, return the library the P/Invoke should bind against.
+        /// </summary>
+        internal static string ResolveModuleLibraryPathCore(
+            string moduleLibPath, string moduleName, string entryPoint)
+        {
+            if (!string.Equals(moduleLibPath, moduleName, StringComparison.Ordinal))
+                return moduleLibPath;
+
+            if (entryPoint.StartsWith(ManglingProbes.StablePrefix, StringComparison.Ordinal)
+                && entryPoint.EndsWith(ManglingProbes.DispatchThunkSuffix, StringComparison.Ordinal)
+                && ManglingProbes.TryGetModuleFromMangledName(entryPoint, out var owningModule)
+                && !string.Equals(owningModule, moduleName, StringComparison.Ordinal))
+            {
+                return owningModule;
+            }
+
+            return moduleLibPath;
         }
     }
 }

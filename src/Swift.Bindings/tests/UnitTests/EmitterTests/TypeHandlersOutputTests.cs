@@ -796,6 +796,51 @@ public class TypeHandlersOutputTests
     }
 
     [Fact]
+    public void Emit_FrozenStructHandler_InternalEquatable_SuppressesSwiftEqualityWrapper()
+    {
+        // An internal Equatable struct can't be named from the separately-compiled wrapper module,
+        // so emitting the @_cdecl `_eq` wrapper would reference an unspellable type, fail to compile,
+        // get stripped by the reconciler, and leave a dangling C# PInvoke_eq pointing at a symbol
+        // nothing defines (SWIFTBIND108). The wrapper must be suppressed and the managed
+        // SwiftEquatable.Equals fallback used instead.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings"; // wire the wrapper library
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDecl("Secret", moduleDecl, isFrozen: true, requiresMemoryManagement: false);
+        structDecl.IsModuleInternal = true;
+        structDecl.Conformances.Add(new TypeConformance(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Secret"),
+            SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+            "$s10TestModule6SecretVSQAAMc"));
+
+        var (csOutput, swiftOutput) = EmitType(structDecl, typeDatabase, new FrozenStructHandler(new NullLogger<FrozenStructHandler>()));
+
+        Assert.DoesNotContain("_eq_", swiftOutput);          // no @_cdecl equality wrapper emitted
+        Assert.DoesNotContain("PInvoke_eq", csOutput);       // no dangling native equality P/Invoke
+        Assert.Contains("SwiftEquatable.Equals", csOutput);  // managed fallback preserved
+    }
+
+    [Fact]
+    public void Emit_FrozenStructHandler_PublicEquatable_EmitsSwiftEqualityWrapper()
+    {
+        // Negative control: a PUBLIC Equatable struct (same setup, not internal) DOES emit the
+        // @_cdecl `_eq` wrapper — proving the suppression above is driven by the internal flag,
+        // not by the harness failing to wire the wrapper library.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDecl("Visible", moduleDecl, isFrozen: true, requiresMemoryManagement: false);
+        structDecl.Conformances.Add(new TypeConformance(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Visible"),
+            SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+            "$s10TestModule7VisibleVSQAAMc"));
+
+        var (_, swiftOutput) = EmitType(structDecl, typeDatabase, new FrozenStructHandler(new NullLogger<FrozenStructHandler>()));
+
+        Assert.Contains("_eq_", swiftOutput);
+    }
+
+    [Fact]
     public void Emit_NonFrozenStructHandler_Equatable_EmitsEquatable()
     {
         var typeDatabase = CreateTypeDatabase();

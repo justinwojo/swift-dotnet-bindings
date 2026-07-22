@@ -339,6 +339,83 @@ public class NativeIntOverloadEmitterTests
         Assert.Equal(string.Empty, writer.ToString());
     }
 
+    [Fact]
+    public void TryEmitIndexerOverload_PoisonedGetter_MirrorsPoisonInsteadOfForwarding()
+    {
+        // When the primary this[nint] getter was SB0006-poisoned (its suppressed-proxy read can
+        // only throw), the getter emits [Obsolete(error:true)] with a throwing body. A convenience
+        // int overload that forwarded `=> this[(nint)index]` would READ that poisoned getter and
+        // fail to compile with CS0619. The overload must mirror the poison instead of forwarding.
+        var subscriptDecl = CreateSubscriptDecl(hasGetter: true, hasSetter: false);
+        var paramInfos = new List<(string typeName, string paramName, ITypeProjection? projection)>
+        {
+            ("nint", "index", null)
+        };
+        var emissionContext = new ModuleEmissionContext();
+        emissionContext.RecordSubscriptGetterProduceThrow(subscriptDecl);
+
+        var writer = new StringWriter();
+        var csWriter = new CSharpWriter(writer);
+        NativeIntOverloadEmitter.TryEmitIndexerOverload(
+            csWriter, subscriptDecl, "string", paramInfos, emittedIndexerKeys: null, emissionContext);
+        var output = writer.ToString();
+
+        Assert.Contains("public string this[int index]", output);
+        Assert.Contains("DiagnosticId = \"SB0006\"", output);
+        Assert.Contains("get => throw new NotSupportedException(", output);
+        // Must NOT forward into the poisoned primary getter (would be CS0619).
+        Assert.DoesNotContain("get => this[(nint)index];", output);
+        Assert.DoesNotContain("=> this[(nint)index];", output);
+    }
+
+    [Fact]
+    public void TryEmitIndexerOverload_PoisonedGetterWithSetter_ThrowsGetterButKeepsSetterForward()
+    {
+        // A poisoned getter alongside a usable setter: the getter must mirror the poison (throw),
+        // but the setter is still functional and should forward normally into the primary setter.
+        var subscriptDecl = CreateSubscriptDecl(hasGetter: true, hasSetter: true);
+        var paramInfos = new List<(string typeName, string paramName, ITypeProjection? projection)>
+        {
+            ("nint", "index", null)
+        };
+        var emissionContext = new ModuleEmissionContext();
+        emissionContext.RecordSubscriptGetterProduceThrow(subscriptDecl);
+
+        var writer = new StringWriter();
+        var csWriter = new CSharpWriter(writer);
+        NativeIntOverloadEmitter.TryEmitIndexerOverload(
+            csWriter, subscriptDecl, "string", paramInfos, emittedIndexerKeys: null, emissionContext);
+        var output = writer.ToString();
+
+        Assert.Contains("DiagnosticId = \"SB0006\"", output);
+        Assert.Contains("get => throw new NotSupportedException(", output);
+        Assert.Contains("set => this[(nint)index] = value;", output);
+        Assert.DoesNotContain("get => this[(nint)index];", output);
+    }
+
+    [Fact]
+    public void TryEmitIndexerOverload_UnpoisonedGetter_StillForwards()
+    {
+        // Control: an emissionContext that has NOT recorded the poison must forward normally,
+        // proving the poison mirror is gated on the recorded flag, not on the context's presence.
+        var subscriptDecl = CreateSubscriptDecl(hasGetter: true, hasSetter: false);
+        var paramInfos = new List<(string typeName, string paramName, ITypeProjection? projection)>
+        {
+            ("nint", "index", null)
+        };
+        var emissionContext = new ModuleEmissionContext();
+
+        var writer = new StringWriter();
+        var csWriter = new CSharpWriter(writer);
+        NativeIntOverloadEmitter.TryEmitIndexerOverload(
+            csWriter, subscriptDecl, "string", paramInfos, emittedIndexerKeys: null, emissionContext);
+        var output = writer.ToString();
+
+        Assert.Contains("public string this[int index] => this[(nint)index];", output);
+        Assert.DoesNotContain("SB0006", output);
+        Assert.DoesNotContain("NotSupportedException", output);
+    }
+
     #region Optional nint/nuint Tests
 
     [Fact]

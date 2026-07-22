@@ -89,6 +89,48 @@ public class RealityFrameworkRemapFixTests
         }
     }
 
+    [Fact]
+    public void ReferencesUnsupportedModule_WithdrawnNestedTypeAfterGenericOuter_ReturnsTrue()
+    {
+        // A withdrawn NESTED type after a generic outer renders as "TestModule.Outer<T>.Inner":
+        // the parser puts "TestModule.Outer" in Name, the generic arg in GenericParameters, and
+        // "Inner" in InnerType. TypeSkipPrePass records the generics-stripped "TestModule.Outer.Inner".
+        // The ordinary member-signature gate (ClassifyUnsupportedReference, via ReferencesUnsupportedModule)
+        // must walk the InnerType chain — probing only Name ("TestModule.Outer") would miss the skip and
+        // let a member emit a dangling reference the wrapper verification build can only fail closed on.
+        var moduleDecl = BuildEmptyModuleDecl("TestModule");
+        var skippedType = BuildStructDecl(moduleDecl, "TestModule.Outer.Inner");
+
+        ReportCollector.Start(moduleDecl);
+        try
+        {
+            ReportCollector.RecordTypeSkipped(skippedType, SkipReason.Unknown);
+
+            var nestedRef = new NamedTypeSpec("TestModule.Outer", new NamedTypeSpec("T"))
+            {
+                InnerType = new NamedTypeSpec("Inner"),
+            };
+
+            Assert.True(
+                ValidationRuleSet.ReferencesUnsupportedModule(nestedRef),
+                "Outer<T>.Inner must remap to the generics-stripped TestModule.Outer.Inner skip key");
+
+            // Negative guards: the OUTER alone is not skipped, and a DIFFERENT inner segment
+            // ("Other") does not match the recorded "Inner".
+            Assert.False(ValidationRuleSet.ReferencesUnsupportedModule(
+                new NamedTypeSpec("TestModule.Outer", new NamedTypeSpec("T"))));
+            Assert.False(ValidationRuleSet.ReferencesUnsupportedModule(
+                new NamedTypeSpec("TestModule.Outer", new NamedTypeSpec("T"))
+                {
+                    InnerType = new NamedTypeSpec("Other"),
+                }));
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+    }
+
     // --- Fix B: NativeIntOverloadEmitter SIMD alias --------------------------
 
     [Fact]
@@ -629,6 +671,65 @@ public class RealityFrameworkRemapFixTests
         // Not an optional-fallback module → never a candidate, regardless of name shape.
         Assert.False(MarshallingHelpers.IsObjCPrefixBridgeCandidate(
             new NamedTypeSpec("Swift.String")));
+    }
+
+    // --- Fix E: cross-module Tj dispatch-thunk library re-target -------------
+
+    [Fact]
+    public void ResolveModuleLibraryPathCore_CrossModuleTjThunk_UnderBareModuleName_RetargetsToOwningModule()
+    {
+        // RealityKit's TextureResource is re-exported onto RealityFoundation. A member it carries
+        // dispatches through a stable-mangled Tj thunk that RealityKit declares/exports, so its
+        // entry point ($s10RealityKit…FTj) names RealityKit. Binding it against RealityFoundation's
+        // library (bare-module-name convention: lib path == "RealityFoundation") points the P/Invoke
+        // at a dylib that lacks the symbol -> EntryPointNotFoundException / SWIFTBIND092. The core
+        // must re-target the library to the owning module so the binding resolves.
+        var entryPoint = ManglingProbes.ModulePrefix("RealityKit") + "15TextureResourceC9copyAsyncSbyFTj";
+
+        Assert.Equal("RealityKit",
+            PInvokeEmitter.ResolveModuleLibraryPathCore(
+                moduleLibPath: "RealityFoundation", moduleName: "RealityFoundation", entryPoint: entryPoint));
+    }
+
+    [Fact]
+    public void ResolveModuleLibraryPathCore_SameModuleTjThunk_LeavesLibraryUnchanged()
+    {
+        // A Tj thunk whose decoded owning module IS the current module is a normal same-module
+        // dispatch — the library must stay the current module. Re-targeting here would be a no-op
+        // at best and a wrong guess at worst, so the owning-module compare must gate the re-target.
+        var entryPoint = ManglingProbes.ModulePrefix("RealityFoundation") + "6EntityC4nameSSvgTj";
+
+        Assert.Equal("RealityFoundation",
+            PInvokeEmitter.ResolveModuleLibraryPathCore(
+                moduleLibPath: "RealityFoundation", moduleName: "RealityFoundation", entryPoint: entryPoint));
+    }
+
+    [Fact]
+    public void ResolveModuleLibraryPathCore_ThirdPartyDylibPath_LeavesLibraryUnchanged()
+    {
+        // The re-target is scoped to the bare-module-name convention (system frameworks, lib name ==
+        // module name). A third-party binding whose library is a real dylib path (lib path != module
+        // name) is left untouched even for a cross-module Tj thunk — the checker still fails closed
+        // rather than the emitter silently guessing a dylib path.
+        var entryPoint = ManglingProbes.ModulePrefix("RealityKit") + "15TextureResourceC9copyAsyncSbyFTj";
+
+        Assert.Equal("@rpath/libThirdParty.dylib",
+            PInvokeEmitter.ResolveModuleLibraryPathCore(
+                moduleLibPath: "@rpath/libThirdParty.dylib", moduleName: "RealityFoundation", entryPoint: entryPoint));
+    }
+
+    [Fact]
+    public void ResolveModuleLibraryPathCore_NonTjEntryPoint_LeavesLibraryUnchanged()
+    {
+        // A cross-module STABLE symbol that is not a dispatch thunk (no Tj suffix — e.g. a plain
+        // function symbol) must NOT be re-targeted. Only the dispatch-thunk shape the checker flags
+        // is in scope; a non-Tj symbol resolving to another module is a different situation the
+        // re-target must not touch.
+        var entryPoint = ManglingProbes.ModulePrefix("RealityKit") + "15TextureResourceC9copyAsyncSbyF";
+
+        Assert.Equal("RealityFoundation",
+            PInvokeEmitter.ResolveModuleLibraryPathCore(
+                moduleLibPath: "RealityFoundation", moduleName: "RealityFoundation", entryPoint: entryPoint));
     }
 
     // --- Helpers --------------------------------------------------------------

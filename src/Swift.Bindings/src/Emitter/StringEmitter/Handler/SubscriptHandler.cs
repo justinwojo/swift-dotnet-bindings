@@ -426,7 +426,7 @@ namespace BindingsGeneration
             // indexer won't be shadowed by a convenience nint→int overload from an earlier subscript.
             foreach (var (decl, retType, pInfos) in convenienceCandidates)
             {
-                NativeIntOverloadEmitter.TryEmitIndexerOverload(csWriter, decl, retType, pInfos, emittedKeys);
+                NativeIntOverloadEmitter.TryEmitIndexerOverload(csWriter, decl, retType, pInfos, emittedKeys, context.GetEmissionContext());
             }
         }
 
@@ -547,6 +547,9 @@ namespace BindingsGeneration
             {
                 WrapperEmitter.EmitSuppressedProxyReadPoison(csWriter);
                 csWriter.WriteLine($"get => throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
+                // Tell the deferred int/uint convenience-overload pass this primary getter is poisoned, so
+                // it mirrors the poison instead of forwarding `this[(nint)i]` into a CS0619/SB0006 read.
+                emissionContext.RecordSubscriptGetterProduceThrow(subscriptDecl);
                 return;
             }
 
@@ -582,6 +585,9 @@ namespace BindingsGeneration
                     WrapperEmitter.EmitSuppressedProxyReadPoison(csWriter);
                     csWriter.WriteLine($"get => throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
                     SuppressedProxyReporting.Record(subscriptDecl, SuppressedProxyReporting.Site.ProduceThrow, ex.ProxyClassName, AccessorKind.SubscriptGetter);
+                    // Tell the deferred int/uint convenience-overload pass this primary getter is poisoned, so
+                    // it mirrors the poison instead of forwarding `this[(nint)i]` into a CS0619/SB0006 read.
+                    emissionContext?.RecordSubscriptGetterProduceThrow(subscriptDecl);
                     return;
                 }
             }

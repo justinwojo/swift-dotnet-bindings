@@ -158,6 +158,26 @@ public static class ValidationRuleSet
                     offendingType = namedType.Name;
                     return UnsupportedReferenceKind.OtherUnsupported;
                 }
+                // The same skip invariant covers a withdrawn NESTED type after a generic outer:
+                // it renders as "M.Outer<T>.Inner" but TypeSkipPrePass records the generics-stripped
+                // "M.Outer.Inner" (generics live in GenericParameters, not Name), so probing only
+                // namedType.Name misses it and leaks a dangling reference the wrapper verification
+                // build can only fail closed on (CS0426). Walk the InnerType chain the same way the
+                // shared SpecReferencesSkippedType oracle does. HasModule() on the outer suffices —
+                // the umbrella-aware probe derives the module from the nested name's own prefix.
+                if (namedType.HasModule() && namedType.InnerType is not null)
+                {
+                    var nestedName = namedType.Name;
+                    for (var innerSeg = namedType.InnerType; innerSeg is not null; innerSeg = innerSeg.InnerType)
+                    {
+                        nestedName += "." + innerSeg.Name;
+                        if (IsTypeSkippedWithUmbrellaRemap(nestedName, namedType.Module))
+                        {
+                            offendingType = nestedName;
+                            return UnsupportedReferenceKind.OtherUnsupported;
+                        }
+                    }
+                }
                 // Types the emitter will never produce (e.g., single-case no-payload
                 // enums marked Unemittable). Skip anything referencing them so we don't
                 // leave dangling references to a type that will never exist.
@@ -458,25 +478,93 @@ public static class ValidationRuleSet
     /// dangling reference past the C# compiler.
     /// </summary>
     private static bool IsTypeSkippedWithUmbrellaRemap(NamedTypeSpec namedType)
+        => IsTypeSkippedWithUmbrellaRemap(namedType.Name, namedType.Module);
+
+    /// <summary>
+    /// Umbrella-remap-aware skip probe for a module-qualified type name — the single core the
+    /// member-signature gate, the AsyncSequence Element bridge, and the CSM conformer gate all
+    /// share. Probes <see cref="ReportCollector.IsTypeSkipped(string)"/> as-is, then — for an
+    /// Apple <c>compileImportModule</c> umbrella (e.g. <c>RealityKit</c> re-exporting
+    /// <c>RealityFoundation</c>) — re-attaches each source module to the type's suffix and probes
+    /// again, matching the canonical declaration key <see cref="TypeSkipPrePass"/> records.
+    /// <paramref name="topLevelModule"/> may be null/empty; it is then derived from the name's
+    /// first segment (identical to <see cref="NamedTypeSpec.Module"/>). A non-empty module that is
+    /// not the name's prefix disables the remap (no umbrella can apply).
+    /// </summary>
+    internal static bool IsTypeSkippedWithUmbrellaRemap(string moduleQualifiedName, string? topLevelModule)
     {
-        if (ReportCollector.IsTypeSkipped(namedType.Name))
+        if (string.IsNullOrEmpty(moduleQualifiedName))
+            return false;
+        if (ReportCollector.IsTypeSkipped(moduleQualifiedName))
             return true;
 
-        var umbrellaModule = namedType.Module;
+        var umbrellaModule = topLevelModule;
         if (string.IsNullOrEmpty(umbrellaModule))
+        {
+            var dot = moduleQualifiedName.IndexOf('.');
+            if (dot <= 0)
+                return false;
+            umbrellaModule = moduleQualifiedName.Substring(0, dot);
+        }
+        else if (!moduleQualifiedName.StartsWith(umbrellaModule + ".", StringComparison.Ordinal))
+        {
+            // The supplied module isn't this name's prefix — no umbrella remap can apply.
             return false;
+        }
 
         var sourceModules = AppleFrameworkRegistry.GetCompileImportSourceModules(umbrellaModule);
         if (sourceModules.Count == 0)
             return false;
 
-        // namedType.Name = "Umbrella.Path.To.Type" — strip the umbrella module prefix and
+        // moduleQualifiedName = "Umbrella.Path.To.Type" — strip the umbrella module prefix and
         // reattach each source module so the lookup matches the canonical declaration key.
-        var suffix = namedType.Name.Substring(umbrellaModule.Length + 1);
+        var suffix = moduleQualifiedName.Substring(umbrellaModule.Length + 1);
         foreach (var sourceModule in sourceModules)
         {
             if (ReportCollector.IsTypeSkipped($"{sourceModule}.{suffix}"))
                 return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Recursively probes a <see cref="TypeSpec"/> — its own name, its nested-type
+    /// (<see cref="NamedTypeSpec.InnerType"/>) chain, and every generic argument at every
+    /// nesting level — for a withdrawn/skipped type, umbrella-remap-aware. Shared by the
+    /// AsyncSequence Element bridge and the CSM conformer gate (the member-signature gate in
+    /// <see cref="ClassifyUnsupportedReference"/> shares the same umbrella-aware string core but
+    /// walks composite shapes through its own tuple/closure/optional recursion instead of this
+    /// helper) so that no emission path names a type the emitter withdrew — the emitted reference would
+    /// otherwise dangle past the C# compiler (CS0234/CS0426).
+    /// </summary>
+    internal static bool SpecReferencesSkippedType(TypeSpec? spec)
+    {
+        if (spec is not NamedTypeSpec named)
+            return false;
+
+        // The outer type as-is, then — for a nested type — each step of the InnerType chain.
+        // A withdrawn nested type after a generic outer renders as "M.Outer<T>.Inner" but is
+        // skip-keyed by TypeSkipPrePass as the generics-stripped "M.Outer.Inner" (generics live
+        // in GenericParameters, not in Name), so probing only named.Name ("M.Outer") would miss
+        // it and let the emitter name a type it never declares (CS0426).
+        if (IsTypeSkippedWithUmbrellaRemap(named.Name, named.Module))
+            return true;
+        var nested = named.Name;
+        for (var inner = named.InnerType; inner is not null; inner = inner.InnerType)
+        {
+            nested += "." + inner.Name;
+            if (IsTypeSkippedWithUmbrellaRemap(nested, named.Module))
+                return true;
+        }
+
+        // Every generic argument, at every nesting level, may itself reference a withdrawn type.
+        for (var level = named; level is not null; level = level.InnerType)
+        {
+            foreach (var gp in level.GenericParameters)
+            {
+                if (SpecReferencesSkippedType(gp))
+                    return true;
+            }
         }
         return false;
     }

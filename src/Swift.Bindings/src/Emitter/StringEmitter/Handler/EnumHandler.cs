@@ -1051,6 +1051,15 @@ namespace BindingsGeneration
             if (_enumDecl.GenericParameters.Count > 0)
                 return null;
 
+            // A module-internal enum (or one nested in an internal type) can't be named from
+            // the separately-compiled wrapper module, so the @_cdecl wrapper below references
+            // an unspellable qualified type, fails to compile, and is stripped — leaving the
+            // C# PInvoke_eq pointing at a symbol nothing defines (SWIFTBIND108). Return null so
+            // the C# equality surface falls back to SwiftEquatable.Equals instead, the same
+            // guard the class equality path and the enum-case factories already apply.
+            if (WrapperValidation.IsTypeOrEnclosingModuleInternal(_enumDecl))
+                return null;
+
             var symbolName = GetEqualitySymbolName(_enumDecl);
 
             // equality helpers live in the shared `_equality` bucket (also written by ClassHandler and TypeHandlerHelpers). One helper per enum type; symbol name from GetEqualitySymbolName is unique per type, so cross-emitter collisions in the bucket are impossible by construction.

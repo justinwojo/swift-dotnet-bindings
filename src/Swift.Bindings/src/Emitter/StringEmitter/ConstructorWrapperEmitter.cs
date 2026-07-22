@@ -468,7 +468,13 @@ public static class ConstructorWrapperEmitter
 
                             var adapterName = $"_adapted_{csName}";
                             var argLabel = omitLabels ? "" : ClosureEmitter.GetSwiftArgLabelForCdecl(arg);
-                            var autoClosureSuffix = closureTypeSpec.IsAutoClosure ? "()" : "";
+                            // @autoclosure parameters: invoke the adapted closure with () to forward
+                            // the value ONLY when calling the real Swift init directly. A
+                            // _dbw_init_* default-param shim (silgenTarget != null) already
+                            // redeclares the param as `@escaping () -> T` and invokes it itself, so
+                            // pass the closure value here — otherwise swiftc rejects a `T` where a
+                            // `() -> T` is expected.
+                            var autoClosureSuffix = closureTypeSpec.IsAutoClosure && silgenTarget == null ? "()" : "";
                             callArgs.Add($"{argLabel}{adapterName}{autoClosureSuffix}");
                             continue;
                         }

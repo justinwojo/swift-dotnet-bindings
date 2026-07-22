@@ -91,6 +91,11 @@ internal static class KeyPathSingletonEmitter
             foreach (var conformer in conformers)
             {
                 if (conformer.SwiftType is null) continue;
+                // A conformer TypeSkipPrePass withdrew stays in the type-decl index, so the
+                // TryGetValue below still resolves it; naming it would emit a global::<type>
+                // reference with no C# declaration (CS0234) and fail the whole binding closed.
+                // Withdraw it here — the same shared oracle the CSM conformer gates use.
+                if (ConcreteProtocolSpecializationEmitter.ConformerReferencesWithdrawnType(conformer)) continue;
                 var conformerKey = conformer.SwiftQualifiedName;
                 if (!typeDeclByName.TryGetValue(conformerKey, out var conformerDecl)) continue;
 
