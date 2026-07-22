@@ -57,6 +57,11 @@ namespace BindingsGeneration
             nestedTypesInCollidingClass = null;
             depModuleCollisions = new DepModuleCollisionDetector.SlicedCollisionResult(
                 Array.Empty<string>(), Array.Empty<string>());
+
+            // Best-known module name for a failure report written from the catch handlers below, updated
+            // as the run learns it — peeked from the ABI JSON, then the parsed module name. The input
+            // paths a failure report needs are the method parameters, always in scope.
+            string? failureModuleName = null;
             try
             {
             // Finding 18: start each generation run with a clean demangle rule-miss tally so the
@@ -73,6 +78,7 @@ namespace BindingsGeneration
             try
             {
                 currentModuleName = PeekModuleNameFromAbiJson(swiftAbiPath);
+                failureModuleName = currentModuleName;
             }
             catch
             {
@@ -132,6 +138,11 @@ namespace BindingsGeneration
                     if (dbModuleName == null)
                     {
                         logger.LogError("SWIFTBIND072: Invalid module database XML: '{Path}'.", dbPath);
+                        EmitFatalExitReport(
+                            currentModuleName, BindingFailureOutcomeKind.DependencyInputFailure,
+                            "SWIFTBIND072", RecoveryStage.Parse,
+                            $"Invalid module database XML: '{dbPath}'.",
+                            swiftAbiPath, dylibPath, tbdPath, swiftInterfacePath, outputDirectory, logger);
                         return false;
                     }
 
@@ -154,6 +165,11 @@ namespace BindingsGeneration
                     catch (Exception ex)
                     {
                         logger.LogError("SWIFTBIND072: Failed to load module database '{Path}': {Message}", dbPath, ex.InnerException?.Message ?? ex.Message);
+                        EmitFatalExitReport(
+                            currentModuleName, BindingFailureOutcomeKind.DependencyInputFailure,
+                            "SWIFTBIND072", RecoveryStage.Parse,
+                            $"Failed to load module database '{dbPath}': {ex.InnerException?.Message ?? ex.Message}",
+                            swiftAbiPath, dylibPath, tbdPath, swiftInterfacePath, outputDirectory, logger);
                         return false;
                     }
                     logger.LogInformation("Loaded dependency module database: {Path} (module: {Module})", dbPath, dbModuleName);
@@ -186,6 +202,12 @@ namespace BindingsGeneration
                         probe: importProbe,
                         logger: logger))
                 {
+                    EmitFatalExitReport(
+                        currentModuleName, BindingFailureOutcomeKind.InputClosureUnsatisfied,
+                        "SWIFTBIND119", RecoveryStage.Parse,
+                        "The compile-import graph could not be proven closed before parsing; "
+                            + "see the SWIFTBIND119 diagnostics above for the missing module and its importer.",
+                        swiftAbiPath, dylibPath, tbdPath, swiftInterfacePath, outputDirectory, logger);
                     return false;
                 }
             }
@@ -526,6 +548,11 @@ namespace BindingsGeneration
                                 logger.LogError(
                                     "SWIFTBIND073: Failed to parse dependency ABI for '{Module}': {Message}",
                                     dep.ModuleName, depDetail);
+                                EmitFatalExitReport(
+                                    currentModuleName, BindingFailureOutcomeKind.DependencyInputFailure,
+                                    "SWIFTBIND073", RecoveryStage.Parse,
+                                    $"Failed to parse dependency ABI for '{dep.ModuleName}': {depDetail}",
+                                    swiftAbiPath, dylibPath, tbdPath, swiftInterfacePath, outputDirectory, logger);
                                 return false;
                             }
                         }
@@ -583,6 +610,7 @@ namespace BindingsGeneration
                     new LegacyCrossModuleFactResolver(typeDatabase, demangledTbdFile)),
                 docComments);
             var moduleName = swiftParser.GetModuleName();
+            failureModuleName = moduleName;
             var frameworkName = InferFrameworkName(dylibPath, moduleName);
             var namespaceResolver = new NamespacePatternResolver(namespacePattern, frameworkName);
 
@@ -873,10 +901,14 @@ namespace BindingsGeneration
                     // The run fails before emission, so a node that was optimistically stamped Quarantined is,
                     // in this failing run, a fatal loss. Rewrite those ledger entries to Fatal so the in-memory
                     // ledger (HasQuarantines and any in-process reader) never reports a tombstoned-but-shipped
-                    // withdrawal for a binding that never shipped. This path writes no manifest — the durable
-                    // record of the failure is the SWIFTBIND120 error logged above.
+                    // withdrawal for a binding that never shipped. This path writes no manifest; the durable
+                    // record is the SWIFTBIND120 error logged above plus the binding-failure-report.json below.
                     InputResolutionReport.EscalateQuarantinesToFatal(
                         $"SWIFTBIND120: ingestion closure unprovable — {ingestionClosure.UnprovenReason}");
+                    EmitFatalExitReport(
+                        moduleName, BindingFailureOutcomeKind.IngestionClosureUnprovable,
+                        "SWIFTBIND120", RecoveryStage.Parse, ingestionClosure.UnprovenReason,
+                        swiftAbiPath, dylibPath, tbdPath, swiftInterfacePath, outputDirectory, logger);
                     return false;
                 }
                 EmitterPoisonList? ingestionSeed = ingestionClosure.Withdrawals.Count > 0
@@ -971,6 +1003,29 @@ namespace BindingsGeneration
                             "{Rounds} round(s) ({Cause}); refusing to ship a binding whose {Planes} did " +
                             "not reach a clean compile.",
                             decl.Name, recovery.Rounds, recovery.Cause, planes);
+
+                        // Leave durable, structured evidence BEFORE the ambient collector is discarded:
+                        // the final round's attributed diagnostics, the units it implicated, and the
+                        // recovery decision context — everything a triager would otherwise have to
+                        // reconstruct from a single console line. Best-effort; a reporter fault warns
+                        // and leaves this non-convergence failure exactly as it was.
+                        try
+                        {
+                            var failureReport = BindingFailureReportBuilder.ForRecoveryNonConvergence(
+                                moduleName,
+                                new BindingFailureInputPaths(swiftAbiPath, dylibPath, tbdPath, swiftInterfacePath),
+                                recovery,
+                                ingestionClosure.Withdrawals,
+                                outputDirectory);
+                            BindingFailureReporting.Emit(failureReport, outputDirectory, logger);
+                        }
+                        catch (Exception reportEx)
+                        {
+                            logger.LogWarning(
+                                "Could not write the structured failure report for '{Module}' (SWIFTBIND111): {Message}.",
+                                moduleName, reportEx.Message);
+                        }
+
                         ReportCollector.Reset();
                         return false;
                     }
@@ -1022,6 +1077,10 @@ namespace BindingsGeneration
                             "wrapper surface either; without anything to call the binding is unusable — failing " +
                             "closed rather than shipping an empty binding.",
                             moduleName, usable.Reason);
+                        EmitFatalExitReport(
+                            moduleName, BindingFailureOutcomeKind.NoUsableSurface,
+                            "SWIFTBIND116", RecoveryStage.Emit, usable.Reason,
+                            swiftAbiPath, dylibPath, tbdPath, swiftInterfacePath, outputDirectory, logger);
                         return false;
                     }
                 }
@@ -1236,6 +1295,12 @@ namespace BindingsGeneration
                     : WrapperSymbolIntegrityGate.HasViolations(outputDirectory, logger);
                 if (wrapperSymbolViolations)
                 {
+                    EmitFatalExitReport(
+                        moduleName, BindingFailureOutcomeKind.WrapperSymbolViolation,
+                        "WRAPPER_SYMBOL_VIOLATION", RecoveryStage.SymbolValidation,
+                        "An emitted wrapper-symbol P/Invoke reference had no matching wrapper definition; "
+                            + "see the wrapper-symbol integrity diagnostics above.",
+                        swiftAbiPath, dylibPath, tbdPath, swiftInterfacePath, outputDirectory, logger);
                     ReportCollector.Reset();
                     return false;
                 }
@@ -1251,6 +1316,12 @@ namespace BindingsGeneration
                 if (ProxyReferenceIntegrityGate.HasViolations(
                         outputDirectory, emissionContext.SuppressedProxyClassNames, logger))
                 {
+                    EmitFatalExitReport(
+                        moduleName, BindingFailureOutcomeKind.ProxyReferenceViolation,
+                        "PROXY_REFERENCE_VIOLATION", RecoveryStage.CSharpCompile,
+                        "A bare proxy construction had no matching proxy class definition; "
+                            + "see the proxy-reference integrity diagnostics above.",
+                        swiftAbiPath, dylibPath, tbdPath, swiftInterfacePath, outputDirectory, logger);
                     ReportCollector.Reset();
                     return false;
                 }
@@ -1273,12 +1344,25 @@ namespace BindingsGeneration
                         "failing closed rather than shipping a silently-narrowed binding.",
                         moduleName, parseReconciliation.Parsed, parseReconciliation.Emitted,
                         parseReconciliation.SkippedWithReason, parseReconciliation.DroppedWithError);
+                    EmitFatalExitReport(
+                        moduleName, BindingFailureOutcomeKind.ParseLedgerImbalance,
+                        "SWIFTBIND121", RecoveryStage.Parse,
+                        $"Parse ledger unbalanced: parsed {parseReconciliation.Parsed} but accounted for "
+                            + $"{parseReconciliation.Emitted} emitted + {parseReconciliation.SkippedWithReason} "
+                            + $"skipped-with-reason + {parseReconciliation.DroppedWithError} dropped-with-error.",
+                        swiftAbiPath, dylibPath, tbdPath, swiftInterfacePath, outputDirectory, logger);
                     ReportCollector.Reset();
                     return false;
                 }
 
                 logger.LogInformation("Bindings generation completed for {SwiftAbiPath}.", swiftAbiPath);
 
+                // This run generated the module successfully. Clear any binding-failure-report.json a prior
+                // failed run left in this output directory so the artifact contract holds — the report's
+                // presence means the last generation into this directory failed, never a stale failure beside
+                // a fresh success. Scoped to the fresh-generation path only: the "already completed" skip
+                // below performs no generation this run, so it must not touch a prior run's failure evidence.
+                BindingFailureReporting.RemoveStaleReport(outputDirectory, logger);
             }
             else
                 logger.LogWarning("Bindings generation already completed for {SwiftAbiPath}.", swiftAbiPath);
@@ -1293,6 +1377,10 @@ namespace BindingsGeneration
                 // rather than re-emitted per violation.
                 logger.LogError("{Message}", ex.Message);
                 logger.LogDebug("Stack trace:\n{StackTrace}", ex.ToString());
+                EmitFatalExitReport(
+                    failureModuleName, BindingFailureOutcomeKind.AbiContractViolation,
+                    "ABI_CONTRACT_VIOLATION", RecoveryStage.AbiValidation, ex.Message,
+                    swiftAbiPath, dylibPath, tbdPath, swiftInterfacePath, outputDirectory, logger);
                 ReportCollector.Reset();
                 return false;
             }
@@ -1300,8 +1388,53 @@ namespace BindingsGeneration
             {
                 logger.LogError("Binding generation failed: {Message}", ex.Message);
                 logger.LogDebug("Stack trace:\n{StackTrace}", ex.ToString());
+                EmitFatalExitReport(
+                    failureModuleName, BindingFailureOutcomeKind.UnhandledException,
+                    "UNHANDLED_EXCEPTION", RecoveryStage.Emit, ex.Message,
+                    swiftAbiPath, dylibPath, tbdPath, swiftInterfacePath, outputDirectory, logger);
                 ReportCollector.Reset();
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// Writes a best-effort <c>binding-failure-report.json</c> for a fatal exit that carries no
+        /// verify-recover attribution — a structural fail-closed gate or an escaped exception. The
+        /// evidence is the failure's own message, wrapped as a single generator-plane diagnostic. Never
+        /// throws: a reporter fault warns and leaves the original failure untouched.
+        /// </summary>
+        private static void EmitFatalExitReport(
+            string? moduleName,
+            BindingFailureOutcomeKind kind,
+            string reasonCode,
+            RecoveryStage stage,
+            string? evidenceMessage,
+            string swiftAbiPath,
+            string dylibPath,
+            string tbdPath,
+            string? swiftInterfacePath,
+            string outputDirectory,
+            ILogger logger)
+        {
+            try
+            {
+                var diagnostics = string.IsNullOrEmpty(evidenceMessage)
+                    ? null
+                    : new[] { BindingFailureReportBuilder.GeneratorDiagnostic(evidenceMessage) };
+                var report = BindingFailureReportBuilder.ForFatalExit(
+                    moduleName ?? "<unknown>",
+                    new BindingFailureInputPaths(swiftAbiPath, dylibPath, tbdPath, swiftInterfacePath),
+                    kind, reasonCode, stage, outputDirectory, diagnostics);
+                BindingFailureReporting.Emit(report, outputDirectory, logger);
+            }
+            catch (Exception ex)
+            {
+                // The report is best-effort evidence; a fault building or writing it must never escape to
+                // re-label this fatal exit as an unhandled exception or mask its reason code. The original
+                // failure — already logged with its own reason code — stands.
+                logger.LogWarning(
+                    "Could not write the structured failure report for '{Module}' ({Reason}): {Message}.",
+                    moduleName ?? "<unknown>", reasonCode, ex.Message);
             }
         }
 

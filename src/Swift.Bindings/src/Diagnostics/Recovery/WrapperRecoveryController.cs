@@ -81,6 +81,37 @@ public sealed record WrapperRecoveryResult
     /// culprit.
     /// </summary>
     public ImmutableArray<RecoveryUnitId> SearchIsolated { get; init; } = ImmutableArray<RecoveryUnitId>.Empty;
+
+    /// <summary>
+    /// The final failing round's evidence — the attributed diagnostics and the culprits that round
+    /// proposed to withdraw — captured so a non-converged run can leave a durable, structured failure
+    /// report. Null on a converged result (and on the rare failure that produced no attribution). This
+    /// carries no recovery decision: every choice the run made is already expressed by
+    /// <see cref="Denylist"/>, <see cref="Blocking"/>, <see cref="SearchIsolated"/>, and
+    /// <see cref="Cause"/>. It exists only so evidence the loop consulted and discarded round-by-round
+    /// survives to the CLI, which is why populating it is byte-neutral for every converged binding.
+    /// </summary>
+    public TerminalRecoveryEvidence? TerminalEvidence { get; init; }
+}
+
+/// <summary>
+/// What the final failing round of a non-converged verify-recover run saw when it stopped: the raw
+/// attributed diagnostics and the units that round proposed to withdraw. It records observations, not
+/// decisions — the run's decisions live on <see cref="WrapperRecoveryResult"/> — so a durable failure
+/// report can name the diagnostics that blocked convergence and the culprits the loop would have
+/// withdrawn had a sound withdrawal been available. Absent on the converged path.
+/// </summary>
+public sealed record TerminalRecoveryEvidence
+{
+    /// <summary>The final round's attribution: its diagnostics, attributed culprits, and fingerprint.</summary>
+    public AttributionResult? Attribution { get; init; }
+
+    /// <summary>
+    /// The units the final round attributed the failure to — its
+    /// <see cref="AttributionResult.Culprits"/>, surfaced explicitly as the withdrawals the round would
+    /// have made. The units the run actually settled on are <see cref="WrapperRecoveryResult.Denylist"/>.
+    /// </summary>
+    public ImmutableArray<RecoveryUnitId> ProposedWithdrawals { get; init; } = ImmutableArray<RecoveryUnitId>.Empty;
 }
 
 /// <summary>
@@ -237,11 +268,17 @@ public static class WrapperRecoveryController
         var denylistOrder = ImmutableArray.CreateBuilder<RecoveryUnitId>();
         var searchIsolated = ImmutableArray.CreateBuilder<RecoveryUnitId>();
 
+        // The most recent round's attribution, retained so the terminal failure — including the
+        // iteration-cap exhaustion whose return is outside the loop body — can carry the diagnostics
+        // and proposed withdrawals it saw. Overwritten each round; never read on the converged path.
+        AttributionResult? lastAttribution = null;
+
         for (int round = 1; round <= iterationCap; round++)
         {
             var attribution = driver.RenderCompileAttribute(denylist);
             if (attribution is null)
                 return Converged(denylistOrder, round, searchIsolated);
+            lastAttribution = attribution;
 
             // Fail-closed *nature* checks. These fire when the failing union merely CONTAINS such an
             // error — even alongside attributed leaf culprits — because wave-1 never partially
@@ -251,7 +288,8 @@ public static class WrapperRecoveryController
             // beside them are most likely cascades of that same root, so withdrawing those leaves is
             // both futile and unsound (it would tombstone healthy members and still fail).
             if (HasGlobalInputError(attribution))
-                return Failed(denylistOrder, round, WrapperRecoveryFailureCause.InputConfiguration, searchIsolated);
+                return Failed(denylistOrder, round, WrapperRecoveryFailureCause.InputConfiguration,
+                    searchIsolated, EvidenceFrom(attribution));
 
             if (attribution.HasUnattributedError)
             {
@@ -281,7 +319,8 @@ public static class WrapperRecoveryController
                 }
 
                 if (!addedIsolated)
-                    return Failed(denylistOrder, round, WrapperRecoveryFailureCause.Unattributable, searchIsolated);
+                    return Failed(denylistOrder, round, WrapperRecoveryFailureCause.Unattributable,
+                        searchIsolated, EvidenceFrom(attribution));
 
                 continue;
             }
@@ -325,7 +364,7 @@ public static class WrapperRecoveryController
                 }
 
                 if (!addedClosure)
-                    return Blocked(denylistOrder, round, blocking, searchIsolated);
+                    return Blocked(denylistOrder, round, blocking, searchIsolated, EvidenceFrom(attribution));
 
                 continue;
             }
@@ -347,12 +386,21 @@ public static class WrapperRecoveryController
             // no-progress condition): whether the round attributed nothing or re-blamed only
             // already-denied units, no leaf recovery can move the compiler. The one rung above a leaf
             // needs the recovery graph this wave lacks, so it fails closed at the module floor.
-            return Failed(denylistOrder, round, WrapperRecoveryFailureCause.NoProgress, searchIsolated);
+            return Failed(denylistOrder, round, WrapperRecoveryFailureCause.NoProgress,
+                searchIsolated, EvidenceFrom(attribution));
         }
 
         // Still making progress (each round withdrew something new) but out of rounds: the floor.
-        return Failed(denylistOrder, iterationCap, WrapperRecoveryFailureCause.IterationCapExhausted, searchIsolated);
+        return Failed(denylistOrder, iterationCap, WrapperRecoveryFailureCause.IterationCapExhausted,
+            searchIsolated, lastAttribution is null ? null : EvidenceFrom(lastAttribution));
     }
+
+    /// <summary>
+    /// Packages a failing round's attribution as terminal evidence — its diagnostics survive on
+    /// <see cref="TerminalRecoveryEvidence.Attribution"/> and its culprits as the proposed withdrawals.
+    /// </summary>
+    private static TerminalRecoveryEvidence EvidenceFrom(AttributionResult attribution) =>
+        new() { Attribution = attribution, ProposedWithdrawals = attribution.Culprits };
 
     /// <summary>
     /// True when the round's failure <em>contains</em> a global classification error — the shape of a
@@ -384,7 +432,8 @@ public static class WrapperRecoveryController
         ImmutableArray<RecoveryUnitId>.Builder denylist,
         int rounds,
         WrapperRecoveryFailureCause cause,
-        ImmutableArray<RecoveryUnitId>.Builder searchIsolated) =>
+        ImmutableArray<RecoveryUnitId>.Builder searchIsolated,
+        TerminalRecoveryEvidence? evidence = null) =>
         new()
         {
             Converged = false,
@@ -392,13 +441,15 @@ public static class WrapperRecoveryController
             Rounds = rounds,
             Cause = cause,
             SearchIsolated = searchIsolated.ToImmutable(),
+            TerminalEvidence = evidence,
         };
 
     private static WrapperRecoveryResult Blocked(
         ImmutableArray<RecoveryUnitId>.Builder denylist,
         int rounds,
         IEnumerable<RecoveryUnitId> blocking,
-        ImmutableArray<RecoveryUnitId>.Builder searchIsolated) =>
+        ImmutableArray<RecoveryUnitId>.Builder searchIsolated,
+        TerminalRecoveryEvidence? evidence = null) =>
         new()
         {
             Converged = false,
@@ -407,5 +458,6 @@ public static class WrapperRecoveryController
             Cause = WrapperRecoveryFailureCause.RequiresGraphClosure,
             Blocking = blocking.ToImmutableArray(),
             SearchIsolated = searchIsolated.ToImmutable(),
+            TerminalEvidence = evidence,
         };
 }
