@@ -76,6 +76,50 @@ public class MemberValidationPipelineTests
     }
 
     [Fact]
+    public void ValidateMethodEmission_TupleParamWithFrozenBlittableStructElement_ReturnsSkip()
+    {
+        // A frozen no-memory-management struct element (Foundation.Data is the canonical case)
+        // has P/Invoke type == C# type, so HasUnmarshalledTupleElements cannot see it — yet it
+        // is NOT cdecl-buffer-marshallable. Emitting it produces an ABI mismatch: the tuple
+        // param forces a @_cdecl wrapper whose Swift side takes the tuple as UnsafeRawPointer
+        // (CdeclParamMapper fallback), while the C# P/Invoke declares the ValueTuple BY VALUE.
+        // Both sides compile; the invocation is garbage. The tuple gate must fail closed on
+        // every non-buffer-marshallable tuple param, not only on convertible-element ones.
+        var typeDatabase = CreateTypeDatabaseWithFoundationData();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var method = CreateMethodWithArgs("send", TupleTypeSpec.Empty,
+            new TupleTypeSpec(new TypeSpec[]
+            {
+                new NamedTypeSpec("Foundation.Data"),
+                new NamedTypeSpec("Swift.Int")
+            }));
+
+        var result = pipeline.ValidateMethodEmission(method, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_TupleParamAllPrimitiveElements_ReturnsEmit()
+    {
+        // Guard against over-skipping: an all-primitive tuple param IS buffer-marshallable
+        // (the CdeclTuple IntPtr path) and must keep emitting.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var method = CreateMethodWithArgs("sumPair", TupleTypeSpec.Empty,
+            new TupleTypeSpec(new TypeSpec[]
+            {
+                new NamedTypeSpec("Swift.Int"),
+                new NamedTypeSpec("Swift.Int")
+            }));
+
+        var result = pipeline.ValidateMethodEmission(method, null!);
+
+        Assert.True(result.ShouldEmit);
+    }
+
+    [Fact]
     public void ValidateMethodEmission_ModuleLevelInternalTakesPrecedenceOverSpi()
     {
         // A free function that's both internal and SPI — internal gate fires first
@@ -1034,6 +1078,210 @@ public class MemberValidationPipelineTests
 
         Assert.False(result.ShouldEmit);
         Assert.Equal(SkipReason.ModuleInternal, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateSubscriptEmission_TupleIndexWithFrozenBlittableStructElement_ReturnsSkip()
+    {
+        // A tuple index parameter carrying a frozen-blittable non-primitive struct element
+        // (Foundation.Data here) has no sound emission path: the subscript path P/Invokes
+        // the index as a by-value ValueTuple under CallConvSwift (indeterminate layout),
+        // and for supplement-homed elements the public indexer projects the element
+        // (byte[]) while the accessor keeps the raw tuple type — a CS1503 in the
+        // generated binding. Must fail closed at the validator.
+        var typeDatabase = CreateTypeDatabaseWithFoundationData();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var subscript = CreateSubscript(new NamedTypeSpec("Swift.Int"),
+            new TupleTypeSpec(new TypeSpec[]
+            {
+                new NamedTypeSpec("Foundation.Data"),
+                new NamedTypeSpec("Swift.Int")
+            }));
+
+        var result = pipeline.ValidateSubscriptEmission(subscript, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateSubscriptEmission_TupleIndexWithStringElement_ReturnsSkip()
+    {
+        // A String element is carried by the METHOD path's cdecl tuple buffer, but the
+        // subscript path has no buffer: the public indexer projects the element to
+        // `string` while the accessor keeps the raw `(Swift.SwiftString, …)` tuple —
+        // the emitted indexer body is a CS1503 — and the P/Invoke would pass the tuple
+        // by value under CallConvSwift. Buffer-marshallability is NOT the right admit
+        // key here; only all-primitive tuples survive the raw-thunk path.
+        var typeDatabase = CreateTypeDatabaseWithStringAndClass();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var subscript = CreateSubscript(new NamedTypeSpec("Swift.Int"),
+            new TupleTypeSpec(new TypeSpec[]
+            {
+                new NamedTypeSpec("Swift.String"),
+                new NamedTypeSpec("Swift.Int")
+            }));
+
+        var result = pipeline.ValidateSubscriptEmission(subscript, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateSubscriptEmission_TupleIndexWithClassElement_ReturnsSkip()
+    {
+        // A class element mismatches WITHIN the accessor: the accessor method declares
+        // the projected wrapper type in its tuple while the P/Invoke declares
+        // ValueTuple<IntPtr, …> — the accessor body itself is a CS1503. Same root cause
+        // as the String element: no per-element conversion exists on the subscript path.
+        var typeDatabase = CreateTypeDatabaseWithStringAndClass();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var subscript = CreateSubscript(new NamedTypeSpec("Swift.Int"),
+            new TupleTypeSpec(new TypeSpec[]
+            {
+                new NamedTypeSpec("TestModule.Payload"),
+                new NamedTypeSpec("Swift.Int")
+            }));
+
+        var result = pipeline.ValidateSubscriptEmission(subscript, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateSubscriptEmission_SettableTupleReturnWithFrozenBlittableStructElement_ReturnsSkip()
+    {
+        // A SETTABLE subscript whose return type is a non-primitive-element tuple takes
+        // that tuple as the setter's newValue parameter — the same projected-indexer-vs-
+        // raw-accessor divergence as a tuple index.
+        var typeDatabase = CreateTypeDatabaseWithFoundationData();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var subscript = CreateSubscript(
+            new TupleTypeSpec(new TypeSpec[]
+            {
+                new NamedTypeSpec("Foundation.Data"),
+                new NamedTypeSpec("Swift.Int")
+            }),
+            new NamedTypeSpec("Swift.Int"));
+        ((List<AccessorDecl>)subscript.Accessors).Add(CreateMinimalSetAccessor());
+
+        var result = pipeline.ValidateSubscriptEmission(subscript, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateSubscriptEmission_SettableTupleReturnWithStringElement_ReturnsSkip()
+    {
+        // The setter's newValue arrives as the projected tuple ((string, …)) but the
+        // accessor method declares the raw tuple ((Swift.SwiftString, …)) — CS1503 in
+        // the emitted indexer setter. Buffer-marshallability of the String element does
+        // not help: there is no buffer on this path.
+        var typeDatabase = CreateTypeDatabaseWithStringAndClass();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var subscript = CreateSubscript(
+            new TupleTypeSpec(new TypeSpec[]
+            {
+                new NamedTypeSpec("Swift.String"),
+                new NamedTypeSpec("Swift.Int")
+            }),
+            new NamedTypeSpec("Swift.Int"));
+        ((List<AccessorDecl>)subscript.Accessors).Add(CreateMinimalSetAccessor());
+
+        var result = pipeline.ValidateSubscriptEmission(subscript, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateSubscriptEmission_GetOnlyTupleReturnWithFrozenBlittableStructElement_ReturnsSkip()
+    {
+        // A get-only tuple return is NOT safe for non-primitive elements: the getter's
+        // per-element conversions assume wrapper-decomposed IntPtr elements, but the
+        // subscript accessor P/Invokes the raw dispatch thunk, which returns raw element
+        // values — the emitted conversion (e.g. casting a Foundation.Data struct to
+        // void*) does not compile (CS0030), and the by-value Auto-layout ValueTuple
+        // return is indeterminate ABI regardless.
+        var typeDatabase = CreateTypeDatabaseWithFoundationData();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var subscript = CreateSubscript(
+            new TupleTypeSpec(new TypeSpec[]
+            {
+                new NamedTypeSpec("Foundation.Data"),
+                new NamedTypeSpec("Swift.Int")
+            }),
+            new NamedTypeSpec("Swift.Int"));
+
+        var result = pipeline.ValidateSubscriptEmission(subscript, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateSubscriptEmission_GetOnlyAllPrimitiveTupleReturn_ReturnsEmit()
+    {
+        // Over-skip guard: an all-primitive tuple return has identical raw, public, and
+        // P/Invoke representations, so the get-only return keeps today's emission.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var subscript = CreateSubscript(
+            new TupleTypeSpec(new TypeSpec[]
+            {
+                new NamedTypeSpec("Swift.Int"),
+                new NamedTypeSpec("Swift.Int")
+            }),
+            new NamedTypeSpec("Swift.Int"));
+
+        var result = pipeline.ValidateSubscriptEmission(subscript, null!);
+
+        Assert.True(result.ShouldEmit);
+    }
+
+    [Fact]
+    public void ValidateSubscriptEmission_OverArityAllPrimitiveTupleReturn_ReturnsSkip()
+    {
+        // All-primitive is necessary but not sufficient: an over-arity tuple (8+ elements)
+        // exceeds the supported ValueTuple ceiling, so the accessor would resolve it to
+        // AnyType and be dropped AFTER SubscriptHandler reserves the indexer dedup key —
+        // suppressing a later valid subscript that shares the index parameters. It must
+        // fail closed at the validator, before any key reservation.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var subscript = CreateSubscript(
+            new TupleTypeSpec(Enumerable.Range(0, 8)
+                .Select(_ => (TypeSpec)new NamedTypeSpec("Swift.Int"))
+                .ToArray()),
+            new NamedTypeSpec("Swift.Int"));
+
+        var result = pipeline.ValidateSubscriptEmission(subscript, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateSubscriptEmission_TupleIndexAllPrimitiveElements_ReturnsEmit()
+    {
+        // Over-skip guard: an all-primitive tuple index has identical raw, public, and
+        // P/Invoke representations — the one tuple shape the raw-thunk subscript path
+        // carries today — and keeps its emission.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var subscript = CreateSubscript(new NamedTypeSpec("Swift.Int"),
+            new TupleTypeSpec(new TypeSpec[]
+            {
+                new NamedTypeSpec("Swift.Int"),
+                new NamedTypeSpec("Swift.Int")
+            }));
+
+        var result = pipeline.ValidateSubscriptEmission(subscript, null!);
+
+        Assert.True(result.ShouldEmit);
     }
 
     #endregion
@@ -2509,6 +2757,101 @@ public class MemberValidationPipelineTests
             Accessors = new List<AccessorDecl>(),
             ParentDecl = null,
             ModuleDecl = null
+        };
+    }
+
+    /// <summary>
+    /// The base database plus Foundation.Data registered as the shipped supplement database
+    /// does: a frozen struct projecting to Swift.Foundation.Data — the canonical
+    /// frozen-blittable non-primitive tuple element the buffer path cannot carry.
+    /// </summary>
+    private static TypeDatabase CreateTypeDatabaseWithFoundationData()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var foundationModule = new ModuleTypeDatabase(
+            "Foundation", "/System/Library/Frameworks/Foundation.framework/Foundation");
+        foundationModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Foundation.Data"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Foundation", "Data"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Data"),
+                MetadataAccessor = "$s10Foundation4DataVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(foundationModule);
+        return typeDatabase;
+    }
+
+    /// <summary>
+    /// The base database plus Swift.String (frozen struct projecting to Swift.SwiftString)
+    /// and a pure Swift class TestModule.Payload — the two buffer-marshallable-but-projected
+    /// tuple element kinds the subscript raw-thunk path cannot carry.
+    /// </summary>
+    private static TypeDatabase CreateTypeDatabaseWithStringAndClass()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.NIntType,
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Payload"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Payload"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Payload"),
+                MetadataAccessor = "$s10TestModule7PayloadCMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+        return typeDatabase;
+    }
+
+    /// <summary>
+    /// A minimal setter accessor — just enough for <see cref="SubscriptDecl.HasSetter"/>
+    /// to observe it; the validator gates on the setter's existence, not its body.
+    /// </summary>
+    private static SetAccessorDecl CreateMinimalSetAccessor()
+    {
+        return new SetAccessorDecl
+        {
+            Method = new MethodDecl
+            {
+                Name = "subscript_Set",
+                MangledName = "$sTest_subscript_set",
+                MethodType = MethodType.Instance,
+                IsConstructor = false,
+                CSSignature = new List<ArgumentDecl>(),
+                GenericParameters = new List<GenericArgumentDecl>(),
+                ParentDecl = null,
+                ModuleDecl = null,
+                Throws = false,
+                IsAsync = false,
+                IsSynthesizedAccessor = true
+            }
         };
     }
 

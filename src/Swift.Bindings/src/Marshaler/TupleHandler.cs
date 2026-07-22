@@ -457,6 +457,24 @@ public class TupleHandler
     }
 
     /// <summary>
+    /// True when every tuple element is a blittable cdecl primitive scalar — the one tuple shape whose
+    /// raw, public, and P/Invoke representations are identical. This is the admit key for paths that
+    /// P/Invoke a dispatch thunk directly with the tuple by value and have NO per-element conversion
+    /// layer (today: the subscript index/return gate in MemberValidationPipeline). Deliberately much
+    /// narrower than <see cref="IsCdeclBufferMarshallableTuple"/>: String/class/existential elements are
+    /// only sound where the @_cdecl tuple buffer transport carries them per-slot (method/ctor params) —
+    /// on a bufferless path their projected public type (string, wrapper class) diverges from the raw
+    /// accessor/P-Invoke tuple type and the emitted code does not compile. Carries the same arity
+    /// ceiling as the buffer predicate: an over-arity tuple resolves to AnyType downstream and would be
+    /// dropped only AFTER the caller reserves its dedup key, suppressing a valid sibling overload — it
+    /// must fail closed here instead.
+    /// </summary>
+    public bool IsAllPrimitiveTuple(TupleTypeSpec tupleTypeSpec) =>
+        !tupleTypeSpec.IsEmptyTuple &&
+        tupleTypeSpec.Elements.Count <= MaxSupportedTupleElements &&
+        tupleTypeSpec.Elements.All(CdeclParamMapper.IsCdeclPrimitive);
+
+    /// <summary>
     /// True for a tuple element that is a SUPPORTED composition existential of two or more non-marker
     /// protocols (e.g. <c>any Nameable &amp; Ageable</c> → <c>ExistentialContainer2</c>). Such an element
     /// is marshalled through the always-borrowed <c>GetExistentialContainer()</c> path (owns == false —
@@ -582,6 +600,51 @@ public class TupleHandler
             translateGenericArgument: genericParam => TranslateElementTypeToCSharp(genericParam),
             mapEmptyTupleArgumentToSwiftVoid: false,
             bareGenericSafetyNet: false);
+    }
+
+    /// <summary>
+    /// Records Apple-supplement references for tuple elements whose type records resolve
+    /// to supplement-homed C# types (e.g. Swift.Foundation.Data).
+    /// </summary>
+    /// <remarks>
+    /// Method parameter tuples bypass TypeProjectionFactory — the P/Invoke expects ABI
+    /// types and there is no per-element conversion in the wrapper body — so the factory's
+    /// supplement recording never fires for them. The emission arms that surface a tuple's
+    /// element type names into the wrapper signature or P/Invoke declaration must record
+    /// explicitly; otherwise the generated csproj lacks the SwiftBindings.Apple
+    /// PackageReference and the binding's own C# verify build fails on the missing
+    /// namespace. Call only from arms that actually emit the tuple type text — recording
+    /// tracks emission, not resolution.
+    /// </remarks>
+    public void RecordAppleSupplementReferences(TupleTypeSpec tupleTypeSpec, string callerHint)
+    {
+        foreach (var element in tupleTypeSpec.Elements)
+            RecordAppleSupplementReference(element, callerHint);
+    }
+
+    private void RecordAppleSupplementReference(TypeSpec typeSpec, string callerHint)
+    {
+        if (typeSpec is not NamedTypeSpec namedType)
+            return;
+
+        if (namedType.ContainsGenericParameters)
+        {
+            // The C# tuple type nests bound-generic arguments (e.g.
+            // SwiftOptional<Swift.Foundation.Data>), so recurse to the concrete element
+            // types whose names it surfaces.
+            foreach (var genericParam in namedType.GenericParameters)
+                RecordAppleSupplementReference(genericParam, callerHint);
+            return;
+        }
+
+        // Swift.Foundation.* managed types are homed exclusively in the SwiftBindings.Apple
+        // supplement (Swift.Runtime declares no Swift.Foundation namespace), so the
+        // resolved C# namespace is the supplement test.
+        if (_typeDatabase.TryGetTypeRecord(namedType, out var typeRecord) &&
+            typeRecord.CSharpTypeName.FullyQualifiedName.StartsWith("Swift.Foundation.", StringComparison.Ordinal))
+        {
+            AppleSupplementReferences.Record(namedType.Name, callerHint);
+        }
     }
 
     /// <summary>

@@ -613,9 +613,9 @@ public class TupleHandlerTests
     [Fact]
     public void IsCdeclBufferMarshallableTuple_ClassTuple_IsAlsoUnmarshalledButNowBufferable()
     {
-        // The combined validator gate is (HasUnmarshalledTupleElements && !IsCdeclBufferMarshallableTuple).
-        // A (Class, primitive) tuple trips the unmarshalled gate (class P/Invoke IntPtr != C# wrapper),
-        // but is now buffer-marshallable — so the AND is false and the member emits instead of skipping.
+        // The validator gate skips any tuple param that is !IsCdeclBufferMarshallableTuple.
+        // A (Class, primitive) tuple has unmarshalled elements (class P/Invoke IntPtr != C# wrapper),
+        // but IS buffer-marshallable — so the gate passes and the member emits instead of skipping.
         var tuple = new TupleTypeSpec(new List<TypeSpec>
         {
             new NamedTypeSpec("ImagePipeline.ImageTask"),

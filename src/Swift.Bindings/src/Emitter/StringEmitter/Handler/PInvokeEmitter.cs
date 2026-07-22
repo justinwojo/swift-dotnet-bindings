@@ -584,14 +584,23 @@ namespace BindingsGeneration
                     // IsCdeclBufferMarshallableTuple excludes them and they fall through / fail closed.
                     if (_env.MethodDecl.UsesCdeclWrapper && _env.TupleHandler.IsCdeclBufferMarshallableTuple(tupleTypeSpec))
                     {
+                        // Supplement-homed element names (e.g. Swift.Foundation.Data) surface
+                        // in the tuple type text; the tuple path bypasses the factory that
+                        // would otherwise record the dependency.
+                        _env.TupleHandler.RecordAppleSupplementReferences(tupleTypeSpec, "PInvokeEmitter.TupleParameter:Cdecl");
                         var csTupleType = _env.TupleHandler.GetCSharpTupleType(tupleTypeSpec, _genericContext);
                         AddParameter(new MarshalledType.CdeclTuple(csTupleType), csName);
                     }
                     else if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec) ||
                         _env.TupleHandler.IsSupportedTuple(tupleTypeSpec, _genericContext))
+                    {
+                        _env.TupleHandler.RecordAppleSupplementReferences(tupleTypeSpec, "PInvokeEmitter.TupleParameter");
                         AddParameter(_env.TupleHandler.GetPInvokeTupleType(tupleTypeSpec, _genericContext), csName);
+                    }
                     else
+                    {
                         AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, csName);
+                    }
                     continue;
                 }
 

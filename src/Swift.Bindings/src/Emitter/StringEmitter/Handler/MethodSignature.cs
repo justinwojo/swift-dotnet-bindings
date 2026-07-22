@@ -757,9 +757,17 @@ namespace BindingsGeneration
                     var tupleTypeSpec = _env.TupleHandler.GetTupleTypeSpec(argument)!;
                     if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec) ||
                         _env.TupleHandler.IsSupportedTuple(tupleTypeSpec, _genericContext))
+                    {
+                        // A supplement-homed element type (e.g. Swift.Foundation.Data) is
+                        // about to be surfaced verbatim in the public signature; the factory
+                        // bypass above means nothing else records the dependency for it.
+                        _env.TupleHandler.RecordAppleSupplementReferences(tupleTypeSpec, "MethodSignature.TupleParameter");
                         AddParameter(_env.TupleHandler.GetCSharpTupleType(tupleTypeSpec, _genericContext), csParamName);
+                    }
                     else
+                    {
                         AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, csParamName);
+                    }
                     continue;
                 }
 

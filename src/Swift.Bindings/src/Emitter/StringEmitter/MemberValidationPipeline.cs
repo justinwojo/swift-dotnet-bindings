@@ -526,35 +526,40 @@ public class MemberValidationPipeline
             }
         }
 
-        // ── Gate 5b: Tuple parameters whose elements need per-element marshalling ──
-        // PInvokeEmitter emits tuple params as ValueTuple<P/Invoke types>, while the
-        // public-facing C# signature uses ValueTuple<idiomatic types>. When ANY element's
-        // P/Invoke type differs from its C# type — a class/non-frozen struct (IntPtr vs the
-        // class), an existential (ExistentialContainerN vs the I{Composition} interface), a
-        // simple enum (underlying int vs the enum), a frozen-mem-mgmt struct (.Buffer vs the
-        // struct) — no per-element conversion is threaded to the call site, so the standard
-        // ValueTuple path passes the raw public-typed tuple and CS1503s (fail-open today).
+        // ── Gate 5b: Tuple parameters that are not cdecl-buffer-marshallable ──
+        // A non-empty tuple parameter forces the @_cdecl wrapper path (IsParamTypeCdeclRequired:
+        // ValueTuple has StructLayout.Auto), and the wrapper's ONLY sound tuple transport is the
+        // CdeclTuple buffer: C# allocates a buffer via tuple metadata, writes each element at its
+        // ABI offset, and passes an IntPtr the Swift wrapper reads back with assumingMemoryBound.
+        // IsCdeclBufferMarshallableTuple names the element kinds that buffer supports (blittable
+        // primitives, Swift.String, EC2+ composition existentials, pure Swift classes).
         //
-        // The CdeclTuple buffer path (PInvokeEmitter ~L557) handles tuples whose every element has a
-        // fixed-size, ABI-faithful slot representation — IsCdeclBufferMarshallableTuple: all-primitive
-        // (written by value) and pure-Swift-class elements (written as their object handle into the
-        // pointer-width slot). Frozen-blittable/pointer tuples also pass raw with no conversion
-        // (P/Invoke type == C# type, so HasUnmarshalledTupleElements is already false for them).
-        // The remainder — existential / simple-enum / non-frozen-or-frozen-mem struct elements, whose
-        // per-element conversion + lifetime is not yet implemented — is flagged by
-        // HasUnmarshalledTupleElements AND NOT buffer-marshallable, and fails closed here. Broader than
-        // the closure-side HasClosureUnsafeTupleElements (IntPtr subset only); at the method/ctor level.
+        // EVERY other tuple parameter must fail closed here, for one of two reasons:
+        //  - Convertible elements (class/non-frozen struct → IntPtr, existential → container,
+        //    simple enum → underlying int, frozen-mem-mgmt struct → .Buffer): the P/Invoke type
+        //    differs from the C# type and no per-element conversion is threaded to the call
+        //    site — the raw public-typed tuple would CS1503.
+        //  - Frozen-blittable non-primitive elements (Foundation.Data, custom frozen structs):
+        //    P/Invoke type == C# type, so the declarations agree and BOTH sides compile — but
+        //    the emission is ABI-garbage. CdeclParamMapper has no tuple category, so the Swift
+        //    wrapper takes the tuple through its fallback arm as UnsafeRawPointer, while the
+        //    C# supported-tuple arm declares the ValueTuple BY VALUE and no buffer is created
+        //    (buffer emission is gated on the same buffer-marshallable predicate). A mismatch
+        //    neither compiler can see; it fails at invocation time.
+        // Buffer support for the second kind (write the frozen value at its metadata offset,
+        // borrowed +0 with keep-alive, like the String slot) is the lift that would re-admit it.
+        // Broader than the closure-side HasClosureUnsafeTupleElements (IntPtr subset only);
+        // at the method/ctor level.
         var tupleHandler = new TupleHandler(_typeDatabase);
         foreach (var argument in methodDecl.CSSignature.Skip(1))
         {
             if (!tupleHandler.IsTuple(argument))
                 continue;
             var tupleSpec = tupleHandler.GetTupleTypeSpec(argument)!;
-            if (tupleHandler.HasUnmarshalledTupleElements(tupleSpec) &&
-                !tupleHandler.IsCdeclBufferMarshallableTuple(tupleSpec))
+            if (!tupleHandler.IsCdeclBufferMarshallableTuple(tupleSpec))
             {
                 return ValidationResult.Skip(SkipReason.UnsupportedSignature,
-                    $"Tuple parameter '{argument.Name}' has elements whose P/Invoke type differs from the C# type — per-element marshalling for convertible-element tuple parameters is not yet implemented.");
+                    $"Tuple parameter '{argument.Name}' has elements the @_cdecl tuple buffer cannot carry — per-element marshalling for this element kind is not yet implemented.");
             }
         }
 
@@ -758,9 +763,10 @@ public class MemberValidationPipeline
     }
 
     /// <summary>
-    /// Validates whether a subscript should be emitted. Today this is the Pattern 2
-    /// emission-time gate; other subscript validation (AnyType, complex index params,
-    /// dedup) lives in <c>SubscriptHandler.EmitSubscripts</c>.
+    /// Validates whether a subscript should be emitted: the Pattern 2 emission-time gate,
+    /// member-level visibility, and the non-primitive-element tuple gates (index
+    /// parameters and tuple returns). Other subscript validation (AnyType, complex index
+    /// params, dedup) lives in <c>SubscriptHandler.EmitSubscripts</c>.
     /// </summary>
     /// <remarks>Stamps the validated subscript's identity onto the verdict; see
     /// <see cref="ValidateMethodEmission"/> for why the stamp lives at the entry point.</remarks>
@@ -785,6 +791,44 @@ public class MemberValidationPipeline
 
         if (TryCheckInternalTypeReach(subscriptDecl, out var subscriptSkip))
             return subscriptSkip!;
+
+        // ── Tuple index parameters / tuple returns with any non-primitive element ──
+        // The subscript path P/Invokes the raw dispatch thunk directly: there is no @_cdecl
+        // tuple buffer transport (the method gate's cdecl buffer) and no per-element
+        // conversion layer, so non-primitive elements break in every position:
+        //   • index params / setter newValue: the public indexer projects element types
+        //     (String → string, Data → byte[]) while the accessor method and P/Invoke keep
+        //     the raw tuple type — the emitted indexer body doesn't compile (CS1503);
+        //   • class elements: the accessor declares the wrapper type in its tuple while the
+        //     P/Invoke declares ValueTuple<IntPtr, …> — the accessor body doesn't compile;
+        //   • get-only returns: the getter's per-element conversions assume
+        //     wrapper-decomposed IntPtr elements, but the raw thunk returns raw element
+        //     values (CS0030/CS1503);
+        //   • and even a type-consistent emission would pass/return the tuple as a by-value
+        //     StructLayout.Auto ValueTuple under CallConvSwift — indeterminate ABI.
+        // All-primitive tuples (raw == public == P/Invoke representation) keep today's
+        // emission. Deliberately NARROWER than the method gate's
+        // IsCdeclBufferMarshallableTuple: the method path's buffer transport carries
+        // String/class/existential elements per-slot; this path has no such transport.
+        var subscriptTupleHandler = new TupleHandler(_typeDatabase);
+        foreach (var indexParam in subscriptDecl.IndexParameters)
+        {
+            if (!subscriptTupleHandler.IsTuple(indexParam))
+                continue;
+            var indexTupleSpec = subscriptTupleHandler.GetTupleTypeSpec(indexParam)!;
+            if (!subscriptTupleHandler.IsAllPrimitiveTuple(indexTupleSpec))
+            {
+                return ValidationResult.Skip(SkipReason.UnsupportedSignature,
+                    $"Tuple index parameter '{indexParam.Name}' has non-primitive elements the subscript marshalling path cannot carry — per-element marshalling for this element kind is not yet implemented.");
+            }
+        }
+        if (subscriptDecl.ReturnTypeSpec is TupleTypeSpec returnTupleSpec &&
+            !returnTupleSpec.IsEmptyTuple &&
+            !subscriptTupleHandler.IsAllPrimitiveTuple(returnTupleSpec))
+        {
+            return ValidationResult.Skip(SkipReason.UnsupportedSignature,
+                "Subscript return type is a tuple with non-primitive elements the accessor marshalling path cannot carry — per-element marshalling for this element kind is not yet implemented.");
+        }
 
         return ValidationResult.Emit;
     }
