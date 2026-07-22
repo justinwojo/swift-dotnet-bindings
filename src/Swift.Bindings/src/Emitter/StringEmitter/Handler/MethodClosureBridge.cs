@@ -1565,12 +1565,18 @@ public static class MethodClosureBridge
             // (borrowed via withUnsafePointer). Copy the container out and wrap as AnyError so the
             // managed value outlives the callback frame. Payload references are retained via Swift's
             // normal existential-copy semantics by the caller — we read bytes, we do not take ownership.
+            // AnyError lives in the SwiftBindings.Apple supplement; this closure-bridge arm is
+            // shape-gated, bypassing the resolver path that records the reference — record here
+            // so the generated csproj carries the supplement PackageReference.
+            AppleSupplementReferences.Record("Foundation.AnyError", "MethodClosureBridge.ArgMarshal:AnyError");
             csWriter.WriteLine($"var __a{index} = new global::Swift.Foundation.AnyError(*(global::Swift.Runtime.ExistentialContainer1*)__p{index});");
         }
         else if (IsOptionalAnyErrorExistential(argType))
         {
             // Optional<any Error>: Swift adapter sends nil via IntPtr.Zero; otherwise pointer to
             // a borrowed ExistentialContainer1. Copy out to produce a managed-lifetime AnyError?.
+            // Same supplement-reference bypass as the any-Swift.Error arm above.
+            AppleSupplementReferences.Record("Foundation.AnyError", "MethodClosureBridge.ArgMarshal:OptionalAnyError");
             csWriter.WriteLine($"global::Swift.Foundation.AnyError? __a{index} = __p{index} == IntPtr.Zero ? null : new global::Swift.Foundation.AnyError(*(global::Swift.Runtime.ExistentialContainer1*)__p{index});");
         }
         else if (IsSwiftResultWithAnyErrorFailure(argType))
@@ -1954,13 +1960,21 @@ public static class MethodClosureBridge
     /// </summary>
     private static string GetCSharpTypeForClosureArg(TypeSpec argType, MethodEnvironment env)
     {
-        // any Swift.Error existential → Swift.Foundation.AnyError runtime type
+        // any Swift.Error existential → Swift.Foundation.AnyError runtime type.
+        // AnyError lives in the SwiftBindings.Apple supplement and these shape-gated returns
+        // land verbatim in delegate signatures — record so the csproj carries the reference.
         if (IsAnyErrorExistential(argType))
+        {
+            AppleSupplementReferences.Record("Foundation.AnyError", "MethodClosureBridge.ClosureArgType:AnyError");
             return "Swift.Foundation.AnyError";
+        }
 
         // Optional<any Error> → nullable struct so callbacks can observe the nil branch.
         if (IsOptionalAnyErrorExistential(argType))
+        {
+            AppleSupplementReferences.Record("Foundation.AnyError", "MethodClosureBridge.ClosureArgType:OptionalAnyError");
             return "Swift.Foundation.AnyError?";
+        }
 
         if (argType is NamedTypeSpec namedArg)
         {

@@ -1530,9 +1530,14 @@ namespace BindingsGeneration
             if (MarshallingHelpers.IsSwiftString(element))
                 return $"var {resultName} = SwiftMarshal.MarshalFromSwiftObject<SwiftString>({itemName}).ToString();";
 
-            // Foundation.Data → byte[] conversion (received as IntPtr to heap-allocated buffer)
+            // Foundation.Data → byte[] conversion (received as IntPtr to heap-allocated buffer).
+            // Name-gated bypass of the projection path that records the supplement reference —
+            // record here so the generated csproj carries the SwiftBindings.Apple PackageReference.
             if (element is NamedTypeSpec dataElement && dataElement.Name == "Foundation.Data")
+            {
+                AppleSupplementReferences.Record("Foundation.Data", "WrapperEmitter.Return:TupleElementFoundationData");
                 return $"var {resultName} = (*(Swift.Foundation.Data*)(void*){itemName}).ToByteArray();";
+            }
 
             // Foundation.Date → System.DateTimeOffset conversion. The inline buffer holds the raw
             // 2001-epoch Double (read via MarshalFromSwift<double>); mirror the scalar

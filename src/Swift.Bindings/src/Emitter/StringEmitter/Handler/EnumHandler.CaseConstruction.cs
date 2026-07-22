@@ -301,6 +301,14 @@ namespace BindingsGeneration
                 }
                 else if (typeSpec is NamedTypeSpec dataSpec && dataSpec.Name == "Foundation.Data")
                 {
+                    // Enum-case construction maps Foundation.Data straight to byte[] (public
+                    // signature) and builds the Swift.Foundation.Data here, bypassing the
+                    // projection path that records the supplement reference. Record it so a
+                    // module whose ONLY Foundation.Data use is an enum payload still emits the
+                    // SwiftBindings.Apple PackageReference; otherwise the generated factory
+                    // references Swift.Foundation.Data with no project ref and the binding's
+                    // own C# verify build fails on the missing namespace.
+                    AppleSupplementReferences.Record("Foundation.Data", "EnumHandler.CaseConstruction:FoundationData");
                     csWriter.WriteLine($"var __{bareName} = Swift.Foundation.Data.FromByteArray({name});");
                 }
                 else if (typeSpec is NamedTypeSpec dateSpec && dateSpec.Name == "Foundation.Date")

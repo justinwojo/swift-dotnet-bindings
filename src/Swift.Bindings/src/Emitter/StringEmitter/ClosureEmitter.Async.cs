@@ -280,7 +280,14 @@ public static partial class ClosureEmitter
 
         // Stage 4 — branch-specific helper invocation (spawns Task.Run and returns synchronously).
         if (isDataReturn)
+        {
+            // DataAsyncClosureHelper lives in the SwiftBindings.Apple supplement (unlike its
+            // Swift.Runtime String sibling below). The Data-return async path is name-gated,
+            // bypassing the projection path that records the supplement reference — record here
+            // so the generated csproj carries the SwiftBindings.Apple PackageReference.
+            AppleSupplementReferences.Record("Foundation.Data", "ClosureEmitter.Async:DataAsyncClosureHelper");
             csWriter.WriteLine("Swift.Foundation.DataAsyncClosureHelper.RunDataAsync(handle, state, continuationBoxPtr, successAction, errorAction);");
+        }
         else if (isStringReturn)
             csWriter.WriteLine($"Swift.Runtime.StringAsyncClosureHelper.RunStringAsync(handle, state, continuationBoxPtr{argValList}, successAction, errorAction);");
         else if (hasReturn && !isThrowing)

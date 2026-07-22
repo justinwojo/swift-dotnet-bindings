@@ -335,6 +335,12 @@ namespace BindingsGeneration
                     }
                     else if (typeSpec is NamedTypeSpec dataSpec && dataSpec.Name == "Foundation.Data")
                     {
+                        // The payload marshal declares a Swift.Foundation.Data local
+                        // (MarshalFromSwift<Swift.Foundation.Data>) without going through the
+                        // projection path that records the supplement reference. Record it so
+                        // the TryGet inspection side carries the SwiftBindings.Apple
+                        // PackageReference even when construction of this case is not emitted.
+                        AppleSupplementReferences.Record("Foundation.Data", "EnumHandler.CaseInspection:FoundationData");
                         EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, "__value_raw", "enumCopy", typeDatabase, marshalGenericParams, enumDecl.ModuleDecl, emissionCtx);
                         csWriter.WriteLine("value = __value_raw.ToByteArray();");
                     }

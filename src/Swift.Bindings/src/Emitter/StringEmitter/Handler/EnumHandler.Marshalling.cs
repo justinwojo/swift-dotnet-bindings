@@ -344,9 +344,12 @@ namespace BindingsGeneration
                 }
             }
 
-            // Foundation.Data → byte[]: marshal as Swift.Foundation.Data, then convert
+            // Foundation.Data → byte[]: marshal as Swift.Foundation.Data, then convert.
+            // Name-gated bypass of the projection path that records the supplement reference —
+            // record here so the generated csproj carries the SwiftBindings.Apple PackageReference.
             if (typeSpec is NamedTypeSpec dataOffset && dataOffset.Name == "Foundation.Data")
             {
+                AppleSupplementReferences.Record("Foundation.Data", "EnumHandler.Marshalling:OffsetFoundationData");
                 csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<Swift.Foundation.Data>(new IntPtr({sourcePtr} + (int){offsetVar}));");
                 csWriter.WriteLine($"{varName} = _{varName}_raw.ToByteArray();");
                 return;

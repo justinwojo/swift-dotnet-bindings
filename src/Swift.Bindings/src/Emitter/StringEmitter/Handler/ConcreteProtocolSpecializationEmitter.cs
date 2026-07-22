@@ -1306,6 +1306,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         // blittable struct, so &arg is directly usable within an unsafe block —
                         // no `fixed` required. Swift loads via pointee on the other side.
                         var csTypeName = InlineSwiftStructAllowlist[matchedConformer.SwiftQualifiedName].CSharpType;
+                        // The allowlist bypasses the projection path that records the Apple
+                        // supplement reference; a supplement-homed entry (Swift.Foundation.*)
+                        // must record so the generated csproj carries the SwiftBindings.Apple
+                        // PackageReference. (System.Guid-style entries need no reference.)
+                        if (csTypeName.StartsWith("global::Swift.Foundation.", StringComparison.Ordinal))
+                            AppleSupplementReferences.Record(matchedConformer.SwiftQualifiedName, "ConcreteProtocolSpecializationEmitter:InlineStructParam");
                         publicParams.Add($"{csTypeName} {csName}");
                         pinvokeParams.Add($"IntPtr {csName}");
                         callArgs.Add($"(IntPtr)(&{csName})");
@@ -1409,6 +1415,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         // block. Keeping the word naming identical to the ordinary-cdecl Data path
                         // keeps the two Data-decomposition emitters in sync.
                         var bareName = NameProvider.StripVerbatimPrefix(csName);
+                        // Name-gated Data arm — record the supplement reference (same rationale
+                        // as the InlineSwiftStruct param arm above).
+                        AppleSupplementReferences.Record("Foundation.Data", "ConcreteProtocolSpecializationEmitter:CdeclDataDecomposition");
                         publicParams.Add($"byte[] {csName}");
                         pinvokeParams.Add($"nint {bareName}_w0");
                         pinvokeParams.Add($"nint {bareName}_w1");
@@ -1523,6 +1532,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 && InlineSwiftStructAllowlist.TryGetValue(inlineReturnNamed.Name, out var inlineReturnInfo)
                 && inlineReturnInfo.IdiomaticPublicType is { } idiomaticReturnType)
             {
+                // Allowlist bypasses the recording projection path — a supplement-homed marshal
+                // type (Swift.Foundation.*) must record the SwiftBindings.Apple reference.
+                if (inlineReturnInfo.CSharpType.StartsWith("global::Swift.Foundation.", StringComparison.Ordinal))
+                    AppleSupplementReferences.Record(inlineReturnNamed.Name, "ConcreteProtocolSpecializationEmitter:InlineStructReturn");
                 csReturnMarshalType = inlineReturnInfo.CSharpType;
                 csReturnType = idiomaticReturnType;
                 returnProjectionSuffix = inlineReturnInfo.MarshalToPublicSuffix ?? string.Empty;

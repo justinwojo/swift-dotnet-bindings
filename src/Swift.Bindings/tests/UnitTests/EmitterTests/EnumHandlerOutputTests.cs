@@ -5012,4 +5012,61 @@ public class EnumHandlerOutputTests
         Assert.Contains("case .signedMax: return 0", swiftOutput);
         Assert.Contains("case .next: return 1", swiftOutput);
     }
+
+    [Fact]
+    public void Emit_EnumWithDataPayload_RecordsAppleSupplementReference()
+    {
+        // A payload case carrying Foundation.Data emits Swift.Foundation.Data text through
+        // the enum construction/inspection/offset-marshalling arms. That type lives in the
+        // SwiftBindings.Apple supplement; the csproj emitter only adds the supplement
+        // PackageReference when the dependency is recorded, so a missed record ships a
+        // binding whose own C# verify build fails CS0234 on 'Swift.Foundation' and the
+        // generator refuses publication. The assertion pins that the enum emission path as
+        // a whole records the dependency — any one of its arms recording satisfies it.
+        var typeDatabase = CreateTypeDatabaseWithData();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Attachment", moduleDecl, isFrozen: false);
+        var dataCase = CreateCase("data");
+        dataCase.AssociatedValues.Add(new NamedTypeSpec("Foundation.Data"));
+        enumDecl.Cases.Add(dataCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        AppleSupplementReferences.Reset();
+        try
+        {
+            var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+            // The Data arms did emit — this is what makes the supplement reference load-bearing.
+            Assert.Contains("Swift.Foundation.Data.FromByteArray", csOutput);
+            // The supplement dependency must be recorded so the consumer csproj references it.
+            Assert.Contains("Foundation.Data", AppleSupplementReferences.Current);
+        }
+        finally
+        {
+            // The collector is [ThreadStatic]; leave the xunit worker thread clean so a
+            // later test on the same thread doesn't observe this test's recorded state.
+            AppleSupplementReferences.Reset();
+        }
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithData()
+    {
+        // Foundation.Data as the shipped FoundationDatabase.xml registers it: a frozen
+        // struct whose managed projection is Swift.Foundation.Data (the Apple supplement).
+        var typeDatabase = CreateTypeDatabase();
+        var foundationModule = new ModuleTypeDatabase(
+            "Foundation", "/System/Library/Frameworks/Foundation.framework/Foundation");
+        foundationModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Foundation.Data"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Foundation", "Data"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Data"),
+                MetadataAccessor = "$s10Foundation4DataVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(foundationModule);
+        return typeDatabase;
+    }
 }

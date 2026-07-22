@@ -876,7 +876,15 @@ public static partial class ClosureEmitter
                 namedType.GenericParameters.Count == 1 &&
                 namedType.GenericParameters[0] is NamedTypeSpec optInnerData &&
                 optInnerData.Name == "Foundation.Data")
+            {
+                // The closure-delegate translation maps Foundation.Data straight to byte[],
+                // bypassing the projection path that records the supplement reference. Record
+                // here so a module whose ONLY Foundation.Data use is a callback argument still
+                // emits the SwiftBindings.Apple PackageReference; otherwise the generated
+                // invoker references Swift.Foundation.Data with no project ref.
+                AppleSupplementReferences.Record("Foundation.Data", "ClosureEmitter.InvokeArg:OptionalFoundationData");
                 return $"arg{argIndex} != null ? SwiftMarshal.MarshalCallbackArg<Swift.Foundation.Data>(new IntPtr(arg{argIndex})).ToByteArray() : null";
+            }
 
             // Optional<Class>: void* → null check → MarshalCallbackArg or null
             // Callback parameters are borrowed references — use the borrowed marshal path
@@ -954,7 +962,11 @@ public static partial class ClosureEmitter
             // Marshal as Swift.Foundation.Data first, then call ToByteArray() — same shape
             // as DataProjection's ReturnPlan.Direct (".ToByteArray()" on the marshalled value).
             if (namedType.Name == "Foundation.Data")
+            {
+                // Same supplement-reference bypass as the Optional<Foundation.Data> arm above.
+                AppleSupplementReferences.Record("Foundation.Data", "ClosureEmitter.InvokeArg:FoundationData");
                 return $"SwiftMarshal.MarshalCallbackArg<Swift.Foundation.Data>(new IntPtr(arg{argIndex})).ToByteArray()";
+            }
 
             // ObjC-bridged native remap (e.g., Foundation.URLResponse → Foundation.NSUrlResponse).
             // TranslateTypeSpecToCSharp returns the NativeTypeName (NSUrlResponse) when set,

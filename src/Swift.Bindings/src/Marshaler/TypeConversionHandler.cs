@@ -238,7 +238,11 @@ public class TypeConversionHandler
     {
         if (IsFoundationData(typeSpec))
         {
-            // byte[] -> Swift.Foundation.Data
+            // byte[] -> Swift.Foundation.Data. This helper produces emission text that names
+            // the supplement type outside the projection path that records the reference —
+            // record here so every caller's csproj carries the SwiftBindings.Apple
+            // PackageReference.
+            AppleSupplementReferences.Record("Foundation.Data", "TypeConversionHandler.NativeParameterConversion:FoundationData");
             return $"Swift.Foundation.Data.FromByteArray({paramName})";
         }
 
@@ -273,6 +277,9 @@ public class TypeConversionHandler
     {
         if (IsFoundationData(typeSpec))
         {
+            // Same supplement-reference bypass as GetNativeParameterConversion above — the
+            // returned name lands verbatim in P/Invoke declarations.
+            AppleSupplementReferences.Record("Foundation.Data", "TypeConversionHandler.SwiftWrapperTypeForNative:FoundationData");
             return "Swift.Foundation.Data";
         }
 
