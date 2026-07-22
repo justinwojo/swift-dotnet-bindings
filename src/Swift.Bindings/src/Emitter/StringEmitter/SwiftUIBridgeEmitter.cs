@@ -3823,7 +3823,7 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine("                    if (result != null)");
             sb.AppendLine("                    {");
             sb.AppendLine("                        var ptr = result.Payload.DangerousGetHandle();");
-            sb.AppendLine("                        Swift.Runtime.Arc.Retain(ptr);");
+            sb.AppendLine("                        global::Swift.Runtime.Arc.Retain(ptr);");
             sb.AppendLine("                        return ptr;");
             sb.AppendLine("                    }");
             sb.AppendLine("                    return IntPtr.Zero;");

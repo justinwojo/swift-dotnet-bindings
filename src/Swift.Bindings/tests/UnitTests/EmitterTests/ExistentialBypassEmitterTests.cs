@@ -47,6 +47,40 @@ public class ExistentialBypassEmitterTests
     }
 
     [Fact]
+    public void TryEmit_KeywordStringParam_DerivedMarshallingLocalsAreValidIdentifiers()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateFrozenStructDecl("Config", moduleDecl, typeDatabase);
+
+        var existentialArg = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+
+        // A C#-keyword-named string parameter rides the bypass factory alongside the
+        // existential param that triggers it. Its C# parameter name is legitimately
+        // @-escaped, but every DERIVED marshalling local (__{name}Str, __{name}Disposable)
+        // must strip the verbatim prefix first — `@` is only legal at the start of a
+        // C# identifier, so `__@abstractStr` does not compile.
+        var constructor = CreateConstructorDecl(
+            "init",
+            parentDecl,
+            moduleDecl,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("options", new NamedTypeSpec("Swift.Array", existentialArg), moduleDecl, hasDefault: true),
+                CreateArgument("abstract", new NamedTypeSpec("Swift.String"), moduleDecl)
+            });
+
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+
+        Assert.NotEqual(string.Empty, csOutput);
+        // The parameter itself keeps its verbatim escape…
+        Assert.Contains("@abstract", csOutput);
+        // …but no derived identifier may embed it mid-name.
+        Assert.DoesNotContain("__@", csOutput);
+        Assert.Contains("__abstractStr", csOutput);
+    }
+
+    [Fact]
     public void RenderModuleQualifiedSwiftTypeWithExistentialAny_OptionalProtocolComposition_NoDoubleAny()
     {
         var typeDatabase = CreateTypeDatabase();

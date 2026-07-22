@@ -101,7 +101,12 @@ public partial class ProtocolProxyEmitter
         public string? Visit(ClosureProjection p) => null;
         public string? Visit(AsyncProjection p) => null;
         public string? Visit(ObjCRootedClassProjection p) => null;
-        public string? Visit(TupleProjection p) => null;
+        // Per-element lift for tuples whose elements have distinct ABI vs public forms — e.g.
+        // (Date, Date) arrives as ValueTuple<double, double> but the interface method takes
+        // (DateTimeOffset, DateTimeOffset). GetReturnElementConversion composes each element's
+        // Swift→C# conversion and returns null when no element needs one, so pure-blittable
+        // tuples keep the passthrough shape.
+        public string? Visit(TupleProjection p) => p.GetReturnElementConversion(_varName);
         public string? Visit(ResultProjection p) => null;
         public string? Visit(KeyPathProjection p) => null;
     }

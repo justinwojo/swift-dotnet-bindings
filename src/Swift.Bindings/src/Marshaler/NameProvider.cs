@@ -27,6 +27,12 @@ public record struct GenericParameterCSName(string TypeParameter);
 /// <param name="IsMutating">Whether the method is <c>mutating</c> — a mutating method advances/changes
 /// state and is therefore not a getter, so it is excluded from the noun→"Get" prefix (e.g. an
 /// <c>AsyncIteratorProtocol.next()</c> stays <c>NextAsync</c>, not <c>GetNextAsync</c>).</param>
+/// <param name="ParentGenericParameterNames">The declaring type's OWN generic parameter C# names
+/// (drives the CS0102 rename: a method `t(duration:)` on <c>AnimationDescription&lt;T&gt;</c>
+/// PascalCases to <c>T</c>, identical to the type parameter, which C# rejects as a duplicate
+/// definition). Null for non-generic parents and for protocol parents — protocol-interface
+/// generic params derive from associated types via a different mapper, and the interface
+/// emission sites shape names without this axis.</param>
 public readonly record struct PublicMethodNameContext(
     string MethodName,
     bool IsAsync,
@@ -35,7 +41,8 @@ public readonly record struct PublicMethodNameContext(
     bool IsSelfReturning,
     string? ParentTypeName,
     int ParameterCount,
-    bool IsMutating = false)
+    bool IsMutating = false,
+    IReadOnlySet<string>? ParentGenericParameterNames = null)
 {
     /// <summary>
     /// Builds the context from a <see cref="MethodDecl"/> the same way the authoritative emitted name
@@ -52,7 +59,26 @@ public readonly record struct PublicMethodNameContext(
         IsSelfReturning: MethodEnvironment.IsSelfReturningMethod(decl),
         ParentTypeName: (decl.ParentDecl as TypeDecl)?.Name,
         ParameterCount: decl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple),
-        IsMutating: decl.IsMutating);
+        IsMutating: decl.IsMutating,
+        ParentGenericParameterNames: GetParentGenericParameterNames(decl.ParentDecl as TypeDecl));
+
+    // The declaring type's own generic parameter C# names, projected exactly as the class
+    // declaration emits them (GetCSharpGenericParameterName over GetTypeDeclOwnGenericParams) so
+    // the CS0102 rename and the emitted `<T>` list can never disagree. Protocol parents are
+    // excluded: protocol-interface generic params derive from associated types via
+    // MapAssociatedTypeToGenericParam, and the interface emission sites shape names without this
+    // axis — deriving it here would rename a requirement the interface never renames (CS0535).
+    private static IReadOnlySet<string>? GetParentGenericParameterNames(TypeDecl? parent)
+    {
+        if (parent == null || parent is ProtocolDecl || !parent.IsGeneric)
+            return null;
+        var ownParams = GenericTypeEmitter.GetTypeDeclOwnGenericParams(parent);
+        if (ownParams.Count == 0)
+            return null;
+        return ownParams
+            .Select((p, i) => NameProvider.GetCSharpGenericParameterName(p, i))
+            .ToHashSet();
+    }
 }
 
 /// <summary>
@@ -1723,6 +1749,21 @@ public static class NameProvider
         // 5. Append "Async" suffix for async methods (per .NET convention)
         if (ctx.IsAsync && !name.EndsWith("Async"))
             name = $"{name}Async";
+
+        // 6. Generic-parameter collision: C# forbids a member named identically to a type parameter
+        // of its declaring type (CS0102: `AnimationDescription<T>` + Swift method `t(duration:)` →
+        // member `T`). Mirror the property-collision shapes so fluent members stay fluent. This
+        // check runs on the FINAL name (after the Async suffix): an async `t()` on `Box<T>` is
+        // already disambiguated to `TAsync` by the suffix and needs no rename, while a type
+        // parameter literally named `TAsync` collides only with the suffixed form — checking the
+        // pre-suffix name would miss it (CS0102) and rename the already-unique one.
+        if (ctx.ParentGenericParameterNames != null && ctx.ParentGenericParameterNames.Contains(name))
+        {
+            if (ctx.IsSelfReturning)
+                name = $"With{name}";
+            else
+                name = $"{name}Method";
+        }
 
         return name;
     }

@@ -14,6 +14,129 @@ public class ProtocolConformanceValidatorTests
     #region A7 — AnyType Interface Conformance Guard
 
     [Fact]
+    public void CanFullyImplementProtocol_StaticSelfTypedProperty_ConcreteHasOwnTypedStatic_ReturnsTrue()
+    {
+        // `static var shared: Self` on a protocol that is NOT modeled as Self-requirement
+        // (no associated-type path / same-type pin) cannot spell TSelf in its interface —
+        // the member degrades to a `static virtual Swift.AnyType` throw-stub there. The
+        // concrete type's own `static MyContainer Shared` then mismatches that AnyType,
+        // but the mismatch is compile-benign (the static virtual default body means the
+        // concrete member simply doesn't override). Rejecting the WHOLE conformance here
+        // instead breaks every generic constraint on the protocol (CS0311).
+        // Build the database from scratch so the concrete type is registered and its
+        // static property projects to its real C# type (TestModule.MyContainer).
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        typeDatabase.AddModuleDatabase(swiftModule);
+        var targetDb = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        targetDb.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.MyContainer"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyContainer"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyContainer"),
+                MetadataAccessor = "$s10TestModule11MyContainerVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(targetDb);
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "SharedContainer",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.SharedContainer"),
+            MangledName = "$s10TestModule15SharedContainerP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>
+            {
+                new()
+                {
+                    Name = "shared",
+                    SwiftTypeSpec = new NamedTypeSpec("τ_0_0"),
+                    IsStatic = true,
+                    HasStorage = false,
+                    Accessors = new List<AccessorDecl>
+                    {
+                        new GetAccessorDecl
+                        {
+                            Method = new MethodDecl
+                            {
+                                Name = "shared_Get",
+                                MangledName = "$s10TestModule15SharedContainerP6sharedxvgZ",
+                                MethodType = MethodType.Static,
+                                IsConstructor = false,
+                                CSSignature = new List<ArgumentDecl>
+                                {
+                                    CreateArgument(string.Empty, new NamedTypeSpec("τ_0_0"), moduleDecl)
+                                },
+                                GenericParameters = new List<GenericArgumentDecl>(),
+                                ParentDecl = null,
+                                ModuleDecl = moduleDecl,
+                                Throws = false,
+                                IsAsync = false,
+                                IsSynthesizedAccessor = false
+                            }
+                        }
+                    },
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var concreteType = CreateStructDecl("MyContainer", moduleDecl);
+        concreteType.Properties.Add(new PropertyDecl
+        {
+            Name = "shared",
+            SwiftTypeSpec = new NamedTypeSpec("TestModule.MyContainer"),
+            IsStatic = true,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl
+                {
+                    Method = new MethodDecl
+                    {
+                        Name = "shared_Get",
+                        MangledName = "$s10TestModule11MyContainerV6sharedACvgZ",
+                        MethodType = MethodType.Static,
+                        IsConstructor = false,
+                        CSSignature = new List<ArgumentDecl>
+                        {
+                            CreateArgument(string.Empty, new NamedTypeSpec("TestModule.MyContainer"), moduleDecl)
+                        },
+                        GenericParameters = new List<GenericArgumentDecl>(),
+                        ParentDecl = concreteType,
+                        ModuleDecl = moduleDecl,
+                        Throws = false,
+                        IsAsync = false,
+                        IsSynthesizedAccessor = false
+                    }
+                }
+            },
+            ParentDecl = concreteType,
+            ModuleDecl = moduleDecl
+        });
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+
+        Assert.True(result);
+    }
+
+    [Fact]
     public void CanFullyImplementProtocol_ProtocolHasAnyTypeMethod_ReturnsFalse()
     {
         // Protocol with a method whose parameter has an unresolvable type → AnyType fallback.
@@ -3052,6 +3175,110 @@ public class ProtocolConformanceValidatorTests
         var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
         // Should pass — cross-module inherited protocol is skipped
         Assert.True(validator.CanFullyImplementProtocol(concreteType, drawable));
+    }
+
+    [Fact]
+    public void CanFullyImplementProtocol_WitnessNameCollidesWithParentGenericParam_DropsConformance()
+    {
+        // Name-parity prediction must fold in ParentGenericParameterNames the way the emitted
+        // name does: a witness `t()` on generic `Container<T>` PascalCases to `T`, which the
+        // emitter renames to `TMethod` (CS0102 vs the type parameter). The interface member is
+        // `T` (protocol parents have no generic-param axis), so the emitted witness never
+        // implements the interface slot — the validator must drop the conformance (CS0535). A
+        // positional name recomputation without the axis predicts `T` and wrongly keeps it.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = CreateProtocolWithVoidMethod("Tickable", "t", moduleDecl);
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var concreteType = CreateClassDecl("Container", moduleDecl);
+        concreteType.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl(
+                TypeName: "T",
+                SugaredTypeName: "T",
+                GenericConformances: new List<GenericParameterConformance>(),
+                AssosiatedTypeConformances: new List<GenericParameterConformance>())
+        };
+        var witness = CreateVoidMethod("t", moduleDecl);
+        witness.ParentDecl = concreteType;
+        concreteType.Methods.Add(witness);
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        Assert.False(validator.CanFullyImplementProtocol(concreteType, protocolDecl));
+    }
+
+    // Discrimination control: the SAME witness on a NON-generic parent emits as `T` — matching
+    // the interface member — so the conformance must be KEPT. Guards against the parity fix
+    // degenerating into "always reject single-letter witnesses".
+    [Fact]
+    public void CanFullyImplementProtocol_WitnessNameOnNonGenericParent_KeepsConformance()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = CreateProtocolWithVoidMethod("Tickable", "t", moduleDecl);
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var concreteType = CreateClassDecl("Ticker", moduleDecl);
+        var witness = CreateVoidMethod("t", moduleDecl);
+        witness.ParentDecl = concreteType;
+        concreteType.Methods.Add(witness);
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        Assert.True(validator.CanFullyImplementProtocol(concreteType, protocolDecl));
+    }
+
+    // STATIC counterpart: the same generic-parameter rename (`t` → `TMethod` on `Container<T>`)
+    // must KEEP the conformance. Static requirements are emitted as `static virtual` with a
+    // throwing default body, so a witness under a diverged C# name is compile-benign — the
+    // default satisfies the interface slot, exactly like the member-absent case. Dropping here
+    // would trade a compile-safe conformance for CS0311 on every generic constraint.
+    [Fact]
+    public void CanFullyImplementProtocol_StaticWitnessNameCollidesWithParentGenericParam_KeepsConformance()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "StaticTickable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.StaticTickable"),
+            MangledName = "$s10TestModule14StaticTickableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                CreateStaticVoidMethod("t", moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var concreteType = CreateClassDecl("Container", moduleDecl);
+        concreteType.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl(
+                TypeName: "T",
+                SugaredTypeName: "T",
+                GenericConformances: new List<GenericParameterConformance>(),
+                AssosiatedTypeConformances: new List<GenericParameterConformance>())
+        };
+        var witness = CreateStaticVoidMethod("t", moduleDecl);
+        witness.ParentDecl = concreteType;
+        concreteType.Methods.Add(witness);
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        Assert.True(validator.CanFullyImplementProtocol(concreteType, protocolDecl));
     }
 
     #endregion

@@ -246,7 +246,7 @@ namespace BindingsGeneration
                     // ObjC-rooted classes: Handle IS the Swift object pointer (no _payload buffer)
                     csWriter.WriteLines($$"""
             IntPtr _selfPtr = Handle;
-            Arc.UnknownObjectRetain(_selfPtr);
+            global::Swift.Runtime.Arc.UnknownObjectRetain(_selfPtr);
             """);
                     selfFieldInit = "SelfRetain = new RetainedSelfPtr(_selfPtr)";
                     selfKeepAlive = "(object)this";
@@ -260,7 +260,7 @@ namespace BindingsGeneration
             bool _selfSuccess = false;
             _handle.DangerousAddRef(ref _selfSuccess);
             IntPtr _selfPtr = _handle.DangerousGetHandle();
-            Arc.UnknownObjectRetain(_selfPtr);
+            global::Swift.Runtime.Arc.UnknownObjectRetain(_selfPtr);
             _handle.DangerousRelease();
             """);
                     selfFieldInit = "SelfRetain = new RetainedSelfPtr(_selfPtr)";
@@ -314,7 +314,7 @@ namespace BindingsGeneration
                     csWriter.WriteLines($$"""
             TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} _tcs = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}(global::System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
             IntPtr _selfPtr = Handle;
-            Arc.UnknownObjectRetain(_selfPtr);
+            global::Swift.Runtime.Arc.UnknownObjectRetain(_selfPtr);
             """);
                     selfFieldInit = "SelfRetain = new RetainedSelfPtr(_selfPtr)";
                 }
@@ -327,7 +327,7 @@ namespace BindingsGeneration
             bool _selfSuccess = false;
             _handle.DangerousAddRef(ref _selfSuccess);
             IntPtr _selfPtr = _handle.DangerousGetHandle();
-            Arc.UnknownObjectRetain(_selfPtr);
+            global::Swift.Runtime.Arc.UnknownObjectRetain(_selfPtr);
             _handle.DangerousRelease();
             """);
                     selfFieldInit = "SelfRetain = new RetainedSelfPtr(_selfPtr)";

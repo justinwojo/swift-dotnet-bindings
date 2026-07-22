@@ -2422,7 +2422,7 @@ public partial class ProtocolProxyEmitter
                     // directly to avoid leaking the Swift instance. This runs on a normal thread
                     // (not the finalizer), so the direct CallConvSwift Arc.Release is safe here.
                     SwiftObjectRegistry.Unregister(_everyProtocolHandle);
-                    try { Arc.Release(_everyProtocolHandle); } catch { /* already deallocating */ }
+                    try { global::Swift.Runtime.Arc.Release(_everyProtocolHandle); } catch { /* already deallocating */ }
                     throw;
                 }
                 // Design B2: do NOT suppress finalization. The finalizer is what releases R0 when

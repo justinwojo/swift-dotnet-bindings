@@ -1480,7 +1480,7 @@ namespace BindingsGeneration
             bool isClassBound, int arity, string continuationIndent)
         {
             return isClassBound
-                ? $"Swift.Runtime.Arc.UnknownObjectRelease(*(IntPtr*)resultPtr);\n{continuationIndent}"
+                ? $"global::Swift.Runtime.Arc.UnknownObjectRelease(*(IntPtr*)resultPtr);\n{continuationIndent}"
                 : $"var _vwtMetadata = Swift.Runtime.TypeMetadata.GetExistentialTypeMetadata({arity});\n" +
                   $"{continuationIndent}_vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);\n" +
                   $"{continuationIndent}";

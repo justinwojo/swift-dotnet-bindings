@@ -89,7 +89,7 @@ public partial class ProtocolProxyEmitter
                 var classRef = _swiftContainer.Payload0;
                 if (classRef != IntPtr.Zero)
                 {
-                    Arc.UnknownObjectReleaseFinalizerSafe(classRef);
+                    global::Swift.Runtime.Arc.UnknownObjectReleaseFinalizerSafe(classRef);
                 }
             """
             : """

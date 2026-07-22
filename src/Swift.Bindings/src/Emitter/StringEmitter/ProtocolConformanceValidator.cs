@@ -400,7 +400,20 @@ public class ProtocolConformanceValidator
             // Check type compatibility (CS0738)
             var staticInterfaceType = GetInterfacePropertyType(protoProperty, protocolDecl, boundGenericsHandler);
             if (!AreTypesCompatible(staticInterfaceType, concreteTypeProjected, conformingTypeName))
-                return false; // CS0738: types don't match
+            {
+                // A static requirement whose Swift type references Self (`static var shared: Self`)
+                // cannot be spelled in a non-Self-requirement interface — it degrades to AnyType
+                // there, while the concrete type's member uses its real type. That mismatch is
+                // compile-benign: statics emit as `static virtual` with a throwing default body,
+                // so the mismatched concrete member simply doesn't override (through-interface
+                // dispatch throws loudly; direct access on the concrete type works). Rejecting
+                // the WHOLE conformance here instead breaks every generic constraint on the
+                // protocol (CS0311: the conforming type never appears to implement it).
+                var mismatchIsUnspellableSelf = !protocolDecl.HasSelfRequirement
+                    && EveryProtocolEmitter.ContainsSelfTypeParam(protoProperty.SwiftTypeSpec);
+                if (!mismatchIsUnspellableSelf)
+                    return false; // CS0738: types don't match
+            }
         }
 
         // For each INTERFACE SUBSCRIPT requirement:
@@ -534,18 +547,14 @@ public class ProtocolConformanceValidator
             // — the class ends up declaring an interface member it never defines (CS0535). Seed
             // from the same fact the emitter seeds from so the prediction tracks the emission.
             NameProvider.SeedObjCRootedInheritedPropertyNames(concretePropertyNames, concreteType);
-            var concreteReturnTypeSpec = concreteMethod.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
-            bool concreteHasReturn = concreteReturnTypeSpec != null && !concreteReturnTypeSpec.IsEmptyTuple;
-            var concreteIsSelfReturning = MethodEnvironment.IsSelfReturningMethod(concreteMethod);
-            var concreteParentTypeName = NameProvider.ToPascalCase(concreteType.Name);
+            // Predict via ForMethod — the SAME context builder the emitted name
+            // (MethodEnvironment.CSharpMethodName) derives from — so the prediction can never
+            // silently drop a collision-shaping axis (e.g. ParentGenericParameterNames: a witness
+            // `t(duration:)` on a generic `Container<T>` emits as `TMethod`; a hand-rolled
+            // positional call here would predict `T`, keep the conformance, and strand the
+            // interface member unimplemented — CS0535).
             var concreteEmittedName = NameProvider.GetPublicMethodName(
-                concreteMethod.Name, concreteMethod.IsAsync,
-                hasReturnValue: concreteHasReturn,
-                propertyNames: concretePropertyNames,
-                isSelfReturning: concreteIsSelfReturning,
-                parentTypeName: concreteParentTypeName,
-                parameterCount: concreteMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple),
-                isMutating: concreteMethod.IsMutating);
+                PublicMethodNameContext.ForMethod(concreteMethod, concretePropertyNames));
 
             // Compare with the interface method name (computed without property collision context)
             var protoReturnTypeSpec = protoMethod.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
@@ -618,18 +627,10 @@ public class ProtocolConformanceValidator
             // — the class ends up declaring an interface member it never defines (CS0535). Seed
             // from the same fact the emitter seeds from so the prediction tracks the emission.
             NameProvider.SeedObjCRootedInheritedPropertyNames(concretePropertyNames, concreteType);
-            var concreteReturnTypeSpec = concreteMethod.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
-            bool concreteHasReturn = concreteReturnTypeSpec != null && !concreteReturnTypeSpec.IsEmptyTuple;
-            var concreteIsSelfReturning = MethodEnvironment.IsSelfReturningMethod(concreteMethod);
-            var concreteParentTypeName = NameProvider.ToPascalCase(concreteType.Name);
+            // Same ForMethod parity rationale as the instance-method path above: the prediction
+            // must fold in every axis the emission folds in (ParentGenericParameterNames included).
             var concreteEmittedName = NameProvider.GetPublicMethodName(
-                concreteMethod.Name, concreteMethod.IsAsync,
-                hasReturnValue: concreteHasReturn,
-                propertyNames: concretePropertyNames,
-                isSelfReturning: concreteIsSelfReturning,
-                parentTypeName: concreteParentTypeName,
-                parameterCount: concreteMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple),
-                isMutating: concreteMethod.IsMutating);
+                PublicMethodNameContext.ForMethod(concreteMethod, concretePropertyNames));
 
             var protoReturnTypeSpec = protoMethod.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
             bool protoHasReturn = protoReturnTypeSpec != null && !protoReturnTypeSpec.IsEmptyTuple;
@@ -641,16 +642,31 @@ public class ProtocolConformanceValidator
                 parameterCount: protoMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple),
                 isMutating: protoMethod.IsMutating);
 
+            // A diverged static name is compile-benign, unlike the instance path: the interface
+            // member is a `static virtual` with a throwing default body, so a concrete member
+            // emitted under a different C# name (e.g. `TMethod` after a generic-parameter
+            // collision rename) simply leaves the default in place — the same shape as the
+            // member-absent case above. Dropping the whole conformance here would trade a
+            // compile-safe kept conformance for CS0311 on every generic constraint.
             if (concreteEmittedName != interfaceMethodName)
-                return false;  // CS0535: method names diverge due to collision resolution
+                continue;
+
+            // Same unspellable-Self leniency as the static property path: a static requirement
+            // that references Self degrades to AnyType in a non-Self-requirement interface, but
+            // the `static virtual` throwing default makes the signature mismatch compile-benign,
+            // so it must not sink the whole conformance (CS0311 on every generic constraint).
+            var staticMismatchIsUnspellableSelf = !protocolDecl.HasSelfRequirement
+                && protoMethod.CSSignature.Any(a => EveryProtocolEmitter.ContainsSelfTypeParam(a.SwiftTypeSpec));
 
             // Check return type compatibility (CS0738)
             var interfaceReturnType = GetInterfaceMethodReturnType(protoMethod, protocolDecl, boundGenericsHandler);
-            if (!AreTypesCompatible(interfaceReturnType, concreteReturnType, conformingTypeName))
+            if (!AreTypesCompatible(interfaceReturnType, concreteReturnType, conformingTypeName)
+                && !staticMismatchIsUnspellableSelf)
                 return false;
 
             // Check parameter type compatibility (CS0535/CS0738)
-            if (!AreMethodParamsCompatible(protoMethod, concreteMethod, protocolDecl, conformingTypeName))
+            if (!AreMethodParamsCompatible(protoMethod, concreteMethod, protocolDecl, conformingTypeName)
+                && !staticMismatchIsUnspellableSelf)
                 return false;
         }
 

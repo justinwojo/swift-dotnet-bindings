@@ -159,6 +159,45 @@ public class ProtocolSignatureHelperTests
             ProtocolSignatureHelper.GetMethodSignatureKey(asyncString, typeDatabase, includeAsyncEffect: false));
     }
 
+    [Fact]
+    public void GetMethodSignatureKey_BoundGenericParams_DifferentGenericArgs_DistinctKeys()
+    {
+        // Two requirements whose params differ ONLY in the bound-generic ARGUMENT
+        // ([BaseRow] vs [Section]) are distinct Swift requirements that project to
+        // distinct, LEGAL C# overloads (IEnumerable<BaseRow> / IEnumerable<Section>).
+        // The raw dedup key must not erase the generic argument: resolving only the
+        // generic container's TypeRecord gives both params the same record name,
+        // collapsing the pair as a false DuplicateSignature — the second overload is
+        // dropped from the interface while the proxy still emits both members, so the
+        // proxy's forward call fails to convert (CS1503).
+        var typeDatabase = CreateTypeDatabaseWithClasses("TestModule.BaseRow", "TestModule.Section");
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var rows = CreateMethodWithBoundGenericParam("insertAnimation", "Swift.Array", "TestModule.BaseRow", moduleDecl);
+        var sections = CreateMethodWithBoundGenericParam("insertAnimation", "Swift.Array", "TestModule.Section", moduleDecl);
+
+        Assert.NotEqual(
+            ProtocolSignatureHelper.GetMethodSignatureKey(rows, typeDatabase),
+            ProtocolSignatureHelper.GetMethodSignatureKey(sections, typeDatabase));
+    }
+
+    [Fact]
+    public void GetMethodSignatureKey_BoundGenericParams_UnresolvableGenericArgs_StillCollapse()
+    {
+        // The erasure-collapse semantics survive where the projection GENUINELY collapses:
+        // two containers of distinct unresolvable inner types both project their argument to
+        // Swift.AnyType, so the raw keys stay equal and the pair still dedups as before.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var a = CreateMethodWithBoundGenericParam("f", "Swift.Array", "UnknownModule.Foo", moduleDecl);
+        var b = CreateMethodWithBoundGenericParam("f", "Swift.Array", "UnknownModule.Bar", moduleDecl);
+
+        Assert.Equal(
+            ProtocolSignatureHelper.GetMethodSignatureKey(a, typeDatabase),
+            ProtocolSignatureHelper.GetMethodSignatureKey(b, typeDatabase));
+    }
+
     #endregion
 
     #region R5-1a — Witness-dispatch index lockstep (AnyType-collapse divergence)
@@ -407,6 +446,58 @@ public class ProtocolSignatureHelperTests
         // Must NOT have bare type without generic args
         Assert.DoesNotContain("IReadOnlyDictionary,", key);
         Assert.DoesNotContain("IReadOnlyDictionary>", key);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithClasses(params string[] moduleQualifiedClassNames)
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftArray"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        foreach (var qualifiedName in moduleQualifiedClassNames)
+        {
+            testModule.RegisterType(
+                SwiftTypeName.FromModuleQualifiedName(qualifiedName),
+                new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", qualifiedName.Split('.')[^1]),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(qualifiedName),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.None,
+                    Kind = TypeRecordKind.Class
+                });
+        }
+        typeDatabase.AddModuleDatabase(testModule);
+        return typeDatabase;
+    }
+
+    // Same shape as CreateMethodWithParam, but the single parameter is a BOUND GENERIC
+    // (container<arg>) — the axis the raw signature key must not erase.
+    private static MethodDecl CreateMethodWithBoundGenericParam(string name, string containerTypeName, string argTypeName, ModuleDecl moduleDecl)
+    {
+        var method = CreateMethodWithParam(name, containerTypeName, moduleDecl);
+        method.CSSignature[1] = new ArgumentDecl
+        {
+            SwiftTypeSpec = new NamedTypeSpec(containerTypeName, new NamedTypeSpec(argTypeName)),
+            Name = "input",
+            PrivateName = "input",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+        return method;
     }
 
     private static TypeDatabase CreateTypeDatabaseWithDictionary()

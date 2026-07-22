@@ -663,21 +663,15 @@ namespace BindingsGeneration
             foreach (var nestedType in classDecl.Types)
                 props.Add(NameProvider.GetEmittedNestedTypeLeafName(nestedType, typeDatabase));
 
-            // Use the canonical IsSelfReturningMethod helper which also checks
-            // concrete parent-type returns (not just DynamicSelf/literal "Self").
-            bool isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
-
-            int parameterCount = method.CSSignature.Skip(1)
-                .Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple);
-
-            return NameProvider.GetPublicMethodName(
-                method.Name, method.IsAsync,
-                hasReturnValue: !method.IsAccessor && method.CSSignature.Count > 0 && !method.CSSignature.First().SwiftTypeSpec.IsEmptyTuple,
-                props,
-                isSelfReturning: isSelfReturning,
-                parentTypeName: classDecl.Name,
-                parameterCount: parameterCount,
-                isMutating: method.IsMutating);
+            // Build the context via ForMethod — the same builder the emitted name derives from —
+            // so this predictor folds in every collision-shaping axis (including
+            // ParentGenericParameterNames, which a positional call would silently drop and
+            // mispredict `T` where the body emitted `TMethod`). The property set is this
+            // predictor's richer local derivation (renames + nested-type names), and
+            // ParentTypeName is pinned to the passed-in class so test-only callers that
+            // construct methods without a parent keep the prior behavior.
+            var ctx = PublicMethodNameContext.ForMethod(method, props) with { ParentTypeName = classDecl.Name };
+            return NameProvider.GetPublicMethodName(in ctx);
         }
 
         /// <summary>

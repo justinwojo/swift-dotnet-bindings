@@ -244,6 +244,142 @@ public class PublicMethodNameContextTests
 
     #endregion
 
+    #region Generic-parameter collision axis (CS0102: member named like a declaring-type type parameter)
+
+    [Fact]
+    public void Context_GenericParamCollision_AppendsMethod()
+    {
+        // A Swift method `t(duration:)` on `AnimationDescription<T>` PascalCases to `T` — identical
+        // to the declaring type's generic parameter, which C# rejects (CS0102: the type already
+        // contains a definition for 'T'). Non-self-returning members take the same `{name}Method`
+        // shape as the property-collision rename.
+        var ctx = new PublicMethodNameContext(
+            MethodName: "t",
+            IsAsync: false,
+            HasReturnValue: true,
+            PropertyNames: null,
+            IsSelfReturning: false,
+            ParentTypeName: "AnimationDescription",
+            ParameterCount: 1,
+            ParentGenericParameterNames: new HashSet<string> { "T" });
+
+        Assert.Equal("TMethod", NameProvider.GetPublicMethodName(in ctx));
+    }
+
+    [Fact]
+    public void Context_GenericParamCollision_SelfReturning_PrefixesWith()
+    {
+        // Fluent/builder members keep the fluent read: With{name}, mirroring the property-collision arm.
+        var ctx = new PublicMethodNameContext(
+            MethodName: "t",
+            IsAsync: false,
+            HasReturnValue: true,
+            PropertyNames: null,
+            IsSelfReturning: true,
+            ParentTypeName: "AnimationDescription",
+            ParameterCount: 1,
+            ParentGenericParameterNames: new HashSet<string> { "T" });
+
+        Assert.Equal("WithT", NameProvider.GetPublicMethodName(in ctx));
+    }
+
+    [Fact]
+    public void Context_NoGenericParamCollision_KeepsName()
+    {
+        var ctx = new PublicMethodNameContext(
+            MethodName: "t",
+            IsAsync: false,
+            HasReturnValue: true,
+            PropertyNames: null,
+            IsSelfReturning: false,
+            ParentTypeName: "AnimationDescription",
+            ParameterCount: 1,
+            ParentGenericParameterNames: new HashSet<string> { "TElement" });
+
+        Assert.Equal("T", NameProvider.GetPublicMethodName(in ctx));
+    }
+
+    [Fact]
+    public void Context_GenericParamCollision_AsyncSuffixAlreadyDisambiguates_NoRename()
+    {
+        // The collision check runs on the FINAL name (after the Async suffix): an async `t()`
+        // on `Box<T>` becomes `TAsync`, which no longer collides with the `T` type parameter —
+        // no rename needed (a pre-suffix check would emit the uglier `TMethodAsync`).
+        var ctx = new PublicMethodNameContext(
+            MethodName: "t",
+            IsAsync: true,
+            HasReturnValue: true,
+            PropertyNames: null,
+            IsSelfReturning: false,
+            ParentTypeName: "Box",
+            ParameterCount: 1,
+            ParentGenericParameterNames: new HashSet<string> { "T" });
+
+        Assert.Equal("TAsync", NameProvider.GetPublicMethodName(in ctx));
+    }
+
+    [Fact]
+    public void Context_GenericParamCollision_SuffixedNameCollides_AppendsMethod()
+    {
+        // The suffixed form itself can collide: a type parameter literally named `TAsync` plus an
+        // async `t()` produces `TAsync` after the suffix — checking the pre-suffix name (`T`)
+        // would miss it (CS0102). The final-name check catches it and renames to `TAsyncMethod`.
+        var ctx = new PublicMethodNameContext(
+            MethodName: "t",
+            IsAsync: true,
+            HasReturnValue: true,
+            PropertyNames: null,
+            IsSelfReturning: false,
+            ParentTypeName: "Box",
+            ParameterCount: 1,
+            ParentGenericParameterNames: new HashSet<string> { "TAsync" });
+
+        Assert.Equal("TAsyncMethod", NameProvider.GetPublicMethodName(in ctx));
+    }
+
+    [Fact]
+    public void ForMethod_DerivesParentGenericParameterNames_FromGenericClassParent()
+    {
+        // ForMethod derives the axis from a generic (non-protocol) TypeDecl parent using the same
+        // projection the class declaration emits (GetCSharpGenericParameterName over the type's OWN
+        // params), so the rename and the emitted `<T>` list can never disagree.
+        var module = TestModelFactory.CreateModuleDecl();
+        var cls = MakeClass("AnimationDescription", module);
+        cls.GenericParameters.Add(new GenericArgumentDecl(
+            "τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>()));
+        var method = TestModelFactory.CreateMethod(
+            "t",
+            parent: cls,
+            args: new[] { ("", "Swift.Int"), ("duration", "Swift.Double") });
+
+        var ctx = PublicMethodNameContext.ForMethod(method, siblingPropertyNames: null);
+
+        Assert.NotNull(ctx.ParentGenericParameterNames);
+        Assert.Contains("T", ctx.ParentGenericParameterNames!);
+        Assert.Equal("TMethod", NameProvider.GetPublicMethodName(in ctx));
+    }
+
+    [Fact]
+    public void ForMethod_ProtocolParent_DoesNotDeriveGenericParameterNames()
+    {
+        // Protocol-interface generic params derive from ASSOCIATED TYPES via
+        // MapAssociatedTypeToGenericParam, not GetCSharpGenericParameterName — deriving this axis
+        // from a ProtocolDecl parent could rename a requirement that the interface emission sites
+        // (which shape names positionally, without the axis) would not rename → CS0535 drift.
+        var module = TestModelFactory.CreateModuleDecl();
+        var protocol = (ProtocolDecl)module.Protocols[0];
+        var method = TestModelFactory.CreateMethod(
+            "doWork",
+            parent: protocol,
+            args: new[] { ("", "Swift.Int"), ("v", "Swift.String") });
+
+        var ctx = PublicMethodNameContext.ForMethod(method, siblingPropertyNames: null);
+
+        Assert.Null(ctx.ParentGenericParameterNames);
+    }
+
+    #endregion
+
     #region Property collision still folds in (regression guard for the propertyNames axis)
 
     [Fact]

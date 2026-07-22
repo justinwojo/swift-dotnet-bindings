@@ -1468,7 +1468,7 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_ClosureAndArrayParamsSameResolvedKey_EmitsSingleMethod()
+    public void EmitProxyClass_ClosureAndBoundGenericArrayParams_ReceiverParity()
     {
         // G6 bug shape: two methods with the same name but different Swift parameter types —
         // a closure param and an array param — that both resolve to AnyType via
@@ -1546,16 +1546,17 @@ public class ProtocolProxyEmitterTests
 
         var output = EmitProxyClass(protocolDecl);
 
-        // Both params resolve to "Swift.AnyType" via ProtocolSignatureHelper →
-        // same key "update(Swift.AnyType)" → only one proxy class method emitted
-        Assert.Equal(1, EmitterTestHelpers.CountOccurrences(output, "public void Update("));
+        // The signature key now preserves bound-generic type arguments (a raw-key collapse of
+        // `Array<BaseRow>` vs `Array<Section>` dropped genuinely distinct overloads — CS1503 in
+        // the stub forward), so the closure param keys as "Swift.AnyType" while the bound-generic
+        // array keys as "Swift.AnyType<Swift.AnyType>" — two distinct methods emit.
+        Assert.Equal(2, EmitterTestHelpers.CountOccurrences(output, "public void Update("));
 
-        // Verify receiver count matches interface method count (no orphaned receivers).
-        // Before the fix, receivers used GetMethodKey (ToString-based) producing different keys
-        // for closure vs array params, while interface used GetMethodSignatureKey (TypeDB-based)
-        // collapsing both to AnyType. This mismatch caused orphaned receivers → CS1503.
-        var receiverCount = EmitterTestHelpers.CountOccurrences(output, "static void Receive_update_");
-        Assert.Equal(1, receiverCount);
+        // The invariant this test guards (H2): receiver emission uses the SAME key function as
+        // interface dedup — no orphaned receivers keyed to a collapsed method. Only the
+        // dispatchable closure overload gets a real receiver; the AnyType-param overload is
+        // non-dispatchable and is stubbed on the proxy (no receiver) — so exactly one receiver.
+        Assert.Equal(1, EmitterTestHelpers.CountOccurrences(output, "static void Receive_update_"));
     }
 
     [Fact]
@@ -1631,9 +1632,12 @@ public class ProtocolProxyEmitterTests
 
         var output = EmitProxyClass(protocolDecl);
 
-        // Single interface method emitted (both collapse to same key)
-        Assert.Equal(1, EmitterTestHelpers.CountOccurrences(output, "public void Finish("));
-        // Single receiver emitted (consistent dedup with interface)
+        // Bound-generic args are now part of the signature key (see
+        // EmitProxyClass_ClosureAndBoundGenericArrayParams_ReceiverParity), so the closure
+        // ("Swift.AnyType") and bound-generic array ("Swift.AnyType<Swift.AnyType>") no longer
+        // collapse — both emit. Only the dispatchable closure overload gets a receiver; the
+        // AnyType-param overload is stubbed (non-dispatchable), so no orphaned receiver exists.
+        Assert.Equal(2, EmitterTestHelpers.CountOccurrences(output, "public void Finish("));
         Assert.Equal(1, EmitterTestHelpers.CountOccurrences(output, "static void Receive_finish_"));
     }
 
@@ -1834,6 +1838,172 @@ public class ProtocolProxyEmitterTests
         ctx.MarkReadOnlyProxy(child.Name);
         var readOnly = EmitProxyClassWithContext(child, ctx);
         Assert.DoesNotContain("crossModulePing", readOnly);
+    }
+
+    [Fact]
+    public void EmitProxyClass_InheritedGateSkippedProperty_NotStubbed()
+    {
+        // An inherited-member stub exists only to satisfy the inherited C# interface contract
+        // (CS0535). A property the ancestor's OWN interface withheld (MemberGateEvaluator skip —
+        // here P2: associated-type-typed `id: Self.ID`) has no interface slot, so stubbing it
+        // emits a member whose type references an undeclared generic parameter name
+        // (`public TID Id`) — CS0246 in the generated binding. The stub loop must apply the
+        // same gate the interface emitter applied, so stub membership matches interface
+        // membership by construction.
+        RegisterCrossModuleProtocol("OtherModule", "ParentProto");
+
+        var parentModule = new ModuleDecl
+        {
+            Name = "OtherModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var parent = CreateSimpleProtocol("ParentProto");
+        parent.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OtherModule.ParentProto");
+        parent.ModuleDecl = parentModule;
+
+        // Gate-skipped property: associated-type reference (interface never declares it).
+        parent.Properties.Add(new PropertyDecl
+        {
+            Name = "id",
+            SwiftTypeSpec = new AssociatedTypeReferenceSpec("Self.ID"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = CreateMethodDecl("id_get") } },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        // Gate-passing property: interface declares it, so the stub IS required (guard against
+        // over-filtering).
+        parent.Properties.Add(new PropertyDecl
+        {
+            Name = "label",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = CreateMethodDecl("label_get") } },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var childModule = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+        childModule.DependencyProtocols["OtherModule"] = new List<ProtocolDecl> { parent };
+
+        var child = CreateSimpleProtocol("ChildProto");
+        child.ModuleDecl = childModule;
+        child.InheritedProtocols.Add(new NamedTypeSpec("OtherModule.ParentProto"));
+
+        var output = EmitProxyClass(child);
+
+        // The gate-passing sibling stub proves the inherited-stub path ran at all.
+        Assert.Contains("Label", output);
+        // The gate-skipped property must NOT be stubbed: `TID` is not a declared generic
+        // parameter on the (non-generic) proxy class.
+        Assert.DoesNotContain("TID", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_InheritedGateSkippedMethod_NotStubbed()
+    {
+        // Method mirror of the gate-skipped-property case: a method whose signature contains an
+        // associated-type reference is withheld from the ancestor's interface (M-gate), so the
+        // inherited stub loop must not stub it either.
+        RegisterCrossModuleProtocol("OtherModule", "ParentProto");
+
+        var parentModule = new ModuleDecl
+        {
+            Name = "OtherModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var parent = CreateSimpleProtocol("ParentProto");
+        parent.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OtherModule.ParentProto");
+        parent.ModuleDecl = parentModule;
+
+        var gateSkipped = CreateMethodDecl("takeItem");
+        gateSkipped.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "item", PrivateName = "item",
+            SwiftTypeSpec = new AssociatedTypeReferenceSpec("Self.Item"),
+            IsGeneric = false, IsInOut = false, ParentDecl = null, ModuleDecl = null
+        });
+        parent.Methods.Add(gateSkipped);
+        parent.Methods.Add(CreateMethodDecl("ping"));
+
+        var childModule = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+        childModule.DependencyProtocols["OtherModule"] = new List<ProtocolDecl> { parent };
+
+        var child = CreateSimpleProtocol("ChildProto");
+        child.ModuleDecl = childModule;
+        child.InheritedProtocols.Add(new NamedTypeSpec("OtherModule.ParentProto"));
+
+        var output = EmitProxyClass(child);
+
+        Assert.Contains("Ping", output);
+        Assert.DoesNotContain("TItem", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_TupleParamWithDateElements_ReceiverConvertsPerElement()
+    {
+        // A (Date, Date) tuple param crosses the reverse-dispatch boundary as its ABI carrier
+        // ValueTuple<double, double>, but the interface method takes the PUBLIC tuple
+        // (DateTimeOffset, DateTimeOffset). The receiver must lift each element
+        // (epoch.AddSeconds) before invoking the impl — a whole-tuple passthrough hands the
+        // raw double pair to the impl call: CS1503.
+        var protocolDecl = CreateSimpleProtocol("RangeProtocol");
+        var method = CreateMethodDecl("visibleDates");
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "range", PrivateName = "range",
+            SwiftTypeSpec = new TupleTypeSpec(new TypeSpec[]
+            {
+                new NamedTypeSpec("Foundation.Date"),
+                new NamedTypeSpec("Foundation.Date")
+            }),
+            IsGeneric = false, IsInOut = false, ParentDecl = null, ModuleDecl = null
+        });
+        protocolDecl.Methods.Add(method);
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Receiver emitted for the tuple-param method, and both elements are lifted from the
+        // raw double pair to DateTimeOffset before the impl call.
+        Assert.Contains("static void Receive_visibleDates_", output);
+        Assert.Contains(".AddSeconds(rawParam0.Item1)", output);
+        Assert.Contains(".AddSeconds(rawParam0.Item2)", output);
     }
 
     #endregion
@@ -6085,7 +6255,9 @@ public class ProtocolProxyEmitterTests
         Assert.DoesNotContain("classPayload", output);
         Assert.Contains("MarshalFromSwift", output);
         // Arc.Release in catch only (on success, retained reference consumed by SafeHandle)
-        Assert.Contains("catch { Arc.Release(resultPtr); throw; }", output);
+        // global::-qualified: a library type named `Arc` in the generated namespace (e.g. Macaw.Arc)
+        // would otherwise shadow Swift.Runtime.Arc — CS0117.
+        Assert.Contains("catch { global::Swift.Runtime.Arc.Release(resultPtr); throw; }", output);
     }
 
     [Fact]

@@ -517,12 +517,24 @@ public partial class ProtocolProxyEmitter
             }
         }
 
+        // Inherited stubs exist only to satisfy the inherited C# interface contract (CS0535).
+        // A member the ancestor's OWN interface withheld (hard gate skip — e.g. an
+        // associated-type-typed `id: Self.ID`) has no interface slot, and stubbing it emits a
+        // member whose type references an undeclared generic parameter name (`public TID Id`)
+        // — CS0246. Apply the same MemberGateEvaluator the interface emitter applied, against
+        // the DECLARING protocol, so stub membership matches interface membership by
+        // construction. Soft (InterfaceOnly) results still emit in the interface, so they
+        // still get stubs here.
+        var inheritedGateEvaluator = new MemberGateEvaluator(_typeDatabase);
+
         foreach (var inheritedProto in allInherited)
         {
             // Emit inherited property stubs
             foreach (var property in inheritedProto.Properties)
             {
                 if (property.IsStatic)
+                    continue;
+                if (inheritedGateEvaluator.EvaluateProperty(property, inheritedProto.ModuleDecl, inheritedProto).IsSkipped)
                     continue;
                 if (!emittedMembers.Add($"property:{property.Name}"))
                     continue;
@@ -533,19 +545,29 @@ public partial class ProtocolProxyEmitter
             }
 
             // Resolve the inherited protocol's own emitted property-name set (cache hit
-            // when the interface emitter already ran for it; conservative fallback to all
-            // declared properties otherwise). The ancestor's projection key must be computed
-            // with the ancestor's own collision set so a `Foo` method that the ancestor
-            // emitted as `FooMethod` doesn't mismatch against the proxy's `Foo` key.
+            // when the interface emitter already ran for it; fallback derives from the declared
+            // properties otherwise). The ancestor's projection key must be computed with the
+            // ancestor's own collision set so a `Foo` method that the ancestor emitted as
+            // `FooMethod` doesn't mismatch against the proxy's `Foo` key. The fallback applies
+            // the same hard gate as the stub loops: a gate-skipped property never made the
+            // ancestor's interface, so it must not occupy a name in the key computation either —
+            // otherwise the key says `FooMethod` while the stub (whose collision set the gate
+            // already filtered) emits `Foo`, and the key/name divergence breaks dedup.
             var inheritedProtoQualifiedName = inheritedProto.SwiftTypeName?.ModuleQualifiedName
                                            ?? $"{inheritedProto.ModuleDecl?.Name ?? "Unknown"}.{inheritedProto.Name}";
             var inheritedOwnPropertyNames = _emissionContext.GetInterfacePropertyNames(inheritedProtoQualifiedName)
-                ?? new HashSet<string>(inheritedProto.Properties.Select(p => NameProvider.GetPropertyName(p.Name)));
+                ?? new HashSet<string>(inheritedProto.Properties
+                    .Where(p => !inheritedGateEvaluator.EvaluateProperty(p, inheritedProto.ModuleDecl, inheritedProto).IsSkipped)
+                    .Select(p => NameProvider.GetPropertyName(p.Name)));
 
             // Emit inherited method stubs
             foreach (var method in inheritedProto.Methods)
             {
                 if (method.IsConstructor || method.MethodType == MethodType.Static)
+                    continue;
+                // Same membership mirror as the property loop above: a hard-gate-skipped method
+                // never made the ancestor's interface, so it must not be stubbed here.
+                if (inheritedGateEvaluator.EvaluateMethod(method, inheritedProto.ModuleDecl, inheritedProto).IsSkipped)
                     continue;
 
                 // Disambiguator context is the DECLARING (inherited) protocol: a label-only-overload pair
@@ -1088,7 +1110,7 @@ public partial class ProtocolProxyEmitter
                             {
                                 return ({{csharpTypeName}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{csharpTypeName}}>(resultPtr);
                             }
-                            catch { Arc.Release(resultPtr); throw; }
+                            catch { global::Swift.Runtime.Arc.Release(resultPtr); throw; }
                         }
                     }
                     """);
@@ -2120,7 +2142,7 @@ public partial class ProtocolProxyEmitter
             // rather than swift_retain (native-only).
             var preamble =
                 "var container = Unsafe.Read<Swift.Runtime.ClassExistentialContainer1>((void*)resultPtr);\n"
-                + "Arc.UnknownObjectRetain(container.ClassRef);";
+                + "global::Swift.Runtime.Arc.UnknownObjectRetain(container.ClassRef);";
             return (preamble, $"new {proxyClassName}(container, ownsContainer: true)");
         }
 
@@ -2393,7 +2415,7 @@ public partial class ProtocolProxyEmitter
                 {
                     return ({{returnTypeName}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{returnTypeName}}>(resultPtr);
                 }
-                catch { Arc.Release(resultPtr); throw; }
+                catch { global::Swift.Runtime.Arc.Release(resultPtr); throw; }
                 """);
         }
         else
@@ -2407,7 +2429,7 @@ public partial class ProtocolProxyEmitter
                 {
                     return ({{returnTypeName}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{returnTypeName}}>(resultPtr);
                 }
-                catch { Arc.Release(resultPtr); throw; }
+                catch { global::Swift.Runtime.Arc.Release(resultPtr); throw; }
                 """);
         }
 

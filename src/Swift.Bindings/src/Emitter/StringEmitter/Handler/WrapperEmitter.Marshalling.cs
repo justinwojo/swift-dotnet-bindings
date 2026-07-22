@@ -640,7 +640,7 @@ namespace BindingsGeneration
                 if (MarshallingHelpers.IsSwiftArray(arg.SwiftTypeSpec))
                 {
                     var csName = NameProvider.GetCSharpParameterName(arg);
-                    csWriter.WriteLine($"Arc.Retain({csName}Buffer);");
+                    csWriter.WriteLine($"global::Swift.Runtime.Arc.Retain({csName}Buffer);");
                 }
             }
         }

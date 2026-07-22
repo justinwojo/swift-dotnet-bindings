@@ -199,7 +199,7 @@ public static partial class ClosureEmitter
                 // its own +1 to prevent over-release when both the C# wrapper and the
                 // Swift-returned wrapper are finalized.
                 var __ptr = result.Payload.DangerousGetHandle();
-                Swift.Runtime.Arc.Retain(__ptr);
+                global::Swift.Runtime.Arc.Retain(__ptr);
                 *(IntPtr*)indirectResult = __ptr;
                 """;
         }

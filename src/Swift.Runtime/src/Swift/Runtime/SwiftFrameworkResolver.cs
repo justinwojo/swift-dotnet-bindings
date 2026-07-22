@@ -88,6 +88,7 @@ public static class SwiftFrameworkResolver
         InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(global::SwiftUI.EdgeInsets), PayloadConstructionSemantics.Adopt);
         InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(global::SwiftUI.Font), PayloadConstructionSemantics.Adopt);
         InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(global::SwiftUI.Image), PayloadConstructionSemantics.Adopt);
+        InteropServices.SwiftMarshal.RegisterPayloadSemantics(typeof(global::SwiftUI.Text), PayloadConstructionSemantics.Adopt);
         // Removed Swift.* hand-rolled wrappers for ObjC-imported classes (URLResponse,
         // UIImage, NSImage, NSColor, OperationQueue, CIContext): they imported
         // `$sSo<ObjCClassName>...` mangled symbols from Swift overlay libraries, but

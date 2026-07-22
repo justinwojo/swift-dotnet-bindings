@@ -16,7 +16,7 @@
         <entity managedNameSpace="SwiftUI" managedTypeName="Image">
             <typedeclaration kind="struct" name="Image" module="SwiftUI" frozen="false" requiresMemoryManagement="true" />
         </entity>
-        <entity managedNameSpace="Swift.SwiftUI" managedTypeName="Text">
+        <entity managedNameSpace="SwiftUI" managedTypeName="Text">
             <typedeclaration kind="struct" name="Text" module="SwiftUI" frozen="false" requiresMemoryManagement="true" />
         </entity>
         <entity managedNameSpace="SwiftUI" managedTypeName="AnyView">

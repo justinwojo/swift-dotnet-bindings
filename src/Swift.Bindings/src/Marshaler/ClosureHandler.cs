@@ -1166,7 +1166,7 @@ public class ClosureHandler
                 // Matches the sync SwiftResult class-extraction pattern: Arc.Retain pins
                 // the object for C#, MarshalFromSwift wraps into an owning SafeHandle
                 // whose Release fires when the capturing Task completes.
-                $"Swift.Runtime.Arc.Retain({rawVar});\n"
+                $"global::Swift.Runtime.Arc.Retain({rawVar});\n"
                 + $"var {managedVar} = SwiftMarshal.MarshalFromSwift<{TranslateTypeSpecToCSharp(argSpec)}>({rawVar});",
             _ => throw new InvalidOperationException(
                 $"Cannot emit async-throwing closure Start-thunk marshal for arg '{argSpec}'.")
@@ -2288,7 +2288,10 @@ public class ClosureHandler
     public static string GetCallbackFunctionName(string methodName, string parameterName, string mangledName)
     {
         var mangledHash = EmitterUtility.DeterministicHash8(mangledName);
-        return $"{methodName}_{parameterName}_{mangledHash}_Callback";
+        // The parameter name embeds mid-identifier here, so a keyword-escaped name
+        // (@event) must drop its verbatim prefix — `@` is only legal at the start
+        // of a C# identifier. No-op for unescaped names.
+        return $"{methodName}_{NameProvider.StripVerbatimPrefix(parameterName)}_{mangledHash}_Callback";
     }
 
     /// <summary>
@@ -2298,7 +2301,9 @@ public class ClosureHandler
     /// <returns>The closure wrapper field name.</returns>
     public static string GetClosureWrapperFieldName(string parameterName)
     {
-        return $"_{parameterName}Closure";
+        // Prefixing onto a keyword-escaped name (@event) would put `@` mid-identifier;
+        // strip the verbatim prefix first (no-op for unescaped names).
+        return $"_{NameProvider.StripVerbatimPrefix(parameterName)}Closure";
     }
 
     /// <summary>

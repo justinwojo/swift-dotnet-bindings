@@ -53,29 +53,49 @@ internal static class ProtocolSignatureHelper
         // Skip first element (return type) in CSSignature
         for (int i = 1; i < methodDecl.CSSignature.Count; i++)
         {
-            var arg = methodDecl.CSSignature[i];
-            try
-            {
-                // Handle associated type references for protocols
-                if (arg.SwiftTypeSpec is AssociatedTypeReferenceSpec assocRef)
-                {
-                    paramTypes.Add(MapAssociatedTypeToGenericParam(assocRef, protocolContext));
-                }
-                else
-                {
-                    var typeRecord = typeDatabase.GetTypeRecordOrAnyType(arg.SwiftTypeSpec);
-                    paramTypes.Add(typeRecord.CSharpTypeName.FullyQualifiedName);
-                }
-            }
-            catch
-            {
-                // For generic type parameters or other unsupported types,
-                // use the string representation of the type spec
-                paramTypes.Add(arg.SwiftTypeSpec?.ToString() ?? "unknown");
-            }
+            paramTypes.Add(GetSignatureKeyTypeName(methodDecl.CSSignature[i].SwiftTypeSpec, typeDatabase, protocolContext));
         }
         var asyncSuffix = includeAsyncEffect && methodDecl.IsAsync ? ":async" : "";
         return $"{methodDecl.Name}({string.Join(",", paramTypes)}){asyncSuffix}";
+    }
+
+    /// <summary>
+    /// Resolves one parameter type to its raw-signature-key name. A bound generic resolves only
+    /// the CONTAINER's TypeRecord — <c>Swift.Array&lt;BaseRow&gt;</c> and <c>Swift.Array&lt;Section&gt;</c>
+    /// both yield the same record name — so two requirements differing only in the generic ARGUMENT
+    /// would collapse as a false DuplicateSignature: the second overload (a distinct, legal C#
+    /// overload — <c>IEnumerable&lt;BaseRow&gt;</c> vs <c>IEnumerable&lt;Section&gt;</c>) drops from
+    /// the interface while the proxy still emits both members, so the proxy's forward call fails to
+    /// convert (CS1503). Appending the recursively-resolved arguments keeps such pairs distinct;
+    /// arguments that genuinely erase (both resolve to <c>Swift.AnyType</c>) still collapse exactly
+    /// as before, and a pair whose PROJECTED C# signatures nonetheless collide is still deduped by
+    /// the projected-key gate downstream.
+    /// </summary>
+    private static string GetSignatureKeyTypeName(TypeSpec? typeSpec, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext)
+    {
+        // Handle associated type references for protocols
+        if (typeSpec is AssociatedTypeReferenceSpec assocRef)
+            return MapAssociatedTypeToGenericParam(assocRef, protocolContext);
+        if (typeSpec == null)
+            return "unknown";
+        try
+        {
+            var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
+            var baseName = typeRecord.CSharpTypeName.FullyQualifiedName;
+            if (typeSpec is NamedTypeSpec named && named.GenericParameters.Count > 0)
+            {
+                var argNames = named.GenericParameters
+                    .Select(g => GetSignatureKeyTypeName(g, typeDatabase, protocolContext));
+                return $"{baseName}<{string.Join(",", argNames)}>";
+            }
+            return baseName;
+        }
+        catch
+        {
+            // For generic type parameters or other unsupported types,
+            // use the string representation of the type spec
+            return typeSpec.ToString() ?? "unknown";
+        }
     }
 
     /// <summary>
@@ -86,29 +106,7 @@ internal static class ProtocolSignatureHelper
         var paramTypes = new List<string>();
         foreach (var param in subscriptDecl.IndexParameters)
         {
-            try
-            {
-                // Handle associated type references for protocols
-                if (param.SwiftTypeSpec is AssociatedTypeReferenceSpec assocRef)
-                {
-                    paramTypes.Add(MapAssociatedTypeToGenericParam(assocRef, protocolContext));
-                }
-                else if (param.SwiftTypeSpec != null)
-                {
-                    var typeRecord = typeDatabase.GetTypeRecordOrAnyType(param.SwiftTypeSpec);
-                    paramTypes.Add(typeRecord.CSharpTypeName.FullyQualifiedName);
-                }
-                else
-                {
-                    paramTypes.Add("unknown");
-                }
-            }
-            catch
-            {
-                // For generic type parameters or other unsupported types,
-                // use the string representation of the type spec
-                paramTypes.Add(param.SwiftTypeSpec?.ToString() ?? "unknown");
-            }
+            paramTypes.Add(GetSignatureKeyTypeName(param.SwiftTypeSpec, typeDatabase, protocolContext));
         }
         return $"subscript[{string.Join(",", paramTypes)}]";
     }

@@ -1238,7 +1238,7 @@ public static class AsyncMethodGenericBridgeEmitter
         {
             csWriter.WriteLines("""
                 IntPtr _selfPtr = Handle;
-                Arc.UnknownObjectRetain(_selfPtr);
+                global::Swift.Runtime.Arc.UnknownObjectRetain(_selfPtr);
                 """);
         }
         else if (isInstance && isClass)
@@ -1247,7 +1247,7 @@ public static class AsyncMethodGenericBridgeEmitter
                 bool _selfSuccess = false;
                 _handle.DangerousAddRef(ref _selfSuccess);
                 IntPtr _selfPtr = _handle.DangerousGetHandle();
-                Arc.UnknownObjectRetain(_selfPtr);
+                global::Swift.Runtime.Arc.UnknownObjectRetain(_selfPtr);
                 _handle.DangerousRelease();
                 """);
         }

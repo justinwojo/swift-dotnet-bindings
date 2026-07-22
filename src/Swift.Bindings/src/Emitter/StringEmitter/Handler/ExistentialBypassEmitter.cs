@@ -1364,41 +1364,47 @@ public static class ExistentialBypassEmitter
                 var wrapperType = wParam.SignatureString().Replace(wParam.Name, "").Trim();
                 var pInvokeType = pParam.PInvokeSignatureString().Replace(pParam.Name, "").Trim();
 
+                // Derived locals prepend onto the parameter name, so a keyword-escaped name
+                // (@abstract) must drop its verbatim prefix first — `@` is only legal at the
+                // START of a C# identifier, and `__@abstractStr` does not compile. Value
+                // references keep {wParam.Name} verbatim (the escape is valid there).
+                var safeName = NameProvider.StripVerbatimPrefix(pParam.Name);
+
                 if (wrapperType == "string?" && pInvokeType == "IntPtr")
                 {
                     // string? → IntPtr (large optional buffer for OptionalPointerWrapper)
                     // Must allocate a buffer, write SwiftOptional<SwiftString> into it, pass the pointer.
-                    var bufName = $"__{pParam.Name}Buf";
+                    var bufName = $"__{safeName}Buf";
                     setupLines.Add(
-                        $"using var __{pParam.Name}Str = {wParam.Name} is {{}} __{pParam.Name}Val ? new SwiftString(__{pParam.Name}Val) : default;");
+                        $"using var __{safeName}Str = {wParam.Name} is {{}} __{safeName}Val ? new SwiftString(__{safeName}Val) : default;");
                     setupLines.Add(
-                        $"var __{pParam.Name}Opt = {wParam.Name} is {{}} ? SwiftOptional<SwiftString>.NewSome(__{pParam.Name}Str) : SwiftOptional<SwiftString>.NewNone();");
+                        $"var __{safeName}Opt = {wParam.Name} is {{}} ? SwiftOptional<SwiftString>.NewSome(__{safeName}Str) : SwiftOptional<SwiftString>.NewNone();");
                     setupLines.Add(
-                        $"var __{pParam.Name}Size = (int)TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<SwiftString>>().Size;");
+                        $"var __{safeName}Size = (int)TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<SwiftString>>().Size;");
                     setupLines.Add(
-                        $"byte* {bufName} = stackalloc byte[__{pParam.Name}Size];");
+                        $"byte* {bufName} = stackalloc byte[__{safeName}Size];");
                     setupLines.Add(
-                        $"var __{pParam.Name}Span = new Span<byte>({bufName}, __{pParam.Name}Size);");
+                        $"var __{safeName}Span = new Span<byte>({bufName}, __{safeName}Size);");
                     setupLines.Add(
-                        $"SwiftMarshal.MarshalToSwift(__{pParam.Name}Opt, ref __{pParam.Name}Span);");
+                        $"SwiftMarshal.MarshalToSwift(__{safeName}Opt, ref __{safeName}Span);");
                     callArgs.Add($"new IntPtr({bufName})");
                     needsUnsafe = true;
                 }
                 else if (wrapperType == "string?")
                 {
                     // string? → SwiftOptional<SwiftString> (direct)
-                    var varName = $"__{pParam.Name}Opt";
+                    var varName = $"__{safeName}Opt";
                     setupLines.Add(
-                        $"using var __{pParam.Name}Str = {wParam.Name} is {{}} __{pParam.Name}Val ? new SwiftString(__{pParam.Name}Val) : default;");
+                        $"using var __{safeName}Str = {wParam.Name} is {{}} __{safeName}Val ? new SwiftString(__{safeName}Val) : default;");
                     setupLines.Add(
-                        $"var {varName} = {wParam.Name} is {{}} ? SwiftOptional<SwiftString>.NewSome(__{pParam.Name}Str) : SwiftOptional<SwiftString>.NewNone();");
+                        $"var {varName} = {wParam.Name} is {{}} ? SwiftOptional<SwiftString>.NewSome(__{safeName}Str) : SwiftOptional<SwiftString>.NewNone();");
                     callArgs.Add(varName);
                 }
                 else
                 {
                     // string → SwiftString → SwiftString.Buffer (P/Invoke takes the blittable Buffer type)
-                    var strVar = $"__{pParam.Name}Str";
-                    var dispVar = $"__{pParam.Name}Disposable";
+                    var strVar = $"__{safeName}Str";
+                    var dispVar = $"__{safeName}Disposable";
                     setupLines.Add($"using var {strVar} = new SwiftString({wParam.Name});");
                     setupLines.Add($"using var {dispVar} = {strVar}.PayloadBuffer;");
                     callArgs.Add($"{dispVar}.Buffer");
