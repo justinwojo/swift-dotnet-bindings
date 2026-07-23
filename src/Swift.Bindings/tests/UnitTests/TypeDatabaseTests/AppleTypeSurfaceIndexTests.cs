@@ -3,6 +3,8 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -86,6 +88,107 @@ public class AppleTypeSurfaceIndexTests
         // The surface index is verified against the reference assembly for the target platform, not
         // always Microsoft.iOS — so a macOS/tvOS/MacCatalyst run resolves its own ref pack + dll token.
         Assert.Equal(expected, AppleTypeSurfaceIndex.RefPackName(platform));
+    }
+
+    [Theory]
+    [InlineData(ApplePlatform.macOS)]
+    [InlineData(ApplePlatform.tvOS)]
+    public void GenerateBindings_PlatformParameter_BecomesAmbientSurfacePlatform(ApplePlatform platform)
+    {
+        // A library caller that passes `platform` without separately calling SetAmbientPlatform must
+        // still have its ObjC-bridged references verified against that platform's surface — the
+        // ambient the surface index resolves has to follow the parameter, not stay at the iOS default.
+        AppleTypeSurfaceIndex.ResetAmbientPlatform();
+        using var fixture = new GenerateBindingsFixture("AtsiAmbientModule");
+        try
+        {
+            BindingsGenerator.GenerateBindings(
+                fixture.AbiJsonPath, fixture.DylibPath, fixture.TbdPath, fixture.Dir,
+                "AtsiAmbientModule", null, null, null, null, "{Module}",
+                NullLogger.Instance, NullLoggerFactory.Instance,
+                out _, out _, out _, out _,
+                platform: platform);
+
+            Assert.Equal(platform, AppleTypeSurfaceIndex.AmbientPlatform);
+        }
+        finally
+        {
+            AppleTypeSurfaceIndex.ResetAmbientPlatform();
+        }
+    }
+
+    [Fact]
+    public void GenerateBindings_NullPlatform_LeavesAmbientPlatformUntouched()
+    {
+        // The CLI records the ambient before GenerateBindings runs (surface reads happen during
+        // dependency parsing and ObjC-bridge ingest); a run without a platform parameter must not
+        // clobber that earlier decision.
+        AppleTypeSurfaceIndex.SetAmbientPlatform(ApplePlatform.MacCatalyst);
+        using var fixture = new GenerateBindingsFixture("AtsiAmbientNullModule");
+        try
+        {
+            BindingsGenerator.GenerateBindings(
+                fixture.AbiJsonPath, fixture.DylibPath, fixture.TbdPath, fixture.Dir,
+                "AtsiAmbientNullModule", null, null, null, null, "{Module}",
+                NullLogger.Instance, NullLoggerFactory.Instance,
+                out _, out _, out _, out _,
+                platform: null);
+
+            Assert.Equal(ApplePlatform.MacCatalyst, AppleTypeSurfaceIndex.AmbientPlatform);
+        }
+        finally
+        {
+            AppleTypeSurfaceIndex.ResetAmbientPlatform();
+        }
+    }
+
+    /// <summary>
+    /// Minimal on-disk generation inputs (ABI JSON with a named empty module, stub dylib/TBD) — just
+    /// enough for <see cref="BindingsGenerator.GenerateBindings"/> to run start to finish.
+    /// </summary>
+    private sealed class GenerateBindingsFixture : IDisposable
+    {
+        public string Dir { get; }
+        public string AbiJsonPath { get; }
+        public string DylibPath { get; }
+        public string TbdPath { get; }
+
+        public GenerateBindingsFixture(string moduleName)
+        {
+            Dir = Path.Combine(Path.GetTempPath(), $"atsi_ambient_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(Dir);
+
+            AbiJsonPath = Path.Combine(Dir, "test.abi.json");
+            DylibPath = Path.Combine(Dir, "test.dylib");
+            TbdPath = Path.Combine(Dir, "test.tbd");
+
+            File.WriteAllText(AbiJsonPath, $$"""
+                {
+                  "ABIRoot": {
+                    "kind": "Root",
+                    "name": "{{moduleName}}",
+                    "printedName": "{{moduleName}}",
+                    "children": [
+                      {
+                        "kind": "TypeDecl",
+                        "declKind": "Import",
+                        "name": "{{moduleName}}",
+                        "printedName": "{{moduleName}}",
+                        "moduleName": "{{moduleName}}",
+                        "children": []
+                      }
+                    ]
+                  }
+                }
+                """);
+            File.WriteAllBytes(DylibPath, new byte[] { 0 });
+            File.WriteAllText(TbdPath, "--- !tapi-tbd\n");
+        }
+
+        public void Dispose()
+        {
+            try { Directory.Delete(Dir, true); } catch { }
+        }
     }
 
     [Fact]

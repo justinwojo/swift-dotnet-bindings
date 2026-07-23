@@ -58,6 +58,15 @@ namespace BindingsGeneration
             depModuleCollisions = new DepModuleCollisionDetector.SlicedCollisionResult(
                 Array.Empty<string>(), Array.Empty<string>());
 
+            // The Apple-type surface index resolves its target platform ambiently — its call sites are
+            // static with no threaded platform. The CLI records the ambient before dependency parsing
+            // and ObjC-bridge ingest; record it here too so a library caller that passes a platform has
+            // its ObjC-bridged references verified against that platform's reference assembly rather
+            // than the unset (iOS) default. Re-recording the CLI's identical value is a no-op; a null
+            // platform leaves any earlier-recorded ambient untouched.
+            if (platform is { } targetPlatform)
+                AppleTypeSurfaceIndex.SetAmbientPlatform(targetPlatform);
+
             // Best-known module name for a failure report written from the catch handlers below, updated
             // as the run learns it — peeked from the ABI JSON, then the parsed module name. The input
             // paths a failure report needs are the method parameters, always in scope.

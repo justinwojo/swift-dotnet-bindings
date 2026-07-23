@@ -75,12 +75,13 @@ internal sealed class AppleTypeSurfaceIndex
     internal bool TryResolveBare(string name, [NotNullWhen(true)] out AppleTypeSurfaceEntry? entry)
         => _byBareName.TryGetValue(name, out entry);
 
-    // The current generation's target platform, set once at generation start (BindingsGeneratorCommand)
-    // so Default resolves the reference assembly that actually ships for it — a macOS binding must be
-    // verified against Microsoft.macOS, not Microsoft.iOS. AsyncLocal mirrors ReportCollector's ambient
-    // pattern: the index is read from static call sites with no threaded platform, and a plain static
-    // field would leak one run's platform across the parallel emitter tests. Unset → iOS (the CLI's
-    // own --platform default and the historical behavior).
+    // The current generation's target platform, set at generation start (the CLI records it before
+    // dependency parsing and ObjC-bridge ingest; GenerateBindings re-records its platform parameter at
+    // entry for library callers) so Default resolves the reference assembly that actually ships for
+    // it — a macOS binding must be verified against Microsoft.macOS, not Microsoft.iOS. AsyncLocal
+    // mirrors ReportCollector's ambient pattern: the index is read from static call sites with no
+    // threaded platform, and a plain static field would leak one run's platform across the parallel
+    // emitter tests. Unset → iOS (the CLI's own --platform default and the historical behavior).
     private static readonly AsyncLocal<ApplePlatform?> s_ambientPlatform = new();
 
     /// <summary>
@@ -88,6 +89,9 @@ internal sealed class AppleTypeSurfaceIndex
     /// the reference assembly that ships for it. Set once at generation start; unset resolves to iOS.
     /// </summary>
     internal static void SetAmbientPlatform(ApplePlatform platform) => s_ambientPlatform.Value = platform;
+
+    /// <summary>The recorded ambient platform, or null when unset (<see cref="Default"/> then resolves iOS).</summary>
+    internal static ApplePlatform? AmbientPlatform => s_ambientPlatform.Value;
 
     /// <summary>Clears the ambient platform so a later read falls back to iOS (test isolation).</summary>
     internal static void ResetAmbientPlatform() => s_ambientPlatform.Value = null;
