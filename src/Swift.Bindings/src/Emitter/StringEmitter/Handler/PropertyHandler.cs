@@ -1232,10 +1232,14 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                     propertyEnv.ExistentialHandler.TryGetFilteredProxyClassName(innerProtocolList, out var filteredProxy))
                 {
                     var qualifiedProxy = propertyEnv.ExistentialHandler.QualifyProxyClassName(filteredProxy, innerProtocolList);
-                    // CONSUME gate: when the proxy class was not emitted (EveryProtocol conformance
-                    // suppressed), drop the wrap fallback — the setter keeps working for Swift-vended
-                    // conformers. Replaces the retired generate-then-strip wrap-fallback downgrade post-pass.
-                    if (!propertyEnv.ExistentialHandler.IsProxyNameSuppressed(filteredProxy, qualifiedProxy, propertyEnv.EmissionContext))
+                    // CONSUME gate: when the proxy class is not present in the output — name-suppressed
+                    // (EveryProtocol conformance not emitted) OR structurally never emitted (a Self/AT
+                    // protocol, reachable here as a CONSTRAINED `any P<X>` whose public type stays the
+                    // generic interface, not `object`) — drop the wrap fallback; the setter keeps working
+                    // for Swift-vended conformers. Replaces the retired generate-then-strip wrap-fallback
+                    // downgrade post-pass.
+                    if (!propertyEnv.ExistentialHandler.IsProxyNameSuppressed(filteredProxy, qualifiedProxy, propertyEnv.EmissionContext) &&
+                        !propertyEnv.ExistentialHandler.IsProxyStructurallyNeverEmitted(innerProtocolList))
                         proxyClassName = qualifiedProxy;
                     else
                         // Persist the CONSUME degrade: a C#-authored conformer can't be marshalled into
@@ -1376,17 +1380,18 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
 
         var projection = s_projectionFactory.Project(propertyDecl.SwiftTypeSpec,
             // Thread EmissionContext so a COLLECTION-valued setter whose existential element's proxy
-            // was suppressed drops the per-element `static __v => new {Proxy}(__v)` wrap lambda
-            // (CONSUME arm) instead of emitting a dangling reference. The scalar-existential setter
-            // special-case above already consults IsProxyNameSuppressed with propertyEnv.EmissionContext;
+            // is unavailable (name-suppressed or structurally never emitted) drops the per-element
+            // `static __v => new {Proxy}(__v)` wrap lambda (CONSUME arm) instead of emitting a
+            // dangling reference. The scalar-existential setter special-case above already gates on
+            // the same two-half oracle (IsProxyNameSuppressed + IsProxyStructurallyNeverEmitted);
             // the general projection path (containers) reached here was the symmetric gap.
             new ProjectionContext { TypeDatabase = propertyEnv.TypeDatabase, IsParameter = true, GenericContext = genericContext, EmissionContext = propertyEnv.EmissionContext });
         if (projection != null)
         {
             // Persist the CONSUME degrade for the COLLECTION setter surface: a `[any P]`/`Set`/`[K: any P]`/
-            // `(any P)?` value whose existential element's proxy was suppressed drops its per-element wrap
+            // `(any P)?` value whose existential element's proxy is unavailable drops its per-element wrap
             // fallback inside the leaf projection (which owns no decl). The scalar-existential setter special
-            // case above already records via IsProxyNameSuppressed; this is the symmetric container gap.
+            // case above already records under its own two-half gate; this is the symmetric container gap.
             foreach (var proxyName in SuppressedProxyProjectionWalk.CollectSuppressedProxyNames(projection))
                 SuppressedProxyReporting.Record(propertyDecl, SuppressedProxyReporting.Site.ConsumeDegraded, proxyName, AccessorKind.Setter);
 

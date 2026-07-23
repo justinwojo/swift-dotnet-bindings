@@ -391,6 +391,59 @@ public class TypeProjectionFactoryComplexTests
         Assert.Equal("object", existential.PublicType);
     }
 
+    [Theory]
+    // The proxy-unavailability predicate ORs HasSelfRequirement and HasAssociatedTypes, so both
+    // arms must be pinned (real PATs carry HasAssociatedTypes; Self-constrained stdlib protocols
+    // carry HasSelfRequirement).
+    [InlineData(TypeRecordFlags.HasSelfRequirement)]
+    [InlineData(TypeRecordFlags.HasAssociatedTypes)]
+    public void Project_ConstrainedSelfATExistential_ProduceFailsClosed(TypeRecordFlags selfOrAssociatedFlag)
+    {
+        // Constrained existential `any Pipeline<Int>` for a Self/associated-type protocol: the
+        // public surface does NOT collapse to `object` (GetPublicExistentialType resolves the
+        // closed-form `IPipeline<nint>`), yet ProtocolProxyEmitter never writes a `PipelineProxy`
+        // class for a Self/AT protocol — and a foreign/stdlib protocol is never in the module's
+        // suppressed-proxy name set. The projection's PRODUCE arms must therefore fail closed
+        // (throw so the member-emit boundary re-stubs the member) instead of shipping a
+        // `new PipelineProxy(…)` reference to a class that is never emitted (dangling CS0246).
+        var db = new MockTypeDatabase();
+        db.AddType("TestModule.Pipeline", new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IPipeline"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Pipeline"),
+            MetadataAccessor = "",
+            Flags = selfOrAssociatedFlag,
+            Kind = TypeRecordKind.Protocol
+        });
+        db.AddType("Swift.Int", new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.NIntType,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            MetadataAccessor = "$sSiMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.Pipeline", new TypeSpec[] { new NamedTypeSpec("Swift.Int") })
+        });
+        var ctx = new ProjectionContext
+        {
+            TypeDatabase = db,
+            IsParameter = false,
+            CurrentModuleName = "TestModule",
+            EmissionContext = new ModuleEmissionContext()
+        };
+
+        var projection = _factory.Project(protocolList, ctx);
+
+        var existential = Assert.IsType<ExistentialProjection>(projection);
+        // Sanity: this is the non-collapsing residual — the `object` degradation does NOT shadow it.
+        Assert.Equal("IPipeline<nint>", existential.PublicType);
+        Assert.Throws<SuppressedProxyReferenceException>(
+            () => existential.GetReturnPlan("result", ReturnStrategy.Direct));
+    }
+
     #endregion
 
     #region Tuple Routing

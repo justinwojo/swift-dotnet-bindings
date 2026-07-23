@@ -765,7 +765,144 @@ public class ExistentialBypassEmitterTests
         Assert.Equal(string.Empty, swiftOutput);
     }
 
+    [Theory]
+    [InlineData(TypeRecordFlags.HasSelfRequirement)]
+    [InlineData(TypeRecordFlags.HasAssociatedTypes)]
+    public void TryEmitMethodBypass_ConstrainedSelfATExistentialReturn_DoesNotReferenceNeverEmittedProxy(TypeRecordFlags selfOrAssociatedFlag)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        RegisterSelfATProtocol(typeDatabase, "TestModule", "Pipeline", selfOrAssociatedFlag);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl, typeDatabase);
+
+        // Return: constrained existential `any Pipeline<Int>` on a Self/AT protocol. Its public
+        // surface is the generic interface (IPipeline<nint>), NOT object — so the object-demotion
+        // gate does not decline the bypass — yet the {P}Proxy class is never generated for Self/AT
+        // protocols, so the return wrap must not construct it.
+        var constrainedReturn = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.Pipeline", new TypeSpec[] { new NamedTypeSpec("Swift.Int") })
+        });
+        var existentialArg = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+
+        var method = CreateInstanceMethodDecl(
+            "makePipeline",
+            parentDecl,
+            moduleDecl,
+            constrainedReturn,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("options", new NamedTypeSpec("Swift.Array", existentialArg), moduleDecl, hasDefault: true)
+            });
+
+        var (emitted, csOutput, _) = EmitMethodBypass(method, typeDatabase);
+
+        // The member must stay (dropping it would regress public-member parity) but degrade to the
+        // same throwing shape as a name-suppressed proxy: no proxy construction, poisoned + throwing.
+        Assert.True(emitted);
+        Assert.DoesNotContain("PipelineProxy(", csOutput);
+        Assert.Contains("NotSupportedException", csOutput);
+        Assert.Contains("SB0006", csOutput);
+    }
+
     // --- Helper methods ---
+
+    private static void RegisterSelfATProtocol(TypeDatabase typeDatabase, string module, string name, TypeRecordFlags selfOrAssociatedFlag)
+    {
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (identifier: SwiftTypeName.FromModuleQualifiedName($"{module}.{name}"), record: new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName($"Swift.{module}", $"I{name}"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{module}.{name}"),
+                MetadataAccessor = $"$s{module.Length}{module}{name.Length}{name}Mp",
+                Flags = selfOrAssociatedFlag,
+                Kind = TypeRecordKind.Protocol
+            })
+        });
+    }
+
+    private static ClassDecl CreateClassDecl(string name, ModuleDecl moduleDecl, TypeDatabase typeDatabase)
+    {
+        var classDecl = new ClassDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}"),
+            MangledName = $"$s{moduleDecl.Name.Length}{moduleDecl.Name}{name.Length}{name}CN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(classDecl);
+
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (identifier: SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}"), record: new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName($"Swift.{moduleDecl.Name}", name),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}"),
+                MetadataAccessor = $"$s{moduleDecl.Name.Length}{moduleDecl.Name}{name.Length}{name}CMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class
+            })
+        });
+
+        return classDecl;
+    }
+
+    private static MethodDecl CreateInstanceMethodDecl(
+        string name,
+        ClassDecl parentDecl,
+        ModuleDecl moduleDecl,
+        TypeSpec returnType,
+        List<ArgumentDecl> parameters)
+    {
+        var signature = new List<ArgumentDecl>
+        {
+            CreateArgument(string.Empty, returnType, moduleDecl)
+        };
+        signature.AddRange(parameters);
+
+        var method = new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule6LoaderC{name.Length}{name}yF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = signature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+        parentDecl.Methods.Add(method);
+        return method;
+    }
+
+    private static (bool emitted, string csOutput, string swiftOutput) EmitMethodBypass(MethodDecl methodDecl, TypeDatabase typeDatabase)
+    {
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        // Per-test ModuleEmissionContext (never the shared Default) so the wrapper-symbol claim
+        // guard doesn't see prior tests' claims.
+        var env = new MethodEnvironment(methodDecl, typeDatabase)
+        {
+            EmissionContext = new ModuleEmissionContext()
+        };
+        var emitted = ExistentialBypassEmitter.TryEmitMethodBypass(csWriter, swiftWriter, env, NullLogger.Instance);
+        return (emitted, csOutput.ToString(), swiftOutput.ToString());
+    }
 
     private static TypeDatabase CreateTypeDatabase()
     {

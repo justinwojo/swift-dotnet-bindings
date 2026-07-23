@@ -576,6 +576,25 @@ public class SuppressedProxyTypeSpecWalkTests
             new NamedTypeSpec("SwiftBindingsTestLib.Container", new NamedTypeSpec("Swift.Int")) { IsAny = true },
             Ctx("ContainerProxy"))));
 
+    // The flags-half residual: a constrained Self/AT existential whose protocol is TypeRecord-only
+    // (a foreign/dependency protocol with no ProtocolDecl in the consuming module) is NEVER visited
+    // by the suppressed-name precompute, so its proxy is absent from the suppressed set — yet
+    // ProtocolProxyEmitter still never emits the proxy class (Self/AT early-return). The CONSUME
+    // arms drop the wrap fallback for that shape via the structural half of the oracle, so the walk
+    // must report the same degrade row with an EMPTY suppressed-name set, keyed purely on the
+    // TypeRecord flags. Keeps the walk in lockstep with the (already-broad) projection walk.
+    [Fact]
+    public void ConstrainedPatNeverNameSuppressed_YieldsName() =>
+        Assert.Equal("ContainerProxy", Assert.Single(Walk(
+            new NamedTypeSpec("SwiftBindingsTestLib.Container", new NamedTypeSpec("Swift.Int")) { IsAny = true },
+            Ctx(/* none name-suppressed */))));
+
+    [Fact]
+    public void ConstrainedSelfRequirementNeverNameSuppressed_YieldsName() =>
+        Assert.Equal("SelfPProxy", Assert.Single(Walk(
+            new NamedTypeSpec("SwiftBindingsTestLib.SelfP", new NamedTypeSpec("Swift.Int")) { IsAny = true },
+            Ctx(/* none name-suppressed */))));
+
     // `any Swift.Error` is a well-known existential (projects to Foundation.AnyError, not a proxy), so the
     // gate must return false — mirroring the factory's `!TryGetWellKnownProtocolType` half. Critically it
     // must short-circuit on the NAME, BEFORE probing the Swift.Error TypeRecord: that resolve runs through

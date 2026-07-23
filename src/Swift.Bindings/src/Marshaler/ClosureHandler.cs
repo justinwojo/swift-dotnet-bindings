@@ -2421,10 +2421,14 @@ public class ClosureHandler
         var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
         if (protocolList == null) return null;
         var qualified = _existentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
-        // CONSUME gate: a suppressed proxy (EveryProtocol conformance not emitted) returns null so the
-        // closure CONSUME sites drop the `static __v => new {Proxy}(__v)` wrap fallback and emit the
-        // no-fallback overload — byte-identical to the retired CoGater wrap-fallback downgrade.
-        if (_existentialHandler.IsProxyNameSuppressed(filteredProxy, qualified, EmissionContext))
+        // CONSUME gate: an unavailable proxy — name-suppressed (EveryProtocol conformance not emitted)
+        // OR structurally never emitted (a Self/AT protocol, reachable here as a CONSTRAINED `any P<X>`
+        // whose public type stays the generic interface, not `object`, so NeedsProxyWrapping passes) —
+        // returns null so the closure CONSUME sites drop the `static __v => new {Proxy}(__v)` wrap
+        // fallback and emit the no-fallback overload — byte-identical to the retired CoGater
+        // wrap-fallback downgrade.
+        if (_existentialHandler.IsProxyNameSuppressed(filteredProxy, qualified, EmissionContext) ||
+            _existentialHandler.IsProxyStructurallyNeverEmitted(protocolList))
             return null;
         return qualified;
     }
@@ -2446,8 +2450,13 @@ public class ClosureHandler
         if (!NeedsProxyWrapping(typeSpec, out var filteredProxy)) return;
         var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
         if (protocolList == null) return;
+        // PRODUCE gate: the invoker construction cannot degrade in place, so an unavailable proxy —
+        // name-suppressed OR structurally never emitted (a Self/AT protocol, reachable here as a
+        // CONSTRAINED `any P<X>` whose public type stays the generic interface, not `object`) — must
+        // unwind to the member-emit checkpoint, exactly like ExistentialHandler.GetRequiredProxyClassName.
         var qualified = _existentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
-        if (_existentialHandler.IsProxyNameSuppressed(filteredProxy, qualified, EmissionContext))
+        if (_existentialHandler.IsProxyNameSuppressed(filteredProxy, qualified, EmissionContext) ||
+            _existentialHandler.IsProxyStructurallyNeverEmitted(protocolList))
             throw new SuppressedProxyReferenceException(qualified);
     }
 
@@ -2487,7 +2496,13 @@ public class ClosureHandler
         if (!NeedsProxyWrapping(typeSpec, out var filteredProxy)) return false;
         var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
         if (protocolList == null) return false;
+        // Same unavailability oracle as the trampoline's construction sites: name-suppressed OR
+        // structurally never emitted (a Self/AT protocol, reachable here as a CONSTRAINED `any P<X>`
+        // whose public type stays the generic interface, not `object`). The guard must cover both
+        // halves or the no-op-body branch misses the flags-half shape and the trampoline references
+        // the absent proxy class.
         var qualified = _existentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
-        return _existentialHandler.IsProxyNameSuppressed(filteredProxy, qualified, EmissionContext);
+        return _existentialHandler.IsProxyNameSuppressed(filteredProxy, qualified, EmissionContext) ||
+            _existentialHandler.IsProxyStructurallyNeverEmitted(protocolList);
     }
 }

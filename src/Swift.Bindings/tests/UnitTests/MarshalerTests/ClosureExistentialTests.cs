@@ -419,6 +419,86 @@ public class ClosureExistentialTests
 
     #endregion
 
+    #region Proxy-suppression oracle — structurally never-emitted (Self/AT) proxies
+
+    // The flags-half residual for the closure oracle trio: a CONSTRAINED Self/AT existential
+    // (`any P<Int>`) projects to the generic interface (`IImageProcessing<nint>`, not `object`),
+    // passes NeedsProxyWrapping, and — when the protocol is TypeRecord-only (foreign/dependency,
+    // so the suppressed-name precompute never visits it) — is absent from the suppressed-name
+    // set. Yet ProtocolProxyEmitter never emits a proxy class for a Self/AT protocol, so every
+    // closure site that names `{P}Proxy` for this shape ships a dangling CS0246. The trio must
+    // treat the structurally-never-emitted proxy exactly like a name-suppressed one.
+
+    private static readonly TypeSpec ConstrainedExistentialSpec =
+        new NamedTypeSpec("TestModule.ImageProcessing", new NamedTypeSpec("Swift.Int")) { IsAny = true };
+
+    [Theory]
+    [InlineData(TypeRecordFlags.HasSelfRequirement)]
+    [InlineData(TypeRecordFlags.HasAssociatedTypes)]
+    public void GetQualifiedProxyClassName_ConstrainedSelfATExistential_ReturnsNull(TypeRecordFlags flag)
+    {
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing", flag);
+        var handler = new ClosureHandler(typeDatabase);
+
+        // CONSUME: the wrap-fallback name must be withheld so callers emit the no-fallback overload.
+        Assert.Null(handler.GetQualifiedProxyClassName(ConstrainedExistentialSpec));
+    }
+
+    [Theory]
+    [InlineData(TypeRecordFlags.HasSelfRequirement)]
+    [InlineData(TypeRecordFlags.HasAssociatedTypes)]
+    public void ThrowIfProxyReferenceSuppressed_ConstrainedSelfATExistential_Throws(TypeRecordFlags flag)
+    {
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing", flag);
+        var handler = new ClosureHandler(typeDatabase);
+
+        // PRODUCE: the invoker construction cannot be degraded in place — the member-emit
+        // checkpoint must catch and restub, same as a name-suppressed proxy.
+        Assert.Throws<SuppressedProxyReferenceException>(
+            () => handler.ThrowIfProxyReferenceSuppressed(ConstrainedExistentialSpec));
+    }
+
+    [Theory]
+    [InlineData(TypeRecordFlags.HasSelfRequirement)]
+    [InlineData(TypeRecordFlags.HasAssociatedTypes)]
+    public void IsProxyReferenceSuppressed_ConstrainedSelfATExistential_True(TypeRecordFlags flag)
+    {
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing", flag);
+        var handler = new ClosureHandler(typeDatabase);
+
+        // UCO trampoline guard: must branch to the safe no-op body up front (a throw across the
+        // native boundary would SIGABRT), so the predicate must cover the structural half too.
+        Assert.True(handler.IsProxyReferenceSuppressed(ConstrainedExistentialSpec));
+    }
+
+    [Fact]
+    public void IsProxyReferenceSuppressed_ContainerOfConstrainedSelfATExistential_True()
+    {
+        // Container recursion: an Array whose ELEMENT is the never-emitted-proxy existential must
+        // trip the guard the same way a suppressed-name element does.
+        var typeDatabase = CreateTypeDatabaseWithProtocol(
+            "TestModule.ImageProcessing", TypeRecordFlags.HasAssociatedTypes);
+        var handler = new ClosureHandler(typeDatabase);
+
+        var arraySpec = new NamedTypeSpec("Swift.Array", ConstrainedExistentialSpec);
+        Assert.True(handler.IsProxyReferenceSuppressed(arraySpec));
+    }
+
+    [Fact]
+    public void ClosureOracle_ConstrainedExistential_PlainProtocol_ProxyStaysLive()
+    {
+        // Green companion: the same constrained shape on a protocol WITHOUT Self/AT flags keeps
+        // its live proxy — the broadening must key strictly on the structural flags.
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing");
+        var handler = new ClosureHandler(typeDatabase);
+
+        Assert.Equal("ImageProcessingProxy", handler.GetQualifiedProxyClassName(ConstrainedExistentialSpec));
+        handler.ThrowIfProxyReferenceSuppressed(ConstrainedExistentialSpec); // must not throw
+        Assert.False(handler.IsProxyReferenceSuppressed(ConstrainedExistentialSpec));
+    }
+
+    #endregion
+
     #region Helpers
 
     private static ModuleTypeDatabase CreateSwiftModule()
@@ -446,7 +526,8 @@ public class ClosureExistentialTests
         return typeDatabase;
     }
 
-    private static TypeDatabase CreateTypeDatabaseWithProtocol(string protocolName)
+    private static TypeDatabase CreateTypeDatabaseWithProtocol(
+        string protocolName, TypeRecordFlags flags = TypeRecordFlags.None)
     {
         var typeDatabase = new TypeDatabase();
         var swiftModule = CreateSwiftModule();
@@ -464,7 +545,7 @@ public class ClosureExistentialTests
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName(moduleName, $"I{shortName}"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(protocolName),
                 MetadataAccessor = "$sMa",
-                Flags = TypeRecordFlags.None,
+                Flags = flags,
                 Kind = TypeRecordKind.Protocol
             });
         typeDatabase.AddModuleDatabase(testModule);

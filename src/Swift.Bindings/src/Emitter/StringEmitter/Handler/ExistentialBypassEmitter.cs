@@ -829,17 +829,19 @@ public static class ExistentialBypassEmitter
                 ? ", ownsContainer: true"
                 : string.Empty;
             // Well-known protocol types (Swift.Error → AnyError) are never proxy-suppressed, so
-            // resolve them first. Otherwise, if the existential's proxy class was suppressed (its
-            // EveryProtocol conformance was not emitted) there is no type to construct: the bypass
-            // adapter SKIPS the method when this TryEmit returns false, so declining here would drop
-            // the public member. Instead keep the member and emit a throwing body below (retired-CoGater
-            // public-member parity), leaving returnWrapExpr null.
+            // resolve them first. Otherwise, if the existential's proxy class is unavailable — name-
+            // suppressed (its EveryProtocol conformance was not emitted) or a Self/AT protocol for
+            // which no proxy class is ever generated (a constrained `any P<X>` keeps its generic-
+            // interface public type, so the object-demotion decline above does not catch it) — there
+            // is no type to construct: the bypass adapter SKIPS the method when this TryEmit returns
+            // false, so declining here would drop the public member. Instead keep the member and emit
+            // a throwing body below (retired-CoGater public-member parity), leaving returnWrapExpr
+            // null. (The flags half of the oracle needs no context, so no null-context guard here.)
             if (env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wellKnown))
             {
                 returnWrapExpr = $"new {wellKnown}(__existentialResult{ExistentialHandler.WellKnownOwnedTransferArg(wellKnown)})";
             }
-            else if (env.EmissionContext != null &&
-                     env.ExistentialHandler.IsProxyReferenceSuppressed(protocolList, env.EmissionContext))
+            else if (env.ExistentialHandler.IsProxyReferenceUnavailable(protocolList, env.EmissionContext))
             {
                 returnProxySuppressed = true;
                 suppressedReturnProxyName = env.ExistentialHandler.GetQualifiedProxyClassName(protocolList);

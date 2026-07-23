@@ -52,22 +52,25 @@ internal static class SuppressedProxyTypeSpecWalk
         if (typeSpec == null)
             return;
 
-        // Existential leaf: record only a suppressed single-protocol EC1 proxy that actually projects to a
-        // real proxy interface — the exact shape whose per-element `static __v => new {Proxy}(__v)` wrap
+        // Existential leaf: record only an unavailable single-protocol EC1 proxy that actually projects to
+        // a real proxy interface — the exact shape whose per-element `static __v => new {Proxy}(__v)` wrap
         // fallback the CONSUME arms drop. EC2+/composition marshals via GetExistentialContainer() with no
         // fallback, so it is not a consume-degrade. The ProjectsToProxyInterface gate mirrors the projection
-        // factory's `proxyClassName != null` half: a suppressed protocol-with-associated-types / Self
-        // (PAT) existential collapses to `object` (no wrap fallback to drop), so IsProxyReferenceSuppressed
-        // alone — which matches the suppressed NAME including PAT conformances — would over-report a false
-        // degrade row the projection path never emits. AND-ing the projection gate keeps the two walks in
-        // lockstep, side-effect-free (it reads TypeRecords WITHOUT the Apple-supplement recording arm).
+        // factory's `proxyClassName != null` half: an UNCONSTRAINED protocol-with-associated-types / Self
+        // (PAT) existential collapses to `object` (no wrap fallback to drop), so reporting it would be a
+        // false degrade row the projection path never emits. A CONSTRAINED `any P<X>` does NOT collapse —
+        // it keeps the generic interface — and its wrap fallback is dropped by BOTH halves of the oracle:
+        // the suppressed NAME (an in-module PAT conformance) and the structural Self/AT flags (a
+        // TypeRecord-only foreign protocol the precompute never name-records). IsProxyReferenceUnavailable
+        // covers both, keeping this walk in lockstep with the (equally broad) projection walk,
+        // side-effect-free (it reads TypeRecords WITHOUT the Apple-supplement recording arm).
         if (handler.IsExistential(typeSpec))
         {
             var protocolList = handler.ToProtocolListTypeSpec(typeSpec);
             if (protocolList != null
                 && handler.GetCSharpExistentialType(protocolList) == "Swift.Runtime.ExistentialContainer1"
                 && handler.ProjectsToProxyInterface(protocolList)
-                && handler.IsProxyReferenceSuppressed(protocolList, ctx))
+                && handler.IsProxyReferenceUnavailable(protocolList, ctx))
             {
                 var name = handler.GetQualifiedProxyClassName(protocolList);
                 if (!names.Contains(name))

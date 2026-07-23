@@ -1309,7 +1309,8 @@ public class PropertyHandlerTests
         Assert.Equal(string.Empty, swiftOutput);
     }
 
-    private static void RegisterProtocol(TypeDatabase typeDatabase, string protocolName)
+    private static void RegisterProtocol(TypeDatabase typeDatabase, string protocolName,
+        TypeRecordFlags flags = TypeRecordFlags.None)
     {
         typeDatabase.AddOutOfModuleTypes(new[]
         {
@@ -1318,7 +1319,7 @@ public class PropertyHandlerTests
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", protocolName.Split('.')[1]),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(protocolName),
                 MetadataAccessor = "$s10TestModule8ProtocolPAAWP",
-                Flags = TypeRecordFlags.None,
+                Flags = flags,
                 Kind = TypeRecordKind.Protocol
             })
         });
@@ -1408,6 +1409,47 @@ public class PropertyHandlerTests
         Assert.Contains("GC.KeepAlive(__keepAlive)", csOutput);
         // Setter passes decomposed args — NOT simple pass-through
         Assert.DoesNotContain("set => DataCache_Set(value)", csOutput);
+    }
+
+    [Theory]
+    // The flags-half residual for the optional-existential @_cdecl setter: a CONSTRAINED Self/AT
+    // existential (`(any DataCaching<Int>)?`) projects to the generic interface (not `object`), so
+    // the setter's wrap-fallback gate's `publicType != "object"` arm passes — and because the
+    // foreign Self/AT protocol is never in the suppressed-NAME set, the name-half gate alone would
+    // ship a live `static __p => new DataCachingProxy(__p)` for a proxy class that is structurally
+    // never emitted (dangling CS0246). The setter must drop the fallback (no-fallback GetOrCreate
+    // overload, owns-bit + keep-alive still threaded) exactly as its name-suppressed arm does.
+    [InlineData(TypeRecordFlags.HasSelfRequirement)]
+    [InlineData(TypeRecordFlags.HasAssociatedTypes)]
+    public void Emit_OptionalConstrainedSelfATExistentialProperty_SetterDropsWrapFallback(
+        TypeRecordFlags selfOrAssociatedFlag)
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings"; // Enable xcframework mode
+        RegisterProtocol(typeDatabase, "TestModule.DataCaching", selfOrAssociatedFlag);
+
+        // Distinct class/property names from Emit_OptionalExistentialProperty_SetterGetsCdeclWrapper:
+        // the cdecl wrapper-symbol collector is process-global, so two xcframework-mode tests emitting
+        // the same SBW_Get_TestModule_<Class>_<prop> symbol would make whichever runs second emit
+        // empty Swift output (the generator emits each module once in a real run).
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("CacheHost", moduleDecl);
+
+        var optionalExistentialType = new NamedTypeSpec(
+            "Swift.Optional",
+            new ProtocolListTypeSpec(new[]
+            {
+                new NamedTypeSpec("TestModule.DataCaching", new TypeSpec[] { new NamedTypeSpec("Swift.Int") })
+            }));
+        var registeredType = new NamedTypeSpec("Swift.Int");
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "payloadCache", registeredType, hasGetter: true, hasSetter: true);
+        property.SwiftTypeSpec = optionalExistentialType;
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        Assert.DoesNotContain("new DataCachingProxy(", csOutput);
+        // The setter still emits — no-fallback overload with owns-bit + keep-alive threaded.
+        Assert.Contains("(__v, out __owns, out __keepAlive)", csOutput);
     }
 
     [Fact]

@@ -324,6 +324,161 @@ public class WrapperEmitterReturnTests
         Assert.Contains("new DrawableProxy(__existentialResult, ownsContainer: true)", csOutput);
     }
 
+    [Theory]
+    // The proxy-unavailability predicate ORs HasSelfRequirement and HasAssociatedTypes; pin both.
+    [InlineData(TypeRecordFlags.HasSelfRequirement)]
+    [InlineData(TypeRecordFlags.HasAssociatedTypes)]
+    public void AsyncReturn_ConstrainedSelfATExistential_DoesNotReferenceNeverEmittedProxy(
+        TypeRecordFlags selfOrAssociatedFlag)
+    {
+        // Async method returning a CONSTRAINED Self/AT existential `any Pipeline<Int>`: the public
+        // surface resolves closed-form (`IPipeline<nint>`, not `object`), so the async harness's
+        // `object`-degradation arm does not shadow the proxy branch — yet ProtocolProxyEmitter
+        // never writes a `PipelineProxy` class for a Self/AT protocol, and a foreign/stdlib
+        // protocol is never in the suppressed-proxy name set. The completion callback must fault
+        // the awaiting Task (the same degrade as a suppressed proxy) instead of constructing the
+        // never-emitted proxy (dangling CS0246).
+        var typeDatabase = CreateTypeDatabaseWithSelfATProtocol(selfOrAssociatedFlag);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Container", moduleDecl);
+
+        var constrainedExistential = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.Pipeline", new TypeSpec[] { new NamedTypeSpec("Swift.Int") })
+        });
+
+        var method = CreateMethodDecl(
+            name: "makePipelineAsync",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: constrainedExistential,
+            isAsync: true,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.DoesNotContain("new PipelineProxy(", csOutput);
+        // The member stays, compile-poisoned, and the callback faults the Task instead of hanging it.
+        Assert.Contains("SB0006", csOutput);
+        Assert.Contains("NotSupportedException", csOutput);
+        Assert.Contains("Task<IPipeline<nint>> MakePipelineAsync", csOutput);
+    }
+
+    [Theory]
+    // Sync sibling of the async case above: the full-wrapper existential return routes through
+    // GetRequiredProxyClassName, which must also treat a structurally never-emitted (Self/AT)
+    // proxy as unavailable — not just a suppressed-name one.
+    [InlineData(TypeRecordFlags.HasSelfRequirement)]
+    [InlineData(TypeRecordFlags.HasAssociatedTypes)]
+    public void Return_ConstrainedSelfATExistential_DoesNotReferenceNeverEmittedProxy(
+        TypeRecordFlags selfOrAssociatedFlag)
+    {
+        var typeDatabase = CreateTypeDatabaseWithSelfATProtocol(selfOrAssociatedFlag);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Container", moduleDecl);
+
+        var constrainedExistential = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.Pipeline", new TypeSpec[] { new NamedTypeSpec("Swift.Int") })
+        });
+
+        var method = CreateMethodDecl(
+            name: "makePipeline",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: constrainedExistential,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.DoesNotContain("new PipelineProxy(", csOutput);
+        // The produce-throw unwinds to the member-emit checkpoint: member stays as a
+        // compile-poisoned (SB0006) throwing stub.
+        Assert.Contains("SB0006", csOutput);
+        Assert.Contains("NotSupportedException", csOutput);
+        Assert.Contains("IPipeline<nint> MakePipeline()", csOutput);
+    }
+
+    [Theory]
+    // PARAMETER sibling of the return cases above, through the @_cdecl marshalling arm
+    // (xcframework mode): a constrained Self/AT existential ARGUMENT projects to the generic
+    // interface (`IPipeline<nint>`, not `object`), so the cdecl existential-arg wrap-fallback
+    // gate's `publicType != "object"` arm passes — and because the foreign Self/AT protocol is
+    // never in the suppressed-NAME set, the name-half gate alone would ship a live
+    // `static __v => new PipelineProxy(__v)` for a proxy class that is structurally never
+    // emitted (dangling CS0246). The marshalling must drop the fallback (no-fallback GetOrCreate
+    // overload, owns-bit still threaded) exactly as its name-suppressed arm does; the member stays.
+    [InlineData(TypeRecordFlags.HasSelfRequirement)]
+    [InlineData(TypeRecordFlags.HasAssociatedTypes)]
+    public void CdeclParam_ConstrainedSelfATExistential_DropsWrapFallback(
+        TypeRecordFlags selfOrAssociatedFlag)
+    {
+        var typeDatabase = CreateTypeDatabaseWithSelfATProtocol(selfOrAssociatedFlag);
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings"; // Enable xcframework mode
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Container", moduleDecl);
+
+        var constrainedExistential = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.Pipeline", new TypeSpec[] { new NamedTypeSpec("Swift.Int") })
+        });
+
+        var method = CreateMethodDecl(
+            name: "process",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new NamedTypeSpec("Swift.Int"),
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance,
+            parameters: new[] { ("analyzer", (TypeSpec)constrainedExistential) });
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.DoesNotContain("new PipelineProxy(", csOutput);
+        // The cdecl marshalling arm still runs — no-fallback overload with owns-bit + keep-alive threaded.
+        Assert.Contains("out analyzerOwns, out analyzerKeepAlive)", csOutput);
+    }
+
+    [Theory]
+    // Same residual through the non-cdecl (wrapper-library / legacy direct) P/Invoke param path:
+    // PInvokeEmitter resolves MarshalledType.Existential.ProxyClassName for MethodSignature's wrap
+    // fallback and must leave it null for a structurally never-emitted (Self/AT) proxy, exactly
+    // as its name-suppressed arm does.
+    [InlineData(TypeRecordFlags.HasSelfRequirement)]
+    [InlineData(TypeRecordFlags.HasAssociatedTypes)]
+    public void WrapperLibraryParam_ConstrainedSelfATExistential_DropsWrapFallback(
+        TypeRecordFlags selfOrAssociatedFlag)
+    {
+        var typeDatabase = CreateTypeDatabaseWithSelfATProtocol(selfOrAssociatedFlag);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Container", moduleDecl);
+
+        var constrainedExistential = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.Pipeline", new TypeSpec[] { new NamedTypeSpec("Swift.Int") })
+        });
+
+        var method = CreateMethodDecl(
+            name: "process",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new NamedTypeSpec("Swift.Int"),
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance,
+            parameters: new[] { ("analyzer", (TypeSpec)constrainedExistential) });
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.DoesNotContain("new PipelineProxy(", csOutput);
+        // MethodSignature's call-argument arm still runs — the no-fallback single-argument overload.
+        Assert.Contains(">(analyzer)", csOutput);
+    }
+
     [Fact]
     public void Return_WellKnownExistential_EmitsOwnedAnyError()
     {
@@ -454,6 +609,28 @@ public class WrapperEmitterReturnTests
     /// Like CreateTypeDatabaseWithProtocol but also registers Swift.Error as a protocol,
     /// needed for Optional existential tests where CanEmitMethod checks AllProtocolsHaveTypeRecords.
     /// </summary>
+    // Mirror of CreateTypeDatabaseWithProtocol, but the protocol carries a Self/associated-type
+    // flag: its TypeRecord is Kind=Protocol (so AllProtocolsHaveTypeRecords holds and a constrained
+    // `any Pipeline<Int>` resolves the closed-form `IPipeline<nint>` surface), yet
+    // ProtocolProxyEmitter.EmitProxyClass early-returns for such a protocol — no `PipelineProxy`
+    // class ever exists to reference.
+    private static TypeDatabase CreateTypeDatabaseWithSelfATProtocol(TypeRecordFlags selfOrAssociatedFlag)
+    {
+        var typeDatabase = CreateTypeDatabaseWithProtocol();
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("TestModule.Pipeline"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IPipeline"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Pipeline"),
+                MetadataAccessor = "",
+                Flags = selfOrAssociatedFlag,
+                Kind = TypeRecordKind.Protocol
+            })
+        });
+        return typeDatabase;
+    }
+
     private static TypeDatabase CreateTypeDatabaseWithErrorProtocol()
     {
         var typeDatabase = new TypeDatabase();
@@ -810,27 +987,45 @@ public class WrapperEmitterReturnTests
         TypeSpec returnType,
         bool isAsync,
         bool throws,
-        MethodType methodType)
+        MethodType methodType,
+        IReadOnlyList<(string name, TypeSpec type)>? parameters = null)
     {
+        var signature = new List<ArgumentDecl>
+        {
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = returnType,
+                Name = string.Empty,
+                PrivateName = string.Empty,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = null,
+                ModuleDecl = moduleDecl
+            }
+        };
+        if (parameters != null)
+        {
+            foreach (var (paramName, paramType) in parameters)
+            {
+                signature.Add(new ArgumentDecl
+                {
+                    SwiftTypeSpec = paramType,
+                    Name = paramName,
+                    PrivateName = string.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                });
+            }
+        }
         var method = new MethodDecl
         {
             Name = name,
             MangledName = $"$s10TestModule6LoaderC{name}SiyF",
             MethodType = methodType,
             IsConstructor = false,
-            CSSignature = new List<ArgumentDecl>
-            {
-                new ArgumentDecl
-                {
-                    SwiftTypeSpec = returnType,
-                    Name = string.Empty,
-                    PrivateName = string.Empty,
-                    IsInOut = false,
-                    IsGeneric = false,
-                    ParentDecl = null,
-                    ModuleDecl = moduleDecl
-                }
-            },
+            CSSignature = signature,
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = parentDecl,
             ModuleDecl = moduleDecl,

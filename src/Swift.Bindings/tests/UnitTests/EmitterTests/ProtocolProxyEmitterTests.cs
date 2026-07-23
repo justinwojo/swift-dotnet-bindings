@@ -1404,6 +1404,67 @@ public class ProtocolProxyEmitterTests
         Assert.DoesNotContain("(IShape?)", output);
     }
 
+    [Theory]
+    // The proxy-unavailability predicate ORs HasSelfRequirement and HasAssociatedTypes; pin both.
+    [InlineData(TypeRecordFlags.HasSelfRequirement)]
+    [InlineData(TypeRecordFlags.HasAssociatedTypes)]
+    public void EmitProxyClass_PropertyReturningConstrainedSelfATExistential_DoesNotReferenceNeverEmittedProxy(
+        TypeRecordFlags selfOrAssociatedFlag)
+    {
+        // A proxy class for a protocol whose property returns a CONSTRAINED Self/AT existential
+        // `any Pipeline<Int>`: the projected surface is the closed-form `IPipeline<nint>` (not
+        // `object`), so the object-demotion gates do not hide the shape — yet no `PipelineProxy`
+        // class is ever emitted for a Self/AT protocol, and a foreign/stdlib protocol is never in
+        // the suppressed-proxy name set. The exposed surface here is the reverse-dispatch RECEIVER's
+        // result conversion (its proxy-wrap fallback must be dropped, keeping the member); the
+        // interface-impl getter itself is shielded by the witness-dispatch SB0003 demotion.
+        RegisterSwiftIntType();
+        RegisterSelfATProtocol("TestModule", "Pipeline", selfOrAssociatedFlag);
+
+        var constrainedExistential = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.Pipeline", new TypeSpec[] { new NamedTypeSpec("Swift.Int") })
+        });
+        var protocolDecl = CreateProtocolWithProperty(
+            "PipelineHolder", "pipeline", hasGetter: true, hasSetter: false, constrainedExistential);
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.DoesNotContain("new PipelineProxy(", output);
+        // Member and receiver both stay — degrade, don't drop.
+        Assert.Contains("public IPipeline<nint> Pipeline", output);
+        Assert.Contains("Receive_pipeline_get", output);
+    }
+
+    [Theory]
+    [InlineData(TypeRecordFlags.HasSelfRequirement)]
+    [InlineData(TypeRecordFlags.HasAssociatedTypes)]
+    public void EmitProxyClass_MethodReturningConstrainedSelfATExistential_DoesNotReferenceNeverEmittedProxy(
+        TypeRecordFlags selfOrAssociatedFlag)
+    {
+        // Method sibling of the property case above — the reverse-dispatch method receiver has its
+        // own result-conversion proxy-wrap fallback; the interface-impl method body is shielded by
+        // the witness-dispatch SB0003 demotion.
+        RegisterSwiftIntType();
+        RegisterSelfATProtocol("TestModule", "Pipeline", selfOrAssociatedFlag);
+
+        var constrainedExistential = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.Pipeline", new TypeSpec[] { new NamedTypeSpec("Swift.Int") })
+        });
+        var protocolDecl = CreateSimpleProtocol("PipelineFactory");
+        var method = CreateMethodDecl("makePipeline");
+        method.CSSignature[0].SwiftTypeSpec = constrainedExistential;
+        protocolDecl.Methods.Add(method);
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.DoesNotContain("new PipelineProxy(", output);
+        // Member and receiver both stay — degrade, don't drop.
+        Assert.Contains("public IPipeline<nint> MakePipeline()", output);
+        Assert.Contains("Receive_makePipeline_0", output);
+    }
+
     [Fact]
     public void EmitProxyClass_WithOptionalExistentialGeneric_UsesAnyTypeFallback()
     {
@@ -4189,6 +4250,42 @@ public class ProtocolProxyEmitterTests
     /// dependency module, so a proxy/signature in TestModule must namespace-qualify
     /// references to it.
     /// </summary>
+    // Registers a Self/associated-type protocol record: Kind=Protocol (so a constrained
+    // `any P<Int>` resolves the closed-form `IP<nint>` surface instead of collapsing to `object`),
+    // but ProtocolProxyEmitter.EmitProxyClass early-returns for such a protocol — no `{P}Proxy`
+    // class ever exists to reference.
+    private void RegisterSelfATProtocol(string module, string name, TypeRecordFlags selfOrAssociatedFlag)
+    {
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName($"{module}.{name}"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(module, $"I{name}"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{module}.{name}"),
+                MetadataAccessor = "",
+                Flags = selfOrAssociatedFlag,
+                Kind = TypeRecordKind.Protocol
+            })
+        });
+    }
+
+    // Swift.Int with a resolvable CSharpTypeName, so a constrained existential's generic argument
+    // lowers to a closed-form C# type (TryResolveExistentialGenericArgs requires a TypeRecord).
+    private void RegisterSwiftIntType()
+    {
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("Swift.Int"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.NIntType,
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+    }
+
     private void RegisterCrossModuleProtocol(string module, string name)
     {
         _typeDatabase.AddOutOfModuleTypes(new[]

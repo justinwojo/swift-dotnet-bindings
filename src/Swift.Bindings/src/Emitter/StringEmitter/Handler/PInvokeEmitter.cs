@@ -633,11 +633,15 @@ namespace BindingsGeneration
                                 _env.ExistentialHandler.TryGetFilteredProxyClassName(protocolList, out var filteredProxy))
                             {
                                 var qualifiedProxy = _env.ExistentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
-                                // CONSUME gate: a suppressed proxy (EveryProtocol conformance not emitted)
-                                // leaves proxyClassName null so MethodSignature drops the wrap fallback,
-                                // byte-identical to the retired CoGater wrap-fallback downgrade. Mirrors
-                                // WrapperEmitter.Marshalling's gate for the wrapper-library param path.
-                                if (!_env.ExistentialHandler.IsProxyNameSuppressed(filteredProxy, qualifiedProxy, _env.EmissionContext))
+                                // CONSUME gate: an unavailable proxy — name-suppressed (EveryProtocol
+                                // conformance not emitted) OR structurally never emitted (a Self/AT
+                                // protocol, reachable here as a CONSTRAINED `any P<X>` whose public type
+                                // stays the generic interface, not `object`) — leaves proxyClassName null
+                                // so MethodSignature drops the wrap fallback, byte-identical to the retired
+                                // CoGater wrap-fallback downgrade. Mirrors WrapperEmitter.Marshalling's
+                                // gate for the wrapper-library param path.
+                                if (!_env.ExistentialHandler.IsProxyNameSuppressed(filteredProxy, qualifiedProxy, _env.EmissionContext) &&
+                                    !_env.ExistentialHandler.IsProxyStructurallyNeverEmitted(protocolList))
                                     proxyClassName = qualifiedProxy;
                                 else
                                 {

@@ -769,11 +769,14 @@ namespace BindingsGeneration
                     asyncWrapExpr = "new Swift.Runtime.ExistentialUnion(__existentialResult)";
                 else if (_env.ExistentialHandler.TryGetWellKnownProtocolType(asyncProtocolList, out var asyncWkIR))
                     asyncWrapExpr = $"new {asyncWkIR}(__existentialResult)";
-                else if (_env.ExistentialHandler.IsProxyReferenceSuppressed(asyncProtocolList, _emissionContext))
+                else if (_env.ExistentialHandler.IsProxyReferenceUnavailable(asyncProtocolList, _emissionContext))
                 {
-                    // The protocol proxy that would marshal this async existential result was
-                    // suppressed (its EveryProtocol conformance could not be emitted — e.g. an
-                    // `init()` requirement). There is no concrete type to construct, so fault the
+                    // The protocol proxy that would marshal this async existential result is
+                    // unavailable — suppressed (its EveryProtocol conformance could not be emitted,
+                    // e.g. an `init()` requirement) or a Self/AT protocol for which no proxy class is
+                    // ever generated (a constrained `any P<X>` keeps its generic-interface public
+                    // type, so the `object` demotion arm above does not catch it).
+                    // There is no concrete type to construct, so fault the
                     // awaiting Task instead of referencing the absent proxy class. The fault is
                     // emitted as the `result` initializer below, so it throws inside the completion
                     // callback's try — routing to TrySetException (observable to the awaiter) and

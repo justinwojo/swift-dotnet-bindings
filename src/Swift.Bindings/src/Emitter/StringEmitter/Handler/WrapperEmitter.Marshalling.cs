@@ -570,11 +570,15 @@ namespace BindingsGeneration
                         _env.ExistentialHandler.TryGetFilteredProxyClassName(protocolList, out var filteredProxy))
                     {
                         var qualifiedProxy = _env.ExistentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
-                        // CONSUME gate: when the proxy class was not emitted (EveryProtocol conformance
-                        // suppressed), drop the wrap fallback so GetOrCreate uses the no-fallback overload.
-                        // The member stays — a Swift-vended conformer still round-trips through its own
-                        // witness table. Replaces the retired generate-then-strip wrap-fallback downgrade post-pass.
-                        if (!_env.ExistentialHandler.IsProxyNameSuppressed(filteredProxy, qualifiedProxy, _emissionContext))
+                        // CONSUME gate: when the proxy class is not present in the output — name-suppressed
+                        // (EveryProtocol conformance not emitted) OR structurally never emitted (a Self/AT
+                        // protocol, reachable here as a CONSTRAINED `any P<X>` whose public type stays the
+                        // generic interface, not `object`) — drop the wrap fallback so GetOrCreate uses the
+                        // no-fallback overload. The member stays — a Swift-vended conformer still round-trips
+                        // through its own witness table. Replaces the retired generate-then-strip
+                        // wrap-fallback downgrade post-pass.
+                        if (!_env.ExistentialHandler.IsProxyNameSuppressed(filteredProxy, qualifiedProxy, _emissionContext) &&
+                            !_env.ExistentialHandler.IsProxyStructurallyNeverEmitted(protocolList))
                             proxyClassName = qualifiedProxy;
                         else
                         {

@@ -554,11 +554,14 @@ public class TypeProjectionFactory
             proxyClassName = handler.GetQualifiedProxyClassName(protocolList);
         }
 
-        // Emit-time suppression gate (the projection path's half of change 8): true when the proxy was
-        // not emitted because its EveryProtocol conformance was skipped. ExistentialProjection's CONSUME
-        // arms then drop the wrap fallback and the PRODUCE arms throw to stub the member.
+        // Emit-time availability gate (the projection path's half of change 8): true when the proxy was
+        // not emitted — either its EveryProtocol conformance was skipped (name-suppressed), or the
+        // protocol carries a Self requirement / associated types, for which EmitProxyClass never writes
+        // a class at all (a constrained `any P<X>` keeps its generic-interface public type here, so the
+        // object-demotion fallback does not shield those arms). ExistentialProjection's CONSUME arms
+        // then drop the wrap fallback and the PRODUCE arms throw to stub the member.
         bool proxyIsSuppressed = proxyClassName != null &&
-            handler.IsProxyReferenceSuppressed(protocolList, context.EmissionContext);
+            handler.IsProxyReferenceUnavailable(protocolList, context.EmissionContext);
 
         return new ExistentialProjection(containerType, publicType, proxyClassName, isBareAny, isClassBoundArity1, proxyIsSuppressed, isObjCExistential);
     }

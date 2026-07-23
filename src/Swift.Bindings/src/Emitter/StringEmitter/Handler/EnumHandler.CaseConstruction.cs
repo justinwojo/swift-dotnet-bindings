@@ -563,11 +563,15 @@ namespace BindingsGeneration
                                         existentialHandler.TryGetFilteredProxyClassName(protocolList, out var filteredProxy))
                                     {
                                         var qualifiedProxy = existentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
-                                        // CONSUME gate: drop the wrap fallback when the proxy class was not
-                                        // emitted (EveryProtocol conformance suppressed). The case factory
-                                        // keeps working for Swift-vended conformers. Replaces the retired
+                                        // CONSUME gate: drop the wrap fallback when the proxy class is not
+                                        // present in the output — name-suppressed (EveryProtocol conformance
+                                        // not emitted) OR structurally never emitted (a Self/AT protocol,
+                                        // reachable here as a CONSTRAINED `any P<X>` whose public type stays
+                                        // the generic interface, not `object`). The case factory keeps
+                                        // working for Swift-vended conformers. Replaces the retired
                                         // generate-then-strip wrap-fallback downgrade post-pass.
-                                        if (!existentialHandler.IsProxyNameSuppressed(filteredProxy, qualifiedProxy, emissionCtx))
+                                        if (!existentialHandler.IsProxyNameSuppressed(filteredProxy, qualifiedProxy, emissionCtx) &&
+                                            !existentialHandler.IsProxyStructurallyNeverEmitted(protocolList))
                                             proxyClassName = qualifiedProxy;
                                     }
                                     // Thread the runtime owns-bit so the finally can run
@@ -1117,10 +1121,14 @@ namespace BindingsGeneration
                             existentialHandler.TryGetFilteredProxyClassName(protocolList, out var filteredProxy))
                         {
                             var qualifiedProxy = existentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
-                            // CONSUME gate: drop the wrap fallback when the proxy class was not emitted
-                            // (EveryProtocol conformance suppressed). Replaces the retired
-                            // generate-then-strip wrap-fallback downgrade post-pass.
-                            if (!existentialHandler.IsProxyNameSuppressed(filteredProxy, qualifiedProxy, emissionCtx))
+                            // CONSUME gate: drop the wrap fallback when the proxy class is not present in
+                            // the output — name-suppressed (EveryProtocol conformance not emitted) OR
+                            // structurally never emitted (a Self/AT protocol, reachable here as a
+                            // CONSTRAINED `any P<X>` whose public type stays the generic interface, not
+                            // `object`). Replaces the retired generate-then-strip wrap-fallback downgrade
+                            // post-pass.
+                            if (!existentialHandler.IsProxyNameSuppressed(filteredProxy, qualifiedProxy, emissionCtx) &&
+                                !existentialHandler.IsProxyStructurallyNeverEmitted(protocolList))
                                 proxyClassName = qualifiedProxy;
                         }
                         return proxyClassName != null

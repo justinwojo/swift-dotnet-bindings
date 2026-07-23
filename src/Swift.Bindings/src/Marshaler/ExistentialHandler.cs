@@ -1181,8 +1181,9 @@ public class ExistentialHandler
 
     /// <summary>
     /// True when a reference to the proxy class for <paramref name="protocolList"/> would name a
-    /// proxy that was not emitted. The single oracle behind <see cref="TryGetConsumableProxyClassName"/>
-    /// and <see cref="GetRequiredProxyClassName"/>.
+    /// proxy recorded in a suppressed-name set. The NAME half of the availability oracle
+    /// <see cref="IsProxyReferenceUnavailable"/>, which ORs this with the structural Self/AT half
+    /// (<see cref="IsProxyStructurallyNeverEmitted"/>) that the name sets never record.
     /// </summary>
     public bool IsProxyReferenceSuppressed(ProtocolListTypeSpec protocolList, ModuleEmissionContext? ctx)
     {
@@ -1208,9 +1209,24 @@ public class ExistentialHandler
     /// </summary>
     public bool IsProxyReferenceUnavailable(ProtocolListTypeSpec protocolList, ModuleEmissionContext? ctx)
     {
-        if (IsProxyReferenceSuppressed(protocolList, ctx))
-            return true;
+        return IsProxyReferenceSuppressed(protocolList, ctx) || IsProxyStructurallyNeverEmitted(protocolList);
+    }
 
+    /// <summary>
+    /// The structural (flags) half of <see cref="IsProxyReferenceUnavailable"/>, exposed separately so
+    /// CONSUME sites that key their name-half on an already-computed ObjC-filtered proxy name (via
+    /// <see cref="IsProxyNameSuppressed"/>) can AND it in without changing how the name is derived.
+    /// True when no <c>{P}Proxy</c> class is ever emitted for <paramref name="protocolList"/> for a
+    /// reason the suppressed-name set never records: a protocol with a Self requirement or associated
+    /// types, for which <c>ProtocolProxyEmitter.EmitProxyClass</c> unconditionally early-returns. The
+    /// live residual is the CONSTRAINED existential (<c>any P&lt;X&gt;</c>) on a TypeRecord-only
+    /// (foreign/dependency) protocol: its public type stays the generic interface rather than demoting
+    /// to <c>object</c> — so the <c>publicType != "object"</c> gates pass — yet the precompute pass
+    /// (which only visits ProtocolDecls) never records the proxy as suppressed. Always sound to degrade
+    /// on: the class provably does not exist, so this can only remove a dangling reference.
+    /// </summary>
+    public bool IsProxyStructurallyNeverEmitted(ProtocolListTypeSpec protocolList)
+    {
         // Over the same non-marker set AllProtocolsHaveTypeRecords already verified has TypeRecords,
         // mirror EmitProxyClass's Self/AT early-return: any such protocol yields no `{P}Proxy` class.
         foreach (var protocol in GetNonMarkerProtocols(protocolList))
@@ -1235,28 +1251,32 @@ public class ExistentialHandler
     /// <summary>
     /// CONSUME path. Returns the cross-module-qualified proxy class name to use in a
     /// <c>GetOrCreate&lt;T&gt;(value, static __v =&gt; new {Proxy}(__v))</c> wrap fallback, or
-    /// <c>null</c> when the proxy is suppressed — in which case the call site emits the no-fallback
-    /// overload and the member stays. Mirrors the nullable contract of
-    /// <see cref="ClosureHandler.GetQualifiedProxyClassName"/>.
+    /// <c>null</c> when the proxy is unavailable — name-suppressed OR a Self/AT protocol whose
+    /// proxy class is never emitted (see <see cref="IsProxyReferenceUnavailable"/>) — in which
+    /// case the call site emits the no-fallback overload and the member stays. Mirrors the
+    /// nullable contract of <see cref="ClosureHandler.GetQualifiedProxyClassName"/>.
     /// </summary>
     public string? TryGetConsumableProxyClassName(ProtocolListTypeSpec protocolList, ModuleEmissionContext? ctx)
     {
-        var bareName = GetProxyClassName(protocolList);
-        var qualifiedName = QualifyProxyClassName(bareName, protocolList);
-        return IsProxyNameSuppressed(bareName, qualifiedName, ctx) ? null : qualifiedName;
+        return IsProxyReferenceUnavailable(protocolList, ctx)
+            ? null
+            : QualifyProxyClassName(GetProxyClassName(protocolList), protocolList);
     }
 
     /// <summary>
     /// PRODUCE path. Returns the cross-module-qualified proxy class name for a standalone
     /// <c>new {Proxy}(…)</c> construction, or throws <see cref="SuppressedProxyReferenceException"/>
-    /// when the proxy is suppressed so the member-emit boundary can roll back and stub/skip the whole
-    /// member (it cannot produce the value without the proxy).
+    /// when the proxy is unavailable — name-suppressed OR a Self/AT protocol whose proxy class is
+    /// never emitted (see <see cref="IsProxyReferenceUnavailable"/>) — so the member-emit boundary
+    /// can roll back and stub/skip the whole member (it cannot produce the value without the proxy).
+    /// The Self/AT half matters for constrained existentials (<c>any P&lt;X&gt;</c>): their public
+    /// type stays the generic interface rather than demoting to <c>object</c>, so no earlier
+    /// object-fallback shields the construction site.
     /// </summary>
     public string GetRequiredProxyClassName(ProtocolListTypeSpec protocolList, ModuleEmissionContext? ctx)
     {
-        var bareName = GetProxyClassName(protocolList);
-        var qualifiedName = QualifyProxyClassName(bareName, protocolList);
-        if (IsProxyNameSuppressed(bareName, qualifiedName, ctx))
+        var qualifiedName = QualifyProxyClassName(GetProxyClassName(protocolList), protocolList);
+        if (IsProxyReferenceUnavailable(protocolList, ctx))
             throw new SuppressedProxyReferenceException(qualifiedName);
         return qualifiedName;
     }

@@ -2845,6 +2845,70 @@ public class EnumHandlerOutputTests
         Assert.Contains("NotSupportedException", csOutput);
     }
 
+    [Theory]
+    // CONSUME sibling of the TryGet degrade above, for the CONSTRAINED shape: `any Encodable<Int>`
+    // projects to the generic interface (`IEncodable<nint>`, not `object`), so the case-factory
+    // wrap-fallback gate's `publicType != "object"` arm passes — and because the foreign Self/AT
+    // protocol is never in the suppressed-NAME set, the name-half gate alone would ship a live
+    // `static __v => new EncodableProxy(__v)` for a proxy class that is structurally never emitted
+    // (dangling CS0246). The factory must drop the fallback (no-fallback GetOrCreate overload)
+    // exactly as it does for a name-suppressed proxy; the member itself stays.
+    [InlineData(TypeRecordFlags.HasSelfRequirement)]
+    [InlineData(TypeRecordFlags.HasAssociatedTypes)]
+    public void Emit_EnumCaseFactoryWithConstrainedSelfATExistential_DropsWrapFallback(
+        TypeRecordFlags selfOrAssociatedFlag)
+    {
+        var typeDatabase = CreateTypeDatabaseWithSelfRequirementProtocol(
+            "TestModule", "Encodable", selfOrAssociatedFlag);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Task", moduleDecl, isFrozen: true);
+
+        var jsonCase = CreateCase("requestJSONEncodable");
+        jsonCase.AssociatedValues.Add(new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.Encodable", new TypeSpec[] { new NamedTypeSpec("Swift.Int") })
+        }));
+        enumDecl.Cases.Add(jsonCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // The never-emitted proxy must NOT be referenced anywhere in the body.
+        Assert.DoesNotContain("new EncodableProxy(", csOutput);
+        // The case factory still emits, degraded to the no-fallback single-argument overload.
+        Assert.Contains(">(value)", csOutput);
+    }
+
+    [Theory]
+    // Same residual through the @_cdecl case-factory arm (non-frozen enum in xcframework mode):
+    // the cdecl marshalling block builds its own GetOrCreate wrap fallback and must drop it for a
+    // structurally never-emitted (Self/AT) proxy just like its name-suppressed arm does.
+    [InlineData(TypeRecordFlags.HasSelfRequirement)]
+    [InlineData(TypeRecordFlags.HasAssociatedTypes)]
+    public void Emit_CdeclEnumCaseFactoryWithConstrainedSelfATExistential_DropsWrapFallback(
+        TypeRecordFlags selfOrAssociatedFlag)
+    {
+        var typeDatabase = CreateTypeDatabaseWithSelfRequirementProtocol(
+            "TestModule", "Encodable", selfOrAssociatedFlag);
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Task", moduleDecl, isFrozen: false);
+
+        var jsonCase = CreateCase("requestJSONEncodable");
+        jsonCase.AssociatedValues.Add(new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.Encodable", new TypeSpec[] { new NamedTypeSpec("Swift.Int") })
+        }));
+        enumDecl.Cases.Add(jsonCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.DoesNotContain("new EncodableProxy(", csOutput);
+        // The cdecl marshalling arm still runs — no-fallback overload with owns-bit + keep-alive threaded.
+        Assert.Contains("out valueOwns, out valueKeepAlive)", csOutput);
+    }
+
     [Fact]
     public void Emit_ExistentialWithKnownProxy_FactoryUsesInterfaceType()
     {
