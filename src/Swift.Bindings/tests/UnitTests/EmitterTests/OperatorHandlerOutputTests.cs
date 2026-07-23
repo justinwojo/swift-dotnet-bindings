@@ -816,6 +816,150 @@ public class OperatorHandlerOutputTests
         return typeDatabase;
     }
 
+    [Fact]
+    public void EmitOperator_ClassReturn_DirectPath_MarshalsFromSwift()
+    {
+        // Regression (Macaw/SwiftDate "operator-return CS0029"): an operator on an open class
+        // returning a Swift class takes the DIRECT-call branch — a class pointer comes back in x0,
+        // not via indirect result — so the P/Invoke yields a raw IntPtr. The result MUST be wrapped
+        // in SwiftMarshal.MarshalFromSwift<T> or the operator (which declares the projected class)
+        // fails with CS0029. Previously the branch emitted a bare `return PInvoke_...(...)`.
+        var typeDatabase = CreateTypeDatabaseWithClass("TestModule", "Size");
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateClassDecl("Size", moduleDecl);
+        var op = CreateClassBinaryOperator("+", parentType, moduleDecl, "TestModule.Size");
+
+        var output = EmitOperator(op, typeDatabase);
+
+        // The raw pointer is marshalled into the projected class...
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<TestModule.Size>", output);
+        // ...on the DIRECT path (no indirect-result buffer machinery)...
+        Assert.DoesNotContain("SwiftIndirectResult", output);
+        Assert.DoesNotContain("new IntPtr(swiftIndirectResult", output);
+        // ...and NOT as the bare, unmarshalled P/Invoke return that caused CS0029.
+        Assert.DoesNotContain("return PInvoke_op_Addition(", output);
+    }
+
+    [Fact]
+    public void EmitOperator_ComplexEnumReturn_DirectPath_MarshalsFromSwift()
+    {
+        // Companion to the class-return case: a frozen non-simple enum return also comes back on the
+        // direct-call branch as a raw payload pointer (SafeHandle-backed). Mirroring the general return
+        // dispatch, it must go through MarshalFromSwift<T> too, so an enum-returning operator doesn't
+        // become the next CS0029 gap.
+        var typeDatabase = CreateClassParentWithReturnDatabase(
+            "TestModule", "Geometry", "Shape", TypeRecordFlags.Frozen, TypeRecordKind.Enum);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateClassDecl("Geometry", moduleDecl);
+        var op = CreateClassBinaryOperator("+", parentType, moduleDecl, "TestModule.Shape");
+
+        var output = EmitOperator(op, typeDatabase);
+
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<TestModule.Shape>", output);
+        Assert.DoesNotContain("SwiftIndirectResult", output);
+        Assert.DoesNotContain("return PInvoke_op_Addition(", output);
+    }
+
+    // Registers a class parent plus a distinct return type (of the given kind/flags) in the same module,
+    // so an operator whose operands are the class and whose result is the other type resolves fully.
+    private static TypeDatabase CreateClassParentWithReturnDatabase(string moduleName, string classTypeName,
+        string returnTypeName, TypeRecordFlags returnFlags, TypeRecordKind returnKind)
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+                MetadataAccessor = "$sSbMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var module = new ModuleTypeDatabase(moduleName, $"/tmp/{moduleName}.dylib");
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName($"{moduleName}.{classTypeName}"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(moduleName, classTypeName),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleName}.{classTypeName}"),
+                MetadataAccessor = $"$s10{moduleName}{classTypeName.Length}{classTypeName}CMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName($"{moduleName}.{returnTypeName}"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(moduleName, returnTypeName),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleName}.{returnTypeName}"),
+                MetadataAccessor = $"$s10{moduleName}{returnTypeName.Length}{returnTypeName}OMa",
+                Flags = returnFlags,
+                Kind = returnKind
+            });
+        typeDatabase.AddModuleDatabase(module);
+        return typeDatabase;
+    }
+
+    private static ClassDecl CreateClassDecl(string name, ModuleDecl moduleDecl)
+    {
+        return new ClassDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}CN",
+            IsFinal = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+    }
+
+    private static OperatorDecl CreateClassBinaryOperator(string symbol, ClassDecl parentType,
+        ModuleDecl moduleDecl, string returnType)
+    {
+        // The left/right operands are the class itself; the return type is supplied (class or enum).
+        var method = new MethodDecl
+        {
+            Name = symbol,
+            MangledName = $"$s10TestModule{parentType.Name.Length}{parentType.Name}C1poiyA2C_ACtFZ",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { SwiftTypeSpec = new NamedTypeSpec(returnType), Name = string.Empty, PrivateName = string.Empty, IsInOut = false, IsGeneric = false, ParentDecl = parentType, ModuleDecl = moduleDecl },
+                new() { SwiftTypeSpec = new NamedTypeSpec($"{moduleDecl.Name}.{parentType.Name}"), Name = "left", PrivateName = "lhs", IsInOut = false, IsGeneric = false, ParentDecl = parentType, ModuleDecl = moduleDecl },
+                new() { SwiftTypeSpec = new NamedTypeSpec($"{moduleDecl.Name}.{parentType.Name}"), Name = "right", PrivateName = "rhs", IsInOut = false, IsGeneric = false, ParentDecl = parentType, ModuleDecl = moduleDecl }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentType,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+
+        return new OperatorDecl
+        {
+            Name = symbol,
+            OperatorSymbol = symbol,
+            Kind = OperatorKind.Binary,
+            IsPrefix = false,
+            UnderlyingMethod = method,
+            ParentDecl = parentType,
+            ModuleDecl = moduleDecl
+        };
+    }
+
     // NOTE: the PInvokeHelperContext branch in OperatorHandler.EmitOperatorPInvoke
     // (OperatorHandler.cs:638) carries the same CallingConvention selection as the
     // direct path covered by EmitOperator_ClassParentNoCdeclWrapper_UsesCallConvSwift.

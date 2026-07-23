@@ -541,24 +541,82 @@ namespace BindingsGeneration
             }
             else
             {
-                // Direct call path
+                // Direct call path. Build the raw P/Invoke invocation expression once, then decide how its
+                // result is returned. A Swift class, non-simple enum, or ObjC-bridged/bridgeable reference
+                // return comes back as a raw pointer that must be re-hydrated into its projected C# type;
+                // blittable, bool, and simple-enum returns are already the projected type and pass straight
+                // through. Without this, a class-returning operator emits `return {pinvoke}(...)` where the
+                // P/Invoke yields an IntPtr and the operator declares the projected class → CS0029.
+                string call;
                 if (pinvokeHelperContext != null)
                 {
                     var metadataArgs = string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList());
                     var fullArgs = string.IsNullOrEmpty(callArgs) ? metadataArgs : $"{callArgs}, {metadataArgs}";
-                    if (returnType == "void")
-                        csWriter.WriteLine($"{pinvokeHelperContext.HelperClassName}.{pinvokeName}({fullArgs});");
-                    else
-                        csWriter.WriteLine($"return {pinvokeHelperContext.HelperClassName}.{pinvokeName}({fullArgs});");
+                    call = $"{pinvokeHelperContext.HelperClassName}.{pinvokeName}({fullArgs})";
                 }
                 else
                 {
-                    if (returnType == "void")
-                        csWriter.WriteLine($"{pinvokeName}({callArgs});");
-                    else
-                        csWriter.WriteLine($"return {pinvokeName}({callArgs});");
+                    call = $"{pinvokeName}({callArgs})";
+                }
+
+                if (returnType == "void")
+                    csWriter.WriteLine($"{call};");
+                else
+                    EmitDirectOperatorReturn(csWriter, call, returnType, methodEnv);
+            }
+        }
+
+        /// <summary>
+        /// Emits the return statement for an operator's direct-call path. A Swift class, non-simple enum,
+        /// or ObjC-bridged/bridgeable reference return comes back from the P/Invoke as a raw pointer and must
+        /// be marshalled into its projected C# type; all other returns (blittable, bool, simple enum) are
+        /// already the projected type. Mirrors the type-record dispatch order used by the general (non-operator)
+        /// return marshalling (ObjC-bridged/bridgeable → GetNSObject/GetINativeObject; Class → MarshalFromSwift;
+        /// non-simple Enum → MarshalFromSwift) so operator returns don't diverge from it.
+        /// </summary>
+        private static void EmitDirectOperatorReturn(CSharpWriter csWriter, string call, string returnType, MethodEnvironment? methodEnv)
+        {
+            if (methodEnv != null)
+            {
+                var returnArg = methodEnv.MethodDecl.CSSignature.First();
+                if (returnArg.SwiftTypeSpec is NamedTypeSpec retNts && retNts.HasModule())
+                {
+                    var retTypeName = SwiftTypeName.FromTypeSpec(retNts);
+                    if (methodEnv.TypeDatabase.TryGetTypeRecord(retTypeName, out var retRecord))
+                    {
+                        // ObjC-bridged / bridgeable reference types: re-hydrate the raw pointer into the
+                        // NSObject- or CoreFoundation-derived binding (GetNSObject / GetINativeObject).
+                        if (MarshallingHelpers.IsObjCBridged(retRecord) || MarshallingHelpers.IsObjCBridgeable(retRecord))
+                        {
+                            if (MarshallingHelpers.IsCoreFoundationType(returnType))
+                            {
+                                csWriter.WriteLine($"return {MarshallingHelpers.FormatObjCBridgeCall(returnType, call, nonNull: true, ownsReference: true)};");
+                            }
+                            else
+                            {
+                                csWriter.WriteLine($"var _objcResult = {MarshallingHelpers.FormatObjCBridgeCall(returnType, call, nonNull: true)};");
+                                csWriter.WriteLine("_objcResult.DangerousRelease();");
+                                csWriter.WriteLine("return _objcResult;");
+                            }
+                            return;
+                        }
+
+                        // Swift classes return the object pointer directly (x0); non-simple enums return an
+                        // opaque SafeHandle payload pointer. Both are marshalled by MarshalFromSwift.
+                        bool isClass = retRecord.Kind == TypeRecordKind.Class;
+                        bool isComplexEnum = retRecord.Kind == TypeRecordKind.Enum &&
+                            !retRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
+                        if (isClass || isComplexEnum)
+                        {
+                            csWriter.WriteLine($"return ({returnType})SwiftMarshal.MarshalFromSwift<{returnType}>({call});");
+                            return;
+                        }
+                    }
                 }
             }
+
+            // Result is already the projected C# type — return it directly.
+            csWriter.WriteLine($"return {call};");
         }
 
         /// <summary>
