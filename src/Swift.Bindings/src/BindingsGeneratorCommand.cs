@@ -499,7 +499,11 @@ public static class BindingsGeneratorCommand
                     return;
                 }
                 // Finding 50: fail-close before emitting a silently-degraded pure-ObjC binding.
-                if (EmitStrictInputsFailureIfDegraded(strictInputs, logger))
+                // The ObjC module identity is resolved here, so the abort writes the structured
+                // failure report like every other nonzero exit with a known module and inputs.
+                if (FailStrictInputsWithReport(
+                        strictInputs, objcResolution.ModuleName,
+                        PureObjCFailureInputs(objcResolution, platformInfo), outputDirectory, logger))
                 {
                     context.ExitCode = 1;
                     return;
@@ -534,10 +538,22 @@ public static class BindingsGeneratorCommand
                     if (!sdkMode && !noVerifyCSharp && objcResult.ProjectPath is { } objcCsproj
                         && !VerifyGeneratedCSharp(objcCsproj, logger))
                     {
+                        BindingsGenerator.EmitFatalExitReport(
+                            objcResolution.ModuleName,
+                            BindingFailureOutcomeKind.CSharpVerificationFailure,
+                            "CSHARP_VERIFICATION_FAILURE", RecoveryStage.CSharpCompile,
+                            "The generated C# failed in-generator compile verification; " +
+                            "see the C# verification diagnostics above.",
+                            PureObjCFailureInputs(objcResolution, platformInfo), outputDirectory, logger);
                         context.ExitCode = 1;
                         return;
                     }
                 }
+                // A nonzero pipeline exit propagates directly, so leave the structured report here —
+                // the ObjC module identity is known and no later path will write one.
+                ReportPureObjCPipelineFailure(
+                    objcResult, objcResolution.ModuleName,
+                    PureObjCFailureInputs(objcResolution, platformInfo), outputDirectory, logger);
                 context.ExitCode = objcResult.ExitCode;
                 if (objcResult.ErrorMessage != null)
                     logger.LogError("{Message}", objcResult.ErrorMessage);
@@ -576,7 +592,11 @@ public static class BindingsGeneratorCommand
                     return;
                 }
                 // Finding 50: fail-close before emitting a silently-degraded pure-ObjC binding.
-                if (EmitStrictInputsFailureIfDegraded(strictInputs, logger))
+                // The ObjC module identity is resolved here, so the abort writes the structured
+                // failure report like every other nonzero exit with a known module and inputs.
+                if (FailStrictInputsWithReport(
+                        strictInputs, objcResolution.ModuleName,
+                        PureObjCFailureInputs(objcResolution, platformInfo), outputDirectory, logger))
                 {
                     context.ExitCode = 1;
                     return;
@@ -611,10 +631,22 @@ public static class BindingsGeneratorCommand
                     if (!sdkMode && !noVerifyCSharp && objcResult.ProjectPath is { } objcCsproj
                         && !VerifyGeneratedCSharp(objcCsproj, logger))
                     {
+                        BindingsGenerator.EmitFatalExitReport(
+                            objcResolution.ModuleName,
+                            BindingFailureOutcomeKind.CSharpVerificationFailure,
+                            "CSHARP_VERIFICATION_FAILURE", RecoveryStage.CSharpCompile,
+                            "The generated C# failed in-generator compile verification; " +
+                            "see the C# verification diagnostics above.",
+                            PureObjCFailureInputs(objcResolution, platformInfo), outputDirectory, logger);
                         context.ExitCode = 1;
                         return;
                     }
                 }
+                // A nonzero pipeline exit propagates directly, so leave the structured report here —
+                // the ObjC module identity is known and no later path will write one.
+                ReportPureObjCPipelineFailure(
+                    objcResult, objcResolution.ModuleName,
+                    PureObjCFailureInputs(objcResolution, platformInfo), outputDirectory, logger);
                 context.ExitCode = objcResult.ExitCode;
                 if (objcResult.ErrorMessage != null)
                     logger.LogError("{Message}", objcResult.ErrorMessage);
@@ -699,8 +731,19 @@ public static class BindingsGeneratorCommand
                 platformTarget, logger, platformInfo: platformInfo);
             if (resolvedDependencies == null)
             {
+                // Validation failed — error already logged. The module and primary inputs are
+                // resolved by now (xcframework mode), so leave the structured report.
+                BindingsGenerator.EmitFatalExitReport(
+                    resolution!.ModuleName, BindingFailureOutcomeKind.DependencyInputFailure,
+                    "FRAMEWORK_DEPENDENCY_RESOLUTION", RecoveryStage.Parse,
+                    "One or more --framework-dependency options failed to resolve: " +
+                    string.Join(", ", frameworkDependencies!),
+                    new BindingFailureInputPaths(
+                        swiftAbiPath, dylibPath, tbdPath, swiftInterface,
+                        platformInfo.Platform.ToString()),
+                    outputDirectory, logger);
                 context.ExitCode = 1;
-                return; // Validation failed — error already logged
+                return;
             }
         }
 
@@ -727,31 +770,49 @@ public static class BindingsGeneratorCommand
             }
         }
 
+        // Required-input validation. In xcframework mode the module identity is already resolved
+        // (the resolver staged these paths), so a missing input still leaves the structured
+        // failure report. In direct (-a/-d/-t) mode these fire before any module identity exists
+        // — the ABI peek below needs a valid ABI file — so no report is written for them: the
+        // report contract requires a KNOWN module, and inventing one would misattribute the run.
+        void FailRequiredInput(string message, string? offendingPath)
+        {
+            logger.LogError("{Message}", message);
+            if (resolution != null)
+            {
+                BindingsGenerator.EmitFatalExitReport(
+                    resolution.ModuleName, BindingFailureOutcomeKind.RequiredInputMissing,
+                    "REQUIRED_INPUT_MISSING", RecoveryStage.Parse,
+                    offendingPath == null ? message : $"{message} (got: '{offendingPath}')",
+                    new BindingFailureInputPaths(
+                        swiftAbiPath, dylibPath, tbdPath, swiftInterface,
+                        platformInfo.Platform.ToString()),
+                    outputDirectory, logger);
+            }
+            context.ExitCode = 1;
+        }
+
         if (string.IsNullOrWhiteSpace(swiftAbiPath) || !File.Exists(swiftAbiPath))
         {
-            logger.LogError("Error: Valid Swift ABI file is required.");
-            context.ExitCode = 1;
+            FailRequiredInput("Error: Valid Swift ABI file is required.", swiftAbiPath);
             return;
         }
 
         if (string.IsNullOrWhiteSpace(dylibPath) || !File.Exists(dylibPath))
         {
-            logger.LogError("Error: Valid dynamic library is required.");
-            context.ExitCode = 1;
+            FailRequiredInput("Error: Valid dynamic library is required.", dylibPath);
             return;
         }
 
         if (string.IsNullOrWhiteSpace(tbdPath) || !File.Exists(tbdPath))
         {
-            logger.LogError("Error: Valid TBD file is required.");
-            context.ExitCode = 1;
+            FailRequiredInput("Error: Valid TBD file is required.", tbdPath);
             return;
         }
 
         if (!Directory.Exists(outputDirectory))
         {
-            logger.LogError("Error: Valid output directory is required.");
-            context.ExitCode = 1;
+            FailRequiredInput("Error: Valid output directory is required.", outputDirectory);
             return;
         }
 
@@ -791,6 +852,17 @@ public static class BindingsGeneratorCommand
                 if (!File.Exists(dbPath))
                 {
                     logger.LogError("SWIFTBIND070: Module database not found: '{Path}'.", dbPath);
+                    // Both modes have a module identity by now (resolver or ABI peek), so this
+                    // pre-generation abort leaves the structured report too.
+                    BindingsGenerator.EmitFatalExitReport(
+                        resolution?.ModuleName ?? directModuleName,
+                        BindingFailureOutcomeKind.DependencyInputFailure,
+                        "SWIFTBIND070", RecoveryStage.Parse,
+                        $"Module database not found: '{dbPath}'.",
+                        new BindingFailureInputPaths(
+                            swiftAbiPath, dylibPath, tbdPath, swiftInterface,
+                            platformInfo.Platform.ToString()),
+                        outputDirectory, logger);
                     context.ExitCode = 1;
                     return;
                 }
@@ -828,6 +900,18 @@ public static class BindingsGeneratorCommand
                 "(The legacy 'regex' producer was removed; interface-facts parsing is SwiftSyntax-only " +
                 "and requires macOS.)",
                 interfaceFactsProducer);
+            // Late-validated flag: the module identity and inputs are already resolved on both
+            // modes at this point, so the abort leaves the structured report too.
+            BindingsGenerator.EmitFatalExitReport(
+                resolution?.ModuleName ?? directModuleName,
+                BindingFailureOutcomeKind.InvalidConfiguration,
+                "INVALID_CONFIGURATION", RecoveryStage.Parse,
+                $"Unknown --interface-facts-producer value '{interfaceFactsProducer}'. " +
+                "Expected 'auto' or 'swift-syntax'.",
+                new BindingFailureInputPaths(
+                    swiftAbiPath, dylibPath, tbdPath, swiftInterface,
+                    platformInfo.Platform.ToString()),
+                outputDirectory, logger);
             context.ExitCode = 1;
             return;
         }
@@ -882,6 +966,18 @@ public static class BindingsGeneratorCommand
                 "ObjC pipeline for mixed framework failed (exit {Code}); refusing to emit a " +
                 "Swift-only binding that would silently drop the ObjC surface. {Msg}",
                 mixedParse!.ExitCode, mixedParse.ErrorMessage ?? "(no detail)");
+            // Pre-generation abort with a fully resolved module + inputs: leave the structured
+            // report (the same outcome kind as the post-generation mixed-companion abort — both
+            // mean the ObjC surface of a mixed framework could not be produced).
+            BindingsGenerator.EmitFatalExitReport(
+                resolution!.ModuleName, BindingFailureOutcomeKind.MixedObjCSurfaceFailure,
+                "MIXED_OBJC_SURFACE_FAILURE", RecoveryStage.Parse,
+                $"ObjC pipeline for mixed framework failed (exit {mixedParse.ExitCode}): " +
+                (mixedParse.ErrorMessage ?? "(no detail)"),
+                new BindingFailureInputPaths(
+                    swiftAbiPath, dylibPath, tbdPath, swiftInterface,
+                    platformInfo.Platform.ToString()),
+                outputDirectory, logger);
             context.ExitCode = mixedParse.ExitCode != 0 ? mixedParse.ExitCode : 1;
             return;
         }
@@ -1131,6 +1227,20 @@ public static class BindingsGeneratorCommand
             return;
         }
 
+        // From here on, generation itself SUCCEEDED — which also cleared any stale
+        // binding-failure-report.json from the output directory. Every nonzero exit below is a
+        // post-generation gate, so each must write the structured report itself, or the artifact
+        // contract — "report present ⇔ the last generation into this directory failed" — silently
+        // breaks on exactly these paths.
+        var failureReportModule = resolution?.ModuleName ?? directModuleName;
+        var failureReportInputs = new BindingFailureInputPaths(
+            swiftAbiPath, dylibPath, tbdPath, swiftInterface, platformInfo.Platform.ToString());
+        void EmitCommandFailureReport(
+            BindingFailureOutcomeKind kind, string reasonCode, RecoveryStage stage, string? evidence) =>
+            BindingsGenerator.EmitFatalExitReport(
+                failureReportModule, kind, reasonCode, stage, evidence,
+                failureReportInputs, outputDirectory, logger);
+
         // Finding 50: fail-closed on a degraded input edge under --strict-inputs (the CI compile
         // gate). The input-resolution report (slice fallback, missing swiftinterface, ABI-JSON
         // fallback, ambiguous/synthesized TBD, degraded auto-detected dependency) was recorded
@@ -1140,7 +1250,8 @@ public static class BindingsGeneratorCommand
         // has already persisted the full decision list (Info plus degradations) to the
         // inputResolution section of binding-artifact-manifest.json; this gate logs each
         // degradation as a SWIFTBIND027 line and escalates only the *degradations* to a failure.
-        if (EmitStrictInputsFailureIfDegraded(strictInputs, logger))
+        if (FailStrictInputsWithReport(
+                strictInputs, failureReportModule, failureReportInputs, outputDirectory, logger))
         {
             context.ExitCode = 1;
             return;
@@ -1157,6 +1268,10 @@ public static class BindingsGeneratorCommand
         if (wrapperArchNormalized != "simulator" && wrapperArchNormalized != "device" && wrapperArchNormalized != "all")
         {
             logger.LogError("Error: Invalid --wrapper-architectures '{Value}'. Valid values: 'simulator', 'device', 'all'.", wrapperArchitectures);
+            EmitCommandFailureReport(
+                BindingFailureOutcomeKind.WrapperCompileFailure, "INVALID_WRAPPER_CONFIGURATION",
+                RecoveryStage.SwiftCompile,
+                $"Invalid --wrapper-architectures '{wrapperArchitectures}'. Valid values: 'simulator', 'device', 'all'.");
             context.ExitCode = 1;
             return;
         }
@@ -1183,6 +1298,10 @@ public static class BindingsGeneratorCommand
                     "Error: --wrapper-architectures all is not supported in direct mode. " +
                     "Pass 'simulator' or 'device' (default: simulator) and rerun the generator " +
                     "once per slice with the matching swiftinterface (-s).");
+                EmitCommandFailureReport(
+                    BindingFailureOutcomeKind.WrapperCompileFailure, "INVALID_WRAPPER_CONFIGURATION",
+                    RecoveryStage.SwiftCompile,
+                    "--wrapper-architectures all is not supported in direct mode; pass 'simulator' or 'device'.");
                 context.ExitCode = 1;
                 return;
             }
@@ -1231,6 +1350,10 @@ public static class BindingsGeneratorCommand
                 var parsed = BindingsGenerator.ParseTargetArchitectures(targetArchitectures, logger);
                 if (parsed == null)
                 {
+                    EmitCommandFailureReport(
+                        BindingFailureOutcomeKind.WrapperCompileFailure, "INVALID_WRAPPER_CONFIGURATION",
+                        RecoveryStage.SwiftCompile,
+                        $"--target-architectures '{targetArchitectures}' contains an invalid architecture token.");
                     context.ExitCode = 1; // invalid arch token already logged
                     return;
                 }
@@ -1244,6 +1367,11 @@ public static class BindingsGeneratorCommand
                     autoMatchSource, requestedArchs, autoBasisArchs, autoBasisSliceId,
                     logger, out var primaryArch, out var extraArchs))
             {
+                EmitCommandFailureReport(
+                    BindingFailureOutcomeKind.WrapperCompileFailure, "SWIFTBIND052",
+                    RecoveryStage.SwiftCompile,
+                    "An explicitly requested wrapper architecture is missing from the source slice; " +
+                    "see the SWIFTBIND052 diagnostics above.");
                 context.ExitCode = 1; // explicit arch missing from source — already logged (SWIFTBIND052)
                 return;
             }
@@ -1359,6 +1487,10 @@ public static class BindingsGeneratorCommand
             outcome.LogTo(logger);
             if (outcome.IsFatal)
             {
+                EmitCommandFailureReport(
+                    BindingFailureOutcomeKind.WrapperCompileFailure,
+                    outcome.DiagnosticCode ?? "WRAPPER_COMPILE_FAILURE",
+                    RecoveryStage.SwiftCompile, outcome.Message);
                 context.ExitCode = outcome.ExitCode;
                 return;
             }
@@ -1389,6 +1521,11 @@ public static class BindingsGeneratorCommand
                         m => m.Wrapper = WrapperSection.From(
                             outcome, coGated, "post-loop stripped symbols on the verify-recover path"),
                         logger);
+                    EmitCommandFailureReport(
+                        BindingFailureOutcomeKind.WrapperSymbolViolation, "SWIFTBIND115",
+                        RecoveryStage.SymbolValidation,
+                        $"The verify-recover loop settled the wrapper, yet the generated surface still " +
+                        $"carries {outcome.StrippedSymbols.Count} stripped symbol(s); failing closed.");
                     context.ExitCode = 1;
                     return;
 
@@ -1411,6 +1548,9 @@ public static class BindingsGeneratorCommand
                             resolution.ModuleName,
                             m => m.Wrapper = WrapperSection.From(outcome, coGated, ex.Message),
                             logger);
+                        EmitCommandFailureReport(
+                            BindingFailureOutcomeKind.WrapperSymbolViolation,
+                            "STRIPPED_SYMBOL_RECONCILIATION", RecoveryStage.SymbolValidation, ex.Message);
                         context.ExitCode = 1;
                         return;
                     }
@@ -1446,6 +1586,10 @@ public static class BindingsGeneratorCommand
                     "Direct mode: cannot derive framework search path from TBD '{Tbd}'. " +
                     "Expected layout: <SDK>/.../<Module>.framework/<Module>.tbd.",
                     tbdPath);
+                EmitCommandFailureReport(
+                    BindingFailureOutcomeKind.WrapperCompileFailure, "INVALID_WRAPPER_CONFIGURATION",
+                    RecoveryStage.SwiftCompile,
+                    $"Direct mode: cannot derive the framework search path from TBD '{tbdPath}'.");
                 context.ExitCode = 1;
                 return;
             }
@@ -1478,6 +1622,10 @@ public static class BindingsGeneratorCommand
                 var parsedDirect = BindingsGenerator.ParseTargetArchitectures(targetArchitectures, logger);
                 if (parsedDirect == null)
                 {
+                    EmitCommandFailureReport(
+                        BindingFailureOutcomeKind.WrapperCompileFailure, "INVALID_WRAPPER_CONFIGURATION",
+                        RecoveryStage.SwiftCompile,
+                        $"--target-architectures '{targetArchitectures}' contains an invalid architecture token.");
                     context.ExitCode = 1;
                     return;
                 }
@@ -1489,6 +1637,11 @@ public static class BindingsGeneratorCommand
                     autoMatchSourceDirect, requestedArchsDirect, directBasisArchs, directBasisSliceId,
                     logger, out var directPrimaryArch, out var directExtraArchs))
             {
+                EmitCommandFailureReport(
+                    BindingFailureOutcomeKind.WrapperCompileFailure, "SWIFTBIND052",
+                    RecoveryStage.SwiftCompile,
+                    "An explicitly requested wrapper architecture is missing from the source slice; " +
+                    "see the SWIFTBIND052 diagnostics above.");
                 context.ExitCode = 1;
                 return;
             }
@@ -1567,6 +1720,10 @@ public static class BindingsGeneratorCommand
             directOutcome.LogTo(logger);
             if (directOutcome.IsFatal)
             {
+                EmitCommandFailureReport(
+                    BindingFailureOutcomeKind.WrapperCompileFailure,
+                    directOutcome.DiagnosticCode ?? "WRAPPER_COMPILE_FAILURE",
+                    RecoveryStage.SwiftCompile, directOutcome.Message);
                 context.ExitCode = directOutcome.ExitCode;
                 return;
             }
@@ -1591,6 +1748,9 @@ public static class BindingsGeneratorCommand
                         directModuleName,
                         m => m.Wrapper = WrapperSection.From(directOutcome, directCoGated, ex.Message),
                         logger);
+                    EmitCommandFailureReport(
+                        BindingFailureOutcomeKind.WrapperSymbolViolation,
+                        "STRIPPED_SYMBOL_RECONCILIATION", RecoveryStage.SymbolValidation, ex.Message);
                     context.ExitCode = 1;
                     return;
                 }
@@ -1713,6 +1873,11 @@ public static class BindingsGeneratorCommand
                     "ObjC pipeline for mixed framework failed (exit {Code}); refusing to emit a " +
                     "Swift-only binding that would silently drop the ObjC surface. {Msg}",
                     mixedObjcResult!.ExitCode, mixedObjcResult.ErrorMessage ?? "(no detail)");
+                EmitCommandFailureReport(
+                    BindingFailureOutcomeKind.MixedObjCSurfaceFailure, "MIXED_OBJC_SURFACE_FAILURE",
+                    RecoveryStage.Emit,
+                    $"ObjC pipeline for mixed framework failed (exit {mixedObjcResult!.ExitCode}): " +
+                    $"{mixedObjcResult.ErrorMessage ?? "(no detail)"}");
                 // Exit 0 + null Module is still a failed ObjC surface — force non-zero so the
                 // Nuke --strict/--permissive layer sees a real failure (matches the pre-Swift gate).
                 context.ExitCode = mixedObjcResult.ExitCode != 0 ? mixedObjcResult.ExitCode : 1;
@@ -1866,6 +2031,11 @@ public static class BindingsGeneratorCommand
                                 $"{platformInfo.GetDefaultSwiftPackageId(resolution.ModuleName)}.csproj"),
                             logger, verificationPackageFeed))
                     {
+                        EmitCommandFailureReport(
+                            BindingFailureOutcomeKind.CSharpVerificationFailure,
+                            "CSHARP_VERIFICATION_FAILURE", RecoveryStage.CSharpCompile,
+                            "The generated C# failed in-generator compile verification; " +
+                            "see the C# verification diagnostics above.");
                         context.ExitCode = 1;
                         return;
                     }
@@ -1876,6 +2046,9 @@ public static class BindingsGeneratorCommand
             catch (Exception ex)
             {
                 logger.LogError("Failed to emit binding project: {Message}", ex.Message);
+                EmitCommandFailureReport(
+                    BindingFailureOutcomeKind.ProjectEmissionFailure, "PROJECT_EMISSION_FAILURE",
+                    RecoveryStage.Emit, $"Failed to emit binding project: {ex.Message}");
                 context.ExitCode = 1;
                 return;
             }
@@ -1997,6 +2170,11 @@ public static class BindingsGeneratorCommand
                                 $"{platformInfo.GetDefaultSwiftPackageId(directModuleName)}.csproj"),
                             logger, verificationPackageFeed))
                     {
+                        EmitCommandFailureReport(
+                            BindingFailureOutcomeKind.CSharpVerificationFailure,
+                            "CSHARP_VERIFICATION_FAILURE", RecoveryStage.CSharpCompile,
+                            "The generated C# failed in-generator compile verification; " +
+                            "see the C# verification diagnostics above.");
                         context.ExitCode = 1;
                         return;
                     }
@@ -2007,6 +2185,9 @@ public static class BindingsGeneratorCommand
             catch (Exception ex)
             {
                 logger.LogError("Failed to emit direct-mode binding project: {Message}", ex.Message);
+                EmitCommandFailureReport(
+                    BindingFailureOutcomeKind.ProjectEmissionFailure, "PROJECT_EMISSION_FAILURE",
+                    RecoveryStage.Emit, $"Failed to emit direct-mode binding project: {ex.Message}");
                 context.ExitCode = 1;
                 return;
             }
@@ -2496,6 +2677,71 @@ public static class BindingsGeneratorCommand
         }
         logger.LogError("SWIFTBIND027: input resolution degraded under --strict-inputs; failing the generation. Each degraded input is listed in the SWIFTBIND027 entries above.");
         return true;
+    }
+
+    /// <summary>
+    /// The strict-inputs gate plus its failure-report emission. This abort exits nonzero AFTER a
+    /// successful generation already cleared any stale <c>binding-failure-report.json</c>, so the
+    /// gate must write the structured report itself — the report's evidence carries each recorded
+    /// degradation, mirroring the SWIFTBIND027 lines the gate logs. Returns true when the
+    /// generation must abort.
+    /// </summary>
+    internal static bool FailStrictInputsWithReport(
+        bool strictInputs,
+        string? moduleName,
+        BindingFailureInputPaths inputs,
+        string outputDirectory,
+        ILogger logger)
+    {
+        if (!EmitStrictInputsFailureIfDegraded(strictInputs, logger))
+            return false;
+
+        var degradations = InputResolutionReport.Decisions
+            .Where(d => d.Severity == InputResolutionSeverity.Degradation)
+            .Select(d => $"{d.Category}: {d.Detail}");
+        BindingsGenerator.EmitFatalExitReport(
+            moduleName, BindingFailureOutcomeKind.StrictInputsDegraded, "SWIFTBIND027",
+            RecoveryStage.Parse, string.Join(" | ", degradations), inputs, outputDirectory, logger);
+        return true;
+    }
+
+    /// <summary>
+    /// Failure-report inputs for a pure-ObjC lane. The lane consumes no ABI JSON, TBD, or
+    /// swiftinterface; its one native input is the resolved framework binary, carried in the
+    /// dylib slot (it IS the Mach-O dynamic library being bound) so the input fingerprint stays
+    /// framework-specific rather than platform-only.
+    /// </summary>
+    internal static BindingFailureInputPaths PureObjCFailureInputs(
+        XCFrameworkResolver.ObjCFrameworkResolution resolution, PlatformInfo platformInfo) => new(
+            null,
+            Path.Combine(
+                resolution.FrameworkSearchPath,
+                $"{resolution.FrameworkDirectoryName}.framework",
+                resolution.FrameworkDirectoryName),
+            null, null, platformInfo.Platform.ToString());
+
+    /// <summary>
+    /// Writes the structured failure report for a pure-ObjC lane whose pipeline exited nonzero.
+    /// The lane propagates the pipeline's exit code directly and the ObjC module identity is
+    /// already resolved at that point, so the exit must leave the artifact; a zero exit writes
+    /// nothing. Stage attribution follows the pipeline's shape: no parsed module means the
+    /// clang/AST/umbrella-header phase died (Parse); a parsed module that still failed died in
+    /// filtering or companion emission (Emit).
+    /// </summary>
+    internal static void ReportPureObjCPipelineFailure(
+        ObjCPipelineResult result,
+        string moduleName,
+        BindingFailureInputPaths inputs,
+        string outputDirectory,
+        ILogger logger)
+    {
+        if (result.ExitCode == 0)
+            return;
+
+        BindingsGenerator.EmitFatalExitReport(
+            moduleName, BindingFailureOutcomeKind.ObjCPipelineFailure, "OBJC_PIPELINE_FAILURE",
+            result.Module == null ? RecoveryStage.Parse : RecoveryStage.Emit,
+            result.ErrorMessage, inputs, outputDirectory, logger);
     }
 
     /// <summary>

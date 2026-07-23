@@ -82,10 +82,12 @@ public sealed class BindingFailureInput
     public string? SwiftInterfacePath { get; init; }
 
     /// <summary>
-    /// A stable content fingerprint over the supplied inputs and the generator version — each input folds
-    /// in its name, then its content when the file is present, so distinct missing inputs stay distinct.
-    /// Identifies exactly which inputs produced this failure so a re-run can be tied back to it. A lowercase
-    /// hex SHA-256 digest, or <c>"unavailable"</c> when the digest could not be computed.
+    /// A stable content fingerprint over the supplied inputs, the target platform, and the generator
+    /// version — each input folds in its file name (never its directory, so re-conversions into fresh
+    /// temp directories fingerprint identically), then its content when the file is present, so
+    /// distinct missing inputs stay distinct. Identifies exactly which inputs produced this failure so
+    /// a re-run can be tied back to it. A lowercase hex SHA-256 digest, or <c>"unavailable"</c> when
+    /// the digest could not be computed.
     /// </summary>
     public required string Fingerprint { get; init; }
 }
@@ -126,7 +128,10 @@ public enum BindingFailureOutcomeKind
     /// <summary>Convergence left no usable public surface (SWIFTBIND116).</summary>
     NoUsableSurface,
 
-    /// <summary>An emitted wrapper-symbol P/Invoke had no matching definition (wrapper-symbol integrity gate).</summary>
+    /// <summary>
+    /// A wrapper-symbol integrity gate failed — an emitted wrapper-symbol P/Invoke had no matching
+    /// definition, or stripped-symbol reconciliation could not restore consistency.
+    /// </summary>
     WrapperSymbolViolation,
 
     /// <summary>A bare proxy construction had no matching proxy definition (proxy-reference integrity gate).</summary>
@@ -144,11 +149,39 @@ public enum BindingFailureOutcomeKind
     /// <summary>An ingestion-quarantined type's withdrawal closure could not be proven complete (SWIFTBIND120).</summary>
     IngestionClosureUnprovable,
 
-    /// <summary>A dependency module database or ABI could not be loaded/parsed (SWIFTBIND072/073).</summary>
+    /// <summary>
+    /// A dependency input could not be found, loaded, or parsed — a module database
+    /// (SWIFTBIND070), a dependency ABI (SWIFTBIND072/073), or a declared
+    /// <c>--framework-dependency</c> that failed resolution.
+    /// </summary>
     DependencyInputFailure,
 
     /// <summary>An unexpected exception aborted the run.</summary>
     UnhandledException,
+
+    /// <summary>Input resolution degraded and <c>--strict-inputs</c> forbids degrading (SWIFTBIND027).</summary>
+    StrictInputsDegraded,
+
+    /// <summary>The Swift wrapper could not be compiled or configured (fatal compile outcome, invalid architecture selection).</summary>
+    WrapperCompileFailure,
+
+    /// <summary>The generated C# failed in-generator compile verification.</summary>
+    CSharpVerificationFailure,
+
+    /// <summary>The binding project (csproj and companions) could not be emitted.</summary>
+    ProjectEmissionFailure,
+
+    /// <summary>The mixed-framework ObjC companion pipeline failed to produce its surface.</summary>
+    MixedObjCSurfaceFailure,
+
+    /// <summary>The pure-ObjC binding pipeline (clang parse, filtering, or companion emission) exited nonzero.</summary>
+    ObjCPipelineFailure,
+
+    /// <summary>A required primary input (ABI JSON, dylib, TBD) or the output directory was missing or invalid at generation start.</summary>
+    RequiredInputMissing,
+
+    /// <summary>A command-line option value was invalid, detected after the module identity and inputs were already resolved.</summary>
+    InvalidConfiguration,
 }
 
 /// <summary>The tool/plane a diagnostic came from.</summary>
@@ -187,6 +220,22 @@ public sealed class FailureDiagnostic
 
     /// <summary>A stable per-diagnostic fingerprint over plane, normalized message, and span.</summary>
     public required string Fingerprint { get; init; }
+
+    /// <summary>
+    /// The compiler's attached notes — cascade context ("declared here", "in expansion of …") that
+    /// rides along with the primary. Evidence only; empty when the tool attached none.
+    /// </summary>
+    public List<FailureDiagnosticNote> Notes { get; init; } = new();
+}
+
+/// <summary>A note a compiler attached to a primary diagnostic.</summary>
+public sealed class FailureDiagnosticNote
+{
+    /// <summary>The note's message, whitespace-normalized.</summary>
+    public required string Message { get; init; }
+
+    /// <summary>The note's source span, when it carried a position.</summary>
+    public SourceSpan? Span { get; init; }
 }
 
 /// <summary>A source position on a diagnostic.</summary>

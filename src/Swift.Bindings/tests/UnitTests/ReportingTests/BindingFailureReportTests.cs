@@ -388,6 +388,54 @@ public class BindingFailureReportTests
         Assert.Equal(RecoveryStage.SwiftCompile, report.Outcome.Stage);
     }
 
+    // ---- fingerprint: the target platform is part of the input identity -------------------------
+
+    [Fact]
+    public void InputFingerprint_DistinguishesTargetPlatforms_AndIsStablePerPlatform()
+    {
+        var dir = FreshOutputDir();
+        var abi = Path.Combine(dir, "a.abi.json");
+        File.WriteAllText(abi, "{\"ABIRoot\":{}}");
+
+        string Fingerprint(string? platform) => BindingFailureReportBuilder
+            .ForFatalExit("M", new BindingFailureInputPaths(abi, null, null, null, platform),
+                BindingFailureOutcomeKind.UnhandledException, "UNHANDLED_EXCEPTION",
+                RecoveryStage.Emit, dir)
+            .Input.Fingerprint;
+
+        var ios = Fingerprint("iOS");
+        var macos = Fingerprint("MacOS");
+        Assert.Matches("^[0-9a-f]{64}$", ios);
+        // The same inputs bound for two platforms are two distinct failures — never one digest.
+        Assert.NotEqual(ios, macos);
+        // Per-platform the fingerprint stays stable.
+        Assert.Equal(ios, Fingerprint("iOS"));
+        // A platformless invocation (the legacy shape) still fingerprints.
+        Assert.Matches("^[0-9a-f]{64}$", Fingerprint(null));
+        Assert.NotEqual(ios, Fingerprint(null));
+    }
+
+    // ---- fingerprint: file-name (not directory) identity is deliberate ------------------------
+
+    [Fact]
+    public void InputFingerprint_IsStableAcrossDirectories_ForSameNamesAndContent()
+    {
+        // Re-conversions land the same inputs in fresh temp directories; the fingerprint must
+        // identify the inputs, not the directory they happened to land in.
+        string FingerprintIn(string dir)
+        {
+            var abi = Path.Combine(dir, "a.abi.json");
+            File.WriteAllText(abi, "{\"ABIRoot\":{}}");
+            return BindingFailureReportBuilder
+                .ForFatalExit("M", new BindingFailureInputPaths(abi, null, null, null, "iOS"),
+                    BindingFailureOutcomeKind.UnhandledException, "UNHANDLED_EXCEPTION",
+                    RecoveryStage.Emit, dir)
+                .Input.Fingerprint;
+        }
+
+        Assert.Equal(FingerprintIn(FreshOutputDir()), FingerprintIn(FreshOutputDir()));
+    }
+
     // ---- fingerprint: distinct named-but-missing inputs must not collide -------------------------
 
     [Fact]
@@ -406,6 +454,217 @@ public class BindingFailureReportTests
         Assert.Matches("^[0-9a-f]{64}$", alpha);
         Assert.Matches("^[0-9a-f]{64}$", beta);
         Assert.NotEqual(alpha, beta); // two failures naming different missing inputs must not share a digest
+    }
+
+    // ---- diagnostic codes: parsed from message text when the tool embeds one -------------------
+
+    // A single-diagnostic terminal attribution whose message and file are chosen by the test, so
+    // code-extraction can be exercised against real compiler message shapes.
+    private static AttributionResult AttributedFailureWithMessage(string file, string message)
+    {
+        // A coarse blocker, so the scripted single round is terminal (a leaf would be withdrawn
+        // and the controller would ask for a second round).
+        var unit = Coarse("codeCarrier", RecoveryScope.SharedHelperBundle);
+        var group = ErrorGroupIn(file, message);
+        var diagnostics = ImmutableArray.Create(new AttributedDiagnostic
+        {
+            Diagnostic = group,
+            Kind = AttributionKind.Unit,
+            Artifact = ArtifactId.Create(unit.Decl, ArtifactRole.SwiftWrapper),
+            Unit = unit,
+            Source = ProvenanceSource.SymbolAnchor,
+        });
+        return new AttributionResult
+        {
+            Diagnostics = diagnostics,
+            Culprits = ImmutableArray.Create(unit),
+            Fingerprint = DiagnosticFingerprint.Compute(new List<DiagnosticGroup> { group }),
+        };
+    }
+
+    [Theory]
+    // Roslyn diagnostics arrive re-prefixed with their id ("CS0234: …").
+    [InlineData("Verify.cs", "CS0234: The type or namespace name 'Foundation' does not exist in the namespace 'Swift'", "CS0234")]
+    // MSBuild/SARIF text can also embed the id mid-message after the severity word.
+    [InlineData("Verify.cs", "Verify.cs(3,10): error CS0246: The type or namespace name 'FooProxy' could not be found", "CS0246")]
+    // Generator diagnostics carry the SWIFTBIND namespace.
+    [InlineData("Wrapper.swift", "SWIFTBIND114: an emitted Apple-supplement reference was not recorded", "SWIFTBIND114")]
+    // swiftc emits no diagnostic codes — a codeless message must stay null, never a false positive.
+    [InlineData("Wrapper.swift", "cannot convert value of type 'Bool' to expected argument type '() -> Bool'", null)]
+    // Prose that merely contains capitals+digits (a type name, a version) must not be mistaken for a code.
+    [InlineData("Wrapper.swift", "value of type 'P256' has no member 'signature' in iOS 15", null)]
+    public void MappedDiagnostic_CarriesEmbeddedCode_WhenMessageEmbedsOne(
+        string file, string message, string? expectedCode)
+    {
+        var recovery = WrapperRecoveryController.Run(
+            new ScriptedDriver(AttributedFailureWithMessage(file, message)));
+        Assert.False(recovery.Converged);
+
+        var report = BindingFailureReportBuilder.ForRecoveryNonConvergence(
+            "MyModule", NoInputs, recovery, Seed(), FreshOutputDir());
+
+        var diag = Assert.Single(report.Diagnostics);
+        Assert.Equal(expectedCode, diag.Code);
+    }
+
+    // ---- notes: a group's cascade context rides along with its primary ------------------------
+
+    [Fact]
+    public void MappedDiagnostic_ProjectsGroupNotes_WithSpansAndNormalizedMessages()
+    {
+        var unit = Coarse("notesCarrier", RecoveryScope.SharedHelperBundle);
+        var group = new DiagnosticGroup
+        {
+            Primary = new CompilerDiagnostic
+            {
+                File = "Wrapper.swift",
+                Line = 7,
+                Column = 3,
+                Severity = DiagnosticSeverity.Error,
+                Message = "cannot bind the helper",
+            },
+            Notes = ImmutableArray.Create(
+                new CompilerDiagnostic
+                {
+                    File = "Wrapper.swift",
+                    Line = 42,
+                    Column = 5,
+                    Severity = DiagnosticSeverity.Note,
+                    Message = "declared   here\n  with cascade context", // whitespace-normalized on projection
+                },
+                CompilerDiagnostic.Global(DiagnosticSeverity.Note, "in expansion of macro")),
+        };
+        var diagnostics = ImmutableArray.Create(new AttributedDiagnostic
+        {
+            Diagnostic = group,
+            Kind = AttributionKind.Unit,
+            Artifact = ArtifactId.Create(unit.Decl, ArtifactRole.SwiftWrapper),
+            Unit = unit,
+            Source = ProvenanceSource.SymbolAnchor,
+        });
+        var attribution = new AttributionResult
+        {
+            Diagnostics = diagnostics,
+            Culprits = ImmutableArray.Create(unit),
+            Fingerprint = DiagnosticFingerprint.Compute(new List<DiagnosticGroup> { group }),
+        };
+        var recovery = WrapperRecoveryController.Run(new ScriptedDriver(attribution));
+        Assert.False(recovery.Converged);
+
+        var report = BindingFailureReportBuilder.ForRecoveryNonConvergence(
+            "MyModule", NoInputs, recovery, Seed(), FreshOutputDir());
+
+        var diag = Assert.Single(report.Diagnostics);
+        Assert.Equal(2, diag.Notes.Count);
+
+        var positioned = diag.Notes[0];
+        Assert.Equal("declared here with cascade context", positioned.Message);
+        Assert.NotNull(positioned.Span);
+        Assert.Equal("Wrapper.swift", positioned.Span!.File);
+        Assert.Equal(42, positioned.Span.Line);
+        Assert.Equal(5, positioned.Span.Column);
+
+        var global = diag.Notes[1];
+        Assert.Equal("in expansion of macro", global.Message);
+        Assert.Null(global.Span); // a positionless note carries no span
+
+        // A note-free group keeps an empty (never null) Notes list.
+        var noteFree = WrapperRecoveryController.Run(
+            new ScriptedDriver(AttributedFailureWithMessage("Wrapper.swift", "no notes here")));
+        var noteFreeReport = BindingFailureReportBuilder.ForRecoveryNonConvergence(
+            "MyModule", NoInputs, noteFree, Seed(), FreshOutputDir());
+        Assert.Empty(Assert.Single(noteFreeReport.Diagnostics).Notes);
+    }
+
+    [Fact]
+    public void GeneratorDiagnostic_ParsesLeadingCode_ButExplicitCodeWins()
+    {
+        // A generator message that leads with its own code gets it parsed out…
+        var parsed = BindingFailureReportBuilder.GeneratorDiagnostic(
+            "SWIFTBIND115: wrapper compilation failed and --compile-only forbids degrading");
+        Assert.Equal("SWIFTBIND115", parsed.Code);
+
+        // …an explicitly supplied code always wins over anything embedded in the text…
+        var explicitCode = BindingFailureReportBuilder.GeneratorDiagnostic(
+            "SWIFTBIND115: wrapper compilation failed", "SWIFTBIND999");
+        Assert.Equal("SWIFTBIND999", explicitCode.Code);
+
+        // …and a codeless message stays codeless.
+        Assert.Null(BindingFailureReportBuilder.GeneratorDiagnostic("something exploded").Code);
+    }
+
+    // ---- fatal-exit emission: every nonzero-exit path leaves the structured artifact ------------
+
+    // The contract: any nonzero generator exit with a known module and inputs writes
+    // binding-failure-report.json — including the post-generation gates (strict-inputs, wrapper
+    // compile, C# verification, project emission, mixed-ObjC surface), which exit AFTER a successful
+    // generation already cleared the stale report.
+    [Theory]
+    [InlineData(BindingFailureOutcomeKind.StrictInputsDegraded, "SWIFTBIND027", RecoveryStage.Parse)]
+    [InlineData(BindingFailureOutcomeKind.WrapperCompileFailure, "SWIFTBIND052", RecoveryStage.SwiftCompile)]
+    [InlineData(BindingFailureOutcomeKind.CSharpVerificationFailure, "CSHARP_VERIFICATION_FAILURE", RecoveryStage.CSharpCompile)]
+    [InlineData(BindingFailureOutcomeKind.ProjectEmissionFailure, "PROJECT_EMISSION_FAILURE", RecoveryStage.Emit)]
+    [InlineData(BindingFailureOutcomeKind.MixedObjCSurfaceFailure, "MIXED_OBJC_SURFACE_FAILURE", RecoveryStage.Emit)]
+    public void EmitFatalExitReport_WritesReport_ForPostGenerationOutcomeKinds(
+        BindingFailureOutcomeKind kind, string reasonCode, RecoveryStage stage)
+    {
+        var dir = FreshOutputDir();
+
+        BindingsGenerator.EmitFatalExitReport(
+            "MyModule", kind, reasonCode, stage, "the gate's evidence line",
+            new BindingFailureInputPaths(null, null, null, null, "iOS"), dir, NullLogger.Instance);
+
+        var path = Path.Combine(dir, BindingFailureReporting.FileName);
+        Assert.True(File.Exists(path));
+        var doc = JObject.Parse(File.ReadAllText(path));
+        Assert.Equal("MyModule", doc.Value<string>("Module"));
+        Assert.Equal(kind.ToString(), doc["Outcome"]!.Value<string>("Kind"));
+        Assert.Equal(reasonCode, doc["Outcome"]!.Value<string>("ReasonCode"));
+        Assert.Equal(stage.ToString(), doc["Outcome"]!.Value<string>("Stage"));
+        var diagnostics = (JArray)doc["Diagnostics"]!;
+        Assert.NotEmpty(diagnostics);
+        Assert.Contains("the gate's evidence line", diagnostics[0].Value<string>("Message"));
+    }
+
+    // Pre-generation exits share the same contract: once the run has resolved a module identity
+    // and its inputs, a nonzero exit must leave the artifact even though generation never ran —
+    // otherwise a stale report from a PREVIOUS failed run would misattribute this run's failure.
+    [Theory]
+    [InlineData(BindingFailureOutcomeKind.ObjCPipelineFailure, "OBJC_PIPELINE_FAILURE", RecoveryStage.Parse)]
+    [InlineData(BindingFailureOutcomeKind.RequiredInputMissing, "REQUIRED_INPUT_MISSING", RecoveryStage.Parse)]
+    [InlineData(BindingFailureOutcomeKind.InvalidConfiguration, "INVALID_CONFIGURATION", RecoveryStage.Parse)]
+    public void EmitFatalExitReport_WritesReport_ForPreGenerationOutcomeKinds(
+        BindingFailureOutcomeKind kind, string reasonCode, RecoveryStage stage)
+        => EmitFatalExitReport_WritesReport_ForPostGenerationOutcomeKinds(kind, reasonCode, stage);
+
+    [Fact]
+    public void EmitFatalExitReport_UnknownModule_StillWritesReport()
+    {
+        var dir = FreshOutputDir();
+
+        BindingsGenerator.EmitFatalExitReport(
+            null, BindingFailureOutcomeKind.UnhandledException, "UNHANDLED_EXCEPTION",
+            RecoveryStage.Emit, "boom", new BindingFailureInputPaths(null, null, null, null),
+            dir, NullLogger.Instance);
+
+        var doc = JObject.Parse(File.ReadAllText(Path.Combine(dir, BindingFailureReporting.FileName)));
+        Assert.Equal("<unknown>", doc.Value<string>("Module"));
+    }
+
+    [Fact]
+    public void EmitFatalExitReport_IsTotal_WhenOutputDirectoryIsUnwritable()
+    {
+        // The "directory" is an existing FILE, so the write cannot succeed; the reporter must swallow
+        // the fault — a reporter error must never mask or re-label the original generation failure.
+        var blocking = Path.Combine(FreshOutputDir(), "not-a-dir");
+        File.WriteAllText(blocking, "x");
+
+        var ex = Record.Exception(() => BindingsGenerator.EmitFatalExitReport(
+            "MyModule", BindingFailureOutcomeKind.WrapperCompileFailure, "SWIFTBIND052",
+            RecoveryStage.SwiftCompile, "evidence",
+            new BindingFailureInputPaths(null, null, null, null), blocking, NullLogger.Instance));
+
+        Assert.Null(ex);
     }
 
     // ---- a success clears a stale failure report; absence is a safe no-op -----------------------

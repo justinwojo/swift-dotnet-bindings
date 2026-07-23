@@ -11,6 +11,7 @@ using System.Linq;
 using BindingsGeneration.ObjC;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Newtonsoft.Json.Linq;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -1069,6 +1070,54 @@ public class EmitStrictInputsFailureIfDegradedTests
         InputResolutionReport.Reset();
     }
 
+    // The strict-inputs abort exits nonzero AFTER a successful generation already cleared any stale
+    // binding-failure-report.json, so the composed helper must both log the SWIFTBIND027 lines and
+    // write the structured report — otherwise the artifact contract ("report present ⇔ last
+    // generation failed") breaks on exactly this path.
+    [Fact]
+    public void FailStrictInputsWithReport_Degraded_AbortsAndWritesStructuredReport()
+    {
+        InputResolutionReport.Reset();
+        InputResolutionReport.RecordDegradation(
+            InputResolutionCategory.SliceSelection, "device slice absent; fell back to simulator");
+        var dir = Path.Combine(Path.GetTempPath(), $"strict_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+
+        var aborted = BindingsGeneratorCommand.FailStrictInputsWithReport(
+            strictInputs: true, "MyModule",
+            new BindingFailureInputPaths(null, null, null, null, "iOS"), dir, NullLogger.Instance);
+
+        Assert.True(aborted);
+        var path = Path.Combine(dir, BindingFailureReporting.FileName);
+        Assert.True(File.Exists(path));
+        var doc = JObject.Parse(File.ReadAllText(path));
+        Assert.Equal("MyModule", doc.Value<string>("Module"));
+        Assert.Equal("StrictInputsDegraded", doc["Outcome"]!.Value<string>("Kind"));
+        Assert.Equal("SWIFTBIND027", doc["Outcome"]!.Value<string>("ReasonCode"));
+        // The report's evidence carries the recorded degradations, not just a generic banner.
+        Assert.Contains("device slice absent; fell back to simulator",
+            ((JArray)doc["Diagnostics"]!)[0].Value<string>("Message"));
+
+        InputResolutionReport.Reset();
+    }
+
+    [Fact]
+    public void FailStrictInputsWithReport_Clean_DoesNotAbortOrWrite()
+    {
+        InputResolutionReport.Reset();
+        var dir = Path.Combine(Path.GetTempPath(), $"strict_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+
+        var aborted = BindingsGeneratorCommand.FailStrictInputsWithReport(
+            strictInputs: true, "MyModule",
+            new BindingFailureInputPaths(null, null, null, null), dir, NullLogger.Instance);
+
+        Assert.False(aborted);
+        Assert.False(File.Exists(Path.Combine(dir, BindingFailureReporting.FileName)));
+
+        InputResolutionReport.Reset();
+    }
+
     /// <summary>Captures emitted log messages for assertion.</summary>
     private sealed class CapturingLogger : ILogger
     {
@@ -1084,6 +1133,72 @@ public class EmitStrictInputsFailureIfDegradedTests
             public static readonly NullScope Instance = new();
             public void Dispose() { }
         }
+    }
+}
+
+/// <summary>
+/// A pure-ObjC lane exits with the ObjC pipeline's own exit code; when that is nonzero the run
+/// has a resolved module identity, so the structured failure report must be written — Parse stage
+/// when the pipeline died before producing a module (clang/AST/umbrella-header), Emit stage when a
+/// parsed module failed during filtering/emission.
+/// </summary>
+public class ReportPureObjCPipelineFailureTests
+{
+    private static string FreshDir()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"objcrep_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        return dir;
+    }
+
+    [Fact]
+    public void SuccessfulPipeline_WritesNoReport()
+    {
+        var dir = FreshDir();
+
+        BindingsGeneratorCommand.ReportPureObjCPipelineFailure(
+            new BindingsGeneration.ObjC.ObjCPipelineResult(0, null, null),
+            "FBSDKCoreKit", new BindingFailureInputPaths(null, null, null, null, "iOS"),
+            dir, NullLogger.Instance);
+
+        Assert.False(File.Exists(Path.Combine(dir, BindingFailureReporting.FileName)));
+    }
+
+    [Fact]
+    public void ParseFailure_WritesParseStageReport()
+    {
+        var dir = FreshDir();
+
+        BindingsGeneratorCommand.ReportPureObjCPipelineFailure(
+            new BindingsGeneration.ObjC.ObjCPipelineResult(1, null, "Could not locate umbrella header"),
+            "FBSDKCoreKit", new BindingFailureInputPaths(null, null, null, null, "iOS"),
+            dir, NullLogger.Instance);
+
+        var doc = Newtonsoft.Json.Linq.JObject.Parse(
+            File.ReadAllText(Path.Combine(dir, BindingFailureReporting.FileName)));
+        Assert.Equal("FBSDKCoreKit", doc.Value<string>("Module"));
+        Assert.Equal(
+            nameof(BindingFailureOutcomeKind.ObjCPipelineFailure),
+            doc["Outcome"]!.Value<string>("Kind"));
+        Assert.Equal(nameof(RecoveryStage.Parse), doc["Outcome"]!.Value<string>("Stage"));
+        var diagnostics = (Newtonsoft.Json.Linq.JArray)doc["Diagnostics"]!;
+        Assert.Contains("umbrella header", diagnostics[0].Value<string>("Message"));
+    }
+
+    [Fact]
+    public void EmitFailure_WithParsedModule_WritesEmitStageReport()
+    {
+        var dir = FreshDir();
+        var module = new BindingsGeneration.ObjC.ObjCModule { ModuleName = "FBSDKCoreKit" };
+
+        BindingsGeneratorCommand.ReportPureObjCPipelineFailure(
+            new BindingsGeneration.ObjC.ObjCPipelineResult(1, module, "api definition emission failed"),
+            "FBSDKCoreKit", new BindingFailureInputPaths(null, null, null, null, "iOS"),
+            dir, NullLogger.Instance);
+
+        var doc = Newtonsoft.Json.Linq.JObject.Parse(
+            File.ReadAllText(Path.Combine(dir, BindingFailureReporting.FileName)));
+        Assert.Equal(nameof(RecoveryStage.Emit), doc["Outcome"]!.Value<string>("Stage"));
     }
 }
 

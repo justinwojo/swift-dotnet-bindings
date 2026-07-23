@@ -14,9 +14,14 @@ using BindingsGeneration.Diagnostics;
 
 namespace BindingsGeneration;
 
-/// <summary>The four input paths a failed generation was binding, in whatever combination was supplied.</summary>
+/// <summary>
+/// The input paths a failed generation was binding, in whatever combination was supplied, plus the
+/// target platform they were being bound for — the same files bound for two platforms are two
+/// distinct generations.
+/// </summary>
 public readonly record struct BindingFailureInputPaths(
-    string? SwiftAbiPath, string? DylibPath, string? TbdPath, string? SwiftInterfacePath);
+    string? SwiftAbiPath, string? DylibPath, string? TbdPath, string? SwiftInterfacePath,
+    string? TargetPlatform = null);
 
 /// <summary>
 /// Assembles a <see cref="BindingFailureReport"/> from a failure's evidence. Pure and total: it reads
@@ -101,7 +106,7 @@ public static class BindingFailureReportBuilder
         return new FailureDiagnostic
         {
             Plane = DiagnosticPlane.Generator,
-            Code = code,
+            Code = code ?? ExtractDiagnosticCode(normalized),
             Severity = DiagnosticSeverity.Error,
             Message = normalized,
             Span = null,
@@ -143,12 +148,16 @@ public static class BindingFailureReportBuilder
             list.Add(new FailureDiagnostic
             {
                 Plane = plane,
-                Code = null,
+                Code = ExtractDiagnosticCode(normalized),
                 Severity = primary.Severity,
                 Message = normalized,
                 Span = MapSpan(primary),
+                // The fingerprint deliberately excludes the parsed code and the notes — both are
+                // derived cascade context, so folding them in would churn stored fingerprints
+                // without adding identity.
                 Fingerprint = EmitterUtility.DeterministicHash8(
                     $"{plane}|{normalized}|{primary.File}:{primary.Line}:{primary.Column}"),
+                Notes = MapNotes(ad.Diagnostic.Notes),
             });
         }
         return list;
@@ -242,10 +251,48 @@ public static class BindingFailureReportBuilder
         _ => AttributionConfidence.Low,
     };
 
+    private static List<FailureDiagnosticNote> MapNotes(ImmutableArray<CompilerDiagnostic> notes)
+    {
+        if (notes.IsDefaultOrEmpty)
+            return new();
+        var list = new List<FailureDiagnosticNote>(notes.Length);
+        foreach (var note in notes)
+        {
+            list.Add(new FailureDiagnosticNote
+            {
+                Message = NormalizeMessage(note.Message),
+                Span = MapSpan(note),
+            });
+        }
+        return list;
+    }
+
     private static SourceSpan? MapSpan(CompilerDiagnostic diagnostic) =>
         string.IsNullOrEmpty(diagnostic.File) && diagnostic.Line == 0
             ? null
             : new SourceSpan { File = diagnostic.File, Line = diagnostic.Line, Column = diagnostic.Column };
+
+    // The three shapes tools actually embed a code in: a Roslyn-style message re-prefixed with its
+    // id ("CS0234: …"), a severity-worded MSBuild/SARIF line ("… error CS0246: …"), and the
+    // generator's own "SWIFTBINDnnn" namespace anywhere in the text. Deliberately conservative:
+    // swiftc emits no codes at all, so an unmatched message is the normal Swift-plane case and maps
+    // to null — prose that merely contains capitals+digits (type names, OS versions) must not match,
+    // which is why the first two alternatives are anchored to the message start / a severity word.
+    private static readonly Regex EmbeddedDiagnosticCode = new(
+        @"^(?<code>[A-Z]{2,9}\d{2,5}):|\b(?:error|warning)\s+(?<code>[A-Z]{2,9}\d{2,5})\b|\b(?<code>SWIFTBIND\d{3})\b",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Extracts a tool diagnostic code (e.g. <c>CS0234</c>, <c>SWIFTBIND114</c>) embedded in a
+    /// message, or null when none is recognizably present.
+    /// </summary>
+    internal static string? ExtractDiagnosticCode(string? message)
+    {
+        if (string.IsNullOrEmpty(message))
+            return null;
+        var match = EmbeddedDiagnosticCode.Match(message);
+        return match.Success ? match.Groups["code"].Value : null;
+    }
 
     private static string NormalizeMessage(string? message) =>
         string.IsNullOrEmpty(message) ? string.Empty : Regex.Replace(message.Trim(), @"\s+", " ");
@@ -288,7 +335,9 @@ public static class BindingFailureReportBuilder
                     return;
                 // Fold the requested input's identity in even when the file is absent, so two failures
                 // that named different (missing) inputs never collide on the same digest; the content is
-                // streamed only when the file is actually present.
+                // streamed only when the file is actually present. Only the file NAME is hashed — never
+                // its directory — deliberately: re-conversions land the same inputs in fresh temp
+                // directories, and those must fingerprint identically.
                 hasher.AppendData(Encoding.UTF8.GetBytes($"{label}:{Path.GetFileName(path)}\n"));
                 if (!File.Exists(path))
                     return;
@@ -303,6 +352,10 @@ public static class BindingFailureReportBuilder
             Feed("dylib", inputs.DylibPath);
             Feed("tbd", inputs.TbdPath);
             Feed("interface", inputs.SwiftInterfacePath);
+            // The platform is input identity too: the same files bound for iOS and macOS are two
+            // distinct failures and must not share a digest.
+            if (!string.IsNullOrEmpty(inputs.TargetPlatform))
+                hasher.AppendData(Encoding.UTF8.GetBytes($"platform:{inputs.TargetPlatform}\n"));
             hasher.AppendData(Encoding.UTF8.GetBytes(
                 $"gen:{BindingArtifactManifestStore.GetGeneratorVersion() ?? string.Empty}"));
 
