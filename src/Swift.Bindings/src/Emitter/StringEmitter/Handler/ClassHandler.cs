@@ -209,7 +209,8 @@ namespace BindingsGeneration
                     // Replace IDisposable (inherited from NSObject) with ObjC base type.
                     // Fallback: cross-module ObjC-rooted with unresolved Swift parent → Foundation.NSObject
                     // (all ObjC-rooted Swift classes ultimately derive from NSObject).
-                    var objcBaseName = MarshallingHelpers.GetObjCBaseTypeName(classDecl) ?? "Foundation.NSObject";
+                    var objcBaseName = MarshallingHelpers.GetObjCBaseTypeName(
+                        classDecl, moduleDecl.Name, env.TypeDatabase) ?? "Foundation.NSObject";
                     var boundaryInterfaces = new List<string> { objcBaseName };
                     foreach (var iface in interfaces)
                     {

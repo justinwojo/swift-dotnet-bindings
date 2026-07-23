@@ -425,6 +425,136 @@ public class ClassObjCRootedTests
     }
 
     [Fact]
+    public void GetObjCBaseTypeName_LocalObjCHelper_ABIMisattributedModule_ResolvesViaBridgeRecord()
+    {
+        // CombineCocoa shape: `DelegateProxy` (an @objc Swift class) subclasses the pure-ObjC
+        // `ObjcDelegateProxy` declared in CombineCocoa's OWN bridging header. Its USR is the bare
+        // `c:objc(cs)ObjcDelegateProxy` (no module marker), so the digester mis-attributes it to an
+        // unrelated imported `Runtime` package in superclassNames. When the current module carries a
+        // same-module mixed-bridge record for that ObjC class, the base must resolve to the record's
+        // own C# projection (CombineCocoa.ObjcDelegateProxy), NOT the bogus Runtime.ObjcDelegateProxy.
+        var cls = CreateClassDecl("DelegateProxy", "CombineCocoa",
+            superclassUsr: "c:objc(cs)ObjcDelegateProxy",
+            superclassNames: new[] { "Runtime.ObjcDelegateProxy", "ObjectiveC.NSObject" });
+        var db = BuildDbWithObjCBridgeRecord("CombineCocoa", "ObjcDelegateProxy", "CombineCocoa");
+
+        var result = MarshallingHelpers.GetObjCBaseTypeName(cls, "CombineCocoa", db);
+
+        Assert.Equal("CombineCocoa.ObjcDelegateProxy", result);
+    }
+
+    [Fact]
+    public void GetObjCBaseTypeName_ExternalObjCBase_NoSameModuleBridgeRecord_FallsBackUnchanged()
+    {
+        // Negative case: a genuinely external pure-ObjC base (bound in a DIFFERENT module) has no
+        // same-module bridge record, so the bridge lookup misses and the existing USR-name resolution
+        // runs unchanged — no regression to normal cross-module ObjC-rooted base classes.
+        var cls = CreateClassDecl("FBLoginButton", "FBSDKLoginKit",
+            superclassUsr: "c:objc(cs)FBSDKButton",
+            superclassNames: new[] { "FBSDKCoreKit.FBButton" });
+        // DB has a bridge record for a DIFFERENT ObjC class in this module — not the superclass.
+        var db = BuildDbWithObjCBridgeRecord("FBSDKLoginKit", "FBSDKSomethingElse", "FacebookLogin");
+
+        var result = MarshallingHelpers.GetObjCBaseTypeName(cls, "FBSDKLoginKit", db);
+
+        Assert.Equal("FBSDKCoreKit.FBSDKButton", result);
+    }
+
+    [Fact]
+    public void GetObjCBaseTypeName_ExternalObjCBase_SameLeafNameCollision_DoesNotFalseResolve()
+    {
+        // Collision case: a module hosts BOTH a local ObjC helper whose Swift-import leaf is `FBButton`
+        // AND an unrelated Swift class whose genuinely-external base is `FBSDKCoreKit.FBButton`
+        // (USR `c:objc(cs)FBSDKButton`). The ABI leaf names collide (`FBButton`) but the USRs differ.
+        // The same-module bridge lookup must NOT fire off the leaf-name match alone — the record's raw
+        // ObjC name (`FBButton`) disagrees with the USR's (`FBSDKButton`), so the external base resolves
+        // via the USR path (`FBSDKCoreKit.FBSDKButton`), not the local helper's projection.
+        var cls = CreateClassDecl("Widget", "FBSDKLoginKit",
+            superclassUsr: "c:objc(cs)FBSDKButton",
+            superclassNames: new[] { "FBSDKCoreKit.FBButton" });
+        // Local ObjC helper of the SAME Swift-import leaf name but a distinct raw ObjC name.
+        var localHelper = MakeObjCBridgeRecord("FBSDKLoginKit", "FBButton", "FBButton", "FBSDKLoginKit");
+        var db = BuildDbFromRecords("FBSDKLoginKit", localHelper);
+
+        var result = MarshallingHelpers.GetObjCBaseTypeName(cls, "FBSDKLoginKit", db);
+
+        Assert.Equal("FBSDKCoreKit.FBSDKButton", result);
+    }
+
+    [Fact]
+    public void GetObjCBaseTypeName_LocalObjCHelper_RenamedRawObjCName_ResolvesViaBridgeRecord()
+    {
+        // Renamed local helper: the pure-ObjC class `RawProxy` (USR `c:objc(cs)RawProxy`) is imported
+        // into Swift under a stripped name `SwiftProxy` (NS_SWIFT_NAME), so the ABI reports the
+        // superclass leaf as `SwiftProxy` and the bridge record is keyed `{module}.SwiftProxy` while its
+        // C# projection keeps the raw ObjC name `RawProxy`. The base must resolve to that projection —
+        // and the USR-raw-name identity check (`RawProxy` == `RawProxy`) still passes despite the rename.
+        var cls = CreateClassDecl("DelegateProxy", "MixedKit",
+            superclassUsr: "c:objc(cs)RawProxy",
+            superclassNames: new[] { "Runtime.SwiftProxy", "ObjectiveC.NSObject" });
+        var record = MakeObjCBridgeRecord("MixedKit", "SwiftProxy", "RawProxy", "MixedKit");
+        var db = BuildDbFromRecords("MixedKit", record);
+
+        var result = MarshallingHelpers.GetObjCBaseTypeName(cls, "MixedKit", db);
+
+        Assert.Equal("MixedKit.RawProxy", result);
+    }
+
+    [Fact]
+    public void GetObjCBaseTypeName_LocalObjCHelper_MisattributedToUnsupportedModule_ResolvesViaBridgeRecord()
+    {
+        // The digester can mis-attribute a local ObjC helper to an *unsupported* Apple module
+        // (CombineCocoa imports `Combine`). The same-module bridge resolve must win over the
+        // unsupported-module → NSObject fallback, matching the parse-time re-anchor; degrading to
+        // NSObject here would silently drop the real base while the persisted superclass kept it.
+        var cls = CreateClassDecl("DelegateProxy", "CombineCocoa",
+            superclassUsr: "c:objc(cs)ObjcDelegateProxy",
+            superclassNames: new[] { "Combine.ObjcDelegateProxy", "ObjectiveC.NSObject" });
+        var db = BuildDbWithObjCBridgeRecord("CombineCocoa", "ObjcDelegateProxy", "CombineCocoa");
+
+        var result = MarshallingHelpers.GetObjCBaseTypeName(cls, "CombineCocoa", db);
+
+        Assert.Equal("CombineCocoa.ObjcDelegateProxy", result);
+    }
+
+    [Fact]
+    public void GetObjCBaseTypeName_NoContext_PreservesLegacyBehavior()
+    {
+        // Backward compatibility: without a module name / type database, behavior is exactly the
+        // pre-fix USR/remap resolution (the bridge lookup requires both to fire).
+        var cls = CreateClassDecl("DelegateProxy", "CombineCocoa",
+            superclassUsr: "c:objc(cs)ObjcDelegateProxy",
+            superclassNames: new[] { "Runtime.ObjcDelegateProxy", "ObjectiveC.NSObject" });
+
+        var result = MarshallingHelpers.GetObjCBaseTypeName(cls);
+
+        Assert.Equal("Runtime.ObjcDelegateProxy", result);
+    }
+
+    [Fact]
+    public void ObjCBoundary_LocalObjCHelper_EmitsBridgeResolvedBaseAndInheritsDispose()
+    {
+        // End-to-end through ClassHandler's isObjCBoundary branch: the emitted base reference must be
+        // the same-module bridge-resolved name (CombineCocoa.ObjcDelegateProxy), and IDisposable must
+        // be stripped from the interface list (inherited from the now-resolvable ObjC base) — matching
+        // the healthy ObjC-boundary shape. With the base unresolvable (pre-fix) both the base ref and
+        // the inherited Dispose were broken (CS0246 + CS0535).
+        var cls = CreateClassDecl("DelegateProxy", "TestModule",
+            superclassUsr: "c:objc(cs)ObjcDelegateProxy",
+            superclassNames: new[] { "Runtime.ObjcDelegateProxy", "ObjectiveC.NSObject" });
+        cls.IsObjCRooted = true;
+        var bridgeRecord = MakeObjCBridgeRecord("TestModule", "ObjcDelegateProxy", "TestModule");
+
+        var output = EmitSingleObjCRootedClass(cls, bridgeRecord);
+
+        var declLine = GetClassDeclarationLine(output, "DelegateProxy");
+        Assert.Contains("TestModule.ObjcDelegateProxy", declLine);
+        Assert.DoesNotContain("Runtime.ObjcDelegateProxy", declLine);
+        Assert.Contains("ISwiftObject", declLine);
+        Assert.DoesNotContain("IDisposable", declLine);
+    }
+
+    [Fact]
     public void ObjCBoundary_ThirdPartyRenamedSuperclass_EmitsObjCNameInDeclaration()
     {
         // End-to-end through ClassHandler's isObjCBoundary branch: the emitted base reference must
@@ -1072,10 +1202,47 @@ public class ClassObjCRootedTests
         return EmitSingleObjCRootedClass(cls);
     }
 
-    private static string EmitSingleObjCRootedClass(ClassDecl classDecl)
+    /// <summary>
+    /// Builds a type database whose <paramref name="module"/> carries a single ObjC-bridge class
+    /// record (the shape <see cref="ObjC.ObjCBridgeRecordFactory"/> synthesizes for a locally-declared
+    /// ObjC class), keyed by its Swift-import name.
+    /// </summary>
+    private static TypeDatabase BuildDbWithObjCBridgeRecord(string module, string objcName, string @namespace)
+        => BuildDbFromRecords(module, MakeObjCBridgeRecord(module, objcName, @namespace));
+
+    private static TypeDatabase BuildDbFromRecords(string module, params TypeRecord[] records)
+    {
+        var moduleDb = new ModuleTypeDatabase(module, $"/tmp/{module}.dylib");
+        foreach (var record in records)
+            moduleDb.RegisterType(record.SwiftTypeName, record);
+        var db = new TypeDatabase();
+        db.AddModuleDatabase(moduleDb);
+        return db;
+    }
+
+    private static TypeRecord MakeObjCBridgeRecord(string module, string objcName, string @namespace)
+        => MakeObjCBridgeRecord(module, objcName, objcName, @namespace);
+
+    // Rename-aware overload: the Swift-import leaf (the DB key, from an NS_SWIFT_NAME/prefix strip)
+    // can differ from the raw ObjC class name that the C# projection carries. ObjCBridgeRecordRekeyer
+    // keys the record by the Swift-import name while CSharpTypeName keeps the raw ObjC name.
+    private static TypeRecord MakeObjCBridgeRecord(
+        string module, string swiftImportLeaf, string rawObjCName, string @namespace)
+        => new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName(@namespace, rawObjCName),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{module}.{swiftImportLeaf}"),
+            MetadataAccessor = string.Empty,
+            Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+        };
+
+    private static string EmitSingleObjCRootedClass(ClassDecl classDecl, TypeRecord? extraBridgeRecord = null)
     {
         var moduleDecl = CreateModuleDecl("TestModule");
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        if (extraBridgeRecord != null)
+            testModule.RegisterType(extraBridgeRecord.SwiftTypeName, extraBridgeRecord);
 
         classDecl.ModuleDecl = moduleDecl;
         foreach (var method in classDecl.Methods)

@@ -33,6 +33,14 @@ namespace BindingsGeneration
         private readonly HashSet<string> _processingInProgress = new(StringComparer.Ordinal);
 
         /// <summary>
+        /// Raw Objective-C class names declared in this module's OWN bridging header (the class
+        /// records synthesized by <see cref="ObjC.ObjCBridgeRecordFactory"/>). Used to re-anchor a
+        /// locally-declared pure-ObjC superclass whose ABI <c>superclassNames</c> segment names an
+        /// unrelated imported module. Empty for a Swift-only module.
+        /// </summary>
+        private readonly IReadOnlySet<string> _localObjCClassNames;
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="ModuleProcessor"/> class.
         /// </summary>
         /// <param name="module">The name of the Swift module being processed.</param>
@@ -48,7 +56,8 @@ namespace BindingsGeneration
             Dictionary<NamedTypeSpec, TypeDecl> typeDecls,
             ITypeDatabase typeDatabase,
             ILogger logger,
-            NamespacePatternResolver? namespacePatternResolver = null)
+            NamespacePatternResolver? namespacePatternResolver = null,
+            IReadOnlySet<string>? localObjCClassNames = null)
         {
             _module = module;
             _dylibPath = dylibPath;
@@ -58,6 +67,7 @@ namespace BindingsGeneration
             _typeDecls = typeDecls;
             _namespacePatternResolver = namespacePatternResolver ?? new NamespacePatternResolver();
             _logger = logger;
+            _localObjCClassNames = localObjCClassNames ?? System.Collections.Immutable.ImmutableHashSet<string>.Empty;
         }
 
         /// <summary>
@@ -852,10 +862,7 @@ namespace BindingsGeneration
                 MetadataAccessor = $"{classDecl.MangledName}Ma",
                 Flags = flags,
                 Kind = TypeRecordKind.Class,
-                SuperclassTypeName = classDecl.DirectSuperclassName != null
-                    && !classDecl.DirectSuperclassName.Contains('<')
-                    ? SwiftTypeName.FromModuleQualifiedName(classDecl.DirectSuperclassName)
-                    : null,
+                SuperclassTypeName = ResolveSuperclassTypeName(classDecl),
                 ProtocolConformances = BuildDirectProtocolConformances(classDecl.Conformances),
                 AvailabilityAnnotations = AvailabilityHelpers.MergeAvailabilityFromAncestors(
                     memberAnnotations: null, startDecl: classDecl),
@@ -869,6 +876,41 @@ namespace BindingsGeneration
             {
                 concreteDatabase.RegisterCrossModuleType(classDecl.SwiftTypeName, typeRecord);
             }
+        }
+
+        /// <summary>
+        /// The persisted superclass reference for a class record. Normally the ABI's
+        /// <see cref="ClassDecl.DirectSuperclassName"/> verbatim, but a locally-declared pure-ObjC
+        /// superclass is re-anchored to the current module: a bare <c>c:objc(cs)&lt;Name&gt;</c> USR
+        /// carries no module identity, so the Swift digester mis-attributes the class to an unrelated
+        /// imported package in <c>superclassNames</c> (e.g. CombineCocoa's <c>ObjcDelegateProxy</c>
+        /// reported as <c>Runtime.ObjcDelegateProxy</c>). Left uncorrected, the string persisted into
+        /// the module database resolves to a nonexistent <c>{wrongModule}.{Name}</c> for any downstream
+        /// consumer; re-anchoring it to <c>{thisModule}.{Name}</c> makes it resolve against this
+        /// module's own ObjC-bridge record. Gated on the class name appearing in this module's bridge
+        /// records, so a genuinely external ObjC base is left untouched.
+        /// </summary>
+        private SwiftTypeName? ResolveSuperclassTypeName(ClassDecl classDecl)
+        {
+            var directName = classDecl.DirectSuperclassName;
+            if (directName == null || directName.Contains('<'))
+                return null;
+
+            var dotIdx = directName.IndexOf('.');
+            if (dotIdx > 0 && _localObjCClassNames.Count > 0
+                && MarshallingHelpers.IsPureObjCClassUsr(classDecl.SuperclassUsr))
+            {
+                var rawObjCName = MarshallingHelpers.ExtractObjCClassName(classDecl.SuperclassUsr);
+                if (rawObjCName != null && _localObjCClassNames.Contains(rawObjCName)
+                    && directName.Substring(0, dotIdx) != _module)
+                {
+                    // Keep the Swift-import (ABI-reported) simple name; only the module is wrong.
+                    var simpleName = directName.Substring(dotIdx + 1);
+                    return SwiftTypeName.FromModuleQualifiedName($"{_module}.{simpleName}");
+                }
+            }
+
+            return SwiftTypeName.FromModuleQualifiedName(directName);
         }
 
         /// <summary>

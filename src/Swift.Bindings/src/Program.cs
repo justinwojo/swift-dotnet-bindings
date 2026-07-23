@@ -776,8 +776,19 @@ namespace BindingsGeneration
                 decl.InternalTypeNames = internalTypeNames;
                 ReportCollector.Start(decl);
 
+                // Raw ObjC class names declared in this module's own bridging header — used by
+                // RegisterClassType to re-anchor a locally-declared pure-ObjC superclass that the ABI
+                // mis-attributes to an unrelated imported module. The class records' pre-rekey C# name
+                // is the raw ObjC declaration name (ObjCBridgeRecordFactory keys by cls.Name).
+                var localObjCClassNames = objcBridgeRecords == null
+                    ? null
+                    : objcBridgeRecords
+                        .Where(r => r.Kind == TypeRecordKind.Class)
+                        .Select(r => r.CSharpTypeName.Name)
+                        .ToHashSet(StringComparer.Ordinal);
+
                 // dylibPath is used for metadata extraction, runtimeLibraryName is used in generated DllImport
-                var moduleProcessor = new ModuleProcessor(moduleName, dylibPath, runtimeLibraryName, moduleTypes, typeDatabase, loggerFactory.CreateLogger<ModuleProcessor>(), namespaceResolver);
+                var moduleProcessor = new ModuleProcessor(moduleName, dylibPath, runtimeLibraryName, moduleTypes, typeDatabase, loggerFactory.CreateLogger<ModuleProcessor>(), namespaceResolver, localObjCClassNames);
                 var moduleDatabase = moduleProcessor.FinalizeTypeProcessingAndCreateModuleDatabase().ModuleDatabase;
 
                 // Mixed ObjC+Swift type-resolution bridge: register records synthesized from the ObjC

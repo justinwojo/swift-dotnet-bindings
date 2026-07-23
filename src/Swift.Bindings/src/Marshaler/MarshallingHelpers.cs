@@ -700,20 +700,55 @@ namespace BindingsGeneration
         /// ObjC class name from the superclass chain.
         /// </summary>
         /// <param name="classDecl">The class declaration with an ObjC superclass.</param>
+        /// <param name="currentModuleName">The Swift module currently being emitted. When supplied
+        /// together with <paramref name="typeDatabase"/>, a bare <c>c:objc(cs)…</c> superclass is first
+        /// resolved against this module's own mixed ObjC-bridge records before the ABI module segment is
+        /// trusted — the ABI's <c>superclassNames</c> can mis-attribute a locally-declared ObjC helper
+        /// class to an unrelated imported module.</param>
+        /// <param name="typeDatabase">The type database, consulted for the same-module bridge record.</param>
         /// <returns>The .NET type name (e.g., "CoreAnimation.CALayer", "UIKit.UIControl").</returns>
-        public static string? GetObjCBaseTypeName(ClassDecl classDecl)
+        public static string? GetObjCBaseTypeName(
+            ClassDecl classDecl,
+            string? currentModuleName = null,
+            ITypeDatabase? typeDatabase = null)
         {
             if (!classDecl.HasObjCSuperclass || classDecl.DirectSuperclassName == null)
                 return null;
 
-            // If the superclass is from an unsupported Apple module (XCTest, SwiftUI, etc.),
-            // fall back to Foundation.NSObject — all ObjC-rooted types ultimately derive from it.
-            // Source of truth is apple-frameworks.json's "unsupported" flag via
-            // AppleFrameworkRegistry; do not duplicate the list here.
             var dotIdx = classDecl.DirectSuperclassName.IndexOf('.');
             if (dotIdx > 0)
             {
                 var module = classDecl.DirectSuperclassName.Substring(0, dotIdx);
+
+                // A pure ObjC class declared in THIS mixed framework's own bridging header carries no
+                // module identity in its USR (bare `c:objc(cs)<Name>`), so the Swift digester attributes
+                // it to some other module the framework `import`s — the ABI's `superclassNames` segment
+                // is unreliable (e.g. CombineCocoa's `ObjcDelegateProxy` is reported as
+                // `Runtime.ObjcDelegateProxy` because the module also imports an unrelated `Runtime`
+                // package). The authoritative resolution is the module's OWN mixed-bridge record, keyed
+                // by the Swift-import name (the ABI-reported name minus the mis-attributed module). Prefer
+                // it over BOTH the ABI module segment AND the unsupported-module fallback below: the
+                // digester can just as well mis-attribute a local ObjC helper to an *unsupported* module
+                // (CombineCocoa imports `Combine`), and degrading such a case to NSObject would silently
+                // drop the correct base while the parse-time re-anchor keeps the real one — the two sites
+                // must agree. The lookup is identity-checked against the USR's raw ObjC name (mirroring
+                // the parse-time gate), so it does NOT fire for a genuinely external ObjC base or a
+                // same-leaf-name collision: no matching same-module bridge record exists, and the
+                // unsupported/USR/remap resolution below runs unchanged.
+                if (currentModuleName != null && typeDatabase != null
+                    && IsPureObjCClassUsr(classDecl.SuperclassUsr)
+                    && TryResolveObjCBridgeSuperclass(
+                        classDecl.DirectSuperclassName.Substring(dotIdx + 1),
+                        ExtractObjCClassName(classDecl.SuperclassUsr),
+                        currentModuleName, typeDatabase, out var bridgedBaseName))
+                {
+                    return bridgedBaseName;
+                }
+
+                // If the superclass is from an unsupported Apple module (XCTest, SwiftUI, etc.),
+                // fall back to Foundation.NSObject — all ObjC-rooted types ultimately derive from it.
+                // Source of truth is apple-frameworks.json's "unsupported" flag via
+                // AppleFrameworkRegistry; do not duplicate the list here.
                 if (AppleFrameworkRegistry.IsUnsupportedModule(module))
                     return "Foundation.NSObject";
 
@@ -748,6 +783,45 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Resolves a same-module ObjC superclass against the current module's mixed ObjC-bridge
+        /// records. <paramref name="superclassSimpleName"/> is the superclass's Swift-import name (the
+        /// ABI-reported name without its — possibly mis-attributed — module segment); the bridge record
+        /// synthesized by <see cref="ObjC.ObjCBridgeRecordFactory"/> is keyed
+        /// <c>{currentModule}.{swiftImportName}</c>, so a candidate match means an ObjC class of that
+        /// import name is declared in this framework. <paramref name="expectedRawObjCName"/> is the raw
+        /// ObjC class name extracted from the superclass USR; the record's projection
+        /// (<see cref="TypeRecord.CSharpTypeName"/>'s leaf, the raw ObjC name) must equal it. This
+        /// identity check mirrors the parse-time gate and prevents a false positive when a module hosts
+        /// BOTH a local ObjC helper and an unrelated Swift class whose genuinely-external ObjC base
+        /// happens to share the same Swift-import leaf name but a different USR. Returns false when no
+        /// such record exists (a genuinely external ObjC base) or the raw names disagree, leaving the
+        /// caller's ABI/USR resolution unchanged.
+        /// </summary>
+        private static bool TryResolveObjCBridgeSuperclass(
+            string superclassSimpleName,
+            string? expectedRawObjCName,
+            string currentModuleName,
+            ITypeDatabase typeDatabase,
+            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? csharpBaseName)
+        {
+            csharpBaseName = null;
+            if (expectedRawObjCName == null)
+                return false;
+            if (!SwiftTypeName.TryFromModuleQualifiedName(
+                    $"{currentModuleName}.{superclassSimpleName}", out var key))
+                return false;
+            if (typeDatabase.TryGetTypeRecord(key, out var record)
+                && record.Kind == TypeRecordKind.Class
+                && record.Flags.HasFlag(TypeRecordFlags.ObjCBridged)
+                && record.CSharpTypeName.Name == expectedRawObjCName)
+            {
+                csharpBaseName = record.CSharpTypeName.ToString();
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Determines whether a Clang class USR denotes a <em>pure</em> Objective-C class — one
         /// declared in Objective-C headers — as opposed to an <c>@objc</c>-exported Swift class.
         /// A pure ObjC class has the bare Clang form <c>c:objc(cs)&lt;Name&gt;</c>; an <c>@objc</c>
@@ -756,7 +830,7 @@ namespace BindingsGeneration
         /// discriminator. Only the pure ObjC case is bound by a dependency's ObjC ApiDefinition
         /// pipeline under its ObjC name.
         /// </summary>
-        private static bool IsPureObjCClassUsr(string? usr)
+        internal static bool IsPureObjCClassUsr(string? usr)
             => usr != null && usr.StartsWith("c:objc(cs)", System.StringComparison.Ordinal);
 
         /// <summary>
@@ -764,7 +838,7 @@ namespace BindingsGeneration
         /// <c>c:objc(cs)&lt;ClassName&gt;</c> (e.g. <c>c:objc(cs)MyClass</c> → <c>MyClass</c>).
         /// Returns <c>null</c> when the USR is null or is not a Clang ObjC class USR.
         /// </summary>
-        private static string? ExtractObjCClassName(string? usr)
+        internal static string? ExtractObjCClassName(string? usr)
         {
             const string marker = "objc(cs)";
             if (usr == null)
