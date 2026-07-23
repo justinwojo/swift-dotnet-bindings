@@ -115,6 +115,71 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Emits the @_cdecl existential-return marshalling: read the existential container from
+        /// the result location and wrap it in the appropriate proxy / well-known / union type.
+        /// Applies on both the indirect-result path and the direct-return path. The read location
+        /// follows the ACTUAL return convention (_requiresIndirectResult) — the indirect out-param
+        /// (ResultPtrName) when the box pointer arrives via the buffer, the function-result local
+        /// (ReturnLocalName) when the getter returns it directly — never a hardcoded ResultPtrName.
+        /// Returns true when it emitted a return (caller should return); false if not applicable.
+        /// </summary>
+        private bool TryEmitCdeclExistentialReturn(CSharpWriter csWriter, ArgumentDecl returnArg)
+        {
+            if (!(_env.ExistentialHandler.IsExistential(returnArg.SwiftTypeSpec) && _env.MethodDecl.UsesCdeclWrapper))
+                return false;
+
+            var resultLocation = _requiresIndirectResult ? ResultPtrName : ReturnLocalName;
+            var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(returnArg.SwiftTypeSpec)!;
+
+            // A single @objc protocol existential ('any P' where P is @objc) is a bare ObjC object
+            // pointer, NOT a container: the @_cdecl extern returns it as IntPtr BY VALUE (direct
+            // return), so resultLocation holds the object pointer itself — it does NOT address an
+            // ExistentialContainer1. We must WRAP that pointer in the proxy's single-payload
+            // container; MarshalFromSwift<ExistentialContainer1>(resultLocation) would instead
+            // dereference the object as if it were a 40-byte container (garbage read / crash).
+            // Mirrors the Optional<@objc existential> accessor path above, minus the nil check
+            // (this return is non-optional). ownsContainer: true adopts the getter's +1 retain.
+            if (ExistentialHandler.IsObjCProtocolExistentialSpec(returnArg.SwiftTypeSpec, _env.TypeDatabase))
+            {
+                var objcPublicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
+                // Unresolved protocol (publicType == "object") → no proxy class; fall through to the
+                // generic path below (an unresolved @objc existential is an upstream-skipped edge).
+                if (objcPublicType != "object")
+                {
+                    var objcProxy = _env.ExistentialHandler.GetRequiredProxyClassName(protocolList, _emissionContext);
+                    csWriter.WriteLine($"return new {objcProxy}(new Swift.Runtime.ExistentialContainer1 {{ Payload0 = {resultLocation} }}, ownsContainer: true);");
+                    return true;
+                }
+            }
+
+            var containerType = _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
+            // A class-bound (single AnyObject-/superclass-constrained) existential is a compact
+            // 2-word [classRef][witnessTable] heap cell (16 bytes), not the 5-word opaque
+            // container (40 bytes); reading the wider type pulls uninitialized bytes into the
+            // unused container fields. The +1 still transfers via the bitwise copy (the buffer
+            // free is a plain dealloc, no VWT Destroy), so the proxy's ownsContainer adoption is
+            // unchanged — only the read width differs.
+            var existentialRead = _env.ExistentialHandler.IsClassBoundArity1Existential(protocolList)
+                ? $"Swift.Runtime.ClassExistentialContainer1.ReadHeapCell({resultLocation})"
+                : $"SwiftMarshal.MarshalFromSwift<{containerType}>({resultLocation})";
+            csWriter.WriteLine($"var existentialResult = {existentialRead};");
+
+            if (protocolList.Protocols.Count == 0) { csWriter.WriteLine("return existentialResult;"); return true; }
+            // Return position (pure read) → allow the PAT-with-conformers union projection.
+            var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList, allowUnionProjection: _env.AllowsExistentialReturnUnionProjection);
+            if (publicType == "object") { csWriter.WriteLine("return existentialResult;"); return true; }
+            // PAT protocol with known conformers → ExistentialUnion (no proxy, uses try-cast).
+            if (publicType == "Swift.Runtime.ExistentialUnion")
+            { csWriter.WriteLine($"return new Swift.Runtime.ExistentialUnion(existentialResult);"); return true; }
+            if (_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wk))
+            { csWriter.WriteLine($"return new {wk}(existentialResult{ExistentialHandler.WellKnownOwnedTransferArg(wk)});"); return true; }
+            var proxy = _env.ExistentialHandler.GetRequiredProxyClassName(protocolList, _emissionContext);
+            // Owned return: +1 existential read out of the @_cdecl result location (EC1 or EC2+ composition).
+            csWriter.WriteLine($"return new {proxy}(existentialResult{OwnedExistentialCtorArg(containerType)});");
+            return true;
+        }
+
+        /// <summary>
         /// Emits the return statement for the method.
         /// </summary>
         /// <param name="csWriter">The IndentedTextWriter instance.</param>
@@ -444,38 +509,8 @@ namespace BindingsGeneration
                 // from the result buffer and wrap in proxy class. Without this, existential
                 // returns fall through to the generic MarshalFromSwift<IProtocol> catch-all
                 // which throws NotSupportedException at runtime (R3 regression).
-                if (_env.ExistentialHandler.IsExistential(returnArg.SwiftTypeSpec) && _env.MethodDecl.UsesCdeclWrapper)
-                {
-                    var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(returnArg.SwiftTypeSpec)!;
-                    var containerType = _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
-                    // A class-bound (single AnyObject-/superclass-constrained) existential is a compact
-                    // 2-word [classRef][witnessTable] heap cell (16 bytes), not the 5-word opaque
-                    // container (40 bytes); reading the wider type pulls uninitialized bytes into the
-                    // unused container fields. The +1 still transfers via the bitwise copy (the buffer
-                    // free is a plain dealloc, no VWT Destroy), so the proxy's ownsContainer adoption is
-                    // unchanged — only the read width differs.
-                    var existentialRead = _env.ExistentialHandler.IsClassBoundArity1Existential(protocolList)
-                        ? $"Swift.Runtime.ClassExistentialContainer1.ReadHeapCell({ResultPtrName})"
-                        : $"SwiftMarshal.MarshalFromSwift<{containerType}>({ResultPtrName})";
-                    csWriter.WriteLine($"var existentialResult = {existentialRead};");
-
-                    if (protocolList.Protocols.Count == 0) { csWriter.WriteLine("return existentialResult;"); return; }
-                    // Return position: allow the PAT-with-conformers union projection (read-only).
-                    var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList, allowUnionProjection: _env.AllowsExistentialReturnUnionProjection);
-                    if (publicType == "object") { csWriter.WriteLine("return existentialResult;"); return; }
-                    // PAT protocol with known conformers → ExistentialUnion (no proxy, uses try-cast).
-                    if (publicType == "Swift.Runtime.ExistentialUnion")
-                    { csWriter.WriteLine($"return new Swift.Runtime.ExistentialUnion(existentialResult);"); return; }
-                    if (_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wkIR))
-                    { csWriter.WriteLine($"return new {wkIR}(existentialResult{ExistentialHandler.WellKnownOwnedTransferArg(wkIR)});"); return; }
-                    var proxyIR = _env.ExistentialHandler.GetRequiredProxyClassName(protocolList, _emissionContext);
-                    // Owned return: Swift wrote the existential into the indirect-result buffer
-                    // at +1, so the proxy adopts the container and releases it on Dispose.
-                    // Both single-protocol (EC1) and composition (EC2+) proxies expose the
-                    // ownership-aware ctor (the arg is gated on the container TYPE, not protocol count).
-                    csWriter.WriteLine($"return new {proxyIR}(existentialResult{OwnedExistentialCtorArg(containerType)});");
+                if (TryEmitCdeclExistentialReturn(csWriter, returnArg))
                     return;
-                }
 
                 // Record bound generic for NativeAOT module initializer registration.
                 // Without this, NativeAOT trims the explicit ISwiftObject.GetTypeMetadata()
@@ -796,37 +831,11 @@ namespace BindingsGeneration
                 return;
             }
 
-            // @_cdecl existential returns: read container from indirect result buffer
-            if (_env.ExistentialHandler.IsExistential(returnArg.SwiftTypeSpec) && _env.MethodDecl.UsesCdeclWrapper)
-            {
-                var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(returnArg.SwiftTypeSpec)!;
-                var containerType = _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
-                // A class-bound (single AnyObject-/superclass-constrained) existential is a compact
-                // 2-word [classRef][witnessTable] heap cell (16 bytes), not the 5-word opaque
-                // container (40 bytes); reading the wider type pulls uninitialized bytes into the
-                // unused container fields. The +1 still transfers via the bitwise copy (the buffer
-                // free is a plain dealloc, no VWT Destroy), so the proxy's ownsContainer adoption is
-                // unchanged — only the read width differs.
-                var existentialRead = _env.ExistentialHandler.IsClassBoundArity1Existential(protocolList)
-                    ? $"Swift.Runtime.ClassExistentialContainer1.ReadHeapCell({ResultPtrName})"
-                    : $"SwiftMarshal.MarshalFromSwift<{containerType}>({ResultPtrName})";
-                csWriter.WriteLine($"var existentialResult = {existentialRead};");
-
-                // Then wrap in proxy (same logic as non-cdecl path below)
-                if (protocolList.Protocols.Count == 0) { csWriter.WriteLine("return existentialResult;"); return; }
-                // Return position (pure read) → allow the PAT-with-conformers union projection.
-                var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList, allowUnionProjection: _env.AllowsExistentialReturnUnionProjection);
-                if (publicType == "object") { csWriter.WriteLine("return existentialResult;"); return; }
-                // PAT protocol with known conformers → ExistentialUnion (no proxy, uses try-cast).
-                if (publicType == "Swift.Runtime.ExistentialUnion")
-                { csWriter.WriteLine($"return new Swift.Runtime.ExistentialUnion(existentialResult);"); return; }
-                if (_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wk))
-                { csWriter.WriteLine($"return new {wk}(existentialResult{ExistentialHandler.WellKnownOwnedTransferArg(wk)});"); return; }
-                var proxy = _env.ExistentialHandler.GetRequiredProxyClassName(protocolList, _emissionContext);
-                // Owned return: +1 existential read out of the @_cdecl result buffer (EC1 or EC2+ composition).
-                csWriter.WriteLine($"return new {proxy}(existentialResult{OwnedExistentialCtorArg(containerType)});");
+            // @_cdecl existential returns: read the container from the actual result location
+            // (indirect out-param when box arrives via the buffer, function-result local on the
+            // direct-return convention) and wrap in proxy class.
+            if (TryEmitCdeclExistentialReturn(csWriter, returnArg))
                 return;
-            }
 
             // Handle existential return types (any Protocol) - wrap container in proxy
             if (_env.ExistentialHandler.IsExistential(returnArg.SwiftTypeSpec))

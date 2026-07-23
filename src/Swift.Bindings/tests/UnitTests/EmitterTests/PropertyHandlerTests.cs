@@ -13,6 +13,52 @@ namespace BindingsGeneration.Tests;
 /// </summary>
 public class PropertyHandlerTests
 {
+    [Fact]
+    public void Emit_ObjCExistentialCdeclGetter_ReadsFunctionResultLocal_NotUndeclaredResultPtr()
+    {
+        // Shape A regression (DGCharts ChartBaseDataSet.valueFormatter etc.): an @objc-protocol
+        // existential property getter on the @_cdecl path returns a BARE ObjC object pointer BY
+        // VALUE as the function result (IsObjCProtocolExistentialSpec ⇒ _requiresIndirectResult
+        // == false), so the call side declares `var result = PInvoke_...(...)` where `result` is
+        // the object pointer itself. TWO things must hold: (1) the read location follows the
+        // direct-return convention (the function-result local `result`, NOT the undeclared
+        // indirect out-param `resultPtr` — a CS0103 in the shipped DGCharts binding); and (2)
+        // because an @objc existential is a bare pointer (AnyObject ABI), the pointer must be
+        // WRAPPED in the proxy's single-payload container (`new ExistentialContainer1 { Payload0
+        // = result }`), NOT dereferenced via `MarshalFromSwift<ExistentialContainer1>(result)`,
+        // which would read 40 bytes off the object as if `result` addressed a container.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings"; // xcframework/cdecl mode
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("TestModule.Drawable"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Drawable"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Drawable"),
+                MetadataAccessor = string.Empty,
+                Flags = TypeRecordFlags.ObjCProtocol,
+                Kind = TypeRecordKind.Protocol
+            })
+        });
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Container", moduleDecl);
+        var existentialType = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Drawable") });
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "renderer", existentialType, hasGetter: true, hasSetter: false);
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        // Direct-return convention chosen by the call side: the P/Invoke result is bound to `result`.
+        Assert.Contains("var result = PInvoke_renderer_Get", csOutput);
+        // The bare object pointer must be WRAPPED in the single-payload container (adopting the
+        // getter's +1), not dereferenced as a container address.
+        Assert.Contains("new Swift.Runtime.ExistentialContainer1 { Payload0 = result }", csOutput);
+        Assert.Contains("ownsContainer: true", csOutput);
+        // It must NOT MarshalFromSwift-read `result` as if it addressed an ExistentialContainer1...
+        Assert.DoesNotContain("MarshalFromSwift<Swift.Runtime.ExistentialContainer1>(result)", csOutput);
+        // ...and must NEVER reference the undeclared indirect out-param `resultPtr` on this path.
+        Assert.DoesNotContain("resultPtr", csOutput);
+    }
+
     #region AccessorDecl Tests
 
     [Fact]
