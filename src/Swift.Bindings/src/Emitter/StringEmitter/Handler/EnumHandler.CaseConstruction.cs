@@ -350,7 +350,7 @@ namespace BindingsGeneration
                             // Convert string → SwiftString, then extract IntPtr handle.
                             var elemVarName = $"__{bareName}_e{j}";
                             csWriter.WriteLine($"using var {elemVarName} = new SwiftString({elementAccess});");
-                            elementExprs.Add(GetPInvokeArgument(elemVarName, element, typeDatabase, emissionCtx));
+                            elementExprs.Add(GetPInvokeArgument(elemVarName, element, typeDatabase, emissionCtx, moduleDecl));
                         }
                         else if (proj is DataProjection)
                         {
@@ -407,7 +407,7 @@ namespace BindingsGeneration
                         else
                         {
                             // No projection or unsupported — use direct P/Invoke argument lowering
-                            elementExprs.Add(GetPInvokeArgument(elementAccess, element, typeDatabase, emissionCtx));
+                            elementExprs.Add(GetPInvokeArgument(elementAccess, element, typeDatabase, emissionCtx, moduleDecl));
                         }
                     }
                     tuplePInvokeExprs[i] = $"({string.Join(", ", elementExprs)})";
@@ -539,7 +539,12 @@ namespace BindingsGeneration
             int existentialIndex = 0;
             if (useCdeclWrapper)
             {
-                var existentialHandler = new ExistentialHandler(typeDatabase);
+                // Thread CurrentModuleName so the container-construction body qualifies a
+                // cross-module sibling protocol as `Alamofire.IParameterEncoding` in the emitted
+                // `GetOrCreate<...>` type argument (below). Without it the factory BODY emits a bare
+                // `GetOrCreate<IParameterEncoding>` in the consuming module's namespace — CS0246,
+                // the same failure the public-signature qualification prevents.
+                var existentialHandler = new ExistentialHandler(typeDatabase) { CurrentModuleName = moduleDecl.Name };
                 for (int i = 0; i < parameters.Count; i++)
                 {
                     var (_, _, name, typeSpec) = parameters[i];
@@ -694,7 +699,7 @@ namespace BindingsGeneration
                         (typeSpec is NamedTypeSpec ds && ds.Name == "Foundation.Data") ||
                         (typeSpec is NamedTypeSpec dts && dts.Name == "Foundation.Date");
                     var argName = isConvertedToLocal ? $"__{bareName}" : name;
-                    argList.Add(GetPInvokeArgument(argName, typeSpec, typeDatabase, emissionCtx));
+                    argList.Add(GetPInvokeArgument(argName, typeSpec, typeDatabase, emissionCtx, moduleDecl));
                 }
             }
 
@@ -1013,7 +1018,12 @@ namespace BindingsGeneration
         private static string GetPublicCSharpTypeNameForEnumCase(TypeSpec typeSpec, ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler,
             IReadOnlyList<GenericArgumentDecl>? genericParams = null, ModuleDecl? moduleDecl = null)
         {
-            var existentialHandler = new ExistentialHandler(typeDatabase);
+            // Thread CurrentModuleName so GetPublicExistentialType qualifies a cross-module
+            // sibling protocol (e.g. an Alamofire `any ParameterEncoding` referenced from a
+            // Moya enum case) as `Alamofire.IParameterEncoding` rather than the bare
+            // `IParameterEncoding` — the bare name is unresolvable in the consuming package
+            // and fails CS0246 in the enum-case factory method / TryGet out-param signatures.
+            var existentialHandler = new ExistentialHandler(typeDatabase) { CurrentModuleName = moduleDecl?.Name };
             var typeConversionHandler = new TypeConversionHandler(typeDatabase);
 
             // Handle existential types (any Protocol) - return interface if all protocols are known
@@ -1094,7 +1104,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Gets the P/Invoke argument expression for a parameter.
         /// </summary>
-        private static string GetPInvokeArgument(string paramName, TypeSpec typeSpec, ITypeDatabase typeDatabase, ModuleEmissionContext? emissionCtx = null)
+        private static string GetPInvokeArgument(string paramName, TypeSpec typeSpec, ITypeDatabase typeDatabase, ModuleEmissionContext? emissionCtx = null, ModuleDecl? moduleDecl = null)
         {
             if (typeSpec is NamedTypeSpec genericParamType &&
                 TypeSpecHelpers.IsGenericTypeParameter(genericParamType.Name))
@@ -1102,8 +1112,12 @@ namespace BindingsGeneration
                 return $"{paramName}.Payload.DangerousGetHandle()";
             }
 
-            // Handle existential types
-            var existentialHandler = new ExistentialHandler(typeDatabase);
+            // Handle existential types.
+            // Thread CurrentModuleName so a cross-module sibling protocol is qualified as
+            // `Alamofire.IParameterEncoding` in the emitted `GetOrCreate<...>` type argument
+            // (below); a bare `GetOrCreate<IParameterEncoding>` in the consuming module's
+            // namespace fails CS0246 — the same shape the public-signature qualification fixes.
+            var existentialHandler = new ExistentialHandler(typeDatabase) { CurrentModuleName = moduleDecl?.Name };
             if (existentialHandler.IsExistential(typeSpec))
             {
                 var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
@@ -1154,7 +1168,7 @@ namespace BindingsGeneration
                         : $"{paramName}.Item{i + 1}";
 
                     // Recursively get the P/Invoke argument for this element
-                    elementArgs.Add(GetPInvokeArgument(elementAccess, element, typeDatabase, emissionCtx));
+                    elementArgs.Add(GetPInvokeArgument(elementAccess, element, typeDatabase, emissionCtx, moduleDecl));
                 }
                 return $"({string.Join(", ", elementArgs)})";
             }

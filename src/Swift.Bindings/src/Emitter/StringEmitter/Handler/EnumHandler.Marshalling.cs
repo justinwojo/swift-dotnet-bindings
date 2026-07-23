@@ -267,7 +267,12 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitPayloadMarshalWithOffset(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, string offsetVar, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null, ModuleDecl? moduleDecl = null, ModuleEmissionContext? emissionCtx = null)
         {
-            var existentialHandler = new ExistentialHandler(typeDatabase);
+            // Thread CurrentModuleName so the TryGet body's cross-module proxy construction is
+            // module-qualified (GetQualifiedProxyClassName below). A cross-module `{P}Proxy` lives
+            // in the sibling's `{Module}.SwiftInterop` namespace, which the consuming module does
+            // not `using`, so a bare `new ParameterEncodingProxy(...)` fails CS0246 — the TryGet
+            // arm of the same cross-module existential family the public signature fixes.
+            var existentialHandler = new ExistentialHandler(typeDatabase) { CurrentModuleName = moduleDecl?.Name };
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
             // Bare generic type parameter (e.g. VerificationResult<T>.verified(T)): marshal via
@@ -313,7 +318,7 @@ namespace BindingsGeneration
                         // Owned extraction: the enum copy was taken at +1 (InitializeWithCopy) into a
                         // buffer that is never value-witness-destroyed, so the proxy adopts the
                         // existential's +1 and releases it via the container's metadata on Dispose/finalize.
-                        var proxyClassName = existentialHandler.GetProxyClassName(protocolList);
+                        var proxyClassName = existentialHandler.GetQualifiedProxyClassName(protocolList);
                         // Predict-before-emit availability gate (Mechanism A, PRODUCE arm): abandon the whole
                         // TryGet member body when the `{P}Proxy` this branch is about to construct is not in
                         // the emitted output. IsProxyReferenceUnavailable covers BOTH a suppressed proxy (its
@@ -470,7 +475,10 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitPayloadMarshal(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null, ModuleDecl? moduleDecl = null, ModuleEmissionContext? emissionCtx = null)
         {
-            var existentialHandler = new ExistentialHandler(typeDatabase);
+            // Thread CurrentModuleName so the TryGet body's cross-module proxy construction is
+            // module-qualified (GetQualifiedProxyClassName below) rather than a bare, CS0246
+            // `new ParameterEncodingProxy(...)`. See EmitPayloadMarshalWithOffset.
+            var existentialHandler = new ExistentialHandler(typeDatabase) { CurrentModuleName = moduleDecl?.Name };
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
             // Bare generic type parameter (e.g. VerificationResult<T>.verified(T)): marshal via
@@ -508,7 +516,7 @@ namespace BindingsGeneration
                         // Owned extraction: the enum copy was taken at +1 (InitializeWithCopy) into a
                         // buffer that is never value-witness-destroyed, so the proxy adopts the
                         // existential's +1 and releases it via the container's metadata on Dispose/finalize.
-                        var proxyClassName = existentialHandler.GetProxyClassName(protocolList);
+                        var proxyClassName = existentialHandler.GetQualifiedProxyClassName(protocolList);
                         // Predict-before-emit availability gate (Mechanism A, PRODUCE arm): see
                         // EmitPayloadMarshalWithOffset. Covers a suppressed proxy AND a structurally
                         // non-emitted Self/AT one. Unwinds to the TryGet body checkpoint/catch.
@@ -676,7 +684,10 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitPayloadMarshalWithDeclaration(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null, ModuleDecl? moduleDecl = null, ModuleEmissionContext? emissionCtx = null)
         {
-            var existentialHandler = new ExistentialHandler(typeDatabase);
+            // Thread CurrentModuleName so the TryGet body's cross-module proxy construction is
+            // module-qualified (GetQualifiedProxyClassName below) rather than a bare, CS0246
+            // `new ParameterEncodingProxy(...)`. See EmitPayloadMarshalWithOffset.
+            var existentialHandler = new ExistentialHandler(typeDatabase) { CurrentModuleName = moduleDecl?.Name };
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
             // Bare generic type parameter (e.g. VerificationResult<T>.verified(T)): marshal via
@@ -752,7 +763,7 @@ namespace BindingsGeneration
                         // Owned extraction: the enum copy was taken at +1 (InitializeWithCopy) into a
                         // buffer that is never value-witness-destroyed, so the proxy adopts the
                         // existential's +1 and releases it via the container's metadata on Dispose/finalize.
-                        var proxyClassName = existentialHandler.GetProxyClassName(protocolList);
+                        var proxyClassName = existentialHandler.GetQualifiedProxyClassName(protocolList);
                         // Predict-before-emit availability gate (Mechanism A, PRODUCE arm): see
                         // EmitPayloadMarshalWithOffset. Covers a suppressed proxy AND a structurally
                         // non-emitted Self/AT one. Unwinds to the TryGet body checkpoint/catch.

@@ -2756,7 +2756,12 @@ public class EnumHandlerOutputTests
             SwiftTypeName.FromModuleQualifiedName($"{protocolModule}.{protocolName}"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName($"Swift.{protocolModule}", $"I{protocolName}"),
+                // The C# namespace of a Swift module is its module name (e.g. module Alamofire
+                // → namespace Alamofire), matching real generation — NOT a "Swift."-prefixed
+                // form. The cross-module qualification gate compares the protocol's emission
+                // namespace against the consuming enum's raw module name, so a spurious prefix
+                // makes a same-module reference read as cross-module.
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(protocolModule, $"I{protocolName}"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{protocolModule}.{protocolName}"),
                 MetadataAccessor = $"$s{protocolModule}{protocolName}Ma",
                 Flags = TypeRecordFlags.None,
@@ -2797,7 +2802,12 @@ public class EnumHandlerOutputTests
             SwiftTypeName.FromModuleQualifiedName($"{protocolModule}.{protocolName}"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName($"Swift.{protocolModule}", $"I{protocolName}"),
+                // The C# namespace of a Swift module is its module name (e.g. module Alamofire
+                // → namespace Alamofire), matching real generation — NOT a "Swift."-prefixed
+                // form. The cross-module qualification gate compares the protocol's emission
+                // namespace against the consuming enum's raw module name, so a spurious prefix
+                // makes a same-module reference read as cross-module.
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(protocolModule, $"I{protocolName}"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{protocolModule}.{protocolName}"),
                 MetadataAccessor = $"$s{protocolModule}{protocolName}Ma",
                 Flags = selfOrAssociatedFlag,
@@ -3270,6 +3280,51 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_EnumCaseWithCrossModuleExistential_QualifiesInterfaceInFactoryAndTryGet()
+    {
+        // Moya sibling-reference regression: an enum case whose associated value is an
+        // existential protocol declared in a SIBLING module (e.g. Moya's Task.requestParameters
+        // carrying `any ParameterEncoding` from Alamofire) must emit the MODULE-QUALIFIED
+        // C# interface name in both the case-factory parameter and the TryGet out-parameter.
+        // Before the fix, GetPublicCSharpTypeNameForEnumCase built its ExistentialHandler
+        // without CurrentModuleName, so GetPublicExistentialType's cross-module qualification
+        // never fired and the bare `IParameterEncoding` leaked — unresolvable (CS0246) in the
+        // consuming package.
+        var typeDatabase = CreateTypeDatabaseWithStringAndProtocol("Alamofire", "ParameterEncoding");
+        // Register the enum's own (consuming) module so the emitter can resolve its library path.
+        typeDatabase.AddModuleDatabase(new ModuleTypeDatabase("Moya", "/tmp/Moya.dylib"));
+        var moduleDecl = CreateModuleDecl("Moya");
+        var enumDecl = CreateEnumDecl("Task", moduleDecl, isFrozen: false);
+
+        var requestParametersCase = CreateCase("requestParameters");
+        requestParametersCase.AssociatedValues.Add(
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Alamofire.ParameterEncoding") }));
+        enumDecl.Cases.Add(requestParametersCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // The sibling protocol's C# interface lives in the Alamofire namespace. The factory
+        // parameter and the TryGet out-param must reference it module-qualified, not bare.
+        Assert.Contains("Alamofire.IParameterEncoding", csOutput);
+        // Regression guard: the bare, unqualified interface must NOT appear in the factory
+        // parameter position or the TryGet out-parameter position (the exact CS0246 shape).
+        Assert.DoesNotContain("(IParameterEncoding ", csOutput);
+        Assert.DoesNotContain("out IParameterEncoding ", csOutput);
+        // The factory BODY marshals the existential through an ExistentialContainerFactory
+        // .GetOrCreate<T>(...) call whose type argument is the SAME public interface. A
+        // signature-only fix leaves the body emitting a bare `GetOrCreate<IParameterEncoding>`
+        // — still CS0246 in the consuming namespace. Guard the body type argument is qualified.
+        Assert.DoesNotContain("GetOrCreate<IParameterEncoding>", csOutput);
+        // The TryGet BODY wraps the extracted container in the sibling protocol's PROXY class,
+        // which lives in the sibling's `{Module}.SwiftInterop` namespace (not `using`-imported by
+        // the consumer). A bare `new ParameterEncodingProxy(...)` is CS0246 — the TryGet arm of
+        // the family. It must be dotted (`Alamofire.SwiftInterop.ParameterEncodingProxy`).
+        Assert.Contains("new Alamofire.SwiftInterop.ParameterEncodingProxy(", csOutput);
+        Assert.DoesNotContain("new ParameterEncodingProxy(", csOutput);
+    }
+
+    [Fact]
     public void Emit_StandaloneSwiftStringEnumCase_UsesStringInPublicSignature()
     {
         // Standalone SwiftString (not in a tuple) → public API should use "string"
@@ -3565,7 +3620,12 @@ public class EnumHandlerOutputTests
             SwiftTypeName.FromModuleQualifiedName($"{protocolModule}.{protocolName}"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName($"Swift.{protocolModule}", $"I{protocolName}"),
+                // The C# namespace of a Swift module is its module name (e.g. module Alamofire
+                // → namespace Alamofire), matching real generation — NOT a "Swift."-prefixed
+                // form. The cross-module qualification gate compares the protocol's emission
+                // namespace against the consuming enum's raw module name, so a spurious prefix
+                // makes a same-module reference read as cross-module.
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(protocolModule, $"I{protocolName}"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{protocolModule}.{protocolName}"),
                 MetadataAccessor = $"$s{protocolModule}{protocolName}Ma",
                 Flags = TypeRecordFlags.None,
