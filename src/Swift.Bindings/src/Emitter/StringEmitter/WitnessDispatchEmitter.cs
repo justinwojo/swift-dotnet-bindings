@@ -771,6 +771,31 @@ public class WitnessDispatchEmitter
     }
 
     /// <summary>
+    /// Checks whether a TypeSpec's C# projection exposes the native pointer via a bare
+    /// <c>.Handle</c> accessor rather than an ISwiftObject <c>.Payload</c> SafeHandle — true for
+    /// ObjC-rooted, ObjC-bridged, and ObjC-bridgeable types alike (e.g. an NSObject-subclass Swift
+    /// class, or a native-remapped <c>CoreGraphics.CGContext</c> that carries <c>objcBridged</c> but
+    /// is NOT NSObject-rooted). Widens <see cref="IsObjCRootedClassType"/>'s ObjC-rooted-only test to
+    /// the full union so a bridged class no longer falls to the (nonexistent) <c>.Payload</c> path.
+    /// </summary>
+    public bool UsesHandleAccessor(TypeSpec? typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedType)
+            return false;
+        try
+        {
+            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+            if (_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
+                return MarshallingHelpers.UsesHandleAccessor(typeRecord);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Checks if a TypeSpec represents a struct that requires indirect dispatch
     /// (non-frozen struct or frozen struct with RequiresMemoryManagement).
     /// Does NOT check IsTypeBlittable/IsStringType — use for raw type identification only.

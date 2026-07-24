@@ -38,6 +38,55 @@ public class WitnessDispatchEmitterTests
             });
     }
 
+    #region UsesHandleAccessor (Shape C1) Tests
+
+    [Fact]
+    public void UsesHandleAccessor_ObjCBridgedClass_ReturnsTrue_WhereObjCRootedCheckReturnsFalse()
+    {
+        // Shape C1 (DGCharts DataRenderer.DrawData(CGContext)): the proxy witness-dispatch forwarder
+        // must select `.Handle` for an ObjC-BRIDGED CFType binding (CoreGraphics.CGContext wraps a
+        // CFTypeRef, carries objcBridged, but is NOT NSObject-rooted). The old `IsObjCRootedClassType`
+        // check returns FALSE for it → the forwarder fell to the nonexistent `.Payload`
+        // (CS1061/CS0117 in the shipped DGCharts binding). The widened `UsesHandleAccessor` returns
+        // TRUE so `.Handle` is selected.
+        var cgContextLike = SwiftTypeName.FromModuleQualifiedName("TestModule.CGContextLike");
+        _testModule.RegisterType(cgContextLike, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("CoreGraphics", "CGContext"),
+            SwiftTypeName = cgContextLike,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class
+        });
+        var spec = new NamedTypeSpec("TestModule.CGContextLike");
+
+        // The pre-fix predicate misses it...
+        Assert.False(_emitter.IsObjCRootedClassType(spec));
+        // ...the widened predicate catches it → `.Handle` path.
+        Assert.True(_emitter.UsesHandleAccessor(spec));
+    }
+
+    [Fact]
+    public void UsesHandleAccessor_PureSwiftClass_ReturnsFalse()
+    {
+        // A pure Swift class carries a `.Payload` SafeHandle, not a bare `.Handle` — the forwarder
+        // must keep routing it through `.Payload.DangerousGetHandle()`.
+        var pureClass = SwiftTypeName.FromModuleQualifiedName("TestModule.PureClass");
+        _testModule.RegisterType(pureClass, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "PureClass"),
+            SwiftTypeName = pureClass,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class
+        });
+        var spec = new NamedTypeSpec("TestModule.PureClass");
+
+        Assert.False(_emitter.UsesHandleAccessor(spec));
+    }
+
+    #endregion
+
     #region Swift Accessor Generation Tests
 
     [Fact]

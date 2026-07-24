@@ -496,10 +496,11 @@ public static partial class SwiftUIBridgeEmitter
             // A real ObjC class (e.g. UIKit.UIImage) crosses the ABI as an ObjC object pointer:
             // C# reads its native `.Handle` and Swift reconstructs/passes it via Unmanaged — the
             // same handle path used by ObjC-bridgeable value types. Our own Swift-class bindings
-            // instead carry an ISwiftObject `.Payload` SafeHandle. An ObjC-bridged class has no
-            // `.Payload`, so routing it through the handle path is what lets it compile at all.
-            var isObjCBridgeable = MarshallingHelpers.IsObjCBridgeable(record)
-                || MarshallingHelpers.IsObjCBridged(record);
+            // instead carry an ISwiftObject `.Payload` SafeHandle. An ObjC-backed class has no
+            // `.Payload`, so routing it through the handle path is what lets it compile at all —
+            // and that includes an ObjC-ROOTED class (a genuine NSObject subclass we emit, e.g.
+            // RiveViewModel, which uses `.Handle` too), not only bridged/bridgeable types.
+            var isObjCBridgeable = MarshallingHelpers.UsesHandleAccessor(record);
 
             return new BridgeParameter(
                 paramName,

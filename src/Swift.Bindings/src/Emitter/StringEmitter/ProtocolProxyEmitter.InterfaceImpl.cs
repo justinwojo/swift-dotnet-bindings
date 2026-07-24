@@ -2599,8 +2599,11 @@ public partial class ProtocolProxyEmitter
                      (dispatchEmitter.IsSwiftClassType(paramSwiftTypeSpecs[i]) ||
                       dispatchEmitter.IsIndirectStructType(paramSwiftTypeSpecs[i])))
             {
-                // ObjC-rooted classes use .Handle (ObjC pointer), pure Swift classes use .Payload
-                if (dispatchEmitter.IsObjCRootedClassType(paramSwiftTypeSpecs[i]))
+                // ObjC-backed classes use .Handle (ObjC/CF pointer), pure Swift classes use .Payload.
+                // The .Handle set is the full union of ObjC-rooted (NSObject subclass), ObjC-bridged
+                // (native-remapped .NET binding like CoreGraphics.CGContext, which carries objcBridged
+                // but is not NSObject-rooted), and ObjC-bridgeable — none of which expose a .Payload.
+                if (dispatchEmitter.UsesHandleAccessor(paramSwiftTypeSpecs[i]))
                     writer.WriteLine($"var arg{i}Slice = {argNames[i]}.Handle;");
                 else
                     writer.WriteLine($"var arg{i}Slice = {argNames[i]}.Payload.DangerousGetHandle();");

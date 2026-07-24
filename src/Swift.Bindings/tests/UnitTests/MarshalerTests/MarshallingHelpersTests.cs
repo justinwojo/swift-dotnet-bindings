@@ -107,6 +107,52 @@ public class MarshallingHelpersTests
 
     #endregion
 
+    #region UsesHandleAccessor Tests
+
+    // Shape C shared predicate: "does this type's C# projection expose the native pointer via a
+    // bare `.Handle` accessor rather than an ISwiftObject `.Payload` SafeHandle?" It is the UNION of
+    // three independent ObjC-backed facts — before the fix, two emitters each consulted only one
+    // half (ProtocolProxyEmitter's proxy witness-dispatch checked ObjC-rooted only → CGContext, an
+    // ObjC-bridged CFType, fell to a nonexistent `.Payload`; SwiftUIBridgeEmitter checked
+    // bridged/bridgeable only → an ObjC-ROOTED RiveViewModel fell to `.Payload`). This single
+    // predicate is what both now consult so a third emitter can't reintroduce the split.
+
+    [Theory]
+    [InlineData(TypeRecordFlags.ObjCRooted)]     // NSObject-subclass Swift class (e.g. RiveViewModel) — C2 face
+    [InlineData(TypeRecordFlags.ObjCBridged)]    // native-remapped CFType/.NET binding (e.g. CGContext) — C1 face
+    [InlineData(TypeRecordFlags.ObjCBridgeable)] // ObjC-bridgeable value type (e.g. Foundation.URL → NSUrl)
+    public void UsesHandleAccessor_ReturnsTrueForEveryObjCBackedFlavor(TypeRecordFlags objcFlag)
+    {
+        Assert.True(MarshallingHelpers.UsesHandleAccessor(CreateTypeRecord(objcFlag)));
+    }
+
+    [Fact]
+    public void UsesHandleAccessor_ReturnsTrueWhenObjCFlagCombinedWithOtherFlags()
+    {
+        // CGContext carries ObjCBridged | RequiresMemoryManagement; the memory-management flag
+        // must not mask the ObjC-backed classification.
+        var typeRecord = CreateTypeRecord(TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement);
+        Assert.True(MarshallingHelpers.UsesHandleAccessor(typeRecord));
+    }
+
+    [Fact]
+    public void UsesHandleAccessor_ReturnsFalseForPureSwiftClass()
+    {
+        // A pure Swift class (RequiresMemoryManagement, none of the ObjC flags) carries a `.Payload`
+        // SafeHandle, NOT a bare `.Handle` — the predicate must NOT route it to the handle path.
+        var typeRecord = CreateTypeRecord(TypeRecordFlags.RequiresMemoryManagement);
+        Assert.False(MarshallingHelpers.UsesHandleAccessor(typeRecord));
+    }
+
+    [Fact]
+    public void UsesHandleAccessor_ReturnsFalseForFrozenValueStruct()
+    {
+        var typeRecord = CreateTypeRecord(TypeRecordFlags.Frozen);
+        Assert.False(MarshallingHelpers.UsesHandleAccessor(typeRecord));
+    }
+
+    #endregion
+
     #region MethodRequiresIndirectResult Tests
 
     [Fact]

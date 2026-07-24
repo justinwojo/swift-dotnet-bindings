@@ -21,6 +21,41 @@ public class ConcreteSpecializationEngineTests
     private static ITypeDatabase CreateEmptyTypeDatabase() => new EmptyTypeDatabase();
 
     [Fact]
+    public void EmitConcreteSpecializations_ClassInstanceMethod_SelfArgUsesGetSwiftHandle_NotHandleField()
+    {
+        // Shape B regression (DGCharts ChartDataSet, ChartData): a concrete protocol-generic
+        // specialization emitted DIRECTLY on a class (not via an extension) forwards `self` to the
+        // @_cdecl P/Invoke. The pre-fix code hardcoded the private field name
+        // `_handle.DangerousGetHandle()`, but no `_handle` field exists on an ObjC-rooted class
+        // (NSObject subclass — its handle IS NSObject.Handle), so that self-arg is a CS0103. The
+        // fix routes through the class's own `GetSwiftHandle()` accessor, which every generated
+        // class flavor emits (pure-Swift → `_handle.DangerousGetHandle()`, ObjC-rooted → `Handle`)
+        // and which is IntPtr-typed — so it forwards self uniformly. `some Collection<String>` on a
+        // class (the CollectionHost shape) specializes to `Swift.SwiftArray<Swift.SwiftString>` and
+        // exercises the class self-arg path.
+        var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Host"), "TestLib", "Host");
+        var engine = new ConcreteSpecializationEngine(db);
+        var typeDecl = CreateClassWithSomeCollectionElementMethod("Host", "Swift.String");
+
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+        ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializations(
+            csWriter, swiftWriter, typeDecl, db, new ModuleEmissionContext(), engine, NullLogger.Instance);
+
+        var cs = csOutput.ToString();
+
+        // The specialized overload must be emitted (guards against a silent no-op test).
+        Assert.Contains("public string JoinItems(Swift.SwiftArray<Swift.SwiftString> items)", cs);
+        // Self forwarded via the uniform accessor...
+        Assert.Contains("GetSwiftHandle()", cs);
+        // ...never the raw private field, which does not exist on an ObjC-rooted class.
+        Assert.DoesNotContain("_handle.DangerousGetHandle()", cs);
+    }
+
+    [Fact]
     public void LoadedHints_ContainsDataProtocol()
     {
         var hints = ConcreteSpecializationEngine.LoadedHints;

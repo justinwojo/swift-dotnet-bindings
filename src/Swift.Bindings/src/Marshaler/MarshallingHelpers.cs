@@ -644,6 +644,22 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Determines whether a type's C# projection exposes the native pointer through a bare
+        /// <c>.Handle</c> accessor rather than an ISwiftObject <c>.Payload</c> SafeHandle. True for
+        /// every ObjC-backed flavor: an ObjC-rooted Swift class (NSObject subclass we emit), an
+        /// ObjC-bridged reference type (a .NET iOS binding around NSObject/CFType, e.g.
+        /// <c>CoreGraphics.CGContext</c>, <c>UIKit.UIImage</c>), and an ObjC-bridgeable value type
+        /// (e.g. <c>Foundation.URL</c> → <c>NSUrl</c>). None of these carry a <c>.Payload</c>, so a
+        /// marshalling site that hardcodes <c>.Payload.DangerousGetHandle()</c> for them fails to
+        /// compile. This is the single predicate emitters should consult so the ObjC-rooted vs
+        /// ObjC-bridged halves can't drift apart across call sites.
+        /// </summary>
+        public static bool UsesHandleAccessor(TypeRecord typeRecord)
+        {
+            return IsObjCRooted(typeRecord) || IsObjCBridged(typeRecord) || IsObjCBridgeable(typeRecord);
+        }
+
+        /// <summary>
         /// Determines if a method is a property setter based on its name.
         /// Property setters are generated with names ending in "_Set".
         /// </summary>

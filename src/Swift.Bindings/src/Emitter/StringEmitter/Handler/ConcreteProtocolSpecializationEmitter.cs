@@ -1468,7 +1468,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
             }
             else
             {
-                var selfExpr = isClass ? "_handle.DangerousGetHandle()" : "_payload.DangerousGetHandle()";
+                // Class self-arg: route through the class's own GetSwiftHandle() accessor rather
+                // than a raw private field. The field name is not uniform across class flavors —
+                // an ObjC-rooted class (NSObject subclass) has no `_handle` field (its handle IS
+                // NSObject.Handle), while a pure Swift class keeps `_handle`. GetSwiftHandle() is
+                // emitted for BOTH (returning Handle vs _handle.DangerousGetHandle() respectively)
+                // and is IntPtr-typed, so it forwards self uniformly.
+                var selfExpr = isClass ? "GetSwiftHandle()" : "_payload.DangerousGetHandle()";
                 callArgs.Add(selfExpr);
             }
         }
