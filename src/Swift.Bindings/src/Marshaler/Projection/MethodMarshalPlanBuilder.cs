@@ -340,9 +340,11 @@ internal class MethodMarshalPlanBuilder
         // assignment site in WrapperEmitter.Marshalling.EmitClosureMarshalling:
         // baseline async closures (throwing or non-throwing) take a state-based
         // bridge in EmitAsyncThrowingClosureMarshallingSetup which declares its
-        // own `var {csName}Handle = GCHandle.Alloc(...)`. Every other thunked
-        // closure — including non-baseline async-throwing shapes that fall back
-        // to the legacy GCHandle path — needs the pre-declaration so the
+        // own `var {csName}Handle = GCHandle.Alloc(...)`. A non-baseline async
+        // closure is not a supported closure at all (IsSupportedClosure rejects it
+        // — see below), so it is excluded here and the enclosing member is
+        // tombstoned rather than marshalled. Every other thunked, SUPPORTED closure
+        // — the legacy-GCHandle synchronous path — needs the pre-declaration so the
         // finally-block free can reference it.
         var closureParamCount = _env.MethodDecl.CSSignature.Skip(1).Count(_env.ClosureHandler.IsClosure);
         foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(_env.ClosureHandler.IsClosure))

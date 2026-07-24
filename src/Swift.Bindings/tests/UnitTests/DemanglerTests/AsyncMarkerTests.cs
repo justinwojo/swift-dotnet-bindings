@@ -40,6 +40,24 @@ public class AsyncMarkerTests
     }
 
     [Theory]
+    // Sync CONSTRUCTORS whose only async marker lives inside a closure-typed PARAMETER — the
+    // `init(factory: () async throws -> T)` / `init(handler: (Arg) async -> Void)` shape. The
+    // AsyncAnnotation node is a child of the parameter closure's FunctionType, nested well below the
+    // constructor's own function type. A whole-tree scan for AsyncAnnotation mis-reads these as async
+    // constructors, so the parser routes a plain sync init through the async-factory / async-skip
+    // path (dropping the visible tombstone surface and, at emission, referencing an undeclared
+    // closure box). Detection must consider only the outermost function type's own async annotation,
+    // so these are correctly not-async. Real symbols from BindingTests/SwiftBindingsTestLib.
+    [InlineData("$s20SwiftBindingsTestLib30NonBaselineAsyncClosureFactoryC7factoryAcA0gI7PayloadCyYaKc_tcfC")] // init(factory: () async throws -> AsyncFactoryPayload)
+    [InlineData("$s20SwiftBindingsTestLib33UnsupportedClosureAsyncVoidReturnC7handlerACyAA0eF7RequestVYac_tcfC")] // init(handler: (UnsupportedClosureRequest) async -> Void)
+    public void HasAsyncMarker_SyncCtorWithAsyncClosureParam_NotAsync(string mangledName)
+    {
+        var demangler = new Swift5Demangler();
+        Assert.False(demangler.HasAsyncMarker(mangledName),
+            "a sync constructor whose only async annotation is on a closure parameter must not be read as an async declaration");
+    }
+
+    [Theory]
     // Identifiers whose names embed "Ya" (Yak/Yacht). The grammar walk reads these as Identifier
     // text, never an AsyncAnnotation node, so they are correctly not-async — the substring scan
     // needed an explicit digit-prefix guard to reach the same answer.

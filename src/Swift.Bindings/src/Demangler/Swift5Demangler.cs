@@ -104,9 +104,17 @@ namespace BindingsGeneration.Demangling
         }
 
         /// <summary>
-        /// Reports whether <paramref name="mangledName"/> demangles to a tree carrying an
-        /// <see cref="NodeKind.AsyncAnnotation"/> node — i.e. the symbol is an <c>async</c> function,
-        /// method, accessor, or initializer.
+        /// Reports whether <paramref name="mangledName"/> is the symbol of an <c>async</c> function,
+        /// method, accessor, or initializer — i.e. the <em>declaration itself</em> is async.
+        ///
+        /// The async marker is only meaningful when it annotates the declaration's OWN function type.
+        /// An <see cref="NodeKind.AsyncAnnotation"/> can also appear nested inside a parameter or
+        /// return type whose Swift type is itself an async closure (e.g. a sync
+        /// <c>init(factory: () async throws -&gt; T)</c>): that annotation describes the closure, not
+        /// the constructor, so a whole-tree scan mis-marks the sync member as async. This walks to the
+        /// outermost (shallowest) <c>FunctionType</c> — the declaration's own signature; parameter and
+        /// return closures are strictly deeper — and checks only ITS direct children, so a nested
+        /// closure's async annotation no longer leaks up onto the declaration.
         ///
         /// Finding 17: this replaces the <c>DetectAsyncFromMangledName</c> substring scan for
         /// <c>"Ya"</c>. Like <see cref="HasVariadicParameterMarker"/>, it walks the raw node tree
@@ -117,7 +125,7 @@ namespace BindingsGeneration.Demangling
         /// Returns false if the tree cannot be built.
         /// </summary>
         public bool HasAsyncMarker(string mangledName)
-            => RawTreeContainsKind(mangledName, NodeKind.AsyncAnnotation);
+            => OutermostFunctionTypeHasDirectChild(mangledName, NodeKind.AsyncAnnotation);
 
         /// <summary>
         /// Reports whether <paramref name="mangledName"/> demangles to a tree carrying a
@@ -170,6 +178,70 @@ namespace BindingsGeneration.Demangling
                     return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// Demangles <paramref name="mangledName"/> and reports whether the <em>outermost</em>
+        /// <see cref="NodeKind.FunctionType"/> in the tree — the declaration's own signature — has a
+        /// direct child of <paramref name="kind"/>. Annotations (async/throws) are direct children of
+        /// the FunctionType they belong to, so restricting to the outermost FunctionType's direct
+        /// children distinguishes an async DECLARATION from a sync declaration that merely takes or
+        /// returns an async closure (whose FunctionType, and its annotation, are strictly deeper).
+        /// Returns false if the tree cannot be built or has no function type.
+        /// </summary>
+        private bool OutermostFunctionTypeHasDirectChild(string mangledName, NodeKind kind)
+        {
+            if (string.IsNullOrEmpty(mangledName))
+                return false;
+            lock (runLock)
+            {
+                nodeStack.Clear();
+                substitutions.Clear();
+                words.Clear();
+                originalIdentifier = mangledName;
+                slice = new StringSlice(originalIdentifier);
+                slice.Advance(GetManglingPrefixLength(originalIdentifier));
+                Node topLevelNode;
+                try
+                {
+                    topLevelNode = DemangleType(null);
+                }
+                catch (Exception)
+                {
+                    return false;
+                }
+                var fn = FindOutermostFunctionType(topLevelNode);
+                if (fn is null)
+                    return false;
+                foreach (var child in fn.Children)
+                {
+                    if (child.Kind == kind)
+                        return true;
+                }
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Breadth-first search for the shallowest <see cref="NodeKind.FunctionType"/> node, which is
+        /// the declaration's own signature. Parameter- and return-position closures nest their
+        /// FunctionType strictly deeper, so BFS reaches the declaration's function type first.
+        /// </summary>
+        static Node FindOutermostFunctionType(Node root)
+        {
+            if (root is null)
+                return null;
+            var queue = new Queue<Node>();
+            queue.Enqueue(root);
+            while (queue.Count > 0)
+            {
+                var node = queue.Dequeue();
+                if (node.Kind == NodeKind.FunctionType)
+                    return node;
+                foreach (var child in node.Children)
+                    queue.Enqueue(child);
+            }
+            return null;
         }
 
         IReduction Run()

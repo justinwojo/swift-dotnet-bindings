@@ -241,24 +241,30 @@ public class ClosureHandler
     /// <returns><c>true</c> if the closure is supported; otherwise, <c>false</c>.</returns>
     public bool IsSupportedClosure(ClosureTypeSpec closureTypeSpec)
     {
-        // Async-throwing closures with arguments are now supported via per-arity
-        // AsyncThrowingClosureState<A0,…,TResult> + arg-bearing Start signatures.
-        // The baseline async-throwing bridge only kicks in when
-        // IsBaselineAsyncThrowingClosure accepts the shape; otherwise the closure still
-        // has to pass the generic IsSupportedClosureParameterType loop below.
-
-        // Async, non-throwing closures are supported only for the baseline non-throwing
-        // shape (@escaping (Args) async -> T where T is a blittable primitive and args are
-        // baseline-bridgeable). Anything wider — including an `async -> Void` closure, which
-        // can never be baseline because the baseline shape requires a non-void blittable
-        // return — routes to the generic skip path. The emitter can't synthesize a
-        // Task-returning delegate under an [UnmanagedCallersOnly] callback for arbitrary
-        // shapes; in particular, the legacy SwiftClosureData path would invoke an async
-        // closure synchronously and discard the returned Task, silently dropping the async
-        // semantics (and, for an escaping arg, emitting an undeclared closure box → CS0103).
+        // Async closures — throwing OR non-throwing — are supported ONLY in the
+        // baseline bridge shapes, and the accepted RETURN set differs by throwing-ness:
+        // the throwing bridge (IsBaselineAsyncThrowingClosure) accepts a blittable
+        // primitive, Foundation.Data (0-arg only), or Swift.String; the non-throwing
+        // bridge (IsBaselineAsyncNonThrowingClosure) accepts a blittable primitive
+        // only. Both additionally require arity within the per-arity adapter cap and
+        // each arg to be a baseline-bridgeable category. A baseline async closure passes
+        // this gate and continues through the generic argument/return checks below.
+        // Any wider async shape — a non-blittable class/struct return, an oversized
+        // arity, an unsupported arg category, or an `async -> Void` closure (which can
+        // never be baseline: the baseline shape requires a non-void return) — has NO
+        // working emission path. The self-contained async setup
+        // (EmitAsyncThrowingClosureMarshallingSetup) is gated on IsBaselineAsyncClosure
+        // at the WrapperEmitter routing site; anything else falls through to the legacy
+        // synchronous SwiftClosureData path, which invokes the async closure
+        // synchronously and discards the returned Task (silently dropping async
+        // semantics) and, for an escaping arg, references an undeclared closure box +
+        // a never-emitted trampoline → CS0103, while PInvokeEmitter downgrades the
+        // parameter to the Swift.AnyType placeholder → CS1503. Classifying the wider
+        // shape as unsupported here makes all three stages agree: the member skips with
+        // SkipReason.UnsupportedClosure and routes to the SB0005 closure tombstone (a
+        // visible-but-unreachable surface) instead of emitting a broken body.
         if (closureTypeSpec.IsAsync
-            && !closureTypeSpec.Throws
-            && !IsBaselineAsyncNonThrowingClosure(closureTypeSpec))
+            && !IsBaselineAsyncClosure(closureTypeSpec))
             return false;
 
         // Async+throwing closures are now supported via Swift continuation wrapper pattern

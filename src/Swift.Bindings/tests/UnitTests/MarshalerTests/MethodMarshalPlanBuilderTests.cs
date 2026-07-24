@@ -815,14 +815,20 @@ public class MethodMarshalPlanBuilderTests
     }
 
     [Fact]
-    public void DeclarationLines_NonBaselineAsyncThrowingClosureParam_DeclaresGCHandle()
+    public void DeclarationLines_NonBaselineAsyncThrowingClosureParam_SuppressesGCHandle()
     {
         // Async throwing closure with a non-blittable parameter: `(Int32, Bool) async throws -> String`.
-        // Bool is outside GetAsyncThrowingArgCategory's blittable-primitive set, so
-        // IsBaselineAsyncClosure returns false and WrapperEmitter.Marshalling falls
-        // to the legacy GCHandle path that emits `valueHandle = GCHandle.Alloc(value)`.
-        // The plan builder must pair that assignment with a pre-try declaration —
-        // otherwise the generated C# fails to compile (CS0103 undeclared identifier).
+        // Bool is outside GetAsyncThrowingArgCategory's blittable-primitive set, so it is NOT a
+        // baseline async shape. A non-baseline async closure has NO correct emission path: the
+        // baseline continuation bridge rejects it, and the legacy SwiftClosureData path it would
+        // otherwise fall to is structurally broken for async closures — it references a `{name}Box`
+        // local the declaration stage never declares AND a static `s_{name}_Callback` trampoline the
+        // emitter never generates for async closures (both CS0103), and a synchronous
+        // [UnmanagedCallersOnly] callback cannot await the returned Task in any case. So
+        // ClosureHandler.IsSupportedClosure now rejects it, the enclosing member is skipped/tombstoned
+        // (SkipReason.UnsupportedClosure), and the plan builder's IsSupportedClosure gate emits no
+        // marshalling declarations for it. (The positive legacy-GCHandle-declaration guard lives in
+        // DeclarationLines_NonAsyncClosureParam_DeclaresGCHandle.)
         var closureSpec = new ClosureTypeSpec(
             new TupleTypeSpec(new TypeSpec[]
             {
@@ -836,7 +842,7 @@ public class MethodMarshalPlanBuilderTests
         };
         var plan = BuildClosureParamPlan("setConfirmHandler", closureSpec, "handler");
 
-        Assert.Contains("GCHandle handlerHandle = default;", plan.DeclarationLines);
+        Assert.DoesNotContain(plan.DeclarationLines, l => l.Contains("GCHandle handlerHandle"));
     }
 
     [Fact]

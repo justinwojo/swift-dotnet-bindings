@@ -1,8 +1,8 @@
 {
-  "git_sha": "2a99d0cd",
+  "git_sha": "e3c55c39",
   "platforms": {
     "simulator": {
-      "pass_count": 3242,
+      "pass_count": 3247,
       "skips": [
         {
           "class": "AsyncClosureContextLifetimeTests",
@@ -117,6 +117,21 @@
         {
           "class": "NonStandardEnumTests",
           "method": "TestPermissionCaseValues",
+          "reason": ""
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestClassReturningOperatorAdd",
+          "reason": ""
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestClassReturningOperatorScalarMultiply",
+          "reason": ""
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestClassReturningOperatorSubtract",
           "reason": ""
         },
         {

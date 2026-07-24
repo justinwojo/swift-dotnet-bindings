@@ -566,12 +566,15 @@ public class ClosureHandlerTests
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
-        // Async + throwing closures WITHOUT parameters are supported via Swift continuation wrapper pattern.
-        // AsyncThrowingClosureState<T>.AsyncFunc is Func<Task<T>> (parameterless),
-        // so closures with parameters produce arity mismatches (B13).
+        // Async + throwing closures WITHOUT parameters are supported via the Swift continuation
+        // wrapper pattern — but ONLY for a baseline-bridgeable return. AsyncThrowingClosureState<T>.AsyncFunc
+        // is Func<Task<T>> (parameterless). The return must be a blittable primitive / Foundation.Data /
+        // Swift.String (see IsBaselineAsyncThrowingClosure); Swift.Int qualifies. A non-baseline return
+        // (e.g. Swift.Bool, which is NOT blittable under [UnmanagedCallersOnly], or a Swift class) has no
+        // correct bridge and is rejected — see IsSupportedClosure_AsyncThrowingNonBaselineClassReturn_ReturnsFalse.
         var closureTypeSpec = new ClosureTypeSpec(
             TupleTypeSpec.Empty,
-            new NamedTypeSpec("Swift.Bool"));
+            new NamedTypeSpec("Swift.Int"));
         closureTypeSpec.IsAsync = true;
         closureTypeSpec.Throws = true;
 
@@ -661,6 +664,81 @@ public class ClosureHandlerTests
         closureTypeSpec.Throws = true;
 
         Assert.False(handler.IsBaselineAsyncThrowingClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_AsyncThrowingNonBaselineClassReturn_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Shape D (rive-ios): `() async throws -> SomeClass`. Async + throwing, but the
+        // return is a Swift class, not a baseline-bridgeable return (blittable primitive /
+        // Foundation.Data / Swift.String), so it is NOT a baseline async shape. The
+        // continuation bridge only wires up baseline returns; a non-baseline async closure
+        // previously slipped past the support gate and fell to the legacy synchronous
+        // SwiftClosureData path, where three independently-maintained stages disagree on the
+        // classification and emit an undeclared closure box (CS0103), an undeclared
+        // trampoline (CS0103), and a Func<Task<T>>→AnyType mismatch (CS1503). It must be
+        // rejected so the enclosing member routes to the SB0005 closure tombstone.
+        var closureTypeSpec = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,                        // no params
+            new NamedTypeSpec("SomeModule.SomeClass")); // class return
+        closureTypeSpec.IsAsync = true;
+        closureTypeSpec.Throws = true;
+
+        Assert.False(handler.IsBaselineAsyncClosure(closureTypeSpec));
+        Assert.False(handler.IsSupportedClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_AsyncThrowingNonBaselineBoolReturn_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // `() async throws -> Swift.Bool`. Swift.Bool is NOT a blittable primitive under
+        // an [UnmanagedCallersOnly] callback (it is marshalled U1, not a bit-copyable
+        // register value), so it is excluded from the baseline return set — exactly the
+        // shape two older tests (…NoParams_ReturnsTrue, …MainActor…_ReturnsTrue) wrongly
+        // asserted as supported before this fix. Pinned as an explicit negative so a Bool
+        // RETURN can't silently regain "supported" without tripping a test (the Bool ARG
+        // case is covered separately by the async-throwing arg-category tests).
+        var closureTypeSpec = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("Swift.Bool"));
+        closureTypeSpec.IsAsync = true;
+        closureTypeSpec.Throws = true;
+
+        Assert.False(handler.IsBaselineAsyncClosure(closureTypeSpec));
+        Assert.False(handler.IsSupportedClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_AsyncBaselineClosures_StillSupported()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Guard: the unified non-baseline rejection must NOT regress the baseline async
+        // shapes that DO get a full working continuation-bridge setup. A zero-arg
+        // async-throwing closure returning a blittable primitive (baseline throwing) and a
+        // zero-arg async non-throwing closure returning a blittable primitive (baseline
+        // non-throwing) both stay classified as baseline and supported.
+        var baselineThrowing = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("Swift.Int"));
+        baselineThrowing.IsAsync = true;
+        baselineThrowing.Throws = true;
+        Assert.True(handler.IsBaselineAsyncClosure(baselineThrowing));
+        Assert.True(handler.IsSupportedClosure(baselineThrowing));
+
+        var baselineNonThrowing = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("Swift.Int"));
+        baselineNonThrowing.IsAsync = true;
+        Assert.True(handler.IsBaselineAsyncClosure(baselineNonThrowing));
+        Assert.True(handler.IsSupportedClosure(baselineNonThrowing));
     }
 
     [Fact]
@@ -1586,13 +1664,16 @@ public class ClosureHandlerTests
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
-        // @MainActor @Sendable () async throws -> Bool: a supported async shape (the
+        // @MainActor @Sendable () async throws -> Int: a supported baseline async shape (the
         // no-arg async-throwing continuation bridge — see
         // IsSupportedClosure_WithAsyncThrowingClosureNoParams_ReturnsTrue). The
         // @MainActor/@Sendable attributes are orthogonal to support classification and must
-        // not disqualify it. (A void-return async closure is NOT supported regardless of
-        // attributes — see IsSupportedClosure_WithAsyncVoidReturnClosure_ReturnsFalse.)
-        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Bool"));
+        // not disqualify it. (The return must still be baseline-bridgeable: a void-return async
+        // closure is NOT supported regardless of attributes — see
+        // IsSupportedClosure_WithAsyncVoidReturnClosure_ReturnsFalse — and neither is a non-baseline
+        // return such as a Swift class — see
+        // IsSupportedClosure_AsyncThrowingNonBaselineClassReturn_ReturnsFalse.)
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Int"));
         closureTypeSpec.IsAsync = true;
         closureTypeSpec.Throws = true;
         closureTypeSpec.Attributes.Add(new TypeSpecAttribute("MainActor"));

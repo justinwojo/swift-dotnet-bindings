@@ -404,8 +404,9 @@ namespace BindingsGeneration
                     // Baseline async closures (throwing and non-throwing) share a
                     // state-based pattern: the state type holds the user's async
                     // delegate, and we pass (context, startFunc) to Swift. Non-baseline
-                    // async closures fall through to AnyType placeholder in PInvokeEmitter
-                    // so the outer method is skipped cleanly.
+                    // async closures never reach this branch — IsSupportedClosure rejects
+                    // them upstream (no path both compiles and awaits the Task), so the
+                    // member is skipped/tombstoned before emission.
                     ClosureEmitter.EmitAsyncThrowingClosureMarshallingSetup(
                         csWriter,
                         _env.MethodDecl.Name,
@@ -1054,12 +1055,14 @@ namespace BindingsGeneration
                         && WrapperValidation.IsEffectivelyEscaping(closureTypeSpec, argumentDecl.SwiftTypeSpec, _env.ClosureHandler);
 
                     // Baseline async closures (throwing or non-throwing) emit the
-                    // Start-thunk callback pair. Non-baseline async-throwing closures
-                    // fall through with no callback emitted —
-                    // PInvokeEmitter projects them to AnyType so the outer method is skipped
-                    // via the placeholder path instead of crashing here. Non-baseline async
-                    // non-throwing closures keep their legacy escaping-callback path below — the async bridge only
-                    // handles primitive-return baseline shapes.
+                    // Start-thunk callback pair. Non-baseline async closures no longer
+                    // reach this emitter at all: ClosureHandler.IsSupportedClosure now
+                    // rejects every non-baseline async shape (there is no emission path
+                    // that both compiles and awaits the returned Task — the legacy
+                    // SwiftClosureData callback is synchronous-only), so the enclosing
+                    // member is skipped/tombstoned upstream in MemberEmissionValidator
+                    // (SkipReason.UnsupportedClosure). The inner IsBaselineAsyncClosure
+                    // guard below is therefore defensive — only baseline shapes arrive here.
                     if (_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec)
                         || _env.ClosureHandler.IsBaselineAsyncNonThrowingClosure(closureTypeSpec))
                     {
