@@ -1285,6 +1285,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 switch (category)
                 {
                     case ConformerCategory.Class:
+                        // Payload is safe here: the pairing preflight (ClassifyConformerStructurally)
+                        // rejects every UsesHandleAccessor conformer, so only pure-Swift classes —
+                        // which always expose a public Payload SafeHandle — reach this arm.
                         publicParams.Add($"{conformerCsType} {csName}");
                         pinvokeParams.Add($"IntPtr {csName}");
                         callArgs.Add($"{csName}.Payload.DangerousGetHandle()");
@@ -2148,13 +2151,17 @@ public static partial class ConcreteProtocolSpecializationEmitter
             !typeDatabase.TryGetTypeRecord(conformer.SwiftType, out _))
             return StructuralEmitReject.NestedType;
 
+        // Any ObjC-backed flavor (rooted, bridged, or bridgeable) projects to a C# type whose
+        // native pointer lives behind `.Handle`, not an ISwiftObject `.Payload` SafeHandle —
+        // and the CSM param/self arms render exclusively through Payload. UsesHandleAccessor
+        // is the single oracle for that projection split; native-remapped types (System.Guid)
+        // equally lack Payload.
         var category = ClassifyConformerForSwiftParam(conformer, typeDatabase);
         if (category != ConformerCategory.InlineSwiftStruct &&
             conformer.SwiftType != null &&
             typeDatabase.TryGetTypeRecord(conformer.SwiftType, out var record) &&
             (record.NativeTypeName != null
-                || MarshallingHelpers.IsObjCBridged(record)
-                || MarshallingHelpers.IsObjCRooted(record)))
+                || MarshallingHelpers.UsesHandleAccessor(record)))
             return StructuralEmitReject.ObjCBridged;
 
         // Reject simple-enum and unemittable-enum conformers. The CSM emitter's struct/enum

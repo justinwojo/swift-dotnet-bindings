@@ -1176,9 +1176,7 @@ namespace BindingsGeneration
             var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
 
             // ObjC bridged/rooted/bridgeable types use .Handle to get the native pointer
-            if (MarshallingHelpers.IsObjCBridged(typeRecord) ||
-                MarshallingHelpers.IsObjCRooted(typeRecord) ||
-                MarshallingHelpers.IsObjCBridgeable(typeRecord))
+            if (MarshallingHelpers.UsesHandleAccessor(typeRecord))
             {
                 return $"{paramName}.Handle";
             }

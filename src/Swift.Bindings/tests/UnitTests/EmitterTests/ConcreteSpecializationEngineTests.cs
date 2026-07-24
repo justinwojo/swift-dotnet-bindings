@@ -1810,6 +1810,49 @@ public class ConcreteSpecializationEngineTests
         }
     }
 
+    [Theory]
+    [InlineData(TypeRecordFlags.ObjCRooted)]
+    [InlineData(TypeRecordFlags.ObjCBridged)]
+    [InlineData(TypeRecordFlags.ObjCBridgeable)]
+    public void ClassifyConformerStructurally_HandleAccessorConformer_ReturnsObjCBridged(TypeRecordFlags flags)
+    {
+        // Every ObjC-backed projection flavor exposes the native pointer via `.Handle`, never an
+        // ISwiftObject `.Payload` SafeHandle — while the CSM param/self arms render exclusively
+        // through Payload (CS1061 if one were admitted). The gate must reject all three flavors
+        // via the single UsesHandleAccessor oracle; the bridgeable flavor (Foundation.URL-style
+        // value types) is the one an open-coded rooted|bridged union silently misses.
+        var db = new ResolvingTypeDatabase();
+        var typeName = SwiftTypeName.FromModuleQualifiedName("TestLib.ObjCThing");
+        db.Register(typeName, "TestLib", "ObjCThing", kind: TypeRecordKind.Class, flags: flags);
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: "TestLib.ObjCThing",
+            CSharpType: "ObjCThing",
+            SwiftType: typeName);
+
+        Assert.Equal(
+            ConcreteProtocolSpecializationEmitter.StructuralEmitReject.ObjCBridged,
+            ConcreteProtocolSpecializationEmitter.ClassifyConformerStructurally(conformer, db));
+    }
+
+    [Fact]
+    public void ClassifyConformerStructurally_PureSwiftClassConformer_NotRejected()
+    {
+        // Negative control: a pure-Swift class conformer (no ObjC flags, no native remap) must
+        // keep flowing to the Class arm, whose public Payload SafeHandle rendering is valid for
+        // every pure-Swift generated class.
+        var db = new ResolvingTypeDatabase();
+        var typeName = SwiftTypeName.FromModuleQualifiedName("TestLib.SwiftThing");
+        db.Register(typeName, "TestLib", "SwiftThing", kind: TypeRecordKind.Class);
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: "TestLib.SwiftThing",
+            CSharpType: "SwiftThing",
+            SwiftType: typeName);
+
+        Assert.Equal(
+            ConcreteProtocolSpecializationEmitter.StructuralEmitReject.None,
+            ConcreteProtocolSpecializationEmitter.ClassifyConformerStructurally(conformer, db));
+    }
+
     [Fact]
     public void ClassifyConformerStructurally_WithdrawnInnerGenericArg_ReturnsWithdrawnType()
     {
@@ -2651,14 +2694,15 @@ public class ConcreteSpecializationEngineTests
             TypeRecordKind kind = TypeRecordKind.Struct,
             SwiftTypeName? superclass = null,
             IReadOnlyList<SwiftTypeName>? protocolConformances = null,
-            CSharpTypeName? nativeTypeName = null)
+            CSharpTypeName? nativeTypeName = null,
+            TypeRecordFlags flags = TypeRecordFlags.None)
         {
             _records[swiftTypeName.ToString()] = new TypeRecord
             {
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName(csNamespace, csName),
                 SwiftTypeName = swiftTypeName,
                 MetadataAccessor = "",
-                Flags = TypeRecordFlags.None,
+                Flags = flags,
                 Kind = kind,
                 SuperclassTypeName = superclass,
                 ProtocolConformances = protocolConformances,
