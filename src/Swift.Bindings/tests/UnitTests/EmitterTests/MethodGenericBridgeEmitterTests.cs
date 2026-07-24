@@ -566,7 +566,101 @@ public class MethodGenericBridgeEmitterTests
 
     #endregion
 
+    #region Cross-module class-pointer return
+
+    // A method-generic bridge whose direct return is a class may name a CROSS-MODULE class
+    // (e.g. a generic method on one binding returning another binding's class). That class's
+    // SwiftHandle-taking constructor is `internal`, so `new Foreign(new SwiftHandle(ptr))`
+    // fails cross-module with CS1729. The class-pointer return must route through the PUBLIC
+    // SwiftMarshal.MarshalFromSwiftObject<T> (T.NewFromPayload) factory — ownership-equivalent
+    // (Swift returns Unmanaged.passRetained().toOpaque(), a +1 the factory adopts).
+
+    [Fact]
+    public void TryEmit_ClassPointerReturn_RoutesThroughMarshalFromSwiftObject()
+    {
+        var (handled, csResult, _) = EmitBridgeWithClassReturn(optional: false);
+
+        Assert.True(handled);
+        Assert.Contains("SwiftMarshal.MarshalFromSwiftObject<", csResult);
+        Assert.Contains("RemoteHandle", csResult);
+        // The internal-ctor construction of the RETURN must be gone (params use the
+        // `.SwiftHandle` property, never `new ...SwiftHandle(`).
+        Assert.DoesNotContain("new Swift.Runtime.SwiftHandle(", csResult);
+    }
+
+    [Fact]
+    public void TryEmit_OptionalClassPointerReturn_NullChecksThenMarshalsFromSwiftObject()
+    {
+        var (handled, csResult, _) = EmitBridgeWithClassReturn(optional: true);
+
+        Assert.True(handled);
+        // Null pointer projects to a null reference; a live pointer routes through the factory.
+        Assert.Contains("== IntPtr.Zero ? null", csResult);
+        Assert.Contains("SwiftMarshal.MarshalFromSwiftObject<", csResult);
+        // The factory's type-argument closes on the NON-nullable class type (`...RemoteHandle>`,
+        // not `...RemoteHandle?>`) — MarshalFromSwiftObject<T> requires T : ISwiftObject.
+        Assert.Contains("RemoteHandle>", csResult);
+        Assert.DoesNotContain("new Swift.Runtime.SwiftHandle(", csResult);
+        // The marshal type must NOT carry the nullable `?` — MarshalFromSwiftObject<T> requires
+        // T : ISwiftObject, and `Foo?` is not a legal type-argument spelling here.
+        Assert.DoesNotContain("MarshalFromSwiftObject<global::RemoteModule.RemoteHandle?>", csResult);
+    }
+
+    #endregion
+
     #region Helpers
+
+    /// <summary>
+    /// Emits the sync MGB bridge for an eligible method whose return is a class declared in a
+    /// SEPARATE module (RemoteModule) — the cross-module class-pointer shape. When
+    /// <paramref name="optional"/> is set the return is wrapped in Swift.Optional.
+    /// </summary>
+    private static (bool handled, string csResult, string swiftResult) EmitBridgeWithClassReturn(bool optional)
+    {
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var method = CreateMethodDeclWithGenericParam();
+        var parent = CreateClassDecl("Processor");
+        method.ParentDecl = parent;
+
+        var classSpec = new NamedTypeSpec("RemoteModule.RemoteHandle");
+        method.CSSignature[0] = CreateArg("", optional
+            ? new NamedTypeSpec("Swift.Optional", classSpec)
+            : classSpec, method.ModuleDecl);
+
+        var typeDatabase = CreateTypeDatabaseWithForeignClass();
+        var env = new MethodEnvironment(method, typeDatabase);
+        var handled = MethodGenericBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parent, new ModuleEmissionContext());
+        return (handled, csOutput.ToString(), swiftOutput.ToString());
+    }
+
+    /// <summary>
+    /// Builds a TypeDatabase carrying Swift.Int, the non-generic class parent (Processor), and a
+    /// class return type (RemoteModule.RemoteHandle) registered under a DIFFERENT module — the
+    /// cross-module return whose SwiftHandle ctor would be invisible to the generated assembly.
+    /// </summary>
+    private static TypeDatabase CreateTypeDatabaseWithForeignClass()
+    {
+        var typeDatabase = CreateTypeDatabase();
+
+        var remoteModule = new ModuleTypeDatabase("RemoteModule", "/tmp/RemoteModule.dylib");
+        remoteModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("RemoteModule.RemoteHandle"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("RemoteModule", "RemoteHandle"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("RemoteModule.RemoteHandle"),
+                MetadataAccessor = "$s12RemoteModule0A6HandleCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        typeDatabase.AddModuleDatabase(remoteModule);
+        typeDatabase.AsyncLibraryName = "TestBindings";
+        return typeDatabase;
+    }
 
     private static (CSharpWriter csWriter, SwiftWriter swiftWriter) CreateWriters()
     {

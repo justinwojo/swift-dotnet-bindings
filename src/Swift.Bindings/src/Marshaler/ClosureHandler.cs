@@ -119,6 +119,77 @@ public class ClosureHandler
     }
 
     /// <summary>
+    /// Determines whether a type contains a closure nested inside a Swift collection
+    /// container (<c>Array</c>, <c>Set</c>, or <c>Dictionary</c>) at any depth — the shape
+    /// that has NO sound end-to-end marshalling path and cannot even be emitted.
+    /// </summary>
+    /// <remarks>
+    /// A closure that is an <em>element</em> of a collection is unbindable for two
+    /// independent reasons, neither of which the C# compiler alone would let slide safely:
+    /// <list type="number">
+    /// <item>The collection's wire carrier is composed from the element projection's
+    /// <c>PInvokeType</c>. For a non-escaping <see cref="ClosureProjection"/> that is a
+    /// <c>delegate* unmanaged[Swift]&lt;…&gt;</c> function-pointer type, which C# forbids as a
+    /// generic type argument — the emitted <c>SwiftArray&lt;delegate*…&gt;</c> /
+    /// <c>GetTypeMetadataOrThrow&lt;…delegate*…&gt;</c> is a hard CS0306. (Collection element
+    /// closures are always parsed non-escaping: the ABI parser stamps <c>@escaping</c> only on
+    /// a top-level <c>ClosureTypeSpec</c>, never on one reached through a container's
+    /// <c>printedName</c>.)</item>
+    /// <item>Even if the carrier were forced to the layout-legal <c>SwiftClosureData</c>, the
+    /// runtime has no FROM-Swift path that turns a collection <em>element</em> closure back
+    /// into a C# delegate — <c>SwiftMarshal.MarshalFromSwift&lt;Delegate&gt;</c> throws
+    /// <c>NotSupportedException</c> (no generated invoker, no Swift Function metadata for the
+    /// element stride/destroy). So the member is runtime-unsound irrespective of the compile
+    /// error — a soundness condition the compilers can't see, which is why it is gated here
+    /// rather than left to the verify-recover loop.</item>
+    /// </list>
+    /// Deliberately scoped to the true collection families and NOT to <c>Optional</c>: a bare
+    /// closure and an <c>Optional&lt;Closure&gt;</c> both have supported dedicated marshalling
+    /// (top-level closure emission / <see cref="IsOptionalClosure"/>), so they must NOT be
+    /// swept up. Only a closure with a collection ancestor is caught — including a collection
+    /// nested under an Optional (e.g. <c>Optional&lt;[() -&gt; Void]&gt;</c>).
+    /// </remarks>
+    /// <param name="typeSpec">The type specification to inspect.</param>
+    /// <returns><c>true</c> if a closure appears beneath an Array/Set/Dictionary container.</returns>
+    public static bool ContainsClosureNestedInCollection(TypeSpec? typeSpec) =>
+        ContainsClosureNestedInCollection(typeSpec, underCollection: false);
+
+    private static bool ContainsClosureNestedInCollection(TypeSpec? typeSpec, bool underCollection)
+    {
+        switch (typeSpec)
+        {
+            case null:
+                return false;
+
+            // A closure is only a defect here if a collection lies above it. A bare or
+            // Optional-wrapped closure (underCollection == false) is supported elsewhere.
+            case ClosureTypeSpec:
+                return underCollection;
+
+            case NamedTypeSpec named:
+                bool nowUnderCollection = underCollection || IsCollectionContainerName(named.Name);
+                return named.GenericParameters.Any(gp => ContainsClosureNestedInCollection(gp, nowUnderCollection));
+
+            case TupleTypeSpec tuple:
+                return tuple.Elements.Any(e => ContainsClosureNestedInCollection(e, underCollection));
+
+            case ProtocolListTypeSpec protocolList:
+                return protocolList.Protocols.Keys.Any(p => ContainsClosureNestedInCollection(p, underCollection));
+
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// The Swift stdlib collection containers whose wire carrier is composed from the
+    /// element projection's <c>PInvokeType</c>. <c>Optional</c> and <c>Result</c> are
+    /// intentionally excluded — an <c>Optional&lt;Closure&gt;</c> is a supported shape.
+    /// </summary>
+    private static bool IsCollectionContainerName(string name) =>
+        name is "Swift.Array" or "Swift.Dictionary" or "Swift.Set";
+
+    /// <summary>
     /// Determines whether the closure has @convention(c) attribute.
     /// @convention(c) closures are simple C function pointers with no context.
     /// </summary>
@@ -267,9 +338,10 @@ public class ClosureHandler
             && !IsBaselineAsyncClosure(closureTypeSpec))
             return false;
 
-        // Async+throwing closures are now supported via Swift continuation wrapper pattern
-        // The C# side provides a synchronous "start" callback that spawns Task.Run,
-        // while Swift uses withCheckedThrowingContinuation to create the actual async closure.
+        // Async closures past the baseline gate above are supported via the Swift
+        // continuation wrapper pattern: the C# side provides a synchronous "start"
+        // callback that spawns Task.Run, while Swift uses
+        // withCheckedThrowingContinuation to create the actual async closure.
         //
         // Foundation.Data returns are supported via special byte[] marshalling:
         // 1. User provides Func<Task<Swift.Foundation.Data>>
@@ -278,7 +350,6 @@ public class ClosureHandler
         // 4. Swift copies the bytes to create a new Data object
 
         // Plain throwing closures are supported - mapped to SwiftResult<T, SwiftError>
-        // Plain async closures are supported via Task-based delegates
 
         // Note: We no longer check for explicit @escaping attribute here.
         // All closures in public Swift APIs are either @convention(c) or @escaping by definition,

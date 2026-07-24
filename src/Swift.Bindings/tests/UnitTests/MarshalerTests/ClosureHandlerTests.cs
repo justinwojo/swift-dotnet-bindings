@@ -3245,4 +3245,111 @@ public class ClosureHandlerTests
     }
 
     #endregion
+
+    #region ContainsClosureNestedInCollection
+
+    // A closure that is an ELEMENT of a Swift collection (Array/Set/Dictionary) has no sound
+    // marshalling path: the container's wire carrier is composed from the element's PInvokeType,
+    // which for a non-escaping closure is a `delegate* unmanaged[Swift]<…>` — illegal as a C#
+    // generic type argument (CS0306) — and the runtime cannot rebuild a C# delegate from a
+    // collection element. These tests pin the scope of the emission gate: it fires ONLY when a
+    // closure sits beneath a collection, and never for the supported bare / Optional<Closure>
+    // shapes.
+
+    private static ClosureTypeSpec VoidClosure() =>
+        new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+
+    [Fact]
+    public void ContainsClosureNestedInCollection_ArrayOfClosures_True()
+    {
+        // [() -> Void]
+        var arrayOfClosures = new NamedTypeSpec("Swift.Array", VoidClosure());
+        Assert.True(ClosureHandler.ContainsClosureNestedInCollection(arrayOfClosures));
+    }
+
+    [Fact]
+    public void ContainsClosureNestedInCollection_DictionaryValueArrayOfClosures_True()
+    {
+        // [Endpoint: [(Result) -> Void]] — the Moya `inflightRequests` shape.
+        var arrayOfClosures = new NamedTypeSpec("Swift.Array",
+            new ClosureTypeSpec(new NamedTypeSpec("TestModule.Result"), TupleTypeSpec.Empty));
+        var dict = new NamedTypeSpec("Swift.Dictionary",
+            new NamedTypeSpec("TestModule.Endpoint"),
+            arrayOfClosures);
+        Assert.True(ClosureHandler.ContainsClosureNestedInCollection(dict));
+    }
+
+    [Fact]
+    public void ContainsClosureNestedInCollection_SetOfClosures_True()
+    {
+        var setOfClosures = new NamedTypeSpec("Swift.Set", VoidClosure());
+        Assert.True(ClosureHandler.ContainsClosureNestedInCollection(setOfClosures));
+    }
+
+    [Fact]
+    public void ContainsClosureNestedInCollection_OptionalWrappingArrayOfClosures_True()
+    {
+        // Optional<[() -> Void]> — the collection ancestor still makes the closure unbindable,
+        // even though the OUTERMOST container is a (supported) Optional.
+        var optional = new NamedTypeSpec("Swift.Optional",
+            new NamedTypeSpec("Swift.Array", VoidClosure()));
+        Assert.True(ClosureHandler.ContainsClosureNestedInCollection(optional));
+    }
+
+    [Fact]
+    public void ContainsClosureNestedInCollection_ClosureInTupleInArray_True()
+    {
+        // [(Int, () -> Void)] — a closure nested via a tuple element under an array.
+        var tuple = new TupleTypeSpec(new TypeSpec[]
+        {
+            new NamedTypeSpec("Swift.Int"),
+            VoidClosure()
+        });
+        var arrayOfTuples = new NamedTypeSpec("Swift.Array", tuple);
+        Assert.True(ClosureHandler.ContainsClosureNestedInCollection(arrayOfTuples));
+    }
+
+    [Fact]
+    public void ContainsClosureNestedInCollection_BareClosure_False()
+    {
+        // A top-level closure is supported (dedicated closure emission) — NOT gated.
+        Assert.False(ClosureHandler.ContainsClosureNestedInCollection(VoidClosure()));
+    }
+
+    [Fact]
+    public void ContainsClosureNestedInCollection_OptionalClosure_False()
+    {
+        // Optional<() -> Void> is a supported shape — the gate must not sweep it up.
+        var optionalClosure = new NamedTypeSpec("Swift.Optional", VoidClosure());
+        Assert.False(ClosureHandler.ContainsClosureNestedInCollection(optionalClosure));
+    }
+
+    [Fact]
+    public void ContainsClosureNestedInCollection_ClosureInBareTuple_False()
+    {
+        // (Int, () -> Void) with no collection ancestor — this gate does not fire (tuple-of-
+        // closures is a distinct shape handled elsewhere); only a COLLECTION ancestor counts.
+        var tuple = new TupleTypeSpec(new TypeSpec[]
+        {
+            new NamedTypeSpec("Swift.Int"),
+            VoidClosure()
+        });
+        Assert.False(ClosureHandler.ContainsClosureNestedInCollection(tuple));
+    }
+
+    [Fact]
+    public void ContainsClosureNestedInCollection_ArrayOfNonClosures_False()
+    {
+        // [Int] — a collection with no closure element.
+        var arrayOfInt = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Int"));
+        Assert.False(ClosureHandler.ContainsClosureNestedInCollection(arrayOfInt));
+    }
+
+    [Fact]
+    public void ContainsClosureNestedInCollection_Null_False()
+    {
+        Assert.False(ClosureHandler.ContainsClosureNestedInCollection(null));
+    }
+
+    #endregion
 }

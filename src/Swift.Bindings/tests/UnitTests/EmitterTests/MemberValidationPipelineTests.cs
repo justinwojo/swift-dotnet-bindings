@@ -2916,4 +2916,107 @@ public class MemberValidationPipelineTests
     }
 
     #endregion
+
+    #region Closure-nested-in-collection gate
+
+    // A closure that is an ELEMENT of a returned/parameter collection (Array/Set/Dictionary)
+    // is unbindable: the container wire carrier composes the element's `delegate*` PInvokeType
+    // into an illegal C# generic type argument (CS0306), and even past that the runtime has no
+    // FROM-Swift path to reconstruct a C# delegate from a collection element. The member must
+    // be skipped at emission with SkipReason.UnsupportedClosure. Bare / Optional<Closure>
+    // shapes are supported and must NOT be swept up (scope pinned at the predicate level in
+    // ClosureHandlerTests.ContainsClosureNestedInCollection_*).
+
+    private static ClosureTypeSpec VoidClosure() =>
+        new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+
+    [Fact]
+    public void ValidatePropertyEmission_DictionaryOfArrayOfClosures_ReturnsUnsupportedClosureSkip()
+    {
+        // The exact Moya `inflightRequests: [Endpoint: [(Result) -> Void]]` shape — the
+        // property that emitted `SwiftDictionary<…, SwiftArray<delegate* unmanaged[Swift]<…>>>`
+        // (CS0306) before this gate.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+
+        var arrayOfClosures = new NamedTypeSpec("Swift.Array",
+            new ClosureTypeSpec(new NamedTypeSpec("TestModule.Result"), TupleTypeSpec.Empty));
+        var dict = new NamedTypeSpec("Swift.Dictionary",
+            new NamedTypeSpec("TestModule.Endpoint"),
+            arrayOfClosures);
+        var property = CreateProperty("inflightRequests", dict);
+
+        var result = pipeline.ValidatePropertyEmission(property, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedClosure, result.Reason);
+        Assert.Contains("nested inside a collection", result.Details!);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_ReturnsArrayOfClosures_ReturnsUnsupportedClosureSkip()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+
+        var method = CreateMethod("handlers", new NamedTypeSpec("Swift.Array", VoidClosure()));
+
+        var result = pipeline.ValidateMethodEmission(method, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedClosure, result.Reason);
+        Assert.Contains("nested inside a collection", result.Details!);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_ParameterSetOfClosures_ReturnsUnsupportedClosureSkip()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+
+        var method = CreateMethodWithArgs("register", TupleTypeSpec.Empty,
+            new NamedTypeSpec("Swift.Set", VoidClosure()));
+
+        var result = pipeline.ValidateMethodEmission(method, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedClosure, result.Reason);
+        Assert.Contains("nested inside a collection", result.Details!);
+    }
+
+    [Fact]
+    public void ValidateSubscriptEmission_ReturnsArrayOfClosures_ReturnsUnsupportedClosureSkip()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+
+        var subscript = CreateSubscript(
+            new NamedTypeSpec("Swift.Array", VoidClosure()),
+            new NamedTypeSpec("Swift.Int"));
+
+        var result = pipeline.ValidateSubscriptEmission(subscript, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedClosure, result.Reason);
+        Assert.Contains("nested inside a collection", result.Details!);
+    }
+
+    [Fact]
+    public void ValidatePropertyEmission_OptionalClosure_NotGatedByCollectionGate()
+    {
+        // Regression guard: Optional<() -> Void> is a supported shape — the collection gate
+        // must not fire. (Other gates may apply, but the collection-specific message must not.)
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+
+        var property = CreateProperty("callback",
+            new NamedTypeSpec("Swift.Optional", VoidClosure()));
+
+        var result = pipeline.ValidatePropertyEmission(property, null!);
+
+        if (result.Details != null)
+            Assert.DoesNotContain("nested inside a collection", result.Details);
+    }
+
+    #endregion
 }

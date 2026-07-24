@@ -33,6 +33,81 @@ public class ClosureEmitterDirectTests
         Assert.Contains("result.Context", result);
     }
 
+    // A Swift-closure-returning-a-class wrapper (the fallback invoke path, ClosureEmitter.cs)
+    // may return a CROSS-MODULE class whose SwiftHandle ctor is internal → `new Foreign(new
+    // SwiftHandle(ptr))` fails CS1729 across assemblies. The PURE-Swift-class arm must route
+    // through the public MarshalFromSwiftObject<T> (NewFromPayload) factory; Swift returns an
+    // owned +1 (Unmanaged.passRetained), which the factory adopts. The ObjC-bridged arm is
+    // intentionally left on the SwiftHandle-ctor path (those types' ISwiftObject/NewFromPayload
+    // story differs and is out of this fix's proven scope).
+
+    [Fact]
+    public void EmitClosureReturnMarshalling_SwiftClassReturn_RoutesThroughMarshalFromSwiftObject()
+    {
+        var typeDatabase = CreateTypeDatabaseWithReferenceTypes();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        // Closure: () -> Loader (a pure Swift class)
+        var closureTypeSpec = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("TestModule.Loader"));
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, closureHandler, "result");
+
+        var result = output.ToString();
+        Assert.Contains("SwiftMarshal.MarshalFromSwiftObject<", result);
+        Assert.DoesNotContain("new Swift.Runtime.SwiftHandle(", result);
+    }
+
+    [Fact]
+    public void EmitClosureReturnMarshalling_ObjCClassReturn_KeepsSwiftHandleConstruction()
+    {
+        // The ObjC-bridged arm is intentionally UNCHANGED — it still constructs via the
+        // SwiftHandle ctor, never MarshalFromSwiftObject.
+        var typeDatabase = CreateTypeDatabaseWithReferenceTypes();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        // Closure: () -> NSError (an ObjC-bridged class)
+        var closureTypeSpec = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("Foundation.NSError"));
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, closureHandler, "result");
+
+        var result = output.ToString();
+        Assert.Contains("new Swift.Runtime.SwiftHandle(", result);
+        Assert.DoesNotContain("MarshalFromSwiftObject", result);
+    }
+
+    [Fact]
+    public void EmitCSharpInvokeThunkHelper_ThrowingObjCClassReturn_KeepsSwiftHandleConstruction()
+    {
+        // The throwing ObjC-bridged arm is intentionally UNCHANGED — still constructs the success
+        // value via the SwiftHandle ctor inside FromSuccess, never MarshalFromSwiftObject.
+        var typeDatabase = CreateTypeDatabaseWithClassAndObjC();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        // Throwing closure: () throws -> NSError (ObjC-bridged class)
+        var closureTypeSpec = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("Foundation.NSError"));
+        closureTypeSpec.Throws = true;
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitCSharpInvokeThunkHelper(
+            csWriter, closureTypeSpec, closureHandler,
+            "_InvokeClosureThunk_OBJC0002", "SBW_ObjCThrows_InvCR", "TestLib");
+
+        var result = output.ToString();
+        Assert.Contains("new Swift.Runtime.SwiftHandle(_raw)", result);
+        Assert.DoesNotContain("MarshalFromSwiftObject", result);
+    }
+
     [Fact]
     public void EmitEscapingClosureCallback_SwiftMode_EmitsCallConvSwift()
     {
@@ -1846,6 +1921,82 @@ public class ClosureEmitterDirectTests
         Assert.Contains("&_err", result);
         Assert.Contains("FromFailure(new SwiftError((void*)_err))", result);
         Assert.Contains("FromSuccess(_raw)", result);
+    }
+
+    // The invoke-thunk helper (the Mono-JIT-safe C#→Swift closure call path) wraps a class
+    // return into a C# object. A CROSS-MODULE class's `(SwiftHandle)` ctor is internal, so
+    // `new Foreign(new SwiftHandle(ptr))` fails CS1729 across assemblies. The PURE-Swift-class
+    // arm must route through the public MarshalFromSwiftObject<T> factory (Swift returns an
+    // owned +1 via Unmanaged.passRetained, which the factory adopts). The ObjC-bridged arm is
+    // intentionally left on the SwiftHandle-ctor path.
+
+    [Fact]
+    public void EmitCSharpInvokeThunkHelper_SwiftClassReturn_RoutesThroughMarshalFromSwiftObject()
+    {
+        var typeDatabase = CreateTypeDatabaseWithClassAndObjC();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        // Closure: () -> Loader (pure Swift class)
+        var closureTypeSpec = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("TestModule.Loader"));
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitCSharpInvokeThunkHelper(
+            csWriter, closureTypeSpec, closureHandler,
+            "_InvokeClosureThunk_CLS00001", "SBW_Cls_InvCR", "TestLib");
+
+        var result = output.ToString();
+        Assert.Contains("SwiftMarshal.MarshalFromSwiftObject<", result);
+        Assert.Contains("Loader", result);
+        Assert.DoesNotContain("new Swift.Runtime.SwiftHandle(", result);
+    }
+
+    [Fact]
+    public void EmitCSharpInvokeThunkHelper_ThrowingSwiftClassReturn_MarshalsFromSwiftObjectInsideFromSuccess()
+    {
+        var typeDatabase = CreateTypeDatabaseWithClassAndObjC();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        // Throwing closure: () throws -> Loader (pure Swift class)
+        var closureTypeSpec = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("TestModule.Loader"));
+        closureTypeSpec.Throws = true;
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitCSharpInvokeThunkHelper(
+            csWriter, closureTypeSpec, closureHandler,
+            "_InvokeClosureThunk_CLS00002", "SBW_ClsThrows_InvCR", "TestLib");
+
+        var result = output.ToString();
+        Assert.Contains("FromSuccess(SwiftMarshal.MarshalFromSwiftObject<", result);
+        Assert.DoesNotContain("new Swift.Runtime.SwiftHandle(_raw)", result);
+    }
+
+    [Fact]
+    public void EmitCSharpInvokeThunkHelper_ObjCClassReturn_KeepsSwiftHandleConstruction()
+    {
+        // The ObjC-bridged arm is intentionally UNCHANGED — still SwiftHandle-ctor construction.
+        var typeDatabase = CreateTypeDatabaseWithClassAndObjC();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        // Closure: () -> NSError (ObjC-bridged class)
+        var closureTypeSpec = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("Foundation.NSError"));
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitCSharpInvokeThunkHelper(
+            csWriter, closureTypeSpec, closureHandler,
+            "_InvokeClosureThunk_OBJC0001", "SBW_ObjC_InvCR", "TestLib");
+
+        var result = output.ToString();
+        Assert.Contains("new Swift.Runtime.SwiftHandle(", result);
+        Assert.DoesNotContain("MarshalFromSwiftObject", result);
     }
 
     [Fact]

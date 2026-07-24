@@ -782,6 +782,50 @@ public class AsyncMethodGenericBridgeEmitterTests
     }
 
     [Fact]
+    public void TryEmit_SwiftClassReturn_RoutesThroughMarshalFromSwiftObject()
+    {
+        // A SwiftClass async return may name a CROSS-MODULE class whose SwiftHandle ctor is
+        // internal → `new Foreign(new SwiftHandle(rawResult))` fails cross-module with CS1729.
+        // Swift hands the result over via Unmanaged.passRetained(...).toOpaque() (a +1), so the
+        // callback must adopt it through the PUBLIC MarshalFromSwiftObject<T> (NewFromPayload)
+        // factory — ownership-equivalent, cross-module-safe.
+        var (csWriter, swiftWriter, csOutput, swiftOutput) = CreateWritersWithBuffers();
+        var method = CreateMethodDeclWithGenericParam();
+        method.IsAsync = true;
+        method.CSSignature[0] = CreateArg("", new NamedTypeSpec("RemoteModule.RemoteHandle"), method.ModuleDecl!);
+        var parent = CreateClassDecl("Processor");
+        method.ParentDecl = parent;
+
+        var typeDatabase = CreateTypeDatabase();
+        var remoteModule = new ModuleTypeDatabase("RemoteModule", "/tmp/RemoteModule.dylib");
+        remoteModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("RemoteModule.RemoteHandle"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("RemoteModule", "RemoteHandle"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("RemoteModule.RemoteHandle"),
+                MetadataAccessor = "$s12RemoteModule0A6HandleCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        typeDatabase.AddModuleDatabase(remoteModule);
+        typeDatabase.AsyncLibraryName = "TestBindings";
+        var env = new MethodEnvironment(method, typeDatabase);
+        var ctx = new ModuleEmissionContext();
+
+        var handled = AsyncMethodGenericBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parent, ctx);
+
+        Assert.True(handled);
+        var csResult = csOutput.ToString();
+        Assert.Contains("SwiftMarshal.MarshalFromSwiftObject<", csResult);
+        Assert.Contains("RemoteHandle", csResult);
+        // The internal-ctor construction of the result is gone.
+        Assert.DoesNotContain("new global::Swift.Runtime.SwiftHandle(rawResult)", csResult);
+        // Swift side still transfers a +1 (passRetained), the ownership MarshalFromSwiftObject adopts.
+        Assert.Contains("Unmanaged.passRetained", swiftOutput.ToString());
+    }
+
+    [Fact]
     public void TryEmit_ComplexValueReturn_HeapIndirectViaMarshalFromSwift()
     {
         // Frozen blittable struct return — heap-indirect via UnsafeMutableRawPointer.allocate +

@@ -1821,6 +1821,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
         {
             if (isClass)
             {
+                // Constructor: csReturnType is the enclosing (current-module) class being
+                // constructed, so its internal (SwiftHandle) ctor is always visible here — no
+                // cross-module CS1729 hazard, and no need for the MarshalFromSwiftObject<T> factory
+                // routing used on the cross-module method/closure return paths.
                 if (throws)
                 {
                     csWriter.WriteLine($"var {resultLocalName} = {pinvokeCall};");
@@ -1918,11 +1922,20 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     csWriter.WriteLine($"return ({csReturnType}){resultLocalName};");
                     break;
                 case CdeclReturnKind.ClassPointer:
-                    csWriter.WriteLine($"return new {csReturnType}(new Swift.Runtime.SwiftHandle({resultLocalName}));");
+                    // A direct class-pointer return may name a class from ANOTHER module
+                    // (e.g. a Moya method returning Alamofire.Session). That class's
+                    // SwiftHandle-taking constructor is `internal`, so `new Foreign(new
+                    // SwiftHandle(...))` fails cross-module with CS1729. Route through
+                    // MarshalFromSwiftObject<T>, which calls the PUBLIC static
+                    // T.NewFromPayload — ownership-equivalent (both adopt the returned +1)
+                    // and cross-module-safe. Mirrors the non-specialized member path.
+                    csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwiftObject<{csReturnType}>({resultLocalName});");
                     break;
                 case CdeclReturnKind.OptionalClassPointer:
-                    // csReturnType is `MyClass?` — strip the `?` for the constructor call.
-                    csWriter.WriteLine($"return {resultLocalName} == IntPtr.Zero ? null : new {csReturnType.TrimEnd('?')}(new Swift.Runtime.SwiftHandle({resultLocalName}));");
+                    // csReturnType is `MyClass?` — strip the `?` for the marshal type. Same
+                    // cross-module rationale as ClassPointer above (NewFromPayload, not the
+                    // internal ctor); a null pointer projects to a null reference.
+                    csWriter.WriteLine($"return {resultLocalName} == IntPtr.Zero ? null : SwiftMarshal.MarshalFromSwiftObject<{csReturnType.TrimEnd('?')}>({resultLocalName});");
                     break;
                 default:
                     csWriter.WriteLine($"return {resultLocalName};");

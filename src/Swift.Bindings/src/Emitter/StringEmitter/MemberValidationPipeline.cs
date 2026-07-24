@@ -190,6 +190,24 @@ public class MemberValidationPipeline
         if (methodSkipReason != null)
             return ValidationResult.Skip(methodSkipReason.Value, methodSkipDetails ?? "");
 
+        // ── Gate 2b: Closure nested inside a returned/parameter collection ──
+        // A closure that is an ELEMENT of an Array/Set/Dictionary (at any depth, in any
+        // signature position) is unbindable. The container's wire carrier is composed from
+        // the element's PInvokeType, which for a non-escaping ClosureProjection is a
+        // `delegate* unmanaged[Swift]<…>` function-pointer type — illegal as a C# generic
+        // type argument (CS0306 on the emitted SwiftArray<…>/GetTypeMetadataOrThrow<…>). And
+        // even past the compile error the shape is runtime-unsound: the FROM-Swift path has
+        // no way to turn a collection-element closure back into a C# delegate
+        // (SwiftMarshal.MarshalFromSwift<Delegate> throws; no element invoker, no Swift
+        // Function metadata for stride/destroy). A soundness condition the compilers can't
+        // fully see, so it is gated at emission rather than left to verify-recover. Bare and
+        // Optional<Closure> shapes are supported and deliberately NOT caught (see
+        // ClosureHandler.ContainsClosureNestedInCollection). Scan CSSignature[0] (return) and
+        // the parameters alike — the defect is direction-agnostic.
+        if (methodDecl.CSSignature.Any(arg => ClosureHandler.ContainsClosureNestedInCollection(arg.SwiftTypeSpec)))
+            return ValidationResult.Skip(SkipReason.UnsupportedClosure,
+                "Member has a closure nested inside a collection (Array/Set/Dictionary) in its return type or a parameter; a collection of closures has no sound marshalling path (the wire carrier would be an illegal `delegate*` generic argument, and the runtime cannot reconstruct a C# delegate from a collection element).");
+
         // ── Gate 3: Generic type callback gate (thunk closure in PInvokeHelperContext) ──
         // Methods/constructors in generic types that need [UnmanagedCallersOnly] callbacks
         // can't be emitted because callbacks can't be hoisted to the generic helper class.
@@ -633,6 +651,15 @@ public class MemberValidationPipeline
         if (TryCheckInternalTypeReach(propertyDecl, out var propertySkip))
             return propertySkip!;
 
+        // Closure nested inside a collection (Array/Set/Dictionary) — the property-side
+        // mirror of the method gate. A property typed e.g. `[Endpoint: [(Result) -> Void]]`
+        // composes its accessor wire carrier from the element's `delegate*` PInvokeType
+        // (CS0306) and has no FROM-Swift path to hand the element closures back as C#
+        // delegates. Bare / Optional<Closure> properties are supported and NOT caught here.
+        if (ClosureHandler.ContainsClosureNestedInCollection(propertyDecl.SwiftTypeSpec))
+            return ValidationResult.Skip(SkipReason.UnsupportedClosure,
+                "Property has a closure nested inside a collection (Array/Set/Dictionary); a collection of closures has no sound marshalling path (the wire carrier would be an illegal `delegate*` generic argument, and the runtime cannot reconstruct a C# delegate from a collection element).");
+
         // Constrained-extension multi-specialization conflict — see
         // MemberEmissionValidator.CanEmitProperty for the full rationale. PropertyHandler.Emit
         // routes through this pipeline (not CanEmitProperty), so the gate must be repeated here
@@ -791,6 +818,14 @@ public class MemberValidationPipeline
 
         if (TryCheckInternalTypeReach(subscriptDecl, out var subscriptSkip))
             return subscriptSkip!;
+
+        // Closure nested inside a collection (Array/Set/Dictionary) in an index parameter or
+        // the element type — same unbindable shape as the method/property gates (illegal
+        // `delegate*` wire carrier + no FROM-Swift delegate reconstruction).
+        if (ClosureHandler.ContainsClosureNestedInCollection(subscriptDecl.ReturnTypeSpec) ||
+            subscriptDecl.IndexParameters.Any(p => ClosureHandler.ContainsClosureNestedInCollection(p.SwiftTypeSpec)))
+            return ValidationResult.Skip(SkipReason.UnsupportedClosure,
+                "Subscript has a closure nested inside a collection (Array/Set/Dictionary) in its element type or an index parameter; a collection of closures has no sound marshalling path (the wire carrier would be an illegal `delegate*` generic argument, and the runtime cannot reconstruct a C# delegate from a collection element).");
 
         // ── Tuple index parameters / tuple returns with any non-primitive element ──
         // The subscript path P/Invokes the raw dispatch thunk directly: there is no @_cdecl

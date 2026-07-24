@@ -463,12 +463,24 @@ public static partial class ClosureEmitter
             var enumCsType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
             returnExprFallback = $"return ({enumCsType}){invokeExprFallback};";
         }
-        else if (closureHandler.IsClassType(closureTypeSpec.ReturnType) ||
-                 closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType))
+        else if (closureHandler.IsClassType(closureTypeSpec.ReturnType))
         {
-            // Class/ObjC return: function pointer returns void* (opaque pointer).
+            // Pure Swift class return: function pointer returns void* (opaque pointer), an owned
+            // +1 reference (Swift calling convention). Route through the public
+            // MarshalFromSwiftObject<T> factory (T.NewFromPayload) rather than `new T(new
+            // SwiftHandle(ptr))`: a cross-module class's (SwiftHandle) ctor is internal and
+            // invisible across generated assemblies (CS1729). The factory adopts the +1, so the
+            // ownership transfer is identical.
+            var csReturnType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
+            returnExprFallback = $"return SwiftMarshal.MarshalFromSwiftObject<{csReturnType}>((IntPtr){invokeExprFallback});";
+        }
+        else if (closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType))
+        {
+            // ObjC-bridged/rooted return: function pointer returns void* (opaque pointer).
             // Wrap in SwiftHandle → class constructor. Swift calling convention returns
-            // an owned reference, so SwiftClassHandle takes ownership.
+            // an owned reference, so SwiftClassHandle takes ownership. Kept on the ctor path —
+            // ObjC-bridged types' ISwiftObject/NewFromPayload story differs and is out of scope
+            // for the cross-module class-pointer factory routing.
             var csReturnType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
             returnExprFallback = $"return new {csReturnType}(new Swift.Runtime.SwiftHandle((IntPtr){invokeExprFallback}));";
         }

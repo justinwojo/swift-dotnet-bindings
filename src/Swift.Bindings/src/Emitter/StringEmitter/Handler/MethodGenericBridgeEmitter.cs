@@ -971,8 +971,24 @@ public static class MethodGenericBridgeEmitter
         }
         else if (isClassPointerReturn)
         {
-            // Class pointer: Swift returns Unmanaged.passRetained().toOpaque(), wrap into C# object
-            csWriter.WriteLine($"return new {csReturnType}(new Swift.Runtime.SwiftHandle({callExpr}));");
+            // Class pointer: Swift returns Unmanaged.passRetained().toOpaque() (owned +1). Route
+            // through the public MarshalFromSwiftObject<T> factory (T.NewFromPayload) rather than
+            // `new T(new SwiftHandle(ptr))` — a cross-module class's (SwiftHandle) ctor is internal
+            // and invisible across generated assemblies (CS1729). The factory adopts the +1, so the
+            // ownership transfer is identical.
+            if (returnMapping.mapping.Kind == CdeclReturnKind.OptionalClassPointer)
+            {
+                // Optional class pointer: nil arrives as a null pointer. Null-check before the
+                // factory (which does not short-circuit on IntPtr.Zero); the factory's T must be the
+                // non-nullable class type.
+                var nonNullReturnType = csReturnType.TrimEnd('?');
+                csWriter.WriteLine($"var {resultLocal} = {callExpr};");
+                csWriter.WriteLine($"return {resultLocal} == IntPtr.Zero ? null : SwiftMarshal.MarshalFromSwiftObject<{nonNullReturnType}>({resultLocal});");
+            }
+            else
+            {
+                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwiftObject<{csReturnType}>({callExpr});");
+            }
         }
         else
         {
