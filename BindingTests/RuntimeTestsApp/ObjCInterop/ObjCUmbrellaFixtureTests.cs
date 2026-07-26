@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using Foundation;
+using ObjCRuntime;
 using ObjCUmbrella;
 using RuntimeTestsApp.Infrastructure;
 using UIKit;
@@ -14,7 +15,7 @@ namespace RuntimeTestsApp.ObjCInterop;
 /// gate for the generator behaviors a real pure-ObjC framework (e.g. MapLibre) depends on.
 ///
 /// The fixture is generated through the generator's <c>--objc</c> (bgen) pipeline and consumed here
-/// via a single ProjectReference to the emitted binding project. Each test exercises one of the six
+/// via a single ProjectReference to the emitted binding project. Each test exercises one of the
 /// deliberately-shaped cases; the fact that ANY of these tests runs at all already proves the app
 /// launched without an Objective-C duplicate-selector registration abort (Shape 1's failure mode).
 ///
@@ -23,6 +24,14 @@ namespace RuntimeTestsApp.ObjCInterop;
 /// <c>NSURLSessionTaskState</c>, and <c>UIApplicationState</c> — types that were once absent from
 /// the registry and so silently dropped every member using them. That the members below EXIST to be
 /// called (this file compiles) is the standing proof the registry gap stays closed.
+///
+/// Shape 8 covers the one rename defect a compiler cannot catch. When the emitter renames a C#
+/// DECLARATION — the class/protocol clash suffix, or the .NET acronym convention — native identity is
+/// preserved by <c>[BaseType(..., Name=)]</c> / <c>[Protocol(Name=)]</c>. Drop or misspell that and the
+/// binding still compiles; the type simply registers under its managed spelling and the first message
+/// send finds nothing. Every other rename defect (a reference left on the raw spelling, a dangling
+/// <c>instancetype</c>) is a hard compile error already gated by the unit suite and the compile gate,
+/// so these three tests are deliberately the whole runtime surface for renaming.
 /// </summary>
 public class ObjCUmbrellaFixtureTests : TestBase
 {
@@ -153,6 +162,73 @@ public class ObjCUmbrellaFixtureTests : TestBase
     }
 
     /// <summary>
+    /// Shape 8a — the class/protocol clash suffix. <c>OUBadge</c> is both a class and a protocol; the
+    /// protocol's managed interface was renamed <c>IOUBadgeProtocol</c> while
+    /// <c>[Protocol(Name = "OUBadge")]</c> held its native registration in place. The rename is a
+    /// declaration-side change only — the Objective-C runtime must still see the original name.
+    /// </summary>
+    public void TestClashRenamedProtocolKeepsNativeRegistration()
+    {
+        using var badge = new OUBadge("alpha");
+        AssertEqual("badge:alpha", badge.BadgeLabel(), "the clash-renamed protocol's method dispatches through the class");
+
+        // The class half kept the bare managed name and still satisfies the renamed interface.
+        IOUBadgeProtocol asProtocol = badge;
+        AssertEqual("badge:alpha", asProtocol.BadgeLabel(), "the class satisfies the renamed protocol interface");
+
+        // The assertion with teeth: a MANAGED adopter of `IOUBadgeProtocol`, handed to Objective-C,
+        // must register as conforming to the NATIVE protocol `OUBadge`. Only [Protocol(Name = ...)]
+        // makes that true. (Asking the fixture's own OUBadge instance would prove nothing — it
+        // declares the conformance in Objective-C source.)
+        using var managed = new ManagedBadge();
+        AssertTrue(OUBadge.AcceptsBadge(managed),
+            "a managed adopter of the renamed interface conforms to the native protocol `OUBadge`");
+    }
+
+    /// <summary>
+    /// Shape 8b — the .NET acronym convention renamed the DECLARATION <c>NSURLBadgeBox</c> →
+    /// <c>NSUrlBadgeBox</c>. Two things must hold and neither is visible to a compiler: the class must
+    /// still register natively as <c>NSURLBadgeBox</c> (a dropped <c>[BaseType(..., Name=)]</c> would
+    /// register it under the managed spelling, and <c>objc_getClass</c> would miss), and both
+    /// <c>instancetype</c> returners must hand back the renamed type.
+    /// </summary>
+    public void TestAcronymRenamedClassKeepsNativeRegistration()
+    {
+        var nativeClass = Class.GetHandle("NSURLBadgeBox");
+        AssertTrue(nativeClass != NativeHandle.Zero, "the class is registered under its native ObjC name");
+
+        using var box = NSUrlBadgeBox.DefaultBox();
+        AssertNotNull(box, "the static `instancetype` returner produced an instance");
+        AssertTrue(box.ClassHandle == nativeClass, "the renamed managed class binds the native `NSURLBadgeBox`");
+        AssertEqual("default", box.Tag, "the static `instancetype` returner round-trips its value");
+
+        using var rebox = box.ReboxWithTag("beta");
+        AssertEqual("default+beta", rebox.Tag, "the instance `instancetype` returner round-trips through the renamed type");
+    }
+
+    /// <summary>
+    /// Shape 8c — a renamed DELEGATE protocol behind the WeakDelegate pattern. <c>Delegate</c> is the
+    /// <c>[Wrap]</c> half, typed by the <c>[Model]</c> class bgen generates from the renamed protocol
+    /// declaration; assigning through it and receiving the callback proves the wrap was emitted against
+    /// the renamed spelling AND that the model still registers as native <c>NSURLBadgeObserver</c>.
+    /// </summary>
+    public void TestRenamedDelegateProtocolDispatchesToManaged()
+    {
+        using var emitter = new NSUrlBadgeEmitter();
+        var observer = new CapturingBadgeObserver();
+        emitter.Delegate = observer;
+
+        AssertNull(observer.Seen, "the observer has not been called yet");
+        emitter.ChangeBadge("beta");
+        AssertEqual("beta", observer.Seen, "the renamed delegate protocol dispatched back into managed code");
+
+        // The callback firing is NOT by itself proof the protocol kept its native name — the member's
+        // own [Export] is what answers respondsToSelector:. Ask Objective-C for the protocol directly.
+        AssertTrue(emitter.DelegateConformsToObserverProtocol(),
+            "the managed model registers as conforming to the native protocol `NSURLBadgeObserver`");
+    }
+
+    /// <summary>
     /// Managed adopter of the optional-callback protocol. Conforming to <see cref="IOUListener"/> plus
     /// the <c>[Export("didReceiveValue:")]</c> selector makes <c>respondsToSelector:</c> return true,
     /// so the notifier invokes it.
@@ -163,5 +239,29 @@ public class ObjCUmbrellaFixtureTests : TestBase
 
         [Export("didReceiveValue:")]
         public void DidReceiveValue(nint value) => Received = value;
+    }
+
+    /// <summary>
+    /// Managed adopter of the renamed observer protocol, subclassing the generated <c>[Model]</c> class
+    /// (Shape 8c). Overriding the optional callback is what the emitter's renamed <c>[Wrap]</c> property
+    /// has to accept.
+    /// </summary>
+    private sealed class CapturingBadgeObserver : NSUrlBadgeObserver
+    {
+        public string? Seen { get; private set; }
+
+        public override void BadgeDidChange(string tag) => Seen = tag;
+    }
+
+    /// <summary>
+    /// Managed adopter of the clash-renamed protocol interface (Shape 8a). Handing this to Objective-C
+    /// is what proves the renamed declaration still registers its conformance under the native name —
+    /// the fixture's own <c>OUBadge</c> class cannot answer that, since it declares the conformance in
+    /// Objective-C source regardless of what the binding says.
+    /// </summary>
+    private sealed class ManagedBadge : NSObject, IOUBadgeProtocol
+    {
+        [Export("badgeLabel")]
+        public string BadgeLabel() => "badge:managed";
     }
 }

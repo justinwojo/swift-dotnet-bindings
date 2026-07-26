@@ -1077,10 +1077,17 @@ public class ClangAstParserTests
     }
 
     [Fact]
-    public void Parse_IncludedFromExternal_DoesNotInheritCurrentFile()
+    public void Parse_ExternalHeaderDecls_AreNotInheritedAsPublic()
     {
-        // Regression: a declaration with only loc.includedFrom pointing to an external
-        // framework should NOT inherit currentFile from a previous public declaration.
+        // A declaration in an external dependency header must not be misclassified as public
+        // just because an earlier declaration set currentFile to the framework's header path.
+        //
+        // This uses the shape clang actually emits. Verified directly against
+        // `clang -Xclang -ast-dump=json`: loc.file is present on the FIRST declaration of every
+        // file and re-emitted the moment the file changes (both entering an include and returning
+        // from one), and omitted only while the file is unchanged; loc.includedFrom names the file
+        // that included the declaration's file, never the declaration's own file. So a declaration
+        // in Dep.h carries file = Dep.h, and only its FOLLOWING siblings omit it.
         var publicDecl = $$"""
         {
             "kind": "VarDecl",
@@ -1090,19 +1097,32 @@ public class ClangAstParserTests
         }
         """;
 
-        // This declaration comes from a dependency header included by an external file.
-        // It should NOT be misclassified as public just because the previous declaration
-        // set currentFile to our framework's header path.
-        var dependencyDecl = """
+        // First declaration inside the dependency header: clang emits its file because the file
+        // changed, and includedFrom = our framework header (the includer).
+        var dependencyFirst = $$"""
         {
             "kind": "VarDecl",
-            "name": "DependencyConst",
-            "loc": { "includedFrom": { "file": "/usr/include/external/Dep.h" } },
+            "name": "DependencyConstFirst",
+            "loc": {
+                "file": "/usr/include/external/Dep.h",
+                "includedFrom": { "file": "{{HeadersPath}}/TestLib.h" }
+            },
             "type": { "qualType": "int" }
         }
         """;
 
-        var json = WrapInTranslationUnit($"{publicDecl},{dependencyDecl}");
+        // Second declaration in that same header: file omitted (unchanged), so it inherits
+        // currentFile — which the first declaration just set to the external path.
+        var dependencySecond = $$"""
+        {
+            "kind": "VarDecl",
+            "name": "DependencyConstSecond",
+            "loc": { "includedFrom": { "file": "{{HeadersPath}}/TestLib.h" } },
+            "type": { "qualType": "int" }
+        }
+        """;
+
+        var json = WrapInTranslationUnit($"{publicDecl},{dependencyFirst},{dependencySecond}");
         var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
 
         Assert.Single(module.Constants);
@@ -3906,5 +3926,76 @@ public class ClangAstParserTests
         var wrongPassword = Assert.Single(enumDecl.Cases);
         Assert.Equal("AuthErrorCodeWrongPassword", wrongPassword.Name);
         Assert.Equal(17009, wrongPassword.Value);
+    }
+
+    // ──────────────────────────────────────────────
+    // Location filtering — currentFile inheritance
+    // ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Clang omits <c>loc.file</c> when a declaration is in the same file as the previous one, so
+    /// the tracked current file IS that declaration's file. The declaration still carries an
+    /// <c>includedFrom</c> naming whatever pulled the header in — and when the framework's headers
+    /// are read through a synthesized combined header (directory-umbrella and explicit-header
+    /// modulemaps), that includer lives in a temp directory OUTSIDE the framework. Treating an
+    /// out-of-framework includedFrom as a veto on inheritance drops every declaration in a header
+    /// except its first, silently and with a zero exit code.
+    /// </summary>
+    [Fact]
+    public void Parse_SecondDeclInHeader_WithOutOfFrameworkIncludedFrom_IsStillPublic()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "FirstClass",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": []
+        },
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "SecondClass",
+            "loc": { "includedFrom": { "file": "/tmp/objc_binding_abc/TestLib_combined.h" } },
+            "super": { "name": "NSObject" },
+            "inner": []
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        Assert.Contains(module.Classes, c => c.Name == "FirstClass");
+        Assert.Contains(module.Classes, c => c.Name == "SecondClass");
+    }
+
+    /// <summary>
+    /// The case the includedFrom heuristic exists for, which the inheritance above must not
+    /// reopen: a framework header #imports an SDK header, so the SDK's later declarations carry
+    /// includedFrom = the framework header while the tracked current file is the SDK header.
+    /// Those are not the framework's API and must stay dropped.
+    /// </summary>
+    [Fact]
+    public void Parse_SdkDeclIncludedFromFrameworkHeader_IsNotPublic()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "SdkFirstClass",
+            "loc": { "file": "/usr/include/Foundation/NSString.h" },
+            "super": { "name": "NSObject" },
+            "inner": []
+        },
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "SdkSecondClass",
+            "loc": { "includedFrom": { "file": "/Frameworks/TestLib.framework/Headers/TestLib.h" } },
+            "super": { "name": "NSObject" },
+            "inner": []
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        Assert.DoesNotContain(module.Classes, c => c.Name == "SdkFirstClass");
+        Assert.DoesNotContain(module.Classes, c => c.Name == "SdkSecondClass");
     }
 }

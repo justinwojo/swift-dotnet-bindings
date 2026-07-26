@@ -36,6 +36,17 @@ public static class ApiDefinitionEmitter
         var classProtocolClashNames = new HashSet<string>(
             module.Protocols.Select(p => p.Name).Where(classNamesForClash.Contains), StringComparer.Ordinal);
 
+        // knownTypes is consulted by the resolvability gate, which re-maps a member's type and asks
+        // whether the RESULT is a name this binding declares. So it must hold every spelling a
+        // reference site can produce, and a protocol has more than one: `I{mapped}` for a member
+        // typed by the protocol (MapType synthesizes the interface prefix), and bare `{mapped}` for
+        // a conformance/inheritance entry and for the [Model] class a [Wrap] delegate property is
+        // typed by. The raw ObjC name is seeded too because a member can be typed by a protocol the
+        // acronym convention does not rename, where raw and mapped coincide — and because dropping
+        // it would silently change the gate for every non-NS-prefixed protocol.
+        //
+        // Removing a spelling is only safe alongside an audit of the reference sites that can emit
+        // it; a member typed by a local protocol that fails this gate vanishes with only a debug log.
         foreach (var proto in module.Protocols)
         {
             knownTypes.Add(proto.Name);
@@ -170,7 +181,8 @@ public static class ApiDefinitionEmitter
                     continue;
                 }
                 var baseType = ObjCTypeMapper.MapClassName(superName);
-                if (!ObjCTypeMapper.IsApiDefinitionTypeResolvable(baseType, knownTypes, appleSdkTypes))
+                // A class name, never a protocol interface — nothing can have synthesized an `I`.
+                if (!ObjCTypeMapper.IsApiDefinitionTypeResolvable(baseType, knownTypes, appleSdkTypes, NoSynthesizedProtocolInterfaces))
                 {
                     dropped[cls.Name] = $"unresolvable base type '{baseType}'";
                     changed = true;
@@ -185,11 +197,21 @@ public static class ApiDefinitionEmitter
         ObjCDocCommentEmitter.EmitDocComment(sb, proto.DocComment, null, "    ");
         ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, proto.Availability, "    ");
 
-        // When this protocol's name also exists as a class in this module, its managed interface is
-        // renamed `{Name}Protocol`; `[Protocol(Name = "{Name}")]` preserves the native selector
-        // registration so the rename is C#-side only. Otherwise the bare `[Protocol]` form is used.
-        var isClash = classProtocolClashNames != null && classProtocolClashNames.Contains(proto.Name);
-        var protocolAttrArgs = isClash ? $"(Name = \"{proto.Name}\")" : "";
+        // The managed declaration name is whatever every reference to this protocol resolves to —
+        // `MapProtocolName`, which folds in BOTH renames that can apply: the .NET acronym convention
+        // (`NSURLThing` -> `NSUrlThing`) and the class/protocol-clash `{Name}Protocol` suffix. Any
+        // time that differs from the ObjC name, `Name = "{raw}"` preserves the native selector
+        // registration so the rename stays C#-side only.
+        //
+        // Deriving the declaration from the same function as the references is what keeps them in
+        // agreement. Emitting the raw name here while references normalize it leaves bgen generating
+        // `INSURLThing` from the declaration while members are typed `INSUrlThing` — which resolves
+        // only against the empty forward declaration, so the member silently binds to a placeholder
+        // interface instead of the protocol (and for a class, fails outright with CS0246).
+        var declarationName = ObjCTypeMapper.MapProtocolName(proto.Name, classProtocolClashNames);
+        var protocolAttrArgs = !string.Equals(declarationName, proto.Name, StringComparison.Ordinal)
+            ? $"(Name = \"{proto.Name}\")"
+            : "";
 
         // A protocol that declares a parameterless init requirement otherwise gets BOTH a
         // synthesized default constructor (exporting `init`) on bgen's concrete adapter class AND the
@@ -226,7 +248,7 @@ public static class ApiDefinitionEmitter
         // protocol with no .NET binding) — emitting `: IExternalProto` would fail with CS0246.
         var filteredInherited = proto.InheritedProtocolNames
             .Where(n => n != "NSObject" && n != "NSFastEnumeration")
-            .Where(n => ObjCTypeMapper.IsApiDefinitionTypeResolvable($"I{ObjCTypeMapper.MapProtocolName(n, classProtocolClashNames)}", knownTypes, appleSdkTypes))
+            .Where(n => IsProtocolInterfaceResolvable(n, knownTypes, appleSdkTypes, classProtocolClashNames))
             .ToList();
         var inheritList = filteredInherited.Count > 0
             ? $" : {string.Join(", ", filteredInherited.Select(n => ProtocolInterfaceReference(n, localProtocolNames, classProtocolClashNames)))}"
@@ -235,12 +257,9 @@ public static class ApiDefinitionEmitter
         // bgen derives the interface spelling from the protocol declaration: a protocol
         // declared as `partial interface Foo` produces the consumer-facing `IFoo` interface
         // (and, for [Model] protocols, the `Foo` Model class). Declaring it as `IFoo` here
-        // makes bgen generate `IIFoo` plus an orphan `Foo` — so always emit the BARE name and
-        // let bgen apply its own "I" prefix exactly once. A class/protocol clash renames the
-        // declaration to `{Name}Protocol` (bgen then generates `I{Name}Protocol`), matching the
-        // renamed forward declaration and every reference to it.
-        var interfaceName = isClash ? ObjCTypeMapper.MapProtocolName(proto.Name, classProtocolClashNames) : proto.Name;
-        sb.AppendLine($"    partial interface {interfaceName}{inheritList}");
+        // makes bgen generate `IIFoo` plus an orphan `Foo` — so always emit the UNPREFIXED name and
+        // let bgen apply its own "I" prefix exactly once.
+        sb.AppendLine($"    partial interface {declarationName}{inheritList}");
         sb.AppendLine("    {");
 
         // Protocols don't declare ObjC lightweight generics — only pass the common fallback set.
@@ -262,7 +281,7 @@ public static class ApiDefinitionEmitter
         // colliding child property is dropped (consistent with intra-protocol collision handling).
         if (protocolsByName != null && proto.InheritedProtocolNames.Count > 0)
         {
-            SeedInheritedProtocolSignatures(emittedMethodSignatures, emittedMemberNames, emittedPropertyNames, proto, protocolsByName, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes);
+            SeedInheritedProtocolSignatures(emittedMethodSignatures, emittedMemberNames, emittedPropertyNames, proto, protocolsByName, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, localProtocolNames, classProtocolClashNames);
         }
 
         // Pre-seed this protocol's OWN emittable property names + accessor selectors before the
@@ -270,7 +289,7 @@ public static class ApiDefinitionEmitter
         // were already seeded above). ComputeProtocolEmissionSet mirrors this ordering so the
         // signatures that seed descendant protocols agree with what is emitted here.
         var emittableProtocolProperties = proto.Properties
-            .Where(p => WouldEmitProperty(p, null, null, typedefMap, blockTypedefMap, localProtocolNames, knownTypes, appleSdkTypes))
+            .Where(p => WouldEmitProperty(p, null, null, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames, knownTypes, appleSdkTypes))
             .ToList();
         foreach (var prop in emittableProtocolProperties)
             emittedPropertyNames.Add(ToPascalCase(prop.Name));
@@ -336,14 +355,22 @@ public static class ApiDefinitionEmitter
         if (disableDefaultCtor)
             sb.AppendLine("    [DisableDefaultCtor]");
 
-        sb.AppendLine($"    [BaseType(typeof({baseType}))]");
+        // Same declaration/reference agreement as EmitProtocol: a member typed by this class maps
+        // through MapClassName, so the declaration must carry that name too. `Name = "{raw}"` keeps
+        // the native registration on the ObjC spelling. (Only NS-prefixed names with a convention
+        // acronym differ at all — for every other class the two spellings are identical.)
+        var classDeclarationName = ObjCTypeMapper.MapClassName(cls.Name);
+        var classNameArg = !string.Equals(classDeclarationName, cls.Name, StringComparison.Ordinal)
+            ? $", Name = \"{cls.Name}\""
+            : "";
+        sb.AppendLine($"    [BaseType(typeof({baseType}){classNameArg})]");
 
         // Drop conformances to NSObject/NSFastEnumeration (implicit / non-binding) and to any
         // protocol whose interface isn't resolvable in the binding context — emitting
         // `: IExternalProto` for an unbound protocol would fail with CS0246.
         var filteredProtocols = cls.ProtocolNames
             .Where(n => n != "NSObject" && n != "NSFastEnumeration")
-            .Where(n => ObjCTypeMapper.IsApiDefinitionTypeResolvable($"I{ObjCTypeMapper.MapProtocolName(n, classProtocolClashNames)}", knownTypes, appleSdkTypes))
+            .Where(n => IsProtocolInterfaceResolvable(n, knownTypes, appleSdkTypes, classProtocolClashNames))
             .ToList();
         // A conformance to a protocol that clashes with this (or another) class name resolves to the
         // renamed `{Name}Protocol` reference — never the bare class name, which would make the class
@@ -351,7 +378,7 @@ public static class ApiDefinitionEmitter
         var protocols = filteredProtocols.Count > 0
             ? $" : {string.Join(", ", filteredProtocols.Select(n => ProtocolInterfaceReference(n, localProtocolNames, classProtocolClashNames)))}"
             : "";
-        sb.AppendLine($"    partial interface {cls.Name}{protocols}");
+        sb.AppendLine($"    partial interface {classDeclarationName}{protocols}");
         sb.AppendLine("    {");
 
         // Scope generic type params to THIS class only — avoids cross-type collisions
@@ -385,7 +412,7 @@ public static class ApiDefinitionEmitter
         // Seed only emittedPropertyNames (not emittedMemberNames), so the property itself is not
         // self-dropped by EmitProperty's name-claim check.
         var emittableProperties = cls.Properties
-            .Where(p => WouldEmitProperty(p, cls.Name, classGenericParams, typedefMap, blockTypedefMap, localProtocolNames, knownTypes, appleSdkTypes))
+            .Where(p => WouldEmitProperty(p, classDeclarationName, classGenericParams, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames, knownTypes, appleSdkTypes))
             .ToList();
         foreach (var prop in emittableProperties)
         {
@@ -402,7 +429,8 @@ public static class ApiDefinitionEmitter
         // above only covers this class's OWN properties; this seeds the transitively-inherited
         // conformed-protocol accessor selectors so CollidesWithPropertyAccessor catches them too.
         var inheritedAccessorSelectors = BuildInheritedProtocolAccessorSelectors(
-            cls.ProtocolNames, protocolsByName, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes);
+            cls.ProtocolNames, protocolsByName, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes,
+            localProtocolNames, classProtocolClashNames);
         propertyAccessorSelectors.Instance.UnionWith(inheritedAccessorSelectors.Instance);
         propertyAccessorSelectors.Class.UnionWith(inheritedAccessorSelectors.Class);
 
@@ -417,7 +445,11 @@ public static class ApiDefinitionEmitter
                 diagnostics?.RecordSkip("Method", method.Selector, ObjCSkipReason.DuplicateSelector, $"selector also exported by a property accessor on '{cls.Name}' (kept the property)");
                 continue;
             }
-            var emittedName = EmitMethod(sb, method, declaringClassName: cls.Name, isProtocol: false, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedConstructorSignatures: emittedConstructorSignatures, emittedMethodSignatures: emittedMethodSignatures, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, enumNames: enumNames, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics);
+            // `declaringClassName` is what `instancetype` resolves to, so it must be the DECLARATION
+            // name, not the ObjC one — a class renamed by the acronym convention would otherwise
+            // return the undeclared raw spelling (CS0246), and the resolvability gate would wave it
+            // through because both spellings are seeded into knownTypes.
+            var emittedName = EmitMethod(sb, method, declaringClassName: classDeclarationName, isProtocol: false, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedConstructorSignatures: emittedConstructorSignatures, emittedMethodSignatures: emittedMethodSignatures, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, enumNames: enumNames, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics);
             if (emittedName != null) emittedMemberNames.Add(emittedName);
         }
 
@@ -430,7 +462,7 @@ public static class ApiDefinitionEmitter
             }
             else
             {
-                EmitProperty(sb, prop, declaringClassName: cls.Name, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMemberNames: emittedMemberNames, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics);
+                EmitProperty(sb, prop, declaringClassName: classDeclarationName, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMemberNames: emittedMemberNames, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics);
             }
         }
 
@@ -470,10 +502,15 @@ public static class ApiDefinitionEmitter
 
         ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, cat.Availability, "    ");
         sb.AppendLine("    [Category]");
-        sb.AppendLine($"    [BaseType(typeof({cat.ClassName}))]");
+        // One mapped spelling for the extended class, used by every reference below: the [BaseType]
+        // target, the generated interface name, and `declaringClassName` (which is what `instancetype`
+        // resolves to). Passing the raw ObjC name to any of them dangles once the acronym convention
+        // renames the class declaration.
+        var categoryClassName = ObjCTypeMapper.MapClassName(cat.ClassName);
+        sb.AppendLine($"    [BaseType(typeof({categoryClassName}))]");
 
         // Strip protocol conformance — static classes cannot implement interfaces (CS0714)
-        var interfaceName = GenerateCategoryInterfaceName(cat.ClassName, cat.CategoryName);
+        var interfaceName = GenerateCategoryInterfaceName(categoryClassName, cat.CategoryName);
         sb.AppendLine($"    partial interface {interfaceName}");
         sb.AppendLine("    {");
 
@@ -489,7 +526,7 @@ public static class ApiDefinitionEmitter
         // before the method loop for the same method-vs-property collision reasons as EmitClass.
         var emittableCategoryProperties = cat.Properties
             .Where(p => p.IsClass)
-            .Where(p => WouldEmitProperty(p, cat.ClassName, categoryGenericParams, typedefMap, blockTypedefMap, localProtocolNames, knownTypes, appleSdkTypes))
+            .Where(p => WouldEmitProperty(p, categoryClassName, categoryGenericParams, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames, knownTypes, appleSdkTypes))
             .ToList();
         foreach (var prop in emittableCategoryProperties)
             emittedPropertyNames.Add(ToPascalCase(prop.Name));
@@ -503,14 +540,14 @@ public static class ApiDefinitionEmitter
                 diagnostics?.RecordSkip("Method", method.Selector, ObjCSkipReason.DuplicateSelector, $"selector also exported by a class property accessor on category '{cat.ClassName}.{cat.CategoryName}' (kept the property)");
                 continue;
             }
-            var emittedName = EmitMethod(sb, method, declaringClassName: cat.ClassName, isProtocol: false, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, enumNames: enumNames, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics);
+            var emittedName = EmitMethod(sb, method, declaringClassName: categoryClassName, isProtocol: false, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, enumNames: enumNames, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics);
             if (emittedName != null) emittedMemberNames.Add(emittedName);
         }
 
         // Skip instance properties — static classes cannot have instance members (CS0708).
         // Only emit [Static] properties (class methods/properties).
         foreach (var prop in cat.Properties.Where(p => p.IsClass))
-            EmitProperty(sb, prop, declaringClassName: cat.ClassName, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMemberNames: emittedMemberNames, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics);
+            EmitProperty(sb, prop, declaringClassName: categoryClassName, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMemberNames: emittedMemberNames, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics);
 
         sb.AppendLine("    }");
         sb.AppendLine();
@@ -530,10 +567,19 @@ public static class ApiDefinitionEmitter
     static string? EmitMethod(StringBuilder sb, ObjCMethodDecl method, string? declaringClassName, bool isProtocol, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? emittedConstructorSignatures = null, HashSet<string>? emittedMethodSignatures = null, HashSet<string>? emittedPropertyNames = null, HashSet<string>? knownTypes = null, HashSet<string>? appleSdkTypes = null, HashSet<string>? enumNames = null, bool isDelegateProtocol = false, HashSet<string>? localProtocolNames = null, HashSet<string>? classProtocolClashNames = null, ILogger? logger = null, ObjCBindingDiagnostics? diagnostics = null)
     {
         // Pre-check: skip methods with types not resolvable in ApiDefinition context.
+        //
+        // This mapping must be given the SAME inputs the emission below uses, or the gate answers a
+        // question about a different string than the one that ships. `localProtocolNames` is the one
+        // that bites: it is what routes a member typed by the bare name of an own protocol to that
+        // protocol's interface (MapType step 10b). Omit it and the mapping falls through to the
+        // plain .NET-acronym fallback instead — a different spelling, checked against a set that
+        // never contained it, so the method is dropped with only a debug log while the property
+        // mirror (which does pass the set) emits the same type fine.
         if (knownTypes != null)
         {
-            var checkReturn = ObjCTypeMapper.MapType(method.ReturnType, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap);
-            if (!ObjCTypeMapper.IsApiDefinitionTypeResolvable(checkReturn, knownTypes, appleSdkTypes))
+            var returnSynthesized = new HashSet<string>(StringComparer.Ordinal);
+            var checkReturn = ObjCTypeMapper.MapType(method.ReturnType, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames, returnSynthesized);
+            if (!ObjCTypeMapper.IsApiDefinitionTypeResolvable(checkReturn, knownTypes, appleSdkTypes, returnSynthesized))
             {
                 logger?.LogDebug("Skipping method {Selector}: unresolvable return type '{TypeName}'", method.Selector, checkReturn);
                 diagnostics?.RecordSkip("Method", method.Selector, ObjCSkipReason.UnresolvableType, $"unresolvable return type '{checkReturn}'");
@@ -541,8 +587,9 @@ public static class ApiDefinitionEmitter
             }
             foreach (var param in method.Parameters)
             {
-                var checkParam = ObjCTypeMapper.MapType(param.Type, genericTypeParams: genericTypeParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap);
-                if (!ObjCTypeMapper.IsApiDefinitionTypeResolvable(checkParam, knownTypes, appleSdkTypes))
+                var paramSynthesized = new HashSet<string>(StringComparer.Ordinal);
+                var checkParam = ObjCTypeMapper.MapType(param.Type, genericTypeParams: genericTypeParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, synthesizedProtocolInterfaces: paramSynthesized);
+                if (!ObjCTypeMapper.IsApiDefinitionTypeResolvable(checkParam, knownTypes, appleSdkTypes, paramSynthesized))
                 {
                     logger?.LogDebug("Skipping method {Selector}: unresolvable param type '{TypeName}'", method.Selector, checkParam);
                     diagnostics?.RecordSkip("Method", method.Selector, ObjCSkipReason.UnresolvableType, $"unresolvable param type '{checkParam}'");
@@ -629,8 +676,9 @@ public static class ApiDefinitionEmitter
         // Check BEFORE dedup tracking so a skipped property doesn't reserve the name.
         if (knownTypes != null)
         {
-            var checkType = ObjCTypeMapper.MapType(prop.Type, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames);
-            if (!ObjCTypeMapper.IsApiDefinitionTypeResolvable(checkType, knownTypes, appleSdkTypes))
+            var synthesized = new HashSet<string>(StringComparer.Ordinal);
+            var checkType = ObjCTypeMapper.MapType(prop.Type, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames, synthesized);
+            if (!ObjCTypeMapper.IsApiDefinitionTypeResolvable(checkType, knownTypes, appleSdkTypes, synthesized))
             {
                 logger?.LogDebug("Skipping property {PropName}: unresolvable type '{TypeName}'", propName, checkType);
                 diagnostics?.RecordSkip("Property", propName, ObjCSkipReason.UnresolvableType, $"unresolvable type '{checkType}'");
@@ -754,10 +802,13 @@ public static class ApiDefinitionEmitter
         var rawProtocolName = ResolveDelegateProtocolName(prop, delegateProtocolNames);
         if (rawProtocolName == null) return;
         // The strong-typed [Wrap] property is typed by the delegate protocol's bare managed name
-        // (Xamarin [Model] convention). A class/protocol clash renames it to `{Name}Protocol`.
-        var protocolName = classProtocolClashNames != null && classProtocolClashNames.Contains(rawProtocolName)
-            ? ObjCTypeMapper.MapProtocolName(rawProtocolName, classProtocolClashNames)
-            : rawProtocolName;
+        // (Xamarin [Model] convention) — i.e. the Model CLASS bgen generates from the `[Protocol,
+        // Model] interface {Name}` declaration. So it must be the same spelling that declaration
+        // carries: MapProtocolName, which folds in BOTH the class/protocol-clash `{Name}Protocol`
+        // suffix and the .NET acronym convention. Special-casing the clash and otherwise keeping the
+        // raw ObjC name leaves an acronym-renamed delegate protocol declared `NSUrlThingDelegate`
+        // while this property is typed `NSURLThingDelegate` — undefined (CS0246).
+        var protocolName = ObjCTypeMapper.MapProtocolName(rawProtocolName, classProtocolClashNames);
 
         var propName = ToPascalCase(prop.Name);
         var weakPropName = $"Weak{propName}";
@@ -952,20 +1003,61 @@ public static class ApiDefinitionEmitter
     }
 
     /// <summary>
+    /// Empty provenance set for a resolvability check whose mapped name cannot possibly be an
+    /// emitter-synthesized protocol interface (a class name, an enum name, …). Passing this is a
+    /// statement of fact, not a shortcut: nothing on that path ran the protocol-interface synthesis
+    /// that prepends the <c>I</c>, so no name it produces is entitled to the I-strip fallback.
+    /// </summary>
+    static readonly IReadOnlySet<string> NoSynthesizedProtocolInterfaces =
+        new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Resolvability of the <c>I{Protocol}</c> interface reference an inheritance clause would emit.
+    /// The caller synthesizes the <c>I</c> itself rather than going through
+    /// <see cref="ObjCTypeMapper.MapType"/>, so it is its own provenance: the one name it builds is
+    /// exactly the synthesized interface, and passing it lets the I-strip fallback consider it.
+    /// </summary>
+    static bool IsProtocolInterfaceResolvable(string protocolName, HashSet<string>? knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? classProtocolClashNames)
+    {
+        if (knownTypes == null)
+            return true;
+        var interfaceName = $"I{ObjCTypeMapper.MapProtocolName(protocolName, classProtocolClashNames)}";
+        return ObjCTypeMapper.IsApiDefinitionTypeResolvable(
+            interfaceName, knownTypes, appleSdkTypes,
+            new HashSet<string>(StringComparer.Ordinal) { interfaceName });
+    }
+
+    /// <summary>
+    /// Resolvability of a property's mapped type, capturing which <c>I</c>-prefixed names in it the
+    /// mapper actually synthesized. Extracted from the inline predicate it replaces so the mapping
+    /// and the check can share one provenance sink — a lambda cannot thread an out-parameter.
+    /// </summary>
+    static bool IsPropertyTypeResolvable(ObjCPropertyDecl prop, HashSet<string>? knownTypes, HashSet<string>? appleSdkTypes, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames)
+    {
+        if (knownTypes == null)
+            return true;
+        var synthesized = new HashSet<string>(StringComparer.Ordinal);
+        var checkType = ObjCTypeMapper.MapType(prop.Type, declaringClassName: null, genericTypeParams: null, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames, synthesized);
+        return ObjCTypeMapper.IsApiDefinitionTypeResolvable(checkType, knownTypes, appleSdkTypes, synthesized);
+    }
+
+    /// <summary>
     /// Checks the same gate <see cref="EmitMethod"/> uses to decide whether to emit a method:
     /// the return type and every parameter type must be resolvable in the ApiDefinition context.
     /// </summary>
-    static bool WouldEmitMethod(ObjCMethodDecl method, HashSet<string>? knownTypes, HashSet<string>? appleSdkTypes, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap)
+    static bool WouldEmitMethod(ObjCMethodDecl method, HashSet<string>? knownTypes, HashSet<string>? appleSdkTypes, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames)
     {
         if (knownTypes != null)
         {
-            var checkReturn = ObjCTypeMapper.MapType(method.ReturnType, declaringClassName: null, genericTypeParams: null, typedefMap, blockTypedefMap);
-            if (!ObjCTypeMapper.IsApiDefinitionTypeResolvable(checkReturn, knownTypes, appleSdkTypes))
+            var returnSynthesized = new HashSet<string>(StringComparer.Ordinal);
+            var checkReturn = ObjCTypeMapper.MapType(method.ReturnType, declaringClassName: null, genericTypeParams: null, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames, returnSynthesized);
+            if (!ObjCTypeMapper.IsApiDefinitionTypeResolvable(checkReturn, knownTypes, appleSdkTypes, returnSynthesized))
                 return false;
             foreach (var param in method.Parameters)
             {
-                var checkParam = ObjCTypeMapper.MapType(param.Type, genericTypeParams: null, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap);
-                if (!ObjCTypeMapper.IsApiDefinitionTypeResolvable(checkParam, knownTypes, appleSdkTypes))
+                var paramSynthesized = new HashSet<string>(StringComparer.Ordinal);
+                var checkParam = ObjCTypeMapper.MapType(param.Type, genericTypeParams: null, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, synthesizedProtocolInterfaces: paramSynthesized);
+                if (!ObjCTypeMapper.IsApiDefinitionTypeResolvable(checkParam, knownTypes, appleSdkTypes, paramSynthesized))
                     return false;
             }
         }
@@ -978,12 +1070,13 @@ public static class ApiDefinitionEmitter
     /// method loop, exactly which properties' names and accessor selectors the method dedup must
     /// account for (methods are emitted before properties, so the loop can't otherwise see them).
     /// </summary>
-    static bool WouldEmitProperty(ObjCPropertyDecl prop, string? declaringClassName, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap, HashSet<string>? localProtocolNames, HashSet<string>? knownTypes, HashSet<string>? appleSdkTypes)
+    static bool WouldEmitProperty(ObjCPropertyDecl prop, string? declaringClassName, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, HashSet<string>? knownTypes, HashSet<string>? appleSdkTypes)
     {
         if (knownTypes == null)
             return true;
-        var checkType = ObjCTypeMapper.MapType(prop.Type, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap, localProtocolNames);
-        return ObjCTypeMapper.IsApiDefinitionTypeResolvable(checkType, knownTypes, appleSdkTypes);
+        var synthesized = new HashSet<string>(StringComparer.Ordinal);
+        var checkType = ObjCTypeMapper.MapType(prop.Type, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames, synthesized);
+        return ObjCTypeMapper.IsApiDefinitionTypeResolvable(checkType, knownTypes, appleSdkTypes, synthesized);
     }
 
     /// <summary>
@@ -1025,7 +1118,8 @@ public static class ApiDefinitionEmitter
         IEnumerable<string> conformedProtocolNames,
         Dictionary<string, ObjCProtocolDecl>? protocolsByName,
         Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap,
-        HashSet<string>? knownTypes, HashSet<string>? appleSdkTypes)
+        HashSet<string>? knownTypes, HashSet<string>? appleSdkTypes,
+        HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames)
     {
         var instance = new HashSet<string>(StringComparer.Ordinal);
         var klass = new HashSet<string>(StringComparer.Ordinal);
@@ -1050,8 +1144,9 @@ public static class ApiDefinitionEmitter
                     continue;
                 if (knownTypes != null)
                 {
-                    var checkType = ObjCTypeMapper.MapType(prop.Type, declaringClassName: null, genericTypeParams: null, typedefMap, blockTypedefMap);
-                    if (!ObjCTypeMapper.IsApiDefinitionTypeResolvable(checkType, knownTypes, appleSdkTypes))
+                    var synthesized = new HashSet<string>(StringComparer.Ordinal);
+                    var checkType = ObjCTypeMapper.MapType(prop.Type, declaringClassName: null, genericTypeParams: null, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames, synthesized);
+                    if (!ObjCTypeMapper.IsApiDefinitionTypeResolvable(checkType, knownTypes, appleSdkTypes, synthesized))
                         continue;
                 }
                 var target = prop.IsClass ? klass : instance;
@@ -1088,13 +1183,13 @@ public static class ApiDefinitionEmitter
     /// dedup blocks only ancestor PROPERTY name collisions (CS0102) while still permitting legal
     /// method overloads against ancestor methods of the same short name.
     /// </summary>
-    static void SeedInheritedProtocolSignatures(HashSet<string> emittedMethodSignatures, HashSet<string> emittedMemberNames, HashSet<string> emittedPropertyNames, ObjCProtocolDecl proto, Dictionary<string, ObjCProtocolDecl> protocolsByName, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string>? knownTypes, HashSet<string>? appleSdkTypes)
+    static void SeedInheritedProtocolSignatures(HashSet<string> emittedMethodSignatures, HashSet<string> emittedMemberNames, HashSet<string> emittedPropertyNames, ObjCProtocolDecl proto, Dictionary<string, ObjCProtocolDecl> protocolsByName, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string>? knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames)
     {
         var cache = new Dictionary<string, ProtocolEmissionSet>(StringComparer.Ordinal);
         foreach (var name in proto.InheritedProtocolNames)
         {
             if (!protocolsByName.TryGetValue(name, out var parent)) continue;
-            var parentSet = ComputeProtocolEmissionSet(parent, protocolsByName, cache, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes);
+            var parentSet = ComputeProtocolEmissionSet(parent, protocolsByName, cache, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, localProtocolNames, classProtocolClashNames);
             foreach (var s in parentSet.Signatures) emittedMethodSignatures.Add(s);
             foreach (var m in parentSet.MemberNames) emittedMemberNames.Add(m);
             foreach (var p in parentSet.PropertyNames) emittedPropertyNames.Add(p);
@@ -1109,7 +1204,7 @@ public static class ApiDefinitionEmitter
     /// ancestors. Results are cached per protocol name. Defensive against cycles via a placeholder
     /// entry in <paramref name="cache"/>.
     /// </summary>
-    static ProtocolEmissionSet ComputeProtocolEmissionSet(ObjCProtocolDecl proto, Dictionary<string, ObjCProtocolDecl> protocolsByName, Dictionary<string, ProtocolEmissionSet> cache, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string>? knownTypes, HashSet<string>? appleSdkTypes)
+    static ProtocolEmissionSet ComputeProtocolEmissionSet(ObjCProtocolDecl proto, Dictionary<string, ObjCProtocolDecl> protocolsByName, Dictionary<string, ProtocolEmissionSet> cache, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string>? knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames)
     {
         if (cache.TryGetValue(proto.Name, out var cached)) return cached;
 
@@ -1124,20 +1219,19 @@ public static class ApiDefinitionEmitter
         foreach (var name in proto.InheritedProtocolNames)
         {
             if (!protocolsByName.TryGetValue(name, out var parent)) continue;
-            var parentSet = ComputeProtocolEmissionSet(parent, protocolsByName, cache, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes);
+            var parentSet = ComputeProtocolEmissionSet(parent, protocolsByName, cache, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, localProtocolNames, classProtocolClashNames);
             foreach (var s in parentSet.Signatures) sigs.Add(s);
             foreach (var m in parentSet.MemberNames) memberNames.Add(m);
             foreach (var p in parentSet.PropertyNames) propertyNames.Add(p);
         }
 
-        // Pre-compute this protocol's own emittable properties (resolvability gate identical to the
-        // property replay below) and seed their names into propertyNames BEFORE replaying methods,
+        // Pre-compute this protocol's own emittable properties — the single resolvability decision the
+        // property replay below reuses — and seed their names into propertyNames BEFORE replaying methods,
         // mirroring EmitProtocol's emit order so a method colliding with an own-property name
         // renames here exactly as it does there. The accessor-selector set lets the method replay
         // drop B1 duplicate-export methods so they don't seed descendant protocols.
         var ownEmittableProps = proto.Properties
-            .Where(p => knownTypes == null || ObjCTypeMapper.IsApiDefinitionTypeResolvable(
-                ObjCTypeMapper.MapType(p.Type, declaringClassName: null, genericTypeParams: null, typedefMap, blockTypedefMap), knownTypes, appleSdkTypes))
+            .Where(p => knownTypes == null || IsPropertyTypeResolvable(p, knownTypes, appleSdkTypes, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames))
             .ToList();
         foreach (var prop in ownEmittableProps)
             propertyNames.Add(ToPascalCase(prop.Name));
@@ -1157,7 +1251,7 @@ public static class ApiDefinitionEmitter
         // Method dedup only blocks on PROPERTY names — sibling method short names are valid overloads.
         foreach (var method in proto.Methods)
         {
-            if (!WouldEmitMethod(method, knownTypes, appleSdkTypes, typedefMap, blockTypedefMap))
+            if (!WouldEmitMethod(method, knownTypes, appleSdkTypes, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames))
                 continue;
             if (replayDeclaresParameterlessInit && method.Selector == "init" && method.Parameters.Count == 0)
                 continue;
@@ -1173,14 +1267,17 @@ public static class ApiDefinitionEmitter
         // Property names live in the member-name space (any prior emitted name blocks them) AND
         // in the property-only set used by descendant method dedup. Replays EmitProperty's
         // intra-protocol drop-on-Add behavior so the cached set matches what bgen actually sees.
-        foreach (var prop in proto.Properties)
+        //
+        // This walks `ownEmittableProps` — the SAME pre-filtered list the propertyNames pre-seed used —
+        // rather than re-deciding resolvability here. Re-deciding is what let the two halves drift: the
+        // open-coded gate this replaced dropped `localProtocolNames`/`classProtocolClashNames`, so a
+        // property typed by a local protocol whose managed spelling is renamed (acronym convention or
+        // the class/protocol-clash suffix) mapped to a name absent from knownTypes, failed the gate,
+        // and stayed out of memberNames while the pre-seed had already put it in propertyNames. That
+        // under-reports the ancestor's members to every descendant emission set, so a child protocol
+        // re-emits a name the parent already owns. Sharing the list makes the divergence unexpressible.
+        foreach (var prop in ownEmittableProps)
         {
-            if (knownTypes != null)
-            {
-                var checkType = ObjCTypeMapper.MapType(prop.Type, declaringClassName: null, genericTypeParams: null, typedefMap, blockTypedefMap);
-                if (!ObjCTypeMapper.IsApiDefinitionTypeResolvable(checkType, knownTypes, appleSdkTypes))
-                    continue;
-            }
             var propName = ToPascalCase(prop.Name);
             if (memberNames.Add(propName))
                 propertyNames.Add(propName);

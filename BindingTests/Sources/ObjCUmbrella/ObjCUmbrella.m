@@ -80,3 +80,43 @@ int32_t OUExportedTriple(int32_t x) { return x * 3; }
 - (NSJSONReadingOptions)defaultReadingOptions { return NSJSONReadingMutableContainers; }
 - (NSJSONWritingOptions)defaultWritingOptions { return NSJSONWritingPrettyPrinted; }
 @end
+
+// Shape 8a — the class half of the class/protocol name clash.
+@implementation OUBadge {
+    NSString *_label;
+}
+- (instancetype)initWithLabel:(NSString *)label {
+    if ((self = [super init])) { _label = [label copy]; }
+    return self;
+}
+- (NSString *)badgeLabel { return [NSString stringWithFormat:@"badge:%@", _label]; }
++ (BOOL)acceptsBadge:(id<OUBadge>)candidate {
+    return [candidate conformsToProtocol:@protocol(OUBadge)];
+}
+@end
+
+// Shape 8b — the acronym-renamed class; both `instancetype` returners hand back a real instance.
+@implementation NSURLBadgeBox
++ (instancetype)defaultBox {
+    NSURLBadgeBox *box = [[NSURLBadgeBox alloc] init];
+    box.tag = @"default";
+    return box;
+}
+- (instancetype)reboxWithTag:(NSString *)tag {
+    NSURLBadgeBox *box = [[NSURLBadgeBox alloc] init];
+    box.tag = [NSString stringWithFormat:@"%@+%@", self.tag, tag];
+    return box;
+}
+@end
+
+// Shape 8c — fire the renamed observer protocol's optional callback when it is implemented.
+@implementation NSURLBadgeEmitter
+- (void)changeBadge:(NSString *)tag {
+    if ([self.delegate respondsToSelector:@selector(badgeDidChange:)]) {
+        [self.delegate badgeDidChange:tag];
+    }
+}
+- (BOOL)delegateConformsToObserverProtocol {
+    return [self.delegate conformsToProtocol:@protocol(NSURLBadgeObserver)];
+}
+@end

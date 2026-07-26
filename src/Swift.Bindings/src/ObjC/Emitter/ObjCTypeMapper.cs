@@ -20,7 +20,7 @@ public static class ObjCTypeMapper
                 + $"AppleFrameworkRegistry.ExpectedObjCTypeMappingsSchemaVersion ({AppleFrameworkRegistry.ExpectedObjCTypeMappingsSchemaVersion}).");
     }
 
-    public static string MapType(ObjCTypeRef typeRef, string? declaringClassName = null, HashSet<string>? genericTypeParams = null, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? localProtocolNames = null, HashSet<string>? classProtocolClashNames = null)
+    public static string MapType(ObjCTypeRef typeRef, string? declaringClassName = null, HashSet<string>? genericTypeParams = null, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? localProtocolNames = null, HashSet<string>? classProtocolClashNames = null, ICollection<string>? synthesizedProtocolInterfaces = null)
     {
         // 0a. C function pointers and anonymous records → IntPtr
         if (typeRef.IsFunctionPointer || typeRef.IsAnonymousRecord)
@@ -30,13 +30,13 @@ public static class ObjCTypeMapper
         // Must be checked before primitive mapping, which would discard the array size.
         if (typeRef.FixedArraySize is > 0)
         {
-            var elementType = MapType(new ObjCTypeRef { Name = typeRef.Name, IsPointer = typeRef.IsPointer }, declaringClassName, genericTypeParams, typedefMap, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames);
+            var elementType = MapType(new ObjCTypeRef { Name = typeRef.Name, IsPointer = typeRef.IsPointer }, declaringClassName, genericTypeParams, typedefMap, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, synthesizedProtocolInterfaces: synthesizedProtocolInterfaces);
             return $"{elementType}[{typeRef.FixedArraySize}]";
         }
 
         // 1. Block types
         if (typeRef.IsBlock)
-            return MapBlockType(typeRef, genericTypeParams, typedefMap, localProtocolNames, classProtocolClashNames);
+            return MapBlockType(typeRef, genericTypeParams, typedefMap, localProtocolNames, classProtocolClashNames, synthesizedProtocolInterfaces);
 
         // 2. instancetype
         if (typeRef.Name == "instancetype")
@@ -62,13 +62,14 @@ public static class ObjCTypeMapper
             // emitter writes an empty `interface IFoo {}` forward declaration per own protocol to
             // satisfy this reference (an SDK protocol's interface already ships in the platform
             // assembly). localProtocolNames is consulted only by the direct-protocol-name arm below.
-            return $"I{MapProtocolName(protocols[0], classProtocolClashNames)}";
+            return RecordSynthesizedProtocolInterface(
+                $"I{MapProtocolName(protocols[0], classProtocolClashNames)}", synthesizedProtocolInterfaces);
         }
 
         // 3b. Typed generic collections: NSArray<T> → T[], NSDictionary<K,V> → NSDictionary<K,V>
         if (typeRef.GenericArgs.Count > 0)
         {
-            var mappedGeneric = MapGenericCollectionType(typeRef, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames);
+            var mappedGeneric = MapGenericCollectionType(typeRef, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames, synthesizedProtocolInterfaces);
             if (mappedGeneric != null)
                 return mappedGeneric;
         }
@@ -120,14 +121,14 @@ public static class ObjCTypeMapper
                     IsBlock = resolved.IsBlock,
                 };
                 withPointer.BlockParams.AddRange(resolved.BlockParams);
-                return MapType(withPointer, declaringClassName, genericTypeParams, typedefMap: null, blockTypedefMap: blockTypedefMap, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames);
+                return MapType(withPointer, declaringClassName, genericTypeParams, typedefMap: null, blockTypedefMap: blockTypedefMap, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, synthesizedProtocolInterfaces: synthesizedProtocolInterfaces);
             }
-            return MapType(resolved, declaringClassName, genericTypeParams, typedefMap: null, blockTypedefMap: blockTypedefMap, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames);
+            return MapType(resolved, declaringClassName, genericTypeParams, typedefMap: null, blockTypedefMap: blockTypedefMap, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, synthesizedProtocolInterfaces: synthesizedProtocolInterfaces);
         }
 
         // 10. Block typedef name resolution (e.g., TypeNotificationBlock → Action<string, Type>)
         if (blockTypedefMap != null && blockTypedefMap.TryGetValue(typeRef.Name, out var blockResolved))
-            return MapBlockType(blockResolved, genericTypeParams, typedefMap, localProtocolNames, classProtocolClashNames);
+            return MapBlockType(blockResolved, genericTypeParams, typedefMap, localProtocolNames, classProtocolClashNames, synthesizedProtocolInterfaces);
 
         // 10b. A member typed directly by an own-protocol name (e.g. `MLNAnnotation *`, parsed
         // without an `id<…>` qualification) binds to the protocol INTERFACE, exactly like the id<>
@@ -136,10 +137,41 @@ public static class ObjCTypeMapper
         // contract-compile time against the empty `interface IFoo {}` forward declaration the
         // emitter writes for each own protocol.
         if (localProtocolNames != null && localProtocolNames.Contains(typeRef.Name))
-            return $"I{MapProtocolName(typeRef.Name, classProtocolClashNames)}";
+            return RecordSynthesizedProtocolInterface(
+                $"I{MapProtocolName(typeRef.Name, classProtocolClashNames)}", synthesizedProtocolInterfaces);
 
         // 11. ObjC-to-.NET naming convention fallback (NS-prefix only)
         return ApplyDotNetAcronymConvention(typeRef.Name);
+    }
+
+    /// <summary>
+    /// Records an <c>I</c>-prefixed name that <see cref="MapType"/> synthesized for a protocol
+    /// reference, and returns it unchanged.
+    /// <para>
+    /// The <c>I</c> prefix is an emitter invention: a protocol-typed member binds to the protocol's
+    /// INTERFACE (<c>IFoo</c>), not the bare name. That makes an emitted name ambiguous downstream —
+    /// <c>ICMUserAttributes</c> is a third-party class whose real name starts with <c>I</c>, while
+    /// <c>IUITableViewDelegate</c> is <c>UITableViewDelegate</c> with an <c>I</c> we added. The two
+    /// are indistinguishable by spelling, so <see cref="IsApiDefinitionTypeResolvable"/> cannot
+    /// safely strip a leading <c>I</c> without knowing which is which.
+    /// </para>
+    /// <para>
+    /// Recording at the point of synthesis is what makes that knowledge exact. The alternative —
+    /// re-deriving "would this name have been synthesized?" from a source name — cannot work: it
+    /// has to reproduce acronym normalization (<c>NSURLSessionDelegate</c> →
+    /// <c>INSUrlSessionDelegate</c>) and the class/protocol clash suffix (<c>Foo</c> →
+    /// <c>IFooProtocol</c>), and it has no source name at all for <c>id&lt;Proto&gt;</c> (whose
+    /// <c>ObjCTypeRef.Name</c> is literally <c>"id"</c>) or for protocol references nested inside
+    /// block parameters and generic arguments. A sink threaded through this class's own recursion
+    /// captures every position by construction and cannot drift from the mapping logic, because it
+    /// IS the mapping logic.
+    /// </para>
+    /// </summary>
+    private static string RecordSynthesizedProtocolInterface(
+        string mappedName, ICollection<string>? synthesizedProtocolInterfaces)
+    {
+        synthesizedProtocolInterfaces?.Add(mappedName);
+        return mappedName;
     }
 
     /// <summary>
@@ -357,8 +389,24 @@ public static class ObjCTypeMapper
     /// "any uppercase letter" rule is too permissive there: under -fmodules a
     /// a cross-framework type referenced from a sibling xcframework
     /// would otherwise pass the check and produce CS0246 at compile time.
+    /// <para>
+    /// <paramref name="synthesizedProtocolInterfaces"/> is the set of <c>I</c>-prefixed names
+    /// <see cref="MapType"/> synthesized while mapping the type(s) under test (see
+    /// <see cref="RecordSynthesizedProtocolInterface"/>). It gates the leading-<c>I</c> strip: only
+    /// an <c>I</c> the emitter itself added may be stripped. Without it the strip accepts any
+    /// third-party name whose tail happens to start with an Apple prefix — <c>ICMUserAttributes</c>
+    /// strips to <c>CMUserAttributes</c>, matches CoreMedia's <c>CM</c>, and is emitted as though it
+    /// were an Apple type, producing CS0246 in the api-definition contract compile and failing the
+    /// whole binding with SWIFTBIND113. That defeats the exact purpose of this fallback.
+    /// </para>
+    /// <para>
+    /// The parameter is deliberately <em>required</em>. A call site that forgets it would silently
+    /// change whether a member or a property name is reserved, diverging the emission decision from
+    /// the dedup replay that mirrors it; making it required turns that mistake into a compile error.
+    /// Pass an empty set when no protocol interface can be involved.
+    /// </para>
     /// </summary>
-    public static bool IsApiDefinitionTypeResolvable(string mappedType, HashSet<string> knownTypes, HashSet<string>? appleSdkTypeNames)
+    public static bool IsApiDefinitionTypeResolvable(string mappedType, HashSet<string> knownTypes, HashSet<string>? appleSdkTypeNames, IReadOnlySet<string> synthesizedProtocolInterfaces)
     {
         // A wrapper type (Action<…>, Func<…>, NSDictionary<K,V>, NSSet<T>, T[]) is itself a known
         // pattern, but an argument type INSIDE it can still be unresolvable — e.g. a cross-module
@@ -371,9 +419,17 @@ public static class ObjCTypeMapper
         // parameters were already mapped to NSObject by MapType before reaching here.
         foreach (var argument in EnumerateTypeArguments(mappedType))
         {
-            if (!IsApiDefinitionTypeResolvable(argument, knownTypes, appleSdkTypeNames))
+            // The set covers the whole mapped type tree, so nested positions (block params,
+            // block returns, generic args) carry their provenance down unchanged.
+            if (!IsApiDefinitionTypeResolvable(argument, knownTypes, appleSdkTypeNames, synthesizedProtocolInterfaces))
                 return false;
         }
+
+        // Only an `I` this emitter synthesized for a protocol reference may be stripped; a leading
+        // `I` that is part of the vendor's own type name must not be.
+        var isSynthesizedProtocolInterface =
+            mappedType.Length > 1 && mappedType[0] == 'I' && char.IsUpper(mappedType[1])
+            && synthesizedProtocolInterfaces.Contains(mappedType);
 
         if (IsKnownMappedOrPatternType(mappedType, knownTypes)) return true;
         // Check Apple SDK types: classes and protocols declared in Apple SDK headers
@@ -381,7 +437,7 @@ public static class ObjCTypeMapper
         {
             if (ContainsAppleSdkType(appleSdkTypeNames, mappedType)) return true;
             // Protocol interfaces have I prefix (e.g., ICTTelephonyNetworkInfoDelegate → CTTelephonyNetworkInfoDelegate)
-            if (mappedType.Length > 1 && mappedType[0] == 'I' && char.IsUpper(mappedType[1])
+            if (isSynthesizedProtocolInterface
                 && ContainsAppleSdkType(appleSdkTypeNames, mappedType[1..])) return true;
             return false;
         }
@@ -389,9 +445,11 @@ public static class ObjCTypeMapper
         // framework ObjC class prefix.
         if (mappedType.Length == 0 || !char.IsUpper(mappedType[0])) return false;
         if (AppleFrameworkRegistry.TypeNameStartsWithKnownObjCPrefix(mappedType)) return true;
-        // Protocol interface form: I-prefix on an Apple class prefix
-        // (e.g., INSObjectProtocol -> NSObjectProtocol).
-        if (mappedType.Length > 1 && mappedType[0] == 'I' && char.IsUpper(mappedType[1])
+        // Protocol interface form: an emitter-synthesized I on an Apple class prefix
+        // (e.g. IUITableViewDelegate -> UITableViewDelegate). Note this branch is only reached
+        // when the FULL name did not already match a prefix, so names like INSObjectProtocol
+        // never arrive here — "IN" is Intents' own registered prefix and matches one line above.
+        if (isSynthesizedProtocolInterface
             && AppleFrameworkRegistry.TypeNameStartsWithKnownObjCPrefix(mappedType[1..]))
             return true;
         return false;
@@ -553,7 +611,7 @@ public static class ObjCTypeMapper
         return MapType(pointee, typedefMap: typedefMap);
     }
 
-    static string MapBlockType(ObjCTypeRef typeRef, HashSet<string>? genericTypeParams = null, Dictionary<string, ObjCTypeRef>? typedefMap = null, HashSet<string>? localProtocolNames = null, HashSet<string>? classProtocolClashNames = null)
+    static string MapBlockType(ObjCTypeRef typeRef, HashSet<string>? genericTypeParams = null, Dictionary<string, ObjCTypeRef>? typedefMap = null, HashSet<string>? localProtocolNames = null, HashSet<string>? classProtocolClashNames = null, ICollection<string>? synthesizedProtocolInterfaces = null)
     {
         string returnType;
         if (typeRef.BlockReturnType == null)
@@ -577,10 +635,10 @@ public static class ObjCTypeMapper
         }
         else
         {
-            returnType = MapType(typeRef.BlockReturnType, genericTypeParams: genericTypeParams, typedefMap: typedefMap, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames);
+            returnType = MapType(typeRef.BlockReturnType, genericTypeParams: genericTypeParams, typedefMap: typedefMap, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, synthesizedProtocolInterfaces: synthesizedProtocolInterfaces);
         }
 
-        var paramTypes = typeRef.BlockParams.Select(p => MapType(p, genericTypeParams: genericTypeParams, typedefMap: typedefMap, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames)).ToList();
+        var paramTypes = typeRef.BlockParams.Select(p => MapType(p, genericTypeParams: genericTypeParams, typedefMap: typedefMap, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, synthesizedProtocolInterfaces: synthesizedProtocolInterfaces)).ToList();
 
         if (paramTypes.Count > 16)
             return "NSObject";
@@ -634,7 +692,7 @@ public static class ObjCTypeMapper
     /// - NSSet&lt;T&gt; / NSMutableSet&lt;T&gt; / NSOrderedSet&lt;T&gt; → NSSet&lt;T&gt; (preserves generic args)
     /// Returns null if the type doesn't qualify for generic mapping (e.g., generic param element type).
     /// </summary>
-    private static string? MapGenericCollectionType(ObjCTypeRef typeRef, string? declaringClassName, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap, HashSet<string>? localProtocolNames = null, HashSet<string>? classProtocolClashNames = null)
+    private static string? MapGenericCollectionType(ObjCTypeRef typeRef, string? declaringClassName, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap, HashSet<string>? localProtocolNames = null, HashSet<string>? classProtocolClashNames = null, ICollection<string>? synthesizedProtocolInterfaces = null)
     {
         // NSArray<T> / NSMutableArray<T> with a single concrete element type → T[]
         if (typeRef.Name is "NSArray" or "NSMutableArray" && typeRef.GenericArgs.Count == 1)
@@ -644,7 +702,7 @@ public static class ObjCTypeMapper
             // which isn't useful — return null to let normal mapping handle it as plain NSArray.
             if (genericTypeParams != null && genericTypeParams.Contains(elemArg.Name))
                 return null;
-            var mappedElem = MapType(elemArg, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames);
+            var mappedElem = MapType(elemArg, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames, synthesizedProtocolInterfaces);
             // Closures (Action/Func<>) and nested arrays (T[][]) don't implement INativeObject,
             // which is required by bgen's NSArray.FromNSObjects<T>() / CFArray.ArrayFromHandle<T>().
             // Fall back to untyped NSArray for these element types.

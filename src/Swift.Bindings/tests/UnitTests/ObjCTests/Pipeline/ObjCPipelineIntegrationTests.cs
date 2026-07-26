@@ -252,11 +252,428 @@ public class ObjCPipelineIntegrationTests
     }
 
     /// <summary>
+    /// A sibling header carrying a bare, unguarded <c>@import</c> makes the plain (non-modular)
+    /// clang invocation fail, so the invoker retries under <c>-fmodules</c>. Without also telling
+    /// clang it is BUILDING this module, every <c>#import &lt;Module/X.h&gt;</c> resolves through the
+    /// framework's own modulemap into an <c>ImportDecl</c> — the sibling declarations never enter
+    /// the translation unit — and the umbrella's own <c>NS_ENUM</c> is merged into the module copy
+    /// and never re-emitted. The framework then binds as a near-empty surface, and every member
+    /// referencing a lost type is silently dropped by the resolvability gate.
+    ///
+    /// Foundation must be imported FIRST in the umbrella: without it the fixture dies on
+    /// "NS_ENUM undeclared" before it ever reaches the modules-disabled retry, and the gate
+    /// would prove nothing.
+    /// </summary>
+    [Fact]
+    public void Pipeline_SiblingHeaderWithBareAtImport_RecoversSiblingTypesAndUmbrellaEnum()
+    {
+        if (!HasXcode())
+            return; // Skip gracefully — CI may not have Xcode
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"objc_atimport_test_{Guid.NewGuid():N}");
+        try
+        {
+            var (xcfwPath, _) = WriteFixtureXCFramework(
+                tempDir,
+                umbrellaBody: """
+                    #import <Foundation/Foundation.h>
+                    #import <TestObjCLib/TLSidecar.h>
+
+                    typedef NS_ENUM(NSInteger, TLSpace) {
+                        TLSpaceHome = 0,
+                        TLSpaceInbox = 1,
+                    };
+
+                    @interface TLManager : NSObject
+                    + (void)presentSpace:(TLSpace)space;
+                    + (void)presentSidecar:(TLSidecar *)sidecar;
+                    @end
+                    """,
+                siblingHeaders: new Dictionary<string, string>
+                {
+                    // The trigger: a bare @import with no __has_feature(modules) guard.
+                    ["TLSidecar.h"] = """
+                        #import <Foundation/Foundation.h>
+                        @import UIKit;
+
+                        @interface TLSidecar : NSObject
+                        @property (nonatomic, copy) NSString *title;
+                        @end
+                        """,
+                });
+
+            var outputDir = Path.Combine(tempDir, "output");
+            Directory.CreateDirectory(outputDir);
+
+            var resolution = XCFrameworkResolver.ResolveObjCFramework(
+                xcfwPath, XCFrameworkPlatformTarget.Simulator, Logger);
+            Assert.NotNull(resolution);
+
+            var result = ObjCPipeline.Run(
+                resolution!, xcfwPath, outputDir, XCFrameworkPlatformTarget.Simulator, Logger);
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.NotNull(result.Module);
+            var module = result.Module!;
+
+            // The sibling class survives the modules retry.
+            Assert.Contains(module.Classes, c => c.Name == "TLSidecar");
+
+            // The umbrella's own NS_ENUM survives with its cases (the NS_ENUM forward decl +
+            // definition pair must collapse to the definition, not the empty forward half).
+            var space = module.Enums.FirstOrDefault(e => e.Name == "TLSpace");
+            Assert.NotNull(space);
+            Assert.Equal(2, space!.Cases.Count);
+
+            // Members referencing the recovered types are actually emitted, not gate-dropped.
+            var apiDefinition = File.ReadAllText(Path.Combine(outputDir, "ApiDefinition.cs"));
+            Assert.Contains("TLSidecar", apiDefinition);
+            Assert.Contains("presentSpace:", apiDefinition);
+            Assert.Contains("presentSidecar:", apiDefinition);
+
+            var structsAndEnums = File.ReadAllText(Path.Combine(outputDir, "StructsAndEnums.cs"));
+            Assert.Contains("TLSpace", structsAndEnums);
+
+            // Duplicate ObjCInterfaceDecl nodes appear under -fmodule-name; richest-wins dedup
+            // must collapse them rather than emitting the class twice.
+            Assert.Equal(
+                module.Classes.Select(c => c.Name).Distinct().Count(),
+                module.Classes.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+        }
+    }
+
+    /// <summary>
+    /// The modules-retry control: declarations whose handling must NOT change when the retry
+    /// gains <c>-fmodule-name</c>. Regenerating an unaffected framework (one that never retries)
+    /// cannot fail no matter how badly the flag behaves, so it proves nothing about the fix —
+    /// this fixture puts the invariants INSIDE a translation unit that actually takes the retry.
+    /// </summary>
+    [Fact]
+    public void Pipeline_ModulesRetry_PreservesNullabilityAvailabilityAndBlockShapes()
+    {
+        if (!HasXcode())
+            return; // Skip gracefully — CI may not have Xcode
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"objc_retryctl_test_{Guid.NewGuid():N}");
+        try
+        {
+            var (xcfwPath, _) = WriteFixtureXCFramework(
+                tempDir,
+                umbrellaBody: """
+                    #import <Foundation/Foundation.h>
+                    #import <TestObjCLib/TLSidecar.h>
+
+                    NS_ASSUME_NONNULL_BEGIN
+
+                    @protocol TLObserver <NSObject>
+                    - (void)didChange;
+                    @end
+
+                    @interface TLControl : NSObject
+                    @property (nonatomic, copy, nullable) NSString *subtitle;
+                    @property (nonatomic, copy) void (^handler)(BOOL ok);
+                    - (nullable NSString *)lookup:(NSString *)key;
+                    - (void)observe:(id<TLObserver>)observer;
+                    - (void)refresh API_AVAILABLE(ios(15.0));
+                    @end
+
+                    NS_ASSUME_NONNULL_END
+                    """,
+                siblingHeaders: new Dictionary<string, string>
+                {
+                    ["TLSidecar.h"] = """
+                        #import <Foundation/Foundation.h>
+                        @import UIKit;
+
+                        @interface TLSidecar : NSObject
+                        @end
+                        """,
+                });
+
+            var outputDir = Path.Combine(tempDir, "output");
+            Directory.CreateDirectory(outputDir);
+
+            var resolution = XCFrameworkResolver.ResolveObjCFramework(
+                xcfwPath, XCFrameworkPlatformTarget.Simulator, Logger);
+            Assert.NotNull(resolution);
+
+            var result = ObjCPipeline.Run(
+                resolution!, xcfwPath, outputDir, XCFrameworkPlatformTarget.Simulator, Logger);
+
+            Assert.Equal(0, result.ExitCode);
+            var module = result.Module!;
+
+            var control = module.Classes.FirstOrDefault(c => c.Name == "TLControl");
+            Assert.NotNull(control);
+
+            // Nullability survives the retry in both directions.
+            var subtitle = control!.Properties.FirstOrDefault(p => p.Name == "subtitle");
+            Assert.NotNull(subtitle);
+            Assert.Equal(ObjCNullability.Nullable, subtitle!.Type.Nullability);
+
+            var lookup = control.Methods.FirstOrDefault(m => m.Selector == "lookup:");
+            Assert.NotNull(lookup);
+            Assert.Equal(ObjCNullability.Nullable, lookup!.ReturnType.Nullability);
+
+            // Availability survives the retry. This is the invariant most at risk: the attribute's
+            // version is not in the AST at all — the parser recovers it by re-reading the header at
+            // the attribute's source BYTE OFFSET, so it depends on the retry still attributing each
+            // declaration to the file it was actually written in. A misattributed declaration reads
+            // some other header's bytes at that offset and recovers a wrong version or nothing.
+            var refresh = control.Methods.FirstOrDefault(m => m.Selector == "refresh");
+            Assert.NotNull(refresh);
+            Assert.Contains(refresh!.Availability,
+                a => a.Platform == "ios" && a.IntroducedVersion == "15.0");
+
+            // Block-typed property keeps its block shape (not collapsed to an opaque id).
+            var handler = control.Properties.FirstOrDefault(p => p.Name == "handler");
+            Assert.NotNull(handler);
+            Assert.True(handler!.Type.IsBlock, "block-typed property lost its block shape");
+
+            // Protocols declared in the retried TU still parse, and protocol-qualified
+            // parameters keep their qualification.
+            Assert.Contains(module.Protocols, p => p.Name == "TLObserver");
+            var observe = control.Methods.FirstOrDefault(m => m.Selector == "observe:");
+            Assert.NotNull(observe);
+            Assert.Contains("TLObserver", observe!.Parameters[0].Type.ProtocolQualifications);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+        }
+    }
+
+    /// <summary>
+    /// A framework whose modulemap declares a DIRECTORY umbrella (<c>umbrella "Headers"</c>) with no
+    /// convention-named umbrella header. Every header in the directory is public, so the invoker has
+    /// to read them all textually.
+    ///
+    /// This path used to synthesize a temp file containing only <c>@import {Module};</c> and enable
+    /// <c>-fmodules</c>. That translation unit's AST holds nothing but clang's builtin
+    /// <c>Protocol</c> interface — the framework's own declarations live in the precompiled module
+    /// and the JSON dumper never re-emits them — so the framework bound as a completely EMPTY
+    /// surface with a zero exit code. Combining the headers is what makes the declarations real.
+    ///
+    /// The modulemap's <c>exclude header</c> directives must be honored: an excluded header is not
+    /// part of the module, and pulling it in would bind private API (and can fail the parse outright
+    /// when the header is not self-contained).
+    /// </summary>
+    [Fact]
+    public void Pipeline_DirectoryUmbrella_ParsesAllHeadersTextuallyAndHonorsExclusions()
+    {
+        if (!HasXcode())
+            return; // Skip gracefully — CI may not have Xcode
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"objc_dirumbrella_test_{Guid.NewGuid():N}");
+        try
+        {
+            var (xcfwPath, _) = WriteFixtureXCFramework(
+                tempDir,
+                // No convention-named TestObjCLib.h: strategy 1 would otherwise win and the
+                // directory-umbrella path would never be exercised.
+                umbrellaBody: null,
+                siblingHeaders: new Dictionary<string, string>
+                {
+                    ["TLAlpha.h"] = """
+                        #import <Foundation/Foundation.h>
+
+                        typedef NS_ENUM(NSInteger, TLMode) {
+                            TLModeFast = 0,
+                            TLModeSlow = 1,
+                        };
+
+                        @interface TLAlpha : NSObject
+                        @property (nonatomic, assign) TLMode mode;
+                        @end
+                        """,
+                    // Imports a sibling through the framework's own search path — the combined
+                    // header lives outside Headers/, so this also pins that -F resolution still works.
+                    ["TLBeta.h"] = """
+                        #import <Foundation/Foundation.h>
+                        #import <TestObjCLib/TLAlpha.h>
+
+                        @interface TLBeta : NSObject
+                        - (TLAlpha *)makeAlpha;
+                        @end
+                        """,
+                    ["TLPrivate.h"] = """
+                        #import <Foundation/Foundation.h>
+
+                        @interface TLPrivate : NSObject
+                        @end
+                        """,
+                },
+                modulemapBody: """
+                    framework module TestObjCLib {
+                      umbrella "Headers"
+                      exclude header "TLPrivate.h"
+                      export *
+                      module * { export * }
+                    }
+                    """);
+
+            var outputDir = Path.Combine(tempDir, "output");
+            Directory.CreateDirectory(outputDir);
+
+            var resolution = XCFrameworkResolver.ResolveObjCFramework(
+                xcfwPath, XCFrameworkPlatformTarget.Simulator, Logger);
+            Assert.NotNull(resolution);
+
+            var result = ObjCPipeline.Run(
+                resolution!, xcfwPath, outputDir, XCFrameworkPlatformTarget.Simulator, Logger);
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.NotNull(result.Module);
+            var module = result.Module!;
+
+            // Both public headers' declarations are present — the surface is not empty.
+            Assert.Contains(module.Classes, c => c.Name == "TLAlpha");
+            Assert.Contains(module.Classes, c => c.Name == "TLBeta");
+
+            // An enum declared in an umbrella-directory header keeps its cases (a module-import
+            // parse would have yielded no definition at all).
+            var mode = module.Enums.FirstOrDefault(e => e.Name == "TLMode");
+            Assert.NotNull(mode);
+            Assert.Equal(2, mode!.Cases.Count);
+
+            // The excluded header is not part of the module and must not be bound.
+            Assert.DoesNotContain(module.Classes, c => c.Name == "TLPrivate");
+
+            var apiDefinition = File.ReadAllText(Path.Combine(outputDir, "ApiDefinition.cs"));
+            Assert.Contains("TLAlpha", apiDefinition);
+            Assert.Contains("TLBeta", apiDefinition);
+            Assert.DoesNotContain("TLPrivate", apiDefinition);
+
+            var structsAndEnums = File.ReadAllText(Path.Combine(outputDir, "StructsAndEnums.cs"));
+            Assert.Contains("TLMode", structsAndEnums);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+        }
+    }
+
+    /// <summary>
+    /// The two recovery mechanisms composed: a DIRECTORY umbrella (so the header set has to be
+    /// combined into a synthesized textual header) whose members also carry a bare <c>@import</c>
+    /// (so the textual parse fails and the <c>-fmodules</c> retry has to run). Each is covered alone
+    /// elsewhere; this pins that they still work together, because the retry's <c>-fmodule-name</c>
+    /// has to make the framework's own headers textual for a header set the module map never names
+    /// individually — reached through a combined header that lives OUTSIDE Headers/.
+    /// </summary>
+    [Fact]
+    public void Pipeline_DirectoryUmbrellaWithBareAtImport_RecoversViaCombinedHeaderAndModuleRetry()
+    {
+        if (!HasXcode())
+            return; // Skip gracefully — CI may not have Xcode
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"objc_dirumbrella_import_test_{Guid.NewGuid():N}");
+        try
+        {
+            var (xcfwPath, _) = WriteFixtureXCFramework(
+                tempDir,
+                umbrellaBody: null,
+                siblingHeaders: new Dictionary<string, string>
+                {
+                    ["TLAlpha.h"] = """
+                        #import <Foundation/Foundation.h>
+
+                        typedef NS_ENUM(NSInteger, TLMode) {
+                            TLModeFast = 0,
+                            TLModeSlow = 1,
+                        };
+
+                        @interface TLAlpha : NSObject
+                        @property (nonatomic, assign) TLMode mode;
+                        @end
+                        """,
+                    // The bare @import is what forces the retry. Without -fmodules the textual parse
+                    // of the combined header fails outright; with -fmodules but no -fmodule-name,
+                    // TestObjCLib's own headers are parsed as a module and every declaration below
+                    // is lost with a zero exit code.
+                    ["TLBeta.h"] = """
+                        #import <Foundation/Foundation.h>
+                        #import <TestObjCLib/TLAlpha.h>
+                        @import UIKit;
+
+                        @interface TLBeta : NSObject
+                        - (TLAlpha *)makeAlpha;
+                        @end
+                        """,
+                },
+                modulemapBody: """
+                    framework module TestObjCLib {
+                      umbrella "Headers"
+                      export *
+                      module * { export * }
+                    }
+                    """);
+
+            var outputDir = Path.Combine(tempDir, "output");
+            Directory.CreateDirectory(outputDir);
+
+            var resolution = XCFrameworkResolver.ResolveObjCFramework(
+                xcfwPath, XCFrameworkPlatformTarget.Simulator, Logger);
+            Assert.NotNull(resolution);
+
+            var result = ObjCPipeline.Run(
+                resolution!, xcfwPath, outputDir, XCFrameworkPlatformTarget.Simulator, Logger);
+
+            Assert.Equal(0, result.ExitCode);
+            var module = result.Module!;
+
+            // Both headers survive: the one that triggered the retry AND its sibling, which carries
+            // no @import of its own and is therefore the one a module-import parse silently drops.
+            Assert.Contains(module.Classes, c => c.Name == "TLAlpha");
+            Assert.Contains(module.Classes, c => c.Name == "TLBeta");
+
+            // The enum body proves the headers were read textually rather than as a module.
+            var mode = module.Enums.FirstOrDefault(e => e.Name == "TLMode");
+            Assert.NotNull(mode);
+            Assert.Equal(2, mode!.Cases.Count);
+
+            // The cross-header return type resolved, so the combined header's -F resolution of a
+            // framework-style sibling import held up under the retry too.
+            var beta = module.Classes.First(c => c.Name == "TLBeta");
+            var makeAlpha = beta.Methods.FirstOrDefault(m => m.Selector == "makeAlpha");
+            Assert.NotNull(makeAlpha);
+            Assert.Equal("TLAlpha", makeAlpha!.ReturnType.Name);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+        }
+    }
+
+    /// <summary>
     /// Writes a minimal single-slice (ios simulator) ObjC xcframework fixture to <paramref name="tempDir"/>
     /// whose umbrella header body is <paramref name="umbrellaBody"/>. Returns the xcframework path and
     /// module name. Used by the precise-109 fixtures to inject a specific failing header surface.
+    /// Pass <paramref name="umbrellaBody"/> as null to omit the convention-named
+    /// <c>Headers/{fwName}.h</c> entirely — required to reach any modulemap-driven umbrella
+    /// strategy, since the convention lookup wins whenever that file exists.
     /// </summary>
-    private static (string xcfwPath, string fwName) WriteFixtureXCFramework(string tempDir, string umbrellaBody)
+    private static (string xcfwPath, string fwName) WriteFixtureXCFramework(
+        string tempDir,
+        string umbrellaBody,
+        IReadOnlyDictionary<string, string> siblingHeaders = null,
+        string modulemapBody = null)
     {
         var fwName = "TestObjCLib";
         var xcfwPath = Path.Combine(tempDir, $"{fwName}.xcframework");
@@ -292,9 +709,17 @@ public class ObjCPipelineIntegrationTests
             """);
 
         File.WriteAllText(Path.Combine(modulesDir, "module.modulemap"),
-            $"framework module {fwName} {{\n  umbrella header \"{fwName}.h\"\n  export *\n  module * {{ export * }}\n}}\n");
+            modulemapBody
+            ?? $"framework module {fwName} {{\n  umbrella header \"{fwName}.h\"\n  export *\n  module * {{ export * }}\n}}\n");
 
-        File.WriteAllText(Path.Combine(headersDir, $"{fwName}.h"), umbrellaBody + "\n");
+        if (umbrellaBody != null)
+            File.WriteAllText(Path.Combine(headersDir, $"{fwName}.h"), umbrellaBody + "\n");
+
+        if (siblingHeaders != null)
+        {
+            foreach (var (name, body) in siblingHeaders)
+                File.WriteAllText(Path.Combine(headersDir, name), body + "\n");
+        }
 
         // Stub binary (just needs to exist for plist validation; clang doesn't use it).
         File.WriteAllText(Path.Combine(sliceDir, $"{fwName}.framework/{fwName}"), "");

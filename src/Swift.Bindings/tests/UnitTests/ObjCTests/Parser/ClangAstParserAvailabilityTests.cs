@@ -498,4 +498,63 @@ public class ClangAstParserAvailabilityTests : IDisposable
         Assert.Single(module.Classes);
         Assert.Empty(module.Classes[0].Availability);
     }
+
+    [Fact]
+    public void SiblingHeaderSecondDecl_ResolvesOffsetAgainstItsOwnHeader_NotTheUmbrella()
+    {
+        // An attribute whose range.begin omits the file falls back to the DECLARATION's resolved
+        // file, so getting that attribution wrong reads the byte offset out of the wrong header and
+        // silently recovers the wrong version (or garbage).
+        //
+        // The shape is the ordinary named-umbrella framework: Umbrella.h #imports Sibling.h, and
+        // Sibling.h declares more than one thing. Verified against real clang: the FIRST decl in
+        // Sibling.h carries loc.file = Sibling.h, and every LATER decl in that same header carries
+        // no file at all — only includedFrom = Umbrella.h, the file that included Sibling.h. So the
+        // second decl's own file is knowable only by inheriting the tracked current file; the
+        // includer says nothing about where the declaration lives.
+        var umbrellaPath = Path.Combine(_tempDir, "Umbrella.h");
+        var siblingPath = Path.Combine(_tempDir, "Sibling.h");
+
+        // Same offset in both headers, different versions — so the assertion can only pass if the
+        // read went to Sibling.h.
+        const string umbrellaAnnotation = "API_AVAILABLE(ios(99.0))";
+        const string siblingAnnotation = "API_AVAILABLE(ios(15.0))";
+        File.WriteAllText(umbrellaPath, umbrellaAnnotation);
+        File.WriteAllText(siblingPath, siblingAnnotation);
+        int offset = siblingAnnotation.IndexOf("API_AVAILABLE", StringComparison.Ordinal);
+
+        // First decl in Sibling.h: carries its own file, which becomes the tracked current file.
+        var firstInSibling = $$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "FirstInSibling",
+            "loc": { "file": "{{JsonPath(siblingPath)}}" },
+            "super": { "name": "NSObject" }
+        }
+        """;
+
+        // Second decl in the same header: no file of its own, includedFrom = the umbrella.
+        var secondInSibling = $$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "SecondInSibling",
+            "loc": { "includedFrom": { "file": "{{JsonPath(umbrellaPath)}}" } },
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "AvailabilityAttr",
+                    "range": { "begin": { "expansionLoc": { "offset": {{offset}} } } }
+                }
+            ]
+        }
+        """;
+
+        var json = WrapInTranslationUnit($"{firstInSibling},{secondInSibling}");
+        var module = ClangAstParser.Parse(json, "TestLib", _tempDir);
+
+        var second = Assert.Single(module.Classes, c => c.Name == "SecondInSibling");
+        var avail = Assert.Single(second.Availability);
+        Assert.Equal("ios", avail.Platform);
+        Assert.Equal("15.0", avail.IntroducedVersion);
+    }
 }

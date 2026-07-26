@@ -2388,8 +2388,11 @@ public class ApiDefinitionEmitterTests
     [Fact]
     public void Emit_ApiDefinitionFiltering_AcceptsProtocolInterfacePrefix()
     {
-        // Protocol interface types have I prefix (e.g., ICTTelephonyNetworkInfoDelegate)
-        // Should resolve via Apple SDK if the base name (without I) is in the set.
+        // A protocol-typed member binds to the protocol INTERFACE, `ISomeDelegate` — an `I` the
+        // emitter synthesizes; it must resolve when the bare protocol name is an Apple SDK type.
+        // The fixture models the real clang shape, `id<SomeDelegate>`: the leading `I` never
+        // appears in the AST, and only a name the mapper itself synthesized may take the
+        // strip-the-I retry (a vendor class literally named `ISomeDelegate` must not).
         var module = new ObjCModule
         {
             ModuleName = "Test",
@@ -2404,7 +2407,7 @@ public class ApiDefinitionEmitterTests
                         new ObjCMethodDecl
                         {
                             Selector = "getDelegate",
-                            ReturnType = new ObjCTypeRef { Name = "ISomeDelegate" },
+                            ReturnType = new ObjCTypeRef { Name = "id", ProtocolQualifications = { "SomeDelegate" } },
                             IsInstanceMethod = true,
                         }
                     ]
@@ -2528,7 +2531,7 @@ public class ApiDefinitionEmitterTests
                         new ObjCMethodDecl
                         {
                             Selector = "getDelegate",
-                            ReturnType = new ObjCTypeRef { Name = "INSUrlSessionDelegate" },
+                            ReturnType = new ObjCTypeRef { Name = "id", ProtocolQualifications = { "NSURLSessionDelegate" } },
                             IsInstanceMethod = true,
                         }
                     ]
@@ -2539,7 +2542,8 @@ public class ApiDefinitionEmitterTests
         var result = EmitAndRead(module);
         // NSHTTPURLResponse → NSHttpUrlResponse via MapType, must match SDK name
         Assert.Contains("GetResponse", result);
-        // INSUrlSessionDelegate (I-prefixed protocol) → strip I → NSUrlSessionDelegate → reverse to NSURLSessionDelegate
+        // id<NSURLSessionDelegate> → synthesized INSUrlSessionDelegate → strip I → NSUrlSessionDelegate
+        // → reverse-normalize to NSURLSessionDelegate, which is in the SDK set.
         Assert.Contains("GetDelegate", result);
     }
 
@@ -5103,5 +5107,321 @@ public class ApiDefinitionEmitterTests
         var (_, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
         Assert.Contains(diagnostics.SkippedSymbols,
             s => s.Reason == ObjCSkipReason.DuplicateSelector && s.SymbolKind == "Method" && s.SymbolName == "setErrorRecoveryDisabled:");
+    }
+
+    [Fact]
+    public void Emit_MemberTypedByBareLocalAcronymProtocol_SurvivesTheResolvabilityGate()
+    {
+        // The resolvability gate re-maps a member's type to decide whether to emit it, and that
+        // check MUST use the same inputs as the emission it is predicting. A member typed by the
+        // BARE name of a locally declared protocol maps to the protocol INTERFACE, but only when
+        // `localProtocolNames` is supplied; without it the mapping falls through to the plain
+        // .NET-acronym fallback. For a protocol whose acronym-normalized spelling differs from its
+        // raw one (NSURL* -> NSUrl*), those two answers are different STRINGS: the check asks about
+        // `NSUrlThing` (which is in neither knownTypes nor the Apple SDK set) while emission would
+        // have written the perfectly resolvable `INSUrlThing`. The member was dropped with only a
+        // debug log — no diagnostic, no compile error, just a missing binding.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            // Non-null (and non-empty) => the "AST-expanded SDK types" path, which returns false for
+            // an unknown name instead of accepting anything with a known Apple prefix.
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["NSObject"] = "" },
+            Protocols = [new ObjCProtocolDecl { Name = "NSURLThing" }],
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "MyClass",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "consume:",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true,
+                            Parameters =
+                            [
+                                new ObjCParameterDecl
+                                {
+                                    Name = "thing",
+                                    Type = new ObjCTypeRef { Name = "NSURLThing", IsPointer = true }
+                                }
+                            ]
+                        },
+                        new ObjCMethodDecl
+                        {
+                            Selector = "produce",
+                            ReturnType = new ObjCTypeRef { Name = "NSURLThing", IsPointer = true },
+                            IsInstanceMethod = true
+                        }
+                    ],
+                    Properties =
+                    [
+                        new ObjCPropertyDecl
+                        {
+                            Name = "thing",
+                            Type = new ObjCTypeRef { Name = "NSURLThing", IsPointer = true },
+                            IsReadonly = true,
+                            GetterSelector = "thing"
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+
+        // The protocol is DECLARED under the same name every reference to it resolves to, so bgen
+        // generates the `INSUrlThing` those references name. Name= keeps the native registration on
+        // the ObjC spelling, so the rename is C#-side only.
+        Assert.Contains("[Protocol(Name = \"NSURLThing\")]", result);
+        Assert.Contains("partial interface NSUrlThing", result);
+        Assert.DoesNotContain("partial interface NSURLThing", result);
+        // Every member typed by it binds to that protocol's interface rather than vanishing. The
+        // property already survived before the fix (its gate threaded localProtocolNames); the two
+        // methods did not.
+        Assert.Contains("Consume(INSUrlThing thing)", result);
+        Assert.Contains("INSUrlThing Produce()", result);
+        Assert.Contains("INSUrlThing Thing { get; }", result);
+    }
+
+    [Fact]
+    public void Emit_LocalAcronymClass_DeclarationMatchesEveryReferenceToIt()
+    {
+        // The class-side half of the same declaration/reference agreement. A member typed by a
+        // locally declared class maps through the .NET acronym convention (`NSURLBox` -> `NSUrlBox`),
+        // so declaring the interface under the raw ObjC name left the member referencing a type that
+        // does not exist in the file — CS0246 in the api-definition contract compile, which fails the
+        // whole binding rather than dropping one member.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["NSObject"] = "" },
+            Classes =
+            [
+                new ObjCClassDecl { Name = "NSURLBox" },
+                new ObjCClassDecl
+                {
+                    Name = "MyClass",
+                    Properties =
+                    [
+                        new ObjCPropertyDecl
+                        {
+                            Name = "box",
+                            Type = new ObjCTypeRef { Name = "NSURLBox", IsPointer = true },
+                            IsReadonly = true,
+                            GetterSelector = "box"
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+
+        Assert.Contains("[BaseType(typeof(NSObject), Name = \"NSURLBox\")]", result);
+        Assert.Contains("partial interface NSUrlBox", result);
+        Assert.DoesNotContain("partial interface NSURLBox", result);
+        Assert.Contains("NSUrlBox Box { get; }", result);
+    }
+
+    [Fact]
+    public void Emit_InstancetypeOnAcronymRenamedClass_ResolvesToTheDeclarationName()
+    {
+        // `instancetype` maps to whatever the emitter passes as `declaringClassName`. Passing the raw
+        // ObjC name there while the interface is declared under the acronym-mapped one produces a
+        // method returning a type the file never declares — CS0246, which fails the whole binding.
+        // The resolvability gate cannot catch it: both spellings are seeded into knownTypes.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["NSObject"] = "" },
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "NSURLBox",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "sharedBox",
+                            ReturnType = new ObjCTypeRef { Name = "instancetype" }
+                        },
+                        new ObjCMethodDecl
+                        {
+                            Selector = "copyBox",
+                            IsInstanceMethod = true,
+                            ReturnType = new ObjCTypeRef { Name = "instancetype" }
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+
+        Assert.Contains("partial interface NSUrlBox", result);
+        Assert.Contains("NSUrlBox SharedBox", result);
+        Assert.Contains("NSUrlBox CopyBox", result);
+        Assert.DoesNotContain("NSURLBox SharedBox", result);
+        Assert.DoesNotContain("NSURLBox CopyBox", result);
+    }
+
+    [Fact]
+    public void Emit_CategoryOnAcronymRenamedClass_UsesTheMappedNameEverywhere()
+    {
+        // Same agreement on the category path: the [BaseType] target, the generated extension
+        // interface name, and `instancetype` all name the extended class, so all three must use the
+        // spelling the class declaration carries.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["NSObject"] = "" },
+            Classes = [new ObjCClassDecl { Name = "NSURLBox" }],
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    ClassName = "NSURLBox",
+                    CategoryName = "Extras",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "makeBox",
+                            IsInstanceMethod = true,
+                            ReturnType = new ObjCTypeRef { Name = "instancetype" }
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+
+        Assert.Contains("[BaseType(typeof(NSUrlBox))]", result);
+        Assert.Contains("partial interface NSUrlBox_Extras", result);
+        Assert.Contains("NSUrlBox MakeBox", result);
+        Assert.DoesNotContain("NSURLBox", result.Replace("Name = \"NSURLBox\"", ""));
+    }
+
+    [Fact]
+    public void Emit_WeakDelegateWrapProperty_TypedByTheDelegateProtocolDeclarationName()
+    {
+        // The [Wrap] half of the WeakDelegate pattern is typed by the [Model] class bgen generates
+        // from the protocol declaration, so it must carry the declaration's spelling. Keeping the raw
+        // ObjC name for everything except a class/protocol clash left an acronym-renamed delegate
+        // protocol declared `NSUrlThingDelegate` while the property was typed `NSURLThingDelegate`.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["NSObject"] = "" },
+            Protocols =
+            [
+                new ObjCProtocolDecl { Name = "NSURLThingDelegate", IsDelegateProtocol = true }
+            ],
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "MyClass",
+                    Properties =
+                    [
+                        // `id<Proto>` is the shape clang actually produces for a delegate property —
+                        // a protocol name is not a standalone pointee — so it carries the protocol in
+                        // ProtocolQualifications. The bare-pointer form below is the other branch
+                        // ResolveDelegateProtocolName accepts; both must land on the same spelling.
+                        new ObjCPropertyDecl
+                        {
+                            Name = "delegate",
+                            Type = new ObjCTypeRef { Name = "id", ProtocolQualifications = ["NSURLThingDelegate"] },
+                            GetterSelector = "delegate"
+                        },
+                        new ObjCPropertyDecl
+                        {
+                            Name = "secondaryDelegate",
+                            Type = new ObjCTypeRef { Name = "NSURLThingDelegate", IsPointer = true },
+                            GetterSelector = "secondaryDelegate"
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+
+        Assert.Contains("[Protocol(Name = \"NSURLThingDelegate\"), Model]", result);
+        Assert.Contains("partial interface NSUrlThingDelegate", result);
+        Assert.Contains("NSUrlThingDelegate Delegate", result);
+        Assert.Contains("NSUrlThingDelegate SecondaryDelegate", result);
+        Assert.DoesNotContain("NSURLThingDelegate Delegate", result);
+        Assert.DoesNotContain("NSURLThingDelegate SecondaryDelegate", result);
+    }
+
+    [Fact]
+    public void Emit_ChildProtocol_DropsAPropertyTheParentAlreadyEmitsWhenTypedByALocalAcronymProtocol()
+    {
+        // ComputeProtocolEmissionSet decides what an ancestor already occupies. Its property replay
+        // used to re-run the resolvability check WITHOUT the local-protocol sets, so a parent property
+        // typed by a bare local acronym protocol mapped to a name absent from knownTypes, failed, and
+        // never entered MemberNames — leaving the child free to re-emit a name the parent owns, which
+        // bgen flattens onto one interface.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["NSObject"] = "" },
+            Protocols =
+            [
+                new ObjCProtocolDecl { Name = "NSURLThing" },
+                new ObjCProtocolDecl
+                {
+                    Name = "Parent",
+                    Properties =
+                    [
+                        new ObjCPropertyDecl
+                        {
+                            Name = "thing",
+                            Type = new ObjCTypeRef { Name = "NSURLThing", IsPointer = true },
+                            IsReadonly = true,
+                            GetterSelector = "thing"
+                        }
+                    ]
+                },
+                new ObjCProtocolDecl
+                {
+                    Name = "Child",
+                    InheritedProtocolNames = ["Parent"],
+                    Properties =
+                    [
+                        new ObjCPropertyDecl
+                        {
+                            Name = "thing",
+                            Type = new ObjCTypeRef { Name = "NSURLThing", IsPointer = true },
+                            IsReadonly = true,
+                            GetterSelector = "thing"
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+
+        // The parent owns the member; the child inherits it rather than redeclaring it.
+        Assert.Equal(1, CountOccurrences(result, "INSUrlThing Thing { get; }"));
+    }
+
+    static int CountOccurrences(string haystack, string needle)
+    {
+        var count = 0;
+        var index = 0;
+        while ((index = haystack.IndexOf(needle, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += needle.Length;
+        }
+        return count;
     }
 }

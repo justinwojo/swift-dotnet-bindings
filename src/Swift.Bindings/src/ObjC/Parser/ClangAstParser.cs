@@ -1561,29 +1561,49 @@ public static class ClangAstParser
         }
 
         // 4. loc.includedFrom.file (the file that #imported this header)
-        // includedFrom identifies the INCLUDING file, not the declaration's source.
-        // We use it as a heuristic: if BOTH the includer AND the current file chain
-        // point to framework headers, the declaration is from a sub-header (e.g.,
-        // CBCentralManager.h included by CoreBluetooth.h). We additionally require
-        // currentFile to be framework-local (or null) to avoid false positives when
-        // a framework header #imports an SDK header — the SDK declarations get
-        // includedFrom pointing to the framework header but currentFile points to
-        // the SDK header (set by the first declaration in that file via step 1).
+        //
+        // includedFrom identifies the INCLUDING file, never the declaration's own source, so it can
+        // only ever be a fallback — and only while nothing better is known. Once a file has been
+        // seen, step 5's inheritance is strictly more accurate: an absent loc.file means "same file
+        // as the previous declaration", so the tracked currentFile IS the declaration's file while
+        // the includer is one level up.
+        //
+        // Preferring the includer once currentFile is known misattributes every non-first
+        // declaration of a multi-declaration sibling header under an ordinary named umbrella
+        // (Umbrella.h #imports Sibling.h): those declarations carry only includedFrom = Umbrella.h,
+        // so they resolved to the umbrella. Public/private classification survived that (both files
+        // sit under Headers/), but resolvedFilePath feeds availability recovery, which reads the
+        // header at the attribute's source BYTE OFFSET — against the umbrella instead of the
+        // sibling, recovering a different declaration's version or nothing at all.
         bool hasIncludedFrom = loc.TryGetProperty("includedFrom", out var inclFrom);
-        if (resolvedFile == null && hasIncludedFrom)
+        if (resolvedFile == null && currentFile == null && hasIncludedFrom)
         {
-            if (TryGetLocFile(inclFrom, "file", out f) && IsUnderPath(f, frameworkHeadersPath)
-                && (currentFile == null || IsUnderPath(currentFile, frameworkHeadersPath)))
+            if (TryGetLocFile(inclFrom, "file", out f) && IsUnderPath(f, frameworkHeadersPath))
             {
                 resolvedFile = f;
             }
-            // If includedFrom points outside our framework, resolvedFile stays null
-            // and we do NOT fall through to currentFile inheritance below.
         }
 
-        // 5. If no file field at all and no includedFrom, inherit from previous declaration.
-        // (Clang omits loc.file when consecutive declarations are in the same file.)
-        if (resolvedFile == null && !hasIncludedFrom)
+        // 5. No file of its own: inherit from the previous declaration — including when an
+        // includedFrom is present.
+        //
+        // Clang omits loc.file ONLY when the file is unchanged from the previous declaration, and
+        // re-emits it the moment the file changes (entering an include AND returning from one).
+        // So an absent file means "same file as the previous declaration", full stop. The sibling
+        // includedFrom names the file that included THIS declaration's file — not the declaration's
+        // own file — and therefore says nothing about whether the declaration is framework-local,
+        // nor about where to read its source. Whether it belongs to the framework is decided by the
+        // single IsUnderPath check below.
+        //
+        // Skipping inheritance whenever an includedFrom pointed outside the framework silently lost
+        // declarations wherever the framework's headers are read through a synthesized combined
+        // header (directory-umbrella and explicit-header modulemaps), which lives in a temp
+        // directory: each header's FIRST declaration carries loc.file and survived, while every
+        // later declaration in that same header carried only includedFrom = the combined header and
+        // was discarded. The SDK-header case that motivated the skip is still handled — a framework
+        // header that #imports an SDK header gives the SDK's first declaration loc.file = the SDK
+        // path, so currentFile becomes the SDK header and the inherited value fails IsUnderPath.
+        if (resolvedFile == null)
             resolvedFile = currentFile;
 
         resolvedFilePath = resolvedFile ?? currentFile;

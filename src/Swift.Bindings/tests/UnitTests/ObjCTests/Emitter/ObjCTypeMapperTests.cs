@@ -8,6 +8,12 @@ namespace BindingsGeneration.Tests.ObjCTests;
 
 public class ObjCTypeMapperTests
 {
+    /// <summary>
+    /// No name in the type under test was produced by the mapper's protocol-interface synthesis,
+    /// so none of them may take the strip-the-leading-I retry.
+    /// </summary>
+    static readonly IReadOnlySet<string> NoSynthesized = new HashSet<string>(StringComparer.Ordinal);
+
     // Primitive type mappings
 
     [Theory]
@@ -995,7 +1001,11 @@ public class ObjCTypeMapperTests
     {
         var knownTypes = ObjCTypeMapper.BuildKnownMappedTypes();
         var sdkNames = new HashSet<string> { "NSHTTPURLResponse", "NSURLSession", "NSURLSessionDelegate", "UIColor", "NSXPCConnection", "NSXPCInterface" };
-        Assert.Equal(expected, ObjCTypeMapper.IsApiDefinitionTypeResolvable(mappedType, knownTypes, sdkNames));
+        // The one I-prefixed case is a protocol interface the mapper genuinely synthesized; every
+        // other case is a class/typedef name that never went through protocol-interface synthesis,
+        // so only this name is entitled to the strip-the-I retry.
+        var synthesized = new HashSet<string>(StringComparer.Ordinal) { "INSUrlSessionDelegate" };
+        Assert.Equal(expected, ObjCTypeMapper.IsApiDefinitionTypeResolvable(mappedType, knownTypes, sdkNames, synthesized));
     }
 
     // Standard Apple Foundation/UIKit enum/option/struct types (NSDataReadingOptions,
@@ -1023,7 +1033,7 @@ public class ObjCTypeMapperTests
         // can only succeed through the knownTypes registry path, never the sdkNames membership or the
         // -fmodules NS/UI-prefix fallback (which is bypassed once sdkNames is non-empty).
         var sdkNames = new HashSet<string> { "NSObject", "NSData", "NSUrlSession", "UIApplication" };
-        Assert.Equal(expected, ObjCTypeMapper.IsApiDefinitionTypeResolvable(mappedType, knownTypes, sdkNames));
+        Assert.Equal(expected, ObjCTypeMapper.IsApiDefinitionTypeResolvable(mappedType, knownTypes, sdkNames, NoSynthesized));
     }
 
     // The four target types must also be recognized as ObjC value types, so a pointer to one is
@@ -1072,7 +1082,97 @@ public class ObjCTypeMapperTests
     public void IsApiDefinitionTypeResolvable_NullSdkNames_FallsBackToHeuristic(string mappedType, bool expected)
     {
         var knownTypes = ObjCTypeMapper.BuildKnownMappedTypes();
-        Assert.Equal(expected, ObjCTypeMapper.IsApiDefinitionTypeResolvable(mappedType, knownTypes, null));
+        Assert.Equal(expected, ObjCTypeMapper.IsApiDefinitionTypeResolvable(mappedType, knownTypes, null, NoSynthesized));
+    }
+
+    // ──────────────────────────────────────────────
+    // ──────────────────────────────────────────────
+    // I-strip provenance: only an emitter-synthesized protocol `I` may be stripped
+    // ──────────────────────────────────────────────
+
+    // The strip-the-leading-I retry exists so an emitter-synthesized protocol interface
+    // (IUITableViewDelegate ← UITableViewDelegate) still resolves. Without a provenance record it
+    // also fires on a vendor class whose own name begins with I: ICMUserAttributes strips to
+    // CMUserAttributes, matches CoreMedia's "CM" prefix, and the member emits referencing a type
+    // that does not exist → CS0246 → SWIFTBIND113 fails the whole binding. The synthesized-name set
+    // is what separates the two: identical shape, different provenance.
+    [Theory]
+    [InlineData("IUITableViewDelegate")]   // strips to UITableViewDelegate → "UI" prefix
+    [InlineData("IWKNavigationDelegate")]  // strips to WKNavigationDelegate → "WK" prefix
+    public void IsApiDefinitionTypeResolvable_SynthesizedProtocolInterface_StripsLeadingI(string mappedType)
+    {
+        var knownTypes = ObjCTypeMapper.BuildKnownMappedTypes();
+        var synthesized = new HashSet<string>(StringComparer.Ordinal) { mappedType };
+        Assert.True(ObjCTypeMapper.IsApiDefinitionTypeResolvable(mappedType, knownTypes, null, synthesized));
+        // Same name, no provenance: the strip must not fire.
+        Assert.False(ObjCTypeMapper.IsApiDefinitionTypeResolvable(mappedType, knownTypes, null, NoSynthesized));
+    }
+
+    // The false positive the provenance gate closes. These are third-party CLASS names, never
+    // protocol interfaces, so no MapType call can have recorded them — the strip is unreachable and
+    // the type is correctly reported unresolvable instead of emitting a dangling reference.
+    [Theory]
+    [InlineData("ICMUserAttributes")]  // strips to CMUserAttributes → CoreMedia's "CM"
+    [InlineData("ICMRegistration")]
+    public void IsApiDefinitionTypeResolvable_VendorNameBeginningWithI_IsNotStripped(string mappedType)
+    {
+        var knownTypes = ObjCTypeMapper.BuildKnownMappedTypes();
+        Assert.False(ObjCTypeMapper.IsApiDefinitionTypeResolvable(mappedType, knownTypes, null, NoSynthesized));
+    }
+
+    // Provenance is recorded where the `I` is invented, because it cannot be re-derived from the
+    // source ObjC name afterwards: acronym normalization, the class/protocol clash suffix, and
+    // `id<Proto>` (whose Name is literally "id") each break a name-comparison discriminator.
+    [Fact]
+    public void MapType_ProtocolQualifiedId_RecordsSynthesizedInterface()
+    {
+        var typeRef = new ObjCTypeRef { Name = "id", ProtocolQualifications = { "UITableViewDelegate" } };
+        var synthesized = new HashSet<string>(StringComparer.Ordinal);
+        var mapped = ObjCTypeMapper.MapType(typeRef, synthesizedProtocolInterfaces: synthesized);
+        Assert.Equal("IUITableViewDelegate", mapped);
+        Assert.Contains("IUITableViewDelegate", synthesized);
+    }
+
+    [Fact]
+    public void MapType_DirectOwnProtocolName_RecordsSynthesizedInterface()
+    {
+        var typeRef = new ObjCTypeRef { Name = "MLNAnnotation", IsPointer = true };
+        var localProtocols = new HashSet<string> { "MLNAnnotation" };
+        var synthesized = new HashSet<string>(StringComparer.Ordinal);
+        var mapped = ObjCTypeMapper.MapType(typeRef, localProtocolNames: localProtocols, synthesizedProtocolInterfaces: synthesized);
+        Assert.Equal("IMLNAnnotation", mapped);
+        Assert.Contains("IMLNAnnotation", synthesized);
+    }
+
+    // The negative half of the recording contract — the shape that regressed the Intercom binding.
+    // A class name that merely starts with I must never enter the set.
+    [Fact]
+    public void MapType_ClassNameBeginningWithI_RecordsNothing()
+    {
+        var typeRef = new ObjCTypeRef { Name = "ICMUserAttributes", IsPointer = true };
+        var synthesized = new HashSet<string>(StringComparer.Ordinal);
+        var mapped = ObjCTypeMapper.MapType(typeRef, synthesizedProtocolInterfaces: synthesized);
+        Assert.Equal("ICMUserAttributes", mapped);
+        Assert.Empty(synthesized);
+    }
+
+    // The sink is threaded through the whole mapped-type tree, so a protocol interface buried in a
+    // block parameter is recorded too. A scalar "the mapped type IS the interface" discriminator
+    // could never reach these positions — which is why provenance is a collection, not a flag.
+    [Fact]
+    public void MapType_ProtocolInsideBlockParameter_RecordsNestedSynthesizedInterface()
+    {
+        var typeRef = new ObjCTypeRef
+        {
+            Name = "block",
+            IsBlock = true,
+            BlockReturnType = new ObjCTypeRef { Name = "void" },
+            BlockParams = { new ObjCTypeRef { Name = "id", ProtocolQualifications = { "UITableViewDelegate" } } },
+        };
+        var synthesized = new HashSet<string>(StringComparer.Ordinal);
+        var mapped = ObjCTypeMapper.MapType(typeRef, synthesizedProtocolInterfaces: synthesized);
+        Assert.Equal("Action<IUITableViewDelegate>", mapped);
+        Assert.Contains("IUITableViewDelegate", synthesized);
     }
 
     // ──────────────────────────────────────────────
@@ -1383,7 +1483,7 @@ public class ObjCTypeMapperTests
     public void IsApiDefinitionTypeResolvable_TypedGenericPatterns_AreResolvable(string mappedType, bool expected)
     {
         var knownTypes = ObjCTypeMapper.BuildKnownMappedTypes();
-        Assert.Equal(expected, ObjCTypeMapper.IsApiDefinitionTypeResolvable(mappedType, knownTypes, null));
+        Assert.Equal(expected, ObjCTypeMapper.IsApiDefinitionTypeResolvable(mappedType, knownTypes, null, NoSynthesized));
     }
 
     // --- Resolvability recurses into wrapper arguments ---
@@ -1405,6 +1505,6 @@ public class ObjCTypeMapperTests
         // SDK-name mode (mirrors a textual clang parse): NSError is an available SDK type;
         // ZZThirdPartyType is a genuinely-absent cross-module class with no using/declaration.
         var appleSdkTypeNames = new HashSet<string>(StringComparer.Ordinal) { "NSError" };
-        Assert.Equal(expected, ObjCTypeMapper.IsApiDefinitionTypeResolvable(mappedType, knownTypes, appleSdkTypeNames));
+        Assert.Equal(expected, ObjCTypeMapper.IsApiDefinitionTypeResolvable(mappedType, knownTypes, appleSdkTypeNames, NoSynthesized));
     }
 }

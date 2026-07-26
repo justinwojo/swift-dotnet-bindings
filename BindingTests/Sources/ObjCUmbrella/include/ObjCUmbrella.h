@@ -119,4 +119,65 @@ typedef id<OUElement> _Nonnull (^OUElementFactory)(NSInteger index);
 - (NSJSONWritingOptions)defaultWritingOptions;
 @end
 
+// MARK: - Shape 8 — declarations the emitter RENAMES, and the native identity that must survive.
+//
+// Two independent rename paths change the C# DECLARATION name while the Objective-C runtime name
+// must stay put behind `[BaseType(..., Name=)]` / `[Protocol(Name=)]`. This is the one class of
+// defect in our half of the ObjC pipeline that a compiler cannot see: drop or misspell the `Name=`
+// and the binding still COMPILES, the type merely registers under its managed spelling,
+// `objc_getClass` returns nil, and the first message send fails. Only a running test catches it,
+// which is why these shapes are here and not emitter unit tests. Every OTHER rename defect
+// (a reference left on the raw spelling, a dangling `instancetype`, a duplicated member) is a
+// hard compile error and is gated by the unit suite plus the compile gate.
+
+// 8a — the class/protocol clash suffix: `OUBadge` is BOTH a class and a protocol, the shape
+// `NSObject` itself has. The class keeps the bare managed name (it carries the superclass); the
+// protocol's managed interface is renamed `IOUBadgeProtocol`. This rename is NOT gated on the NS
+// prefix, so it fires under the fixture's own prefix.
+@protocol OUBadge <NSObject>
+- (NSString *)badgeLabel;
+@end
+
+@interface OUBadge : NSObject <OUBadge>
+- (instancetype)initWithLabel:(NSString *)label;
+// Asks the question from the ObjC side, which is the only side that can answer it: does a MANAGED
+// adopter of the renamed `IOUBadgeProtocol` register as conforming to the NATIVE protocol `OUBadge`?
+// That holds only while `[Protocol(Name = "OUBadge")]` survives the rename — drop it and the
+// registrar files the conformance under the managed spelling and this returns NO. Asking the
+// C# instance instead would prove nothing: the fixture's own class declares the conformance in
+// Objective-C, so it answers YES no matter what the binding says.
++ (BOOL)acceptsBadge:(id<OUBadge>)candidate;
+@end
+
+// 8b — the .NET acronym convention (`NSURL*` → `NSUrl*`), which fires ONLY on NS-prefixed names,
+// so this fixture deliberately borrows the prefix; no Foundation type of this name exists. Both
+// `instancetype` returners resolve to the class's DECLARATION name — emitting the raw ObjC
+// spelling in that slot dangles (CS0246) — and the renamed class must still answer to native
+// `NSURLBadgeBox`, which the test asserts against `objc_getClass` directly.
+@interface NSURLBadgeBox : NSObject
+@property (nonatomic, copy) NSString *tag;
++ (instancetype)defaultBox;
+- (instancetype)reboxWithTag:(NSString *)tag;
+@end
+
+// 8c — a renamed DELEGATE protocol behind a weak `delegate` property: the WeakDelegate pattern.
+// bgen generates a `[Model]` CLASS from the protocol declaration, and the `[Wrap]` half of the
+// pattern is typed by that class (bare name, NOT `I`-prefixed), so the wrap must use the renamed
+// spelling or it dangles. A managed subclass installed as the delegate must have its override
+// invoked — proving the renamed protocol kept its native registration in both directions.
+@protocol NSURLBadgeObserver <NSObject>
+@optional
+- (void)badgeDidChange:(NSString *)tag;
+@end
+
+@interface NSURLBadgeEmitter : NSObject
+@property (nonatomic, weak, nullable) id<NSURLBadgeObserver> delegate;
+- (void)changeBadge:(NSString *)tag;
+// The same managed→native conformance question for the renamed `[Model]` class: the callback firing
+// alone would NOT prove `[Protocol(Name = "NSURLBadgeObserver")]` survived, because the member's own
+// `[Export("badgeDidChange:")]` is what makes `respondsToSelector:` true, independent of the
+// protocol's registered name. This asks the protocol directly.
+- (BOOL)delegateConformsToObserverProtocol;
+@end
+
 NS_ASSUME_NONNULL_END

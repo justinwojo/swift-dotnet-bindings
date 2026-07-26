@@ -130,7 +130,8 @@ public static class ObjCPipeline
             json = invoker.InvokeClangAstDump(
                 headerResult.HeaderPath, resolution.FrameworkSearchPath,
                 resolution.IsSimulatorSlice, headerResult.ModulemapPath,
-                effectiveSearchPaths, sliceVariant);
+                effectiveSearchPaths, sliceVariant,
+                moduleName: headerResult.ClangModuleName ?? resolution.ModuleName);
         }
         catch (ClangAstDumpException ex)
         {
@@ -142,6 +143,23 @@ public static class ObjCPipeline
         catch (Exception ex)
         {
             return new ObjCParseResult(1, null, $"Clang AST dump failed: {ex.Message}", "", pi, diagnostics);
+        }
+        finally
+        {
+            // The combined-header strategies write their umbrella into a fresh temp directory. It is
+            // consumed entirely by the dump above — nothing downstream reads it, because it holds
+            // only #import lines and so owns no declaration the AST can attribute to it. Deleting it
+            // here keeps a per-invocation temp directory from accumulating for the life of the host.
+            if (headerResult.SynthesizedHeaderDirectory != null)
+            {
+                try { Directory.Delete(headerResult.SynthesizedHeaderDirectory, recursive: true); }
+                catch (Exception ex)
+                {
+                    logger.LogInformation(
+                        "Could not delete synthesized header directory {Path}: {Message}",
+                        headerResult.SynthesizedHeaderDirectory, ex.Message);
+                }
+            }
         }
 
         // 4. Parse AST JSON
