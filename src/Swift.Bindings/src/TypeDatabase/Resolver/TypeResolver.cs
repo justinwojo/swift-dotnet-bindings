@@ -133,7 +133,15 @@ public sealed class TypeResolver
         foreach (var strategy in _strategies)
         {
             if (strategy.TryResolve(typeSpec, context, out result))
+            {
+                // One of the two places a resolved record surfaces. Recording here (rather than
+                // in each strategy) is what keeps the emitted csproj's reference set derived
+                // from the projections the emitted C# actually names — a strategy added later
+                // cannot reintroduce a resolution path that resolves a type without also
+                // declaring the package that supplies it.
+                ResolvedReferenceRecorder.Record(result.Record, $"strategy:{strategy.Name}");
                 return true;
+            }
         }
 
         result = null;

@@ -893,21 +893,100 @@ public static class NameProvider
         => IsSwiftKeyword(name) ? $"`{name}`" : name;
 
     /// <summary>
+    /// Swift keywords that still require backtick escaping when they appear as an argument LABEL
+    /// at a call site (<c>f(label: x)</c>, <c>obj[label: x]</c>) as opposed to a declaration.
+    /// </summary>
+    /// <remarks>
+    /// Argument-label position is one of the places the Swift grammar admits a bare keyword, so
+    /// nearly every entry in <see cref="_swiftKeywords"/> parses fine there unescaped — and
+    /// escaping one anyway draws <c>warning: keyword 'X' does not need to be escaped in argument
+    /// list</c> from swiftc, once per emitted call. <c>inout</c> is the sole exception: it is
+    /// parsed as the parameter modifier before the label rule gets a chance, so
+    /// <c>f(inout: 1)</c> is a hard <c>expected expression in list of expressions</c> error while
+    /// <c>f(`inout`: 1)</c> compiles.
+    /// <para>
+    /// This set is EVIDENCE-BACKED, not grammar-inferred: 108 Swift keywords (every declaration,
+    /// statement, expression and contextual keyword, plus the ownership/concurrency additions —
+    /// <c>borrowing</c>, <c>consuming</c>, <c>each</c>, <c>isolated</c>, <c>macro</c>,
+    /// <c>package</c>, <c>any</c>) were each compiled with <c>swiftc -typecheck</c> in isolation,
+    /// declared as <c>func probe(`K` x: Int)</c> and called both bare (<c>probe(K: 1)</c>) and
+    /// escaped (<c>probe(`K`: 1)</c>). Exactly one — <c>inout</c> — failed bare and compiled
+    /// escaped; the other 107 compiled bare, and none was unrepresentable in both forms. Widening
+    /// this set needs that same probe re-run, not a grammar argument: escaping a keyword that does
+    /// not need it is not harmless, it emits a swiftc warning per call site.
+    /// </para>
+    /// </remarks>
+    private static readonly HashSet<string> _argumentLabelKeywordsNeedingEscape = new()
+    {
+        "inout",
+    };
+
+    /// <summary>
+    /// Escapes a name for use as an argument LABEL at a call site. Prefer this over
+    /// <see cref="EscapeSwiftKeyword"/> whenever the emitted text is the label of an actual call —
+    /// see <see cref="_argumentLabelKeywordsNeedingEscape"/> for why the two differ. Declaration
+    /// positions (parameter lists, <c>subscript</c> signatures, property/member names) still want
+    /// <see cref="EscapeSwiftKeyword"/>, where a bare keyword really is invalid.
+    /// </summary>
+    public static string EscapeSwiftArgumentLabel(string name)
+        => _argumentLabelKeywordsNeedingEscape.Contains(name) ? $"`{name}`" : name;
+
+    /// <summary>
     /// Returns the external Swift argument label to emit for a subscript index parameter,
-    /// keyword-escaped if necessary. Returns <c>_</c> when the source had no external label
-    /// (i.e. <c>subscript(name: T)</c> / <c>subscript(_ name: T)</c>), driven by
+    /// keyword-escaped for a DECLARATION position. Returns <c>_</c> when the source had no external
+    /// label (i.e. <c>subscript(name: T)</c> / <c>subscript(_ name: T)</c>), driven by
     /// <see cref="ArgumentDecl.IsUnlabeledSubscriptIndex"/> — never by a string pattern, since
     /// real user labels can spell <c>index0</c>, <c>default</c>, etc. and would collide with
     /// either the synthetic sentinel or a Swift keyword.
     /// Recovers the raw Swift label via <see cref="ParserNameToSwift"/>, so keywords mangled to
     /// C#-safe form (<c>default</c> → <c>_default</c>) are restored before backtick escaping.
+    /// For the bracket-CALL label, use <see cref="GetSubscriptCallArgLabel"/>.
     /// </summary>
     public static string GetSubscriptExternalLabel(ArgumentDecl param)
     {
-        if (param.IsUnlabeledSubscriptIndex || string.IsNullOrEmpty(param.Name))
+        if (HasNoExternalSubscriptLabel(param))
             return "_";
         return ParserNameToSwift(param);
     }
+
+    /// <summary>
+    /// Returns the bracket-call argument label for a subscript index parameter — <c>"label: "</c>,
+    /// or <c>""</c> for an unlabeled position. The declaration counterpart is
+    /// <see cref="GetSubscriptExternalLabel"/>; the two share the same label recovery and differ
+    /// only in escaping, because a keyword is legal bare in call-argument position.
+    /// </summary>
+    /// <remarks>
+    /// Recovery is deliberately <see cref="BaseDecl.GetSwiftName"/> alone, WITHOUT the
+    /// underscore-stripping fallback <c>CdeclParamMapper.BuildSwiftCallArgLabel</c> applies when
+    /// <see cref="BaseDecl.OriginalSwiftName"/> is absent. Adopting that fallback here would break
+    /// twice. First, the parser populates <c>OriginalSwiftName</c> ONLY for labels that collide with
+    /// a C# keyword (<c>SwiftABIParser.ExtractUniqueNameWithOriginal</c>), so a genuine Swift label
+    /// spelling <c>_foo</c> arrives as <c>(Name: "_foo", OriginalSwiftName: null)</c> and the strip
+    /// would silently rewrite it to <c>foo</c>. Second, the declaration sibling
+    /// <see cref="GetSubscriptExternalLabel"/> does not strip, so stripping only on the call side
+    /// desynchronizes <c>subscript(_foo x:)</c> from <c>obj[foo: x]</c> — a hard error in the
+    /// emitted wrapper, strictly worse than the mangled-but-matching label it replaces. The two
+    /// subscript sides must recover identically; they differ only in the escaping rule.
+    /// </remarks>
+    public static string GetSubscriptCallArgLabel(ArgumentDecl param)
+    {
+        if (HasNoExternalSubscriptLabel(param))
+            return "";
+        return $"{EscapeSwiftArgumentLabel(param.GetSwiftName())}: ";
+    }
+
+    /// <remarks>
+    /// The recovered-name <c>"_"</c> arm is defensive parity, not a live parser path: both subscript
+    /// index paths in the ABI parser rewrite a literal <c>_</c> label to <c>indexN</c> and set
+    /// <see cref="ArgumentDecl.IsUnlabeledSubscriptIndex"/>, so the flag normally fires first. It is
+    /// kept because <see cref="ArgumentDecl"/> is constructed outside the parser too, and because the
+    /// sibling call-label builder (<c>CdeclParamMapper.BuildSwiftCallArgLabel</c>) guards the same
+    /// value — dropping it here would emit <c>obj[_: x]</c>, which does not parse.
+    /// </remarks>
+    private static bool HasNoExternalSubscriptLabel(ArgumentDecl param)
+        => param.IsUnlabeledSubscriptIndex
+            || string.IsNullOrEmpty(param.Name)
+            || param.GetSwiftName() == "_";
 
     /// <summary>
     /// Gets the correct Swift identifier for a declaration, with backtick escaping

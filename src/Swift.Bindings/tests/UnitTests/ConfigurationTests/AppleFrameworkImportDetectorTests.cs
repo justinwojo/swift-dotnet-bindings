@@ -397,6 +397,39 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void ResolveDependencies_FiltersUmbrellaOfCurrentModule()
+        {
+            // RealityFoundation is declared @_implementationOnly through RealityKit
+            // (compileImportModule="RealityKit"), so the canonical Swift names in its OWN ABI JSON
+            // wear the umbrella prefix — its `Entity` is spelled `RealityKit.Entity`. Those are not
+            // cross-framework references, so no PackageReference is owed. Emitting one would point
+            // RealityFoundation's package at the framework it is a facet of, and since RealityKit's
+            // package legitimately depends on RealityFoundation's, NuGet fails the restore on the
+            // resulting cycle.
+            var imports = new[] { "RealityKit", "ARKit", "Foundation" };
+
+            var result = AppleFrameworkImportDetector.ResolveDependencies(imports, "RealityFoundation", "26.2.1");
+
+            Assert.DoesNotContain(result, d => d.ModuleName == "RealityKit");
+        }
+
+        [Fact]
+        public void ResolveDependencies_KeepsSourceModuleWhenGeneratingTheUmbrella()
+        {
+            // The guard above is deliberately one-directional. Generating the UMBRELLA and seeing an
+            // import of one of its source modules is a real edge — they ship as separate packages and
+            // the umbrella's emitted C# genuinely names the source module's types. A symmetric filter
+            // would drop this and reintroduce the missing-reference compile break it exists to prevent.
+            var imports = new[] { "RealityFoundation" };
+
+            var result = AppleFrameworkImportDetector.ResolveDependencies(imports, "RealityKit", "26.2.1");
+
+            Assert.Single(result);
+            Assert.Equal("RealityFoundation", result[0].ModuleName);
+            Assert.Equal("SwiftBindings.Apple.RealityFoundation", result[0].PackageId);
+        }
+
+        [Fact]
         public void ResolveDependencies_DropsMarkersAndUnregistered()
         {
             // Markers (Swift, _Concurrency, simd) and Apple SDK modules without a packageId

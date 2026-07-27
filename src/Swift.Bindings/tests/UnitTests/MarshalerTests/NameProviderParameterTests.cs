@@ -431,6 +431,143 @@ public class NameProviderParameterTests
         Assert.Equal($"`{keyword}`", NameProvider.EscapeSwiftKeyword(keyword));
     }
 
+    // Argument-label position is one of the places the Swift grammar admits a bare keyword, so the
+    // declaration rule over-escapes there: swiftc answers a backticked label with "keyword 'X' does
+    // not need to be escaped in argument list", once per emitted call.
+    [Theory]
+    [InlineData("for")]
+    [InlineData("in")]
+    [InlineData("class")]
+    [InlineData("operator")]
+    [InlineData("default")]
+    [InlineData("self")]
+    [InlineData("Self")]
+    [InlineData("var")]
+    [InlineData("let")]
+    [InlineData("repeat")]
+    public void EscapeSwiftArgumentLabel_KeywordLegalBareInArgumentPosition_PassesThrough(string keyword)
+    {
+        Assert.True(NameProvider.IsSwiftKeyword(keyword), "fixture must name a real Swift keyword");
+        Assert.Equal(keyword, NameProvider.EscapeSwiftArgumentLabel(keyword));
+    }
+
+    // `inout` is the one keyword the parser claims as the parameter modifier before the label rule
+    // applies, so `f(inout: 1)` is a hard error while `` f(`inout`: 1) `` compiles.
+    [Fact]
+    public void EscapeSwiftArgumentLabel_Inout_StillEscaped()
+    {
+        Assert.Equal("`inout`", NameProvider.EscapeSwiftArgumentLabel("inout"));
+    }
+
+    [Theory]
+    [InlineData("value")]
+    [InlineData("count")]
+    [InlineData("Protocol")]
+    public void EscapeSwiftArgumentLabel_NonKeyword_PassesThrough(string name)
+    {
+        Assert.Equal(name, NameProvider.EscapeSwiftArgumentLabel(name));
+    }
+
+    // The declaration and call-site rules must stay distinct: collapsing either onto the other
+    // re-introduces the warning (call site) or emits invalid Swift (declaration).
+    [Fact]
+    public void EscapeSwiftKeyword_AndArgumentLabel_DivergeOnEveryKeywordButInout()
+    {
+        Assert.NotEqual(
+            NameProvider.EscapeSwiftKeyword("for"), NameProvider.EscapeSwiftArgumentLabel("for"));
+        Assert.Equal(
+            NameProvider.EscapeSwiftKeyword("inout"), NameProvider.EscapeSwiftArgumentLabel("inout"));
+    }
+
+    [Fact]
+    public void GetSubscriptCallArgLabel_KeywordLabel_EmitsBareLabelAndColon()
+    {
+        Assert.Equal("for: ", NameProvider.GetSubscriptCallArgLabel(MakeArg("for")));
+        // The declaration counterpart keeps the backticks — `subscript(`for` i: Int)` is invalid bare.
+        Assert.Equal("`for`", NameProvider.GetSubscriptExternalLabel(MakeArg("for")));
+    }
+
+    [Fact]
+    public void GetSubscriptCallArgLabel_UnlabeledIndex_EmitsNothing()
+    {
+        var arg = new ArgumentDecl
+        {
+            Name = "index0",
+            PrivateName = "",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsUnlabeledSubscriptIndex = true
+        };
+
+        Assert.Equal("", NameProvider.GetSubscriptCallArgLabel(arg));
+        Assert.Equal("_", NameProvider.GetSubscriptExternalLabel(arg));
+    }
+
+    [Theory]
+    [InlineData("_", null)]          // recovered straight off Name
+    [InlineData("index0", "_")]      // recovered off OriginalSwiftName, which wins
+    public void GetSubscriptCallArgLabel_UnderscoreLabelWithoutTheFlag_StillEmitsNothing(
+        string name, string originalSwiftName)
+    {
+        // The parser normally sets IsUnlabeledSubscriptIndex for a `_` label, so this guards the
+        // decls built outside it. `_` is not a Swift keyword, so nothing upstream would escape it —
+        // without the guard this emits `obj[_: x]`, which is a parse error, not a warning.
+        var arg = new ArgumentDecl
+        {
+            Name = name,
+            OriginalSwiftName = originalSwiftName,
+            PrivateName = "",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsUnlabeledSubscriptIndex = false
+        };
+
+        Assert.Equal("", NameProvider.GetSubscriptCallArgLabel(arg));
+        // The declaration sibling already rendered `_` here; the shared guard keeps it identical.
+        Assert.Equal("_", NameProvider.GetSubscriptExternalLabel(arg));
+    }
+
+    [Fact]
+    public void BuildSwiftCallArgLabel_KeywordLabel_EmitsBareLabel()
+    {
+        // `_default` is the parser's C#-safe mangling; the raw Swift label is recovered first.
+        Assert.Equal("default: ", CdeclParamMapper.BuildSwiftCallArgLabel(MakeArg("_default")));
+        Assert.Equal("for: ", CdeclParamMapper.BuildSwiftCallArgLabel(MakeArg("for")));
+        Assert.Equal("`inout`: ", CdeclParamMapper.BuildSwiftCallArgLabel(MakeArg("inout")));
+    }
+
+    [Theory]
+    [InlineData("_", null)]          // recovered straight off Name
+    [InlineData("arg0Renamed", "_")] // recovered off OriginalSwiftName, which wins
+    public void BuildSwiftCallArgLabel_UnderscoreLabel_EmitsNothing(
+        string name, string originalSwiftName)
+    {
+        // The method call-label builder must reach the same verdict as its subscript sibling
+        // (NameProvider.GetSubscriptCallArgLabel): `_` names an unlabeled position, so the call site
+        // gets no label. `_` is not a Swift keyword, so escaping leaves it alone and the emitted call
+        // becomes `foo(_: x)` — a parse error rather than a warning. Reached only by ArgumentDecls
+        // built outside the parser, which populates OriginalSwiftName solely for C#-keyword names.
+        var arg = new ArgumentDecl
+        {
+            Name = name,
+            OriginalSwiftName = originalSwiftName,
+            PrivateName = "",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        Assert.Equal("", CdeclParamMapper.BuildSwiftCallArgLabel(arg));
+    }
+
     [Theory]
     [InlineData("value")]
     [InlineData("name")]

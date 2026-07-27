@@ -276,11 +276,15 @@ namespace BindingsGeneration
             var entryPoint = ConstructorWrapperEmitter.GetOptionalTagSymbolName(
                 parentTypeDecl.SwiftTypeName.Module, parentTypeDecl.Name);
 
+            // The tag helper is an SBW_ @_cdecl emitted into the companion wrapper, so it must bind
+            // the wrapper this run was configured to emit — never a constant.
+            var wrapperLibrary = PInvokeEmitHelper.ResolveWrapperLibrary(_env.TypeDatabase);
+
             if (_env.PInvokeHelperContext != null)
             {
                 _env.PInvokeHelperContext.AddDeclaration(new PInvokeDeclaration
                 {
-                    LibraryPath = "SwiftBindings",
+                    LibraryPath = wrapperLibrary,
                     EntryPoint = entryPoint,
                     MethodName = "PInvoke_GetOptionalTag",
                     ReturnType = "uint",
@@ -292,7 +296,7 @@ namespace BindingsGeneration
             {
                 PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
                 {
-                    LibraryPath = "SwiftBindings",
+                    LibraryPath = wrapperLibrary,
                     EntryPoint = entryPoint,
                     MethodName = "PInvoke_GetOptionalTag",
                     ReturnType = "uint",

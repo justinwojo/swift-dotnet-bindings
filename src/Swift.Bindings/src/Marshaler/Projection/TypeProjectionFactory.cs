@@ -309,9 +309,9 @@ public class TypeProjectionFactory
             return new StringProjection();
 
         // Foundation.Data is hand-rolled in SwiftBindings.Apple under Swift.Foundation.Data.
-        // AppleSupplementResolver short-circuits this identity (not a machine-generated entry),
-        // so TryGetTypeRecord does not record the Apple supplement dependency — record it
-        // explicitly so the consumer's csproj picks up the PackageReference.
+        // This branch returns a projection outright and never reaches TryGetTypeRecord, so the
+        // resolver-level recording that covers the XML and NamedTypeSpec paths cannot fire here —
+        // record explicitly so the consumer's csproj picks up the PackageReference.
         if (name == "Foundation.Data")
         {
             AppleSupplementReferences.Record("Foundation.Data", "TypeProjectionFactory:FoundationData");
@@ -677,6 +677,16 @@ public class TypeProjectionFactory
         var bridgedName = AppleFrameworkRegistry.TryGetNetTypeName(named.Name, out var remappedConcreteName)
             ? remappedConcreteName
             : named.Name;
+
+        // The emitted C# is about to name a type from another module's binding, so the csproj needs
+        // that sibling's PackageReference — exactly as on the resolved path. The resolution-time
+        // recorders cannot see this one: there is no TypeRecord, which is the whole premise of the
+        // fallback. Recording here rather than at the two callers keeps the obligation attached to
+        // the decision that creates it (both the Optional Path-3 and collection-element callers route
+        // through this method), so a third caller inherits it instead of silently reopening the gap.
+        ResolvedReferenceRecorder.RecordUnresolvedModuleReference(
+            named.Module, "TypeProjectionFactory:ConcreteClassFallback");
+
         return new ClassProjection(bridgedName);
     }
 

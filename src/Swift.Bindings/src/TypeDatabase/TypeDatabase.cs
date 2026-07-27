@@ -85,6 +85,10 @@ namespace BindingsGeneration
         /// </summary>
         public string? AsyncLibraryName { get; set; }
 
+        /// <inheritdoc/>
+        public IReadOnlySet<string> StaticallyMergedModules { get; set; } =
+            System.Collections.Immutable.ImmutableHashSet<string>.Empty;
+
         /// <summary>
         /// Finding 47: once frozen (after the main module is finalized into the database, see
         /// Program.cs), every loaded module's registry is immutable to structural writes and the
@@ -694,6 +698,10 @@ namespace BindingsGeneration
             {
                 if (strategy.TryResolve(spec, context, out var result) && result.Record is not null)
                 {
+                    // The second (and last) place a resolved record surfaces — the raw-SwiftTypeName
+                    // surface that ~85 callers reach the cascade through. Without this the XML-database
+                    // arms resolve a projection into a package the emitted csproj never references.
+                    ResolvedReferenceRecorder.Record(result.Record, $"strategy:{strategy.Name}");
                     record = result.Record;
                     return true;
                 }
@@ -835,13 +843,24 @@ namespace BindingsGeneration
             return false;
         }
 
-        /// <summary>
-        /// Retrieves the library path for the specified module.
-        /// </summary>
-        /// <param name="moduleName">The name of the module.</param>
-        /// <returns>The file path of the library associated with the module.</returns>
-        /// <exception cref="Exception">Thrown if the library path does not exist for the specified module.</exception>
+        /// <inheritdoc/>
         public string GetLibraryPath(string moduleName)
+        {
+            var declared = GetDeclaredLibraryPath(moduleName);
+
+            // Static-merge redirect. A static `ar` source is force-loaded into the wrapper and then
+            // dropped from every consumer reference and pack site, so its declared library name
+            // (e.g. the bare vendor module name) resolves to nothing at load time — a DllNotFound on
+            // ordinary API use. The wrapper linked those objects in and exports their symbols, so it
+            // is the only name an import may carry. Inert unless StaticallyMergedModules is non-empty.
+            if (!string.IsNullOrEmpty(AsyncLibraryName) && StaticallyMergedModules.Contains(moduleName))
+                return AsyncLibraryName!;
+
+            return declared;
+        }
+
+        /// <inheritdoc/>
+        public string GetDeclaredLibraryPath(string moduleName)
         {
             if (!_modules.TryGetValue(moduleName, out var moduleDatabase))
             {

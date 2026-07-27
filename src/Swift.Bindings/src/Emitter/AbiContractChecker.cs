@@ -295,7 +295,8 @@ public static class AbiContractChecker
     /// </param>
     /// <returns>Validation result with any detected violations.</returns>
     public static AbiCheckResult Validate(
-        string csOutput, string moduleName, ILogger logger, string? wrapperLibraryName = null)
+        string csOutput, string moduleName, ILogger logger, string? wrapperLibraryName = null,
+        IReadOnlySet<string>? staticallyMergedModules = null)
     {
         var pinvokes = ExtractPInvokes(csOutput, moduleName, wrapperLibraryName);
 
@@ -304,7 +305,7 @@ public static class AbiContractChecker
         // rule whose premise depends on that wrapper existing.
         var hasWrapperLibrary = !string.IsNullOrEmpty(wrapperLibraryName);
 
-        var deduplicated = ComputeViolations(pinvokes, hasWrapperLibrary);
+        var deduplicated = ComputeViolations(pinvokes, hasWrapperLibrary, staticallyMergedModules);
 
         // Log warnings for each violation
         foreach (var violation in deduplicated)
@@ -329,7 +330,8 @@ public static class AbiContractChecker
     /// and no-plan-backstop checks of a call they must see.
     /// </summary>
     internal static ImmutableArray<AbiCheckViolation> ComputeViolations(
-        ImmutableArray<PInvokeInfo> pinvokes, bool hasWrapperLibrary)
+        ImmutableArray<PInvokeInfo> pinvokes, bool hasWrapperLibrary,
+        IReadOnlySet<string>? staticallyMergedModules = null)
     {
         var violations = new List<AbiCheckViolation>();
 
@@ -339,7 +341,7 @@ public static class AbiContractChecker
             violations.AddRange(CheckCC002_NonBlittableReturn(pinvoke));
             violations.AddRange(CheckCC003_CdeclTargetsWrongLib(pinvoke, hasWrapperLibrary));
             violations.AddRange(CheckCC004_CdeclMangledSymbol(pinvoke));
-            violations.AddRange(CheckTjThunkCrossModule(pinvoke));
+            violations.AddRange(CheckTjThunkCrossModule(pinvoke, staticallyMergedModules));
         }
 
         // De-duplicate by (RuleId, MethodName, EntryPoint) — the same identity ValidateModule reconciles on,
@@ -369,20 +371,21 @@ public static class AbiContractChecker
         IReadOnlyCollection<AbiCallPlan> plans,
         string moduleName,
         ILogger logger,
-        string? wrapperLibraryName = null)
+        string? wrapperLibraryName = null,
+        IReadOnlySet<string>? staticallyMergedModules = null)
     {
         var hasWrapperLibrary = !string.IsNullOrEmpty(wrapperLibraryName);
 
         // Typed validation over the plan-backed subset — the primary oracle. Each violation carries the
         // plan's owning artifact for loop attribution.
-        var typed = ValidatePlans(plans, moduleName, wrapperLibraryName);
+        var typed = ValidatePlans(plans, moduleName, wrapperLibraryName, staticallyMergedModules);
         var typedKeys = new HashSet<(string, string, string)>();
         foreach (var t in typed)
             typedKeys.Add((t.Violation.RuleId, t.Violation.MethodName, t.Violation.EntryPoint));
 
         // Text scan over the whole emitted module — the cross-check and backstop.
         var textPinvokes = ExtractPInvokes(csOutput, moduleName, wrapperLibraryName);
-        var textViolations = ComputeViolations(textPinvokes, hasWrapperLibrary);
+        var textViolations = ComputeViolations(textPinvokes, hasWrapperLibrary, staticallyMergedModules);
 
         // A call is plan-backed when a recorded plan shares its (MethodName, EntryPoint).
         var planBacked = new HashSet<(string, string)>();
@@ -440,7 +443,8 @@ public static class AbiContractChecker
     /// to Swift CC, so the 91-false-positive CC-004 class cannot fire on a plan.
     /// </summary>
     internal static ImmutableArray<AbiAttributedViolation> ValidatePlans(
-        IReadOnlyCollection<AbiCallPlan> plans, string moduleName, string? wrapperLibraryName)
+        IReadOnlyCollection<AbiCallPlan> plans, string moduleName, string? wrapperLibraryName,
+        IReadOnlySet<string>? staticallyMergedModules = null)
     {
         var hasWrapperLibrary = !string.IsNullOrEmpty(wrapperLibraryName);
         var wrapperLibName = moduleName + "SwiftBindings";
@@ -457,7 +461,7 @@ public static class AbiContractChecker
                 attributed.Add(new AbiAttributedViolation(v, info.Owner));
             foreach (var v in CheckCC004_CdeclMangledSymbol(info))
                 attributed.Add(new AbiAttributedViolation(v, info.Owner));
-            foreach (var v in CheckTjThunkCrossModule(info))
+            foreach (var v in CheckTjThunkCrossModule(info, staticallyMergedModules))
                 attributed.Add(new AbiAttributedViolation(v, info.Owner));
         }
 
@@ -633,13 +637,22 @@ public static class AbiContractChecker
     /// library, and keying the check on the emitting module would report every such call. Only
     /// dispatch thunks are checked — extension methods dispatch statically and get no Tj suffix,
     /// so a symbol reaching here always names its declaring module first.
+    ///
+    /// <para>
+    /// <paramref name="staticallyMergedModules"/> names the one condition under which a library
+    /// other than the declaring module's own dylib legitimately exports the thunk: a static
+    /// <c>ar</c> source force-loaded into the companion wrapper. Passing it null (the default, and
+    /// what every dynamic-source run does) leaves the rule at its strictest — a wrapper-bound thunk
+    /// is then always a violation.
+    /// </para>
     /// </remarks>
     internal static ImmutableArray<AbiCheckViolation> CheckTjThunkCrossModule(
-        ImmutableArray<PInvokeInfo> pinvokes)
+        ImmutableArray<PInvokeInfo> pinvokes,
+        IReadOnlySet<string>? staticallyMergedModules = null)
     {
         var violations = new List<AbiCheckViolation>();
         foreach (var pinvoke in pinvokes)
-            violations.AddRange(CheckTjThunkCrossModule(pinvoke));
+            violations.AddRange(CheckTjThunkCrossModule(pinvoke, staticallyMergedModules));
         return violations.ToImmutableArray();
     }
 
@@ -649,12 +662,14 @@ public static class AbiContractChecker
     /// the text scan (<see cref="ComputeViolations"/>) or from typed plan validation
     /// (<see cref="ValidatePlans"/>).
     /// </summary>
-    internal static ImmutableArray<AbiCheckViolation> CheckTjThunkCrossModule(PInvokeInfo pinvoke)
+    internal static ImmutableArray<AbiCheckViolation> CheckTjThunkCrossModule(
+        PInvokeInfo pinvoke,
+        IReadOnlySet<string>? staticallyMergedModules = null)
     {
-        // Only check mangled symbols targeting original library
+        // Only check mangled symbols
         if (!pinvoke.EntryPoint.StartsWith(ManglingProbes.StablePrefix))
             return ImmutableArray<AbiCheckViolation>.Empty;
-        if (pinvoke.TargetLibrary != TargetLibraryKind.OriginalLibrary)
+        if (pinvoke.TargetLibrary == TargetLibraryKind.SwiftCore)
             return ImmutableArray<AbiCheckViolation>.Empty;
 
         // Must be a Tj dispatch thunk
@@ -666,8 +681,26 @@ public static class AbiContractChecker
         if (extractedModule == null)
             return ImmutableArray<AbiCheckViolation>.Empty;
 
-        if (LibraryIdentityMatchesModule(pinvoke.LibraryName, extractedModule))
+        if (pinvoke.TargetLibrary == TargetLibraryKind.WrapperLibrary)
+        {
+            // A thunk bound to the companion wrapper. The rule's premise — "only the declaring
+            // module's dylib exports this symbol" — has exactly one exception: when that module's
+            // native is a static `ar` archive, the wrapper force-loaded its objects and DOES export
+            // the thunk (and the source is dropped from packaging, so the wrapper is the only name
+            // that resolves). Accept that case and only that case.
+            //
+            // This arm is NEW coverage, not a relaxation: before the static-merge redirect existed,
+            // a wrapper-bound thunk short-circuited out of this rule entirely and was never judged.
+            // It now acts as the independent oracle for the redirect — if the emitter ever redirects
+            // a thunk whose owning module was not merged, the build fails here instead of shipping
+            // an EntryPointNotFoundException.
+            if (staticallyMergedModules != null && staticallyMergedModules.Contains(extractedModule))
+                return ImmutableArray<AbiCheckViolation>.Empty;
+        }
+        else if (LibraryIdentityMatchesModule(pinvoke.LibraryName, extractedModule))
+        {
             return ImmutableArray<AbiCheckViolation>.Empty;
+        }
 
         return ImmutableArray.Create(new AbiCheckViolation
         {

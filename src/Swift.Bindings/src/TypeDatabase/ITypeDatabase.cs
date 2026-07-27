@@ -70,12 +70,35 @@ public interface ITypeDatabase
         => TryGetTypeRecord(swiftTypeName, out record);
 
     /// <summary>
-    /// Retrieves the library path for the specified module.
+    /// Retrieves the library a P/Invoke against <paramref name="moduleName"/>'s symbols must bind:
+    /// the module's own declared native, EXCEPT when that native is a static <c>ar</c> archive that
+    /// was force-loaded into the companion wrapper (<see cref="StaticallyMergedModules"/>), in which
+    /// case the wrapper is the sole runtime carrier of the module's symbols and is returned instead.
+    /// This is the emission-time counterpart of the packaging decision
+    /// <c>NativePackagingPolicy.ShouldIncludeSourceXcframework</c> makes: the same condition that
+    /// drops the source xcframework from every consumer reference also makes the source's library
+    /// name unresolvable at runtime, so no emitted import may name it.
     /// </summary>
     /// <param name="moduleName">The name of the module.</param>
-    /// <returns>The file path of the library associated with the module.</returns>
+    /// <returns>The library name/path an import of this module's symbols should carry.</returns>
     /// <exception cref="Exception">Thrown if the library path does not exist for the specified module.</exception>
     public string GetLibraryPath(string moduleName);
+
+    /// <summary>
+    /// The module's own declared native, with the static-merge redirect in
+    /// <see cref="GetLibraryPath"/> deliberately NOT applied.
+    ///
+    /// <para>
+    /// Reserved for the metadata accessor's recovery arm — the <c>PInvoke_getMetadata_fallback</c>
+    /// import reached only from the <c>catch (DllNotFoundException)</c> / <c>catch
+    /// (EntryPointNotFoundException)</c> around the wrapper-bound primary. That arm exists precisely
+    /// for the case where the wrapper is absent, so naming the wrapper there would make both arms
+    /// identical and collapse the recovery path into a no-op. Every other site wants
+    /// <see cref="GetLibraryPath"/>: it is the sole path to the symbol, so it must name a library
+    /// that actually ships.
+    /// </para>
+    /// </summary>
+    public string GetDeclaredLibraryPath(string moduleName) => GetLibraryPath(moduleName);
 
     /// <summary>
     /// Gets the library name for async wrapper functions.
@@ -83,6 +106,22 @@ public interface ITypeDatabase
     /// If null, falls back to the module's library path.
     /// </summary>
     public string? AsyncLibraryName { get; }
+
+    /// <summary>
+    /// Modules whose native slice is a static <c>ar</c> archive that the Swift wrapper
+    /// (<see cref="AsyncLibraryName"/>) force-loaded, making the wrapper the sole runtime carrier of
+    /// their symbols. Empty for the ordinary dynamic case — the overwhelming majority of bindings —
+    /// so every consumer of this set is inert unless a static source was actually merged.
+    ///
+    /// <para>
+    /// Membership is decided by the generator command from the SAME predicate that gates packaging
+    /// (<c>NativePackagingPolicy.ShouldIncludeSourceXcframework</c> returning <c>false</c>), never by
+    /// a parallel re-derivation, so emission and packaging cannot drift into a binding that imports
+    /// a library the package does not ship.
+    /// </para>
+    /// </summary>
+    public IReadOnlySet<string> StaticallyMergedModules =>
+        System.Collections.Immutable.ImmutableHashSet<string>.Empty;
 
     /// <summary>
     /// The explicit <see cref="BindingsGeneration.GenerationMode"/> for this run, derived once

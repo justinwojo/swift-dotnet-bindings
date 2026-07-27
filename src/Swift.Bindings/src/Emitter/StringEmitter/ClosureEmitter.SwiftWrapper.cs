@@ -1304,9 +1304,11 @@ public static partial class ClosureEmitter
     /// <summary>
     /// Gets the Swift argument label for a parameter. Delegates to the canonical
     /// <see cref="CdeclParamMapper.BuildSwiftCallArgLabel"/> (provenance-aware: prefers the
-    /// parser-captured <see cref="BaseDecl.OriginalSwiftName"/> and backtick-escapes keywords),
-    /// so labels that genuinely begin with '_' (e.g. <c>_self</c>, <c>__tag</c>) are not corrupted
-    /// by the legacy underscore-stripping recovery.
+    /// parser-captured <see cref="BaseDecl.OriginalSwiftName"/>), so labels that genuinely begin
+    /// with '_' (e.g. <c>_self</c>, <c>__tag</c>) are not corrupted by the legacy
+    /// underscore-stripping recovery. Escaping follows the CALL-site rule
+    /// (<see cref="NameProvider.EscapeSwiftArgumentLabel"/>): a keyword label emits bare, since
+    /// argument position admits it and backticking it there draws a swiftc warning per call.
     /// </summary>
     private static string GetSwiftArgLabel(ArgumentDecl arg)
         => CdeclParamMapper.BuildSwiftCallArgLabel(arg);

@@ -72,6 +72,67 @@ internal static class AppleSupplementResolver
         return false;
     }
 
+    /// <summary>
+    /// Managed namespaces the <c>SwiftBindings.Apple</c> assembly declares, excluding the bare
+    /// <c>Swift</c> namespace (which <c>SwiftBindings.Runtime</c> also declares and which is
+    /// always referenced anyway, so it carries no supplement signal).
+    /// </summary>
+    /// <remarks>
+    /// This — not the manifest — is the ownership oracle for "does referencing this projection
+    /// require the supplement package?". The manifest is a deliberately positive-only include
+    /// list: the hand-rolled canonicals compiled straight into
+    /// <c>Swift.Bindings.Apple/Sources/</c> (<c>Data</c>, <c>URL</c>, <c>URLRequest</c>,
+    /// <c>Measurement</c>, <c>AnyError</c>, <c>ManagedSettings.Token</c>, <c>SwiftUI.Text</c>)
+    /// are excluded from it on purpose so the manifest-driven emitter cannot shadow them. Those
+    /// types reach the generator through the XML type databases instead, and keying the
+    /// supplement reference off manifest membership therefore misses every one of them —
+    /// emitting C# that names an assembly the csproj does not reference.
+    /// Pinned against drift by <c>SupplementNamespaceOwnershipTests</c>, which reads the
+    /// supplement's own sources and asserts this set matches the namespaces it declares.
+    /// </remarks>
+    private static readonly string[] s_ownedNamespaces =
+    {
+        "Swift.ActivityKit",
+        "Swift.CryptoKit",
+        "Swift.Foundation",
+        "Swift.ManagedSettings",
+        "Swift.SwiftUI",
+    };
+
+    /// <summary>
+    /// The managed namespaces owned by <c>SwiftBindings.Apple</c>, in ordinal order.
+    /// </summary>
+    public static IReadOnlyList<string> OwnedNamespaces => s_ownedNamespaces;
+
+    /// <summary>
+    /// True when a resolved projection's managed namespace is supplied by the
+    /// <c>SwiftBindings.Apple</c> package. Nested namespaces count: a manifest entry whose
+    /// declaration path folds into the namespace (e.g.
+    /// <c>Swift.CryptoKit.P256.Signing</c>) is still supplement-owned.
+    /// </summary>
+    public static bool IsSupplementOwnedNamespace(string? managedNamespace)
+    {
+        if (string.IsNullOrEmpty(managedNamespace))
+            return false;
+
+        foreach (var owned in s_ownedNamespaces)
+        {
+            if (managedNamespace.Length == owned.Length)
+            {
+                if (string.Equals(managedNamespace, owned, StringComparison.Ordinal))
+                    return true;
+            }
+            else if (managedNamespace.Length > owned.Length &&
+                     managedNamespace[owned.Length] == '.' &&
+                     managedNamespace.StartsWith(owned, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>True when the manifest contains an entry for the given Swift identity.</summary>
     public static bool Contains(string swiftIdentity) => s_records.Value.ContainsKey(swiftIdentity);
 

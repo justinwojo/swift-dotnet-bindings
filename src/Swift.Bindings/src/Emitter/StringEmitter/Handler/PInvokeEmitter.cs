@@ -1384,31 +1384,56 @@ namespace BindingsGeneration
         private static string ResolveModuleLibraryPath(
             MethodEnvironment methodEnv, ModuleDecl moduleDecl, string entryPoint)
         {
-            var moduleLibPath = methodEnv.TypeDatabase.GetLibraryPath(moduleDecl.Name);
-            return ResolveModuleLibraryPathCore(moduleLibPath, moduleDecl.Name, entryPoint);
+            var db = methodEnv.TypeDatabase;
+            // The DECLARED path, not GetLibraryPath's: the bare-module-name convention test below
+            // must see the module's own library identity. Reading the static-merge-redirected name
+            // would make the test fail for a merged module and silently disable the cross-module
+            // re-target, binding a dependency's thunk to the wrong library.
+            var declaredLibPath = db.GetDeclaredLibraryPath(moduleDecl.Name);
+            return ResolveModuleLibraryPathCore(
+                declaredLibPath, moduleDecl.Name, entryPoint,
+                db.StaticallyMergedModules, db.AsyncLibraryName);
         }
 
         /// <summary>
         /// Pure decision core of <see cref="ResolveModuleLibraryPath"/>, split out so the
         /// cross-module Tj re-target can be unit-tested without a full MethodEnvironment.
-        /// Given the current module's resolved library path, the current module name, and the
+        /// Given the current module's DECLARED library path, the current module name, and the
         /// member's native entry point, return the library the P/Invoke should bind against.
         /// </summary>
+        /// <remarks>
+        /// Two decisions in order. First the cross-module Tj re-target resolves which module OWNS
+        /// (and therefore exports) the symbol. Then the static-merge redirect keys off THAT owner,
+        /// not the module being emitted: when a dependency's thunk is bound and only the primary was
+        /// force-loaded into the wrapper, the dependency is still carried by its own dynamic native
+        /// and must keep naming it. Redirecting on the primary's linkage would point a dynamic
+        /// dependency's thunk at a wrapper that does not export it.
+        /// </remarks>
         internal static string ResolveModuleLibraryPathCore(
-            string moduleLibPath, string moduleName, string entryPoint)
+            string moduleLibPath, string moduleName, string entryPoint,
+            IReadOnlySet<string>? staticallyMergedModules = null, string? wrapperLibraryName = null)
         {
-            if (!string.Equals(moduleLibPath, moduleName, StringComparison.Ordinal))
-                return moduleLibPath;
+            var owningModule = moduleName;
+            var resolved = moduleLibPath;
 
-            if (entryPoint.StartsWith(ManglingProbes.StablePrefix, StringComparison.Ordinal)
+            if (string.Equals(moduleLibPath, moduleName, StringComparison.Ordinal)
+                && entryPoint.StartsWith(ManglingProbes.StablePrefix, StringComparison.Ordinal)
                 && entryPoint.EndsWith(ManglingProbes.DispatchThunkSuffix, StringComparison.Ordinal)
-                && ManglingProbes.TryGetModuleFromMangledName(entryPoint, out var owningModule)
-                && !string.Equals(owningModule, moduleName, StringComparison.Ordinal))
+                && ManglingProbes.TryGetModuleFromMangledName(entryPoint, out var thunkModule)
+                && !string.Equals(thunkModule, moduleName, StringComparison.Ordinal))
             {
-                return owningModule;
+                owningModule = thunkModule;
+                resolved = thunkModule;
             }
 
-            return moduleLibPath;
+            if (!string.IsNullOrEmpty(wrapperLibraryName)
+                && staticallyMergedModules != null
+                && staticallyMergedModules.Contains(owningModule))
+            {
+                return wrapperLibraryName!;
+            }
+
+            return resolved;
         }
     }
 }

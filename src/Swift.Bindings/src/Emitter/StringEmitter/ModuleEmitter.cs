@@ -155,9 +155,13 @@ namespace BindingsGeneration
                 // loop can withdraw just that member; a text-fail / typed-pass disagreement on a
                 // plan-backed call throws AbiValidationInvariantException (a generator invariant
                 // failure, never auto-resolved) rather than surfacing here.
+                // The merged-module set is what lets Tj-XM judge a wrapper-bound dispatch thunk
+                // instead of skipping it: bound to the wrapper it is legal only when that module's
+                // static archive was force-loaded in, so passing the set here makes the checker the
+                // independent oracle for the emitter's static-merge redirect rather than blind to it.
                 var abiResult = AbiContractChecker.ValidateModule(
                     wholeOutput, emissionContext.AbiCallPlans, moduleDecl.Name, _logger,
-                    _typeDatabase.AsyncLibraryName);
+                    _typeDatabase.AsyncLibraryName, _typeDatabase.StaticallyMergedModules);
                 if (!abiResult.IsClean)
                     throw new AbiContractViolationException(moduleDecl.Name, abiResult.Attributed);
 

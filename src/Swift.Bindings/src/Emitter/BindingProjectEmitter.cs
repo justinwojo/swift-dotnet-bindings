@@ -89,6 +89,23 @@ namespace BindingsGeneration
         /// through NuGet restore.
         /// </summary>
         public string? AppleSupplementPrototypeProjectPath { get; init; }
+
+        /// <summary>
+        /// Sibling Apple binding packages the emitted C# actually names — one entry per
+        /// registered cross-framework dependency edge (e.g. a RealityKit binding whose public
+        /// surface returns <c>RealityFoundation.Entity</c> needs
+        /// <c>SwiftBindings.Apple.RealityFoundation</c> on restore).
+        /// </summary>
+        /// <remarks>
+        /// Distinct from <see cref="Dependencies"/>, which carries xcframework-mode
+        /// <c>--framework-dependency</c> edges under the <c>{Module}.Swift.{Platform}</c>
+        /// package convention. Apple system frameworks ship under the
+        /// <c>SwiftBindings.Apple.{Module}</c> convention with a train-bounded version range,
+        /// so the two sets are not interchangeable and are emitted from separate inputs rather
+        /// than coerced into one list. Entries are already deduped, self-filtered and ordered
+        /// by <see cref="AppleFrameworkImportDetector.ResolveDependencies"/>.
+        /// </remarks>
+        public IReadOnlyList<DetectedAppleFrameworkDependency>? AppleSiblingPackageReferences { get; init; }
     }
 
     /// <summary>
@@ -256,6 +273,38 @@ namespace BindingsGeneration
                     dependencyRefs += $"""
 
                     <PackageReference Include="{dep.GetEffectivePackageId(pi)}" Version="{dep.EffectiveVersion}" />{depComment}
+                """;
+                }
+            }
+
+            // Sibling Apple binding packages. Same shape as the dependency refs above but a
+            // different package convention and version scheme (SwiftBindings.Apple.{Module},
+            // bounded to one Apple SDK train), so they are emitted from their own input rather
+            // than folded into FrameworkDependencyInfo. Deduped against the dependency refs by
+            // package id: an xcframework-mode dep and an Apple sibling edge can in principle
+            // name the same package, and NuGet errors on a duplicate PackageReference.
+            var emittedPackageIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (options.Dependencies != null)
+            {
+                foreach (var dep in options.Dependencies)
+                {
+                    if (!dep.IsObjCOnly)
+                        emittedPackageIds.Add(dep.GetEffectivePackageId(pi));
+                }
+            }
+            if (options.AppleSiblingPackageReferences != null)
+            {
+                foreach (var sibling in options.AppleSiblingPackageReferences)
+                {
+                    if (!emittedPackageIds.Add(sibling.PackageId))
+                        continue;
+                    dependencyRefs += $"""
+
+                    <!-- Sibling Apple binding package: the generated bindings name
+                         {XmlEscape(sibling.ModuleName)} types, so consumers need this package on
+                         restore. The range is bounded to one Apple SDK train because each train
+                         publishes a coordinated set of SwiftBindings.Apple.* packages. -->
+                    <PackageReference Include="{XmlEscape(sibling.PackageId)}" Version="{XmlEscape(sibling.VersionRange)}" />
                 """;
                 }
             }

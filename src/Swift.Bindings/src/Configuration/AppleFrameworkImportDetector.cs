@@ -215,10 +215,25 @@ public static class AppleFrameworkImportDetector
         {
             if (string.IsNullOrEmpty(module))
                 continue;
-            // Skip self-references. RealityKit's swiftinterface doesn't `import RealityKit`
-            // but the umbrella-module re-export pattern (RealityFoundation has
-            // compileImportModule="RealityKit") means future modules might.
+            // Skip self-references, in BOTH spellings a module's own types can carry.
+            //
+            // The plain spelling is the obvious one. The second is the umbrella: when Apple marks a
+            // module @_implementationOnly through another (RealityFoundation is declared with
+            // compileImportModule="RealityKit"), the canonical Swift names in the source module's own
+            // ABI JSON are written with the UMBRELLA prefix — RealityFoundation's `Entity` appears as
+            // `RealityKit.Entity`. Those are not cross-framework references; they are this module's
+            // own types wearing the umbrella name. Emitting a PackageReference for them points the
+            // package at the framework it is a facet of, which is a dependency cycle: the umbrella's
+            // own binding legitimately references this one, so NuGet sees
+            // RealityKit -> RealityFoundation -> RealityKit and fails the restore.
+            //
+            // Deliberately ASYMMETRIC — only the current module's umbrella is dropped, never the
+            // reverse. Generating the umbrella (RealityKit) and seeing an import of a source module
+            // (RealityFoundation) IS a real edge: they ship as separate packages, and the umbrella's
+            // emitted C# genuinely names the source module's types.
             if (string.Equals(module, currentModule, StringComparison.Ordinal))
+                continue;
+            if (string.Equals(module, AppleFrameworkRegistry.MapModuleToCompileImport(currentModule), StringComparison.Ordinal))
                 continue;
             if (!seen.Add(module))
                 continue;

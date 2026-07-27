@@ -686,33 +686,13 @@ public static class BindingsGeneratorCommand
             }
         }
 
-        // Auto-detect dependencies from binary linkage (xcframework mode only)
-        List<FrameworkDependencyInfo>? autoDetectedDeps = null;
-        DependencyAnalysisResult? analysisResult = null;
-
-        if (hasXcframework && !noAutoDetect)
-        {
-            analysisResult = BinaryDependencyAnalyzer.Analyze(
-                resolution!.DylibPath, xcframeworkPath!, resolution.ModuleName,
-                platformTarget,
-                wrapperArchitectures?.ToLowerInvariant() ?? "simulator",
-                logger, platformInfo: platformInfo,
-                companionFrameworkPaths: frameworkDependencies);
-            if (analysisResult != null)
-            {
-                autoDetectedDeps = analysisResult.ResolvedDependencies;
-                foreach (var dep in autoDetectedDeps)
-                    logger.LogInformation("Auto-detected dependency: {Module} ({Path})",
-                        dep.ModuleName, dep.XCFrameworkPath);
-                RecordUnresolvedDependencyDegradations(analysisResult.UnresolvedDependencies, logger);
-            }
-            else
-            {
-                RecordSystemicDependencyAnalysisFailure(logger);
-            }
-        }
-
-        // Validate and resolve --framework-dependency options
+        // Validate and resolve --framework-dependency options.
+        // Ordered BEFORE auto-detection on purpose: an explicit dependency overrides whatever
+        // co-located artifact auto-detection would have picked for that module, so the closure has to
+        // be seeded with the overriding artifact. Resolving it afterwards means the closure scans the
+        // artifact that is about to be discarded — its transitive imports survive the merge below
+        // (which only drops the overridden module itself) while the chosen artifact's own imports are
+        // never discovered at all.
         var hasFrameworkDeps = frameworkDependencies != null && frameworkDependencies.Length > 0;
         List<FrameworkDependencyInfo>? resolvedDependencies = null;
 
@@ -747,7 +727,40 @@ public static class BindingsGeneratorCommand
             }
         }
 
-        // Merge auto-detected deps with manual deps (manual takes precedence)
+        // Auto-detect dependencies from binary linkage (xcframework mode only)
+        List<FrameworkDependencyInfo>? autoDetectedDeps = null;
+        DependencyAnalysisResult? analysisResult = null;
+
+        if (hasXcframework && !noAutoDetect)
+        {
+            // Iterated to a fixpoint rather than one pass over the primary: an auto-added dependency
+            // brings its own public surface into the compile-import graph that has to close, so the
+            // set of inputs the run needs is not knowable from the primary's link list alone.
+            analysisResult = DependencyClosureResolver.ResolveToFixpoint(
+                resolution!.DylibPath, xcframeworkPath!, resolution.ModuleName,
+                resolution.SwiftInterfacePath,
+                platformTarget,
+                wrapperArchitectures?.ToLowerInvariant() ?? "simulator",
+                logger, platformInfo: platformInfo,
+                companionFrameworkPaths: frameworkDependencies,
+                preResolvedDependencies: resolvedDependencies);
+            if (analysisResult != null)
+            {
+                autoDetectedDeps = analysisResult.ResolvedDependencies;
+                foreach (var dep in autoDetectedDeps)
+                    logger.LogInformation("Auto-detected dependency: {Module} ({Path})",
+                        dep.ModuleName, dep.XCFrameworkPath);
+                RecordUnresolvedDependencyDegradations(analysisResult.UnresolvedDependencies, logger);
+            }
+            else
+            {
+                RecordSystemicDependencyAnalysisFailure(logger);
+            }
+        }
+
+        // Merge auto-detected deps with manual deps (manual takes precedence). With the closure now
+        // seeded from `resolvedDependencies`, a manual module can no longer be auto-proposed at all —
+        // the guard stays as defence in depth, not as the mechanism.
         if (autoDetectedDeps?.Count > 0)
         {
             var manualModules = new HashSet<string>(
@@ -869,8 +882,40 @@ public static class BindingsGeneratorCommand
             }
         }
 
+        // Gap 2: classify the source framework's native linkage ONCE, HERE — before GenerateBindings
+        // below bakes library names into the emitted C#. The probe is a pure function of the bytes at
+        // resolution.DylibPath and nothing between resolution and the packaging decision at the end of
+        // this method mutates that file, so hoisting it changes nothing except WHEN the answer is
+        // known. It used to be probed only after generation, which is exactly why the emitter could
+        // not see it: a static `ar` source is force-loaded into the wrapper and dropped from every
+        // consumer reference and pack site, yet the emitted P/Invokes still named the vendor module,
+        // so the binding imported a library the package does not ship (DllNotFoundException on
+        // ordinary API use). The packaging sites at the end of this method reuse this same value.
+        var sourceNativeLinkage = resolution != null
+            ? NativeLinkageProbe.Detect(resolution.DylibPath, new SystemCommandRunner(), logger)
+            : NativeLinkage.Dynamic;
+
         // Use the provided library name, or fall back to the dylib path
         var runtimeLibraryName = string.IsNullOrWhiteSpace(libraryName) ? dylibPath : libraryName;
+
+        // The emission-time half of the static-merge decision. Derived from the SAME function that
+        // gates packaging — ShouldIncludeSourceXcframework returning false IS "the wrapper is the sole
+        // carrier" — rather than a parallel re-derivation that could drift from it. The carrier term is
+        // the "will be produced" intent (wouldCompileWrapper), matching what the consumer-targets
+        // emitter uses: under the SDK's two-pass flow the wrapper is not compiled yet when this
+        // generate pass runs.
+        var staticMergedModuleName =
+            resolution != null
+            && !string.IsNullOrWhiteSpace(asyncLibrary)
+            && !NativePackagingPolicy.ShouldIncludeSourceXcframework(sourceNativeLinkage, wouldCompileWrapper)
+                ? resolution.ModuleName
+                : null;
+        if (staticMergedModuleName != null)
+            logger.LogInformation(
+                "Source framework '{Module}' has static native linkage and is force-loaded into wrapper " +
+                "'{Wrapper}' — emitted imports for its symbols will name the wrapper, which is the sole " +
+                "runtime carrier.",
+                staticMergedModuleName, asyncLibrary);
 
         // Apple SYSTEM frameworks: reduce the embedded library name to the bare framework
         // name (e.g. "CryptoKit") so the per-assembly DllImport resolver maps it to /System
@@ -1152,6 +1197,8 @@ public static class BindingsGeneratorCommand
                     EmitsAppleSupplementReference = AppleSupplementReferences.Any,
                     AppleSupplementVersion = appleVersion,
                     AppleSupplementPrototypeProjectPath = prototypeCsproj,
+                    AppleSiblingPackageReferences = ResolveSiblingAppleBindingPackages(
+                        csharpResolution.ModuleName, appleVersion, logger),
                 }, logger);
 
                 // With the verification csproj now on disk, the fingerprint keys the dotnet build's verdict
@@ -1220,7 +1267,7 @@ public static class BindingsGeneratorCommand
                 logger: logger);
         }
 
-        var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, out var depModuleCollisions, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase, descriptorAssemblyNameOverride: assemblyNameOverride, swiftRuntimeVersion: swiftRuntimeVersion, objcBridgeRecords: mixedBridgeRecords, compileWrapper: verifyRecoverCompile, verifyRecoverCsharp: verifyRecoverCsharp);
+        var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, out var depModuleCollisions, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase, descriptorAssemblyNameOverride: assemblyNameOverride, swiftRuntimeVersion: swiftRuntimeVersion, objcBridgeRecords: mixedBridgeRecords, compileWrapper: verifyRecoverCompile, verifyRecoverCsharp: verifyRecoverCsharp, staticMergedModuleName: staticMergedModuleName);
         if (!success)
         {
             context.ExitCode = 1;
@@ -1806,16 +1853,13 @@ public static class BindingsGeneratorCommand
             }
         }
 
-        // Gap 2: classify the source framework's native linkage ONCE, before the mixed ObjC
-        // pipeline runs. When it's a static `ar` archive, the Swift wrapper force-loaded it (sole
-        // carrier) so the source xcframework MUST be dropped from every consumer reference/pack
-        // site — re-linking the same ObjC classes would duplicate-register them. This single
-        // signal feeds the mixed companion emitter (so its own NativeReference follows the same
-        // policy), the binding-project/consumer-targets emitters below, and the SDK's reference
-        // targets (_SwiftBindingSourceNativeLinkage).
-        var sourceNativeLinkage = resolution != null
-            ? NativeLinkageProbe.Detect(resolution.DylibPath, new SystemCommandRunner(), logger)
-            : NativeLinkage.Dynamic;
+        // Gap 2 (continued): sourceNativeLinkage was classified once near the top of this method,
+        // before generation, so the emitter could see it too. When it's a static `ar` archive, the
+        // Swift wrapper force-loaded it (sole carrier) so the source xcframework MUST be dropped from
+        // every consumer reference/pack site — re-linking the same ObjC classes would duplicate-
+        // register them. That single signal feeds the mixed companion emitter (so its own
+        // NativeReference follows the same policy), the binding-project/consumer-targets emitters
+        // below, and the SDK's reference targets (_SwiftBindingSourceNativeLinkage).
         if (sourceNativeLinkage == NativeLinkage.Static)
             logger.LogInformation(
                 "Source framework '{Module}' has static native linkage — wrapper is the sole carrier; " +
@@ -1975,6 +2019,8 @@ public static class BindingsGeneratorCommand
                         EmitsAppleSupplementReference = AppleSupplementReferences.Any,
                         AppleSupplementVersion = appleVersion,
                         AppleSupplementPrototypeProjectPath = appleSupplementPrototypeCsproj,
+                        AppleSiblingPackageReferences = ResolveSiblingAppleBindingPackages(
+                            resolution.ModuleName, appleVersion, logger),
                     }, logger);
                 }
 
@@ -2136,6 +2182,8 @@ public static class BindingsGeneratorCommand
                     ResolvedNamespace = projectResolver.ResolveNamespace(directModuleName),
                     EmitsAppleSupplementReference = AppleSupplementReferences.Any,
                     AppleSupplementPrototypeProjectPath = directPrototypeCsproj,
+                    AppleSiblingPackageReferences = ResolveSiblingAppleBindingPackages(
+                        directModuleName, appleVersion, logger),
                 }, logger);
 
                 // Emit consumer targets too — BindingProjectEmitter unconditionally packs
@@ -2191,6 +2239,48 @@ public static class BindingsGeneratorCommand
                 context.ExitCode = 1;
                 return;
             }
+        }
+    }
+
+    /// <summary>
+    /// Resolves the sibling Apple binding packages the emitted C# actually needs, from the Swift
+    /// modules whose types the generator resolved during this render.
+    /// </summary>
+    /// <remarks>
+    /// <para>The input is <em>use</em>-derived, not import-derived. <c>AppleFrameworkImportDetector.Detect</c>
+    /// answers the same question from a swiftinterface's <c>import</c> lines, which is the right
+    /// source for the SDK's out-of-band <c>--detect-apple-cross-module-deps</c> mode (it has no
+    /// generator run to observe). Inside a generation we have something strictly better: the set of
+    /// types the emitted C# names. An import the public surface never exposes drops out, and a type
+    /// reached through a re-exported umbrella — which no <c>import</c> line mentions — is still
+    /// caught.</para>
+    /// <para>The registry filter inside <c>ResolveDependencies</c> does the rest of the work: only
+    /// modules carrying a <c>packageId</c> in <c>apple-frameworks.json</c> produce an edge, so
+    /// modules resolved out of the OS-resident SDK (or out of the module being generated) contribute
+    /// nothing. Failures are swallowed — a missing reference is a consumer compile error, but a
+    /// crash here would fail a generation that is otherwise sound.</para>
+    /// </remarks>
+    private static IReadOnlyList<DetectedAppleFrameworkDependency>? ResolveSiblingAppleBindingPackages(
+        string? currentModule,
+        string appleVersion,
+        ILogger logger)
+    {
+        if (!CrossModuleBindingReferences.Any)
+            return null;
+
+        try
+        {
+            var resolved = AppleFrameworkImportDetector.ResolveDependencies(
+                CrossModuleBindingReferences.Current, currentModule ?? string.Empty, appleVersion);
+            return resolved.Count > 0 ? resolved : null;
+        }
+        catch (System.Exception ex)
+        {
+            logger.LogWarning(
+                "Could not resolve sibling Apple binding package references ({Message}); the emitted " +
+                "csproj may be missing a PackageReference for a cross-framework type it names.",
+                ex.Message);
+            return null;
         }
     }
 

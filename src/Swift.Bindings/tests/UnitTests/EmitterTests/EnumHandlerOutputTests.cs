@@ -3,7 +3,9 @@
 
 #nullable enable
 
+using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.IO;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -1335,6 +1337,145 @@ public class EnumHandlerOutputTests
 
         Assert.Contains("SBW_GetMetadata_", csOutput);
         Assert.Contains("PInvoke_getMetadata_fallback", csOutput);
+    }
+
+    [Fact]
+    public void Emit_StaticallyMergedSource_SolePathMetadataAccessor_BindsTheWrapper()
+    {
+        // When the source framework's native is a static `ar` archive, it is force-loaded into the
+        // wrapper and dropped from every consumer reference and pack site — so its own library name
+        // resolves to nothing at run time. This accessor is the SOLE path to the type's metadata
+        // (the enclosing-internal gate discards the @_cdecl wrapper, so there is no recovery arm),
+        // which makes naming the dropped library an unconditional DllNotFoundException on first use.
+        var typeDatabase = CreateXCFrameworkTypeDatabase();
+        typeDatabase.StaticallyMergedModules = ImmutableHashSet.Create("TestModule");
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var outerDecl = CreateEnumDecl("Parser", moduleDecl, isFrozen: true);
+        outerDecl.IsModuleInternal = true;
+
+        var enumDecl = CreateEnumDecl("State", moduleDecl, isFrozen: true);
+        enumDecl.ParentDecl = outerDecl;
+        var payloadCase = CreateCase("boxed");
+        payloadCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(payloadCase);
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Equal("TestModuleSwiftBindings", LibraryImportedBy(csOutput, "PInvoke_getMetadata"));
+    }
+
+    [Fact]
+    public void Emit_DynamicSource_SolePathMetadataAccessor_BindsTheSourceLibrary()
+    {
+        // The discrimination guard for the test above, and the shape of every ordinary binding:
+        // a dynamic source ships its own dylib and exports its own mangled accessor. The wrapper
+        // defines only SBW_/SBSW_ symbols, so redirecting here would turn a working import into an
+        // EntryPointNotFoundException. The redirect must be inert without a static-merge fact.
+        var typeDatabase = CreateXCFrameworkTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var outerDecl = CreateEnumDecl("Parser", moduleDecl, isFrozen: true);
+        outerDecl.IsModuleInternal = true;
+
+        var enumDecl = CreateEnumDecl("State", moduleDecl, isFrozen: true);
+        enumDecl.ParentDecl = outerDecl;
+        var payloadCase = CreateCase("boxed");
+        payloadCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(payloadCase);
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Equal("/tmp/TestModule.dylib", LibraryImportedBy(csOutput, "PInvoke_getMetadata"));
+    }
+
+    [Fact]
+    public void Emit_StaticallyMergedSource_MetadataFallbackArm_KeepsNamingTheSourceLibrary()
+    {
+        // The deliberate exclusion. The fallback import is reached ONLY from the
+        // catch (DllNotFoundException) / catch (EntryPointNotFoundException) around the
+        // wrapper-bound SBW_GetMetadata_ primary — i.e. exactly when the wrapper is missing — so
+        // trying the source's own native is the recovery the arm exists to perform. Redirecting it
+        // to the wrapper would make both arms name the same library, deleting a recovery path while
+        // appearing to fix something. Only imports that are the SOLE path to their symbol move.
+        var typeDatabase = CreateXCFrameworkTypeDatabase();
+        typeDatabase.StaticallyMergedModules = ImmutableHashSet.Create("TestModule");
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("State", moduleDecl, isFrozen: true);
+        var payloadCase = CreateCase("boxed");
+        payloadCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(payloadCase);
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Equal(
+            "/tmp/TestModule.dylib", LibraryImportedBy(csOutput, "PInvoke_getMetadata_fallback"));
+        // …and the primary it recovers from is still the wrapper-bound cdecl thunk, so the two arms
+        // stay genuinely different libraries.
+        Assert.Contains("SBW_GetMetadata_", csOutput);
+    }
+
+    [Fact]
+    public void Emit_NoStaticMerge_ProducesByteIdenticalOutputWhateverOtherModulesWereMerged()
+    {
+        // The load-bearing safety property of the static-merge redirect, asserted on whole emitted
+        // output rather than argued: with this module absent from the merged set, emission is
+        // byte-for-byte what it is today. Both halves matter — the default database is the exact
+        // configuration every other test in this file (and every dynamic-source binding) runs
+        // under, and the unrelated-member case proves membership is keyed per module rather than
+        // acting as a global "a static merge happened somewhere" mode.
+        static string Emit(ImmutableHashSet<string>? merged)
+        {
+            var typeDatabase = CreateXCFrameworkTypeDatabase();
+            if (merged != null)
+                typeDatabase.StaticallyMergedModules = merged;
+
+            var moduleDecl = CreateModuleDecl("TestModule");
+            var enumDecl = CreateEnumDecl("State", moduleDecl, isFrozen: true);
+            var payloadCase = CreateCase("boxed");
+            payloadCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+            enumDecl.Cases.Add(payloadCase);
+            enumDecl.Cases.Add(CreateCase("idle"));
+
+            var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+            return csOutput;
+        }
+
+        var today = Emit(null);
+
+        Assert.Equal(today, Emit(ImmutableHashSet<string>.Empty));
+        Assert.Equal(today, Emit(ImmutableHashSet.Create("SomeOtherModule")));
+    }
+
+    /// <summary>
+    /// The library name on the <c>LibraryImport</c> attribute of the emitted extern
+    /// <paramref name="pinvokeName"/>. Reads the attribute nearest above the declaration rather
+    /// than string-matching a whole emitted block, so it stays honest about WHICH import carries
+    /// which library when several externs differ only in that.
+    /// </summary>
+    private static string LibraryImportedBy(string csOutput, string pinvokeName)
+    {
+        var lines = csOutput.Split('\n');
+        for (var i = 0; i < lines.Length; i++)
+        {
+            // "partial" pins this to the extern DECLARATION, never a call site that happens to sit
+            // a few lines below some other extern's attribute.
+            if (!lines[i].Contains(pinvokeName + "(", StringComparison.Ordinal)
+                || !lines[i].Contains("partial", StringComparison.Ordinal))
+                continue;
+
+            for (var j = i; j >= 0 && j > i - 8; j--)
+            {
+                var marker = lines[j].IndexOf("LibraryImport(\"", StringComparison.Ordinal);
+                if (marker < 0)
+                    continue;
+
+                var start = marker + "LibraryImport(\"".Length;
+                var end = lines[j].IndexOf('"', start);
+                return lines[j][start..end];
+            }
+        }
+
+        Assert.Fail($"No LibraryImport found for P/Invoke '{pinvokeName}' in:\n{csOutput}");
+        return string.Empty;
     }
 
     [Fact]

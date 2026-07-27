@@ -835,10 +835,14 @@ namespace BindingsGeneration
                         _writer.WriteLine(line);
                     _writer.WriteLine();
 
-                    // Fallback P/Invoke targeting the dylib's metadata accessor directly
+                    // Fallback P/Invoke targeting the dylib's metadata accessor directly.
+                    // Declared (un-redirected) library on purpose: this arm is reached only from the
+                    // catch around the wrapper-bound primary, i.e. exactly when the wrapper is
+                    // missing, so trying the source's own native is the recovery it exists to do.
+                    // Redirecting it to the wrapper would make both arms name the same library.
                     foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
                     {
-                        LibraryPath = libPath,
+                        LibraryPath = _typeDatabase.GetDeclaredLibraryPath(_moduleDecl.Name),
                         EntryPoint = metadataAccessor,
                         MethodName = "PInvoke_getMetadata_fallback",
                         ReturnType = "TypeMetadata",

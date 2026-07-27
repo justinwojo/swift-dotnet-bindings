@@ -342,6 +342,9 @@ internal static class ConformerKeyPathInitFactoryEmitter
         var conformerIdent = KeyPathSingletonEmitter.SanitizeIdentifier(conformerForName);
         var depIdent = KeyPathSingletonEmitter.SanitizeIdentifier(shape.DepClass.Name);
         var containerCsName = $"{conformerIdent}{depIdent}Factory";
+        // The factory's SBW_EPF_ trampoline lives in the companion wrapper, so the P/Invoke must
+        // bind the wrapper this run was configured to emit — never a constant.
+        var wrapperLibrary = PInvokeEmitHelper.ResolveWrapperLibrary(typeDatabase);
         var keyPathFlavor = shape.KeyPathIsWritable ? "WritableKeyPath" : "KeyPath";
         var methodName = $"CreateFrom{Capitalize(shape.KeyPathArgLabel)}";
         var depGlobalBase = EnsureGlobalPrefix(shape.DepClassCSharpBaseName);
@@ -398,7 +401,7 @@ internal static class ConformerKeyPathInitFactoryEmitter
             AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
                 csWriter, availability, parentAnnotations: null);
             csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
-            csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"SwiftBindings\", EntryPoint = \"{symbol}\")]");
+            csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{wrapperLibrary}\", EntryPoint = \"{symbol}\")]");
             csWriter.WriteLine($"private static partial IntPtr {pinvokeName}({PInvokeEmitHelper.DeduplicateCSharpParamNames(string.Join(", ", pinvokeParams))});");
             csWriter.WriteLine();
 

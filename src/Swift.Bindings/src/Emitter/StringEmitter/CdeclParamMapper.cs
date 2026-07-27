@@ -924,11 +924,13 @@ public static class CdeclParamMapper
     /// <summary>
     /// Builds the Swift argument label (<c>"label: "</c>) for a call site, or <c>""</c> for unlabeled
     /// positions. Recovers the raw Swift label via <see cref="BaseDecl.GetSwiftName"/> (which prefers
-    /// <see cref="BaseDecl.OriginalSwiftName"/>) and backtick-escapes via <see cref="NameProvider.EscapeSwiftKeyword"/>
-    /// so labels that spell Swift keywords (<c>default</c>, <c>in</c>, ...) emit valid Swift, and
-    /// subscript index positions marked unlabeled via <see cref="ArgumentDecl.IsUnlabeledSubscriptIndex"/>
-    /// emit no label at all. Falls back to the legacy underscore-stripping recovery for ArgumentDecls
-    /// that were parsed before the OriginalSwiftName field was populated for that path.
+    /// <see cref="BaseDecl.OriginalSwiftName"/>) and escapes via
+    /// <see cref="NameProvider.EscapeSwiftArgumentLabel"/> — the CALL-site rule, not the declaration
+    /// rule: a keyword label is legal bare here, and backticking it anyway earns a swiftc warning per
+    /// emitted call. Subscript index positions marked unlabeled via
+    /// <see cref="ArgumentDecl.IsUnlabeledSubscriptIndex"/> emit no label at all. Falls back to the
+    /// legacy underscore-stripping recovery for ArgumentDecls that were parsed before the
+    /// OriginalSwiftName field was populated for that path.
     /// </summary>
     internal static string BuildSwiftCallArgLabel(ArgumentDecl arg)
     {
@@ -941,11 +943,22 @@ public static class CdeclParamMapper
 
         // Prefer the parser-captured original Swift name; otherwise fall back to the legacy
         // underscore-stripping recovery for callers whose ArgumentDecl construction predates
-        // the OriginalSwiftName population. EscapeSwiftKeyword handles the keyword case in
-        // either path, so a `default:` label round-trips as `` `default`: ``.
+        // the OriginalSwiftName population. Either path yields the RAW Swift label, so a
+        // `default:` label round-trips as `default:` — bare, because this is call-argument
+        // position (only `inout` still needs backticks there).
         var swiftLabel = arg.OriginalSwiftName
             ?? (name.StartsWith("_") ? name.Substring(1) : name);
-        return $"{NameProvider.EscapeSwiftKeyword(swiftLabel)}: ";
+
+        // The unlabeled check has to be re-applied to the RECOVERED label, not just to `name`: an
+        // OriginalSwiftName of "_" survives the guard above (the C# name is the substituted one) and
+        // would emit `_: `, which does not parse. Matches the subscript sibling's
+        // NameProvider.HasNoExternalSubscriptLabel, which guards the same recovered value; keeping the
+        // two builders symmetric is the point, since either can be handed an ArgumentDecl built
+        // outside the parser.
+        if (swiftLabel == "_" || string.IsNullOrEmpty(swiftLabel))
+            return "";
+
+        return $"{NameProvider.EscapeSwiftArgumentLabel(swiftLabel)}: ";
     }
 
     internal static string GetSwiftRawValueType(string? rawValueTypeName) => rawValueTypeName switch

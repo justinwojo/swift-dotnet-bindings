@@ -168,9 +168,13 @@ namespace BindingsGeneration
 
                     // Fallback P/Invoke targeting the dylib's metadata accessor directly.
                     // Raw Swift mangled symbol — must pair with CallConvSwift.
+                    // Declared (un-redirected) library on purpose: this arm is reached only from the
+                    // catch around the wrapper-bound primary, i.e. exactly when the wrapper is
+                    // missing, so trying the source's own native is the recovery it exists to do.
+                    // Redirecting it to the wrapper would make both arms name the same library.
                     foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
                     {
-                        LibraryPath = libPath,
+                        LibraryPath = _typeDatabase.GetDeclaredLibraryPath(_moduleDecl.Name),
                         EntryPoint = _enumDecl.MetadataAccessor,
                         MethodName = "PInvoke_getMetadata_fallback",
                         ReturnType = "TypeMetadata",

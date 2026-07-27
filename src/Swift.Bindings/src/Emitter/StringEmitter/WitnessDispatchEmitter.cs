@@ -2516,7 +2516,11 @@ public class WitnessDispatchEmitter
             var param = method.CSSignature[i];
             var label = GetSwiftParameterLabel(param);
             var argRef = param.IsInOut ? $"&{callArgs[argIdx]}" : callArgs[argIdx];
-            labeledArgs.Add(label == "_" ? argRef : $"{label}: {argRef}");
+            // Call-argument position: a keyword label is legal bare (and backticking it warns),
+            // except `inout`, which the parser claims as the parameter modifier first.
+            labeledArgs.Add(label == "_"
+                ? argRef
+                : $"{NameProvider.EscapeSwiftArgumentLabel(label)}: {argRef}");
             argIdx++;
         }
         return labeledArgs;

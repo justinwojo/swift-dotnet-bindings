@@ -101,6 +101,7 @@ internal static class ContainedModuleEmission
             // Stale references from a previous module — or from a discarded attempt at this one —
             // must not leak into the emitted csproj.
             AppleSupplementReferences.Reset();
+            CrossModuleBindingReferences.Reset();
 
             // Nothing records report rows before emission, so restarting the session per attempt
             // drops only the discarded attempt's own rows.

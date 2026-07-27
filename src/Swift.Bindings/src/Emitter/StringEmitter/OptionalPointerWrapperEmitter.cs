@@ -607,16 +607,15 @@ public static class OptionalPointerWrapperEmitter
     /// <summary>
     /// Gets the Swift bracket-call label for a subscript index parameter.
     /// Returns "" for unlabeled positions (parser-set <see cref="ArgumentDecl.IsUnlabeledSubscriptIndex"/>),
-    /// otherwise the keyword-safe Swift label followed by ": ". Routes through
-    /// <see cref="NameProvider.GetSubscriptExternalLabel"/> so keyword labels (<c>default</c>,
-    /// <c>in</c>, ...) are backtick-escaped and user labels spelling <c>indexN</c> are preserved
-    /// instead of being mis-classified as the synthetic placeholder.
+    /// otherwise the Swift label followed by ": ". Routes through
+    /// <see cref="NameProvider.GetSubscriptCallArgLabel"/> — the CALL-site sibling of
+    /// <see cref="NameProvider.GetSubscriptExternalLabel"/> — so keyword labels (<c>default</c>,
+    /// <c>in</c>, ...) emit bare (legal in argument position, and backticking them warns) while
+    /// user labels spelling <c>indexN</c> are still preserved instead of being mis-classified as
+    /// the synthetic placeholder.
     /// </summary>
     private static string GetSubscriptArgLabel(ArgumentDecl arg)
-    {
-        var label = NameProvider.GetSubscriptExternalLabel(arg);
-        return label == "_" ? "" : $"{label}: ";
-    }
+        => NameProvider.GetSubscriptCallArgLabel(arg);
 
     /// <summary>
     /// Emits string return body (SBW_Utf8Slice via resultPtr) at the given indent level.

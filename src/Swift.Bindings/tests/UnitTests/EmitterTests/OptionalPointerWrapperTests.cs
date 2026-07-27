@@ -933,9 +933,12 @@ public class OptionalPointerWrapperTests
         // Never a bare keyword parameter declaration, and never the old backtick-escaped declaration.
         Assert.DoesNotContain("_ protocol:", swiftOutput);
         Assert.DoesNotContain("_ `protocol`:", swiftOutput);
-        // The CALL SITE still forwards under the real Swift argument LABEL `protocol` (a keyword,
-        // so backtick-escaped) — `configure(`protocol`: protocolParamVal)` — which is correct Swift.
-        Assert.Contains("`protocol`: protocolParamVal", swiftOutput);
+        // The CALL SITE still forwards under the real Swift argument LABEL `protocol` — but BARE,
+        // as `configure(protocol: protocolParamVal)`. Argument-label position admits a keyword, and
+        // backticking it there draws swiftc's "keyword 'protocol' does not need to be escaped in
+        // argument list" once per emitted call. (`inout` is the sole label that still needs them.)
+        Assert.Contains("configure(protocol: protocolParamVal", swiftOutput);
+        Assert.DoesNotContain("`protocol`: protocolParamVal", swiftOutput);
     }
 
     [Fact]

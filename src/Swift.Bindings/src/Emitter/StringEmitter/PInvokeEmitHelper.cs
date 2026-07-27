@@ -122,6 +122,31 @@ public static class PInvokeEmitHelper
         !string.IsNullOrEmpty(entryPoint) && entryPoint.StartsWith("SBW_", StringComparison.Ordinal);
 
     /// <summary>
+    /// The library name to bind a wrapper (<c>SBW_</c>) entry point against when the run has no
+    /// companion wrapper configured. Only a fallback: it is the conventional wrapper module name,
+    /// and in that mode there is no configured wrapper for it to disagree with.
+    /// </summary>
+    public const string DefaultWrapperLibraryName = "SwiftBindings";
+
+    /// <summary>
+    /// The library a generated <c>SBW_</c> P/Invoke must name. <c>SBW_</c> symbols are emitted only
+    /// into the companion wrapper library, so the bound library has to be the one this run was told
+    /// to emit against (<see cref="ITypeDatabase.AsyncLibraryName"/>) — the wrapper module name is a
+    /// per-run input (<c>--async-library</c>, defaulted to <c>"{Module}SwiftBindings"</c>), never a
+    /// constant. Writing a literal instead compiles, then throws
+    /// <c>EntryPointNotFoundException</c>/<c>DllNotFoundException</c> on first call for every run
+    /// whose wrapper is named anything else, and trips <c>AbiContractChecker</c> CC-003
+    /// (SWIFTBIND093), which fails the whole module closed.
+    /// <para>Every hand-rolled wrapper P/Invoke — one that writes its own <c>LibraryImport</c>
+    /// attribute or builds its own <c>PInvokeEmissionInfo</c>/<c>PInvokeDeclaration</c> instead of
+    /// flowing through <c>PInvokeEmitter</c> — must resolve its library here.</para>
+    /// </summary>
+    public static string ResolveWrapperLibrary(ITypeDatabase typeDatabase) =>
+        string.IsNullOrEmpty(typeDatabase.AsyncLibraryName)
+            ? DefaultWrapperLibraryName
+            : typeDatabase.AsyncLibraryName!;
+
+    /// <summary>
     /// Returns true when <paramref name="entryPoint"/> follows the Swift-CC wrapper-symbol
     /// naming convention (SBSW_… prefix). SBSW_ wrappers are emitted on the Swift side as
     /// <c>@_silgen_name</c> functions whose signature is not C-representable; the C# P/Invoke

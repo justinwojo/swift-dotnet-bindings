@@ -57,6 +57,20 @@ namespace BindingsGeneration
     }
 
     /// <summary>
+    /// Outcome of the Mach-O link-list scan (<c>otool -L</c>) for one binary.
+    /// </summary>
+    /// <remarks>
+    /// Exists so "the scan ran and this binary links nothing" and "the scan could not run" stay
+    /// distinguishable. An empty list cannot express the difference, and folding the failure into an
+    /// absent <em>analysis</em> result discards the caller's other discovery channels along with it.
+    /// </remarks>
+    /// <param name="Succeeded">False when <c>otool</c> exited non-zero; the dependency list is then empty.</param>
+    /// <param name="Dependencies">Link-derived dependencies, deduplicated by framework name.</param>
+    public readonly record struct LinkScanOutcome(
+        bool Succeeded,
+        IReadOnlyList<DetectedDependency> Dependencies);
+
+    /// <summary>
     /// Analyzes Mach-O binary linkage to detect framework dependencies automatically.
     /// Uses otool -L to inspect LC_LOAD_DYLIB / LC_LOAD_WEAK_DYLIB load commands.
     /// </summary>
@@ -139,6 +153,41 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Folds the non-link-derived candidates into the otool-derived set and applies the
+        /// self-reference and already-supplied filters uniformly to both. Order is preserved with the
+        /// link-derived entries first, so the resolve loop keeps its historical ordering and an
+        /// import-derived duplicate never displaces the richer otool record (which carries the real
+        /// install name).
+        /// </summary>
+        private static List<DetectedDependency> MergeDetected(
+            IReadOnlyList<DetectedDependency> detected,
+            IReadOnlyList<DetectedDependency>? additionalDetected,
+            string primaryModuleName,
+            IReadOnlySet<string>? excludeModules)
+        {
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var merged = new List<DetectedDependency>();
+
+            void Consider(DetectedDependency dep)
+            {
+                if (string.Equals(dep.FrameworkName, primaryModuleName, StringComparison.Ordinal))
+                    return;
+                if (excludeModules != null && excludeModules.Contains(dep.FrameworkName))
+                    return;
+                if (seen.Add(dep.FrameworkName))
+                    merged.Add(dep);
+            }
+
+            foreach (var dep in detected)
+                Consider(dep);
+            if (additionalDetected != null)
+                foreach (var dep in additionalDetected)
+                    Consider(dep);
+
+            return merged;
+        }
+
+        /// <summary>
         /// Searches for a sibling xcframework matching the given framework name.
         /// Looks in the same directory, parent directory, and peer subdirectories
         /// of the primary xcframework.
@@ -176,6 +225,45 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Runs the Mach-O link-list scan for one binary and reports whether it ran at all.
+        /// </summary>
+        /// <remarks>
+        /// Split out of <see cref="Analyze"/> so a caller that has a SECOND discovery channel can lose
+        /// this one without losing the run. <see cref="Analyze"/> folds a failure back into its null
+        /// return for the callers that only have this channel; a caller with more than one (see
+        /// <see cref="DependencyClosureResolver"/>, which also reads <c>.swiftinterface</c> import
+        /// lines) handles the false outcome itself and still calls <see cref="ResolveDetected"/>.
+        /// </remarks>
+        /// <param name="dylibPath">Binary to scan.</param>
+        /// <param name="moduleName">Owning module name; filters self-references out of the link list.</param>
+        /// <param name="logger">Receives the otool failure detail, if any.</param>
+        /// <param name="commandRunner">Optional command runner for testing.</param>
+        /// <returns>
+        /// The link-derived dependencies with <c>Succeeded = true</c>, or an empty list with
+        /// <c>Succeeded = false</c> when <c>otool</c> exited non-zero. The consequence of a failure is
+        /// deliberately NOT logged here — it differs per caller — only the fact of it.
+        /// </returns>
+        public static LinkScanOutcome ScanLinkedDependencies(
+            string dylibPath,
+            string moduleName,
+            ILogger logger,
+            ICommandRunner? commandRunner = null)
+        {
+            var runner = commandRunner ?? new SystemCommandRunner();
+
+            var (exitCode, stdout, stderr) = runner.Run("otool", $"-L \"{dylibPath}\"");
+            if (exitCode != 0)
+            {
+                logger.LogWarning(
+                    "otool -L failed for '{Module}' (exit code {ExitCode}): {StdErr}.",
+                    moduleName, exitCode, stderr);
+                return new LinkScanOutcome(false, Array.Empty<DetectedDependency>());
+            }
+
+            return new LinkScanOutcome(true, ParseOtoolOutput(stdout, moduleName));
+        }
+
+        /// <summary>
         /// Analyzes binary dependencies of a dylib and resolves matching sibling xcframeworks.
         /// </summary>
         /// <param name="dylibPath">Path to the primary dylib.</param>
@@ -193,6 +281,20 @@ namespace BindingsGeneration
         /// the sibling's ABI generation can resolve a non-co-located companion, mirroring the explicit
         /// dependency path.
         /// </param>
+        /// <param name="additionalDetected">
+        /// Dependencies discovered by some means OTHER than this binary's link list — currently the
+        /// <c>import</c> edges of a supplied <c>.swiftinterface</c>. Merged into the otool-derived set
+        /// before resolution (deduped by framework name, otool entries winning) so both discovery
+        /// channels share one resolve/slice-selection/version-extraction path. A module can be a
+        /// compile-import obligation without appearing in the link list, so the two channels are not
+        /// redundant.
+        /// </param>
+        /// <param name="excludeModules">
+        /// Framework names to drop before resolution — modules already supplied to the run. Resolving
+        /// them again is not merely wasteful (each costs an xcframework resolve plus a metadata
+        /// extraction); it would also re-add an entry the caller must then dedupe, and would enter the
+        /// unresolved list under a misleading reason if its slice were unavailable this pass.
+        /// </param>
         /// <returns>Analysis result, or null if otool fails.</returns>
         public static DependencyAnalysisResult? Analyze(
             string dylibPath,
@@ -203,21 +305,68 @@ namespace BindingsGeneration
             ILogger logger,
             ICommandRunner? commandRunner = null,
             PlatformInfo? platformInfo = null,
-            IReadOnlyList<string>? companionFrameworkPaths = null)
+            IReadOnlyList<string>? companionFrameworkPaths = null,
+            IReadOnlyList<DetectedDependency>? additionalDetected = null,
+            IReadOnlySet<string>? excludeModules = null)
         {
             var runner = commandRunner ?? new SystemCommandRunner();
 
-            // Run otool -L on the primary dylib
-            var (exitCode, stdout, stderr) = runner.Run("otool", $"-L \"{dylibPath}\"");
-            if (exitCode != 0)
+            var linkScan = ScanLinkedDependencies(dylibPath, primaryModuleName, logger, runner);
+            if (!linkScan.Succeeded)
             {
-                logger.LogWarning("otool -L failed (exit code {ExitCode}): {StdErr}. " +
-                    "Automatic dependency detection skipped.", exitCode, stderr);
+                // Preserved verbatim: for a caller whose only discovery channel is the link list, a
+                // failed scan really does mean nothing can be detected, and the null return is the
+                // "systemic analysis failure" signal such callers already handle.
+                logger.LogWarning("Automatic dependency detection skipped for '{Module}'.", primaryModuleName);
                 return null;
             }
 
-            // Parse output
-            var detected = ParseOtoolOutput(stdout, primaryModuleName);
+            return ResolveDetected(
+                linkScan.Dependencies, xcframeworkPath, primaryModuleName, platformTarget,
+                wrapperArchitectures, logger, runner, platformInfo, companionFrameworkPaths,
+                additionalDetected, excludeModules);
+        }
+
+        /// <summary>
+        /// Resolves already-detected dependencies to sibling xcframeworks, whatever channel detected
+        /// them. This is the half of <see cref="Analyze"/> that never needed <c>otool</c>.
+        /// </summary>
+        /// <remarks>
+        /// Reachable without a successful link scan on purpose. Every dependency, link-derived or not,
+        /// goes through one sibling-search / slice-selection / version-extraction path, so a caller
+        /// that contributes candidates from elsewhere does not get a second, divergent resolver.
+        /// </remarks>
+        /// <param name="linkDetected">
+        /// Link-derived dependencies (<see cref="ScanLinkedDependencies"/>). Pass an empty list when
+        /// the link scan did not run — the other channels' candidates are still resolved.
+        /// </param>
+        /// <param name="xcframeworkPath">Anchor xcframework for the sibling search.</param>
+        /// <param name="primaryModuleName">Owning module name; filters self-references.</param>
+        /// <param name="platformTarget">Platform target for xcframework slice selection.</param>
+        /// <param name="wrapperArchitectures">Wrapper architectures scope.</param>
+        /// <param name="logger">Logger instance.</param>
+        /// <param name="commandRunner">Optional command runner for testing.</param>
+        /// <param name="platformInfo">Platform info for slice selection.</param>
+        /// <param name="companionFrameworkPaths">See the same parameter on <see cref="Analyze"/>.</param>
+        /// <param name="additionalDetected">See the same parameter on <see cref="Analyze"/>.</param>
+        /// <param name="excludeModules">See the same parameter on <see cref="Analyze"/>.</param>
+        /// <returns>Analysis result. Never null — resolution has no systemic failure mode of its own.</returns>
+        public static DependencyAnalysisResult ResolveDetected(
+            IReadOnlyList<DetectedDependency> linkDetected,
+            string xcframeworkPath,
+            string primaryModuleName,
+            XCFrameworkPlatformTarget platformTarget,
+            string wrapperArchitectures,
+            ILogger logger,
+            ICommandRunner? commandRunner = null,
+            PlatformInfo? platformInfo = null,
+            IReadOnlyList<string>? companionFrameworkPaths = null,
+            IReadOnlyList<DetectedDependency>? additionalDetected = null,
+            IReadOnlySet<string>? excludeModules = null)
+        {
+            var runner = commandRunner ?? new SystemCommandRunner();
+
+            var detected = MergeDetected(linkDetected, additionalDetected, primaryModuleName, excludeModules);
             if (detected.Count == 0)
             {
                 return new DependencyAnalysisResult
