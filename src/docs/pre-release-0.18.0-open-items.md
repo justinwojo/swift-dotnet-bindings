@@ -59,8 +59,8 @@ owner decisions (A19, A20, B13, C5, B14/C2/D1 funding, G4 sequencing), and the h
 steps in section F step 3. Note B15 is fixed and committed (`f4e785d5`, regen-verified); its
 residual is the downstream Mappedin repack, not new generator work.
 
-**Execution order lives in section F.** Read it before starting. The short version: test the
-step-0 hypothesis first, because it may collapse B9/B10/B11 into one fix.
+**Execution order: start at §I** — the pending-decisions agenda and the next-sweep plan. §F is
+the historical execution plan, complete through step 3 item 3; §I supersedes its remaining items.
 
 **Hard constraints — these are not negotiable:**
 - **Never `git stash`** — linter hooks detect reverted files and `stash pop` discards changes silently.
@@ -333,6 +333,42 @@ and its tests. Good candidate for delegation (Grok CLI); Lane A is not.
 | H2 | PKG | **Agent worktrees under `.claude/worktrees/`** — at least four (`agent-a8e7be4395c90a492`, `agent-a34a938885b48dc6c`, `agent-a1883ee7e9575661c`, `agent-a9ba038284d333e5e`). Not investigated. Note the standing rule: worktrees must never live under a `~/.claude/` config dir, but a **repo-local** `.claude/worktrees/` is acceptable. Check for unmerged work before removing — in SB the equivalent sweep found all content already on main, but that was verified commit-by-commit, not assumed. |
 | H3 | SB | Eight SB worktrees and six associated branches were removed 2026-07-27 after verifying every commit's content was already on `main` (three branches had been re-landed under rewritten SHAs; two `RELEASE-NOTES.md` commits are correctly release-branch-only and captured in tags). One orphaned fixture was rescued from them — see the changelog. **Done, recorded so it is not re-investigated.** |
 | H4 | SB | **`BindingTests/output/.target-platform` currently reads `tvos`** (the last regen was the tvOS gate run). The next `nuke binding-tests --skip-regen` for any *other* platform will refuse to run until a full regen executes for that platform. This is the guard working as designed, not a defect — recorded so the refusal is not misread as a regression. First post-hold run on another platform: drop `--skip-regen` once. |
+
+---
+
+## I. Pending owner decisions + next-sweep plan — THE FRESH SESSION'S ENTRY POINT
+
+**Status: AWAITING OWNER RULINGS (presented with recommendations 2026-07-27; not yet ruled).**
+If the owner rules "agreed as recommended", record each ruling in §G and execute the plan below.
+An individual override replaces only its line. Do not start sweep work before the rulings land.
+
+| # | Decision | Recommendation (NOT yet ruled) |
+|---|---|---|
+| I1 | A19 — identity ratchet armed only on iOS sim | Seed all five platforms during the sweep, from that sweep's green runs; device first (NativeAOT is where a test can vanish silently). |
+| I2 | A20 — five raised runtime pass floors | Keep. Already enacted via isolated commit `d3929da7` under the blanket commit authorization; if overruled, revert is exactly `git revert d3929da7`. |
+| I3 | Sweep scope — what rides before the regression | Fund in the sweep: **B14** (skip-report fidelity), **C2's 3 genuine bugs + the top-ranked recoverable** (registered Apple `valueTypes` get no value-type record, `TypeDatabaseExtensions.cs:833-834`), and the **A6 secondary** (make the macOS/Catalyst runtime lanes fail-closed on generator exit by default, `--permissive` demoting — matching `--compile-only` semantics). Defer **D1** (6 corpus compile-reds, +7 greens) to post-release: corpus scaffolding, not shipped packages. |
+| I4 | C5 — zero-surface packages live on NuGet | Close as correct-as-is: they are functional native-dependency carriers, correctly `[Transitive]`-labeled, and siblings depend on them at restore. No generator change. |
+| I5 | B13 — verify-recover absent in Apple-framework mode | Defer to `not-planned.md` with trigger (next Apple-framework catalog addition, or any red that recovery would have caught). No current red needs it; pre-release is the wrong time for a safety-net rework. |
+| I6 | H1 — 98 stale local branches | Enumerate-and-confirm sweep whenever convenient; needs an explicit owner go per the prior over-deletion incident. Zero release bearing. |
+
+**Sweep plan once rulings land** (§F is historical — complete through step 3 item 3; this
+supersedes its remaining items):
+
+1. Record the rulings in §G.
+2. **Funded fixes, each with tests** (per I3): B14; the 3 C2 bugs + top recoverable; the A6
+   fail-closed lane flip. Gate each with `nuke test` + `nuke binding-tests --compile-only`, then a
+   sim run. These are generator/harness changes — do them BEFORE the downstream regression so it
+   runs against the final tree.
+3. **Cheap closures (delegable):** C3 — download the undetermined nupkgs from nuget.org and repeat
+   the binary diff (list in `not-planned.md`); B15 residual — the literal-nupkg Mappedin smoke can
+   fold into A12.
+4. **Re-green the SB gate matrix** (§A shape). Respect H4: the first non-tvOS binding-tests run
+   must drop `--skip-regen` once. Seed A19 identity baselines from these runs if I1 is agreed.
+5. **On explicit owner go, in order:** push `main` → A12 packages regression (includes the
+   Mappedin repack, which purges B15's 403 vendor-named imports from the shipped package) →
+   A13 IBT runs → A14 corpus sweep → cut `release/sdk-0.18.0+apple-26.2.8` (G3: floor stays 16).
+6. **Post-NuGet (0.18.0 live):** B12 hand-authored ref removal in the same change as the packages
+   pin bump; commit the B1/B2 fixes in the packages repo; D1 if the owner funds it.
 
 ---
 
