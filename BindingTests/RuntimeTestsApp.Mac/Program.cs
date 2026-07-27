@@ -61,35 +61,45 @@ public class Program
                 ResultsPath = args[i + 1];
                 i++;
             }
+            else if (args[i] == "--run-token" && i + 1 < args.Length)
+            {
+                TestRunFlags.RunToken = args[i + 1];
+                i++;
+            }
         }
 
         // Register resolver for bundled frameworks BEFORE any Swift types are accessed.
         SwiftFrameworkResolver.RegisterForAssembly(Assembly.GetExecutingAssembly());
 
-        // Run tests on a background thread while pumping the main thread's NSRunLoop.
-        // Swift async continuations dispatch via GCD, which requires an active run loop
-        // on the main thread to service dispatch sources and timers. Without this,
-        // Swift Task.sleep and async callbacks never complete, causing 5s timeouts.
-        var completion = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        // Two requirements have to hold at once here.
+        //
+        // The suite must run ON the main thread: fixtures deliberately exercise
+        // @MainActor-isolated Swift declarations (MainActorTests,
+        // GenericMainActorDispatchTests), and the runtime's main-actor guard refuses those
+        // from anywhere else — running the suite on a threadpool thread reports failures
+        // against the runner's threading model rather than the binding under test.
+        //
+        // The main thread must ALSO keep pumping its run loop: Swift async continuations
+        // hop back through GCD, so without an active main run loop the main dispatch queue
+        // is never drained and Task.sleep / async callbacks never complete (5s timeouts).
+        //
+        // Those are only compatible if the suite's awaits *resume* on the main thread
+        // instead of blocking it, which is what the synchronization context below buys:
+        // continuations are posted to the main dispatch queue and drained by the pump.
+        // iOS and tvOS get this exact arrangement from UIApplication.Main; macOS has no
+        // NSApplication, so the runner assembles it by hand.
+        SynchronizationContext.SetSynchronizationContext(new MainQueueSynchronizationContext());
 
-        Task.Run(async () =>
-        {
-            try
-            {
-                completion.SetResult(await RunTestsAsync());
-            }
-            catch (Exception ex)
-            {
-                completion.SetException(ex);
-            }
-        });
+        // Started, not awaited: RunTestsAsync runs inline on the main thread up to its
+        // first suspension, after which the pump below drives it to completion.
+        var suite = RunTestsAsync();
 
-        while (!completion.Task.IsCompleted)
+        while (!suite.IsCompleted)
         {
             NSRunLoop.Current.RunUntil(NSDate.FromTimeIntervalSinceNow(0.01));
         }
 
-        return completion.Task.GetAwaiter().GetResult();
+        return suite.GetAwaiter().GetResult();
     }
 
     static async Task<int> RunTestsAsync()
@@ -112,7 +122,7 @@ public class Program
             ? Path.Combine(ResultsPath, "test-results.jsonl")
             : Path.Combine(Directory.GetCurrentDirectory(), "test-results.jsonl");
         TestLogger.Info($"JSONL output: {jsonlPath}");
-        results.InitializeJsonl(jsonlPath);
+        results.InitializeJsonl(jsonlPath, TestRunFlags.RunToken);
 
         try
         {

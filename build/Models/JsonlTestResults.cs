@@ -27,6 +27,14 @@ public class JsonlTestResults
     public int FailedFromSummary { get; private set; }
     public int SkippedFromSummary { get; private set; }
 
+    /// <summary>
+    /// The per-launch identity token the app stamped as the first line of the file
+    /// (<c>{"run_token":"…"}</c>), or null if the file carries none. Null means the file was
+    /// written by an app build that predates run tokens, or by a hand-launched app — in either
+    /// case it CANNOT be attributed to a harness launch. See <see cref="HasMatchingRunToken"/>.
+    /// </summary>
+    public string? RunToken { get; private set; }
+
     public int PassCount => Tests.Count(t => t.Status == "pass");
     public int FailCount => Tests.Count(t => t.Status == "fail");
     public int SkipCount => Tests.Count(t => t.Status == "skip");
@@ -50,7 +58,11 @@ public class JsonlTestResults
                 using var doc = JsonDocument.Parse(line.Trim());
                 var root = doc.RootElement;
 
-                if (root.TryGetProperty("class_done", out var classDone))
+                if (root.TryGetProperty("run_token", out var runToken))
+                {
+                    results.RunToken = runToken.GetString();
+                }
+                else if (root.TryGetProperty("class_done", out var classDone))
                 {
                     results.CompletedClasses.Add(classDone.GetString()!);
                 }
@@ -90,9 +102,88 @@ public class JsonlTestResults
     }
 
     /// <summary>
+    /// Extracts the <c>run_token</c> value from a JSONL string, or null if no token line is
+    /// present. The app writes the token as the first line, but this scans every line so a
+    /// harmless leading log line (or a future record ordering change) cannot hide it.
+    /// </summary>
+    public static string? ExtractRunToken(string? jsonlContent)
+    {
+        if (string.IsNullOrWhiteSpace(jsonlContent))
+            return null;
+
+        foreach (var line in jsonlContent!.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(line.Trim());
+                if (doc.RootElement.ValueKind == JsonValueKind.Object &&
+                    doc.RootElement.TryGetProperty("run_token", out var token) &&
+                    token.ValueKind == JsonValueKind.String)
+                {
+                    return token.GetString();
+                }
+            }
+            catch (JsonException)
+            {
+                // Truncated/malformed line — keep scanning (crash-safe by design).
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Returns true only if <paramref name="jsonlContent"/> proves it was produced by the launch
+    /// identified by <paramref name="expectedRunToken"/>.
+    /// </summary>
+    /// <remarks>
+    /// <b>Why this exists.</b> The runtime-test app writes its results into its own <b>persistent</b>
+    /// data container, which survives reinstall on both simulator and physical device. When a launch
+    /// fails outright — e.g. <c>devicectl</c> returning CoreDeviceError 10002 / NSPOSIXErrorDomain 22
+    /// (EINVAL), where the process never starts — the harness's sandbox copy still succeeds and hands
+    /// back the <em>previous</em> run's file. Scoring that as the current run's result produces a
+    /// fully green gate for a run that executed nothing. A per-launch token minted by the harness,
+    /// stamped into the file by the app, and checked here is what makes recovered results provably
+    /// belong to the launch that was just attempted.
+    ///
+    /// <b>Fail-closed by design — do NOT "tolerate" a missing token.</b> A file with no
+    /// <c>run_token</c> line at all is rejected, not trusted. A token-less file is exactly what a
+    /// stale pre-token artifact looks like, so accepting it would reopen the false-green hole for
+    /// precisely the case this guard exists to close. If an older app build is in the sandbox, the
+    /// correct outcome is "no results recovered" (and a rebuild), not "assume it's ours". The same
+    /// goes for an empty <paramref name="expectedRunToken"/>: with nothing to match against there is
+    /// no proof to be had, so the answer is false.
+    /// </remarks>
+    public static bool HasMatchingRunToken(string? jsonlContent, string? expectedRunToken)
+        => TokensMatch(ExtractRunToken(jsonlContent), expectedRunToken);
+
+    /// <summary>
+    /// Instance form of <see cref="HasMatchingRunToken"/> for callers that already parsed the file
+    /// (the host-side macOS / Mac Catalyst paths read the artifact straight off disk). Same
+    /// fail-closed rule: a null <see cref="RunToken"/> is a rejection, never a pass.
+    /// </summary>
+    public bool MatchesRunToken(string? expectedRunToken) => TokensMatch(RunToken, expectedRunToken);
+
+    /// <summary>
+    /// The single place the token rule is expressed: both sides must be present AND equal.
+    /// Two nulls are NOT a match — that pairing is what a stale token-less artifact plus a
+    /// mis-plumbed harness would look like, and it must not read as proof of anything.
+    /// </summary>
+    static bool TokensMatch(string? actual, string? expected)
+        => !string.IsNullOrEmpty(actual)
+           && !string.IsNullOrEmpty(expected)
+           && string.Equals(actual, expected, StringComparison.Ordinal);
+
+    /// <summary>
     /// Merges another set of results into this one. Used for aggregating multiple runs
     /// after crash recovery. Last result for a given test wins (dedup by ClassName.TestName).
     /// </summary>
+    /// <remarks>
+    /// <see cref="RunToken"/> is deliberately NOT merged: it identifies one launch's file, while an
+    /// aggregate spans several launches with different tokens. Each file is validated against its own
+    /// launch token at recovery time (see <see cref="HasMatchingRunToken"/>), before it ever reaches
+    /// this method, so the aggregate has no use for a single token and must not appear to carry one.
+    /// </remarks>
     public void Merge(JsonlTestResults other)
     {
         // Build lookup of existing tests

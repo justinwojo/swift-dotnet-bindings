@@ -259,7 +259,14 @@ public static class SimCtl
     /// Copies JSONL test results from the app's sandbox Documents directory on the simulator.
     /// Returns the file contents, or null if retrieval failed.
     /// </summary>
-    public static string? CopyResultsFromSandbox(string udid, string bundleId)
+    /// <param name="expectedRunToken">
+    /// The token this launch passed to the app via <c>--run-token</c>. The recovered file must carry
+    /// a matching <c>run_token</c> line or it is discarded (returns null, exactly as a missing file
+    /// does). `simctl install` over an existing app PRESERVES the data container, so a launch that
+    /// never started the process (or a resume attempt that died before writing) would otherwise
+    /// recover the previous run's results and have them scored as this run's.
+    /// </param>
+    public static string? CopyResultsFromSandbox(string udid, string bundleId, string expectedRunToken)
     {
         try
         {
@@ -273,14 +280,69 @@ public static class SimCtl
             if (string.IsNullOrEmpty(containerPath))
                 return null;
 
-            var jsonlPath = Path.Combine(containerPath, "Documents", "test-results.jsonl");
-            if (File.Exists(jsonlPath))
+            // The runners write to Environment.SpecialFolder.MyDocuments, which does NOT
+            // resolve to <container>/Documents on every Apple platform. tvOS has no
+            // persistent per-app Documents directory, so the runtime maps MyDocuments to
+            // <container>/Library/Caches/Documents — the iOS-shaped probe alone misses a
+            // tvOS run's artifact entirely, and the caller then (correctly) refuses to
+            // certify a green run that had no results file. Probe both shapes rather than
+            // branching on platform: the names are distinct, so the first hit carrying THIS
+            // launch's token is unambiguous, and an iOS container is unaffected by the
+            // extra check.
+            string[] candidates =
+            [
+                Path.Combine(containerPath, "Documents", "test-results.jsonl"),
+                Path.Combine(containerPath, "Library", "Caches", "Documents", "test-results.jsonl"),
+            ];
+
+            // Fail closed per candidate: no token, or a token from an earlier launch, means THAT file
+            // cannot be attributed to this launch — but it says nothing about the other shape, which
+            // may hold the real results. A stale Documents/ file left by an earlier iOS run must not
+            // hide a live tvOS result at the Library/Caches/ path. If nothing carries a matching
+            // token the probe yields null, so the caller's existing "JSONL retrieval failed" path
+            // runs — an honest "no results recovered" rather than a silent false green built out of a
+            // stale container artifact.
+            var probe = SandboxResultProbe.Probe(
+                candidates, expectedRunToken,
+                path => File.Exists(path) ? File.ReadAllText(path) : null);
+
+            // States only what a single rejected candidate proves — that THIS file is stale — because
+            // a later candidate may still be accepted. The outcome of the probe is reported by the
+            // accepted/none-found lines below; a per-candidate "treating it as no results recovered"
+            // would read as false to an operator whose results were in fact recovered from the other
+            // container shape.
+            foreach (var stale in probe.Rejected)
             {
-                Log.Debug("Reading JSONL from sandbox: {Path}", jsonlPath);
-                return File.ReadAllText(jsonlPath);
+                Log.Warning(
+                    "Skipping simulator JSONL at {Path}: run-token mismatch (expected {Expected}, " +
+                    "file carries {Actual}). The data container survives install, so this file is left " +
+                    "over from an earlier run and cannot be attributed to this launch.",
+                    stale.Path, expectedRunToken, stale.ActualToken);
             }
 
-            Log.Debug("JSONL file not found in sandbox: {Path}", jsonlPath);
+            if (probe.Content != null)
+            {
+                Log.Debug("Reading JSONL from sandbox: {Path}", probe.AcceptedPath);
+                return probe.Content;
+            }
+
+            // Whether nothing was found or only stale files were, the outcome is the same — this
+            // launch recovered no results — but a container holding a stale file is worth saying out
+            // loud, since that is the state a false green would have been built out of. That
+            // statement lives here, once, where it is actually true.
+            if (probe.Rejected.Count > 0)
+            {
+                Log.Warning(
+                    "No JSONL carrying this launch's run token in the sandbox — {Stale} stale file(s) " +
+                    "skipped, nothing recovered for this launch. Probed: {Paths}",
+                    probe.Rejected.Count, string.Join(", ", candidates));
+            }
+            else
+            {
+                Log.Debug("No JSONL attributable to this launch in sandbox; probed: {Paths}",
+                    string.Join(", ", candidates));
+            }
+
             return null;
         }
         catch (Exception ex)

@@ -140,8 +140,9 @@ partial class Build
         Log.Information("    app bundle: {Path}", appPath);
 
         Log.Information("=== mixed-direct: deploying + launching consumer on the simulator ===");
-        var sim = !string.IsNullOrEmpty(DeviceUdid)
-            ? new SimCtl.SimDevice(DeviceUdid, "pre-booted", "Booted", true, "")
+        var simUdid = SimulatorUdidFor("--mixed-direct");
+        var sim = !string.IsNullOrEmpty(simUdid)
+            ? new SimCtl.SimDevice(simUdid, "pre-booted", "Booted", true, "")
             : SimCtl.EnsureBootedDevice();
         Log.Information("    simulator: {Name} ({Udid})", sim.Name, sim.Udid);
         var result = LaunchUntilAppRuns(

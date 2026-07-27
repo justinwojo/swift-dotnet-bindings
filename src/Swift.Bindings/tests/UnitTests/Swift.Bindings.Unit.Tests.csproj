@@ -90,6 +90,41 @@
          IsAotCompatible + warnings-as-errors. TestResult.cs rides along for the enum + LaunchResult. -->
     <Compile Include="../../../../build/Models/LaunchDiagnostics.cs" Link="Models/LaunchDiagnostics.cs" />
     <Compile Include="../../../../build/Models/TestResult.cs" Link="Models/TestResult.cs" />
+    <!-- Link-compile the async-wrapper gate policy for the same reason: the load-bearing decision is
+         that a failed wrapper build is FATAL by default and only the permissive flag downgrades it. Four
+         runtime-test legs used to ignore the flag entirely, which turned one Mac Catalyst wrapper
+         failure into 1296 unexplained test failures. BCL-only string work, AOT-clean. -->
+    <Compile Include="../../../../build/Models/AsyncWrapperGate.cs" Link="Models/AsyncWrapperGate.cs" />
+    <!-- Link-compile the resume-on-crash attempt budget. The loops widen their bound by one for each
+         launcher abort (an attempt in which the app never started produced no test signal, so it must
+         not cost a crash-recovery retry), and every give-up point has to read that same widened
+         budget. It used to be recomputed inline at seven sites and six compared the bare attempt
+         index against maxRetries, so one launcher abort silently cost a product retry and left real
+         test classes unrun. BCL-only arithmetic, AOT-clean. -->
+    <Compile Include="../../../../build/Models/CrashRecoveryBudget.cs" Link="Models/CrashRecoveryBudget.cs" />
+    <!-- Link-compile the sandbox results probe for the same reason: the harness cannot exercise it
+         without a booted simulator, but the decision it makes — first candidate carrying THIS
+         launch's run token wins, a mismatched candidate disqualifies only itself, and no match at all
+         yields nothing rather than a stale file — is exactly the logic that must not drift. BCL-only
+         (it reads files through an injected accessor), AOT-clean. -->
+    <Compile Include="../../../../build/Models/SandboxResultProbe.cs" Link="Models/SandboxResultProbe.cs" />
+    <!-- Link-compile the shared-UDID routing rule. The device-udid parameter is ONE value read by
+         both the physical-device legs (devicectl) and the simulator legs (simctl), so the documented
+         both-platforms invocation handed a phone's UDID to `simctl install` and failed with an error
+         that accused the simulator. Five simulator-family legs consume the parameter; the rule that
+         decides which leg owns it is pinned here rather than re-derived at each. BCL-only string
+         work, AOT-clean. -->
+    <Compile Include="../../../../build/Models/SharedUdidRouting.cs" Link="Models/SharedUdidRouting.cs" />
+    <!-- Link-compile the runtime-test app's OWN results writer so the run-identity token is tested
+         as a round trip — writer stamps it, harness-side JsonlTestResults reads it back — instead of
+         two hand-copied string literals that could drift apart. That token is what proves a JSONL
+         recovered from the app's PERSISTENT data container belongs to the launch just attempted;
+         without it a launch that never started still "recovers" the previous run's green results.
+         Both files carry their own `#nullable enable`, so they compile cleanly under this project's
+         Nullable=disable + warnings-as-errors. TestLogger rides along because TestResults calls it. -->
+    <Compile Include="../../../../BindingTests/RuntimeTestsApp/Infrastructure/TestResults.cs" Link="RuntimeTestsApp/TestResults.cs" />
+    <Compile Include="../../../../BindingTests/RuntimeTestsApp/Infrastructure/TestRunFlags.cs" Link="RuntimeTestsApp/TestRunFlags.cs" />
+    <Compile Include="../../../../BindingTests/RuntimeTestsApp/Infrastructure/TestLogger.cs" Link="RuntimeTestsApp/TestLogger.cs" />
   </ItemGroup>
 
   <ItemGroup>

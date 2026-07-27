@@ -173,7 +173,7 @@
         },
         "DeviceUdid": {
           "type": "string",
-          "description": "Pre-booted simulator or device UDID"
+          "description": "Pre-booted simulator or device UDID. With --device it identifies the physical device; simulator legs then resolve their own booted simulator"
         },
         "EnableCryptoKitSmoke": {
           "type": "boolean",

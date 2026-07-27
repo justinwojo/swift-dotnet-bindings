@@ -12,8 +12,8 @@ using UIKit;
 namespace RuntimeTestsApp.TvOS;
 
 // Minimal tvOS host. Unlike the iOS host, this runner has no interactive UI:
-// it launches UIApplication, runs the full test suite on a background task from
-// FinishedLaunching, and writes results/markers to Console.WriteLine. The
+// it launches UIApplication, enqueues the full test suite onto the main queue
+// from FinishedLaunching, and writes results/markers to Console.WriteLine. The
 // Nuke-side harness captures stdout via `xcrun simctl launch --console`, looks
 // for "TEST SUCCESS"/"TEST FAILURE", and reaps the process. The tvOS simulator
 // still requires a proper UIApplication lifecycle — we just keep the view
@@ -59,6 +59,11 @@ public class Application
                     ExcludeClasses.Add(name.Trim());
                 i++;
             }
+            else if (effectiveArgs[i] == "--run-token" && i + 1 < effectiveArgs.Length)
+            {
+                TestRunFlags.RunToken = effectiveArgs[i + 1];
+                i++;
+            }
         }
 
         SwiftFrameworkResolver.RegisterForAssembly(Assembly.GetExecutingAssembly());
@@ -85,7 +90,19 @@ public class AppDelegate : UIApplicationDelegate
         Window.RootViewController = new UIViewController();
         Window.MakeKeyAndVisible();
 
-        _ = Task.Run(async () =>
+        // The suite MUST run on the main thread. Fixtures deliberately exercise
+        // @MainActor-isolated Swift declarations (MainActorTests,
+        // GenericMainActorDispatchTests) and UIKit view embedding
+        // (BridgeSimpleViewTests) — the runtime's main-actor guard and UIKit both
+        // refuse those off the main thread, so a threadpool run reports failures
+        // against the runner's threading model instead of the binding under test.
+        // The iOS host gets this for free by kicking the run off inline from
+        // ViewDidLoad; enqueueing onto the main queue here is the same thing
+        // without holding up FinishedLaunching, which must return promptly or the
+        // launch watchdog kills the app. The existing per-class
+        // NSRunLoop.Current.RunUntil pump below only drains the main queue when the
+        // suite is on the main thread, which is the arrangement it was written for.
+        BeginInvokeOnMainThread(async () =>
         {
             try
             {
@@ -120,7 +137,7 @@ public class AppDelegate : UIApplicationDelegate
 
         var jsonlPath = GetJsonlOutputPath();
         TestLogger.Info($"JSONL output: {jsonlPath}");
-        results.InitializeJsonl(jsonlPath);
+        results.InitializeJsonl(jsonlPath, TestRunFlags.RunToken);
 
         try
         {

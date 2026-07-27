@@ -70,6 +70,30 @@ public static class LaunchDiagnostics
     public static bool LauncherNeverStartedApp(LaunchResult result) =>
         LauncherNeverStartedApp(result.Result, result.Output);
 
+    /// <summary>
+    /// How many times a launch is re-attempted when the LAUNCHER aborted before the app started.
+    /// One budget for every caller: the one-shot consumer gates and the RuntimeTests resume loops.
+    /// </summary>
+    public const int MaxLauncherAbortAttempts = 3;
+
+    /// <summary>
+    /// True once <paramref name="abortCount"/> launcher aborts have been observed and the budget is
+    /// spent. The caller must then fail with a launch-specific diagnosis — never a test verdict.
+    /// </summary>
+    public static bool LauncherAbortBudgetExhausted(int abortCount) => abortCount >= MaxLauncherAbortAttempts;
+
+    /// <summary>
+    /// How long to settle before re-attempting a launch the launcher aborted: linear backoff
+    /// (5s, 10s, …) keyed on how many aborts have been seen so far.
+    ///
+    /// The RuntimeTests resume loops previously had no settle at all — a real device run burned all
+    /// six of its attempts in sixteen seconds, re-issuing the identical install→launch pattern each
+    /// time. This is retry pacing only; it is NOT an attempt to make the launch itself succeed, and
+    /// no delay is inserted ahead of a first attempt.
+    /// </summary>
+    public static TimeSpan SettleDelayAfterAbort(int abortCount) =>
+        TimeSpan.FromSeconds(5 * Math.Max(1, abortCount));
+
     static bool ContainsAny(string haystack, string[] needles)
     {
         foreach (var n in needles)

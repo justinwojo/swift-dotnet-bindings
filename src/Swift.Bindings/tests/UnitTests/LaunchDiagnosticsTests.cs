@@ -118,4 +118,54 @@ public class LaunchDiagnosticsTests
         var result = new LaunchResult(TestResult.LaunchFailure, DeviceCtlAbortedOutput, null, null);
         Assert.True(LaunchDiagnostics.LauncherNeverStartedApp(result));
     }
+
+    // ===================================================================
+    //  Launcher-abort retry budget and settle curve
+    //
+    //  The RuntimeTests resume-on-crash loops used to handle LaunchFailure in the SAME branch as
+    //  Crash and Timeout. A launcher abort produced no JSONL and no console markers, so recovery
+    //  fell through to its blind-skip fallback and excluded an arbitrary test class per attempt —
+    //  "recovering" from a failure no test caused, then reporting a test-level verdict for a run in
+    //  which nothing executed. Observed for real: six devicectl aborts in sixteen seconds, five real
+    //  test classes excluded. These pin the separate budget and the settle pacing that replaced it.
+    // ===================================================================
+
+    [Fact]
+    public void AbortBudget_IsNotExhaustedBeforeAnyAbort()
+    {
+        Assert.False(LaunchDiagnostics.LauncherAbortBudgetExhausted(0));
+    }
+
+    [Fact]
+    public void AbortBudget_ToleratesRetriesThenGivesUp()
+    {
+        // Two aborts are retried; the third spends the budget. A caller that keeps going past this
+        // point is re-issuing an identical launch forever, which is what "six attempts in sixteen
+        // seconds" looked like from the outside.
+        Assert.False(LaunchDiagnostics.LauncherAbortBudgetExhausted(1));
+        Assert.False(LaunchDiagnostics.LauncherAbortBudgetExhausted(2));
+        Assert.True(LaunchDiagnostics.LauncherAbortBudgetExhausted(LaunchDiagnostics.MaxLauncherAbortAttempts));
+        Assert.True(LaunchDiagnostics.LauncherAbortBudgetExhausted(LaunchDiagnostics.MaxLauncherAbortAttempts + 1));
+    }
+
+    [Fact]
+    public void SettleDelay_BacksOffBetweenAttempts()
+    {
+        // Strictly increasing: the point of the settle is that a retry is not a carbon copy of the
+        // attempt that just aborted. A flat (or zero) delay is the behaviour being replaced.
+        var first = LaunchDiagnostics.SettleDelayAfterAbort(1);
+        var second = LaunchDiagnostics.SettleDelayAfterAbort(2);
+
+        Assert.True(first > System.TimeSpan.Zero);
+        Assert.True(second > first);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void SettleDelay_IsNeverZeroOrNegative(int abortCount)
+    {
+        // Defensive: a caller that passes a pre-increment count must still wait, never busy-loop.
+        Assert.True(LaunchDiagnostics.SettleDelayAfterAbort(abortCount) > System.TimeSpan.Zero);
+    }
 }

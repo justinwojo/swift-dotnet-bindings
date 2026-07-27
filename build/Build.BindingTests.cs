@@ -113,6 +113,38 @@ partial class Build
     }
 
     /// <summary>
+    /// Extra search paths a Mac Catalyst (<c>-macabi</c>) compile needs on top of the plain
+    /// macOS SDK root, empty for every other target.
+    /// </summary>
+    /// <remarks>
+    /// A macabi target builds against the macOS SDK, but the iOS-flavoured frameworks it is
+    /// allowed to import live under <c>$SDKROOT/System/iOSSupport</c>, which is NOT on the
+    /// default search path. Without it, importing an iOS-shaped framework resolves to the
+    /// *macOS* copy of the headers and dies inside them — e.g. StoreKit's
+    /// <c>SKCloudServiceSetupViewController.h</c> includes <c>&lt;UIKit/UIKit.h&gt;</c>, which
+    /// does not exist in the macOS framework directory, so the whole module fails to build and
+    /// takes the fixture's <c>emit-module</c> with it before the generator ever runs. Verified
+    /// directly: <c>swiftc -typecheck -target arm64-apple-ios15.0-macabi -sdk &lt;MacOSX.sdk&gt;</c>
+    /// on a file whose only content is <c>import StoreKit</c> fails with that exact error and
+    /// succeeds once the iOSSupport framework path is added. The framework path is the load-bearing
+    /// one (it alone is sufficient); the swift module path is its standard companion, needed the
+    /// moment a fixture imports an iOS-only *Swift* module rather than an ObjC one.
+    /// </remarks>
+    static IReadOnlyList<string> GetCatalystSearchPathArgs(string target, string sdkPath)
+    {
+        if (!target.Contains("-macabi", StringComparison.Ordinal))
+            return Array.Empty<string>();
+
+        return
+        [
+            // -Fsystem, not -F: these are SDK headers, and system semantics keep Apple's own
+            // header warnings out of the fixture build's diagnostics.
+            "-Fsystem", Path.Combine(sdkPath, "System", "iOSSupport", "System", "Library", "Frameworks"),
+            "-I", Path.Combine(sdkPath, "System", "iOSSupport", "usr", "lib", "swift"),
+        ];
+    }
+
+    /// <summary>
     /// Compiles a single framework slice (simulator or device) for a given module.
     /// Produces dylib, swiftmodule, swiftinterface, TBD, ABI JSON, and Info.plist.
     /// </summary>
@@ -162,6 +194,10 @@ partial class Build
                 settings.AddExtraArgument(define);
             }
 
+        // Mac Catalyst needs the SDK's iOSSupport search paths; no-op on every other target.
+        foreach (var arg in GetCatalystSearchPathArgs(target, sdkPath))
+            settings.AddExtraArgument(arg);
+
         SwiftCompiler.Execute(settings);
 
         // Copy private swiftinterface (same as public for our purposes)
@@ -193,6 +229,12 @@ partial class Build
                 frontendSettings.AddExtraArgument("-D");
                 frontendSettings.AddExtraArgument(define);
             }
+
+        // The ABI dump re-parses the emitted .swiftinterface, which carries the same imports
+        // the compile above resolved — so it needs the same Catalyst search paths or it fails
+        // on the identical missing-module error one step later.
+        foreach (var arg in GetCatalystSearchPathArgs(target, sdkPath))
+            frontendSettings.AddExtraArgument(arg);
 
         SwiftFrontend.Execute(frontendSettings);
 
@@ -242,12 +284,20 @@ partial class Build
 
         try
         {
+            // Catalyst resolves iOS-flavoured frameworks out of the SDK's iOSSupport tree; without
+            // it this degrades to the "doc comments unavailable" warning below rather than failing,
+            // but the doc comments are worth keeping.
+            var catalystFrameworkPaths = platform.SimulatorTarget.Contains("-macabi", StringComparison.Ordinal)
+                ? new[] { Path.Combine(sdkPath, "System", "iOSSupport", "System", "Library", "Frameworks") }
+                : Array.Empty<string>();
+
             SymbolGraphExtract.Execute(new SymbolGraphExtractSettings()
                 .SetModuleName(ModuleName)
                 .SetTarget(platform.SimulatorTarget)
                 .SetSdk(sdkPath)
                 .AddIncludeSearchPath(simBuildDir)
                 .AddFrameworkSearchPath(simBuildDir)
+                .AddFrameworkSearchPaths(catalystFrameworkPaths)
                 .SetOutputDir(BtSymbolgraphDir)
                 .SetPrettyPrint());
 
@@ -659,16 +709,25 @@ partial class Build
     // BuildAsyncWrapper target — ports build-async-wrapper.sh
     // ============================================================
 
+    // Same gate as every product leg: a target whose entire job is building the wrapper must not
+    // exit 0 when that build failed. Ignoring the return value here made `nuke BuildAsyncWrapper`
+    // the one caller that could report success for a wrapper that never compiled.
     Target BuildAsyncWrapper => _ => _
         .DependsOn(RegenerateBindings)
         .After(CompileCheckBindings)
-        .Executes(() => RunBuildAsyncWrapper());
+        .Executes(() => AssertAsyncWrapperBuilt(RunBuildAsyncWrapper(), "BuildAsyncWrapper target"));
 
     // Returns true on success or no-op (no Swift wrapper files). Returns false when the
     // single-shot compile of the post-processed wrapper fails — the generator's own
     // SwiftWrapperPostProcessor already scrubbed it, so there is no strip-and-retry fallback.
-    // The --compile-only fail-closed gate reads this; existing callers ignore it
-    // because their downstream Tier 3 tests will surface the failure anyway.
+    //
+    // EVERY caller must honour this. Route it through AssertAsyncWrapperBuilt (Build.RuntimeTests.cs),
+    // which hard-fails by default and downgrades to a warning under --permissive. The runtime-test
+    // legs used to ignore it on the theory that "downstream tests will surface the failure anyway";
+    // they do not surface it *as itself*. A Mac Catalyst leg soft-failed the wrapper build, ran on
+    // the stale wrapper, and reported 121 passed / 1296 failed with Done: False — 1296 unexplained
+    // test failures instead of one accurate "the wrapper did not compile". Re-running after the
+    // wrapper compiled gave 2587 / 0 / 37.
     bool RunBuildAsyncWrapper(ApplePlatform? platformOverride = null, AbsolutePath? outputDirOverride = null)
     {
         var platform = platformOverride ?? ResolvedPlatform;
@@ -755,6 +814,15 @@ partial class Build
 
         if (Directory.Exists(depXcfwSliceDir))
             settings.AddFrameworkSearchPath(depXcfwSliceDir + "/");
+
+        // The wrapper `import`s the fixture module, so compiling it re-resolves every framework
+        // the fixture's .swiftinterface names. On Mac Catalyst that means the same iOSSupport
+        // search paths the fixture compile needed: without them `import StoreKit` picks up the
+        // macOS headers, dies on the missing UIKit include, and the wrapper library is silently
+        // skipped — which surfaces later as DllNotFoundException on every wrapper P/Invoke
+        // rather than as a compile error here. No-op on every other target.
+        foreach (var arg in GetCatalystSearchPathArgs(platform.SimulatorTarget, sdkPath))
+            settings.AddExtraArgument(arg);
 
         var process = SwiftCompiler.Run(settings);
         process.WaitForExit();
@@ -963,10 +1031,9 @@ partial class Build
                 RunRegenerateBindings(strict: Strict || failClosed);
                 RunCompileCheck();
 
-                bool wrapperOk = RunBuildAsyncWrapper();
-                if (!wrapperOk && failClosed)
-                    throw new Exception(
-                        "Wrapper compilation failed (single-shot compile of the post-processed wrapper; no strip-and-retry fallback). Fail-closed in --compile-only; pass --permissive to downgrade.");
+                // One policy for every leg (see AssertAsyncWrapperBuilt): hard-fail by default,
+                // --permissive downgrades to a warning.
+                AssertAsyncWrapperBuilt(RunBuildAsyncWrapper(), "--compile-only");
 
                 RunBuildBridge();
                 ReportBindingTestResults();
@@ -1227,11 +1294,15 @@ partial class Build
     // Helpers
     // ============================================================
 
-    // How many times a single-shot consumer gate will re-deploy when the LAUNCHER — not the app —
-    // failed. The RuntimeTests device path already survives this class of failure through its
-    // resume-on-crash loop (it re-installs and re-launches up to 5 times); the one-shot mixed legs
-    // had no equivalent, so one devicectl hiccup reddened a whole pre-release gate.
-    const int LaunchInfraMaxAttempts = 3;
+    // How many times a launch will be re-attempted when the LAUNCHER — not the app — failed.
+    // The budget and the settle curve live on LaunchDiagnostics so the single-shot consumer gates
+    // (LaunchUntilAppRuns, below) and the RuntimeTests resume loops share ONE policy.
+    //
+    // The RuntimeTests loops were once assumed to survive this class of failure already, because
+    // they re-install and re-launch up to 5 times. They do not: an abort produced no results, so
+    // the loop treated it as a crash and blind-excluded an arbitrary test class per attempt —
+    // "recovering" from a failure that no test caused. Aborts are now classified before recovery.
+    const int LaunchInfraMaxAttempts = LaunchDiagnostics.MaxLauncherAbortAttempts;
 
     /// <summary>
     /// Runs <paramref name="deployAndLaunch"/> and returns its result, retrying ONLY when the
@@ -1260,7 +1331,7 @@ partial class Build
                 gateLabel, attempt, LaunchInfraMaxAttempts, result.Output);
 
             if (attempt < LaunchInfraMaxAttempts)
-                Thread.Sleep(TimeSpan.FromSeconds(5));
+                Thread.Sleep(LaunchDiagnostics.SettleDelayAfterAbort(attempt));
         }
 
         Log.Error(

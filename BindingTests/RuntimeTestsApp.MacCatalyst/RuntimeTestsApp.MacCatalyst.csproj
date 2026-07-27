@@ -58,6 +58,7 @@
     <Compile Include="../RuntimeTestsApp/Infrastructure/TestLogger.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/TestRunFlags.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/LifetimeTracker.cs" />
+    <Compile Include="../RuntimeTestsApp/Infrastructure/MainQueueSynchronizationContext.cs" />
   </ItemGroup>
 
   <!-- Global usings shared with RuntimeTestsApp -->

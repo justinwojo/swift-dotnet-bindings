@@ -10,7 +10,14 @@
     <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
     <ApplicationVersion>1</ApplicationVersion>
     <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
-    <NoWarn>CS0169;CS0649;SB0001;SB0002;SB0008;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
+    <!-- CA1418 is suppressed on every RuntimeTestsApp target (iOS, Mac, MacCatalyst) and was
+         missing here only by omission. The AvailabilityFamilyF F-5 fixture deliberately declares
+         a type whose @available list names visionOS, to pin that the emitter lowers the clause
+         instead of silently dropping it. The emitted [SupportedOSPlatform("visionos")] is correct,
+         but "visionos" is not in the known-platform list for a net10.0-tvos compilation, so the
+         analyzer reports it. Suppressing it here does not weaken that fixture's assertion, which
+         is about what the emitter produces, not about what this app's analyzer accepts. -->
+    <NoWarn>CS0169;CS0649;SB0001;SB0002;SB0008;CA1418;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
     <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
   </PropertyGroup>

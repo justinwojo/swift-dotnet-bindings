@@ -41,7 +41,22 @@ using static Nuke.Common.Tools.DotNet.DotNetTasks;
 partial class Build
 {
     [Parameter("Skip all builds, just install + run")] readonly bool SkipBuild;
-    [Parameter("Pre-booted simulator or device UDID")] readonly string? DeviceUdid;
+    [Parameter("Pre-booted simulator or device UDID. With --device it identifies the physical device; simulator legs then resolve their own booted simulator.")]
+    readonly string? DeviceUdid;
+
+    /// <summary>
+    /// The UDID a SIMULATOR leg should pin, or null to let it resolve its own booted simulator.
+    /// Every simulator-family leg routes through this instead of reading <see cref="DeviceUdid"/>
+    /// directly: the parameter is shared with the physical-device leg, and when both legs run in one
+    /// invocation the UDID is the device's. See <see cref="SharedUdidRouting"/>.
+    /// </summary>
+    string? SimulatorUdidFor(string legLabel)
+    {
+        if (SharedUdidRouting.BelongsToDeviceLeg(DeviceUdid, Device))
+            Log.Information("{Notice}", SharedUdidRouting.DiscardNotice(legLabel, DeviceUdid!));
+
+        return SharedUdidRouting.SimulatorUdid(DeviceUdid, Device);
+    }
 
     // Establishes (or re-establishes) the per-test-identity floor for the platform(s) run this
     // invocation, instead of comparing against it. Used for the initial seed and to bless a
@@ -864,7 +879,7 @@ partial class Build
                 RunBuildXcframework();
                 RunRegenerateBindings(strict: Strict);
                 RunCompileCheck();
-                RunBuildAsyncWrapper();
+                AssertAsyncWrapperBuilt(RunBuildAsyncWrapper(), "iOS Simulator / device");
                 RunBuildBridge();
             }
             else
@@ -1107,7 +1122,7 @@ partial class Build
             {
                 RunBuildXcframework(platformOverride: platform);
                 RunRegenerateMacOSBindings(strict: Strict, platformOverride: platform);
-                RunBuildAsyncWrapper(platformOverride: platform);
+                AssertAsyncWrapperBuilt(RunBuildAsyncWrapper(platformOverride: platform), "macOS");
             }
             else
             {
@@ -1221,7 +1236,7 @@ partial class Build
             {
                 RunBuildXcframework(platformOverride: platform);
                 RunRegenerateMacOSBindings(strict: Strict, platformOverride: platform);
-                RunBuildAsyncWrapper(platformOverride: platform);
+                AssertAsyncWrapperBuilt(RunBuildAsyncWrapper(platformOverride: platform), "Mac Catalyst");
             }
             else
             {
@@ -1371,7 +1386,7 @@ partial class Build
             {
                 RunBuildXcframework(platformOverride: platform);
                 RunRegenerateBindings(strict: Strict, platformOverride: platform);
-                RunBuildAsyncWrapper(platformOverride: platform);
+                AssertAsyncWrapperBuilt(RunBuildAsyncWrapper(platformOverride: platform), "tvOS Simulator");
                 RunBuildBridge(platformOverride: platform);
             }
             else
@@ -1413,6 +1428,130 @@ partial class Build
     }
 
     // ============================================================
+    // Shared Helpers: Run-identity tokens
+    //
+    // Every launch of a runtime-test host is stamped with a fresh opaque token, passed to the app
+    // as `--run-token` and written by the app as the first line of its JSONL results file. On
+    // recovery the harness requires the file to carry the token of the launch it just attempted.
+    //
+    // Without this, a launch that never started the process still "recovers" results: the app's
+    // data container is PERSISTENT and survives reinstall on both simulator and device, so the copy
+    // succeeds and yields the PREVIOUS run's file. That was observed for real — six consecutive
+    // `devicectl` launch failures (CoreDeviceError 10002 / NSPOSIXErrorDomain 22 EINVAL), each of
+    // which logged a full "3264 pass, 0 fail (done=True)" summary parsed out of one byte-identical
+    // stale artifact. The run only went red by luck: the stale file predated a newly-added test
+    // class, so the inventory diff kept the retry loop alive. Had it covered every class, the gate
+    // would have certified a green device run that executed nothing.
+    //
+    // Validation (rather than blanking the on-device file before launch) is deliberate: a push/
+    // delete that silently fails leaves stale data behind indistinguishably, whereas a token check
+    // also catches the case where the file simply never got overwritten.
+    // ============================================================
+
+    /// <summary>
+    /// Mints a fresh opaque per-launch identity token. Hex-only, so it needs no quoting through
+    /// `simctl launch` / `devicectl process launch` argv.
+    /// </summary>
+    static string NewRunToken() => Guid.NewGuid().ToString("N");
+
+    /// <summary>
+    /// Gates host-side (macOS / Mac Catalyst) JSONL on the launch token, returning null — the
+    /// same "no results artifact" signal a missing file produces — when the file cannot be proved
+    /// to belong to this launch. ReportRuntimeTestResult already refuses to certify a green run
+    /// with null results (absent --permissive), so a stale artifact degrades to an honest red
+    /// rather than a false green.
+    /// </summary>
+    static JsonlTestResults? ValidateRunToken(JsonlTestResults results, string expectedRunToken, string platform)
+    {
+        // Fail closed: a file with NO run_token is rejected too, not tolerated. A token-less file is
+        // exactly what a stale pre-token artifact looks like, so trusting it would reopen the hole.
+        if (results.MatchesRunToken(expectedRunToken))
+            return results;
+
+        Log.Error("Discarding {Platform} JSONL: run-token mismatch (expected {Expected}, file carries {Actual}). " +
+            "The results file was not written by this launch — treating it as no results recovered.",
+            platform, expectedRunToken, results.RunToken ?? "<none>");
+        return null;
+    }
+
+    // ============================================================
+    // Shared Helpers: Build-step gates
+    // ============================================================
+
+    /// <summary>
+    /// Honours <c>RunBuildAsyncWrapper</c>'s return value: hard-fail by default, warn and proceed
+    /// under <c>--permissive</c>. See <see cref="AsyncWrapperGate"/> for why ignoring it produced
+    /// 1296 unexplained test failures on a Mac Catalyst leg.
+    /// </summary>
+    void AssertAsyncWrapperBuilt(bool wrapperOk, string legLabel)
+    {
+        if (AsyncWrapperGate.ShouldFail(wrapperOk, Permissive))
+            throw new Exception(AsyncWrapperGate.FailureMessage(legLabel));
+
+        if (AsyncWrapperGate.ShouldWarn(wrapperOk, Permissive))
+            Log.Warning("{Message}", AsyncWrapperGate.WarningMessage(legLabel));
+    }
+
+    // ============================================================
+    // Shared Helpers: Launcher-abort classification
+    //
+    // A launch the LAUNCHER aborted is not a test outcome and must not be recovered like a crash.
+    // The resume-on-crash loops used to lump TestResult.LaunchFailure in with Crash and Timeout, so
+    // a failure no test caused drove the class-exclusion machinery: with no JSONL and no console
+    // markers to parse, the loop fell through to its blind-skip fallback and excluded an arbitrary
+    // test class per attempt. Six device attempts in sixteen seconds excluded five real classes and
+    // then reported a test-level verdict for a run in which nothing ever executed.
+    //
+    // The split is on the EVIDENCE, not on the enum value — LaunchFailure is also the bucket for
+    // "the process started and died before printing a verdict", which crash recovery handles
+    // correctly and should keep handling. LaunchDiagnostics.LauncherNeverStartedApp is the existing
+    // conservative discriminator (any app output, or any launcher start confirmation, means
+    // "product result, do not retry"), and it is reused here rather than reimplemented.
+    //
+    // Scope note: this classifies and paces the retry. It does NOT try to make the post-install
+    // launch succeed — that abort is a known, accepted environmental condition.
+    // ============================================================
+
+    /// <summary>
+    /// Classifies a launch result inside a resume-on-crash loop. Returns true when the launcher
+    /// aborted before the app started and the caller should settle and re-attempt the LAUNCH,
+    /// leaving crash-recovery state (aggregated results, excluded classes) untouched.
+    /// Throws when the launcher-abort budget is spent — loudly, specifically, and never as a
+    /// test-level verdict.
+    /// </summary>
+    static bool ShouldRetryLauncherAbort(LaunchResult result, string legLabel, ref int launchAbortCount)
+    {
+        if (!LaunchDiagnostics.LauncherNeverStartedApp(result))
+            return false;
+
+        launchAbortCount++;
+
+        if (LaunchDiagnostics.LauncherAbortBudgetExhausted(launchAbortCount))
+        {
+            Log.Error(
+                "{Leg}: the launcher never started the app in {Max} attempts. Launcher output:\n{Output}",
+                legLabel, LaunchDiagnostics.MaxLauncherAbortAttempts, result.Output);
+
+            throw new Exception(
+                $"{legLabel}: THE APP NEVER LAUNCHED. The launcher aborted before the app's process started on " +
+                $"all {LaunchDiagnostics.MaxLauncherAbortAttempts} attempts, so no test ever executed and this run " +
+                "carries NO verdict about the bindings — it is a deploy/launch failure, not a test failure. " +
+                "Check the device/simulator state (connected, unlocked, developer mode, booted) and the app's " +
+                "code signature. Do not read any recovered results as evidence: the app's data container is " +
+                "persistent, so anything still in it belongs to an earlier run.");
+        }
+
+        var settle = LaunchDiagnostics.SettleDelayAfterAbort(launchAbortCount);
+        Log.Warning(
+            "{Leg}: the launcher aborted before the app started (abort {Count}/{Max}) — no app output, so this " +
+            "attempt carries no test verdict. Re-attempting the launch after {Seconds}s; test-class recovery " +
+            "state is left untouched.",
+            legLabel, launchAbortCount, LaunchDiagnostics.MaxLauncherAbortAttempts, settle.TotalSeconds);
+        Thread.Sleep(settle);
+        return true;
+    }
+
+    // ============================================================
     // Shared Helpers: Simulator Execution
     // ============================================================
 
@@ -1420,8 +1559,9 @@ partial class Build
     {
         Log.Information("--- Running on iOS Simulator ---");
 
-        var device = !string.IsNullOrEmpty(DeviceUdid)
-            ? new SimCtl.SimDevice(DeviceUdid, "pre-booted", "Booted", true, "")
+        var simUdid = SimulatorUdidFor("iOS Simulator");
+        var device = !string.IsNullOrEmpty(simUdid)
+            ? new SimCtl.SimDevice(simUdid, "pre-booted", "Booted", true, "")
             : SimCtl.EnsureBootedDevice();
         Log.Information("Using simulator: {Name} ({Udid})", device.Name, device.Udid);
 
@@ -1447,17 +1587,30 @@ partial class Build
         var aggregated = new JsonlTestResults();
         LaunchResult? lastResult = null;
 
-        for (int attempt = 0; attempt <= maxRetries; attempt++)
+        // Launcher aborts are budgeted SEPARATELY from crash recovery (see ShouldRetryLauncherAbort)
+        // and extend the loop bound, so an attempt in which the app never started does not consume a
+        // crash-recovery retry. Bounded: the abort budget throws well before this can run away.
+        // Every stop condition below reads that budget through CrashRecoveryBudget so the loop bound
+        // and the give-up points cannot disagree about how many attempts remain.
+        var launchAbortCount = 0;
+
+        for (int attempt = 0; CrashRecoveryBudget.CanAttempt(attempt, maxRetries, launchAbortCount); attempt++)
         {
             if (attempt > 0)
-                Log.Information("--- Resume-on-crash: attempt {Attempt}/{MaxRetries} (excluding {Count} classes) ---",
-                    attempt + 1, maxRetries + 1, excludeClasses.Count);
+                Log.Information("--- Resume-on-crash: attempt {Attempt}/{MaxAttempts} (excluding {Count} classes) ---",
+                    attempt + 1, CrashRecoveryBudget.TotalAttempts(maxRetries, launchAbortCount), excludeClasses.Count);
 
             var crashLogsBefore = SimCtl.CountCrashLogs("RuntimeTestsApp");
 
             SimCtl.Install(device.Udid, appPath);
 
-            var args = new List<string> { "--platform", "simulator" };
+            // Fresh identity token per launch ATTEMPT: the app stamps it into its JSONL, and
+            // recovery below refuses any file that doesn't carry it. Per-attempt (not per-run) so
+            // a resume attempt that never wrote results cannot be scored using the prior attempt's
+            // file — the data container persists across install.
+            var runToken = NewRunToken();
+
+            var args = new List<string> { "--platform", "simulator", "--run-token", runToken };
             if (FlakeDetect) args.AddRange(["--flake-detect"]);
             if (Lifetime) args.AddRange(["--lifetime"]);
             if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
@@ -1476,12 +1629,17 @@ partial class Build
             Log.Information("=== APP OUTPUT ===");
             Log.Information(result.Output);
 
+            // Classify BEFORE any recovery: a launch the launcher aborted produced no test signal at
+            // all, so crash recovery has nothing to recover and would blind-exclude an innocent class.
+            if (ShouldRetryLauncherAbort(result, "iOS Simulator", ref launchAbortCount))
+                continue;
+
             // Crash diagnostics
             HandleCrashDiagnostics(result, device.Udid, crashLogsBefore, appName: "RuntimeTestsApp");
 
             // Try to retrieve JSONL results from sandbox
             JsonlTestResults? runResults = null;
-            var jsonlContent = SimCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId);
+            var jsonlContent = SimCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId, runToken);
             if (jsonlContent != null)
             {
                 runResults = JsonlTestResults.Parse(jsonlContent);
@@ -1534,9 +1692,10 @@ partial class Build
 
                         Log.Information("Remaining classes: {Count}", remainingAfterConsole.Count);
 
-                        if (attempt == maxRetries)
+                        if (CrashRecoveryBudget.IsExhausted(attempt, maxRetries, launchAbortCount))
                         {
-                            Log.Error("Max retries ({Max}) reached.", maxRetries);
+                            Log.Error("Crash-recovery budget exhausted after {Max} attempt(s).",
+                                CrashRecoveryBudget.TotalAttempts(maxRetries, launchAbortCount));
                             break;
                         }
 
@@ -1546,7 +1705,7 @@ partial class Build
                     // Neither JSONL nor console output available. Blind-skip the first
                     // remaining class to make progress through the crash-recovery loop.
                     var remainingBlind = eligibleClasses.Except(excludeClasses).OrderBy(c => c).ToList();
-                    if (remainingBlind.Count > 0 && attempt < maxRetries)
+                    if (remainingBlind.Count > 0 && !CrashRecoveryBudget.IsExhausted(attempt, maxRetries, launchAbortCount))
                     {
                         var suspect = remainingBlind[0];
                         Log.Warning("Blind skip: excluding '{Class}' (first remaining — no output to identify crasher).", suspect);
@@ -1602,10 +1761,10 @@ partial class Build
                     remaining.Count, runResults.CompletedClasses.Count,
                     crashingClass != null ? 1 : 0);
 
-                if (attempt == maxRetries)
+                if (CrashRecoveryBudget.IsExhausted(attempt, maxRetries, launchAbortCount))
                 {
-                    Log.Error("Max retries ({Max}) reached. {Remaining} classes not executed.",
-                        maxRetries, remaining.Count);
+                    Log.Error("Crash-recovery budget exhausted after {Max} attempt(s). {Remaining} classes not executed.",
+                        CrashRecoveryBudget.TotalAttempts(maxRetries, launchAbortCount), remaining.Count);
                     break;
                 }
 
@@ -1640,20 +1799,24 @@ partial class Build
             "crash, don't add a retry loop.");
 
         SimCtl.SimDevice device;
-        if (!string.IsNullOrEmpty(DeviceUdid))
+        var tvUdid = SimulatorUdidFor("tvOS Simulator");
+        if (!string.IsNullOrEmpty(tvUdid))
         {
             // Loud-fail on family mismatch: a caller passing an iOS UDID here
             // would otherwise hit a confusing install-time error. Validate
             // against simctl's own device family listing before touching install.
+            // Only reached when the UDID is genuinely meant for a simulator — a UDID that
+            // belongs to a concurrently-requested device leg was already routed away above,
+            // so this no longer rejects the documented --tvos --device combination.
             var tvDevices = SimCtl.ListDevices(SimCtl.TvOSAppleTVFamily.RuntimeFilter);
-            if (!tvDevices.Any(d => string.Equals(d.Udid, DeviceUdid, StringComparison.OrdinalIgnoreCase)))
+            if (!tvDevices.Any(d => string.Equals(d.Udid, tvUdid, StringComparison.OrdinalIgnoreCase)))
             {
                 throw new Exception(
-                    $"--device-udid {DeviceUdid} is not a tvOS simulator. " +
+                    $"--device-udid {tvUdid} is not a tvOS simulator. " +
                     $"`binding-tests --tvos` only accepts tvOS devices; " +
                     $"drop the flag or pass a tvOS UDID from `xcrun simctl list devices tvOS`.");
             }
-            device = new SimCtl.SimDevice(DeviceUdid, "pre-booted", "Booted", true, "");
+            device = new SimCtl.SimDevice(tvUdid, "pre-booted", "Booted", true, "");
         }
         else
         {
@@ -1668,16 +1831,28 @@ partial class Build
 
         SimCtl.Install(device.Udid, appPath);
 
-        var args = new List<string> { "--platform", "simulator" };
-        if (FlakeDetect) args.AddRange(["--flake-detect"]);
-        if (Lifetime) args.AddRange(["--lifetime"]);
-        if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
+        // One-shot by design (no resume-on-crash loop here), but a launch the LAUNCHER aborted is
+        // still not a test outcome — reported as one it reads as "tvOS runtime tests failed". Reuse
+        // the same retry the one-shot consumer gates use; the launcher-abort budget is shared.
+        // A fresh identity token per ATTEMPT: recovery below refuses a JSONL that doesn't carry the
+        // token of the launch that actually ran, so a launch that never started cannot be scored
+        // from the persistent container's previous artifact.
+        var runToken = "";
+        var result = LaunchUntilAppRuns(() =>
+        {
+            runToken = NewRunToken();
 
-        Log.Information("Launching app (timeout: {Timeout}s)...", Timeout);
-        var result = SimCtl.Launch(
-            device.Udid, RuntimeTestsBundleId,
-            args.ToArray(), TimeSpan.FromSeconds(Timeout),
-            appName: "RuntimeTestsApp.tvOS");
+            var args = new List<string> { "--platform", "simulator", "--run-token", runToken };
+            if (FlakeDetect) args.AddRange(["--flake-detect"]);
+            if (Lifetime) args.AddRange(["--lifetime"]);
+            if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
+
+            Log.Information("Launching app (timeout: {Timeout}s)...", Timeout);
+            return SimCtl.Launch(
+                device.Udid, RuntimeTestsBundleId,
+                args.ToArray(), TimeSpan.FromSeconds(Timeout),
+                appName: "RuntimeTestsApp.tvOS");
+        }, "tvOS Simulator");
 
         Log.Information("");
         Log.Information("=== APP OUTPUT ===");
@@ -1687,7 +1862,7 @@ partial class Build
 
         // Try to retrieve JSONL results from sandbox
         JsonlTestResults? jsonlResults = null;
-        var jsonlContent = SimCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId);
+        var jsonlContent = SimCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId, runToken);
         if (jsonlContent != null)
         {
             jsonlResults = JsonlTestResults.Parse(jsonlContent);
@@ -1729,15 +1904,29 @@ partial class Build
         var aggregated = new JsonlTestResults();
         LaunchResult? lastResult = null;
 
-        for (int attempt = 0; attempt <= maxRetries; attempt++)
+        // Launcher aborts are budgeted SEPARATELY from crash recovery (see ShouldRetryLauncherAbort)
+        // and extend the loop bound, so an attempt in which the app never started does not consume a
+        // crash-recovery retry. Bounded: the abort budget throws well before this can run away.
+        // Every stop condition below reads that budget through CrashRecoveryBudget so the loop bound
+        // and the give-up points cannot disagree about how many attempts remain.
+        var launchAbortCount = 0;
+
+        for (int attempt = 0; CrashRecoveryBudget.CanAttempt(attempt, maxRetries, launchAbortCount); attempt++)
         {
             if (attempt > 0)
-                Log.Information("--- Resume-on-crash (device): attempt {Attempt}/{MaxRetries} (excluding {Count} classes) ---",
-                    attempt + 1, maxRetries + 1, excludeClasses.Count);
+                Log.Information("--- Resume-on-crash (device): attempt {Attempt}/{MaxAttempts} (excluding {Count} classes) ---",
+                    attempt + 1, CrashRecoveryBudget.TotalAttempts(maxRetries, launchAbortCount), excludeClasses.Count);
 
             DeviceCtl.Install(device.Udid, appPath);
 
-            var args = new List<string> { "--platform", "device" };
+            // Fresh identity token per launch ATTEMPT. This is the site the false-green bug was
+            // proved on: `devicectl` can fail every launch (CoreDeviceError 10002 / EINVAL — the
+            // process never starts) while the sandbox copy keeps succeeding against the PERSISTENT
+            // data container, handing back the previous run's fully-green JSONL. Recovery below
+            // refuses any file that doesn't carry this token.
+            var runToken = NewRunToken();
+
+            var args = new List<string> { "--platform", "device", "--run-token", runToken };
             if (FlakeDetect) args.AddRange(["--flake-detect"]);
             if (Lifetime) args.AddRange(["--lifetime"]);
             if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
@@ -1754,9 +1943,15 @@ partial class Build
             Log.Information("=== APP OUTPUT ===");
             Log.Information(result.Output);
 
+            // Classify BEFORE any recovery: a launch the launcher aborted produced no test signal at
+            // all, so crash recovery has nothing to recover and would blind-exclude an innocent class.
+            // This is the exact path the six-CoreDeviceError-10002 run took.
+            if (ShouldRetryLauncherAbort(result, "Device/NativeAOT", ref launchAbortCount))
+                continue;
+
             // Try to retrieve JSONL results from device sandbox
             JsonlTestResults? runResults = null;
-            var jsonlContent = DeviceCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId);
+            var jsonlContent = DeviceCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId, runToken);
             if (jsonlContent != null)
             {
                 runResults = JsonlTestResults.Parse(jsonlContent);
@@ -1809,9 +2004,10 @@ partial class Build
 
                         Log.Information("Remaining classes: {Count}", remainingAfterConsole.Count);
 
-                        if (attempt == maxRetries)
+                        if (CrashRecoveryBudget.IsExhausted(attempt, maxRetries, launchAbortCount))
                         {
-                            Log.Error("Max retries ({Max}) reached on device.", maxRetries);
+                            Log.Error("Crash-recovery budget exhausted on device after {Max} attempt(s).",
+                                CrashRecoveryBudget.TotalAttempts(maxRetries, launchAbortCount));
                             break;
                         }
 
@@ -1823,7 +2019,7 @@ partial class Build
                     // (alphabetically) to make progress — the crash-recovery loop will
                     // keep narrowing down until the crasher is isolated.
                     var remainingBlind = eligibleClasses.Except(excludeClasses).OrderBy(c => c).ToList();
-                    if (remainingBlind.Count > 0 && attempt < maxRetries)
+                    if (remainingBlind.Count > 0 && !CrashRecoveryBudget.IsExhausted(attempt, maxRetries, launchAbortCount))
                     {
                         var suspect = remainingBlind[0];
                         Log.Warning("Blind skip: excluding '{Class}' (first remaining — no output to identify crasher).", suspect);
@@ -1874,9 +2070,10 @@ partial class Build
 
                 Log.Information("Remaining classes: {Count}", remaining.Count);
 
-                if (attempt == maxRetries)
+                if (CrashRecoveryBudget.IsExhausted(attempt, maxRetries, launchAbortCount))
                 {
-                    Log.Error("Max retries ({Max}) reached on device.", maxRetries);
+                    Log.Error("Crash-recovery budget exhausted on device after {Max} attempt(s). {Remaining} classes not executed.",
+                        CrashRecoveryBudget.TotalAttempts(maxRetries, launchAbortCount), remaining.Count);
                     break;
                 }
 
@@ -1906,7 +2103,12 @@ partial class Build
         // Remove stale JSONL so a crash doesn't report a previous run's results.
         var staleJsonl = macResultsDir / "test-results.jsonl";
         if (File.Exists(staleJsonl)) File.Delete(staleJsonl);
-        var argList = new List<string> { "--platform", "simulator", "--results-path", macResultsDir.ToString() };
+        // Belt-and-braces alongside the delete above: the delete is on a host-local path and throws
+        // loudly if it fails, but the token check below is what actually proves the file we read was
+        // written by THIS launch rather than left behind.
+        var runToken = NewRunToken();
+        var argList = new List<string>
+            { "--platform", "simulator", "--results-path", macResultsDir.ToString(), "--run-token", runToken };
         if (FlakeDetect) argList.Add("--flake-detect");
         if (Lifetime) argList.Add("--lifetime");
         if (!string.IsNullOrEmpty(ClassFilter)) { argList.Add("--class"); argList.Add(ClassFilter); }
@@ -1979,8 +2181,9 @@ partial class Build
         var macJsonlPath = macResultsDir / "test-results.jsonl";
         if (File.Exists(macJsonlPath))
         {
-            jsonlResults = JsonlTestResults.ParseFile(macJsonlPath);
-            Log.Information("JSONL results: {Summary}", jsonlResults.ToString());
+            jsonlResults = ValidateRunToken(JsonlTestResults.ParseFile(macJsonlPath), runToken, "macOS");
+            if (jsonlResults != null)
+                Log.Information("JSONL results: {Summary}", jsonlResults.ToString());
         }
 
         ReportRuntimeTestResult(result, platform.RunUnderRosetta ? "macOS x64" : "macOS", jsonlResults);
@@ -2025,7 +2228,10 @@ partial class Build
         // Remove stale JSONL from previous runs so a crash doesn't report old results.
         var staleJsonl = catalystResultsDir / "test-results.jsonl";
         if (File.Exists(staleJsonl)) File.Delete(staleJsonl);
-        var argList = new List<string> { "--platform", "simulator", "--results-path", catalystResultsDir.ToString() };
+        // Belt-and-braces alongside the delete above — see RunOnMacOS for the rationale.
+        var runToken = NewRunToken();
+        var argList = new List<string>
+            { "--platform", "simulator", "--results-path", catalystResultsDir.ToString(), "--run-token", runToken };
         if (FlakeDetect) argList.Add("--flake-detect");
         if (Lifetime) argList.Add("--lifetime");
         if (!string.IsNullOrEmpty(ClassFilter)) { argList.Add("--class"); argList.Add(ClassFilter); }
@@ -2098,8 +2304,9 @@ partial class Build
         var catalystJsonlPath = catalystResultsDir / "test-results.jsonl";
         if (File.Exists(catalystJsonlPath))
         {
-            jsonlResults = JsonlTestResults.ParseFile(catalystJsonlPath);
-            Log.Information("JSONL results: {Summary}", jsonlResults.ToString());
+            jsonlResults = ValidateRunToken(JsonlTestResults.ParseFile(catalystJsonlPath), runToken, "Mac Catalyst");
+            if (jsonlResults != null)
+                Log.Information("JSONL results: {Summary}", jsonlResults.ToString());
         }
 
         ReportRuntimeTestResult(result, platform.RunUnderRosetta ? "Mac Catalyst x64" : "Mac Catalyst", jsonlResults);

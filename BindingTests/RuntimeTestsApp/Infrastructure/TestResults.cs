@@ -1,6 +1,13 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+// Self-contained nullable context so this file compiles identically whether built in a runtime-test
+// host (Nullable=enable) or link-compiled into the unit-test project (Nullable=disable +
+// warnings-as-errors), where the string?/StreamWriter? annotations would otherwise raise CS8632.
+// It is link-compiled there so the run-token the writer stamps is checked against the harness-side
+// reader (JsonlTestResults) in one round-trip test rather than two hand-copied string literals.
+#nullable enable
+
 namespace RuntimeTestsApp.Infrastructure;
 
 /// <summary>
@@ -28,9 +35,27 @@ public class TestResults
     /// Initializes JSONL output to the specified file path.
     /// The file is created/overwritten and each test result is appended + flushed.
     /// </summary>
-    public void InitializeJsonl(string filePath)
+    /// <param name="filePath">Destination JSONL path.</param>
+    /// <param name="runToken">
+    /// Per-launch identity token from the harness (<c>--run-token</c>). When present it is written
+    /// and flushed as the FIRST line of the file, before any test result, so that a file recovered
+    /// from the app sandbox carries proof of which launch produced it. See
+    /// <see cref="TestRunFlags.RunToken"/> for why that proof is required.
+    /// </param>
+    public void InitializeJsonl(string filePath, string? runToken = null)
     {
-        _jsonlWriter = new StreamWriter(filePath, append: false) { AutoFlush = false };
+        lock (_lock)
+        {
+            _jsonlWriter = new StreamWriter(filePath, append: false) { AutoFlush = false };
+
+            // Written first and flushed immediately so the token survives a crash at any later
+            // point — a partial JSONL from a genuinely-crashed run must still be attributable to
+            // this launch, otherwise crash recovery would lose its results. Omitted entirely when
+            // no token was supplied (hand-launched app); the harness treats a token-less file as
+            // unusable rather than trusting it.
+            if (!string.IsNullOrEmpty(runToken))
+                WriteJsonlRaw($"{{\"run_token\":{JsonEscape(runToken)}}}");
+        }
     }
 
     /// <summary>

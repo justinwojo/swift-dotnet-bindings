@@ -163,7 +163,15 @@ public static class DeviceCtl
     /// Uses xcrun devicectl to copy the file to a temp location, then reads it.
     /// Returns the file contents, or null if retrieval failed.
     /// </summary>
-    public static string? CopyResultsFromSandbox(string udid, string bundleId)
+    /// <param name="expectedRunToken">
+    /// The token this launch passed to the app via <c>--run-token</c>. The recovered file must carry
+    /// a matching <c>run_token</c> line or it is discarded (returns null, exactly as a failed copy
+    /// does). Required because the app's data container is PERSISTENT and survives reinstall: when a
+    /// launch fails outright (CoreDeviceError 10002 / EINVAL — the process never starts) the copy
+    /// still succeeds and yields the previous run's results, which would otherwise be scored as this
+    /// run's and report green for a run that executed nothing.
+    /// </param>
+    public static string? CopyResultsFromSandbox(string udid, string bundleId, string expectedRunToken)
     {
         try
         {
@@ -183,6 +191,20 @@ public static class DeviceCtl
                 Log.Debug("Reading JSONL from device sandbox: {Path}", tempDest);
                 var content = File.ReadAllText(tempDest);
                 try { File.Delete(tempDest); } catch { }
+
+                // Fail closed: no token, or a token from an earlier launch, means the file cannot be
+                // attributed to THIS launch. Return null so the caller's existing "JSONL retrieval
+                // failed" path runs — an honest "no results recovered" instead of a silent false green.
+                if (!JsonlTestResults.HasMatchingRunToken(content, expectedRunToken))
+                {
+                    Log.Warning(
+                        "Discarding device JSONL: run-token mismatch (expected {Expected}, file carries {Actual}). " +
+                        "The app's data container is persistent, so this is a stale file from an earlier run — " +
+                        "treating it as no results recovered.",
+                        expectedRunToken, JsonlTestResults.ExtractRunToken(content) ?? "<none>");
+                    return null;
+                }
+
                 return content;
             }
 

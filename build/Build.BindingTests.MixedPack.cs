@@ -428,8 +428,12 @@ partial class Build
         }
         else
         {
-            var sim = !string.IsNullOrEmpty(DeviceUdid)
-                ? new SimCtl.SimDevice(DeviceUdid, "pre-booted", "Booted", true, "")
+            // --device-udid is shared with the device leg, and --mixed-pack --sim --device runs both
+            // in one invocation: when the device leg is also running, that UDID is the phone's and
+            // simctl must not be handed it.
+            var simUdid = SimulatorUdidFor($"--mixed-pack ({label})");
+            var sim = !string.IsNullOrEmpty(simUdid)
+                ? new SimCtl.SimDevice(simUdid, "pre-booted", "Booted", true, "")
                 : SimCtl.EnsureBootedDevice();
             Log.Information("    simulator: {Name} ({Udid})", sim.Name, sim.Udid);
             deployAndLaunch = () =>

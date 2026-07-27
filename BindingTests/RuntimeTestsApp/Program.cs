@@ -87,6 +87,11 @@ public class Application
                     ExcludeClasses.Add(name.Trim());
                 i++;
             }
+            else if (effectiveArgs[i] == "--run-token" && i + 1 < effectiveArgs.Length)
+            {
+                TestRunFlags.RunToken = effectiveArgs[i + 1];
+                i++;
+            }
         }
 
         // Register resolver for bundled frameworks BEFORE any Swift types are accessed.
@@ -327,7 +332,7 @@ public class MainViewController : UIViewController
         // Initialize JSONL output for crash-safe structured results
         var jsonlPath = GetJsonlOutputPath();
         TestLogger.Info($"JSONL output: {jsonlPath}");
-        results.InitializeJsonl(jsonlPath);
+        results.InitializeJsonl(jsonlPath, TestRunFlags.RunToken);
 
         try
         {
