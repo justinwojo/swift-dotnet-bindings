@@ -144,10 +144,15 @@ partial class Build
             ? new SimCtl.SimDevice(DeviceUdid, "pre-booted", "Booted", true, "")
             : SimCtl.EnsureBootedDevice();
         Log.Information("    simulator: {Name} ({Udid})", sim.Name, sim.Udid);
-        SimCtl.Install(sim.Udid, appPath);
-        var result = SimCtl.Launch(
-            sim.Udid, MixedDirectBundleId, Array.Empty<string>(),
-            TimeSpan.FromSeconds(Timeout), appName: MixedDirectAppName);
+        var result = LaunchUntilAppRuns(
+            () =>
+            {
+                SimCtl.Install(sim.Udid, appPath);
+                return SimCtl.Launch(
+                    sim.Udid, MixedDirectBundleId, Array.Empty<string>(),
+                    TimeSpan.FromSeconds(Timeout), appName: MixedDirectAppName);
+            },
+            "--mixed-direct");
 
         Log.Information("");
         Log.Information("=== CONSUMER OUTPUT (SDK-direct, simulator) ===");
@@ -362,6 +367,14 @@ partial class Build
     // companion <Reference> the SDK injected into this app's own compile, and (c) ran to completion.
     void AssertMixedDirectConsumerResult(LaunchResult result)
     {
+        // Launcher never started the app: report THAT, not a binding verdict. Every assertion below
+        // is about what the app printed, and this run has no app output to reason from.
+        if (LaunchDiagnostics.LauncherNeverStartedApp(result))
+            Assert.Fail(
+                $"--mixed-direct: the app was deployed but the launcher never started it (retried " +
+                $"{LaunchInfraMaxAttempts}×), so nothing evaluated the ObjC type — this is a deploy/launch failure, " +
+                $"NOT a binding result.\nlauncher output:\n{result.Output}");
+
         if (result.Output.Contains("implemented in both", StringComparison.OrdinalIgnoreCase))
             Assert.Fail(
                 "--mixed-direct: the loader reported a duplicate ObjC class registration (Gap 2 regression) — the " +

@@ -1,6 +1,10 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+// Explicit, because this file is also link-compiled into Swift.Bindings.Unit.Tests, which builds
+// with Nullable=disable — without it the CrashLogPath annotation below is a CS8632 error there.
+#nullable enable
+
 /// <summary>
 /// Outcome of a runtime test launch on simulator, device, or macOS.
 /// </summary>

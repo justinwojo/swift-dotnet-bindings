@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using Nuke.Common;
 using Nuke.Common.IO;
 using Nuke.Common.Tooling;
@@ -1225,6 +1226,50 @@ partial class Build
     // ============================================================
     // Helpers
     // ============================================================
+
+    // How many times a single-shot consumer gate will re-deploy when the LAUNCHER — not the app —
+    // failed. The RuntimeTests device path already survives this class of failure through its
+    // resume-on-crash loop (it re-installs and re-launches up to 5 times); the one-shot mixed legs
+    // had no equivalent, so one devicectl hiccup reddened a whole pre-release gate.
+    const int LaunchInfraMaxAttempts = 3;
+
+    /// <summary>
+    /// Runs <paramref name="deployAndLaunch"/> and returns its result, retrying ONLY when the
+    /// launcher aborted before the app's process ever started (see <see cref="LaunchDiagnostics"/>).
+    /// Any result the app itself produced — success, wrong output, crash, timeout — is returned on
+    /// the first attempt and asserted on by the caller, so no gate is weakened by this: the retry
+    /// exists purely so a tooling failure that produced NO product signal cannot be reported as a
+    /// product regression.
+    ///
+    /// If every attempt is a launcher abort, the caller still gets the (failed) last result and the
+    /// launcher-specific reason is logged loudly, so the gate goes red with an accurate diagnosis
+    /// rather than a misleading one about the binding under test.
+    /// </summary>
+    static LaunchResult LaunchUntilAppRuns(Func<LaunchResult> deployAndLaunch, string gateLabel)
+    {
+        LaunchResult result = null!;
+        for (var attempt = 1; attempt <= LaunchInfraMaxAttempts; attempt++)
+        {
+            result = deployAndLaunch();
+            if (!LaunchDiagnostics.LauncherNeverStartedApp(result))
+                return result;
+
+            Log.Warning(
+                "{Gate}: the launcher aborted before the app started (attempt {Attempt}/{Max}) — no app output was " +
+                "produced, so this run carries no verdict about the binding. Launcher output:\n{Output}",
+                gateLabel, attempt, LaunchInfraMaxAttempts, result.Output);
+
+            if (attempt < LaunchInfraMaxAttempts)
+                Thread.Sleep(TimeSpan.FromSeconds(5));
+        }
+
+        Log.Error(
+            "{Gate}: the launcher never started the app in {Max} attempts. This is a deploy/launch failure, NOT " +
+            "evidence about the binding — nothing ever evaluated the ObjC type. Check the device/simulator state " +
+            "(connected, unlocked, developer mode, booted) and the app's code signature before suspecting the generator.",
+            gateLabel, LaunchInfraMaxAttempts);
+        return result;
+    }
 
     void WriteXcframeworkPlist(string outputPath, string moduleName, string sliceId, ApplePlatform platform)
     {

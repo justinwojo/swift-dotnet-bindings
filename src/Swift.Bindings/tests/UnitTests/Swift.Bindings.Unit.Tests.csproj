@@ -76,6 +76,15 @@
          with source-generated JSON (PartialSuccessKitchenBaselineJsonContext), so it compiles
          AOT-clean under this project's IsAotCompatible + warnings-as-errors. -->
     <Compile Include="../../../../build/Models/PartialSuccessKitchenBaseline.cs" Link="Models/PartialSuccessKitchenBaseline.cs" />
+    <!-- Link-compile the launch-outcome discriminator so its pure "did the launcher ever start the
+         app?" classification is unit-tested here without a project reference to _build. This is the
+         predicate the one-shot mixed consumer gates use to tell a devicectl/simctl abort (no product
+         signal at all) apart from a real binding regression, so its conservatism — any app output,
+         or any launcher start confirmation, means "product result, do not retry" — is exactly what
+         must not silently drift. BCL-only string work, so it compiles AOT-clean under this project's
+         IsAotCompatible + warnings-as-errors. TestResult.cs rides along for the enum + LaunchResult. -->
+    <Compile Include="../../../../build/Models/LaunchDiagnostics.cs" Link="Models/LaunchDiagnostics.cs" />
+    <Compile Include="../../../../build/Models/TestResult.cs" Link="Models/TestResult.cs" />
   </ItemGroup>
 
   <ItemGroup>

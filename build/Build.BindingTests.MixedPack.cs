@@ -407,7 +407,9 @@ partial class Build
         Log.Information("    app bundle: {Path}", appPath);
 
         Log.Information("=== mixed-pack ({Label}): deploying + launching consumer ===", label);
-        LaunchResult result;
+
+        // Resolve the deploy target once, then install+launch inside the retry loop below.
+        Func<LaunchResult> deployAndLaunch;
         if (onDevice)
         {
             // Honor --device-udid (the shared DeviceUdid parameter) to pin a specific device,
@@ -418,8 +420,11 @@ partial class Build
                     ?? throw new InvalidOperationException(
                         "--mixed-pack --device: no connected iOS device found. Connect an iPhone and try again, or pass --device-udid UDID.");
             Log.Information("    device: {Name} ({Udid})", dev.Name, dev.Udid);
-            DeviceCtl.Install(dev.Udid, appPath);
-            result = DeviceCtl.Launch(dev.Udid, MixedPackBundleId, Array.Empty<string>(), TimeSpan.FromSeconds(Timeout));
+            deployAndLaunch = () =>
+            {
+                DeviceCtl.Install(dev.Udid, appPath);
+                return DeviceCtl.Launch(dev.Udid, MixedPackBundleId, Array.Empty<string>(), TimeSpan.FromSeconds(Timeout));
+            };
         }
         else
         {
@@ -427,9 +432,14 @@ partial class Build
                 ? new SimCtl.SimDevice(DeviceUdid, "pre-booted", "Booted", true, "")
                 : SimCtl.EnsureBootedDevice();
             Log.Information("    simulator: {Name} ({Udid})", sim.Name, sim.Udid);
-            SimCtl.Install(sim.Udid, appPath);
-            result = SimCtl.Launch(sim.Udid, MixedPackBundleId, Array.Empty<string>(), TimeSpan.FromSeconds(Timeout), appName: MixedPackAppName);
+            deployAndLaunch = () =>
+            {
+                SimCtl.Install(sim.Udid, appPath);
+                return SimCtl.Launch(sim.Udid, MixedPackBundleId, Array.Empty<string>(), TimeSpan.FromSeconds(Timeout), appName: MixedPackAppName);
+            };
         }
+
+        var result = LaunchUntilAppRuns(deployAndLaunch, $"--mixed-pack ({label})");
 
         Log.Information("");
         Log.Information("=== CONSUMER OUTPUT ({Label}) ===", label);
@@ -445,6 +455,16 @@ partial class Build
     // this iOS leg exists, since it cannot be observed from pack-time zip inspection.
     void AssertMixedPackConsumerResult(LaunchResult result, string label)
     {
+        // (0) Launcher never started the app: report THAT, not a binding verdict. Every assertion
+        //     below is about what the app printed, and this run has no app output to reason from —
+        //     attributing it to the ObjC type would send the reader after a defect the evidence
+        //     does not support.
+        if (LaunchDiagnostics.LauncherNeverStartedApp(result))
+            Assert.Fail(
+                $"--mixed-pack ({label}): the app was deployed but the launcher never started it (retried " +
+                $"{LaunchInfraMaxAttempts}×), so nothing evaluated the ObjC type — this is a deploy/launch failure, " +
+                $"NOT a binding result.\nlauncher output:\n{result.Output}");
+
         // (c) single registration — check FIRST so a duplicate-class regression reports the
         //     precise Gap-2 cause even if the greeting also happened to print.
         if (result.Output.Contains("implemented in both", StringComparison.OrdinalIgnoreCase))
