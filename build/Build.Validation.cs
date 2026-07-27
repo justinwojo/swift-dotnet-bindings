@@ -52,7 +52,7 @@ partial class Build
                 Log.Information("");
             }
 
-            var manifest = ValidationManifest.Load(ManifestPath);
+            var manifest = WithDerivedDependencies(ValidationManifest.Load(ManifestPath));
             var targets = manifest.ExpandTargets(Filter, Tier, LibrariesDir);
 
             // --- Resolve parallel job count ---
@@ -216,7 +216,7 @@ partial class Build
             await Task.WhenAll(sortedTargets.Select(async target =>
             {
                 await semaphore.WaitAsync();
-                try { await Task.Run(() => GenerateTarget(target, outputBase, results, manifest)); }
+                try { await Task.Run(() => GenerateTarget(target, outputBase, results, manifest, fwToLib)); }
                 finally { semaphore.Release(); }
             }));
 
@@ -406,7 +406,6 @@ partial class Build
                         var runtimeDll = GetRuntimeDll(depPlatform);
 
                         // Create dep test csproj with AssemblyName
-                        var csBasename = Path.GetFileName(csFile);
                         var depCsproj = outdir / "_dep_test.csproj";
                         var refElements = string.Join("\n",
                             foundRefs.Select(r =>
@@ -414,7 +413,7 @@ partial class Build
 
                         var appleDll = GetAppleSupplementDll(depPlatform);
                         WriteDependencyCsproj(depCsproj, platform.GetTfm(), platform.MinOsVersion,
-                            runtimeDll, appleDll, depFwBase, csBasename, refElements);
+                            runtimeDll, appleDll, depFwBase, depFwBase, refElements);
 
                         // Restore + build
                         RunDotnetRestore(depCsproj);
@@ -715,7 +714,8 @@ partial class Build
     // ============================================================
 
     void GenerateTarget(ValidationTarget target, AbsolutePath outputBase,
-        ConcurrentDictionary<string, TargetResult> results, ValidationManifest manifest)
+        ConcurrentDictionary<string, TargetResult> results, ValidationManifest manifest,
+        Dictionary<string, string> fwToLib)
     {
         if (target.Mode == "apple-framework")
         {
@@ -735,15 +735,28 @@ partial class Build
             var genStart = DateTime.UtcNow;
             var verbosity = Verbose ? "1" : "0";
 
+            var genArgs = new List<string>
+            {
+                $"\"{GeneratorDll}\"",
+                "--skip-wrapper-compilation",
+                "--xcframework", $"\"{target.XcframeworkPath}\"",
+                "-o", $"\"{outdir}\"",
+                "--platform", target.Platform,
+                "-v", verbosity
+            };
+
+            // Without these the import graph is not closed and any multi-module SDK fails
+            // SWIFTBIND119 at parse, emitting nothing.
+            genArgs.AddRange(CollectFrameworkDependencyArgs(target, fwToLib));
+
             try
             {
                 var process = ProcessTasks.StartProcess(
-                    "dotnet", $"\"{GeneratorDll}\" --skip-wrapper-compilation --xcframework \"{target.XcframeworkPath}\" -o \"{outdir}\" --platform {target.Platform} -v {verbosity}",
+                    "dotnet", string.Join(" ", genArgs),
                     logOutput: false);
                 process.AssertWaitForExit();
 
-                var hasCs = Directory.GetFiles(outdir, "*.cs")
-                    .Any(f => !f.EndsWith(".Wrappers.cs") && !f.EndsWith(".SwiftUIBridge.cs"));
+                var hasCs = EmittedCsFiles(outdir).Length > 0;
 
                 if (process.ExitCode == 0 && hasCs)
                 {
@@ -787,8 +800,7 @@ partial class Build
         }
 
         // Count generated lines
-        var csFile = FindMainCsFile(outdir);
-        result.Lines = csFile != null ? File.ReadLines(csFile).Count() : 0;
+        result.Lines = CountEmittedCsLines(outdir);
 
         // Format generation result
         if (result.GenVerbose != null)
@@ -830,7 +842,7 @@ partial class Build
                 result.GenOutput = $"  {target.Name}: no cached output";
                 return;
             }
-            result.Lines = FindMainCsFile(outdir) is { } cached ? File.ReadLines(cached).Count() : 0;
+            result.Lines = CountEmittedCsLines(outdir);
             result.SwiftCompile = CheckSwiftWrapper(outdir);
             result.GenOutput = $"  {target.Name}: generated ({result.Lines} lines, {result.GenSeconds}s)";
             return;
@@ -1146,8 +1158,7 @@ partial class Build
     {
         var platform = ApplePlatform.FromName(target.Platform);
         var frameworkModule = target.FrameworkModule ?? target.Name;
-        var csFile = FindMainCsFile(outdir);
-        result.Lines = csFile != null ? File.ReadLines(csFile).Count() : 0;
+        result.Lines = CountEmittedCsLines(outdir);
 
         // Direct mode compiles the wrapper inline, so its status is determined here
         // rather than in the wrapper-compile step.
@@ -1517,43 +1528,7 @@ partial class Build
                 "-v", Verbose ? "1" : "0"
             };
 
-            // Collect all dependency xcframeworks (declared + wrapper_deps + sibling)
-            var addedDeps = new HashSet<string>(StringComparer.Ordinal);
-
-            // Declared dependencies + wrapper_deps
-            var allDeps = (target.Dependencies ?? Array.Empty<string>())
-                .Concat(target.WrapperDeps ?? Array.Empty<string>())
-                .Distinct();
-
-            foreach (var depFwName in allDeps)
-            {
-                if (fwToLib.TryGetValue(depFwName, out var depLibName))
-                {
-                    var depXcfw = LibrariesDir / depLibName / $"{depFwName}.xcframework";
-                    if (Directory.Exists(depXcfw))
-                    {
-                        cmdArgs.Add("--framework-dependency");
-                        cmdArgs.Add($"\"{depXcfw}\"");
-                        addedDeps.Add($"{depFwName}.xcframework");
-                    }
-                }
-            }
-
-            // Add sibling xcframeworks (same library directory) for transitive deps
-            var libDir = Path.GetDirectoryName(target.XcframeworkPath.ToString());
-            var selfXcfw = Path.GetFileName(target.XcframeworkPath.ToString());
-            if (libDir != null && Directory.Exists(libDir))
-            {
-                foreach (var sibling in Directory.GetDirectories(libDir, "*.xcframework"))
-                {
-                    var siblingBase = Path.GetFileName(sibling);
-                    if (siblingBase == selfXcfw) continue;
-                    if (addedDeps.Contains(siblingBase)) continue;
-                    cmdArgs.Add("--framework-dependency");
-                    cmdArgs.Add($"\"{sibling}\"");
-                    addedDeps.Add(siblingBase);
-                }
-            }
+            cmdArgs.AddRange(CollectFrameworkDependencyArgs(target, fwToLib));
 
             try
             {
@@ -1882,17 +1857,32 @@ partial class Build
         var depPlatform = dep.Contains('@') ? dep.Split('@')[1] : "ios";
         var platform = ApplePlatform.FromName(depPlatform);
         var depOutdir = outputBase / dep;
-        var binDir = Path.Combine(depOutdir, "bin");
 
-        if (!Directory.Exists(binDir)) return null;
+        // A pure-ObjC binding emits {Module}.ObjC.{Platform}.csproj and builds to bin.objc/,
+        // not bin/ — a Swift module depending on one (FirebaseAuth on FirebaseCore) resolves
+        // nothing if only bin/ is searched, and the dependency gate skips it forever as
+        // "dependencies not resolved".
+        var binDirs = new[] { Path.Combine(depOutdir, "bin"), Path.Combine(depOutdir, "bin.objc") }
+            .Where(Directory.Exists)
+            .ToArray();
+        if (binDirs.Length == 0) return null;
 
         // Prioritize specific names over generic Test.dll
-        foreach (var dllName in new[] { $"{depBase}.dll", $"{depBase}.Swift.{platform.PackageSuffix}.dll", "Test.dll" })
+        foreach (var dllName in new[]
+                 {
+                     $"{depBase}.dll",
+                     $"{depBase}.Swift.{platform.PackageSuffix}.dll",
+                     $"{depBase}.ObjC.{platform.PackageSuffix}.dll",
+                     "Test.dll"
+                 })
         {
-            var found = Directory.EnumerateFiles(binDir, dllName, SearchOption.AllDirectories)
-                .Where(f => !f.EndsWith("Swift.Runtime.dll"))
-                .FirstOrDefault();
-            if (found != null) return found;
+            foreach (var binDir in binDirs)
+            {
+                var found = Directory.EnumerateFiles(binDir, dllName, SearchOption.AllDirectories)
+                    .Where(f => !f.EndsWith("Swift.Runtime.dll"))
+                    .FirstOrDefault();
+                if (found != null) return found;
+            }
         }
         return null;
     }
@@ -1936,8 +1926,12 @@ $"""
 """);
     }
 
+    // moduleName is the emitted binding's file stem. The compile items below mirror the
+    // generated csproj exactly: the emitter splits output into {Module}.cs plus one
+    // {Module}.Types.{X}.cs per type, so naming a single file compiles an arbitrary
+    // fraction of the binding and the dep gate passes without having seen most of it.
     void WriteDependencyCsproj(string path, string tfm, string minOs,
-        AbsolutePath runtimeDll, AbsolutePath appleDll, string assemblyName, string csFilename, string refElements)
+        AbsolutePath runtimeDll, AbsolutePath appleDll, string assemblyName, string moduleName, string refElements)
     {
         // SwiftBindings.Apple is included unconditionally: any binding whose upstream
         // dependency resolves a Swift-only Apple type will pull it in via the generated
@@ -1954,6 +1948,7 @@ $"""
     <Nullable>enable</Nullable>
     <NoWarn>0169;CA1420</NoWarn>
     <AssemblyName>{assemblyName}</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />
@@ -1968,7 +1963,12 @@ $"""
 {refElements}
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="{csFilename}" />
+    <Compile Include="{moduleName}.cs" />
+    <Compile Include="{moduleName}.Types.*.cs" />
+    <Compile Include="{moduleName}.Wrappers.cs"
+             Condition="Exists('{moduleName}.Wrappers.cs')" />
+    <Compile Include="{moduleName}.SwiftUIBridge.cs"
+             Condition="Exists('{moduleName}.SwiftUIBridge.cs') AND !$(TargetFramework.Contains('-macos'))" />
   </ItemGroup>
 </Project>
 """);
@@ -2321,9 +2321,223 @@ $"""
     static string? FindMainCsFile(AbsolutePath outdir)
     {
         if (!Directory.Exists(outdir)) return null;
+        return EmittedCsFiles(outdir).FirstOrDefault();
+    }
+
+    // The emitted binding's C# files, in a stable order. Directory.GetFiles returns
+    // filesystem order, which is not sorted and can vary between runs — anything that
+    // measures or reports on "the" output must not depend on it.
+    static string[] EmittedCsFiles(AbsolutePath outdir)
+    {
+        if (!Directory.Exists(outdir)) return Array.Empty<string>();
         return Directory.GetFiles(outdir, "*.cs")
             .Where(f => !f.EndsWith(".Wrappers.cs") && !f.EndsWith(".SwiftUIBridge.cs"))
-            .FirstOrDefault();
+            .OrderBy(f => f, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    // Total emitted C# line count across every file the binding produced.
+    //
+    // The emitter splits output into one file per type ({Module}.Types.{X}.cs) alongside
+    // {Module}.cs, so counting a single file measures an arbitrary fraction of the binding
+    // and reports enormous phantom drift. Sum all of them.
+    static int CountEmittedCsLines(AbsolutePath outdir)
+    {
+        var total = 0;
+        foreach (var f in EmittedCsFiles(outdir))
+        {
+            try { total += File.ReadLines(f).Count(); }
+            catch (IOException) { /* racing cleanup — treat as zero rather than failing the run */ }
+        }
+        return total;
+    }
+
+    // Dependency xcframeworks (declared + wrapper_deps + siblings) as repeated
+    // --framework-dependency args.
+    //
+    // Both the generator and the wrapper compiler need these: the generator resolves the
+    // import graph from them, and SWIFTBIND119 fails closed when that graph is not provably
+    // closed. A multi-module SDK (Firebase, Stripe) cannot bind without its siblings.
+    List<string> CollectFrameworkDependencyArgs(
+        ValidationTarget target, Dictionary<string, string> fwToLib)
+    {
+        var args = new List<string>();
+        var addedDeps = new HashSet<string>(StringComparer.Ordinal);
+
+        var allDeps = (target.Dependencies ?? Array.Empty<string>())
+            .Concat(target.WrapperDeps ?? Array.Empty<string>())
+            .Distinct();
+
+        foreach (var depFwName in allDeps)
+        {
+            if (fwToLib.TryGetValue(depFwName, out var depLibName))
+            {
+                var depXcfw = LibrariesDir / depLibName / $"{depFwName}.xcframework";
+                if (Directory.Exists(depXcfw))
+                {
+                    args.Add("--framework-dependency");
+                    args.Add($"\"{depXcfw}\"");
+                    addedDeps.Add($"{depFwName}.xcframework");
+                }
+            }
+        }
+
+        // Sibling xcframeworks (same library directory) cover transitive deps that are not
+        // declared explicitly — e.g. GTMAppAuth imports AppAuth and GTMSessionFetcher, both
+        // of which sit beside it under .libraries/Firebase/.
+        //
+        // Only the siblings actually reachable through the import graph are supplied. Passing
+        // every sibling closes the graph too, but --framework-dependency is a *declared*
+        // dependency: the emitter writes a <PackageReference> for each one, so a blanket add
+        // makes the csproj reference packages the binding never uses and the restore fails
+        // NU1101 (e.g. FirebaseAuth acquiring FirebaseAILogic, whose types it never touches).
+        foreach (var (module, path) in ReachableSiblingModules(target.XcframeworkPath, target.Platform))
+        {
+            if (!addedDeps.Add($"{module}.xcframework")) continue;
+            args.Add("--framework-dependency");
+            args.Add($"\"{path}\"");
+        }
+
+        return args;
+    }
+
+    // Sibling xcframeworks (same library directory) reachable from this one through the Swift
+    // import graph, transitively. Keyed by module name, ordinally ordered for determinism.
+    static SortedDictionary<string, string> ReachableSiblingModules(
+        AbsolutePath xcframework, string platform)
+    {
+        var found = new SortedDictionary<string, string>(StringComparer.Ordinal);
+
+        var libDir = Path.GetDirectoryName(xcframework.ToString());
+        var selfXcfw = Path.GetFileName(xcframework.ToString());
+        if (libDir == null || !Directory.Exists(libDir)) return found;
+
+        var siblingsByModule = Directory.GetDirectories(libDir, "*.xcframework")
+            .Where(s => Path.GetFileName(s) != selfXcfw)
+            .ToDictionary(s => Path.GetFileNameWithoutExtension(s), s => s, StringComparer.Ordinal);
+
+        var queue = new Queue<string>(ReadInterfaceImports(xcframework, platform));
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+
+        while (queue.Count > 0)
+        {
+            var module = queue.Dequeue();
+            if (!visited.Add(module)) continue;
+            if (!siblingsByModule.TryGetValue(module, out var siblingPath)) continue;
+            found[module] = siblingPath;
+            foreach (var next in ReadInterfaceImports((AbsolutePath)siblingPath, platform))
+                queue.Enqueue(next);
+        }
+
+        return found;
+    }
+
+    // Fills in `dependencies` for xcframework-mode products that don't declare any, deriving
+    // them from the Swift import graph.
+    //
+    // A product with no declared deps takes the standalone compile path, which builds the
+    // generated csproj — and that csproj now carries a <PackageReference> per dependency, none
+    // of which exist in the validation sandbox (NU1101). Products WITH deps take the dependency
+    // gate, which references each dep's freshly-built DLL instead. Deriving the list routes
+    // multi-module SDKs to the gate that can actually resolve them.
+    //
+    // Derived rather than hand-declared so the manifest can't drift from what the frameworks
+    // actually import. Only siblings that are themselves validation products qualify — a
+    // support framework nobody binds (FirebaseSharedSwift, Promises) has no DLL to reference.
+    ValidationManifest WithDerivedDependencies(ValidationManifest manifest)
+    {
+        var libraries = new List<ValidationLibrary>(manifest.Libraries.Count);
+
+        foreach (var lib in manifest.Libraries)
+        {
+            if (lib.Mode == "apple-framework")
+            {
+                libraries.Add(lib);
+                continue;
+            }
+
+            var productNames = lib.Products.Select(p => p.Framework).ToHashSet(StringComparer.Ordinal);
+            var products = new List<ValidationProduct>(lib.Products.Count);
+
+            foreach (var product in lib.Products)
+            {
+                if (product.Dependencies is { Count: > 0 })
+                {
+                    products.Add(product);
+                    continue;
+                }
+
+                var xcfw = LibrariesDir / lib.Name / $"{product.Framework}.xcframework";
+                var derived = ReachableSiblingModules(xcfw, "ios").Keys
+                    .Where(m => productNames.Contains(m) && m != product.Framework)
+                    .ToList();
+
+                products.Add(derived.Count > 0 ? product with { Dependencies = derived } : product);
+            }
+
+            libraries.Add(lib with { Products = products });
+        }
+
+        return manifest with { Libraries = libraries };
+    }
+
+    static readonly HashSet<string> DeclarationKindImports = new(StringComparer.Ordinal)
+    {
+        "class", "struct", "enum", "protocol", "func", "var", "let", "typealias", "precedencegroup"
+    };
+
+    // Leading Swift identifier of s, empty if it doesn't start with one.
+    static string TakeIdentifier(string s)
+    {
+        var i = 0;
+        while (i < s.Length && (char.IsLetterOrDigit(s[i]) || s[i] == '_')) i++;
+        return s[..i];
+    }
+
+    // Module names imported by an xcframework's .swiftinterface files, for the slices matching
+    // the given platform. A pure-ObjC framework has no interface and yields nothing, which is
+    // correct — it has no Swift import graph to close.
+    static IEnumerable<string> ReadInterfaceImports(AbsolutePath xcframework, string platform)
+    {
+        if (!Directory.Exists(xcframework)) return Array.Empty<string>();
+
+        var slices = Directory.GetDirectories(xcframework)
+            .Where(d => Path.GetFileName(d).StartsWith(platform + "-", StringComparison.Ordinal))
+            .ToArray();
+        if (slices.Length == 0) slices = Directory.GetDirectories(xcframework);
+
+        var imports = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var slice in slices)
+        {
+            foreach (var iface in Directory.EnumerateFiles(slice, "*.swiftinterface", SearchOption.AllDirectories))
+            {
+                foreach (var line in File.ReadLines(iface))
+                {
+                    var t = line.Trim();
+                    if (t.Length == 0) continue;
+                    // Imports sit in the interface preamble; the first declaration ends it.
+                    if (!t.StartsWith("import ", StringComparison.Ordinal) &&
+                        !t.StartsWith("@_exported import ", StringComparison.Ordinal))
+                        continue;
+
+                    var rest = t[(t.IndexOf("import ", StringComparison.Ordinal) + "import ".Length)..].Trim();
+
+                    // A declaration-kind import ("import struct Foundation.Data") names the
+                    // module in the second token.
+                    var firstToken = TakeIdentifier(rest);
+                    if (DeclarationKindImports.Contains(firstToken))
+                        rest = rest[firstToken.Length..].TrimStart();
+
+                    // Take only leading identifier characters. The module name can be followed
+                    // immediately by a submodule path or an attached comment with no separating
+                    // space — "@_exported import FirebaseCore/*.Timestamp*/" — so cutting at the
+                    // first '.' would yield "FirebaseCore/*" and silently drop the dependency.
+                    var name = TakeIdentifier(rest);
+                    if (name.Length > 0) imports.Add(name);
+                }
+            }
+        }
+        return imports;
     }
 
     // ============================================================

@@ -944,11 +944,13 @@
         { "framework": "FirebaseRemoteConfig" },
         { "framework": "FirebaseRemoteConfigInterop" },
         { "framework": "FirebaseSessions", "knownErrors": 27 },
+        { "framework": "FirebaseSharedSwift" },
         { "framework": "FirebaseStorage" },
         { "framework": "GoogleSignIn", "knownErrors": 1 },
         { "framework": "GTMAppAuth" },
         { "framework": "GTMSessionFetcher" },
-        { "framework": "AppAuth" }
+        { "framework": "AppAuth" },
+        { "framework": "Promises" }
       ],
       "note": "Firebase iOS SDK + Google SDKs — download xcframeworks from https://github.com/firebase/firebase-ios-sdk/releases and place in .libraries/Firebase/",
       "tier": 2
