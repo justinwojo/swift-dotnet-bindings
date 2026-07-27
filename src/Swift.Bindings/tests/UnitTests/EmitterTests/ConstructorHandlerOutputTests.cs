@@ -827,6 +827,56 @@ public class ConstructorHandlerOutputTests
             i => i.Name == "init" && i.Reason == SkipReason.DuplicateSignature);
     }
 
+    [Fact]
+    public void Emit_ConstructorWithBaselineAsyncClosure_SkippedWholeNoPlaceholderPInvoke()
+    {
+        // A baseline-shaped async closure is a SUPPORTED closure shape, so member
+        // validation admits it and the unsupported-closure tombstone never sees it.
+        // What it needs is the (context, startFunc) bridge, whose Swift adapter is
+        // only rendered for a member promoted to an async @_cdecl method wrapper —
+        // which a constructor never is. Without the handler-layer guard the wrapper
+        // signature still projects a real delegate type (so the placeholder check
+        // cannot see it) while the P/Invoke degrades the parameter to the
+        // unsupported-type placeholder inside a [LibraryImport]. The member must be
+        // dropped whole, with an honest skip, rather than half-emitted.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateFrozenStructDecl("Point", moduleDecl);
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Int"))
+        {
+            IsAsync = true,
+            Throws = true
+        };
+        var constructor = CreateConstructorDecl(
+            "init", parentDecl, moduleDecl,
+            parameters: new List<ArgumentDecl> { CreateArgument("handler", closure, moduleDecl) });
+
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+
+        Assert.DoesNotContain("LibraryImport", csOutput);
+        Assert.DoesNotContain("public Point(", csOutput);
+        Assert.Contains("unbridgeable async closure parameter", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ConstructorWithSyncClosure_StillEmits()
+    {
+        // Control for the guard above: an ordinary synchronous closure never reaches
+        // the async bridge, so the constructor must keep binding.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateFrozenStructDecl("Point", moduleDecl);
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        var constructor = CreateConstructorDecl(
+            "init", parentDecl, moduleDecl,
+            parameters: new List<ArgumentDecl> { CreateArgument("handler", closure, moduleDecl) });
+
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+
+        Assert.DoesNotContain("unbridgeable async closure parameter", csOutput);
+        Assert.Contains("public Point(", csOutput);
+    }
+
     private static int CountOccurrences(string text, string pattern)
     {
         int count = 0, index = 0;

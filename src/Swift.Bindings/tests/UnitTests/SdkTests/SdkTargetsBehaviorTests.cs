@@ -882,6 +882,157 @@ namespace BindingsGeneration.Tests
             Assert.Contains("MissingCore.Swift.iOS", output);
         }
 
+        // ── Declared-dependency managed-reference guard (SWIFTBIND081) ──
+        // SwiftFrameworkDependency is native-only: it resolves the dependency's xcframework
+        // for generation and injects no managed reference. SWIFTBIND080 covers the
+        // auto-detected half of the problem but is deduped against explicit declarations,
+        // so a declared dependency whose C# types reach the generated code failed with a
+        // bare CS0246 in code the consumer never wrote. These pin the guard that replaces it.
+
+        /// <summary>
+        /// Runs the declared-dependency guard over a hand-written SwiftFrameworkDependency set
+        /// and returns (exitCode, combined output).
+        /// </summary>
+        private (int ExitCode, string Output) RunDeclaredDependencyGuard(string itemsXml, string dirName)
+        {
+            var bindingDir = Path.Combine(_tempDir, dirName);
+            Directory.CreateDirectory(bindingDir);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <ItemGroup>
+                {itemsXml}
+                  </ItemGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <!-- Common.CurrentVersion.targets resets BuildingProject to false at
+                         evaluation; the real value is set by the BuildOnlySettings target,
+                         which a direct -t: invocation never reaches. Set it AFTER the import
+                         so the guard sees the real-build value it gates on. -->
+                    <BuildingProject>true</BuildingProject>
+                  </PropertyGroup>
+                  <Target Name="_ComputeSwiftFingerprint" />
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ValidateSwiftPackageItems" />
+                  <Target Name="_GenerateSwiftBindings" />
+                  <Target Name="TestGuard"
+                          DependsOnTargets="_AssertSwiftFrameworkDependencyManagedReference">
+                    <Message Importance="High" Text="GUARD_RAN" />
+                  </Target>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(bindingDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(bindingDir, "Test.csproj")}\" -t:TestGuard -nologo -v:n");
+            return (result.ExitCode, result.StdOut + "\n" + result.StdErr);
+        }
+
+        [Fact]
+        public void DeclaredDependency_NoManagedReference_FailsWithSwiftBind081()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var (exitCode, output) = RunDeclaredDependencyGuard(
+                """    <SwiftFrameworkDependency Include="/tmp/PaymentSdkCore.xcframework" PackageId="PaymentSdkCore" PackageVersion="1.2.3" />""",
+                "GuardMissingRef");
+
+            Assert.True(exitCode != 0, $"Expected SWIFTBIND081 failure.\n{output}");
+            Assert.Contains("SWIFTBIND081", output);
+            Assert.Contains("PaymentSdkCore", output);
+        }
+
+        [Theory]
+        // A PackageReference on the declared PackageId is the NuGet-consumption pairing.
+        [InlineData("""    <PackageReference Include="PaymentSdkCore" Version="1.2.3" />""", "GuardPackageRef")]
+        // A local source build references the generated binding project, whose file name is
+        // {PackageId}.Swift.{Platform} — the guard must accept the leading segment.
+        [InlineData("""    <ProjectReference Include="../PaymentSdkCore/PaymentSdkCore.Swift.iOS.csproj" />""", "GuardProjectRef")]
+        // A ProjectReference named exactly for the package id also satisfies it.
+        [InlineData("""    <ProjectReference Include="../PaymentSdkCore/PaymentSdkCore.csproj" />""", "GuardPlainProjectRef")]
+        public void DeclaredDependency_WithManagedReference_Passes(string managedRefXml, string dirName)
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var (exitCode, output) = RunDeclaredDependencyGuard(
+                """    <SwiftFrameworkDependency Include="/tmp/PaymentSdkCore.xcframework" PackageId="PaymentSdkCore" PackageVersion="1.2.3" />"""
+                    + "\n" + managedRefXml,
+                dirName);
+
+            Assert.True(exitCode == 0, $"Guard should accept a satisfied dependency.\n{output}");
+            Assert.DoesNotContain("SWIFTBIND081", output);
+            Assert.Contains("GUARD_RAN", output);
+        }
+
+        [Theory]
+        // A DOTTED PackageId is the normal shape for the Apple supplement family, and it breaks
+        // both of the guard's original identities: the generated binding project is still
+        // {PackageId}.Swift.{Platform}, so the whole file name carries an extra tail and the
+        // leading dot segment ("SwiftBindings") is only the first of three id segments. Neither
+        // equals the id, so a correctly-wired project failed with SWIFTBIND081.
+        [InlineData("""    <ProjectReference Include="../Matter/SwiftBindings.Apple.Matter.Swift.iOS.csproj" />""", "GuardDottedProjectRef")]
+        // Exact-name ProjectReference and PackageReference are unaffected by the segment count;
+        // pinned alongside so a future narrowing of the match cannot pass on the generated-name
+        // case alone.
+        [InlineData("""    <ProjectReference Include="../Matter/SwiftBindings.Apple.Matter.csproj" />""", "GuardDottedPlainProjectRef")]
+        [InlineData("""    <PackageReference Include="SwiftBindings.Apple.Matter" Version="1.2.3" />""", "GuardDottedPackageRef")]
+        public void DeclaredDependency_DottedPackageId_WithManagedReference_Passes(string managedRefXml, string dirName)
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var (exitCode, output) = RunDeclaredDependencyGuard(
+                """    <SwiftFrameworkDependency Include="/tmp/Matter.xcframework" PackageId="SwiftBindings.Apple.Matter" PackageVersion="1.2.3" />"""
+                    + "\n" + managedRefXml,
+                dirName);
+
+            Assert.True(exitCode == 0, $"Guard should accept a satisfied dotted-id dependency.\n{output}");
+            Assert.DoesNotContain("SWIFTBIND081", output);
+            Assert.Contains("GUARD_RAN", output);
+        }
+
+        /// <summary>
+        /// The dotted-id acceptance above must come from matching the id, not from the widened
+        /// identity set accepting anything: an unrelated managed reference still fails.
+        /// </summary>
+        [Fact]
+        public void DeclaredDependency_DottedPackageId_UnrelatedReference_StillFailsWithSwiftBind081()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var (exitCode, output) = RunDeclaredDependencyGuard(
+                """    <SwiftFrameworkDependency Include="/tmp/Matter.xcframework" PackageId="SwiftBindings.Apple.Matter" PackageVersion="1.2.3" />"""
+                    + "\n" + """    <ProjectReference Include="../Other/SwiftBindings.Apple.HomeKit.Swift.iOS.csproj" />""",
+                "GuardDottedUnrelatedRef");
+
+            Assert.True(exitCode != 0, $"Expected SWIFTBIND081 failure.\n{output}");
+            Assert.Contains("SWIFTBIND081", output);
+            Assert.Contains("SwiftBindings.Apple.Matter", output);
+        }
+
+        [Theory]
+        // NativeOnly is the documented opt-out for a dependency that only needs linkage.
+        [InlineData("""    <SwiftFrameworkDependency Include="/tmp/PaymentSdkCore.xcframework" PackageId="PaymentSdkCore" NativeOnly="true" />""", "GuardNativeOnly")]
+        // Without a PackageId the item declares no NuGet identity to pair with, so the
+        // guard has nothing to assert — the auto-detection path owns that case.
+        [InlineData("""    <SwiftFrameworkDependency Include="/tmp/PaymentSdkCore.xcframework" />""", "GuardNoPackageId")]
+        public void DeclaredDependency_OutOfScope_Passes(string dependencyXml, string dirName)
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var (exitCode, output) = RunDeclaredDependencyGuard(dependencyXml, dirName);
+
+            Assert.True(exitCode == 0, $"Guard should not fire for an out-of-scope declaration.\n{output}");
+            Assert.DoesNotContain("SWIFTBIND081", output);
+            Assert.Contains("GUARD_RAN", output);
+        }
+
         // ── Cross-module ObjC companion surfacing behavioral tests ──
         // A mixed (ObjC+Swift) binding builds a separate ObjC companion assembly that does not
         // flow transitively across a ProjectReference. GetSwiftObjCCompanionAssembly exposes it

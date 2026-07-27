@@ -25,12 +25,21 @@ namespace BindingsGeneration;
 /// whose signature reaches a withdrawn type — is withdrawn as a leaf so its healthy siblings survive.
 /// </para>
 /// <para>
-/// Withdrawal enumerates exactly the edges the policy lists. The proof re-scans the RETAINED surface for
-/// any residual reference to a withdrawn type through a channel withdrawal does not model — the one such
-/// channel is a retained type's own generic where-clause constraint on a quarantined type, which cannot
-/// be withdrawn as a leaf and whose whole-type withdrawal needs generic-context closure reasoning this
-/// plane does not own. A residual there means the closure cannot be proven complete, so the module fails
-/// closed (SWIFTBIND120) rather than shipping a compile-clean/runtime-wrong binding.
+/// Withdrawal enumerates exactly the edges the policy lists, and the residual scan re-checks the RETAINED
+/// surface for one specific channel withdrawal cannot model: a retained type's own generic where-clause
+/// constraint on a quarantined type, which cannot be withdrawn as a leaf and whose whole-type withdrawal
+/// needs generic-context closure reasoning this plane does not own. A residual there means the module
+/// fails closed (SWIFTBIND120) rather than shipping a compile-clean/runtime-wrong binding.
+/// </para>
+/// <para>
+/// That scan is a PARTIAL backstop, not a completeness proof: it establishes only that the one modelled
+/// residual channel is clear, and a clean scan is not evidence that no other channel exists. Soundness on
+/// the rest of the surface comes from the consumers, not from this plane — every emission plane that can
+/// reach a withdrawn type consults the withdrawal set itself (the in-emission planes read the ambient
+/// poison list; the planes that run after the emission attempt is disposed — the module database, the
+/// Swift type-ownership manifest, the SwiftUI bridge's parameter walk — are handed the withdrawal set
+/// explicitly). A new plane that resolves types from the raw module tree or the type database has to join
+/// that set of consumers; nothing here will catch it if it does not.
 /// </para>
 /// </remarks>
 internal static class IngestionQuarantineClosure
@@ -141,19 +150,32 @@ internal static class IngestionQuarantineClosure
         }
         CollectModuleLevelWithdrawals(moduleDecl, finalNames, currentModuleName, withdrawals, logger);
 
-        // 4. Prove the closure complete: re-scan the RETAINED surface for any residual reach to a
-        //    withdrawn type through a channel withdrawal does not model. The one such channel is a
-        //    retained type's own generic where-clause constraint on a withdrawn type.
+        // 4. Backstop scan: re-check the RETAINED surface for the one residual channel withdrawal does
+        //    not model — a retained type's own generic where-clause constraint on a withdrawn type.
+        //    This clears that channel only; it does not prove the closure complete against channels
+        //    nobody has modelled. The other planes stay sound by consulting the withdrawal set below.
+        // Module-qualified names of the LOCAL withdrawn types, for the emission planes that run
+        // outside the ambient emission attempt and therefore cannot read the poison list.
+        var withdrawnTypeNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var type in withdrawnTypes)
+        {
+            var qualified = type.SwiftTypeName?.ModuleQualifiedName;
+            if (!string.IsNullOrEmpty(qualified))
+                withdrawnTypeNames.Add(qualified!);
+        }
+
         var unprovenReason = FindUnprovenResidual(allTypes, withdrawnTypes, finalNames, currentModuleName);
         if (unprovenReason is not null)
         {
             return new IngestionQuarantineResult(
                 Withdrawals: withdrawals,
                 ProvenComplete: false,
-                UnprovenReason: unprovenReason);
+                UnprovenReason: unprovenReason,
+                WithdrawnTypeNames: withdrawnTypeNames);
         }
 
-        return new IngestionQuarantineResult(withdrawals, ProvenComplete: true, UnprovenReason: null);
+        return new IngestionQuarantineResult(
+            withdrawals, ProvenComplete: true, UnprovenReason: null, WithdrawnTypeNames: withdrawnTypeNames);
     }
 
     private static void FlattenTypes(IEnumerable<TypeDecl> types, List<TypeDecl> sink)
@@ -344,11 +366,14 @@ internal static class IngestionQuarantineClosure
     }
 
     /// <summary>
-    /// Re-scans the retained surface for a reference to a withdrawn type that withdrawal did not model.
-    /// After the structural fixpoint no retained type reaches a withdrawn type by inheritance,
-    /// conformance, or stored field, and 3b withdrew every retained member/free signature edge — so the
-    /// only residual this can find is a retained type's own generic where-clause constraint on a
-    /// withdrawn type. Returns the reason to fail closed, or null when the closure is proven complete.
+    /// Re-scans the retained surface for the one reference channel withdrawal does not model: a retained
+    /// type's own generic where-clause constraint on a withdrawn type. After the structural fixpoint no
+    /// retained type reaches a withdrawn type by inheritance, conformance, or stored field, and 3b
+    /// withdrew every retained member/free signature edge, so those channels need no re-check — but this
+    /// scan looks for the where-clause residual ONLY. A null return means that channel is clear, not that
+    /// the closure is complete against channels this plane never enumerated; the emission planes that can
+    /// resolve a withdrawn type independently are kept sound by being handed the withdrawal set, not by
+    /// this scan. Returns the reason to fail closed, or null when the modelled residual channel is clear.
     /// </summary>
     private static string? FindUnprovenResidual(
         IEnumerable<TypeDecl> allTypes,
@@ -435,7 +460,11 @@ internal static class IngestionQuarantineClosure
             ClosureEvidence: evidence,
             Status: IngestionStatus.Quarantined));
 
-        logger.LogInformation(
+        // Warning, not information: a withdrawal silently removes public API a consumer asked for.
+        // At information level it is invisible in a default-verbosity build, so the consumer's only
+        // signal is a compile error against a member that used to exist — the loss has to be
+        // attributable at the same level as the quarantine that caused it.
+        logger.LogWarning(
             "SWIFTBIND046: withdrawing {Unit} — {Evidence}.",
             unit.Describe(), evidence);
     }
@@ -614,10 +643,17 @@ internal static class IngestionQuarantineClosure
 /// a residual reference remains and the module must fail closed (SWIFTBIND120).
 /// </param>
 /// <param name="UnprovenReason">Human-readable reason the closure is not provable; null when it is.</param>
+/// <param name="WithdrawnTypeNames">
+/// The module-qualified Swift names of the LOCAL types withdrawn whole. The poison list is the
+/// authority for every plane that runs inside the emission attempt; this name set exists for the
+/// planes that run OUTSIDE it (the Swift type-ownership manifest, written after emission returns),
+/// which cannot read the ambient attempt and must be told explicitly.
+/// </param>
 internal sealed record IngestionQuarantineResult(
     IReadOnlySet<RecoveryUnitId> Withdrawals,
     bool ProvenComplete,
-    string? UnprovenReason)
+    string? UnprovenReason,
+    IReadOnlySet<string>? WithdrawnTypeNames = null)
 {
     /// <summary>The result for a module with no ingestion quarantines — nothing withdrawn, trivially proven.</summary>
     public static IngestionQuarantineResult Empty { get; } =

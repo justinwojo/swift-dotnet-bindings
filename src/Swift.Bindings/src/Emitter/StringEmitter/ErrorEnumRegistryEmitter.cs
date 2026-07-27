@@ -145,6 +145,15 @@ public static class ErrorEnumRegistryEmitter
     /// </summary>
     private static bool IsTypeSkippedByEmitter(TypeDecl typeDecl, ModuleEmissionContext ctx)
     {
+        // Withdrawn by the ingestion-quarantine closure: the type's C# class is never
+        // declared and its Swift record is malformed, so both halves of the cascade —
+        // the Swift `as? Module.Type` and the C# `SwiftException<Module.Type>` — would
+        // name something that does not exist. The registry precomputes from the RAW
+        // module tree, so it is its own emission plane and has to consult the withdrawal
+        // set itself rather than inheriting the type emitter's decision.
+        if (EmitterFaultGate.IsDenied(DeclIdFactory.ForType(typeDecl), out _))
+            return true;
+
         // @_spi types are skipped from C# emission AND invisible to plain `import`.
         if (typeDecl.IsSpiProtected)
             return true;

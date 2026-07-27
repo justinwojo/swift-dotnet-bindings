@@ -3,7 +3,7 @@
 //
 // Skip-class fixture for the non-baseline async-closure tombstone.
 //
-// Reproduces the rive-ios `RiveUIView.init(rive:...)` shape: a *sync* member
+// Reproduces the view-wrapper factory-init shape: a *sync* member
 // (constructor or instance method) that takes an escaping async-throwing closure
 // whose return type is a Swift class (non-blittable → NOT the baseline async
 // bridge shape per `ClosureHandler.IsBaselineAsyncClosure`).
@@ -35,7 +35,8 @@ public final class AsyncFactoryPayload {
 }
 
 /// Sync constructor taking a non-baseline async-throwing closure — the exact
-/// rive-ios `init(rive:)` shape. Must emit the SB0005 tombstone, NOT a broken body.
+/// async-resource-factory `init` shape a view wrapper exposes. Must emit the
+/// SB0005 tombstone, NOT a broken body.
 public final class NonBaselineAsyncClosureFactory {
     public init(factory: @escaping () async throws -> AsyncFactoryPayload) {
         // body unused — the generator never calls this from C#.

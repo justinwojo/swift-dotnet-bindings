@@ -11,11 +11,59 @@ namespace BindingsGeneration
         // Wrapper symbol dedup state stored on ModuleEmissionContext (per-module instance).
 
         /// <summary>
+        /// Records the RawRepresentable surface of a module-internal enum (or one nested in an
+        /// internal type) as skipped, and leaves a greppable <c>// Unsupported:</c> tombstone for
+        /// each dropped member, instead of emitting <c>FromRawValue</c> plus one case accessor per
+        /// case against wrapper symbols the discarded Swift plane never defines.
+        /// </summary>
+        private void TombstoneRawRepresentableSurface(
+            CSharpWriter csWriter,
+            EnumDecl enumDecl,
+            List<EnumCaseDecl> simpleCases,
+            Dictionary<string, string>? propertyRenames,
+            Dictionary<string, string>? caseNameMap)
+        {
+            const string details =
+                "module-internal raw-representable enum: the wrapper module cannot name its qualified "
+                + "path, so the init(rawValue:) and case-by-index @_cdecl wrappers this surface calls "
+                + "are never emitted, and the ABI JSON carries no real raw values to construct the "
+                + "cases from instead.";
+
+            _logger.LogInformation(
+                "Skipping the RawRepresentable surface of enum '{Enum}' — the enum (or a type enclosing it) is module-internal, so its Swift wrapper plane is discarded and every FromRawValue / case accessor would reference an undefined wrapper symbol.",
+                enumDecl.Name);
+
+            ReportCollector.RecordMemberSkipped(
+                BindingItemKind.Method, "FromRawValue", enumDecl, SkipReason.ModuleInternal, details);
+            UnsupportedCommentEmitter.EmitMemberSkipped(
+                csWriter, "FromRawValue", BindingItemKind.Method, SkipReason.ModuleInternal,
+                details, containingDecl: enumDecl);
+
+            foreach (var caseDecl in simpleCases)
+            {
+                var caseName = NameProvider.GetFinalMemberName(
+                    NameProvider.GetCaseName(caseDecl.Name, caseNameMap), propertyRenames);
+                ReportCollector.RecordMemberSkipped(
+                    BindingItemKind.Property, caseName, enumDecl, SkipReason.ModuleInternal, details);
+                UnsupportedCommentEmitter.EmitMemberSkipped(
+                    csWriter, caseName, BindingItemKind.Property, SkipReason.ModuleInternal,
+                    details, containingDecl: enumDecl);
+            }
+        }
+
+        /// <summary>
         /// Emits RawRepresentable support for enums with simple cases.
         /// This includes a FromRawValue method and static properties for each case.
         /// </summary>
         private void EmitRawRepresentableSupport(CSharpWriter csWriter, SwiftWriter swiftWriter, EnumDecl enumDecl, List<EnumCaseDecl> simpleCases, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, string enumTypeName, PInvokeHelperContext? pinvokeHelperContext, bool canCacheCases = false, Dictionary<string, string>? propertyRenames = null, Dictionary<string, string>? caseNameMap = null, ModuleEmissionContext? ctx = null)
         {
+            // Every route out of this method — FromRawValue and each case accessor — is backed by an
+            // SBW_ @_cdecl wrapper written into swiftWriter, so the whole surface is unemittable the
+            // moment that plane is discarded. The caller decides that (and tombstones instead); this
+            // pins the contract at the site that would otherwise claim the symbols.
+            WrapperValidation.RequireLiveWrapperPlane(
+                swiftWriter, $"The RawRepresentable surface of enum '{enumDecl.SwiftTypeName.ModuleQualifiedName}'");
+
             var rawTypeName = enumDecl.RawValueTypeName!;
             var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
             var wrapperLibPath = typeDatabase.AsyncLibraryName ?? libPath;

@@ -79,12 +79,14 @@ namespace BindingsGeneration
             // The condition consults the shared "can wrapper source spell this type?" predicate
             // rather than the enum's own flag alone: an enum nested in an internal parent is just
             // as unspellable from the wrapper module, and suppressing it here keeps this decision
-            // deriving from the same fact the per-case wrapper gate uses. Note the discard writer
-            // is deliberately NOT the signal any C# planner reads — it is non-null and therefore
-            // invisible to a `swiftWriter != null` test; planes that must know whether wrapper
-            // source will exist consult the predicate directly.
-            if (WrapperValidation.IsTypeOrEnclosingModuleInternal(enumDecl))
-                swiftWriter = new SwiftWriter(new System.IO.StringWriter());
+            // deriving from the same fact the per-case wrapper gate uses. The discard writer is
+            // non-null and swallows every write, so it is invisible to a `swiftWriter != null`
+            // test; every C# plane that may plan a wrapper P/Invoke for this enum must therefore
+            // read `wrapperPlaneDiscarded` (or the writer's IsDiscarding flag) — not the writer's
+            // nullability — or it will emit an extern for a wrapper that was thrown away.
+            var wrapperPlaneDiscarded = WrapperValidation.IsTypeOrEnclosingModuleInternal(enumDecl);
+            if (wrapperPlaneDiscarded)
+                swiftWriter = new SwiftWriter(new System.IO.StringWriter()) { IsDiscarding = true };
 
             // Type-level skip conditions — evaluated via the shared list so this decision
             // can never drift from TypeSkipPrePass / SilentTombstoneRegistrar. Must happen
@@ -421,7 +423,24 @@ namespace BindingsGeneration
             // Enum element symbols from ABI JSON are often not exported callable functions.
             if (simpleCases.Count > 0)
             {
-                if (enumDecl.IsRawRepresentable)
+                if (enumDecl.IsRawRepresentable && wrapperPlaneDiscarded)
+                {
+                    // The RawRepresentable surface is built entirely on Swift source this enum will
+                    // never get: both `FromRawValue` and every case accessor route through an
+                    // `SBW_…_InitWithRawValue` / `SBW_…_CaseByIndex` @_cdecl wrapper that names the
+                    // enum's module-qualified path — unspellable from the wrapper module, which is
+                    // why the Swift plane above is a discard writer. Planning those P/Invokes anyway
+                    // ships public API that can only throw EntryPointNotFoundException, so drop the
+                    // surface honestly instead.
+                    //
+                    // Deliberately NOT falling back to the raw-value-literal path (case i ==
+                    // FromRawValue(i)): the ABI JSON does not carry real raw values, so that route
+                    // exists only alongside the CaseByIndex wrapper that corrects it. Without the
+                    // wrapper it would hand back the WRONG case for any enum whose raw values are
+                    // not 0..n-1 — a silent data bug in place of a loud missing symbol.
+                    TombstoneRawRepresentableSurface(csWriter, enumDecl, simpleCases, propertyRenames, caseNameMap);
+                }
+                else if (enumDecl.IsRawRepresentable)
                 {
                     EmitRawRepresentableSupport(csWriter, swiftWriter, enumDecl, simpleCases, moduleDecl, env.TypeDatabase, typeNameWithGenerics, pinvokeHelperContext, canCacheCases, propertyRenames, caseNameMap: caseNameMap, ctx: context.GetEmissionContext());
                 }

@@ -55,6 +55,19 @@ public class WorkaroundRecommendationsTests
     }
 
     [Fact]
+    public void GetRecommendation_AbsentFrameworkType_DisclosesTheAuthorityBoundary()
+    {
+        // The absence verdict comes from authorities that cannot see sibling binding packages the
+        // consuming project references, so the recommendation must say so — otherwise a reader takes
+        // a false absence (the type exists, in a package the generator never inspected) as fact and
+        // goes looking for a binding they already have.
+        var recommendation = WorkaroundRecommendations.GetRecommendation(SkipReason.AbsentFrameworkType);
+
+        Assert.Contains("sibling binding packages", recommendation);
+        Assert.Contains("false absence", recommendation);
+    }
+
+    [Fact]
     public void GetRecommendation_DuplicateSignature_SuggestsRename()
     {
         var recommendation = WorkaroundRecommendations.GetRecommendation(SkipReason.DuplicateSignature);

@@ -120,6 +120,12 @@ namespace BindingsGeneration
         public bool? isFromExtension { get; set; }
         public string? funcSelfKind { get; set; }
         public string? usr { get; set; }
+        // swift-api-digester sets this on a node whose declaration is NOT owned by the module
+        // being dumped — a re-export stub the digester materializes only because the module
+        // references or extends the foreign declaration. Load-bearing for ABI-completeness
+        // judgements: a foreign stub is a pointer to another module's record, not this module's
+        // own record, so an ABI field that is absent on it says nothing about digester drift.
+        public bool? isExternal { get; set; }
         public string? superclassUsr { get; set; }
         public string[]? superclassNames { get; set; }
         public bool? inheritsConvenienceInitializers { get; set; }
@@ -1305,6 +1311,11 @@ namespace BindingsGeneration
             //   3. Otherwise → pure third-party re-export. Drop the node.
             //      Example: a module that re-exports a type from another module with no extension
             //      children of its own — it would mis-claim ownership of the type if kept.
+            // Set below for a foreign-module node that carries extension members contributed by the
+            // module currently being parsed. Hoisted out of the foreign-node block because the
+            // malformed-record gate further down needs it: a foreign node must keep being WALKED
+            // when it hosts current-module extension members, since that walk is what attaches them.
+            bool hasCurrentModuleExtensionChildren = false;
             if (!string.IsNullOrEmpty(node.ModuleName) &&
                 !string.IsNullOrEmpty(moduleDecl.Name) &&
                 node.ModuleName != moduleDecl.Name)
@@ -1325,7 +1336,7 @@ namespace BindingsGeneration
                     return null;
                 }
 
-                bool hasExtensionMembers = node.Children?.Any(child =>
+                hasCurrentModuleExtensionChildren = node.Children?.Any(child =>
                     !string.IsNullOrEmpty(child.ModuleName) && child.ModuleName == moduleDecl.Name) ?? false;
                 // Cross-module extension support: route both Class and Struct
                 // receivers through CrossModuleExtensionEmitter. Class receivers use direct
@@ -1340,7 +1351,7 @@ namespace BindingsGeneration
                 bool isClassReceiver = node.DeclKind == "Class";
                 bool isStructReceiver = node.DeclKind == "Struct";
 
-                if (hasExtensionMembers && (isClassReceiver || isStructReceiver))
+                if (hasCurrentModuleExtensionChildren && (isClassReceiver || isStructReceiver))
                 {
                     // Non-frozen foreign struct receivers are not yet supported: the cross-module
                     // struct trampoline path reads `self` via `assumingMemoryBound(to: T.self).pointee`
@@ -1434,7 +1445,40 @@ namespace BindingsGeneration
                     return null;
                 }
 
-                quarantineMalformedType = true;
+                // The same reasoning generalizes past `@objc` classes and C typedefs to EVERY
+                // Clang-rooted declaration the digester re-exports: a C aggregate (struct / union /
+                // enum) surfaced only because this module retroactively conforms or extends it is
+                // not a Swift declaration, so it has no Swift mangled name to lose. The record this
+                // node points at is owned by the Clang importer, not by the digester dump we are
+                // reading, and it is resolved through the Apple-supplement / out-of-module path when
+                // referenced. Quarantining it would withdraw every declaration that merely STORES
+                // the aggregate — for a library that does nothing but extend a system C type, that
+                // is the whole binding.
+                if (IsForeignClangReexportStub(node))
+                {
+                    // A stub that hosts current-module extension members must still be WALKED so
+                    // those members attach (the cross-module extension routing above depends on it);
+                    // only the malformed-record verdict is withdrawn here, not the walk.
+                    if (!hasCurrentModuleExtensionChildren)
+                    {
+                        _logger.LogInformation(
+                            "Skipping Clang-rooted re-export stub '{Name}' (module '{Module}', USR '{Usr}') with no "
+                            + "Swift mangled name — an external C/ObjC declaration this module only references or "
+                            + "extends; resolved via supplement / out-of-module when referenced.",
+                            node.Name, node.ModuleName, node.usr);
+                        return null;
+                    }
+
+                    _logger.LogInformation(
+                        "Keeping Clang-rooted re-export stub '{Name}' (module '{Module}', USR '{Usr}') with no Swift "
+                        + "mangled name — it hosts extension members declared by '{CurrentModule}', which are attached "
+                        + "by walking this node.",
+                        node.Name, node.ModuleName, node.usr, moduleDecl.Name);
+                }
+                else
+                {
+                    quarantineMalformedType = true;
+                }
             }
 
             TypeDecl? decl;
@@ -4336,6 +4380,24 @@ namespace BindingsGeneration
                 && (usr.StartsWith("c:objc(", StringComparison.Ordinal)
                     || usr.StartsWith("c:@T@", StringComparison.Ordinal));
         }
+
+        /// <summary>
+        /// True when an ABI node is a re-export stub the digester materialized for a Clang-rooted
+        /// declaration this module does not own. Two facts have to hold together:
+        /// <c>isExternal</c> (the digester's own statement that the declaration belongs to another
+        /// module, so this node is a pointer to that module's record rather than a record of its
+        /// own) and a Clang USR (<c>c:</c>…, e.g. <c>c:@S@CGSize</c> for a C struct,
+        /// <c>c:@SA@simd_quatf</c> for a C aggregate typedef, <c>c:@E@NSComparisonResult</c> for a
+        /// C enum, <c>c:@U@…</c> for a union). Such a declaration is written in C, not Swift, so it
+        /// has no Swift mangled name to be missing — the field's absence is the expected shape, and
+        /// the type resolves through the Apple-supplement / out-of-module path when referenced.
+        /// The conjunction is deliberate: an <c>isExternal</c> node with a Swift USR, or a
+        /// Clang-USR node the module actually owns, is not covered.
+        /// </summary>
+        private static bool IsForeignClangReexportStub(Node node)
+            => node.isExternal == true
+                && node.usr is { } usr
+                && usr.StartsWith("c:", StringComparison.Ordinal);
 
         /// <summary>
         /// Extracts the defining module from a Swift USR's first length-prefixed segment.

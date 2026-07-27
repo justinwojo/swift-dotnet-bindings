@@ -83,6 +83,14 @@ public static class ThemeBridgeEmitter
         {
             if (typeDecl is ClassDecl classDecl)
             {
+                // This walk reads the RAW module tree, so it is its own emission plane and must
+                // consult the withdrawal set itself. A class withdrawn by the ingestion-quarantine
+                // closure has no emitted C# class, and the bridge renders
+                // `public partial class {info.ClassName}` plus property accessors against it —
+                // a partial half of a type nothing declares.
+                if (EmitterFaultGate.IsDenied(DeclIdFactory.ForType(classDecl), out _))
+                    continue;
+
                 var info = AnalyzeClassForThemeBridge(classDecl, moduleDecl.Name);
                 if (info != null)
                     results.Add(info);

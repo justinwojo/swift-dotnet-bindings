@@ -102,3 +102,45 @@ public struct KitchenCodable: Codable {
     public var n: Int
     public init(n: Int) { self.n = n }
 }
+
+// S13 — a Codable struct's CodingKeys: an `enum: String` that is NOT public, nested inside a
+// PUBLIC parent. Swift's own synthesized CodingKeys has exactly this shape but is `private`, so it
+// never reaches the ABI surface a binding is generated from; spelling it out as
+// @usableFromInline internal reproduces the shape at the visibility real libraries ship it with
+// (an explicit CodingKeys is the common way to rename JSON fields) and puts it in front of the
+// raw-representable planner. The wrapper module cannot name a non-public type, so its Swift plane
+// is discarded — nothing on this enum may plan a wrapper P/Invoke.
+//
+// The four CodingKey requirements are written out by hand because the compiler-synthesized ones
+// are plain `internal` and so are absent from the emitted .swiftinterface, which then fails its own
+// verification (the printed `init?(rawValue:)` is left as the only candidate for the protocol's
+// `init?(stringValue:)`). Restating them @usableFromInline keeps the interface self-consistent and
+// changes nothing about the shape under test.
+public struct KitchenCodableKeys: Codable {
+    public var title: String
+    public var count: Int
+    public init(title: String, count: Int) {
+        self.title = title
+        self.count = count
+    }
+
+    @usableFromInline
+    internal enum CodingKeys: String, CodingKey {
+        case title
+        case count = "n"
+        @usableFromInline internal init?(stringValue: String) { self.init(rawValue: stringValue) }
+        @usableFromInline internal var stringValue: String { rawValue }
+        @usableFromInline internal init?(intValue: Int) { nil }
+        @usableFromInline internal var intValue: Int? { nil }
+    }
+}
+
+// S14 — a plain module-internal `enum X: String` with no public exposure. It cannot be surfaced
+// from a public signature at all (Swift rejects "function cannot be declared public because its
+// result uses an internal type"), and it does not need to be: an ABI-visible internal declaration
+// reaches the planner on its own. Same discard contract as S13, without a public parent.
+@usableFromInline
+internal enum KitchenInternalRawValue: String {
+    case alpha
+    case beta = "B"
+}

@@ -517,6 +517,13 @@ namespace BindingsGeneration
                             }
                             else
                             {
+                                // The handler layer is responsible for skipping a member whose
+                                // async closure cannot reach the bridge; reaching here means it
+                                // did not. The placeholder is not a marshallable type, so the
+                                // resulting [LibraryImport] would be rejected by the compiler —
+                                // mark the signature so the write site refuses it outright
+                                // instead of shipping a broken declaration.
+                                _hasUnbridgeableAsyncClosure = true;
                                 AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, csName);
                             }
                         }
@@ -536,6 +543,8 @@ namespace BindingsGeneration
                             }
                             else
                             {
+                                // Non-throwing twin of the arm above — same contract, same refusal.
+                                _hasUnbridgeableAsyncClosure = true;
                                 AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, csName);
                             }
                         }
@@ -1249,6 +1258,17 @@ namespace BindingsGeneration
                 : moduleLibPath;
 
             var pInvokeSignature = signatureHandler.GetPInvokeSignature();
+
+            // Defense in depth for the async closure bridge: a baseline-shaped async closure
+            // whose containing member never reached the (context, startFunc) bridge degrades
+            // to the unsupported-type placeholder, which cannot appear in a P/Invoke. The
+            // handler layer is supposed to skip such a member whole; refuse the write here so
+            // a handler path that forgets fails at generation time rather than shipping a
+            // binding that does not compile.
+            if (pInvokeSignature.HasUnbridgeableAsyncClosureParameter)
+            {
+                throw new UnbridgeableAsyncClosureException(pInvokeName);
+            }
 
             // In-band wrapper-symbol contract: this is the single eager check, shared with
             // the constructor's predict-then-skip gate via FindUnregisteredWrapperSymbol so

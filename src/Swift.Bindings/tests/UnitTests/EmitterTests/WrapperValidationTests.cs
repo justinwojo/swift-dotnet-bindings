@@ -290,7 +290,334 @@ public class ParentModuleInternalGateTests
         Assert.False(WrapperValidation.IsParentTypeModuleInternal(env));
     }
 
+    // ────────────────────────────────────────────────────────────────────
+    // Async closure bridge eligibility (HasUnbridgeableAsyncThrowingClosure)
+    //
+    // A baseline-shaped async closure passes the closure-support gate on its own
+    // merits, so member validation admits it and the unsupported-closure tombstone
+    // never sees it. What actually decides whether the (context, startFunc) P/Invoke
+    // pair gets a matching Swift adapter is the CONTAINING member's wrapper flavor:
+    // the adapter is only rendered for a member promoted to an async @_cdecl method
+    // wrapper. That is handler-layer knowledge, which is why the predicate lives
+    // here rather than in the pre-dispatch validator — and why EVERY handler that
+    // can carry a closure parameter has to consult it, not just the ordinary method
+    // path. These pin the predicate's verdict per containing-member flavor.
+    // ────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void HasUnbridgeableAsyncThrowingClosure_SyncMethod_ThrowingBaseline_True()
+    {
+        var (module, typeDb) = XcframeworkEnv();
+        var parent = PublicClass("Host", module);
+        var method = MethodWithClosure("configure", parent, module, BaselineThrowingClosure());
+
+        Assert.True(WrapperValidation.HasUnbridgeableAsyncThrowingClosure(Env(method, typeDb)));
+    }
+
+    [Fact]
+    public void HasUnbridgeableAsyncThrowingClosure_SyncMethod_NonThrowingBaseline_True()
+    {
+        var (module, typeDb) = XcframeworkEnv();
+        var parent = PublicClass("Host", module);
+        var method = MethodWithClosure("configure", parent, module, BaselineNonThrowingClosure());
+
+        Assert.True(WrapperValidation.HasUnbridgeableAsyncThrowingClosure(Env(method, typeDb)));
+    }
+
+    [Fact]
+    public void HasUnbridgeableAsyncThrowingClosure_SyncConstructor_ThrowingBaseline_True()
+    {
+        // The constructor factory only ever selects SYNC constructors, and the
+        // constructor wrapper is a different emitter from the async method wrapper,
+        // so a constructor can never satisfy the bridge's conjuncts.
+        var (module, typeDb) = XcframeworkEnv();
+        var parent = PublicClass("Host", module);
+        var ctor = MethodWithClosure("init", parent, module, BaselineThrowingClosure());
+        ctor.IsConstructor = true;
+        ctor.MethodType = MethodType.Static;
+
+        Assert.True(WrapperValidation.HasUnbridgeableAsyncThrowingClosure(Env(ctor, typeDb)));
+    }
+
+    [Fact]
+    public void HasUnbridgeableAsyncThrowingClosure_StaticOperatorShapedMethod_ThrowingBaseline_True()
+    {
+        // An operator is emitted as a static member and is never promoted to the
+        // async @_cdecl method wrapper, so it lands on the same wrong handler path.
+        var (module, typeDb) = XcframeworkEnv();
+        var parent = PublicClass("Host", module);
+        var op = MethodWithClosure("+", parent, module, BaselineThrowingClosure());
+        op.MethodType = MethodType.Static;
+
+        Assert.True(WrapperValidation.HasUnbridgeableAsyncThrowingClosure(Env(op, typeDb)));
+    }
+
+    [Fact]
+    public void HasUnbridgeableAsyncThrowingClosure_AsyncThrowsCdeclWrapper_ThrowingBaseline_False()
+    {
+        // Positive control: all three conjuncts hold, so the Swift adapter WILL be
+        // rendered and the member must keep binding through the real bridge.
+        var (module, typeDb) = XcframeworkEnv();
+        var parent = PublicClass("Host", module);
+        var method = MethodWithClosure("run", parent, module, BaselineThrowingClosure());
+        method.IsAsync = true;
+        method.Throws = true;
+        method.UsesCdeclMethodWrapper = true;
+
+        Assert.False(WrapperValidation.HasUnbridgeableAsyncThrowingClosure(Env(method, typeDb)));
+    }
+
+    [Fact]
+    public void HasUnbridgeableAsyncThrowingClosure_AsyncCdeclWrapper_NonThrowingBaseline_False()
+    {
+        // Positive control for the non-throwing arm: the adapter uses `await` with
+        // no `try`, so the outer member has to be async but NOT throwing.
+        var (module, typeDb) = XcframeworkEnv();
+        var parent = PublicClass("Host", module);
+        var method = MethodWithClosure("run", parent, module, BaselineNonThrowingClosure());
+        method.IsAsync = true;
+        method.UsesCdeclMethodWrapper = true;
+
+        Assert.False(WrapperValidation.HasUnbridgeableAsyncThrowingClosure(Env(method, typeDb)));
+    }
+
+    [Fact]
+    public void HasUnbridgeableAsyncThrowingClosure_AsyncThrowsWithoutCdeclWrapper_ThrowingBaseline_True()
+    {
+        // Async + throws is not enough on its own: without the @_cdecl method
+        // wrapper there is no Swift file for the adapter closure to be emitted into.
+        var (module, typeDb) = XcframeworkEnv();
+        var parent = PublicClass("Host", module);
+        var method = MethodWithClosure("run", parent, module, BaselineThrowingClosure());
+        method.IsAsync = true;
+        method.Throws = true;
+
+        Assert.True(WrapperValidation.HasUnbridgeableAsyncThrowingClosure(Env(method, typeDb)));
+    }
+
+    [Fact]
+    public void HasUnbridgeableAsyncThrowingClosure_SyncClosureParameter_False()
+    {
+        // A plain synchronous closure never reaches the async bridge at all.
+        var (module, typeDb) = XcframeworkEnv();
+        var parent = PublicClass("Host", module);
+        var method = MethodWithClosure("configure", parent, module,
+            new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty));
+
+        Assert.False(WrapperValidation.HasUnbridgeableAsyncThrowingClosure(Env(method, typeDb)));
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Pre-emission entry point. Every test above sets UsesCdeclMethodWrapper by hand
+    // because it is asking the EMISSION-time question, where the flag is already
+    // settled. Callers that run BEFORE MethodHandler — the protocol-conformance
+    // validator is the one that matters — see the flag still false on a method that
+    // is about to be promoted, so the plain overload answers "unbridgeable" for a
+    // witness that binds cleanly and the whole conformance is dropped. These pin the
+    // pre-emission overload's disagreement with the plain one, and pin that the
+    // disagreement is confined to the promotion conjunct.
+    // ────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void BeforeEmission_AsyncThrows_PromotionNotYetRecorded_False()
+    {
+        var (module, typeDb) = XcframeworkEnv();
+        var parent = PublicClass("Host", module);
+        var method = MethodWithClosure("run", parent, module, BaselineThrowingClosure());
+        method.IsAsync = true;
+        method.Throws = true;
+        // Deliberately NOT setting UsesCdeclMethodWrapper — this is the pre-emission state.
+
+        // The emission-time question, asked too early, gets the wrong answer …
+        Assert.True(WrapperValidation.HasUnbridgeableAsyncThrowingClosure(Env(method, typeDb)));
+        // … and this is the whole point of the pre-emission entry point.
+        Assert.True(WrapperValidation.WillPromoteToCdeclMethodWrapper(Env(method, typeDb)));
+        Assert.False(WrapperValidation.HasUnbridgeableAsyncThrowingClosureBeforeEmission(Env(method, typeDb)));
+    }
+
+    [Fact]
+    public void BeforeEmission_AsyncNonThrowing_PromotionNotYetRecorded_False()
+    {
+        var (module, typeDb) = XcframeworkEnv();
+        var parent = PublicClass("Host", module);
+        var method = MethodWithClosure("run", parent, module, BaselineNonThrowingClosure());
+        method.IsAsync = true;
+
+        Assert.True(WrapperValidation.HasUnbridgeableAsyncThrowingClosure(Env(method, typeDb)));
+        Assert.False(WrapperValidation.HasUnbridgeableAsyncThrowingClosureBeforeEmission(Env(method, typeDb)));
+    }
+
+    [Fact]
+    public void BeforeEmission_SyncMethod_StaysUnbridgeable()
+    {
+        // Only the PROMOTION is predicted. The outer member's async/throws facts are parser
+        // facts emission never changes, so a sync member carrying an async closure has no
+        // adapter and must stay unbridgeable — predicting the promotion must not be mistaken
+        // for dropping the conjunct.
+        var (module, typeDb) = XcframeworkEnv();
+        var parent = PublicClass("Host", module);
+        var method = MethodWithClosure("configure", parent, module, BaselineThrowingClosure());
+
+        Assert.True(WrapperValidation.HasUnbridgeableAsyncThrowingClosureBeforeEmission(Env(method, typeDb)));
+    }
+
+    [Fact]
+    public void BeforeEmission_Constructor_StaysUnbridgeable()
+    {
+        // A constructor never takes the method-wrapper promotion branch, so the prediction
+        // must not rescue it either.
+        var (module, typeDb) = XcframeworkEnv();
+        var parent = PublicClass("Host", module);
+        var ctor = MethodWithClosure("init", parent, module, BaselineThrowingClosure());
+        ctor.IsConstructor = true;
+        ctor.MethodType = MethodType.Static;
+        ctor.IsAsync = true;
+        ctor.Throws = true;
+
+        Assert.False(WrapperValidation.WillPromoteToCdeclMethodWrapper(Env(ctor, typeDb)));
+        Assert.True(WrapperValidation.HasUnbridgeableAsyncThrowingClosureBeforeEmission(Env(ctor, typeDb)));
+    }
+
+    [Fact]
+    public void BeforeEmission_AsyncOwnedByAnotherWrapperGenerator_StaysUnbridgeable()
+    {
+        // The async promotion branch declines a method another wrapper generator already owns
+        // (UsesWrapperLibrary), so no async adapter is emitted for it and the member stays
+        // unbridgeable. Predicting the promotion must reproduce that decline, not assume every
+        // async-throws member with a baseline closure gets an adapter.
+        var (module, typeDb) = XcframeworkEnv();
+        var parent = PublicClass("Host", module);
+        var method = MethodWithClosure("run", parent, module, BaselineThrowingClosure());
+        method.IsAsync = true;
+        method.Throws = true;
+        method.UsesWrapperLibrary = true;
+
+        Assert.False(WrapperValidation.WillPromoteToCdeclMethodWrapper(Env(method, typeDb)));
+        Assert.True(WrapperValidation.HasUnbridgeableAsyncThrowingClosureBeforeEmission(Env(method, typeDb)));
+    }
+
+    [Fact]
+    public void BeforeEmission_AsyncOnInternalParent_StillPromotes()
+    {
+        // An internal parent gates the SYNC wrapper sites (they have a clean CallConvSwift
+        // fallback) but deliberately NOT the async promotion site, which has none. The prediction
+        // must mirror emission's actual asymmetry rather than the sync rule — treating an internal
+        // parent as "no wrapper" here would drop a conformance emission keeps.
+        var (module, typeDb) = XcframeworkEnv();
+        var parent = InternalClass("HiddenHost", module);
+        var method = MethodWithClosure("run", parent, module, BaselineThrowingClosure());
+        method.IsAsync = true;
+        method.Throws = true;
+
+        Assert.True(WrapperValidation.WillPromoteToCdeclMethodWrapper(Env(method, typeDb)));
+        Assert.False(WrapperValidation.HasUnbridgeableAsyncThrowingClosureBeforeEmission(Env(method, typeDb)));
+    }
+
+    [Fact]
+    public void BeforeEmission_PromotionAlreadyRecorded_AgreesWithEmissionTimeAnswer()
+    {
+        // Asked AFTER promotion, the two overloads must not diverge — the prediction honours a
+        // flag that is already set rather than re-deriving a different verdict.
+        var (module, typeDb) = XcframeworkEnv();
+        var parent = PublicClass("Host", module);
+        var method = MethodWithClosure("run", parent, module, BaselineThrowingClosure());
+        method.IsAsync = true;
+        method.Throws = true;
+        method.UsesCdeclMethodWrapper = true;
+
+        Assert.False(WrapperValidation.HasUnbridgeableAsyncThrowingClosure(Env(method, typeDb)));
+        Assert.False(WrapperValidation.HasUnbridgeableAsyncThrowingClosureBeforeEmission(Env(method, typeDb)));
+    }
+
+    [Fact]
+    public void BeforeEmission_AsyncWithDebugDefaultParam_DoesNotPromote()
+    {
+        // Emission installs the debug-default-parameter Swift wrapper BEFORE it reaches the async
+        // promotion branch, and that install sets UsesWrapperLibrary — which makes the async branch
+        // decline. A prediction that reads only the CURRENT flag sees it clear and answers
+        // "will promote", the inverse divergence of reading a promotion flag that is not yet set:
+        // the validator keeps a conformance whose witness emission then skips, leaving the
+        // interface member unimplemented.
+        var (module, typeDb) = XcframeworkEnv();
+        var parent = PublicClass("Host", module);
+        var method = MethodWithClosure("run", parent, module, BaselineThrowingClosure());
+        method.IsAsync = true;
+        method.Throws = true;
+        method.CSSignature.Add(DebugFileParameter(module));
+
+        // Setup really is the debug-param shape — otherwise this passes vacuously.
+        Assert.True(DefaultParameterOverloadEmitter.WillInstallDebugParamWrapper(method));
+
+        Assert.False(WrapperValidation.WillPromoteToCdeclMethodWrapper(Env(method, typeDb)));
+        Assert.True(WrapperValidation.HasUnbridgeableAsyncThrowingClosureBeforeEmission(Env(method, typeDb)));
+    }
+
+    [Fact]
+    public void BeforeEmission_AsyncWithDebugParamWrapperAlreadyInstalled_AgreesWithPrediction()
+    {
+        // The post-install state emission itself sees: the wrapper is in place (UsesWrapperLibrary
+        // set, debug params stripped from the signature). The predicate must reach the SAME verdict
+        // from either side of the install, which is what makes it safe to share between the
+        // decision site and the prediction site.
+        var (module, typeDb) = XcframeworkEnv();
+        var parent = PublicClass("Host", module);
+        var method = MethodWithClosure("run", parent, module, BaselineThrowingClosure());
+        method.IsAsync = true;
+        method.Throws = true;
+        method.UsesWrapperLibrary = true;
+
+        Assert.False(DefaultParameterOverloadEmitter.WillInstallDebugParamWrapper(method));
+        Assert.False(WrapperValidation.WillPromoteToCdeclMethodWrapper(Env(method, typeDb)));
+        Assert.True(WrapperValidation.HasUnbridgeableAsyncThrowingClosureBeforeEmission(Env(method, typeDb)));
+    }
+
     // --- minimal decl factories (local to keep the gate test self-contained) ---
+
+    /// <summary>`file: Swift.StaticString = #file` — the canonical debug default parameter.</summary>
+    private static ArgumentDecl DebugFileParameter(ModuleDecl module)
+        => new ArgumentDecl
+        {
+            SwiftTypeSpec = new NamedTypeSpec("Swift.StaticString"),
+            Name = "file",
+            PrivateName = "file",
+            IsInOut = false,
+            IsGeneric = false,
+            HasDefaultArg = true,
+            ParentDecl = null,
+            ModuleDecl = module
+        };
+
+    /// <summary>`() async throws -&gt; Swift.Int` — a blittable-primitive return with
+    /// zero closure args is the canonical baseline throwing shape.</summary>
+    private static ClosureTypeSpec BaselineThrowingClosure()
+        => new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Int"))
+        {
+            IsAsync = true,
+            Throws = true
+        };
+
+    /// <summary>`() async -&gt; Swift.Int` — the non-throwing baseline twin.</summary>
+    private static ClosureTypeSpec BaselineNonThrowingClosure()
+        => new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Int"))
+        {
+            IsAsync = true
+        };
+
+    private static MethodDecl MethodWithClosure(string name, BaseDecl parent, ModuleDecl module, ClosureTypeSpec closure)
+    {
+        var method = SyncMethod(name, parent, module);
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            SwiftTypeSpec = closure,
+            Name = "handler",
+            PrivateName = "handler",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = module
+        });
+        return method;
+    }
 
     private static (ModuleDecl module, TypeDatabase typeDb) XcframeworkEnv()
     {
@@ -386,4 +713,37 @@ public class ParentModuleInternalGateTests
             IsAsync = false,
             IsSynthesizedAccessor = false
         };
+}
+
+/// <summary>
+/// Pins the structural half of the plan/emit contract: a C# <c>[LibraryImport]</c> may claim an
+/// <c>SBW_</c> wrapper symbol only while the Swift plane that would define that symbol is live.
+/// The predicate half (<see cref="WrapperValidation.IsTypeOrEnclosingModuleInternal"/>) is what a
+/// planner consults up front; this guard is the backstop at the site that would otherwise write
+/// the extern, so a violation is attributed to the offending emitter instead of surfacing later
+/// as a dangling-symbol failure at the end of generation.
+/// </summary>
+public class WrapperPlaneContractTests
+{
+    [Fact]
+    public void RequireLiveWrapperPlane_LiveWriter_DoesNotThrow()
+    {
+        var writer = new SwiftWriter(new StringWriter());
+
+        WrapperValidation.RequireLiveWrapperPlane(writer, "a test emitter");
+    }
+
+    [Fact]
+    public void RequireLiveWrapperPlane_DiscardingWriter_Throws()
+    {
+        // A discarding writer is non-null and accepts every write, so it is indistinguishable
+        // from a real one to a `writer != null` test — which is precisely how an emitter comes to
+        // plan externs for wrappers that were thrown away.
+        var writer = new SwiftWriter(new StringWriter()) { IsDiscarding = true };
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => WrapperValidation.RequireLiveWrapperPlane(writer, "a test emitter"));
+
+        Assert.Contains("a test emitter", ex.Message);
+    }
 }

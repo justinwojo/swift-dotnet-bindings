@@ -88,9 +88,18 @@ namespace BindingsGeneration
         /// classes/structs/enums (<c>module.Types</c>) and protocols (<c>module.Protocols</c>) —
         /// the same public-surface gate the emitter uses for top-level type emission.
         /// </summary>
-        public static void Emit(ModuleDecl module, string outputDirectory, ILogger logger)
+        /// <param name="withdrawnSwiftTypeNames">
+        /// Module-qualified Swift names withdrawn by the ingestion-quarantine closure, or null when
+        /// nothing was withdrawn. This emitter runs AFTER emission returns, outside the ambient
+        /// emission attempt, so it cannot read the poison list and has to be told explicitly.
+        /// </param>
+        public static void Emit(
+            ModuleDecl module,
+            string outputDirectory,
+            ILogger logger,
+            IReadOnlySet<string>? withdrawnSwiftTypeNames = null)
         {
-            var manifest = Build(module);
+            var manifest = Build(module, withdrawnSwiftTypeNames);
             var path = Path.Combine(outputDirectory, SwiftTypeOwnershipManifest.FileName);
             var settings = new JsonSerializerSettings
             {
@@ -107,7 +116,9 @@ namespace BindingsGeneration
         /// <summary>
         /// Builds the in-memory manifest from the module model. Exposed for unit testing.
         /// </summary>
-        public static SwiftTypeOwnershipManifest Build(ModuleDecl module)
+        public static SwiftTypeOwnershipManifest Build(
+            ModuleDecl module,
+            IReadOnlySet<string>? withdrawnSwiftTypeNames = null)
         {
             var manifest = new SwiftTypeOwnershipManifest
             {
@@ -120,17 +131,30 @@ namespace BindingsGeneration
             // Protocols is just its protocol subset. Walking Types alone covers every kind without
             // double-counting protocols (which also appear in ModuleDecl.Protocols).
             foreach (var type in module.Types)
-                CollectType(type, manifest.Types);
+                CollectType(type, manifest.Types, withdrawnSwiftTypeNames);
 
             return manifest;
         }
 
-        private static void CollectType(TypeDecl type, List<SwiftTypeOwnershipEntry> sink)
+        private static void CollectType(
+            TypeDecl type,
+            List<SwiftTypeOwnershipEntry> sink,
+            IReadOnlySet<string>? withdrawnSwiftTypeNames)
         {
+            // Ingestion-withdrawal gate. The manifest is the ObjC-companion dedup oracle: an entry
+            // here claims the ObjC runtime name for the Swift side, and the companion drops its own
+            // declaration of that name. A type the ingestion-quarantine closure withdrew emits no
+            // Swift-side declaration at all, so claiming its runtime name loses BOTH halves — the
+            // Swift binding (withdrawn) and the ObjC one (deduped away against a claim nothing backs).
+            var withdrawnProbe = type.SwiftTypeName?.ModuleQualifiedName;
+            bool isWithdrawn = withdrawnSwiftTypeNames is not null
+                && !string.IsNullOrEmpty(withdrawnProbe)
+                && withdrawnSwiftTypeNames.Contains(withdrawnProbe!);
+
             // Public-surface gate: mirror the top-level type emission filter. @usableFromInline
             // and @_spi types are not part of the consumer-visible ObjC surface, so they never
             // collide with an ObjC declaration and must not drive a dedup drop.
-            if (!type.IsModuleInternal && !type.IsSpiProtected)
+            if (!isWithdrawn && !type.IsModuleInternal && !type.IsSpiProtected)
             {
                 var kind = KindOf(type);
                 if (kind != null)
@@ -152,7 +176,7 @@ namespace BindingsGeneration
             // Nested types (e.g. a nested @objc class requires an explicit @objc(Name) the facts
             // captured, which we want in the manifest too).
             foreach (var nested in type.Types)
-                CollectType(nested, sink);
+                CollectType(nested, sink, withdrawnSwiftTypeNames);
         }
 
         private static string? KindOf(TypeDecl type) => type switch

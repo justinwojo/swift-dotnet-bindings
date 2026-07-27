@@ -431,6 +431,72 @@ public class AbiIngestionContractTests
             d => d.Category == InputResolutionCategory.AbiJson && d.Severity == InputResolutionSeverity.Degradation);
     }
 
+    /// <summary>
+    /// Companion scope guard, Clang C-aggregate edge. When a Swift module retroactively conforms or
+    /// extends a C aggregate imported from a system module, swift-api-digester emits a re-export stub
+    /// node for that aggregate: a Clang USR for a C struct / typedef'd aggregate / enum / union,
+    /// <c>isExternal: true</c>, a foreign <c>moduleName</c>, NO <c>ObjC</c> decl attribute, and — because
+    /// the declaration is written in C rather than Swift — no Swift mangled name at all. That absence is
+    /// the expected shape for a C declaration, not digester drift, so it must be a clean skip and never a
+    /// quarantine: quarantining the aggregate withdraws every declaration that merely STORES it, which for
+    /// a library whose only foreign edge is a system C type is the whole binding. The pre-existing
+    /// exemption keyed on <c>c:objc(</c> / <c>c:@T@</c> USRs, which none of these shapes match.
+    /// </summary>
+    [Theory]
+    [InlineData("Struct", "c:@S@CGPoint", "CoreFoundation")]            // C struct
+    [InlineData("Struct", "c:@SA@simd_quatf", "simd")]                  // typedef'd C aggregate
+    [InlineData("Enum", "c:@E@NSComparisonResult", "Foundation")]       // C enum
+    [InlineData("Struct", "c:@U@CFRuntimeBase", "CoreFoundation")]      // C union
+    public void ParseModule_ForeignClangAggregateReexportStub_SkippedNotQuarantined(
+        string bindableKind, string usr, string foreignModule)
+    {
+        InputResolutionReport.Reset();
+        var logger = new CapturingLogger();
+        var stub = CreateNode(
+            "TypeDecl", declKind: bindableKind, name: "ForeignAggregate", moduleName: foreignModule,
+            mangledName: "", usr: usr, declAttributes: [], isExternal: true);
+        using var fixture = CreateParser(jsonFormatVersion: ExpectedVersion, logger, stub);
+
+        var result = fixture.Parser.ParseModule();
+
+        // Reached the malformed-record gate and was exempted there (rather than dropped earlier as a
+        // plain re-export) — the log line names the stub, so the exemption is attributable.
+        Assert.Contains(logger.Entries, e => e.Message.Contains("Clang-rooted re-export stub")
+            && e.Message.Contains("ForeignAggregate"));
+        Assert.DoesNotContain(result.ModuleDecl.Types, t => t.Name == "ForeignAggregate");
+        Assert.DoesNotContain(result.ModuleDecl.Protocols, p => p.Name == "ForeignAggregate");
+        Assert.DoesNotContain(logger.Entries, e => e.Message.Contains("SWIFTBIND046"));
+        Assert.Equal(0, result.Reconciliation.DroppedWithError);
+        Assert.DoesNotContain(
+            InputResolutionReport.Decisions,
+            d => d.Category == InputResolutionCategory.AbiJson && d.Severity == InputResolutionSeverity.Degradation);
+    }
+
+    /// <summary>
+    /// Negative control for the exemption above: BOTH facts have to hold. A node the module itself owns
+    /// that happens to carry a Clang USR is not an external re-export stub, and an external node with a
+    /// Swift USR is a Swift declaration whose mangled name genuinely went missing. Either shape is still
+    /// a malformed type record and must still quarantine, or the exemption becomes a blanket amnesty that
+    /// swallows real digester drift.
+    /// </summary>
+    [Theory]
+    [InlineData("c:@S@LocalAggregate", null)]                 // Clang USR, but not external
+    [InlineData("s:11TestModule5GhostV", true)]               // external, but a Swift USR
+    public void ParseModule_ClangUsrWithoutExternal_OrExternalWithSwiftUsr_StillQuarantined(
+        string usr, bool? isExternal)
+    {
+        InputResolutionReport.Reset();
+        var logger = new CapturingLogger();
+        var node = CreateNode(
+            "TypeDecl", declKind: "Struct", name: "Ghost", moduleName: "TestModule", mangledName: "",
+            usr: usr, declAttributes: [], isExternal: isExternal);
+        using var fixture = CreateParser(jsonFormatVersion: ExpectedVersion, logger, node);
+
+        var result = fixture.Parser.ParseModule();
+
+        Assert.Contains(logger.Entries, e => e.Message.Contains("SWIFTBIND046") && e.Message.Contains("Ghost"));
+    }
+
     #region Harness
 
     private static ParserFixture CreateParser(int? jsonFormatVersion, ILogger logger, params Node[] nodes)
@@ -479,7 +545,8 @@ public class AbiIngestionContractTests
         string mangledName = "$s",
         IEnumerable<Node>? children = null,
         string? usr = null,
-        string[]? declAttributes = null)
+        string[]? declAttributes = null,
+        bool? isExternal = null)
     {
         return new Node
         {
@@ -490,6 +557,7 @@ public class AbiIngestionContractTests
             PrintedName = name,
             ModuleName = moduleName,
             usr = usr,
+            isExternal = isExternal,
             DeclAttributes = declAttributes ?? [],
             @static = false,
             IsInternal = false,

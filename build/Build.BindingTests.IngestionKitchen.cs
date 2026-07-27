@@ -226,8 +226,58 @@ partial class Build
             throw new Exception("ingestion-kitchen leg 1: emitted C# is missing BridgeWrapper.GetMarkerOfBase() — the "
                 + "member that dispatches through the retroactive conformance did not bind.");
 
+        AssertIngestionForeignAggregateStubsAdmitted(log, bridgeCs);
+
         Log.Information("  ✓ closed graph: generator exit 0, {Count} C# file(s) emitted, no preflight obligation; "
             + "foreign Base type resolved concretely, retroactive conformance bound.", emitted.Count);
+    }
+
+    // A retroactive conformance onto a Clang-imported C aggregate (CGSize in the PRIMARY module,
+    // CGPoint in the DEPENDENCY) makes the digester emit a foreign re-export stub node for that
+    // aggregate: a Clang USR, `isExternal`, and NO Swift mangled name — because the type is a C
+    // struct, not a Swift declaration. That absence is the expected shape for a C aggregate, not a
+    // malformed type record, so it must never seed the ingestion quarantine. Both seeding paths are
+    // asserted here because they are DIFFERENT mechanisms: the primary-module stub seeds the
+    // withdrawal closure locally, while the dependency-module stub seeds it through the
+    // cross-module quarantined-name set, and a fix that only covers the local path leaves every
+    // consumer of a dependency that extends a system C type withdrawn.
+    void AssertIngestionForeignAggregateStubsAdmitted(IReadOnlyList<string> log, string bridgeCs)
+    {
+        // (a) Neither aggregate may be quarantined at ingestion, on either seeding path.
+        foreach (var aggregate in new[] { "CGSize", "CGPoint" })
+        {
+            var quarantineLine = log.FirstOrDefault(l =>
+                l.Contains("SWIFTBIND046", StringComparison.Ordinal) &&
+                l.Contains($"'{aggregate}'", StringComparison.Ordinal));
+            if (quarantineLine != null)
+                throw new Exception($"ingestion-kitchen leg 1: the Clang C-aggregate re-export stub '{aggregate}' was "
+                    + $"quarantined at ingestion — '{quarantineLine.Trim()}'. A C aggregate carries a Clang USR and no "
+                    + "Swift mangled name by construction; treating that as a malformed type record withdraws every "
+                    + "declaration that stores it.");
+        }
+
+        // (b) Nothing that STORES an aggregate may be withdrawn — the local casualty (BridgeCanvas),
+        //     the dependency-side one (BaseAnchor), and the cross-module one (BridgeAnchorHolder).
+        foreach (var casualty in new[] { "BridgeCanvas", "BaseAnchor", "BridgeAnchorHolder" })
+        {
+            var withdrawalLine = log.FirstOrDefault(l =>
+                l.Contains("SWIFTBIND046", StringComparison.Ordinal) &&
+                l.Contains(casualty, StringComparison.Ordinal));
+            if (withdrawalLine != null)
+                throw new Exception($"ingestion-kitchen leg 1: '{casualty}' was withdrawn on a CLOSED graph — "
+                    + $"'{withdrawalLine.Trim()}'. It only reaches a quarantine through the C-aggregate stub it stores.");
+        }
+
+        // (c) The storing types must actually be declared in the emitted C#.
+        foreach (var declared in new[] { "BridgeCanvas", "BridgeAnchorHolder" })
+        {
+            if (!bridgeCs.Contains(declared, StringComparison.Ordinal))
+                throw new Exception($"ingestion-kitchen leg 1: emitted C# never declares '{declared}' — the type that "
+                    + "stores a Clang C-aggregate re-export stub was dropped from the binding.");
+        }
+
+        Log.Information("  ✓ Clang C-aggregate re-export stubs admitted (local + cross-module): no ingestion "
+            + "quarantine, no withdrawal of the types that store them.");
     }
 
     // Leg 2 — MISSING TRANSITIVE: Bridge bound WITHOUT Base. Must fail early with a structured

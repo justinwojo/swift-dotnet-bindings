@@ -11,6 +11,24 @@ namespace BindingsGeneration
     /// The emitted XML uses the same schema that TypeDatabase.ReadVersion1_0 parses,
     /// so downstream modules can load it via --module-database to resolve types
     /// from previously generated dependency modules.
+    ///
+    /// <para><b>Withdrawal parity.</b> The database is a promise to a DOWNSTREAM generator:
+    /// "this module declares these types, resolve against them". A type the type-database
+    /// registration pass recorded but emission later refused to declare breaks that promise —
+    /// the downstream module happily emits code naming a type its dependency's assembly does not
+    /// contain, and the break lands in GENERATED code the consumer cannot edit. Registration runs
+    /// before emission, so it cannot know about emission-time withdrawals: a malformed-ingestion
+    /// closure or the verify-recover loop can withdraw a type long after its record was written.
+    /// <paramref name="withdrawnTypeNames"/> closes that gap by filtering those records out at
+    /// serialization time.</para>
+    ///
+    /// <para>The filter is deliberately keyed on <em>withdrawal</em>, not on "was a C# type
+    /// declared". Several records are RESOLUTION-ONLY by design and must survive: a type owned by
+    /// the Apple supplement package is declared there rather than here, and a SwiftUI View is
+    /// projected through the generated bridge instead of a type declaration. Both are still
+    /// resolvable identities a downstream module must be able to look up, so a "every record has a
+    /// declaration" rule would wrongly delete them. Only a withdrawn type is declared nowhere at
+    /// all.</para>
     /// </summary>
     public static class ModuleDatabaseEmitter
     {
@@ -21,17 +39,46 @@ namespace BindingsGeneration
         /// <param name="moduleDatabase">The module database to serialize.</param>
         /// <param name="outputDirectory">Directory to write the XML file.</param>
         /// <param name="logger">Logger instance.</param>
+        /// <param name="suppressedProxyClassNames">Proxy class names suppressed by this emission.</param>
+        /// <param name="suppressedProxyNamespace">C# namespace the suppressed proxies would have used.</param>
+        /// <param name="withdrawnTypeNames">
+        /// Module-qualified Swift names of types this emission withdrew at emission time (see the
+        /// class remarks). Records matching one of these names are dropped from the serialized
+        /// database. Null/empty means "nothing was withdrawn".
+        /// </param>
         /// <returns>The path to the emitted XML file, or null if no records to emit.</returns>
         public static string? Emit(
             ModuleTypeDatabase moduleDatabase,
             string outputDirectory,
             ILogger logger,
             IReadOnlyCollection<string>? suppressedProxyClassNames = null,
-            string? suppressedProxyNamespace = null)
+            string? suppressedProxyNamespace = null,
+            IReadOnlyCollection<string>? withdrawnTypeNames = null)
         {
-            var records = moduleDatabase.GetAllTypeRecords()
+            var withdrawn = withdrawnTypeNames is { Count: > 0 }
+                ? new HashSet<string>(withdrawnTypeNames, StringComparer.Ordinal)
+                : null;
+
+            var allRecords = moduleDatabase.GetAllTypeRecords()
                 .OrderBy(kvp => kvp.Key.ModuleQualifiedName, StringComparer.Ordinal)
                 .ToList();
+
+            var records = allRecords;
+            if (withdrawn != null)
+            {
+                records = allRecords
+                    .Where(kvp => !withdrawn.Contains(kvp.Key.ModuleQualifiedName))
+                    .ToList();
+                var dropped = allRecords.Count - records.Count;
+                if (dropped > 0)
+                {
+                    logger.LogInformation(
+                        "Module '{Module}': withheld {Count} withdrawn type record(s) from the module database " +
+                        "so it cannot advertise a type this binding does not declare.",
+                        moduleDatabase.Name, dropped);
+                }
+            }
+
             if (records.Count == 0)
             {
                 logger.LogInformation("Module '{Module}' has no type records — skipping database emission.", moduleDatabase.Name);

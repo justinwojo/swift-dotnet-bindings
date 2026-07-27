@@ -47,12 +47,26 @@ public sealed record CSharpCompileDiagnostic(
     string Message)
 {
     /// <summary>
-    /// True for an error emitted by the C# compiler itself (<c>CS####</c>). These are the
-    /// diagnostics that mean "the emitted C# does not compile" — the gate's actual question.
+    /// True for an error that means "the emitted C# does not compile" — the gate's actual
+    /// question. Two id families qualify:
+    /// <list type="bullet">
+    /// <item><c>CS####</c> — the C# compiler itself.</item>
+    /// <item><c>SYSLIB####</c> — the source generators the emitted code depends on, chiefly the
+    /// <c>LibraryImport</c> generator. A P/Invoke parameter the generator cannot marshal (an
+    /// unresolved-type placeholder is the shape that reaches it) is reported ONLY as
+    /// <c>SYSLIB1051</c>: the generator refuses to expand the stub, and the build fails without
+    /// the compiler ever raising a <c>CS</c> error of its own unless some call site happens to
+    /// also break. Classifying that as infrastructure-or-unknown made the loop answer
+    /// "inconclusive" — which, with nothing yet withdrawn, passes through and ships a binding
+    /// that provably does not build. It is a statement about the emitted source, it anchors to
+    /// the emitted member, and it is recoverable by withdrawing that member, so it belongs on
+    /// this side of the split.</item>
+    /// </list>
     /// </summary>
     public bool IsCompilerError =>
         Severity == CSharpDiagnosticSeverity.Error &&
-        Id.StartsWith("CS", StringComparison.Ordinal);
+        (Id.StartsWith("CS", StringComparison.Ordinal) ||
+         Id.StartsWith("SYSLIB", StringComparison.Ordinal));
 
     /// <summary>
     /// True for a restore / build-infrastructure diagnostic (<c>NU####</c> NuGet restore,
@@ -77,7 +91,7 @@ public enum CSharpVerificationOutcome
     /// <summary>The emitted C# compiled with no errors.</summary>
     Clean,
 
-    /// <summary>The emitted C# produced one or more compiler (<c>CS####</c>) errors.</summary>
+    /// <summary>The emitted C# produced one or more source-level errors (<c>CS####</c> or <c>SYSLIB####</c>).</summary>
     CompileErrors,
 
     /// <summary>
@@ -97,13 +111,13 @@ public sealed record CSharpVerificationResult(
     IReadOnlyList<CSharpCompileDiagnostic> Diagnostics,
     string? InconclusiveReason = null)
 {
-    /// <summary>The compiler errors (<c>CS####</c>) among the diagnostics, deterministically ordered.</summary>
+    /// <summary>The source-level errors (<c>CS####</c>/<c>SYSLIB####</c>) among the diagnostics, deterministically ordered.</summary>
     public IReadOnlyList<CSharpCompileDiagnostic> CompilerErrors =>
         Diagnostics.Where(d => d.IsCompilerError).OrderBy(d => d.OrderKey).ToList();
 
     /// <summary>
-    /// Classify a diagnostic set into an outcome using the CS-vs-NU/MSB split. A build that
-    /// produced any CS error is <see cref="CSharpVerificationOutcome.CompileErrors"/>; a build
+    /// Classify a diagnostic set into an outcome using the source-error-vs-NU/MSB split. A build
+    /// that produced any CS/SYSLIB error is <see cref="CSharpVerificationOutcome.CompileErrors"/>; a build
     /// that failed with only restore/infrastructure errors is
     /// <see cref="CSharpVerificationOutcome.Inconclusive"/>; a build that produced no errors is
     /// <see cref="CSharpVerificationOutcome.Clean"/>.
@@ -122,7 +136,7 @@ public sealed record CSharpVerificationResult(
         var infra = ordered.Where(d => d.IsRestoreOrInfrastructure).ToList();
         var reason = infra.Count > 0
             ? $"build failed before the C# compile with {infra.Count} restore/infrastructure error(s) (first: {infra[0].Id})"
-            : "build failed with no C# compiler error reported";
+            : "build failed with no C# source-level error reported";
         return new CSharpVerificationResult(CSharpVerificationOutcome.Inconclusive, ordered, reason);
     }
 }

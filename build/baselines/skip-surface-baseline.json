@@ -1,11 +1,11 @@
 {
-  "git_sha": "ffef70d8",
+  "git_sha": "4ae2a813",
   "entries": [
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "ObsoleteSB0001",
       "reason": "No @_cdecl wrapper or native thunk available. P/Invoke calling convention may not match Swift ABI",
-      "count": 80
+      "count": 82
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -18,6 +18,12 @@
       "marker": "Unsupported",
       "reason": "method \u0027AppleShapedForecast.init\u0027 \u2014 NonBlittableCallConvSwift (generic container parameters require @_cdecl wrapper (ABI mismatch))",
       "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027ArrayMetatypeStore.loadItems\u0027 \u2014 parameter or return type not yet supported (unsupported placeholder type)",
+      "count": 2
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -65,6 +71,66 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "method \u0027BagSession4.optionalCount\u0027 \u2014 protocol with associated types used as constraint (Method has constraints on protocols with associated types or self requirements.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027BaselineAsyncClosureConformer.acceptThrowing\u0027 \u2014 parameter or return type not yet supported (unbridgeable async-throwing closure)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027BaselineAsyncClosureDebugDefaultConformer.run\u0027 \u2014 parameter or return type not yet supported (unbridgeable async-throwing closure)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027BaselineAsyncClosureDefaultArgHost.configure\u0027 \u2014 parameter or return type not yet supported (unbridgeable async-throwing closure)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027BaselineAsyncClosureMemberHost.configureNonThrowing\u0027 \u2014 parameter or return type not yet supported (unbridgeable async-throwing closure)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027BaselineAsyncClosureMemberHost.configureThrowing\u0027 \u2014 parameter or return type not yet supported (unbridgeable async-throwing closure)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027BaselineAsyncClosureMemberHost.loadThrowingClosureFromNonThrowingAsync\u0027 \u2014 parameter or return type not yet supported (unbridgeable async-throwing closure)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027BaselineAsyncNonThrowingClosureClassInit.init\u0027 \u2014 parameter or return type not yet supported (unbridgeable async closure parameter)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027BaselineAsyncNonThrowingClosureStructInit.init\u0027 \u2014 parameter or return type not yet supported (unbridgeable async closure parameter)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027BaselineAsyncThrowingClosureClassInit.init\u0027 \u2014 parameter or return type not yet supported (unbridgeable async closure parameter)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027BaselineAsyncThrowingClosureStructInit.init\u0027 \u2014 parameter or return type not yet supported (unbridgeable async closure parameter)",
       "count": 1
     },
     {
@@ -124,6 +190,24 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "method \u0027CrossModuleClosureTombstoneHost.collect\u0027 \u2014 closure signature not yet supported (Parameter \u0027factory\u0027 has unsupported closure type that cannot be marshalled.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027CrossModuleClosureTombstoneHost.configure\u0027 \u2014 closure signature not yet supported (Parameter \u0027factory\u0027 has unsupported closure type that cannot be marshalled.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027CrossModuleClosureTombstoneHost.resolve\u0027 \u2014 closure signature not yet supported (Parameter \u0027factory\u0027 has unsupported closure type that cannot be marshalled.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "method \u0027CtorAdmBox.init\u0027 \u2014 NonBlittableCallConvSwift (generic-type constructor inadmissible for open dispatch (CSM emits concrete forms))",
       "count": 3
     },
@@ -137,6 +221,12 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "method \u0027CurrentlyGatedPayloadBox.Filled\u0027 \u2014 GenericEnumCaseConstructor (generic-enum payload-case constructor has no exported function symbol and no @_cdecl wrapper route; a direct mangled-symbol P/Invoke would throw EntryPointNotFoundException on first use.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027Data.ForeignNestedPayload.Tagged\u0027 \u2014 ModuleInternal (module-internal enum payload-case constructor cannot be named by the wrapper module and has no exported function symbol to import directly.)",
       "count": 1
     },
     {
@@ -310,6 +400,18 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "method \u0027MixedTupleHost.mixedMemberPair\u0027 \u2014 parameter or return type not yet supported (mixed generic tuple return has a per-element indirect/direct ABI the P/Invoke cannot express)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027MixedTupleHost.mixedStaticPair\u0027 \u2014 parameter or return type not yet supported (mixed generic tuple return has a per-element indirect/direct ABI the P/Invoke cannot express)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "method \u0027PaymentOutcome.Paid\u0027 \u2014 GenericEnumCaseConstructor (generic-enum payload-case constructor has no exported function symbol and no @_cdecl wrapper route; a direct mangled-symbol P/Invoke would throw EntryPointNotFoundException on first use.)",
       "count": 1
     },
@@ -454,7 +556,7 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027TupleOfClassParamHost.init\u0027 \u2014 parameter or return type not yet supported (Tuple parameter \u0027maxSize\u0027 has elements whose P/Invoke type differs from the C# type \u2014 per-element marshalling for convertible-element tuple parameters is not yet implemented.)",
+      "reason": "method \u0027TupleOfClassParamHost.init\u0027 \u2014 parameter or return type not yet supported (Tuple parameter \u0027maxSize\u0027 has elements the @_cdecl tuple buffer cannot carry \u2014 per-element marshalling for this element kind is not yet implemented.)",
       "count": 1
     },
     {
@@ -466,13 +568,7 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027UnsupportedClosureAsyncThrowingParam.runRequest\u0027 \u2014 parameter or return type not yet supported (unbridgeable async-throwing closure)",
-      "count": 1
-    },
-    {
-      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
-      "marker": "Unsupported",
-      "reason": "method \u0027UnsupportedClosureAsyncVoidReturn.init\u0027 \u2014 closure signature not yet supported (Parameter \u0027handler\u0027 has unsupported closure type that cannot be marshalled.)",
+      "reason": "method \u0027UnsupportedClosureAsyncThrowingParam.runRequest\u0027 \u2014 closure signature not yet supported (Parameter \u0027arg0\u0027 has unsupported closure type that cannot be marshalled.)",
       "count": 1
     },
     {
@@ -497,6 +593,18 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "method \u0027WitnessIndexConformer.consume\u0027 \u2014 C# signature collides with another member",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027appendPathElement\u0027 \u2014 parameter or return type not yet supported (An inout parameter whose type cannot round-trip through a C-ABI pointer (String, class/ObjC-bridged, protocol/existential, non-copyable, or non-frozen) combined with a large-Optional parameter or return has no correct marshalling path: both the MethodWrapper and OptionalPointer wrapper paths decline the mismatched inout type, and the raw CallConvSwift fallback drops the inout modifier.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027baselineAsyncThrowingClosureFreeFunction\u0027 \u2014 parameter or return type not yet supported (unbridgeable async-throwing closure)",
       "count": 1
     },
     {
@@ -527,6 +635,48 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "method \u0027makeCarrier\u0027 \u2014 ModuleInternal (Internal module-level function suppressed from bindings.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027mixedReturnPairArrayT\u0027 \u2014 parameter or return type not yet supported (mixed generic tuple return has a per-element indirect/direct ABI the P/Invoke cannot express)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027mixedReturnPairIT\u0027 \u2014 parameter or return type not yet supported (mixed generic tuple return has a per-element indirect/direct ABI the P/Invoke cannot express)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027mixedReturnPairTArray\u0027 \u2014 parameter or return type not yet supported (mixed generic tuple return has a per-element indirect/direct ABI the P/Invoke cannot express)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027mixedReturnPairTI\u0027 \u2014 parameter or return type not yet supported (mixed generic tuple return has a per-element indirect/direct ABI the P/Invoke cannot express)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027mixedReturnPairTOptional\u0027 \u2014 parameter or return type not yet supported (mixed generic tuple return has a per-element indirect/direct ABI the P/Invoke cannot express)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027mixedReturnThrowing\u0027 \u2014 parameter or return type not yet supported (mixed generic tuple return has a per-element indirect/direct ABI the P/Invoke cannot express)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027mixedReturnTriple\u0027 \u2014 parameter or return type not yet supported (mixed generic tuple return has a per-element indirect/direct ABI the P/Invoke cannot express)",
       "count": 1
     },
     {
@@ -586,7 +736,7 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "property \u0027AsyncClosurePropertySetterHolder.confirmHandler\u0027 \u2014 closure signature not yet supported (Async closure-typed properties cannot be stored via a sync accessor: Swift cannot synthesize a (Args...) async (throws) -\u003E T closure from a C# (funcPtr, context) pair.)",
+      "reason": "property \u0027AsyncClosurePropertySetterHolder.confirmHandler\u0027 \u2014 closure signature not yet supported (Closure type is not supported.)",
       "count": 1
     },
     {
@@ -610,7 +760,7 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "property \u0027AsyncClosurePropertySetterOuter.IntentConfigurationNested.confirmHandler\u0027 \u2014 closure signature not yet supported (Async closure-typed properties cannot be stored via a sync accessor: Swift cannot synthesize a (Args...) async (throws) -\u003E T closure from a C# (funcPtr, context) pair.)",
+      "reason": "property \u0027AsyncClosurePropertySetterOuter.IntentConfigurationNested.confirmHandler\u0027 \u2014 closure signature not yet supported (Closure type is not supported.)",
       "count": 1
     },
     {
@@ -761,6 +911,12 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "property \u0027NestedHostStruct.caption\u0027 \u2014 type could not be resolved to a concrete projection (Property type resolved to AnyType (SwiftBindingsTestLib.NestedHostStruct\u003CSwift.AnyType\u003E.Caption).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027NestedReturnHost.values\u0027 \u2014 type could not be resolved to a concrete projection (Property type resolved to AnyType (SwiftBindingsTestLib.NestedReturnHost\u003CSwift.AnyType\u003E.Values).)",
       "count": 1
     },
     {
@@ -1126,8 +1282,14 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "UnsupportedSwiftType",
+      "reason": "Type is missing from the type database",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "UnsupportedSwiftType",
       "reason": "Unsupported closure fallback",
-      "count": 10
+      "count": 14
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLibDependency.cs",

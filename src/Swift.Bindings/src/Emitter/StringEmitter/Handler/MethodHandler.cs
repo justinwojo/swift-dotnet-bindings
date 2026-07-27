@@ -467,6 +467,25 @@ namespace BindingsGeneration
                 }
             }
 
+            // Async closure bridge eligibility — same contract as the ordinary method path.
+            // The P/Invoke layer emits the (context, startFunc) pair for a baseline async
+            // closure, but the matching Swift @_cdecl adapter is only produced when the
+            // CONTAINING member was promoted to an async @_cdecl *method* wrapper. A
+            // constructor never is (the factory selects only sync constructors, and the
+            // constructor wrapper is a different emitter), so a baseline-shaped async
+            // closure parameter here would degrade to the Swift.AnyType placeholder inside
+            // a [LibraryImport] — the member must be skipped whole instead. The closure
+            // itself is a SUPPORTED shape, so neither the pre-dispatch validator nor the
+            // unsupported-closure tombstone absorbs it; the check has to live here.
+            // MUST run BEFORE SignatureHandler creation: once the signature is built the
+            // member is committed and the placeholder can no longer be withdrawn cleanly.
+            if (WrapperValidation.HasUnbridgeableAsyncThrowingClosure(methodEnv))
+            {
+                ReportCollector.RecordMemberSkipped(methodEnv.MethodDecl, SkipReason.UnsupportedSignature, "Async closure parameter cannot be bridged (non-baseline shape, or the containing member is not a @_cdecl async wrapper).");
+                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "unbridgeable async closure parameter", containingDecl: methodEnv.MethodDecl.ParentDecl);
+                return;
+            }
+
             var signatureHandler = new SignatureHandler(methodEnv);
 
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
@@ -749,6 +768,18 @@ namespace BindingsGeneration
                 // Swift inside this body is covered by construction rather than by an audit.
                 WrapperSymbolContractGate.ReportKeptWrapperBlock(ctorTransaction.Rollback(), methodEnv, ex.EntryPoint, _logger);
                 WrapperSymbolContractGate.HandleSkip(methodEnv, ex.EntryPoint, csWriter, _logger);
+                return;
+            }
+            catch (UnbridgeableAsyncClosureException ex)
+            {
+                // Backstop for the async-closure bridge gate above. Unreachable while every
+                // handler path consults HasUnbridgeableAsyncThrowingClosure before building a
+                // signature; if one ever stops, roll the half-written member back out and
+                // record it as an honest skip rather than emitting an uncompilable P/Invoke.
+                ctorTransaction.Rollback();
+                _logger.LogWarning(ex.Message);
+                ReportCollector.RecordMemberSkipped(methodEnv.MethodDecl, SkipReason.UnsupportedSignature, "Async closure parameter cannot be bridged (non-baseline shape, or the containing member is not a @_cdecl async wrapper).");
+                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "unbridgeable async closure parameter", containingDecl: methodEnv.MethodDecl.ParentDecl);
                 return;
             }
             methodEnv.MethodDecl.MarkEmitted();
@@ -1144,8 +1175,10 @@ namespace BindingsGeneration
             var originalMangledName = methodEnv.MethodDecl.MangledName;
 
             // Check for debug params BEFORE EmitDebugParamWrapper removes them from CSSignature.
-            bool hadDebugParams = !methodEnv.MethodDecl.UsesWrapperLibrary &&
-                DefaultParameterOverloadEmitter.HasDebugParameters(methodEnv.MethodDecl);
+            // The predicate is shared with WrapperValidation.IsAsyncCdeclEligible: installing this
+            // wrapper sets UsesWrapperLibrary, which makes the later async promotion branch decline,
+            // so a pre-emission predictor must see the same install coming.
+            bool hadDebugParams = DefaultParameterOverloadEmitter.WillInstallDebugParamWrapper(methodEnv.MethodDecl);
 
             // Emit Swift wrapper for methods with debug params (#file, #line, etc.)
             // Must happen before SignatureHandler — updates MangledName + UsesWrapperLibrary.
@@ -1361,40 +1394,11 @@ namespace BindingsGeneration
             }
 
             // Async @_cdecl eligibility — must run BEFORE SignatureHandler creation.
-            // Can't use ShouldEmitWrapper (gate 7 rejects async). Use HasCdeclCompatibleFunctionShape.
-            bool asyncCdeclEligible = false;
-            if (methodEnv.MethodDecl.IsAsync &&
-                !methodEnv.MethodDecl.UsesWrapperLibrary &&
-                MethodWrapperEmitter.HasCdeclCompatibleFunctionShape(methodEnv))
-            {
-                asyncCdeclEligible = methodEnv.MethodDecl.CSSignature.Skip(1).All(p => {
-                    if (p.IsGeneric) return false;
-                    // Metatype check runs BEFORE the closure / large-optional / nested-struct
-                    // bypasses below: AnyClass.Type? would otherwise be widened to UnsafeRawPointer
-                    // by the async wrapper and the body would still try to render the bare metatype.
-                    if (WrapperValidation.IsMetatypeTypeIncludingOptional(p.SwiftTypeSpec)) return false;
-                    if (p.SwiftTypeSpec is ClosureTypeSpec closureSpec)
-                    {
-                        // Baseline async closures (throwing + non-throwing) are bridged
-                        // by the async wrapper via a CheckedContinuation. The throwing
-                        // baseline requires the outer method to also be `throws` (adapter
-                        // uses `try await` inside the catch harness). The non-throwing
-                        // baseline only requires the outer method to be async — the
-                        // adapter uses plain `await`.
-                        if (methodEnv.ClosureHandler.IsBaselineAsyncThrowingClosure(closureSpec))
-                            return methodEnv.MethodDecl.Throws;
-                        if (methodEnv.ClosureHandler.IsBaselineAsyncNonThrowingClosure(closureSpec))
-                            return true;
-                        return false;
-                    }
-                    if (MethodWrapperEmitter.IsNestedFrozenStructParam(p, methodEnv.TypeDatabase)) return false;
-                    // Frozen blittable struct params are now supported in async via heap allocation
-                    // (NativeMemory.Alloc instead of stackalloc). See WrapperEmitter.Async.cs.
-                    // Protocol existentials are marshalled as UnsafeRawPointer to the
-                    // ExistentialContainer1 heap allocation — see CdeclParamMapper.
-                    return true;
-                });
-            }
+            // Can't use ShouldEmitWrapper (gate 7 rejects async), so this rides its own predicate.
+            // That predicate is shared with WrapperValidation.WillPromoteToCdeclMethodWrapper so a
+            // pre-emission caller (e.g. conformance selection, which runs before this line) reaches
+            // the same verdict this branch will — inlining it here again would let them drift.
+            bool asyncCdeclEligible = WrapperValidation.IsAsyncCdeclEligible(methodEnv);
             if (asyncCdeclEligible)
             {
                 var parentType_ = methodEnv.ParentDecl as TypeDecl;
@@ -1735,6 +1739,16 @@ namespace BindingsGeneration
             {
                 WrapperSymbolContractGate.ReportKeptWrapperBlock(methodTransaction.Rollback(), methodEnv, ex.EntryPoint, _logger);
                 WrapperSymbolContractGate.HandleSkip(methodEnv, ex.EntryPoint, csWriter, _logger);
+                return;
+            }
+            catch (UnbridgeableAsyncClosureException ex)
+            {
+                // Backstop for the async-closure bridge gate in PHASE 2 above — see the
+                // constructor site for the rationale.
+                methodTransaction.Rollback();
+                _logger.LogWarning(ex.Message);
+                ReportCollector.RecordMemberSkipped(methodEnv.MethodDecl, SkipReason.UnsupportedSignature, "Async closure parameter cannot be bridged (non-baseline shape, or the containing member is not a @_cdecl async wrapper).");
+                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "unbridgeable async closure parameter", containingDecl: methodEnv.MethodDecl.ParentDecl);
                 return;
             }
             methodEnv.MethodDecl.MarkEmitted();

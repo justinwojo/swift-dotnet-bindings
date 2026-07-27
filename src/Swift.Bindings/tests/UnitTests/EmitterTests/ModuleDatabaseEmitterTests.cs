@@ -893,6 +893,203 @@ namespace BindingsGeneration.Tests
             finally { Directory.Delete(dir, true); }
         }
 
+        [Fact]
+        public async Task Emit_WithdrawnType_IsNotAdvertised()
+        {
+            // A type record is registered BEFORE emission runs, so a type that emission later
+            // refuses to declare (malformed ingestion, containment denial, verify-recover
+            // withdrawal) would still be advertised to downstream generators. The downstream
+            // module then emits generated code naming a type this binding's assembly does not
+            // contain — a compile break in code the consumer cannot edit. Withdrawn records must
+            // not reach the serialized database.
+            var dir = CreateTempDir();
+            try
+            {
+                var module = new ModuleTypeDatabase("PartialModule", "/fake/PartialModule.dylib");
+                var kept = SwiftTypeName.FromModuleQualifiedName("PartialModule.Kept");
+                var pulled = SwiftTypeName.FromModuleQualifiedName("PartialModule.Pulled");
+                module.RegisterType(kept, new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("PartialModule", "Kept"),
+                    SwiftTypeName = kept,
+                    MetadataAccessor = "$s13PartialModule4KeptV",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct,
+                });
+                module.RegisterType(pulled, new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("PartialModule", "Pulled"),
+                    SwiftTypeName = pulled,
+                    MetadataAccessor = "$s13PartialModule6PulledV",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct,
+                });
+
+                var path = ModuleDatabaseEmitter.Emit(
+                    module, dir, NullLogger.Instance,
+                    withdrawnTypeNames: new[] { "PartialModule.Pulled" });
+                Assert.NotNull(path);
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(kept, out _));
+                Assert.False(typeDatabase.TryGetTypeRecord(pulled, out _));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public async Task Emit_ResolutionOnlyRecords_SurviveWithdrawalFilter()
+        {
+            // The filter keys on WITHDRAWAL, never on "did this emission declare a C# type".
+            // Several records are resolution-only by design: a type owned by the supplement
+            // package is declared there, and a view type is projected through the generated
+            // bridge rather than declared. Both are declaration-less here yet remain resolvable
+            // identities a downstream module must look up, so they must survive even when a
+            // sibling type IS withdrawn in the same emission.
+            var dir = CreateTempDir();
+            try
+            {
+                var module = new ModuleTypeDatabase("MixedModule", "/fake/MixedModule.dylib");
+                var resolutionOnly = SwiftTypeName.FromModuleQualifiedName("MixedModule.ExternallyDeclared");
+                var withdrawnName = SwiftTypeName.FromModuleQualifiedName("MixedModule.Withdrawn");
+                module.RegisterType(resolutionOnly, new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MixedModule", "ExternallyDeclared"),
+                    SwiftTypeName = resolutionOnly,
+                    MetadataAccessor = "$s11MixedModule18ExternallyDeclaredC",
+                    Flags = TypeRecordFlags.RequiresMemoryManagement,
+                    Kind = TypeRecordKind.Class,
+                });
+                module.RegisterType(withdrawnName, new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MixedModule", "Withdrawn"),
+                    SwiftTypeName = withdrawnName,
+                    MetadataAccessor = "$s11MixedModule9WithdrawnC",
+                    Flags = TypeRecordFlags.RequiresMemoryManagement,
+                    Kind = TypeRecordKind.Class,
+                });
+
+                var path = ModuleDatabaseEmitter.Emit(
+                    module, dir, NullLogger.Instance,
+                    withdrawnTypeNames: new[] { "MixedModule.Withdrawn" });
+                Assert.NotNull(path);
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(resolutionOnly, out _));
+                Assert.False(typeDatabase.TryGetTypeRecord(withdrawnName, out _));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public async Task Emit_NoWithdrawals_EmitsEveryRecord()
+        {
+            // The common path: nothing was withdrawn, so the filter must be a strict no-op —
+            // null and empty must both behave identically to the pre-filter emission.
+            foreach (var withdrawals in new[] { (IReadOnlyCollection<string>)null!, Array.Empty<string>() })
+            {
+                var dir = CreateTempDir();
+                try
+                {
+                    var module = new ModuleTypeDatabase("HealthyModule", "/fake/HealthyModule.dylib");
+                    var a = SwiftTypeName.FromModuleQualifiedName("HealthyModule.Alpha");
+                    var b = SwiftTypeName.FromModuleQualifiedName("HealthyModule.Beta");
+                    module.RegisterType(a, new TypeRecord
+                    {
+                        CSharpTypeName = CSharpTypeName.FromNamespaceAndName("HealthyModule", "Alpha"),
+                        SwiftTypeName = a,
+                        MetadataAccessor = "$s13HealthyModule5AlphaV",
+                        Flags = TypeRecordFlags.Frozen,
+                        Kind = TypeRecordKind.Struct,
+                    });
+                    module.RegisterType(b, new TypeRecord
+                    {
+                        CSharpTypeName = CSharpTypeName.FromNamespaceAndName("HealthyModule", "Beta"),
+                        SwiftTypeName = b,
+                        MetadataAccessor = "$s13HealthyModule4BetaV",
+                        Flags = TypeRecordFlags.Frozen,
+                        Kind = TypeRecordKind.Struct,
+                    });
+
+                    var path = ModuleDatabaseEmitter.Emit(
+                        module, dir, NullLogger.Instance, withdrawnTypeNames: withdrawals);
+                    Assert.NotNull(path);
+
+                    var typeDatabase = new TypeDatabase();
+                    await typeDatabase.LoadModuleDatabaseFromFile(path);
+                    Assert.True(typeDatabase.TryGetTypeRecord(a, out _));
+                    Assert.True(typeDatabase.TryGetTypeRecord(b, out _));
+                }
+                finally { Directory.Delete(dir, true); }
+            }
+        }
+
+        [Fact]
+        public async Task Emit_UnknownWithdrawnName_DoesNotDropUnrelatedRecords()
+        {
+            // Withdrawal names are matched on the module-qualified Swift name. A name that
+            // matches no record (a withdrawal in a different module, or a bare type name) must
+            // drop nothing — a loose match would silently amputate the dependency contract.
+            var dir = CreateTempDir();
+            try
+            {
+                var module = new ModuleTypeDatabase("StableModule", "/fake/StableModule.dylib");
+                var widget = SwiftTypeName.FromModuleQualifiedName("StableModule.Widget");
+                module.RegisterType(widget, new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("StableModule", "Widget"),
+                    SwiftTypeName = widget,
+                    MetadataAccessor = "$s12StableModule6WidgetV",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct,
+                });
+
+                var path = ModuleDatabaseEmitter.Emit(
+                    module, dir, NullLogger.Instance,
+                    withdrawnTypeNames: new[] { "Widget", "OtherModule.Widget" });
+                Assert.NotNull(path);
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+                Assert.True(typeDatabase.TryGetTypeRecord(widget, out _));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_EveryRecordWithdrawn_EmitsNoDatabase()
+        {
+            // If emission withdrew everything, there is no surface left to advertise. Emitting an
+            // empty database would still assert "this module was processed" to a downstream
+            // resolver; returning null matches the existing zero-record contract instead.
+            var dir = CreateTempDir();
+            try
+            {
+                var module = new ModuleTypeDatabase("EmptiedModule", "/fake/EmptiedModule.dylib");
+                var only = SwiftTypeName.FromModuleQualifiedName("EmptiedModule.Only");
+                module.RegisterType(only, new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("EmptiedModule", "Only"),
+                    SwiftTypeName = only,
+                    MetadataAccessor = "$s13EmptiedModule4OnlyV",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct,
+                });
+
+                var path = ModuleDatabaseEmitter.Emit(
+                    module, dir, NullLogger.Instance,
+                    withdrawnTypeNames: new[] { "EmptiedModule.Only" });
+
+                Assert.Null(path);
+                Assert.Empty(Directory.GetFiles(dir));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
         private static string CreateTempDir()
         {
             var dir = Path.Combine(Path.GetTempPath(), $"mdb_emit_{Guid.NewGuid():N}");

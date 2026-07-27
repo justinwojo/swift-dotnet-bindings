@@ -526,6 +526,21 @@ public class ProtocolConformanceValidator
                 return false;
             }
 
+            // Handler-layer agreement: the async closure bridge gate deliberately does NOT live in
+            // ValidateMethodEmission. The closure shape itself is supported — what decides whether
+            // the (context, startFunc) bridge has a Swift adapter is the CONTAINING member's wrapper
+            // flavor, which only the emitter handlers know. So the pipeline above says "emit" while
+            // the handler skips, the interface keeps the requirement, and the conformer omits its
+            // witness (CS0535). Mirror the handler gate here so the conformance list tracks what the
+            // class body will actually contain.
+            if (HasUnbridgeableAsyncClosure(concreteMethod))
+            {
+                if (_extensionDefaultsIndex != null &&
+                    _extensionDefaultsIndex.HasMethodDefault(qualifiedName, ProtocolExtensionEmitter.BuildMethodKey(protoMethod)))
+                    continue; // Satisfied by DIM in interface
+                return false;
+            }
+
             // Check C# name parity: the concrete type's method is emitted via GetPublicMethodName
             // with the concrete type's property names. If a property collision causes a "Method"
             // suffix, the emitted name won't match the interface member name → CS0535.
@@ -609,6 +624,21 @@ public class ProtocolConformanceValidator
             var staticMethodEmission = emissionPipeline.ValidateMethodEmission(concreteMethod, emissionValidationCtx);
             if (!staticMethodEmission.ShouldEmit && !staticMethodEmission.IsSynthesized)
                 return false;
+
+            // Handler-layer agreement — see the instance-method path for the rationale, including
+            // its DIM rescue: a requirement the interface satisfies with a default interface member
+            // does not need this witness at all, so an unbridgeable witness is no reason to drop the
+            // conformance. Static requirements reach the interface through the same protocol-
+            // extension default path (C# 11 static abstract members can carry a default body), so
+            // the rescue applies identically here; omitting it made the static path drop
+            // conformances the instance path would have kept for the same shape.
+            if (HasUnbridgeableAsyncClosure(concreteMethod))
+            {
+                if (_extensionDefaultsIndex != null &&
+                    _extensionDefaultsIndex.HasMethodDefault(qualifiedName, ProtocolExtensionEmitter.BuildMethodKey(protoMethod)))
+                    continue; // Satisfied by DIM in interface
+                return false;
+            }
 
             // Check C# name parity (same logic as instance methods)
             var concreteProperties = concreteType switch
@@ -1167,6 +1197,22 @@ public class ProtocolConformanceValidator
         // InterfaceOnly (closure properties) → NOT skipped from interface (they ARE in the interface)
         return result.IsSkipped;
     }
+
+    /// <summary>
+    /// Mirrors the emitter handlers' async-closure bridge gate for a candidate witness. The
+    /// gate is handler-layer by design (the closure shape is supported; only the containing
+    /// member's wrapper flavor decides whether a Swift adapter exists for the
+    /// <c>(context, startFunc)</c> pair), so the member-validation pipeline does not carry it
+    /// and this validator has to ask the same question directly.
+    /// <para>Asked through the BEFORE-EMISSION entry point, because that is when this validator
+    /// runs. The plain overload reads <c>UsesCdeclMethodWrapper</c>, which is still false here for
+    /// every method emission is going to promote — so it would answer "unbridgeable" for a witness
+    /// that binds cleanly, and this validator would drop an entire conformance the type satisfies.
+    /// The pre-emission entry point predicts the promotion so the two layers agree.</para>
+    /// </summary>
+    private bool HasUnbridgeableAsyncClosure(MethodDecl method) =>
+        WrapperValidation.HasUnbridgeableAsyncThrowingClosureBeforeEmission(
+            new MethodEnvironment(method, _typeDatabase));
 
     /// <summary>
     /// Checks if a protocol method would be skipped from the interface.

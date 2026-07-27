@@ -82,29 +82,30 @@ Counts are from `build/baselines/validation-baseline.json` `skip_metrics.skip_re
 working?" sanity sweep while the generator was changing rapidly. The long-term
 goal has always been to make BindingTests the durable, sole gate. The 0.10.0
 release cycle is the first concrete investment toward that — it lands the
-`BindingTests/Sources/SurfaceArea/` corpus + Layer B `--skip-surface` ratchet
-(scaffolding) and seeds skip-class snippets in-bundle as fixes ship.
+Layer B `--skip-surface` ratchet over the BindingTests corpus and tightens it
+in-bundle as fixes ship.
 
 **Retirement criterion**: validate is officially decorative when a full `nuke
-validate` run surfaces no bug that BindingTests + SurfaceArea didn't already
-catch *across multiple consecutive scheduled sweeps*. We're not close to that
-yet — the audits behind the 0.10.0 plan ran against real third-party libraries
-and found patterns BindingTests had no coverage for.
+validate` run surfaces no bug that BindingTests didn't already catch *across
+multiple consecutive scheduled sweeps*. We're not close to that yet — the
+audits behind the 0.10.0 plan ran against real third-party libraries and found
+patterns BindingTests had no coverage for.
 
 **Migration path**:
 
-- **Each skip-class fix** lands a minimized Swift pattern in
-  `BindingTests/Sources/SurfaceArea/`. Each shape-class fix lands Layer A
+- **Each skip-class fix** lands a minimized Swift pattern in the BindingTests
+  corpus (`BindingTests/Sources/SwiftBindingsTestLib/`), whose generated output
+  is what the `--skip-surface` ratchet scans. Each shape-class fix lands Layer A
   coverage instead (Swift repro + C# assertion + generator unit test).
-- **Future audit findings** route by class: skip-class drops a new
-  `SurfaceArea/` snippet as the first step of triage; shape-class adds Layer
-  A coverage to the appropriate domain test class. In both cases the
+- **Future audit findings** route by class: skip-class drops a new minimized
+  Swift pattern into the corpus as the first step of triage; shape-class adds
+  Layer A coverage to the appropriate domain test class. In both cases the
   regression test lands as part of triage, not after the fix.
 - **Validate's role narrows progressively**:
   - Today: targeted per-bundle gate where the bug was found only in real
     libraries (Bundles 8 and 9), discovery sweep pre-release.
-  - Next minor cycles: as SurfaceArea matures, drop targeted-validate gates
-    bundle-by-bundle when the domain is provably covered by SurfaceArea.
+  - Next minor cycles: as the corpus matures, drop targeted-validate gates
+    bundle-by-bundle when the domain is provably covered by BindingTests.
   - Eventually: validate runs as scheduled discovery only, no merge gates.
 - **Retirement happens** when validate stops surfacing surprises that
   BindingTests didn't catch across, say, three consecutive scheduled sweeps.

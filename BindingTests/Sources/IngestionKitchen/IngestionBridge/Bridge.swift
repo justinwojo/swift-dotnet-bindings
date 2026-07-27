@@ -11,6 +11,7 @@
 //                    (SWIFTBIND119) BEFORE ABI parsing, emitting no artifacts.
 
 @_exported import IngestionBase
+import CoreGraphics
 
 public protocol BridgeMarker {
     func marker() -> Int
@@ -81,6 +82,18 @@ public struct PayloadComparator {
 // An independent free function on the healthy control — must survive untouched.
 public func makeHealthyControl() -> HealthyControl { HealthyControl(value: 11) }
 
+// Typed-error registry edge: PayloadFault is a concrete Error-conforming enum whose `.rejected`
+// case embeds QuarantinedPayload, so the enum's storage is indeterminate once the payload is
+// withdrawn and the enum must go with it. The typed-error registry is a SEPARATE emission plane
+// from the type emitter — it precomputes its members from the raw module tree — so a plane that
+// does not consult the withdrawal set keeps registering PayloadFault and emits concrete Swift/C#
+// references to a type nothing declared. Only a concrete Error-conforming type reaches that plane,
+// which is why the plain bridged-payload edges above cannot exercise it.
+public enum PayloadFault: Error {
+    case none
+    case rejected(QuarantinedPayload)
+}
+
 // --- Cross-module dependency-quarantine fixture (ingestion leg 4) ------------------------------
 //
 // BridgeRelay INHERITS IngestionBase.BaseSignal across the module boundary, so the emitter resolves
@@ -98,4 +111,36 @@ public protocol BridgeRelay: BaseSignal {
 // emitted surface must survive byte-identically.
 public protocol BridgeBeacon: BaseProviding {
     func beaconValue() -> Int
+}
+
+// --- Clang C-aggregate re-export stub, LOCAL seeding arm ---------------------------------------
+//
+// The mirror of IngestionBase's CGPoint arm, seeded in the PRIMARY module: a retroactive
+// conformance onto a C aggregate imported from a system module makes the digester emit a foreign
+// re-export stub node for CGSize in Bridge's own ABI JSON — Clang USR, `isExternal`, and no Swift
+// mangled name, because CGSize is a C struct rather than a Swift declaration. Reading that absence
+// as a malformed type record quarantines the aggregate and withdraws BridgeCanvas along with it,
+// which is the whole of a consumer's binding for a library that merely extends a system C type.
+public protocol BridgeMeasuring {
+    var bridgeMeasure: Double { get }
+}
+
+extension BridgeMeasuring {
+    public var bridgeMeasure: Double { 0 }
+}
+
+extension CGSize: BridgeMeasuring {}
+
+public struct BridgeCanvas {
+    public let extent: CGSize
+    public init(extent: CGSize) { self.extent = extent }
+    public func canvasWidth() -> Double { Double(extent.width) }
+}
+
+// The cross-module casualty of IngestionBase's CGPoint stub: BaseAnchor stores the aggregate, so a
+// dependency-side quarantine reaches this type through the cross-module quarantined-name set.
+public struct BridgeAnchorHolder {
+    public let anchor: BaseAnchor
+    public init(anchor: BaseAnchor) { self.anchor = anchor }
+    public func holderX() -> Double { anchor.anchorX() }
 }

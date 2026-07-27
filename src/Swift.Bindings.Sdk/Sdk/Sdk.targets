@@ -2082,6 +2082,69 @@ done; true"
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 4b'': Declared-dependency managed-reference guard                 -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!--
+    SwiftFrameworkDependency is a NATIVE-ONLY item: it contributes the dependency's
+    xcframework (headers, module database, link path) to generation and nothing else.
+    It deliberately injects no PackageReference (see the note in Sdk.props explaining
+    why an ItemGroup there cannot observe body-declared items), so the managed assembly
+    carrying the dependency's C# types is NOT on this project's compile.
+
+    That is invisible until the generated C# happens to name one of those types — a
+    parameter, return, or a diagnostic tombstone that renders the projected type name
+    verbatim — at which point the build fails with an opaque CS0246 pointing at
+    generated code the consumer did not write. SWIFTBIND080 covers the AUTO-DETECTED
+    half of this problem, but it is deduped against explicitly-declared dependencies:
+    declaring the item is treated as proof the consumer handled it, and the explicitly-
+    declared case therefore has no diagnostic at all.
+
+    This guard closes that blind spot at the point of declaration rather than waiting
+    for a type name to leak: a dependency declared with a PackageId is by construction
+    meant for NuGet consumption, and the SDK's contract for that is BOTH items. Fail
+    closed and name the fix. A dependency that genuinely only needs native linkage can
+    say so with NativeOnly="true" and is then exempt.
+
+    A managed reference counts as present when the PackageId matches a PackageReference,
+    a ProjectReference file name, or a ProjectReference file name's leading segment — the
+    generated binding project is named {PackageId}.Swift.{Platform}.csproj, so the raw
+    file name will not match on a local source build.
+  -->
+  <Target Name="_AssertSwiftFrameworkDependencyManagedReference"
+          BeforeTargets="CoreCompile"
+          Condition="'@(SwiftFrameworkDependency)' != ''
+                     AND '$(DesignTimeBuild)' != 'true' AND '$(BuildingProject)' == 'true'">
+
+    <ItemGroup>
+      <!-- Every identity that can stand for "the sibling binding's managed assembly is
+           on this compile". ProjectReference contributes both its file name and that
+           name's leading dot-segment. -->
+      <_SwiftManagedRefIdentity Include="@(PackageReference)" />
+      <_SwiftManagedRefIdentity Include="@(ProjectReference->'%(Filename)')" />
+      <_SwiftManagedRefIdentity Include="$([System.String]::Copy('%(ProjectReference.Filename)').Split('.')[0])" />
+      <!-- Strip the generated binding project's `.Swift.{Platform}` tail so a DOTTED PackageId
+           still matches. The leading-dot-segment identity above only recovers a single-segment
+           id: for PackageId `A.B.C` referencing `A.B.C.Swift.iOS.csproj`, the raw file name is
+           `A.B.C.Swift.iOS` and the first segment is `A` — neither equals `A.B.C`, so the
+           dependency reads as unreferenced and SWIFTBIND081 fires on a correctly-wired project.
+           The tail is exactly the documented generated-name convention described above, so
+           removing it recovers the PackageId whatever its segment count. -->
+      <_SwiftManagedRefIdentity Include="$([System.Text.RegularExpressions.Regex]::Replace('%(ProjectReference.Filename)', '\.Swift\.[^.]+$', ''))" />
+
+      <_SwiftDeclaredManagedDep Include="@(SwiftFrameworkDependency)"
+                                Condition="'%(SwiftFrameworkDependency.PackageId)' != ''
+                                           AND '%(SwiftFrameworkDependency.NativeOnly)' != 'true'" />
+      <_SwiftDeclaredDepPackageId Include="@(_SwiftDeclaredManagedDep->'%(PackageId)')" />
+      <_SwiftDeclaredDepWithoutManagedRef Include="@(_SwiftDeclaredDepPackageId)"
+                                          Exclude="@(_SwiftManagedRefIdentity)" />
+    </ItemGroup>
+
+    <Error Condition="'@(_SwiftDeclaredDepWithoutManagedRef)' != ''"
+           Code="SWIFTBIND081"
+           Text="SwiftFrameworkDependency '%(_SwiftDeclaredDepWithoutManagedRef.Identity)' is declared with no managed reference. SwiftFrameworkDependency resolves the dependency's xcframework for native generation only — it does NOT put the dependency's C# assembly on this project's compile, so any generated member that names one of its types fails with CS0246 in generated code. Add the matching managed reference (both items are required):%0A%0A  For NuGet package consumption:%0A    &lt;PackageReference Include=&quot;%(_SwiftDeclaredDepWithoutManagedRef.Identity)&quot; Version=&quot;...&quot; /&gt;%0A%0A  For local source builds:%0A    &lt;ProjectReference Include=&quot;../%(_SwiftDeclaredDepWithoutManagedRef.Identity)/%(_SwiftDeclaredDepWithoutManagedRef.Identity).Swift.&lt;platform&gt;.csproj&quot; /&gt;%0A%0AIf this dependency is genuinely native-only and none of its types can reach the generated C#, mark the item NativeOnly=&quot;true&quot; to opt out of this check." />
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 4b': Wiring tripwire                                              -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!--

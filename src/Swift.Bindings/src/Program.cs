@@ -1289,6 +1289,25 @@ namespace BindingsGeneration
                 // qualified-form needle — `QualifyProxyClassName` uses the protocol record's
                 // C# namespace, which diverges from the Swift module name under a custom
                 // `namespacePattern`.
+                // Withhold every type this emission WITHDREW from the serialized database. Type
+                // records are registered before emission runs, so a type withdrawn afterwards (a
+                // malformed-ingestion closure, a containment denial, or a verify-recover
+                // withdrawal) would otherwise still be advertised to downstream generators, which
+                // then emit generated code naming a type this binding's assembly does not contain.
+                // Gate 0 in the type-body walk is the single choke point for all three causes and
+                // records each refusal as a type-scope EmitterFault skip, so the completed report is
+                // the one path-independent oracle for "declared nowhere". Skips with other reasons
+                // are deliberately NOT filtered: an Apple-supplement-owned type and a SwiftUI View
+                // are declared elsewhere (the supplement package / the generated bridge) and stay
+                // resolvable identities the database must keep carrying.
+                // Both post-emission withdrawal consumers read ONE set, built by one function so
+                // they cannot drift — see PostEmissionWithdrawalSet for why a disagreement here is
+                // silent and costly.
+                // The module decl closes the set over nested descendants: a whole-type refusal is
+                // recorded against the outer type only, but its nested types go with it.
+                var withdrawnTypeNameSet = PostEmissionWithdrawalSet.Build(
+                    report, ingestionClosure.WithdrawnTypeNames, decl);
+
                 ModuleDatabaseEmitter.Emit(
                     moduleDatabase,
                     outputDirectory,
@@ -1296,13 +1315,22 @@ namespace BindingsGeneration
                     emissionContext.SuppressedProxyClassNames.Count > 0
                         ? (IReadOnlyCollection<string>)emissionContext.SuppressedProxyClassNames
                         : null,
-                    suppressedProxyNamespace: namespaceResolver.ResolveNamespace(moduleName));
+                    suppressedProxyNamespace: namespaceResolver.ResolveNamespace(moduleName),
+                    withdrawnTypeNames: withdrawnTypeNameSet);
 
                 // Emit the Swift type-ownership manifest (swift-types.json) so a mixed-framework
                 // ObjC pass can dedup its declarations against the ObjC runtime names this Swift
                 // pipeline owns — keyed on objcRuntimeName, the only naming universe both sides
                 // share (Finding 23). Replaces the old emitted-C# regex scrape.
-                SwiftTypeOwnershipManifestEmitter.Emit(decl, outputDirectory, logger);
+                // This runs after emission returns, so the ambient emission attempt (and with it the
+                // poison list every in-emission plane reads) is already disposed — the withdrawals
+                // have to be passed in explicitly, from the same report-derived set the module
+                // database gets. Narrowing this to the ingestion withdrawals alone would leave a
+                // containment-denied or verify-recover-withdrawn type still claiming its
+                // objcRuntimeName here: the Swift side emits no declaration and the ObjC companion
+                // dedups its own away against that claim, losing the type on BOTH planes.
+                SwiftTypeOwnershipManifestEmitter.Emit(
+                    decl, outputDirectory, logger, withdrawnTypeNameSet);
 
                 // Fail-closed wrapper-symbol integrity net: reconcile every emitted C# P/Invoke
                 // wrapper-symbol reference against the wrapper functions actually emitted this

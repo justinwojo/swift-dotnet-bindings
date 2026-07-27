@@ -333,6 +333,39 @@ public static class WrapperValidation
         => (env.ParentDecl as TypeDecl)?.IsModuleInternal == true;
 
     /// <summary>
+    /// Fails closed when an emission path is about to claim an <c>SBW_</c> wrapper symbol while the
+    /// Swift plane that would define it is being discarded (see <see cref="SwiftWriter.IsDiscarding"/>).
+    ///
+    /// <para>
+    /// This is the structural half of the plan/emit contract. The predicate half —
+    /// <see cref="IsTypeOrEnclosingModuleInternal"/> — is what a planner is supposed to consult
+    /// BEFORE deciding to emit a member; this is what catches a planner that did not. Because a
+    /// discard writer is non-null and accepts every write, a planner that skips the predicate
+    /// produces perfectly plausible-looking output: C# externs for wrapper functions that were
+    /// written into a buffer nobody reads. The failure only surfaces at the end-of-generation
+    /// integrity gate as a dangling entry point, attributed to the module rather than to the site
+    /// that planned it. Throwing here attributes it to the site.
+    /// </para>
+    /// </summary>
+    /// <param name="swiftWriter">The Swift plane the caller would emit the wrapper into.</param>
+    /// <param name="claimant">
+    /// What is claiming the symbol (an emitter/surface name plus the owning type), used verbatim in
+    /// the exception message so the violating site is identifiable from the log alone.
+    /// </param>
+    public static void RequireLiveWrapperPlane(SwiftWriter swiftWriter, string claimant)
+    {
+        ArgumentNullException.ThrowIfNull(swiftWriter);
+        if (!swiftWriter.IsDiscarding)
+            return;
+
+        throw new InvalidOperationException(
+            $"{claimant} tried to claim a wrapper symbol on a discarded Swift plane. The wrapper source "
+            + "is thrown away for this type, so the C# P/Invoke would reference a symbol nothing defines "
+            + "(EntryPointNotFoundException at runtime). The planner must decline the member up front — "
+            + $"consult {nameof(IsTypeOrEnclosingModuleInternal)} — instead of emitting against it.");
+    }
+
+    /// <summary>
     /// True when <paramref name="decl"/> — or ANY type enclosing it — is module-internal, so a
     /// separate wrapper-compilation module cannot name it by its module-qualified path.
     ///
@@ -661,6 +694,155 @@ public static class WrapperValidation
     /// shadow the adapter var for a closure named <c>x</c>.
     /// </summary>
     public static bool HasUnbridgeableAsyncThrowingClosure(MethodEnvironment env)
+        => HasUnbridgeableAsyncThrowingClosure(env, env.MethodDecl.UsesCdeclMethodWrapper);
+
+    /// <summary>
+    /// The same verdict as <see cref="HasUnbridgeableAsyncThrowingClosure(MethodEnvironment)"/>, but
+    /// asked BEFORE emission has decided anything — for callers that must agree with what emission
+    /// will do rather than with what it has already done.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The plain overload reads <see cref="MethodDecl.UsesCdeclMethodWrapper"/>, which emission sets
+    /// inside <c>MethodHandler</c>. Every EMISSION caller runs after that point and reads a settled
+    /// flag — correct there, and the reason this must not be folded into the plain overload. Callers
+    /// that run EARLIER read a flag that is still false on a method emission will promote, and so
+    /// conclude "unbridgeable" for a member that in fact binds cleanly. On the conformance path that
+    /// verdict drops the whole interface: the type loses a conformance it satisfies.
+    /// </para>
+    /// <para>
+    /// Only the promotion is predicted. The outer method's own async/throws facts and the closure's
+    /// baseline shape are parser facts that emission never changes, so a SYNC member carrying an
+    /// async closure stays unbridgeable here exactly as it does at emission — the prediction can only
+    /// rescue a member that will genuinely get its adapter.
+    /// </para>
+    /// </remarks>
+    public static bool HasUnbridgeableAsyncThrowingClosureBeforeEmission(MethodEnvironment env)
+        => HasUnbridgeableAsyncThrowingClosure(env, WillPromoteToCdeclMethodWrapper(env));
+
+    /// <summary>
+    /// Predicts whether emission will promote this method to a <c>@_cdecl</c> method wrapper —
+    /// a mirror of the promotion branch in <c>MethodHandler</c>'s method-emission path, for
+    /// pre-emission callers that must reach the same verdict emission will.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An already-set flag is honoured first (a caller running after promotion gets the settled
+    /// answer). Otherwise the branch's own preconditions are re-checked in the same order emission
+    /// applies them: a constructor or an already-wrapped property/constructor never takes this
+    /// branch, and a native thunk — which emission prefers and tries first — takes the method off
+    /// the <c>@_cdecl</c> path entirely.
+    /// </para>
+    /// <para>
+    /// Async methods promote on a DIFFERENT branch. The synchronous decision path rejects every
+    /// async member outright (the shared member gate treats <c>isAsync</c> as a rejection), so
+    /// asking it about an async method always answers "no wrapper" — which is exactly the wrong
+    /// answer for the async-closure callers this predicate serves. Async promotion is decided by
+    /// <see cref="IsAsyncCdeclEligible"/>, the shared predicate emission itself calls.
+    /// </para>
+    /// </remarks>
+    public static bool WillPromoteToCdeclMethodWrapper(MethodEnvironment env)
+    {
+        var decl = env.MethodDecl;
+        if (decl.UsesCdeclMethodWrapper)
+            return true;
+
+        if (decl.IsConstructor ||
+            decl.UsesCdeclPropertyWrapper ||
+            decl.UsesCdeclConstructorWrapper ||
+            decl.UsesNativeThunk)
+            return false;
+
+        if (decl.IsAsync)
+            return IsAsyncCdeclEligible(env);
+
+        if (NativeThunkEmitter.ShouldEmitThunk(env))
+            return false;
+
+        return DetermineMethodWrapperDecision(env) == WrapperDecision.WrapperRequired;
+    }
+
+    /// <summary>
+    /// Whether an async method is eligible for <c>@_cdecl</c> async-wrapper promotion.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the ONE definition of async <c>@_cdecl</c> eligibility: <c>MethodHandler</c>'s
+    /// promotion branch calls it to decide, and <see cref="WillPromoteToCdeclMethodWrapper"/> calls
+    /// it to predict, so the decision and its prediction cannot drift. The synchronous wrapper
+    /// decision can't be reused here — its shared member gate rejects async members, which is why
+    /// this eligibility check exists at all and why it is built on
+    /// <see cref="HasCdeclCompatibleFunctionShape"/> instead.
+    /// </para>
+    /// <para>
+    /// The <c>UsesWrapperLibrary</c> conjunct is where the two phases can disagree, because emission
+    /// runs several wrapper installs BEFORE reaching the async branch and each one sets that flag.
+    /// Enumerated, in emission order, with why each is or isn't predictable here:
+    /// </para>
+    /// <list type="number">
+    /// <item>the debug-default-parameter Swift wrapper — the ONE live divergence for an async
+    /// method: no async guard, so it fires and then makes this branch decline. Predicted via the
+    /// shared <c>WillInstallDebugParamWrapper</c>.</item>
+    /// <item>the constructor native thunk, and</item>
+    /// <item>the <c>@_cdecl</c> constructor wrapper — both constructor-only, and
+    /// <see cref="WillPromoteToCdeclMethodWrapper"/> rejects constructors before reaching
+    /// here.</item>
+    /// <item>the method native thunk — <c>NativeThunkEmitter.ShouldEmitThunk</c> returns false for
+    /// any async method (async uses swifttailcc), so it can never fire first.</item>
+    /// <item>the synchronous <c>@_cdecl</c> method wrapper — gated on the wrapper decision, whose
+    /// shared member gate rejects async.</item>
+    /// <item>the closure <c>@_cdecl</c> wrapper — <c>NeedsClosureCdeclWrapper</c> returns false for
+    /// any async method.</item>
+    /// <item>the optional-pointer wrapper — explicitly conditioned on <c>!IsAsync</c>.</item>
+    /// </list>
+    /// <para>
+    /// Items 2–7 are inert for the async shapes this predicate serves, so only item 1 needs
+    /// mirroring. A method already carrying <c>UsesWrapperLibrary</c> on entry (a bridge-normalized
+    /// clone, an <c>ArraySlice</c> normalization, a parser-level wrapper claim) is declined by the
+    /// raw flag read, which is correct in both phases.
+    /// </para>
+    /// </remarks>
+    public static bool IsAsyncCdeclEligible(MethodEnvironment env)
+    {
+        var decl = env.MethodDecl;
+        if (!decl.IsAsync || decl.UsesWrapperLibrary)
+            return false;
+        if (DefaultParameterOverloadEmitter.WillInstallDebugParamWrapper(decl))
+            return false;
+        if (!HasCdeclCompatibleFunctionShape(env))
+            return false;
+
+        return decl.CSSignature.Skip(1).All(p =>
+        {
+            if (p.IsGeneric) return false;
+            // Metatype check runs BEFORE the closure / large-optional / nested-struct
+            // bypasses below: AnyClass.Type? would otherwise be widened to UnsafeRawPointer
+            // by the async wrapper and the body would still try to render the bare metatype.
+            if (IsMetatypeTypeIncludingOptional(p.SwiftTypeSpec)) return false;
+            if (p.SwiftTypeSpec is ClosureTypeSpec closureSpec)
+            {
+                // Baseline async closures (throwing + non-throwing) are bridged
+                // by the async wrapper via a CheckedContinuation. The throwing
+                // baseline requires the outer method to also be `throws` (adapter
+                // uses `try await` inside the catch harness). The non-throwing
+                // baseline only requires the outer method to be async — the
+                // adapter uses plain `await`.
+                if (env.ClosureHandler.IsBaselineAsyncThrowingClosure(closureSpec))
+                    return decl.Throws;
+                if (env.ClosureHandler.IsBaselineAsyncNonThrowingClosure(closureSpec))
+                    return true;
+                return false;
+            }
+            if (IsNestedFrozenStructParam(p, env.TypeDatabase)) return false;
+            // Frozen blittable struct params are supported in async via heap allocation
+            // (NativeMemory.Alloc instead of stackalloc). See WrapperEmitter.Async.cs.
+            // Protocol existentials are marshalled as UnsafeRawPointer to the
+            // ExistentialContainer1 heap allocation — see CdeclParamMapper.
+            return true;
+        });
+    }
+
+    private static bool HasUnbridgeableAsyncThrowingClosure(MethodEnvironment env, bool usesCdeclMethodWrapper)
     {
         var closureArgs = env.MethodDecl.CSSignature.Skip(1)
             .Where(env.ClosureHandler.IsClosure)
@@ -694,7 +876,7 @@ public static class WrapperValidation
                 // Throwing baseline requires outer async throws + Cdecl wrapper +
                 // baseline shape; otherwise the P/Invoke emits (ctx, startFunc)
                 // but no Swift adapter will materialise.
-                return !(env.MethodDecl.UsesCdeclMethodWrapper &&
+                return !(usesCdeclMethodWrapper &&
                          env.MethodDecl.IsAsync &&
                          env.MethodDecl.Throws &&
                          env.ClosureHandler.IsBaselineAsyncThrowingClosure(spec));
@@ -704,7 +886,7 @@ public static class WrapperValidation
             {
                 // Non-throwing baseline: outer method still has to be async +
                 // Cdecl-wrapped, but Throws is NOT required.
-                return !(env.MethodDecl.UsesCdeclMethodWrapper &&
+                return !(usesCdeclMethodWrapper &&
                          env.MethodDecl.IsAsync);
             }
             return false;

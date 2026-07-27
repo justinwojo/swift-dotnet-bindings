@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -853,6 +854,144 @@ public class ProtocolConformanceValidatorTests
         Assert.True(result);
     }
 
+    // The static half of the DIM rescue. The instance path reconsiders the extension default before
+    // dropping a conformance whose witness carries an unbridgeable async closure; the static path
+    // ran the same unbridgeable check with no rescue, so the identical shape dropped on one path and
+    // survived on the other. C# 11 static abstract members carry default bodies exactly like
+    // instance DIMs, so a static requirement backed by an extension default does not need the
+    // witness either — the conformance must be KEPT.
+    [Fact]
+    public void CanFullyImplementProtocol_StaticUnbridgeableAsyncWitness_KeptWhenExtensionDefaultExists()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = CreateStaticAsyncClosureProvider(moduleDecl);
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        // Static witness with the same unbridgeable shape: the closure is `() async throws -> Int`
+        // but the OUTER method is not async, so no adapter can ever be generated for it.
+        var concreteType = CreateClassDecl("ValueBox", moduleDecl);
+        concreteType.Methods.Add(CreateStaticAsyncClosureMethod(
+            "provideValue", "$s10TestModule8ValueBoxC12provideValueyySiyYaKcFZ", concreteType, moduleDecl));
+
+        var qualifiedProtoName = protocolDecl.SwiftTypeName!.ModuleQualifiedName;
+        var protoMethod = protocolDecl.Methods.First();
+        var methodKey = ProtocolExtensionEmitter.BuildMethodKey(protoMethod);
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            [qualifiedProtoName] = new()
+            {
+                new ProtocolExtensionMethodDecl
+                {
+                    ProtocolQualifiedName = qualifiedProtoName,
+                    MethodName = "provideValue",
+                    PrintedName = methodKey,
+                    RawSignature = "static func provideValue(handler: () async throws -> Int)",
+                    ReturnsSelf = false,
+                    IsMainActorIsolated = false,
+                    IsStatic = true,
+                    IsProperty = false,
+                    HasSetter = false,
+                    IsDeprecated = false,
+                    IsMutating = false,
+                    WhereConstraints = new List<string>()
+                }
+            }
+        };
+        var extensionDefaultsIndex = new ProtocolExtensionDefaultsIndex(extensionMethods, moduleDecl.Protocols);
+        Assert.True(extensionDefaultsIndex.HasMethodDefault(qualifiedProtoName, methodKey));
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase, extensionDefaultsIndex);
+
+        Assert.True(validator.CanFullyImplementProtocol(concreteType, protocolDecl));
+    }
+
+    // The control for the rescue above: with NO extension default there is no DIM to lean on, so the
+    // unbridgeable static witness really does leave the requirement unimplemented and the
+    // conformance must still be dropped. Without this, the rescue could degenerate into "static
+    // requirements are never checked" and nothing would notice.
+    [Fact]
+    public void CanFullyImplementProtocol_StaticUnbridgeableAsyncWitness_DroppedWithoutExtensionDefault()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = CreateStaticAsyncClosureProvider(moduleDecl);
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var concreteType = CreateClassDecl("ValueBox", moduleDecl);
+        concreteType.Methods.Add(CreateStaticAsyncClosureMethod(
+            "provideValue", "$s10TestModule8ValueBoxC12provideValueyySiyYaKcFZ", concreteType, moduleDecl));
+
+        var extensionDefaultsIndex = new ProtocolExtensionDefaultsIndex(
+            new Dictionary<string, List<ProtocolExtensionMethodDecl>>(), moduleDecl.Protocols);
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase, extensionDefaultsIndex);
+
+        Assert.False(validator.CanFullyImplementProtocol(concreteType, protocolDecl));
+    }
+
+    private static ProtocolDecl CreateStaticAsyncClosureProvider(ModuleDecl moduleDecl)
+    {
+        return new ProtocolDecl
+        {
+            Name = "ValueProvider",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ValueProvider"),
+            MangledName = "$s10TestModule13ValueProviderP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                CreateStaticAsyncClosureMethod(
+                    "provideValue", "$s10TestModule13ValueProviderP12provideValueyySiyYaKcFZ", null, moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+    }
+
+    /// <summary>
+    /// `static func provideValue(handler: () async throws -&gt; Int)` — a baseline-shaped async
+    /// throwing closure on a NON-async outer method, which is unbridgeable by construction: the
+    /// adapter the P/Invoke's (context, startFunc) pair needs is only generated inside an
+    /// async-throws wrapper body.
+    /// </summary>
+    private static MethodDecl CreateStaticAsyncClosureMethod(
+        string name, string mangledName, TypeDecl? parent, ModuleDecl moduleDecl)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = mangledName,
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                CreateArgument("handler",
+                    new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Int"))
+                    {
+                        IsAsync = true,
+                        Throws = true
+                    },
+                    moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parent,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+    }
+
     private static ProtocolDecl CreateAsyncIntProvider(ModuleDecl moduleDecl)
     {
         return new ProtocolDecl
@@ -896,6 +1035,175 @@ public class ProtocolConformanceValidatorTests
             ParentDecl = parent,
             ModuleDecl = moduleDecl,
             Throws = false,
+            IsAsync = true,
+            IsSynthesizedAccessor = false
+        };
+    }
+
+    #endregion
+
+    #region Prediction ↔ emission agreement, observed on the EMITTED class declaration
+
+    /// <summary>
+    /// The conformance decision is only meaningful if it survives into the generated code, and the
+    /// artifact manifest pins members (ctor, method) rather than the class's base list — so the
+    /// interface could silently vanish from the emitted class with every other gate still green.
+    /// This drives the real emission pipeline and reads the class declaration itself.
+    ///
+    /// The eligible shape (async-throws member carrying a baseline async-throws closure) is
+    /// promoted to an async <c>@_cdecl</c> wrapper at emission, so the witness IS emitted and the
+    /// conformer must declare the interface. The debug-default twin is the divergence case: the
+    /// debug-parameter Swift wrapper is installed BEFORE the async promotion branch is reached, so
+    /// emission declines to promote and the witness is not bridgeable. With no protocol-extension
+    /// default to rescue it, the honest outcome is that the conformance is dropped — what must
+    /// never happen is the interface being declared by a class whose witness emission skipped.
+    /// </summary>
+    [Fact]
+    public void EmittedConformer_BaselineAsyncClosureWitness_DeclaresInterface()
+    {
+        var eligible = EmitConformerModule(withDebugDefaultParam: false);
+        Assert.Contains("class AsyncClosureConformer", eligible);
+        Assert.Contains("IAsyncClosureRequirement", DeclarationLineOf(eligible, "class AsyncClosureConformer"));
+    }
+
+    [Fact]
+    public void EmittedConformer_DebugDefaultParamWitness_DoesNotDeclareInterface()
+    {
+        var diverging = EmitConformerModule(withDebugDefaultParam: true);
+        Assert.Contains("class AsyncClosureConformer", diverging);
+        Assert.DoesNotContain("IAsyncClosureRequirement", DeclarationLineOf(diverging, "class AsyncClosureConformer"));
+    }
+
+    /// <summary>The single source line that declares the named type, base list included.</summary>
+    private static string DeclarationLineOf(string emitted, string declarationFragment)
+    {
+        var line = emitted.Split('\n').FirstOrDefault(l => l.Contains(declarationFragment));
+        Assert.NotNull(line);
+        return line!;
+    }
+
+    /// <summary>
+    /// Emits a module holding one protocol requiring an async-throws method with a baseline
+    /// async-throws closure parameter, and one class conforming to it. When
+    /// <paramref name="withDebugDefaultParam"/> is set, both the requirement and the witness also
+    /// carry a `file: StaticString = #file` debug parameter.
+    /// </summary>
+    private static string EmitConformerModule(bool withDebugDefaultParam)
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "AsyncClosureRequirement",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.AsyncClosureRequirement"),
+            MangledName = "$s10TestModule22AsyncClosureRequirementP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        protocolDecl.Methods.Add(CreateAsyncClosureMethod(
+            "$s10TestModule22AsyncClosureRequirementP3runySiyYaKcSiYaKF",
+            protocolDecl, moduleDecl, withDebugDefaultParam));
+
+        var conformer = CreateClassDecl("AsyncClosureConformer", moduleDecl);
+        conformer.IsFinal = true;
+        conformer.Methods.Add(CreateAsyncClosureMethod(
+            "$s10TestModule21AsyncClosureConformerC3runySiyYaKcSiYaKF",
+            conformer, moduleDecl, withDebugDefaultParam));
+        conformer.Conformances.Add(new TypeConformance(
+            conformer.SwiftTypeName,
+            protocolDecl.SwiftTypeName,
+            string.Empty));
+
+        moduleDecl.Protocols.Add(protocolDecl);
+        moduleDecl.Types.Add(protocolDecl);
+        moduleDecl.Types.Add(conformer);
+
+        // A non-empty async library name is what puts the run in XCFramework mode, the prerequisite
+        // for any @_cdecl wrapper — without it nothing is promoted and both shapes look alike.
+        var typeDatabase = new TypeDatabase { AsyncLibraryName = "TestModuleSwiftBindings" };
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.NIntType,
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        // The conformance-interface gate resolves the protocol through the type database, so the
+        // protocol needs a record for the class to be able to declare the interface at all.
+        var moduleTypeDatabase = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        moduleTypeDatabase.RegisterType(
+            protocolDecl.SwiftTypeName!,
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IAsyncClosureRequirement"),
+                SwiftTypeName = protocolDecl.SwiftTypeName!,
+                MetadataAccessor = "$s10TestModule22AsyncClosureRequirementMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            });
+        typeDatabase.AddModuleDatabase(moduleTypeDatabase);
+
+        var csStringWriter = new StringWriter();
+        var handler = new ModuleHandler(new NullLogger<ModuleHandler>());
+        var env = handler.Marshal(moduleDecl, typeDatabase);
+        var conductor = new Conductor(new NullLoggerFactory());
+        var context = new TypeHandlerContext(null, new(), null, EmissionContext: new ModuleEmissionContext());
+        handler.Emit(new CSharpWriter(csStringWriter), new SwiftWriter(new StringWriter()), env, conductor, context);
+
+        return csStringWriter.ToString();
+    }
+
+    private static MethodDecl CreateAsyncClosureMethod(
+        string mangledName, TypeDecl? parent, ModuleDecl moduleDecl, bool withDebugDefaultParam)
+    {
+        var signature = new List<ArgumentDecl>
+        {
+            // [0] is the return slot: `async throws -> Int`.
+            CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl),
+            CreateArgument(
+                "provider",
+                new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Int"))
+                {
+                    IsAsync = true,
+                    Throws = true
+                },
+                moduleDecl),
+        };
+
+        if (withDebugDefaultParam)
+        {
+            var debugArg = CreateArgument("file", new NamedTypeSpec("Swift.StaticString"), moduleDecl);
+            debugArg.HasDefaultArg = true;
+            signature.Add(debugArg);
+        }
+
+        return new MethodDecl
+        {
+            Name = "run",
+            MangledName = mangledName,
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = signature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parent,
+            ModuleDecl = moduleDecl,
+            Throws = true,
             IsAsync = true,
             IsSynthesizedAccessor = false
         };

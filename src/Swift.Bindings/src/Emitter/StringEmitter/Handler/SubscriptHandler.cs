@@ -153,8 +153,12 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // Preflight accessor methods — ensure all can be emitted
+                // Preflight accessor methods — ensure all can be emitted. The preflight refuses for
+                // several unrelated causes, so the reason travels with the verdict: reporting the
+                // wrapper-call-syntax default for an unbridgeable async closure tells a consumer
+                // reading the binding to look at a mechanism that had nothing to do with the skip.
                 bool allAccessorsValid = true;
+                string invalidReason = "Subscript accessor would trigger Swift wrapper with incompatible call syntax.";
                 foreach (var accessor in subscriptDecl.Accessors)
                 {
                     if (!conductor.TryGetMethodHandler(accessor.Method, out var methodHandler))
@@ -190,6 +194,22 @@ namespace BindingsGeneration
                         break;
                     }
 
+                    // Async closure bridge eligibility — same contract as the ordinary method path.
+                    // The (context, startFunc) P/Invoke pair only has a matching Swift adapter when
+                    // the containing member became an async @_cdecl method wrapper, which a subscript
+                    // accessor never is. Without it the closure degrades to the unsupported-type
+                    // placeholder in the P/INVOKE signature only — the WRAPPER signature checked just
+                    // above still projects a real delegate type, so ContainsPlaceholder cannot see it.
+                    // The accessor's own handler guard would then drop the `{Name}_Get` method while
+                    // the public indexer body still delegates to it (CS0103), so the whole subscript
+                    // has to go.
+                    if (WrapperValidation.HasUnbridgeableAsyncThrowingClosure(accessorEnv))
+                    {
+                        allAccessorsValid = false;
+                        invalidReason = "Async closure parameter cannot be bridged (non-baseline shape, or the containing member is not a @_cdecl async wrapper).";
+                        break;
+                    }
+
                     // Skip subscripts whose accessors would trigger Swift wrapper generation
                     // from emitters that don't yet support subscript syntax (`__self[index]`).
                     // OptionalPointerWrapperEmitter now supports instance subscripts, so large Optional
@@ -212,7 +232,7 @@ namespace BindingsGeneration
                 if (!allAccessorsValid)
                 {
                     ReportCollector.RecordMemberSkipped(subscriptDecl,
-                        SkipReason.UnsupportedSignature, "Subscript accessor would trigger Swift wrapper with incompatible call syntax.");
+                        SkipReason.UnsupportedSignature, invalidReason);
                     continue;
                 }
 

@@ -10,20 +10,33 @@
 // ratchets the skip-class count downward over time (skip-surface trend gate
 // on authored corpus).
 //
-// The corpus the gate scans is:
-//   1. The wider BindingTests-generated output under `BindingTests/output/`,
-//      which is what `RunRegenerateBindings()` produces today.
-//   2. Any future generator output rooted under
-//      `BindingTests/Sources/SurfaceArea/` — once SurfaceArea snippets are
-//      contributed by skip-class fix bundles. The directory is empty in this
-//      scaffolding commit; the scanner picks up `.cs` from there automatically
-//      when bundles populate it.
+// The corpus the gate scans is the BindingTests-generated output under
+// `BindingTests/output/`, which is what `RunRegenerateBindings()` produces. That
+// is the whole scanned surface — the gate claims no more breadth than the
+// authored BindingTests corpus actually has. (An earlier design also scanned a
+// second, separately-authored snippet directory; it never received content, so
+// it only made the gate's advertised reach look wider than it was.)
 //
 // Scanning the generated `.cs` directly (rather than a sidecar metrics file)
 // is deliberate: the markers we ratchet are exactly the strings a consumer
 // reading the binding output would see. If the generator emits `// Skipped: …`
 // in the file but the metrics sidecar disagrees, the sidecar is wrong; we
 // trust the file.
+//
+// A disappearing skip marker is NOT automatically good news. It means either
+// "the member is bound now" (a real fix) or "the member is gone entirely" — a
+// withdrawn type takes both its API and its skip markers with it, and a
+// count-based ratchet reads that amputation as an improvement. So every
+// GONE/DOWN row is cross-referenced against the API manifest: if the declaring
+// type no longer contributes any symbol-bearing member, the row is reclassified
+// as a regression instead of being logged with a checkmark. Same blind spot as
+// the manifest itself — properties and subscripts are not recorded, so the
+// cross-reference only speaks for types that had at least one method or ctor.
+//
+// Introducing a new authored skip key: run
+// `nuke binding-tests --compile-only --skip-surface`, let it fail, and copy the
+// reported diff into `build/baselines/skip-surface-baseline.json` in the same
+// commit as the change that introduced it.
 
 using System;
 using System.Collections.Generic;
@@ -41,8 +54,6 @@ partial class Build
 
     AbsolutePath SkipSurfaceBaselinePath => BaselinesDir / "skip-surface-baseline.json";
 
-    AbsolutePath SurfaceAreaDir => BindingTestsDir / "Sources" / "SurfaceArea";
-
     // ---- Marker patterns ------------------------------------------------
     //
     // Each pattern targets a single emission shape. We normalize the captured
@@ -54,8 +65,8 @@ partial class Build
     // marker only matches when the comment is the line's leading content. This
     // avoids false-positive hits on string literals or doc comments that
     // happen to contain `// Unsupported:` / `// Skipped:` substrings — a
-    // plausible shape once authored SurfaceArea snippets land alongside the
-    // generator output.
+    // plausible shape in generator output that embeds such text in a string
+    // literal or doc comment.
     static readonly Regex UnsupportedComment =
         new(@"^\s*//\s*Unsupported:\s*(?<reason>.+?)\s*$",
             RegexOptions.Compiled | RegexOptions.Multiline);
@@ -102,8 +113,7 @@ partial class Build
         var roots = CollectSkipSurfaceRoots();
         if (roots.Count == 0)
         {
-            Log.Warning("Skip-surface gate: no generator output found at {Output} or {SurfaceArea} — nothing to scan",
-                BtOutputDir, SurfaceAreaDir);
+            Log.Warning("Skip-surface gate: no generator output found at {Output} — nothing to scan", BtOutputDir);
             return;
         }
 
@@ -112,7 +122,12 @@ partial class Build
             roots.Count, entries.Count);
 
         var baseline = SkipSurfaceBaseline.Load(SkipSurfaceBaselinePath);
-        var (regressions, improvements) = baseline.Compare(entries);
+        var vanished = CollectVanishedManifestTypes();
+        if (vanished.Count > 0)
+            Log.Information("Skip-surface gate: {Count} type(s) lost every symbol-bearing member since the API " +
+                "manifest baseline — their skip markers cannot count as improvements.", vanished.Count);
+
+        var (regressions, improvements) = baseline.Compare(entries, vanished);
 
         foreach (var line in improvements)
             Log.Information("  ✓ {Line}", line);
@@ -137,19 +152,35 @@ partial class Build
         if (Directory.Exists(BtOutputDir))
             roots.Add(BtOutputDir);
 
-        // The SurfaceArea source directory ships empty; bundles populate it.
-        // We scan it for `.cs` only if it ever produces generated output, which
-        // would land under a subdirectory the populating bundle wires up. For
-        // now this is a forward-looking path that costs nothing when empty.
-        if (Directory.Exists(SurfaceAreaDir))
+        return roots;
+    }
+
+    /// <summary>
+    /// Types that had at least one symbol-bearing member in the API-manifest baseline and have
+    /// NONE in the current manifests — i.e. the type stopped contributing bindable API entirely.
+    /// A skip marker that disappears for such a type disappeared because the surface did, not
+    /// because the skip was fixed, which is the inversion this cross-reference exists to catch.
+    /// Keyed <c>{module}|{TypeName}</c>; free functions (no declaring type) contribute nothing.
+    /// </summary>
+    IReadOnlySet<string> CollectVanishedManifestTypes()
+    {
+        try
         {
-            // Skip the README and any non-`.cs` corpus inputs — only generated
-            // C# is in scope.
-            var hasCs = Directory.EnumerateFiles(SurfaceAreaDir, "*.cs", SearchOption.AllDirectories).Any();
-            if (hasCs) roots.Add(SurfaceAreaDir);
+            var manifestBaseline = ApiManifestBaseline.Load(ApiManifestBaselinePath);
+            var current = ScanApiManifests();
+            return SkipSurfaceBaseline.ComputeVanishedTypes(manifestBaseline.Entries, current.Entries);
+        }
+        catch (Exception ex)
+        {
+            // The cross-reference is a corroborating signal layered on top of the count ratchet;
+            // a missing or malformed manifest must not take down the ratchet itself. Without it
+            // every GONE/DOWN row simply stays an unverified improvement, which is the gate's
+            // pre-cross-reference behavior.
+            Log.Warning("Skip-surface gate: API-manifest cross-reference unavailable ({Message}); " +
+                "GONE/DOWN rows will not be corroborated this run.", ex.Message);
         }
 
-        return roots;
+        return new HashSet<string>(StringComparer.Ordinal);
     }
 
     /// <summary>

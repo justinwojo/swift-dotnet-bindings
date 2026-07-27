@@ -270,5 +270,27 @@ namespace BindingsGeneration
         public SwiftWriter(StringWriter writer) : base(writer)
         {
         }
+
+        /// <summary>
+        /// <para>
+        /// True when everything written to this writer is thrown away — the writer exists only so
+        /// the C# emission paths can run unchanged for a type whose Swift wrapper source must not
+        /// be produced (a module-internal type the separately-compiled wrapper module cannot name).
+        /// </para>
+        /// <para>
+        /// It is the machine-checkable form of the plan/emit contract: a C# <c>[LibraryImport]</c>
+        /// whose entry point is an <c>SBW_</c> wrapper symbol may only be planned when the Swift
+        /// plane that would define that symbol is live. Emission paths that claim a wrapper symbol
+        /// must therefore consult this — a discarding writer is otherwise indistinguishable from a
+        /// real one (it is non-null, and every Write call succeeds), which is exactly how a planner
+        /// comes to emit externs for wrappers that were silently dropped.
+        /// </para>
+        /// <para>
+        /// Only a writer constructed purely to swallow output sets this. The deferred/merge
+        /// <c>StringWriter</c> buffers used by ordinary emission paths are real output that is
+        /// spliced back into the module later, and must NOT be marked discarding.
+        /// </para>
+        /// </summary>
+        public bool IsDiscarding { get; init; }
     }
 }

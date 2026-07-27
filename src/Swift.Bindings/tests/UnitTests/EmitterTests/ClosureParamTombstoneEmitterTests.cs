@@ -107,8 +107,12 @@ public class ClosureParamTombstoneEmitterTests
     [Fact]
     public void IsEligible_StructConstructor_False()
     {
-        // Struct constructors are excluded — definite-assignment rules require all
-        // fields be assigned, which a throw body doesn't satisfy.
+        // Struct constructors are excluded. Note this is NOT a definite-assignment
+        // constraint: a struct constructor whose body unconditionally throws assigns no
+        // field and still compiles (the flow analysis never reaches the end point, and
+        // an unassigned field is auto-defaulted from C# 11 on). The exclusion stands as a
+        // deliberate surface choice — a value type whose init only ever throws is a worse
+        // consumer experience than an honestly-absent init — not as a compiler limit.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl();
         var structDecl = CreateStructDecl("Anonymous", moduleDecl);
@@ -133,6 +137,95 @@ public class ClosureParamTombstoneEmitterTests
         structDecl.Methods.Add(ctor);
 
         Assert.False(ClosureParamTombstoneEmitter.IsEligible(ctor, typeDatabase));
+    }
+
+    // ── Cross-module reachability ──
+    // A tombstone renders every non-closure parameter and the return with its REAL projected
+    // type name. Naming a type owned by a sibling Swift binding module only compiles if that
+    // module's managed assembly is on this compile — and a declared native dependency
+    // contributes headers and a module database but no managed reference. So a tombstone that
+    // reaches a foreign module trades a wholesale skip for a file that does not compile at all.
+
+    [Fact]
+    public void IsEligible_ForeignModuleParameterType_False()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Registry", moduleDecl);
+        var method = CreateMethod("register", classDecl, moduleDecl);
+        method.CSSignature.Add(CreateArg("decoder", BuildUnsupportedClosure(), moduleDecl));
+        method.CSSignature.Add(CreateArg("session", new NamedTypeSpec("OtherModule.Session"), moduleDecl));
+
+        Assert.False(ClosureParamTombstoneEmitter.IsEligible(method, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_ForeignModuleTypeNestedInGeneric_False()
+    {
+        // A foreign type buried in a container is rendered into the signature just as
+        // plainly as a bare one, so the walk has to recurse.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Registry", moduleDecl);
+        var method = CreateMethod("register", classDecl, moduleDecl);
+        method.CSSignature.Add(CreateArg("decoder", BuildUnsupportedClosure(), moduleDecl));
+
+        var array = new NamedTypeSpec("Swift.Array");
+        array.GenericParameters.Add(new NamedTypeSpec("OtherModule.Session"));
+        method.CSSignature.Add(CreateArg("sessions", array, moduleDecl));
+
+        Assert.False(ClosureParamTombstoneEmitter.IsEligible(method, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_ForeignModuleReturnType_False()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Registry", moduleDecl);
+        var method = CreateMethod("register", classDecl, moduleDecl);
+        method.CSSignature[0] = CreateArg("", new NamedTypeSpec("OtherModule.Session"), moduleDecl);
+        method.CSSignature.Add(CreateArg("decoder", BuildUnsupportedClosure(), moduleDecl));
+
+        Assert.False(ClosureParamTombstoneEmitter.IsEligible(method, typeDatabase));
+    }
+
+    [Theory]
+    // The emitting module's own types are reachable by definition.
+    [InlineData("TestModule.Registry")]
+    // The standard library projects onto the always-referenced runtime assembly.
+    [InlineData("Swift.String")]
+    // Apple frameworks project onto the platform assembly or the Apple supplement, both
+    // referenced unconditionally by the generated project.
+    [InlineData("Foundation.Date")]
+    public void IsEligible_ReachableModuleParameterType_True(string typeName)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Registry", moduleDecl);
+        var method = CreateMethod("register", classDecl, moduleDecl);
+        method.CSSignature.Add(CreateArg("decoder", BuildUnsupportedClosure(), moduleDecl));
+        method.CSSignature.Add(CreateArg("value", new NamedTypeSpec(typeName), moduleDecl));
+
+        Assert.True(ClosureParamTombstoneEmitter.IsEligible(method, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_ForeignModuleInsideUnsupportedClosure_True()
+    {
+        // The unsupported closure itself collapses to object? and names nothing, so a
+        // foreign type inside it is never rendered and must not disqualify the tombstone —
+        // otherwise the guard would swallow the very members the tombstone exists for.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Registry", moduleDecl);
+        var method = CreateMethod("register", classDecl, moduleDecl);
+
+        var innerClosure = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        var args = new TupleTypeSpec(new TypeSpec[] { innerClosure, new NamedTypeSpec("OtherModule.Session") });
+        method.CSSignature.Add(CreateArg("decoder", new ClosureTypeSpec(args, TupleTypeSpec.Empty), moduleDecl));
+
+        Assert.True(ClosureParamTombstoneEmitter.IsEligible(method, typeDatabase));
     }
 
     [Fact]

@@ -1,10 +1,14 @@
 {
-  "git_sha": "ffef70d8",
+  "git_sha": "4ae2a813",
   "review_count": 0,
   "by_reason": [
     {
       "key": "EveryProtocolConformanceSkipped",
       "count": 2
+    },
+    {
+      "key": "ModuleInternal",
+      "count": 10
     },
     {
       "key": "ParentModuleInternalNoFallback",
@@ -20,7 +24,7 @@
     },
     {
       "key": "SynthesizedCodable",
-      "count": 2
+      "count": 4
     },
     {
       "key": "UnsupportedSignature",
@@ -30,11 +34,11 @@
   "by_disposition": [
     {
       "key": "ExpectedNonPublic",
-      "count": 2
+      "count": 12
     },
     {
       "key": "ExpectedStructural",
-      "count": 6
+      "count": 8
     },
     {
       "key": "KnownLimitation",

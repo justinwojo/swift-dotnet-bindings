@@ -960,6 +960,61 @@ public class OperatorHandlerOutputTests
         };
     }
 
+    /// <summary>
+    /// The operator emission runs under a transaction because the Swift <c>@_cdecl</c> wrapper is
+    /// written BEFORE the signature gates get a chance to refuse the operator. A refusal that
+    /// returns without rolling back leaves two pieces of state behind: an orphan <c>@_cdecl</c>
+    /// block in the wrapper source (a Swift function nothing P/Invokes), and, on the decl itself,
+    /// the promoted wrapper symbol plus <c>UsesWrapperLibrary</c> — telling every later reader that
+    /// an emission happened when it did not.
+    ///
+    /// The generic-operand gate is the reachable one of the three post-write exits: a frozen,
+    /// non-generic struct parent always takes the <c>@_cdecl</c> wrapper path in XCFramework mode,
+    /// so the wrapper is genuinely written before the operand check refuses the operator.
+    /// </summary>
+    [Fact]
+    public void EmitOperator_GenericOperandAfterWrapperWritten_RollsBackWrapperAndDeclState()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        // XCFramework mode is what turns on the @_cdecl operator wrapper path at all.
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateStructDecl("Point", moduleDecl);
+        var op = CreateBinaryOperator("+", parentType, moduleDecl, "TestModule.Point");
+        var methodDecl = op.UnderlyingMethod;
+
+        // Control first: the same operator WITHOUT the generic operand must really write a wrapper,
+        // otherwise the rollback assertion below would pass vacuously.
+        var controlSwift = new StringWriter();
+        var controlHandler = new OperatorHandler(new NullLogger<OperatorHandler>());
+        Assert.True(controlHandler.EmitOperator(
+            new CSharpWriter(new StringWriter()), op, typeDatabase, pinvokeHelperContext: null,
+            swiftWriter: new SwiftWriter(controlSwift), emissionContext: new ModuleEmissionContext()));
+        Assert.Contains("@_cdecl", controlSwift.ToString());
+
+        // Reset the decl state the control emission promoted, then poison the second operand so the
+        // generic-operand gate refuses the operator AFTER the wrapper has been written.
+        methodDecl.UsesWrapperLibrary = false;
+        var originalSymbol = methodDecl.MangledName;
+        methodDecl.CSSignature[2].IsGeneric = true;
+
+        var swiftOutput = new StringWriter();
+        var csOutput = new StringWriter();
+        var handler = new OperatorHandler(new NullLogger<OperatorHandler>());
+
+        var emitted = handler.EmitOperator(
+            new CSharpWriter(csOutput), op, typeDatabase, pinvokeHelperContext: null,
+            swiftWriter: new SwiftWriter(swiftOutput), emissionContext: new ModuleEmissionContext());
+
+        Assert.False(emitted);
+        Assert.DoesNotContain("@_cdecl", swiftOutput.ToString());
+        Assert.DoesNotContain("operator +", csOutput.ToString());
+        // The decl must look untouched to every later reader.
+        Assert.False(methodDecl.UsesWrapperLibrary);
+        Assert.Equal(originalSymbol, methodDecl.MangledName);
+    }
+
     // NOTE: the PInvokeHelperContext branch in OperatorHandler.EmitOperatorPInvoke
     // (OperatorHandler.cs:638) carries the same CallingConvention selection as the
     // direct path covered by EmitOperator_ClassParentNoCdeclWrapper_UsesCallConvSwift.

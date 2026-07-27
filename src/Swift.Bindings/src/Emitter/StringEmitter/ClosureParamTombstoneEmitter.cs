@@ -152,6 +152,114 @@ internal static class ClosureParamTombstoneEmitter
             return false;
         }
 
+        // A tombstone renders projected type names verbatim into this module's compile
+        // unit. Naming a type that lives in a SIBLING Swift binding module is only safe
+        // if that module's managed assembly is referenced here — and the generator cannot
+        // know that: a declared native dependency contributes headers and a module
+        // database but injects no managed reference, so the emitted name resolves to
+        // nothing and the whole file fails to compile. That is a strictly worse outcome
+        // than the member being absent, and the tombstone is a visibility-only,
+        // never-invocable surface, so there is nothing to preserve by degrading the
+        // offending parameter. Disqualify the member and let the ordinary wholesale-skip
+        // comment stand. Types from this module, the Swift standard library, and the
+        // Apple planes are always reachable — the generated project references those
+        // unconditionally.
+        var emittingModule = ResolveEmittingModule(method);
+        if (ReferencesUnreachableModule(method, closureHandler, emittingModule))
+            return false;
+
+        return true;
+    }
+
+    /// <summary>
+    /// The Swift module whose compile unit this member is being emitted into.
+    /// </summary>
+    private static string ResolveEmittingModule(MethodDecl method)
+    {
+        if (!string.IsNullOrEmpty(method.ModuleDecl?.Name))
+            return method.ModuleDecl!.Name;
+        return (method.ParentDecl as TypeDecl)?.SwiftTypeName.Module ?? string.Empty;
+    }
+
+    /// <summary>
+    /// True when the return type or any parameter that the tombstone renders with its real
+    /// projected name reaches a type owned by a module other than the emitting module, the
+    /// Swift standard library, or a known Apple framework. Unsupported closure parameters
+    /// are exempt — they render as <c>object?</c> and name nothing.
+    /// </summary>
+    private static bool ReferencesUnreachableModule(
+        MethodDecl method, ClosureHandler closureHandler, string emittingModule)
+    {
+        for (int i = 0; i < method.CSSignature.Count; i++)
+        {
+            var arg = method.CSSignature[i];
+            if (i == 0 && method.IsConstructor) continue;
+            if (arg.SwiftTypeSpec == null || arg.SwiftTypeSpec.IsEmptyTuple) continue;
+
+            if (closureHandler.IsClosure(arg))
+            {
+                var spec = closureHandler.GetClosureTypeSpec(arg);
+                if (spec == null || !closureHandler.IsSupportedClosure(spec)) continue;
+            }
+
+            if (ReachesUnreachableModule(arg.SwiftTypeSpec, emittingModule))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Walks a type-spec tree and reports whether any named node resolves to a module the
+    /// emitting compile unit has no guaranteed managed reference to. Nested generic
+    /// arguments, tuple elements, closure parameters/returns, and protocol-composition
+    /// members are all visited: a foreign type buried inside <c>[Foo]</c> or
+    /// <c>(Foo) -> Void</c> is rendered into the signature just as plainly as a bare one.
+    /// </summary>
+    private static bool ReachesUnreachableModule(TypeSpec? spec, string emittingModule)
+    {
+        if (spec == null) return false;
+
+        switch (spec)
+        {
+            case NamedTypeSpec named:
+                if (IsUnreachableModuleName(named, emittingModule)) return true;
+                break;
+            case TupleTypeSpec tuple:
+                foreach (var element in tuple.Elements)
+                    if (ReachesUnreachableModule(element, emittingModule)) return true;
+                break;
+            case ClosureTypeSpec closure:
+                if (ReachesUnreachableModule(closure.Arguments, emittingModule)) return true;
+                if (ReachesUnreachableModule(closure.ReturnType, emittingModule)) return true;
+                break;
+            case ProtocolListTypeSpec protocols:
+                foreach (var protocol in protocols.Protocols.Keys)
+                    if (ReachesUnreachableModule(protocol, emittingModule)) return true;
+                break;
+        }
+
+        foreach (var generic in spec.GenericParameters)
+            if (ReachesUnreachableModule(generic, emittingModule)) return true;
+
+        return false;
+    }
+
+    private static bool IsUnreachableModuleName(NamedTypeSpec named, string emittingModule)
+    {
+        // Only a well-formed module-qualified name carries module identity. A bare or
+        // generic-parameter name is not a cross-module reference.
+        if (!SwiftTypeName.TryFromModuleQualifiedName(named.Name, out var typeName))
+            return false;
+
+        var module = typeName.Module;
+        if (string.IsNullOrEmpty(module)) return false;
+        if (string.Equals(module, emittingModule, StringComparison.Ordinal)) return false;
+        // The standard library projects onto the always-referenced runtime assembly.
+        if (module is "Swift" or "Builtin") return false;
+        // Apple frameworks project onto the platform assembly or the Apple supplement,
+        // both of which the generated project references unconditionally.
+        if (AppleFrameworkRegistry.IsKnownModule(module)) return false;
+
         return true;
     }
 

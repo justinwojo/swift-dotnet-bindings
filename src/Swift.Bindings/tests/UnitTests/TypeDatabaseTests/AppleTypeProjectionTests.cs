@@ -41,6 +41,11 @@ public class AppleTypeProjectionTests
     [InlineData("c:@T@Foo", true)]
     [InlineData("c:@S@Foo", true)]
     [InlineData("c:@M@Mod@E@Foo", true)]
+    // An anonymous C aggregate named through a typedef carries clang's 'A' suffix on the tag kind
+    // (`@SA@`), which the bare `@S@` probe does not match — the shape every simd_*-style vector
+    // typedef and many CoreFoundation aggregates arrive as.
+    [InlineData("c:@SA@Foo", true)]
+    [InlineData("c:@M@Mod@SA@Foo", true)]
     [InlineData("c:objc(cs)Foo", false)]
     [InlineData("s:SiFoo", false)]
     [InlineData(null, false)]
@@ -161,8 +166,10 @@ public class AppleTypeProjectionTests
     [Fact]
     public void Project_NoHit_ClangValueTypeUsr_SkipMarked()
     {
-        // No surface match and a clang value-type USR → a phantom class would dangle, so skip.
-        var r = Project("Foo.SomeTypedef", "c:@T@SomeTypedef", "Foo", "SomeTypedef", IndexOf());
+        // No surface match and a clang value-type USR → a phantom class would dangle, so skip. The
+        // index carries another type in the same namespace, so it is an authority for that namespace.
+        var r = Project("Foo.SomeTypedef", "c:@T@SomeTypedef", "Foo", "SomeTypedef",
+            IndexOf(Class("Foo", "SomethingElse")));
         Assert.True(Has(r!, TypeRecordFlags.AbsentAppleProjection));
     }
 
@@ -185,11 +192,93 @@ public class AppleTypeProjectionTests
         // Synthesis mode (withdrawOnNoHit: true): a genuine no-hit under a populated,
         // platform-authoritative index means the synthesized qualified name is provably absent — an
         // emitted bridged class would be a CS0234/CS0246 dangling reference, so withdraw the member.
+        // The index declares another type in the SAME namespace, which is what makes it an authority
+        // for this reference's absence.
         var r = Project("Foo.SomeClass", usr, "Foo", "SomeClass",
-            IndexOf(Class("UIKit", "Unrelated")), withdrawOnNoHit: true);
+            IndexOf(Class("Foo", "Unrelated")), withdrawOnNoHit: true);
         Assert.NotNull(r);
         Assert.True(Has(r!, TypeRecordFlags.AbsentAppleProjection));
         Assert.Equal(TypeRecordKind.Class, r.Kind);
+    }
+
+    // ---- Absence authority: only namespaces the index covers ---------------------------------
+
+    [Theory]
+    [InlineData("c:objc(cs)SbSiblingPayload")] // ObjC class reference
+    [InlineData(null)]                          // no USR at all
+    public void Project_NoHit_UncoveredNamespace_SynthesisPath_KeepsSynthesizedClass(string? usr)
+    {
+        // The index reflects ONE platform reference assembly and never the sibling binding packages
+        // a binding also references. A namespace it holds no entry for at all is a namespace it has
+        // no opinion about, so a miss there is not evidence of absence: the type may be supplied by
+        // a referenced sibling package. Fall through to synthesis instead of withdrawing the member.
+        var r = Project("SbSibling.SbSiblingPayload", usr, "SbSibling", "SbSiblingPayload",
+            IndexOf(Class("UIKit", "Unrelated")), withdrawOnNoHit: true);
+        Assert.Null(r);
+    }
+
+    [Fact]
+    public void Project_NoHit_EmptyIndex_SynthesisPath_KeepsSynthesizedClass()
+    {
+        // An index that declares no types covers no namespace, so it can prove nothing absent.
+        var r = Project("Foo.SomeClass", "c:objc(cs)SomeClass", "Foo", "SomeClass",
+            IndexOf(), withdrawOnNoHit: true);
+        Assert.Null(r);
+    }
+
+    [Fact]
+    public void Project_ClangValueTypeUsr_UncoveredNamespace_KeepsSynthesizedClass()
+    {
+        // The clang value-type arm is an absence verdict too ("the binding declares no such type"),
+        // so it needs the same authority: an uncovered namespace cannot support it. Asserted on the
+        // synthesis path, where the arm previously fired regardless of caller trust.
+        var r = Project("SbSibling.SbSiblingRecord", "c:@S@SbSiblingRecord",
+            "SbSibling", "SbSiblingRecord", IndexOf(Class("UIKit", "Unrelated")),
+            withdrawOnNoHit: true);
+        Assert.Null(r);
+    }
+
+    [Fact]
+    public void Project_ClangValueTypeUsr_UncoveredNamespace_RegistryPath_KeepsRegistryRecord()
+    {
+        // Same on the registry-verify path: the hand-authoritative remap is kept when the index has
+        // no opinion about the namespace.
+        var r = Project("SbSibling.SbSiblingRecord", "c:@SA@SbSiblingRecord",
+            "SbSibling", "SbSiblingRecord", IndexOf(Class("UIKit", "Unrelated")));
+        Assert.Null(r);
+    }
+
+    [Fact]
+    public void Project_ClangValueTypeUsr_CoveredNamespace_SkipMarked()
+    {
+        // Namespace covered, name absent → the value type genuinely isn't in the binding, so the
+        // withdrawal stands. This is the legitimate arm the coverage gate must preserve.
+        var r = Project("UIKit.SomeAggregate", "c:@SA@SomeAggregate", "UIKit", "SomeAggregate",
+            IndexOf(Class("UIKit", "Unrelated")), withdrawOnNoHit: true);
+        Assert.True(Has(r!, TypeRecordFlags.AbsentAppleProjection));
+    }
+
+    [Fact]
+    public void Project_BareClassHit_CoveredNamespace_SynthesisPath_SkipMarked()
+    {
+        // A qualified miss followed by a bare hit in an UNRELATED namespace is declined for name
+        // correction (too ambiguous), and it says nothing about the namespace asked about — the
+        // exact lookup already proved the name absent there. It must not suppress the withdrawal the
+        // covered namespace supports, or a name the index disproved is retained.
+        var index = IndexOf(Class("UIKit", "Unrelated"), Class("OtherFramework", "SomeClass"));
+        var r = Project("UIKit.SomeClass", "c:objc(cs)SomeClass", "UIKit", "SomeClass",
+            index, withdrawOnNoHit: true);
+        Assert.True(Has(r!, TypeRecordFlags.AbsentAppleProjection));
+    }
+
+    [Fact]
+    public void Project_BareStructHit_CoveredNamespace_SynthesisPath_SkipMarked()
+    {
+        // Same for a bare hit of a non-class shape: it neither corrects nor confirms the reference.
+        var index = IndexOf(Class("UIKit", "Unrelated"), Struct("OtherFramework", "SomeAggregate"));
+        var r = Project("UIKit.SomeAggregate", "c:objc(cs)SomeAggregate", "UIKit", "SomeAggregate",
+            index, withdrawOnNoHit: true);
+        Assert.True(Has(r!, TypeRecordFlags.AbsentAppleProjection));
     }
 
     [Fact]
@@ -204,11 +293,11 @@ public class AppleTypeProjectionTests
     }
 
     [Fact]
-    public void Project_BareClassHit_SynthesisPath_NotWithdrawn()
+    public void Project_BareClassHit_UncoveredNamespace_SynthesisPath_NotWithdrawn()
     {
-        // The withdraw refinement gates on `hit is null`. A bare (cross-namespace) class match is a
-        // hit, not a no-hit, so even in synthesis mode it is left to synthesis (null) — never
-        // withdrawn — keeping a name that may already compile.
+        // A bare (cross-namespace) class match is declined for correction, and the namespace asked
+        // about carries no entries at all — nothing here can prove the reference absent, so it is
+        // left to synthesis (null), keeping a name that may already compile.
         var index = IndexOf(Class("RealFramework", "SomeClass"));
         var r = Project("SomeModule.SomeClass", "c:objc(cs)SomeClass", "SomeModule", "SomeClass",
             index, withdrawOnNoHit: true);

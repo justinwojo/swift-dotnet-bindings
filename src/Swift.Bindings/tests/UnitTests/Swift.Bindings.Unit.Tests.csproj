@@ -52,6 +52,11 @@
          _build. BCL-only with source-generated JSON (ApiManifestBaselineJsonContext), so it
          compiles AOT-clean under this project's IsAotCompatible + warnings-as-errors. -->
     <Compile Include="../../../../build/Models/ApiManifestBaseline.cs" Link="Models/ApiManifestBaseline.cs" />
+    <!-- Link-compile the skip-surface trend baseline for the same reason: its Compare carries the
+         "a falling skip count may mean the surface was amputated, not fixed" cross-reference, which
+         is exactly the logic worth pinning with unit tests. BCL-only with source-generated JSON
+         (SkipSurfaceBaselineJsonContext), so it compiles AOT-clean here. -->
+    <Compile Include="../../../../build/Models/SkipSurfaceBaseline.cs" Link="Models/SkipSurfaceBaseline.cs" />
     <!-- Link-compile the JSONL crash-recovery model so its pure console-fallback parsing
          (ParseClassesFromConsole / AddConsoleFailure) is unit-tested here without a project
          reference to _build. BCL-only (JsonDocument DOM read, no reflection serialization), so it

@@ -102,6 +102,32 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void IsCompilerError_SourceGeneratorError_CountsAsCompileFailure()
+        {
+            // The LibraryImport generator refuses to expand a stub whose parameter it cannot
+            // marshal and reports SYSLIB1051 — with no CS error of its own unless a call site
+            // happens to break too. Classifying that as infrastructure made a provably
+            // uncompilable binding read as "inconclusive", which passes through.
+            Assert.True(Err("SYSLIB1051").IsCompilerError);
+            Assert.False(Err("SYSLIB1051").IsRestoreOrInfrastructure);
+            Assert.False(Warn("SYSLIB1054").IsCompilerError);  // a generator warning is not a failure
+        }
+
+        [Fact]
+        public void FromDiagnostics_SourceGeneratorErrorOnly_FailedBuild_IsCompileErrors()
+        {
+            // The whole point of the classification: this must be recoverable (withdraw the
+            // offending member), not inconclusive (ship it unverified).
+            var result = CSharpVerificationResult.FromDiagnostics(
+                new[] { Err("SYSLIB1051") }, buildSucceeded: false);
+
+            Assert.Equal(CSharpVerificationOutcome.CompileErrors, result.Outcome);
+            Assert.Single(result.CompilerErrors);
+            Assert.Equal("SYSLIB1051", result.CompilerErrors[0].Id);
+            Assert.Null(result.InconclusiveReason);
+        }
+
+        [Fact]
         public void CompilerErrors_AreDeterministicallyOrdered_ByFileLineColumnId()
         {
             // Fed out of order; the shape contract requires a stable order so downstream attribution

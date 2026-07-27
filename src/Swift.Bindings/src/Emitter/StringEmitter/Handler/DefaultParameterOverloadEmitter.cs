@@ -969,6 +969,28 @@ public static class DefaultParameterOverloadEmitter
         => methodDecl.CSSignature.Skip(1).Any(IsDebugParameter);
 
     /// <summary>
+    /// Whether emission will install the debug-default-parameter Swift wrapper for this method.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the ONE definition of that decision: <c>MethodHandler</c> calls it to decide, and
+    /// <see cref="WrapperValidation.IsAsyncCdeclEligible"/> calls it to predict. The install runs
+    /// EARLY in the flag-setting phase and sets <c>UsesWrapperLibrary</c>, which every later wrapper
+    /// branch — including the async <c>@_cdecl</c> promotion — treats as "another generator owns
+    /// this method". A pre-emission caller reading the raw flag therefore sees `false` and predicts
+    /// a promotion emission will decline, the exact inverse of reading a promotion flag that is not
+    /// yet set.
+    /// </para>
+    /// <para>
+    /// The <c>UsesWrapperLibrary</c> conjunct makes the predicate phase-agnostic: after the install
+    /// the flag is set (and the debug params are gone from <c>CSSignature</c>), so this returns
+    /// false while the caller's own <c>UsesWrapperLibrary</c> check does the declining.
+    /// </para>
+    /// </remarks>
+    internal static bool WillInstallDebugParamWrapper(MethodDecl methodDecl)
+        => !methodDecl.UsesWrapperLibrary && HasDebugParameters(methodDecl);
+
+    /// <summary>
     /// Emits a Swift @_silgen_name wrapper that strips debug params from a method,
     /// letting Swift supply the defaults. Updates the MethodDecl's MangledName to
     /// point to the wrapper symbol so the P/Invoke targets it instead of the original.

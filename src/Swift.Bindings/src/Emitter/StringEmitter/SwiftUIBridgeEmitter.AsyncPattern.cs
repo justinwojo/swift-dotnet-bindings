@@ -210,7 +210,17 @@ public static partial class SwiftUIBridgeEmitter
             return null;
 
         var simpleName = fullName.Substring(expectedPrefix.Length);
-        return moduleDecl.Types.FirstOrDefault(t => t.Name == simpleName);
+        var resolved = moduleDecl.Types.FirstOrDefault(t => t.Name == simpleName);
+
+        // The lookup is against the RAW module tree, so a type the ingestion-quarantine closure
+        // withdrew still resolves here. Treating it as resolvable makes the bridge render a
+        // constructor chain — and C# parameter/field types — naming a class the binding never
+        // declares. Report it as unresolved instead: an unresolvable link collapses the chain and
+        // the view degrades to the template path, which is the honest outcome.
+        if (resolved is not null && EmitterFaultGate.IsDenied(DeclIdFactory.ForType(resolved), out _))
+            return null;
+
+        return resolved;
     }
 
     #endregion

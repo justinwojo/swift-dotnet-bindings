@@ -135,6 +135,18 @@ namespace BindingsGeneration
     /// <param name="Parameters"></param>
     public record Signature(string ReturnType, IReadOnlyList<Parameter> Parameters)
     {
+        /// <summary>
+        /// True when a baseline-shaped async closure parameter had to fall back to the
+        /// AnyType placeholder because the containing member never reached the async
+        /// (context, startFunc) bridge. Such a P/Invoke is unusable — the placeholder is
+        /// not a marshallable type — so the write site refuses it rather than emitting a
+        /// declaration the C# compiler will reject. The flag rides on the signature (and
+        /// not as a throw from the builder) because candidate signatures are built
+        /// speculatively by the existential-bypass and operator paths, which must be able
+        /// to inspect and discard a signature without unwinding emission.
+        /// </summary>
+        public bool HasUnbridgeableAsyncClosureParameter { get; init; }
+
         public bool ContainsPlaceholder =>
         Parameters.Any(p => p.Type.ContainsAnyTypePlaceholder())
         || ReturnType.Contains(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
@@ -314,6 +326,12 @@ namespace BindingsGeneration
         protected readonly GenericContext _genericContext;
 
         /// <summary>
+        /// Set by a builder that had to degrade a baseline-shaped async closure parameter
+        /// to the AnyType placeholder. Surfaces on the built <see cref="Signature"/>.
+        /// </summary>
+        protected bool _hasUnbridgeableAsyncClosure;
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="SignatureBuilderBase"/> class.
         /// </summary>
         /// <param name="env">The method environment.</param>
@@ -332,7 +350,10 @@ namespace BindingsGeneration
         public Signature Build()
         {
             DeduplicateParameterNames();
-            return new Signature(_returnType, _parameters.ToArray());
+            return new Signature(_returnType, _parameters.ToArray())
+            {
+                HasUnbridgeableAsyncClosureParameter = _hasUnbridgeableAsyncClosure
+            };
         }
 
         /// <summary>

@@ -554,6 +554,17 @@ public static class TypeDatabaseExtensions
     /// registry-verify path the name is a hand-authoritative remap, so a no-hit keeps that record (the
     /// index may simply not cover it) and only a definitive wrong-kind hit corrects or withdraws it.
     /// </para>
+    /// <para>
+    /// Every <em>absence</em> verdict below is additionally confined to namespaces the index actually
+    /// covers. The index reflects one platform reference assembly and never the sibling binding
+    /// packages a binding may also reference, so a miss in a namespace it declares nothing in is not
+    /// evidence of absence — the type can be supplied by a referenced sibling package, and withdrawing
+    /// it deletes public API that would have compiled. Coverage makes the index an authority for the
+    /// namespaces it does reflect; it does not make it a complete authority (a sibling package that
+    /// contributes a type to an already-covered namespace is still misjudged — closing that needs the
+    /// sibling assemblies reflected into the index, which the generator has no resolved paths for at
+    /// generation time).
+    /// </para>
     /// </summary>
     internal static TypeRecord? TryProjectViaAppleSurface(
         SwiftTypeName swiftTypeName, string? usr, string synthNamespace, string synthName,
@@ -603,19 +614,28 @@ public static class TypeDatabaseExtensions
             // marshal through — skip the referencing member.
             if (qualified)
                 return CreateAbsentAppleRecord(swiftTypeName, synthNamespace, synthName);
+
+            // A bare (cross-namespace) hit we declined to correct falls through deliberately: it can
+            // neither correct the reference nor confirm it, and it says nothing about the namespace
+            // that was asked about — the qualified lookup there already missed. Letting it short-
+            // circuit the decisions below would retain a name the exact lookup disproved.
         }
+
+        // Absence verdicts require the index to be an authority for this namespace — see the remark
+        // on the parameter above. Computed once, applied to both arms so neither can drift into
+        // claiming an absence the index cannot support.
+        var namespaceIsCovered = index.CoversNamespace(synthNamespace);
 
         // A clang value-type reference (integer enum, typedef, or C struct) the binding doesn't
         // declare would dangle as a phantom class → skip, regardless of caller trust.
-        if (IsClangImportedValueTypeUsr(usr))
+        if (namespaceIsCovered && IsClangImportedValueTypeUsr(usr))
             return CreateAbsentAppleRecord(swiftTypeName, synthNamespace, synthName);
 
-        // A genuine no-hit — no candidate matched any name — under a platform-authoritative index the
-        // caller trusts (synthesis path): the synthesized qualified name is absent from the binding, so
-        // an emitted bridged class would be a CS0234/CS0246 dangling reference. Withdraw the member.
-        // A bare cross-namespace hit we declined to correct above is NOT a no-hit (hit is set) — it is
-        // left to synthesis, keeping a name that may already compile.
-        if (hit is null && withdrawOnNoHit)
+        // A genuine no-hit — no candidate matched a usable name — under a platform-authoritative index
+        // the caller trusts (synthesis path): the synthesized qualified name is absent from a namespace
+        // the index does cover, so an emitted bridged class would be a CS0234/CS0246 dangling
+        // reference. Withdraw the member.
+        if (withdrawOnNoHit && namespaceIsCovered)
             return CreateAbsentAppleRecord(swiftTypeName, synthNamespace, synthName);
 
         return null;
@@ -663,16 +683,19 @@ public static class TypeDatabaseExtensions
 
     /// <summary>
     /// True when the USR is a clang-imported value type — an integer enum (<c>c:@E@</c>), a typedef
-    /// (<c>c:@T@</c>), or a C struct (<c>c:@S@</c>), including module-qualified forms. These cross
-    /// the boundary by value; if Microsoft.iOS has no such type, a synthesized bridged class would
-    /// be a dangling reference, so the member must be skipped.
+    /// (<c>c:@T@</c>), or a C struct (<c>c:@S@</c>, and <c>c:@SA@</c> for an anonymous aggregate
+    /// named through a typedef, which is how vector/geometry aggregates and many CoreFoundation
+    /// structs arrive), including module-qualified forms. These cross the boundary by value; if the
+    /// platform binding has no such type, a synthesized bridged class would be a dangling reference,
+    /// so the member must be skipped.
     /// </summary>
     internal static bool IsClangImportedValueTypeUsr(string? usr)
         => !string.IsNullOrEmpty(usr)
             && usr.StartsWith("c:", StringComparison.Ordinal)
             && (usr.Contains("@E@", StringComparison.Ordinal)
                 || usr.Contains("@T@", StringComparison.Ordinal)
-                || usr.Contains("@S@", StringComparison.Ordinal));
+                || usr.Contains("@S@", StringComparison.Ordinal)
+                || usr.Contains("@SA@", StringComparison.Ordinal));
 
     /// <summary>
     /// True when the reference is Swift's NS_ERROR_ENUM import: a clang error enum whose USR is

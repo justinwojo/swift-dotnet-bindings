@@ -11,11 +11,23 @@
 // now binds a DIFFERENT symbol — a silent ABI retarget. Collision suffixes are assigned in
 // declaration order, so the bare-name owner (and the symbol a stable signature binds) can shift
 // when upstream reorders its overloads; the manifest + gate are the durable detector that catches
-// any such retarget here before it ships. Added/removed members are reported but never fail the gate.
+// any such retarget here before it ships.
+//
+// The ratchet is TWO-SIDED. A baselined signature that is no longer emitted also fails: a generator
+// change that withdraws a type takes every symbol-bearing member of that type with it, and nothing
+// else in the pipeline objects — a compile gate is perfectly happy with a binding that emits LESS,
+// so silent surface shrink is exactly the failure mode with no natural detector. Newly added
+// members are reported but never fail; growing the bound surface is the direction of travel.
+//
+// Scope, honestly: the generator records the manifest at its overload-disambiguation chokepoints,
+// which cover methods, constructors, and free functions — the members carrying a native entry
+// symbol. Properties, subscripts, and type declarations are NOT recorded, so a green gate means
+// "no symbol-bearing member disappeared", not "the public surface is unchanged".
 //
 // Fail-closed by default (consistent with the rest of --compile-only); `--permissive` downgrades
 // to warnings for local exploration. Reseed with `nuke SeedApiManifestBaseline` after an
-// intentional, reviewed ABI change.
+// intentional, reviewed ABI change — in the SAME commit as the change, so the baseline's recorded
+// git sha keeps pointing at the review that approved it.
 //
 // The build project link-compiles individual generator source files rather than referencing the
 // generator assembly, so this gate does NOT read the emitter's SchemaVersion constant directly:
@@ -90,32 +102,40 @@ partial class Build
             return;
         }
 
-        var (retargets, added, removed) = baseline.Compare(scanned.Entries);
+        var comparison = baseline.Compare(scanned.Entries);
+        var (retargets, added, removed) = comparison;
 
         Log.Information("API-manifest gate: {Current} current member(s), {Baseline} baselined; " +
             "{Added} added, {Removed} removed.", scanned.Entries.Count, baseline.Entries.Count, added.Count, removed.Count);
         foreach (var line in added) Log.Information("  + {Line}", line);
-        foreach (var line in removed) Log.Information("  - {Line}", line);
 
-        if (retargets.Count > 0)
+        if (comparison.HasBlockingFindings)
         {
             foreach (var line in retargets) Log.Error("  ✗ {Line}", line);
+            foreach (var line in removed) Log.Error("  ✗ {Line}", line);
+
+            var parts = new List<string>();
+            if (retargets.Count > 0)
+                parts.Add($"{retargets.Count} symbol retarget(s) on a stable C# signature — a " +
+                          "consumer-visible member silently rebound to different native code");
+            if (removed.Count > 0)
+                parts.Add($"{removed.Count} baselined member(s) no longer emitted — the binding's public " +
+                          "surface shrank, which to a consumer already calling them is a deleted API");
             var msg =
-                $"API-manifest ABI-contract gate failed: {retargets.Count} symbol retarget(s) on a stable " +
-                $"C# signature. A consumer-visible member silently rebound to different native code. Either " +
-                $"fix the regression OR — if this is an intentional, reviewed ABI change — reseed " +
+                $"API-manifest ABI-contract gate failed: {string.Join("; and ", parts)}. Either fix the " +
+                $"regression OR — if this is an intentional, reviewed API change — reseed " +
                 $"{ApiManifestBaselinePath.Name} with `nuke SeedApiManifestBaseline` in the same commit.";
-            // A retarget is the gate's headline failure, but --permissive (local exploration) uniformly
-            // downgrades EVERY gate failure to a warning — including this one — matching the setup-failure
-            // guards above and the contract documented at the top of this file. CI never passes
-            // --permissive (--compile-only is fail-closed by default), so this cannot mask a real retarget
-            // on the release path.
+            // These are the gate's headline failures, but --permissive (local exploration) uniformly
+            // downgrades EVERY gate failure to a warning — matching the setup-failure guards above and
+            // the contract documented at the top of this file. CI never passes --permissive
+            // (--compile-only is fail-closed by default), so this cannot mask a real regression on the
+            // release path.
             if (failClosed) throw new Exception(msg);
             Log.Warning(msg);
             return;
         }
 
-        Log.Information("API-manifest ABI-contract gate passed (no symbol retargets).");
+        Log.Information("API-manifest ABI-contract gate passed (no symbol retargets, no surface shrink).");
     }
 
     /// <summary>
@@ -155,8 +175,9 @@ partial class Build
     /// <summary>
     /// Manual baseline reseeder. Seeds <c>build/baselines/api-manifest-baseline.json</c> from the
     /// current generator output. Run once when this gate lands; thereafter, run again only as part
-    /// of an intentional, reviewed ABI change (a member added/removed needs no reseed — only a
-    /// retarget does, and that should be reviewed).
+    /// of an intentional, reviewed API change — a retarget or a deliberate removal, both of which
+    /// fail the gate and both of which deserve review. Newly added members need no reseed (they
+    /// never fail), though seeding them keeps the baseline able to catch their later removal.
     ///
     /// The .After(...) edges satisfy Nuke `--strict`'s total-order-over-sinks requirement; the body
     /// never observes any of them, so the edges are pure ordering. This is a manual-maintenance sink,

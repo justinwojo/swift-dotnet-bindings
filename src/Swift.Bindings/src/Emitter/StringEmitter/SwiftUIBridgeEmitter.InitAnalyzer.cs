@@ -170,9 +170,87 @@ public static partial class SwiftUIBridgeEmitter
             _ => null,
         };
 
+        // Every bridge parameter funnels through here, so this is the one place the withdrawal set
+        // has to be consulted. Parameter types are mapped from the RAW module tree and the type
+        // database, both of which still resolve a type the ingestion-quarantine closure withdrew —
+        // yielding a BoundType/BoundStruct/BoundEnum whose C# class the binding never declares.
+        // An unsupported parameter degrades the whole view to template emission, which is the
+        // honest outcome for a view whose init names a withdrawn type.
+        if (mapped is not null && ReachesWithdrawnModuleType(typeSpec, context))
+            return null;
+
         // Capture the original Swift label so the View init call can emit the real label
         // (the parser may have rewritten Name to a C#-safe form, e.g. event → _event).
         return mapped is null ? null : mapped with { OriginalSwiftName = param.GetSwiftName() };
+    }
+
+    /// <summary>
+    /// True when <paramref name="typeSpec"/> names — directly or through a generic argument,
+    /// closure argument, or closure return — a type in the module currently being emitted that
+    /// the ingestion-quarantine closure withdrew.
+    /// <para>Internal rather than private so the withdrawal-plane tests can drive this gate
+    /// directly: reaching it through a bridge parameter needs a fully populated type database, and
+    /// the nested-name resolution it depends on is exactly the part worth pinning.</para>
+    /// </summary>
+    internal static bool ReachesWithdrawnModuleType(TypeSpec? typeSpec, BridgeContext? context)
+    {
+        var moduleDecl = context?.ModuleDecl;
+        if (typeSpec is null || moduleDecl is null)
+            return false;
+
+        switch (typeSpec)
+        {
+            case NamedTypeSpec named:
+            {
+                var prefix = moduleDecl.Name + ".";
+                if (named.Name.StartsWith(prefix, StringComparison.Ordinal)
+                    && ReachesWithdrawnDeclOnPath(moduleDecl, named.Name.Substring(prefix.Length)))
+                {
+                    return true;
+                }
+                return named.GenericParameters.Any(g => ReachesWithdrawnModuleType(g, context));
+            }
+            case ClosureTypeSpec closure:
+                return closure.EachArgument().Any(a => ReachesWithdrawnModuleType(a, context))
+                    || ReachesWithdrawnModuleType(closure.ReturnType, context);
+            case TupleTypeSpec tuple:
+                return tuple.Elements.Any(e => ReachesWithdrawnModuleType(e, context));
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Resolves a module-relative type path (<c>Outer.Inner</c>, or just <c>Leaf</c>) by walking the
+    /// nested-container chain, and reports whether the named type — or ANY container along the way —
+    /// was withdrawn.
+    /// </summary>
+    /// <remarks>
+    /// The path has to be walked segment by segment: <see cref="TypeDecl.Name"/> holds only the LEAF
+    /// name, so matching a dotted path against the module's top-level type names never hits, and a
+    /// nested withdrawn type silently reads as present — exactly the bridge parameter this gate
+    /// exists to reject. A withdrawn CONTAINER counts too: its nested types are declared inside the
+    /// C# class the binding never emits, so they are just as unreachable as a directly-withdrawn leaf.
+    /// </remarks>
+    private static bool ReachesWithdrawnDeclOnPath(ModuleDecl moduleDecl, string moduleRelativePath)
+    {
+        if (string.IsNullOrEmpty(moduleRelativePath))
+            return false;
+
+        IReadOnlyList<TypeDecl> scope = moduleDecl.Types;
+        foreach (var segment in moduleRelativePath.Split('.'))
+        {
+            var decl = scope.FirstOrDefault(t => t.Name == segment);
+            if (decl is null)
+                return false;
+
+            if (EmitterFaultGate.IsDenied(DeclIdFactory.ForType(decl), out _))
+                return true;
+
+            scope = decl.Types;
+        }
+
+        return false;
     }
 
     private static BridgeParameter? MapClosureType(string paramName, ClosureTypeSpec closureSpec, BridgeContext? context = null)

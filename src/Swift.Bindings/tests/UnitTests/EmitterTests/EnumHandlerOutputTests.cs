@@ -77,6 +77,60 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_ClassShapedRawRepresentableEnum_EmitsWrapperBackedRawValueSurface()
+    {
+        // Control for the module-internal case below: the same shape with a public enum keeps its
+        // RawRepresentable surface, and that surface is backed by @_cdecl wrapper entry points.
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("LogLevel", moduleDecl, isFrozen: false);
+        enumDecl.RawValueTypeName = "String";
+        enumDecl.Cases.Add(CreateCase("debug"));
+        enumDecl.Cases.Add(CreateCase("info"));
+        enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("FromRawValue", csOutput);
+        Assert.Contains("SBW_TestModule_LogLevel_InitWithRawValue", csOutput);
+        Assert.Contains("SBW_TestModule_LogLevel_CaseByIndex", csOutput);
+        // Every entry point the C# side claims is defined by Swift source this run produced.
+        Assert.Contains("SBW_TestModule_LogLevel_InitWithRawValue", swiftOutput);
+        Assert.Contains("SBW_TestModule_LogLevel_CaseByIndex", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_ModuleInternalRawRepresentableEnum_TombstonesSurfaceInsteadOfDanglingPInvoke()
+    {
+        // A module-internal enum's Swift wrapper source is suppressed (the wrapper module compiles
+        // separately and cannot name a non-public type), so the RawRepresentable surface — which is
+        // built entirely on @_cdecl wrappers — has nothing to call. Planning it anyway ships public
+        // API that can only throw EntryPointNotFoundException, so the surface is dropped honestly
+        // and reported as skipped instead.
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("LogLevel", moduleDecl, isFrozen: false);
+        enumDecl.IsModuleInternal = true;
+        enumDecl.RawValueTypeName = "String";
+        enumDecl.Cases.Add(CreateCase("debug"));
+        enumDecl.Cases.Add(CreateCase("info"));
+        enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        // No C# extern may name a wrapper symbol the suppressed Swift plane never defines.
+        Assert.DoesNotContain("SBW_TestModule_LogLevel_InitWithRawValue", csOutput);
+        Assert.DoesNotContain("SBW_TestModule_LogLevel_CaseByIndex", csOutput);
+        Assert.DoesNotContain("public static LogLevel FromRawValue", csOutput);
+        // The wrapper plane really is empty for this enum, so there was nothing to call.
+        Assert.DoesNotContain("SBW_TestModule_LogLevel", swiftOutput);
+        // The dropped members are accounted for in the emitted source rather than silently missing.
+        Assert.Contains("Unsupported: method 'LogLevel.FromRawValue'", csOutput);
+        Assert.Contains("Unsupported: property 'LogLevel.Debug'", csOutput);
+        Assert.Contains("Unsupported: property 'LogLevel.Info'", csOutput);
+    }
+
+    [Fact]
     public void Emit_NonFrozenSimpleEnum_EmitsCSharpEnum()
     {
         // Step 3b: non-frozen no-payload enums are now emitted as C# enum value types

@@ -13,9 +13,9 @@ namespace BindingsGeneration.Tests;
 /// stable <c>(module, C# signature)</c> rebinds to a DIFFERENT native entry symbol (the
 /// overload-disambiguation hazard). Because collision suffixes are assigned in declaration order, an
 /// upstream reorder can shift the bare-name owner and produce exactly such a retarget — the gate is
-/// the net that catches it. The gate fails on retarget but NOT on an added or removed member, so a
-/// reorder that shifts a suffix without retargeting any stable signature stays green. Each test feeds
-/// synthetic entries straight into the pure <see cref="ApiManifestBaseline.Compare"/>.
+/// the net that catches it. The ratchet is two-sided: a retarget fails, and so does a REMOVED member
+/// (silent surface shrink, which no compile gate objects to), while an ADDED member never fails. Each
+/// test feeds synthetic entries straight into the pure <see cref="ApiManifestBaseline.Compare"/>.
 /// </summary>
 public class ApiManifestBaselineTests
 {
@@ -115,6 +115,65 @@ public class ApiManifestBaselineTests
         Assert.Contains("ModY", retargets[0]);
         Assert.Empty(added);
         Assert.Empty(removed);
+    }
+
+    [Fact]
+    public void Compare_RetargetBlocksTheGate()
+    {
+        var baseline = Seeded(E("Foo.Bar(int)", "SBW_A"));
+
+        Assert.True(baseline.Compare(new[] { E("Foo.Bar(int)", "SBW_B") }).HasBlockingFindings);
+    }
+
+    [Fact]
+    public void Compare_RemovalBlocksTheGate()
+    {
+        // Surface shrink is the failure mode with no natural detector: a compile gate is perfectly
+        // happy with a binding that emits LESS, so a member silently dropping out of the public
+        // surface would otherwise ship unnoticed. It must block exactly like a retarget does.
+        var baseline = Seeded(E("Foo.Bar(int)", "SBW_A"), E("Foo.Gone()", "SBW_G"));
+
+        var comparison = baseline.Compare(new[] { E("Foo.Bar(int)", "SBW_A") });
+
+        Assert.Empty(comparison.Retargets);
+        Assert.Single(comparison.Removed);
+        Assert.True(comparison.HasBlockingFindings);
+    }
+
+    [Fact]
+    public void Compare_AdditionAloneDoesNotBlockTheGate()
+    {
+        // Growth is the direction of travel — requiring a reseed for every newly bound member
+        // would make the baseline pure friction and train people to reseed reflexively.
+        var baseline = Seeded(E("Foo.Bar(int)", "SBW_A"));
+
+        var comparison = baseline.Compare(new[] { E("Foo.Bar(int)", "SBW_A"), E("Foo.New(long)", "SBW_N") });
+
+        Assert.Single(comparison.Added);
+        Assert.False(comparison.HasBlockingFindings);
+    }
+
+    [Fact]
+    public void Compare_UnchangedManifest_DoesNotBlockTheGate()
+    {
+        var entries = new[] { E("Foo.Bar(int)", "SBW_A"), E("Foo.Baz()", "SBW_C") };
+
+        Assert.False(Seeded(entries).Compare(entries.ToList()).HasBlockingFindings);
+    }
+
+    [Fact]
+    public void Compare_RenamedMemberKeepingItsSymbol_StillBlocks()
+    {
+        // A rename shows up as ADDED + REMOVED carrying the SAME native symbol. It is not a
+        // regression in the ABI sense, but it IS a source break for every consumer calling the old
+        // name — so it blocks and demands a deliberate reseed rather than sliding through.
+        var baseline = Seeded(E("Foo.OldName(int)", "SBW_A"));
+
+        var comparison = baseline.Compare(new[] { E("Foo.NewName(int)", "SBW_A") });
+
+        Assert.Single(comparison.Added);
+        Assert.Single(comparison.Removed);
+        Assert.True(comparison.HasBlockingFindings);
     }
 
     [Fact]

@@ -206,80 +206,135 @@ namespace BindingsGeneration
             // Create a MethodEnvironment for signature handling, passing the P/Invoke helper context
             var methodEnv = new MethodEnvironment(methodDecl, typeDatabase, pinvokeHelperContext: pinvokeHelperContext);
 
-            // Check if this operator should use a @_cdecl wrapper.
-            // Needed when struct has non-blittable fields (Bool), float/double fields, or is > 16 bytes.
-            bool usesCdeclWrapper = ShouldEmitOperatorWrapper(operatorDecl, typeDatabase, swiftWriter, methodEnv);
-            if (usesCdeclWrapper && swiftWriter != null && emissionContext != null)
+            // Async closure bridge eligibility — same contract as the ordinary method path.
+            // The (context, startFunc) P/Invoke pair only has a matching Swift adapter when the
+            // containing member became an async @_cdecl method wrapper, which an operator never
+            // is. Without it the closure degrades to the unsupported-type placeholder in the
+            // P/INVOKE signature only — the wrapper signature still projects a real delegate
+            // type, so the ContainsPlaceholder check below cannot see it. Must run before the
+            // Swift wrapper is emitted so a doomed operator leaves no orphan @_cdecl behind.
+            if (WrapperValidation.HasUnbridgeableAsyncThrowingClosure(methodEnv))
             {
-                var cdeclSymbol = EmitOperatorSwiftWrapper(swiftWriter, operatorDecl, parentDecl, emissionContext);
-                if (cdeclSymbol != null)
-                {
-                    methodEnv.PromoteSymbol(cdeclSymbol);
-                    methodDecl.UsesWrapperLibrary = true;
-                }
-                else
-                {
-                    usesCdeclWrapper = false;
-                }
-            }
-
-            var signatureHandler = new SignatureHandler(methodEnv);
-
-            // Check if signature is supported
-            if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
-            {
-                _logger.LogWarning($"Operator {symbol} has unsupported signature: ({signatureHandler.GetWrapperSignature().ParametersString()}) -> {signatureHandler.GetWrapperSignature().ReturnType}");
-                ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.UnsupportedSignature, "Operator signature contains unsupported placeholder type.");
+                ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.UnsupportedSignature, "Async closure parameter cannot be bridged (non-baseline shape, or the containing member is not a @_cdecl async wrapper).");
                 return false;
             }
 
-            // Bug #4: C# operators cannot have generic type parameters. If any operand is a bare
-            // generic type parameter (e.g., shift operators with generic second operand), skip.
-            if (methodDecl.CSSignature.Skip(1).Any(arg => arg.IsGeneric))
+            // Everything from here on writes into the C# buffer and (for a @_cdecl operator) the
+            // Swift wrapper buffer, so it is emitted speculatively: the P/Invoke builder can still
+            // throw UnbridgeableAsyncClosureException from inside the signature/emission calls
+            // below, and without a transaction that would leave a half-written operator plus an
+            // orphan @_cdecl block behind. The constructor and ordinary-method paths already run
+            // under this exact protection; the operator path is the same shape and gets it too.
+            var operatorTransaction = MemberEmissionTransaction.Begin(csWriter, swiftWriter, emissionContext);
+
+            // Captured so a skip can undo the wrapper promotion, not just the buffered text. Every
+            // exit AFTER the Swift wrapper may have been written goes through RollbackOperator: a
+            // skipping operator that leaves an orphan @_cdecl block in the Swift buffer produces a
+            // wrapper function nothing calls, and one that leaves the decl's promoted symbol and
+            // UsesWrapperLibrary set hands every later reader (post-processors, wrapper-eligibility
+            // predicates) the state of an emission that did not happen.
+            var savedEmissionSymbol = methodEnv.EmissionSymbol;
+            var savedUsesWrapperLibrary = methodDecl.UsesWrapperLibrary;
+
+            void RollbackOperator()
             {
-                _logger.LogWarning($"Operator '{symbol}' has generic type parameter operand — C# operators cannot be generic.");
-                ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.UnsupportedSignature, "C# operators cannot have generic type parameters.");
-                return false;
+                operatorTransaction.Rollback();
+                methodEnv.PromoteSymbol(savedEmissionSymbol);
+                methodDecl.UsesWrapperLibrary = savedUsesWrapperLibrary;
             }
 
-            // Check if the P/Invoke signature references marshalling variables (e.g., arg0Buffer, T0Metadata)
-            // that the operator wrapper scope doesn't declare. This happens for generic-type operators
-            // where the P/Invoke builder renames operands for buffer marshalling we don't emit.
-            if (pinvokeHelperContext != null)
+            try
             {
-                var pInvokeSig = signatureHandler.GetPInvokeSignature();
-                var wrapperSig = signatureHandler.GetWrapperSignature();
-                bool requiresIndirectResult = MarshallingHelpers.MethodRequiresIndirectResult(methodEnv);
-                var availableNames = new HashSet<string>(wrapperSig.Parameters.Select(p => p.Name));
-                if (requiresIndirectResult)
-                    availableNames.Add("swiftIndirectResult");
-                bool hasUndeclaredRefs = pInvokeSig.Parameters.Any(p => !availableNames.Contains(p.Name));
-                if (hasUndeclaredRefs)
+                // Check if this operator should use a @_cdecl wrapper.
+                // Needed when struct has non-blittable fields (Bool), float/double fields, or is > 16 bytes.
+                bool usesCdeclWrapper = ShouldEmitOperatorWrapper(operatorDecl, typeDatabase, swiftWriter, methodEnv);
+                if (usesCdeclWrapper && swiftWriter != null && emissionContext != null)
                 {
-                    _logger.LogWarning($"Operator '{symbol}' on generic type requires buffer marshalling preamble — skipping.");
-                    ReportCollector.RecordMemberSkipped(operatorDecl,
-                        SkipReason.UnsupportedSignature, "Operator on generic type requires buffer marshalling.");
+                    var cdeclSymbol = EmitOperatorSwiftWrapper(swiftWriter, operatorDecl, parentDecl, emissionContext);
+                    if (cdeclSymbol != null)
+                    {
+                        methodEnv.PromoteSymbol(cdeclSymbol);
+                        methodDecl.UsesWrapperLibrary = true;
+                    }
+                    else
+                    {
+                        usesCdeclWrapper = false;
+                    }
+                }
+
+                var signatureHandler = new SignatureHandler(methodEnv);
+
+                // Check if signature is supported
+                if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
+                {
+                    _logger.LogWarning($"Operator {symbol} has unsupported signature: ({signatureHandler.GetWrapperSignature().ParametersString()}) -> {signatureHandler.GetWrapperSignature().ReturnType}");
+                    ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.UnsupportedSignature, "Operator signature contains unsupported placeholder type.");
+                    RollbackOperator();
                     return false;
                 }
-            }
 
-            // Get type name with generics for proper operator parameter types (fixes CS0563, CS0305)
-            // Use resolved name from TypeDatabase to account for nested type renames
-            var resolvedSimpleName = parentDecl.Name;
-            if (typeDatabase.TryGetTypeRecord(parentDecl.SwiftTypeName, out var parentRecord))
+                // Bug #4: C# operators cannot have generic type parameters. If any operand is a bare
+                // generic type parameter (e.g., shift operators with generic second operand), skip.
+                if (methodDecl.CSSignature.Skip(1).Any(arg => arg.IsGeneric))
+                {
+                    _logger.LogWarning($"Operator '{symbol}' has generic type parameter operand — C# operators cannot be generic.");
+                    ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.UnsupportedSignature, "C# operators cannot have generic type parameters.");
+                    RollbackOperator();
+                    return false;
+                }
+
+                // Check if the P/Invoke signature references marshalling variables (e.g., arg0Buffer, T0Metadata)
+                // that the operator wrapper scope doesn't declare. This happens for generic-type operators
+                // where the P/Invoke builder renames operands for buffer marshalling we don't emit.
+                if (pinvokeHelperContext != null)
+                {
+                    var pInvokeSig = signatureHandler.GetPInvokeSignature();
+                    var wrapperSig = signatureHandler.GetWrapperSignature();
+                    bool requiresIndirectResult = MarshallingHelpers.MethodRequiresIndirectResult(methodEnv);
+                    var availableNames = new HashSet<string>(wrapperSig.Parameters.Select(p => p.Name));
+                    if (requiresIndirectResult)
+                        availableNames.Add("swiftIndirectResult");
+                    bool hasUndeclaredRefs = pInvokeSig.Parameters.Any(p => !availableNames.Contains(p.Name));
+                    if (hasUndeclaredRefs)
+                    {
+                        _logger.LogWarning($"Operator '{symbol}' on generic type requires buffer marshalling preamble — skipping.");
+                        ReportCollector.RecordMemberSkipped(operatorDecl,
+                            SkipReason.UnsupportedSignature, "Operator on generic type requires buffer marshalling.");
+                        RollbackOperator();
+                        return false;
+                    }
+                }
+
+                // Get type name with generics for proper operator parameter types (fixes CS0563, CS0305)
+                // Use resolved name from TypeDatabase to account for nested type renames
+                var resolvedSimpleName = parentDecl.Name;
+                if (typeDatabase.TryGetTypeRecord(parentDecl.SwiftTypeName, out var parentRecord))
+                {
+                    var name = parentRecord.CSharpTypeName.Name;
+                    var lastDot = name.LastIndexOf('.');
+                    resolvedSimpleName = lastDot >= 0 ? name.Substring(lastDot + 1) : name;
+                }
+                var typeNameWithGenerics = $"{resolvedSimpleName}{GenericTypeEmitter.GetGenericParameterList(parentDecl)}";
+
+                // Emit the operator wrapper and PInvoke
+                EmitOperatorWrapper(csWriter, operatorDecl, signatureHandler, resolvedSimpleName, typeNameWithGenerics, pinvokeHelperContext, isReferenceType, methodEnv, usesCdeclWrapper);
+                EmitOperatorPInvoke(csWriter, operatorDecl, methodEnv, signatureHandler, typeDatabase, pinvokeHelperContext, usesCdeclWrapper);
+                ReportCollector.RecordMemberEmitted(operatorDecl);
+                csWriter.WriteLine();
+                return true;
+            }
+            catch (UnbridgeableAsyncClosureException ex)
             {
-                var name = parentRecord.CSharpTypeName.Name;
-                var lastDot = name.LastIndexOf('.');
-                resolvedSimpleName = lastDot >= 0 ? name.Substring(lastDot + 1) : name;
+                // Backstop for the async-closure gate above. Unreachable while that gate runs
+                // before any text is written; if a path ever slips through, roll the half-written
+                // operator (and its @_cdecl block) back out and record an honest skip rather than
+                // leaving an uncompilable P/Invoke and an orphan wrapper behind.
+                RollbackOperator();
+                _logger.LogWarning(ex.Message);
+                ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.UnsupportedSignature,
+                    "Async closure parameter cannot be bridged (non-baseline shape, or the containing member is not a @_cdecl async wrapper).");
+                return false;
             }
-            var typeNameWithGenerics = $"{resolvedSimpleName}{GenericTypeEmitter.GetGenericParameterList(parentDecl)}";
-
-            // Emit the operator wrapper and PInvoke
-            EmitOperatorWrapper(csWriter, operatorDecl, signatureHandler, resolvedSimpleName, typeNameWithGenerics, pinvokeHelperContext, isReferenceType, methodEnv, usesCdeclWrapper);
-            EmitOperatorPInvoke(csWriter, operatorDecl, methodEnv, signatureHandler, typeDatabase, pinvokeHelperContext, usesCdeclWrapper);
-            ReportCollector.RecordMemberEmitted(operatorDecl);
-            csWriter.WriteLine();
-            return true;
         }
 
         /// <summary>
@@ -721,6 +776,18 @@ namespace BindingsGeneration
                 ? typeDatabase.AsyncLibraryName ?? typeDatabase.GetLibraryPath(moduleDecl.Name)
                 : typeDatabase.GetLibraryPath(moduleDecl.Name);
             var pInvokeSignature = signatureHandler.GetPInvokeSignature();
+
+            // Defense in depth for the async closure bridge, matching PInvokeEmitter.EmitPInvoke.
+            // The operator path builds its own P/Invoke text rather than routing through that
+            // emitter, so the shared refusal has to be restated here or the operator becomes the
+            // one member kind that can ship an unsupported-type placeholder in a P/Invoke
+            // signature — output that does not compile. The handler-layer gate above is supposed
+            // to have skipped such an operator already; this makes a future gap fail at generation
+            // time, and the caller's transaction rolls the half-written operator back out.
+            if (pInvokeSignature.HasUnbridgeableAsyncClosureParameter)
+            {
+                throw new UnbridgeableAsyncClosureException(pinvokeName);
+            }
 
             // For @_cdecl wrappers, adjust calling convention and parameter types.
             // When the operator @_cdecl wrapper was NOT emitted (e.g. operator on a

@@ -57,15 +57,32 @@ internal sealed class AppleTypeSurfaceIndex
     private readonly IReadOnlyDictionary<string, AppleTypeSurfaceEntry> _byFullName;
     private readonly IReadOnlyDictionary<string, AppleTypeSurfaceEntry> _byBareName;
 
+    // Every namespace the reflected assembly declares at least one exported type in. Derived from the
+    // entries themselves so a hand-built index answers coverage exactly as a reflected one does.
+    private readonly HashSet<string> _namespaces;
+
     internal AppleTypeSurfaceIndex(
         IReadOnlyDictionary<string, AppleTypeSurfaceEntry> byFullName,
         IReadOnlyDictionary<string, AppleTypeSurfaceEntry> byBareName)
     {
         _byFullName = byFullName;
         _byBareName = byBareName;
+        _namespaces = new HashSet<string>(
+            byFullName.Values.Select(e => e.Namespace), StringComparer.Ordinal);
     }
 
     internal int Count => _byBareName.Count;
+
+    /// <summary>
+    /// True when the reflected assembly declares at least one exported type in
+    /// <paramref name="namespace"/>. This is the index's authority boundary: it reflects a single
+    /// platform reference assembly, so a namespace it holds no entry for is one it has no opinion
+    /// about — the type may be supplied by a sibling binding package the reference assembly never
+    /// sees. Absence verdicts must therefore be confined to namespaces this returns true for.
+    /// Matched exactly: a parent or child segment of a covered namespace is a different namespace.
+    /// </summary>
+    internal bool CoversNamespace(string? @namespace)
+        => !string.IsNullOrEmpty(@namespace) && _namespaces.Contains(@namespace);
 
     /// <summary>Resolves a namespace-qualified candidate exactly (e.g. <c>UIKit</c> + <c>UIImpactFeedbackStyle</c>).</summary>
     internal bool TryResolveQualified(string @namespace, string name, [NotNullWhen(true)] out AppleTypeSurfaceEntry? entry)

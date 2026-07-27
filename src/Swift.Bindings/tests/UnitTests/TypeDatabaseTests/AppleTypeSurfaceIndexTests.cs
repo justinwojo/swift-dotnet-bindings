@@ -78,6 +78,47 @@ public class AppleTypeSurfaceIndexTests
     public void TryResolveQualified_UnknownName_ReturnsFalse()
         => Assert.False(FixtureIndex.TryResolveQualified(Ns, "TotallyAbsentType", out _));
 
+    [Fact]
+    public void CoversNamespace_TrueForAReflectedNamespace()
+    {
+        // Coverage is the authority gate for absence: the index may only claim a name is missing
+        // from a namespace it actually reflected at least one type for.
+        Assert.True(FixtureIndex.CoversNamespace(Ns));
+    }
+
+    [Theory]
+    [InlineData("NamespaceTheRefAssemblyNeverDeclares")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void CoversNamespace_FalseForAnUnreflectedNamespace(string @namespace)
+        => Assert.False(FixtureIndex.CoversNamespace(@namespace));
+
+    [Fact]
+    public void CoversNamespace_MatchesExactly_NotByPrefix()
+    {
+        // A namespace is covered only when it is spelled exactly; a parent or child segment of a
+        // reflected namespace is a different namespace with its own (unknown) contents.
+        Assert.False(FixtureIndex.CoversNamespace("BindingsGeneration"));
+        Assert.False(FixtureIndex.CoversNamespace(Ns + ".Nested"));
+    }
+
+    [Fact]
+    public void CoversNamespace_FollowsTheEntriesTheIndexWasBuiltFrom()
+    {
+        var index = new AppleTypeSurfaceIndex(
+            new Dictionary<string, AppleTypeSurfaceEntry>(StringComparer.Ordinal)
+            {
+                ["NsA.Widget"] = new("Widget", "NsA", AppleTypeSurfaceKind.Class, null, false),
+            },
+            new Dictionary<string, AppleTypeSurfaceEntry>(StringComparer.Ordinal)
+            {
+                ["Widget"] = new("Widget", "NsA", AppleTypeSurfaceKind.Class, null, false),
+            });
+
+        Assert.True(index.CoversNamespace("NsA"));
+        Assert.False(index.CoversNamespace("NsB"));
+    }
+
     [Theory]
     [InlineData(ApplePlatform.iOS, "Microsoft.iOS")]
     [InlineData(ApplePlatform.macOS, "Microsoft.macOS")]

@@ -178,9 +178,10 @@ public class ValidationRuleSetClassificationTests
         // index IS available and does not declare the type (StoreKit.Transaction is a Swift-only
         // StoreKit 2 struct with no Microsoft.iOS binding), the synthesized bridged class would
         // dangle — so the reference is withdrawn regardless of USR kind, including a class USR that
-        // the USR discriminator alone would pass through. A present-but-empty surface models the
-        // "type genuinely not in the binding" case deterministically.
-        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(EmptySurface());
+        // the USR discriminator alone would pass through. A surface that declares another StoreKit
+        // type but not this one models the "type genuinely not in the binding" case deterministically:
+        // the index has entries in that namespace, so its silence about this name is authoritative.
+        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(SurfaceCovering("StoreKit"));
         var db = new TypeDatabase();
         var spec = new NamedTypeSpec(StoreKitTransaction) { Usr = StoreKitTransactionClassUsr };
 
@@ -190,13 +191,24 @@ public class ValidationRuleSetClassificationTests
         Assert.Equal(StoreKitTransaction, offending);
     }
 
-    // A present, non-null surface index that declares no types — models "the reference assembly is
-    // installed but genuinely does not contain the referenced type," so the withdraw-on-no-hit path
-    // fires deterministically (distinct from the null/surface-unavailable fallback).
-    private static AppleTypeSurfaceIndex EmptySurface()
-        => new(
-            new Dictionary<string, AppleTypeSurfaceEntry>(System.StringComparer.Ordinal),
-            new Dictionary<string, AppleTypeSurfaceEntry>(System.StringComparer.Ordinal));
+    // A present, non-null surface index that declares one unrelated type in <paramref name="ns"/> —
+    // models "the reference assembly is installed and binds this namespace, but genuinely does not
+    // contain the referenced type," so the withdraw-on-no-hit path fires deterministically (distinct
+    // both from the null/surface-unavailable fallback and from a namespace the index never reflected,
+    // where it has no standing to call anything absent).
+    private static AppleTypeSurfaceIndex SurfaceCovering(string ns)
+    {
+        var entry = new AppleTypeSurfaceEntry("UnrelatedSurfaceType", ns, AppleTypeSurfaceKind.Class, null, false);
+        return new(
+            new Dictionary<string, AppleTypeSurfaceEntry>(System.StringComparer.Ordinal)
+            {
+                [$"{ns}.{entry.Name}"] = entry,
+            },
+            new Dictionary<string, AppleTypeSurfaceEntry>(System.StringComparer.Ordinal)
+            {
+                [entry.Name] = entry,
+            });
+    }
 
     [Fact]
     public void Classify_ValueTypeUsr_NullDb_IsNotAbsentBridgedValueType()

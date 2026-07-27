@@ -562,14 +562,24 @@ public class ForeignTypeExtensionEmitterTests
 
     #region ProcessForeignTypeExtensions: absent-Apple surface ingress
 
-    // A present, non-null surface index that declares no types models "the reference assembly is
-    // installed but genuinely does not contain the referenced type" — so the synthesis
-    // withdraw-on-no-hit path marks the type AbsentAppleProjection deterministically (distinct from
-    // the null/surface-unavailable fallback, which degrades to name synthesis and withdraws nothing).
-    private static AppleTypeSurfaceIndex EmptySurface()
-        => new(
-            new Dictionary<string, AppleTypeSurfaceEntry>(System.StringComparer.Ordinal),
-            new Dictionary<string, AppleTypeSurfaceEntry>(System.StringComparer.Ordinal));
+    // A present, non-null surface index that declares one unrelated UIKit type models "the reference
+    // assembly is installed and binds UIKit, but genuinely does not contain the referenced type" — so
+    // the synthesis withdraw-on-no-hit path marks the type AbsentAppleProjection deterministically.
+    // Distinct from the null/surface-unavailable fallback (degrades to name synthesis, withdraws
+    // nothing) and from a namespace the index never reflected (no standing to call anything absent).
+    private static AppleTypeSurfaceIndex SurfaceCoveringUIKit()
+    {
+        var entry = new AppleTypeSurfaceEntry("UnrelatedSurfaceType", "UIKit", AppleTypeSurfaceKind.Class, null, false);
+        return new(
+            new Dictionary<string, AppleTypeSurfaceEntry>(System.StringComparer.Ordinal)
+            {
+                ["UIKit.UnrelatedSurfaceType"] = entry,
+            },
+            new Dictionary<string, AppleTypeSurfaceEntry>(System.StringComparer.Ordinal)
+            {
+                [entry.Name] = entry,
+            });
+    }
 
     [Fact]
     public void ProcessForeignTypeExtensions_MethodWithRequiredAbsentAppleParam_WithdrawnAndReported()
@@ -581,7 +591,7 @@ public class ForeignTypeExtensionEmitterTests
         // withdraw the member — the ForeignTypeExtensionEmitter twin of the class-path withdrawal
         // MemberValidationPipeline already performs — and record a report row rather than dropping
         // it silently.
-        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(EmptySurface());
+        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(SurfaceCoveringUIKit());
         var ctx = new ModuleEmissionContext();
         var moduleDecl = CreateModuleDecl();
         var typeDatabase = CreateTypeDatabase();
@@ -610,7 +620,7 @@ public class ForeignTypeExtensionEmitterTests
     {
         // A return type absent from the .NET surface would emit a dangling `UIKit.UIWindowLevel`
         // return reference (CS0234). Withdraw + report rather than emit the phantom type.
-        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(EmptySurface());
+        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(SurfaceCoveringUIKit());
         var ctx = new ModuleEmissionContext();
         var moduleDecl = CreateModuleDecl();
         var typeDatabase = CreateTypeDatabase();
@@ -637,7 +647,7 @@ public class ForeignTypeExtensionEmitterTests
     {
         // A property whose type is absent from the .NET surface would emit a dangling getter return
         // reference. Withdraw + report at the property ingress too.
-        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(EmptySurface());
+        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(SurfaceCoveringUIKit());
         var ctx = new ModuleEmissionContext();
         var moduleDecl = CreateModuleDecl();
         var typeDatabase = CreateTypeDatabase();
@@ -666,12 +676,70 @@ public class ForeignTypeExtensionEmitterTests
         // Surgical-fix guard: the surface-authoritative gate must not withdraw a member whose types
         // are all known-good. A primitive parameter is unaffected by the absent-Apple withdrawal even
         // when a present-but-empty surface is installed.
-        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(EmptySurface());
+        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(SurfaceCoveringUIKit());
         var ctx = new ModuleEmissionContext();
         var moduleDecl = CreateModuleDecl();
         var typeDatabase = CreateTypeDatabase();
 
         var method = CreateExtMethod("setAlpha", "public func setAlpha(value: Swift.Double)");
+        var extensions = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["UIKit.UIView"] = new() { method }
+        };
+
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
+            moduleDecl, extensions, typeDatabase, Logger, ctx);
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        Assert.Equal(1, ctx.ForeignExtEmittedCount);
+        Assert.DoesNotContain(report!.SkippedItems, s => s.Reason == SkipReason.AbsentFrameworkType);
+    }
+
+    [Fact]
+    public void ProcessForeignTypeExtensions_SiblingPackageParam_UncoveredNamespace_StillEmits()
+    {
+        // The sibling-binding-package shape: an auto-bridge framework whose .NET types ship in a
+        // separate binding package (Matter → SwiftBindings.Apple.Matter), not in the platform
+        // reference assembly. The surface index reflects ONE platform assembly, so it holds no entry
+        // in that namespace at all — and silence there is ignorance, not absence. Treating it as
+        // absence withdraws every member that names a sibling-packaged type, deleting API from a
+        // binding whose consumer references the sibling package and would have compiled fine.
+        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(SurfaceCoveringUIKit());
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+
+        var method = CreateExtMethod("pair", "public func pair(device: Matter.MTRDevice)");
+        var extensions = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["UIKit.UIView"] = new() { method }
+        };
+
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
+            moduleDecl, extensions, typeDatabase, Logger, ctx);
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        Assert.Equal(1, ctx.ForeignExtEmittedCount);
+        Assert.DoesNotContain(report!.SkippedItems, s => s.Reason == SkipReason.AbsentFrameworkType);
+    }
+
+    [Fact]
+    public void ProcessForeignTypeExtensions_SiblingPackageReturn_UncoveredNamespace_StillEmits()
+    {
+        // Same authority boundary on the return-type ingress: a sibling-packaged type is kept, so the
+        // member survives instead of being withdrawn on an absence the index cannot establish.
+        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(SurfaceCoveringUIKit());
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+
+        var method = CreateExtMethod("makeDevice", "public func makeDevice() -> Matter.MTRDevice");
         var extensions = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
         {
             ["UIKit.UIView"] = new() { method }

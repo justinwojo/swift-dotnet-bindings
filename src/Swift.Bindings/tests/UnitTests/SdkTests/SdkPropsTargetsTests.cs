@@ -767,6 +767,22 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void Targets_HasSwiftBind081DeclaredDependencyGuard()
+        {
+            // SwiftFrameworkDependency injects no managed reference, and SWIFTBIND080 is
+            // deduped against explicit declarations — so the declared case must have its own
+            // guard, and it must run before the compile that would otherwise fail with a bare
+            // CS0246 inside generated code.
+            Assert.Contains("Name=\"_AssertSwiftFrameworkDependencyManagedReference\"", TargetsContent);
+            Assert.Contains("SWIFTBIND081", TargetsContent);
+
+            var target = TargetsContent.Substring(
+                TargetsContent.IndexOf("Name=\"_AssertSwiftFrameworkDependencyManagedReference\"", StringComparison.Ordinal));
+            var targetTag = target.Substring(0, target.IndexOf('>', StringComparison.Ordinal));
+            Assert.Contains("BeforeTargets=\"CoreCompile\"", targetTag);
+        }
+
+        [Fact]
         public void Targets_HookWiringTripwire_StampsAndAsserts()
         {
             // Finding 62: each external-target hook stamps a _SwiftHookRan_<Target> flag, and a
