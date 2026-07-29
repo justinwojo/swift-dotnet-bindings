@@ -686,4 +686,90 @@ public class CrossModuleTests : TestBase
     }
 
     #endregion
+
+    #region Cross-Module Existentials in Container Positions
+
+    // A sibling module's protocol used as an existential inside a CONTAINER — an enum-case
+    // associated value, a bound-generic (array) argument, a closure parameter — reaches the C#
+    // projection through a different oracle than the plain parameter position does. Each one must
+    // still name the interface and the proxy class with the owning module's namespace, since the
+    // generated file carries no `using` for a sibling binding. These tests drive each container end
+    // to end: C# hands in an implementation of the cross-module interface, Swift stores/reads it
+    // through the container and dispatches `describe()` back into the C# object.
+
+    public void TestCrossModuleExistentialEnumSinglePayloadDispatches()
+    {
+        var impl = new CSharpDependencyConformer("single-id", "s1");
+        using var payload = CrossModuleExistentialPayload.Single(impl);
+
+        AssertEqual(CrossModuleExistentialPayload.CaseTag.Single, payload.Tag,
+            "Enum built from a cross-module existential reports the 'single' case");
+        AssertEqual("single:CS[s1]: single-id", payload.GetDescribePayload(),
+            "Swift read the enum's existential payload and dispatched describe() into the C# impl");
+    }
+
+    public void TestCrossModuleExistentialEnumSinglePayloadReadsBack()
+    {
+        var impl = new CSharpDependencyConformer("read-back", "r1");
+        using var payload = CrossModuleExistentialPayload.Single(impl);
+
+        AssertTrue(payload.TryGetSingle(out var value), "TryGetSingle succeeds on the 'single' case");
+        AssertEqual("CS[r1]: read-back", value!.GetDescribe(),
+            "Payload read back as the cross-module interface dispatches into the original C# impl");
+    }
+
+    public void TestCrossModuleExistentialEnumArrayPayloadDispatches()
+    {
+        var first = new CSharpDependencyConformer("a", "t1");
+        var second = new CSharpDependencyConformer("b", "t2");
+        using var payload = CrossModuleExistentialPayload.Several(new[] { (IDependencyProtocol)first, second });
+
+        AssertEqual(CrossModuleExistentialPayload.CaseTag.Several, payload.Tag,
+            "Enum built from an array of cross-module existentials reports the 'several' case");
+        AssertEqual("several:2", payload.GetDescribePayload(),
+            "Swift sees both existentials in the array payload");
+
+        AssertTrue(payload.TryGetSeveral(out var values), "TryGetSeveral succeeds on the 'several' case");
+        AssertEqual(2, values!.Count, "Array payload reads back with both elements");
+        AssertEqual("CS[t2]: b", values[1].GetDescribe(),
+            "Array element read back as the cross-module interface dispatches into the C# impl");
+    }
+
+    public void TestCrossModuleExistentialEnumLabeledPayloadDispatches()
+    {
+        var impl = new CSharpDependencyConformer("tagged", "L");
+        using var payload = CrossModuleExistentialPayload.Labeled(42, impl);
+
+        AssertEqual("labeled:42:CS[L]: tagged", payload.GetDescribePayload(),
+            "Multi-payload case carries both the scalar label and the cross-module existential");
+
+        AssertTrue(payload.TryGetLabeled(out var tag, out var value), "TryGetLabeled succeeds on the 'labeled' case");
+        AssertEqual(42, tag, "Scalar label reads back");
+        AssertEqual("CS[L]: tagged", value!.GetDescribe(),
+            "Labelled existential reads back and dispatches into the C# impl");
+    }
+
+    public void TestCrossModuleExistentialArrayParameter()
+    {
+        var first = new CSharpDependencyConformer("x", "p");
+        var second = new CSharpDependencyConformer("y", "q");
+
+        var joined = TestLibFunctions.DescribeDependencyList(new[] { (IDependencyProtocol)first, second });
+
+        AssertEqual("CS[p]: x|CS[q]: y", joined,
+            "Swift walked an array of cross-module existentials, dispatching into each C# impl");
+    }
+
+    public void TestCrossModuleExistentialClosureParameter()
+    {
+        var impl = new CSharpDependencyConformer("closure-id", "c1");
+        string? seen = null;
+
+        TestLibFunctions.ApplyToDependency(impl, dep => seen = dep.GetDescribe());
+
+        AssertEqual("CS[c1]: closure-id", seen,
+            "Closure parameter typed as a cross-module existential arrived projected and dispatchable");
+    }
+
+    #endregion
 }

@@ -385,7 +385,10 @@ namespace BindingsGeneration
                         // existential (e.g. [any Foo]/Optional<any Foo>) projects with proxyIsSuppressed
                         // set — ExistentialProjection's PRODUCE arm then throws, caught by the TryGet
                         // checkpoint and restubbed (CoGater used to strip the whole member instead).
-                        TypeDatabase = typeDatabase, IsParameter = false, GenericContext = genericContext, EmissionContext = emissionCtx
+                        TypeDatabase = typeDatabase, IsParameter = false, GenericContext = genericContext, EmissionContext = emissionCtx,
+                        // Module name qualifies an existential element whose protocol lives in a sibling
+                        // module, so the read-back conversion names that module's interface and proxy.
+                        CurrentModuleName = moduleDecl?.Name
                     });
                     if (projection != null)
                     {
@@ -557,7 +560,10 @@ namespace BindingsGeneration
                         // existential (e.g. [any Foo]/Optional<any Foo>) projects with proxyIsSuppressed
                         // set — ExistentialProjection's PRODUCE arm then throws, caught by the TryGet
                         // checkpoint and restubbed (CoGater used to strip the whole member instead).
-                        TypeDatabase = typeDatabase, IsParameter = false, GenericContext = genericContext, EmissionContext = emissionCtx
+                        TypeDatabase = typeDatabase, IsParameter = false, GenericContext = genericContext, EmissionContext = emissionCtx,
+                        // Module name qualifies an existential element whose protocol lives in a sibling
+                        // module, so the read-back conversion names that module's interface and proxy.
+                        CurrentModuleName = moduleDecl?.Name
                     });
                     if (projection != null)
                     {
@@ -720,7 +726,10 @@ namespace BindingsGeneration
                         // existential (e.g. [any Foo]/Optional<any Foo>) projects with proxyIsSuppressed
                         // set — ExistentialProjection's PRODUCE arm then throws, caught by the TryGet
                         // checkpoint and restubbed (CoGater used to strip the whole member instead).
-                        TypeDatabase = typeDatabase, IsParameter = false, GenericContext = genericContext, EmissionContext = emissionCtx
+                        TypeDatabase = typeDatabase, IsParameter = false, GenericContext = genericContext, EmissionContext = emissionCtx,
+                        // Module name qualifies an existential element whose protocol lives in a sibling
+                        // module, so the read-back conversion names that module's interface and proxy.
+                        CurrentModuleName = moduleDecl?.Name
                     });
                     if (projection != null)
                     {

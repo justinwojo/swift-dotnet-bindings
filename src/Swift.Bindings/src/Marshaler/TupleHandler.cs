@@ -19,10 +19,19 @@ public class TupleHandler
     /// </summary>
     public const int MaxSupportedTupleElements = 7;
 
-    public TupleHandler(ITypeDatabase typeDatabase)
+    /// <param name="typeDatabase">The type database.</param>
+    /// <param name="currentModuleName">
+    /// Name of the module being emitted. Threaded into the private existential oracle so an
+    /// existential whose protocol lives in a SIBLING module projects to its module-qualified
+    /// interface / proxy name. A generated binding emits no <c>using</c> for a dependency's
+    /// namespace, so a bare name written into a tuple element is unresolvable (CS0246) — and a bare
+    /// proxy construction names a class this module never defines. Null for the bare (non-emission)
+    /// handlers, which only classify shapes and never render a name into generated code.
+    /// </param>
+    public TupleHandler(ITypeDatabase typeDatabase, string? currentModuleName = null)
     {
         _typeDatabase = typeDatabase;
-        _existentialHandler = new ExistentialHandler(typeDatabase);
+        _existentialHandler = new ExistentialHandler(typeDatabase) { CurrentModuleName = currentModuleName };
     }
 
     /// <summary>

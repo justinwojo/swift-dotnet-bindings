@@ -23,12 +23,21 @@ public class BoundGenericsHandler
     private readonly ConformanceGraph? _conformanceGraph;
     private readonly ConformanceOracle _conformanceOracle;
 
-    public BoundGenericsHandler(ITypeDatabase typeDatabase, ConformanceGraph? conformanceGraph = null)
+    /// <param name="typeDatabase">The type database.</param>
+    /// <param name="conformanceGraph">Conformance graph used for associated-type resolution.</param>
+    /// <param name="currentModuleName">
+    /// Name of the module being emitted. Threaded into the private existential oracle (and the
+    /// nested closure/tuple handlers) so an existential ELEMENT of a bound generic — <c>[any P]</c>,
+    /// <c>Optional&lt;any P&gt;</c>, <c>[K: any P]</c> — whose protocol lives in a SIBLING module
+    /// renders its module-qualified interface and proxy names. Null for the bare (non-emission)
+    /// handlers, which only classify shapes.
+    /// </param>
+    public BoundGenericsHandler(ITypeDatabase typeDatabase, ConformanceGraph? conformanceGraph = null, string? currentModuleName = null)
     {
         _typeDatabase = typeDatabase;
-        _closureHandler = new ClosureHandler(typeDatabase);
-        _tupleHandler = new TupleHandler(typeDatabase);
-        _existentialHandler = new ExistentialHandler(typeDatabase);
+        _closureHandler = new ClosureHandler(typeDatabase, currentModuleName);
+        _tupleHandler = new TupleHandler(typeDatabase, currentModuleName);
+        _existentialHandler = new ExistentialHandler(typeDatabase) { CurrentModuleName = currentModuleName };
         _conformanceGraph = conformanceGraph;
         _conformanceOracle = new ConformanceOracle(typeDatabase);
     }

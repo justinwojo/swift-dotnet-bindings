@@ -155,21 +155,24 @@ namespace BindingsGeneration
         public BoundGenericsHandler BoundGenericsHandler =>
             Marshaling?.BoundGenerics
             ?? (_localBoundGenericsHandler ??= new BoundGenericsHandler(TypeDatabase,
-                (MethodDecl.ModuleDecl as ModuleDecl)?.ConformanceGraph));
+                (MethodDecl.ModuleDecl as ModuleDecl)?.ConformanceGraph,
+                (MethodDecl.ModuleDecl as ModuleDecl)?.Name));
 
         /// <summary>
         /// Closure handler instance. See <see cref="BoundGenericsHandler"/> for the shared/local contract.
         /// </summary>
         private ClosureHandler? _localClosureHandler;
         public ClosureHandler ClosureHandler =>
-            Marshaling?.Closure ?? (_localClosureHandler ??= new ClosureHandler(TypeDatabase));
+            Marshaling?.Closure
+            ?? (_localClosureHandler ??= new ClosureHandler(TypeDatabase, (MethodDecl.ModuleDecl as ModuleDecl)?.Name));
 
         /// <summary>
         /// Tuple handler instance. See <see cref="BoundGenericsHandler"/> for the shared/local contract.
         /// </summary>
         private TupleHandler? _localTupleHandler;
         public TupleHandler TupleHandler =>
-            Marshaling?.Tuple ?? (_localTupleHandler ??= new TupleHandler(TypeDatabase));
+            Marshaling?.Tuple
+            ?? (_localTupleHandler ??= new TupleHandler(TypeDatabase, (MethodDecl.ModuleDecl as ModuleDecl)?.Name));
 
         /// <summary>
         /// Type conversion handler instance for automatic .NET type conversions. See
@@ -623,14 +626,16 @@ namespace BindingsGeneration
         public BoundGenericsHandler BoundGenericsHandler =>
             Marshaling?.BoundGenerics
             ?? (_localBoundGenericsHandler ??= new BoundGenericsHandler(TypeDatabase,
-                (PropertyDecl.ModuleDecl as ModuleDecl)?.ConformanceGraph));
+                (PropertyDecl.ModuleDecl as ModuleDecl)?.ConformanceGraph,
+                (PropertyDecl.ModuleDecl as ModuleDecl)?.Name));
 
         /// <summary>
         /// Tuple handler instance. See <see cref="BoundGenericsHandler"/> for the shared/local contract.
         /// </summary>
         private TupleHandler? _localTupleHandler;
         public TupleHandler TupleHandler =>
-            Marshaling?.Tuple ?? (_localTupleHandler ??= new TupleHandler(TypeDatabase));
+            Marshaling?.Tuple
+            ?? (_localTupleHandler ??= new TupleHandler(TypeDatabase, (PropertyDecl.ModuleDecl as ModuleDecl)?.Name));
 
         /// <summary>
         /// Type conversion handler instance for automatic .NET type conversions. See
@@ -667,7 +672,8 @@ namespace BindingsGeneration
         /// </summary>
         private ClosureHandler? _localClosureHandler;
         public ClosureHandler ClosureHandler =>
-            Marshaling?.Closure ?? (_localClosureHandler ??= new ClosureHandler(TypeDatabase));
+            Marshaling?.Closure
+            ?? (_localClosureHandler ??= new ClosureHandler(TypeDatabase, (PropertyDecl.ModuleDecl as ModuleDecl)?.Name));
 
         /// <summary>
         /// AsyncStream handler instance for handling Swift AsyncStream types. See

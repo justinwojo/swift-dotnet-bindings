@@ -18,11 +18,19 @@ public class ClosureHandler
     // false positive here is a calling-convention/ABI fault, so the grammar-grounded check matters.
     private readonly Demangling.Swift5Demangler _demangler = new();
 
-    public ClosureHandler(ITypeDatabase typeDatabase)
+    /// <param name="typeDatabase">The type database.</param>
+    /// <param name="currentModuleName">
+    /// Name of the module being emitted. Threaded into the private existential oracle so a closure
+    /// whose parameter or return is an existential declared in a SIBLING module renders the
+    /// module-qualified interface and proxy names. Without it the callback thunk emits a bare
+    /// interface in its delegate type and constructs a bare proxy class this module never defines.
+    /// Null for the bare (non-emission) handlers, which only classify shapes.
+    /// </param>
+    public ClosureHandler(ITypeDatabase typeDatabase, string? currentModuleName = null)
     {
         _typeDatabase = typeDatabase;
-        _tupleHandler = new TupleHandler(typeDatabase);
-        _existentialHandler = new ExistentialHandler(typeDatabase);
+        _tupleHandler = new TupleHandler(typeDatabase, currentModuleName);
+        _existentialHandler = new ExistentialHandler(typeDatabase) { CurrentModuleName = currentModuleName };
     }
 
     /// <summary>Gets the type database used by this handler.</summary>

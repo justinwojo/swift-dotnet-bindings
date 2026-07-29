@@ -89,9 +89,14 @@ public sealed class MarshalingContext
         CurrentModuleName = moduleDecl.Name;
         SpecializationEngine = specializationEngine;
 
-        BoundGenerics = new BoundGenericsHandler(typeDatabase, moduleDecl.ConformanceGraph);
-        Closure = new ClosureHandler(typeDatabase);
-        Tuple = new TupleHandler(typeDatabase);
+        // Every handler that can render an existential's public interface or proxy class name into
+        // generated code gets the module name, not just Existential below: a cross-module existential
+        // reached through a CONTAINER (closure parameter/return, tuple element, bound-generic argument)
+        // is qualified by whichever oracle renders it, and an unqualified name there is a dangling
+        // reference in the consuming assembly.
+        BoundGenerics = new BoundGenericsHandler(typeDatabase, moduleDecl.ConformanceGraph, moduleDecl.Name);
+        Closure = new ClosureHandler(typeDatabase, moduleDecl.Name);
+        Tuple = new TupleHandler(typeDatabase, moduleDecl.Name);
         TypeConversion = new TypeConversionHandler(typeDatabase);
         // Collector is null at construction; injected at module-emit start via SetCompositionCollector
         // (the single late-injection point preserved from the per-env path).

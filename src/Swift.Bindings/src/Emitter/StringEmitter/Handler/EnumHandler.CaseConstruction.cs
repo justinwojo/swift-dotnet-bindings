@@ -339,6 +339,10 @@ namespace BindingsGeneration
                         var proj = factory.Project(element, new ProjectionContext
                         {
                             TypeDatabase = typeDatabase, IsParameter = true, GenericContext = genericContext,
+                            // Module name qualifies an existential element whose protocol lives in a
+                            // sibling module — without it the emitted interface and proxy names are bare
+                            // and unresolvable in the consuming assembly.
+                            CurrentModuleName = moduleDecl.Name,
                             // CONSUME gate: thread EmissionContext so a suppressed existential-element proxy
                             // drops its `static __v => new {Proxy}(__v)` wrap fallback (else the bound-generic
                             // tuple projection emits a reference to the unemitted proxy).
@@ -421,6 +425,10 @@ namespace BindingsGeneration
                     var projection = new TypeProjectionFactory().Project(typeSpec, new ProjectionContext
                     {
                         TypeDatabase = typeDatabase, IsParameter = true, GenericContext = genericContext,
+                        // Module name qualifies an existential element whose protocol lives in a sibling
+                        // module ([any Foo] / Optional<any Foo>), so the emitted proxy construction names
+                        // the class the dependency's binding actually defines.
+                        CurrentModuleName = moduleDecl.Name,
                         // CONSUME gate: thread EmissionContext so a suppressed existential proxy in the
                         // bound-generic payload (e.g. [any Foo] / Optional<any Foo>) drops its wrap fallback.
                         EmissionContext = emissionCtx
@@ -1083,7 +1091,11 @@ namespace BindingsGeneration
                 {
                     TypeDatabase = typeDatabase,
                     IsParameter = false,
-                    GenericContext = genericContext
+                    GenericContext = genericContext,
+                    // A bound generic over a sibling module's existential ([any Foo]) must render the
+                    // module-qualified interface here too — this is the public signature the factory
+                    // method and the TryGet out-parameter both take.
+                    CurrentModuleName = moduleDecl?.Name
                 });
                 if (projection != null)
                     return projection.PublicType;
