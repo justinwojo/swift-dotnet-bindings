@@ -286,7 +286,7 @@
         },
         "Permissive": {
           "type": "boolean",
-          "description": "Allow non-fatal failures in --compile-only (generator exit, dep-gen, wrapper give-up)"
+          "description": "Allow non-fatal failures in the fail-closed gates (--compile-only's, and the macos/catalyst generator-exit gate)"
         },
         "Platform": {
           "type": "string",
