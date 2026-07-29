@@ -3,6 +3,7 @@
 
 #nullable enable
 
+using System.Collections.Concurrent;
 using BindingsGeneration.ObjC;
 using Microsoft.Extensions.Logging.Abstractions;
 using Newtonsoft.Json;
@@ -874,6 +875,248 @@ public class BindingArtifactManifestTests
         var stragglers = Directory.GetFiles(temp.Path, "*.tmp");
         Assert.Empty(stragglers);
     }
+
+    [Fact]
+    public async Task Store_ConcurrentWrites_SameOutputDirectory_AllSucceed()
+    {
+        // Two generator invocations legitimately target one output directory at the same time:
+        // a parallel build matrix regenerates the same RID-agnostic dependency project
+        // (obj/<cfg>/<tfm>/swift-binding/) from two cells at once. With a fixed temp file name
+        // the second writer's exclusive create failed — "the process cannot access the file
+        // ... because it is being used by another process" — and took the generator down.
+        using var temp = new TempDirectory();
+        const int Writers = 8;
+        const int Rounds = 12;
+
+        using var gate = new Barrier(Writers);
+        var failures = new ConcurrentBag<Exception>();
+
+        var tasks = Enumerable.Range(0, Writers).Select(_ => RunOnDedicatedThread(() =>
+        {
+            gate.SignalAndWait();
+            for (var round = 0; round < Rounds; round++)
+            {
+                try
+                {
+                    BindingArtifactManifestStore.Write(
+                        new BindingArtifactManifest
+                        {
+                            Module = "Demo",
+                            Generation = GenerationSection.From(NewReport()),
+                        },
+                        temp.Path,
+                        NullLogger.Instance);
+                }
+                catch (Exception ex)
+                {
+                    failures.Add(ex);
+                }
+            }
+        })).ToArray();
+
+        await Task.WhenAll(tasks);
+
+        Assert.True(failures.IsEmpty, DescribeFailures(failures));
+
+        // Interleaved writers are last-writer-wins — identical inputs through a deterministic
+        // generator produce identical bytes — so what has to hold is that both files ended up
+        // whole and describing the module that was written.
+        var manifest = BindingArtifactManifestStore.TryRead(temp.Path)!;
+        Assert.Equal("Demo", manifest.Module);
+        Assert.Equal(ManifestStatus.Complete, manifest.Status);
+        Assert.Equal("Demo", ReadReport(temp.Path).ModuleName);
+        Assert.Empty(Directory.GetFiles(temp.Path, "*.tmp"));
+    }
+
+    [Fact]
+    public async Task Store_ConcurrentReadModifyWrite_SameOutputDirectory_AllSucceed()
+    {
+        // The wrapper/bridge phases go through ReadModifyWrite, which reads the manifest,
+        // mutates its own section and writes the pair back. Concurrent cycles must complete
+        // rather than fault; the sections they contribute race, but every write is whole.
+        using var temp = new TempDirectory();
+        BindingArtifactManifestStore.Write(
+            new BindingArtifactManifest
+            {
+                Module = "Demo",
+                Generation = GenerationSection.From(NewReport()),
+            },
+            temp.Path,
+            NullLogger.Instance);
+
+        const int Writers = 8;
+        const int Rounds = 12;
+        using var gate = new Barrier(Writers);
+        var failures = new ConcurrentBag<Exception>();
+
+        var tasks = Enumerable.Range(0, Writers).Select(_ => RunOnDedicatedThread(() =>
+        {
+            gate.SignalAndWait();
+            for (var round = 0; round < Rounds; round++)
+            {
+                try
+                {
+                    BindingArtifactManifestStore.ReadModifyWrite(
+                        temp.Path, "Demo",
+                        m => m.Wrapper = new WrapperSection { Status = PhaseStatus.Success },
+                        NullLogger.Instance);
+                }
+                catch (Exception ex)
+                {
+                    failures.Add(ex);
+                }
+            }
+        })).ToArray();
+
+        await Task.WhenAll(tasks);
+
+        Assert.True(failures.IsEmpty, DescribeFailures(failures));
+
+        var manifest = BindingArtifactManifestStore.TryRead(temp.Path)!;
+        Assert.Equal("Demo", manifest.Module);
+        Assert.NotNull(manifest.Generation);
+        Assert.NotNull(manifest.Wrapper);
+        Assert.Equal("Demo", ReadReport(temp.Path).ModuleName);
+        Assert.Empty(Directory.GetFiles(temp.Path, "*.tmp"));
+    }
+
+    [Fact]
+    public async Task Store_ReadDuringConcurrentWrites_NeverObservesAPartialFile()
+    {
+        // The temp+rename dance exists so a reader racing a writer sees either the previous
+        // whole file or the next one, never a half-flushed one. Unique temp names must not
+        // cost that: the rename is still the only thing that ever touches the final path.
+        using var temp = new TempDirectory();
+        const int Writers = 4;
+        const int Rounds = 30;
+
+        using var gate = new Barrier(Writers + 1);
+        var writerFailures = new ConcurrentBag<Exception>();
+        var readerFailures = new ConcurrentBag<Exception>();
+        using var writersDone = new CancellationTokenSource();
+
+        var readerTask = RunOnDedicatedThread(() =>
+        {
+            gate.SignalAndWait();
+            while (!writersDone.IsCancellationRequested)
+            {
+                try
+                {
+                    var manifest = BindingArtifactManifestStore.TryRead(temp.Path);
+                    if (manifest != null)
+                        Assert.Equal("Demo", manifest.Module);
+                    if (File.Exists(Path.Combine(temp.Path, BindingArtifactManifestStore.ReportFileName)))
+                        Assert.Equal("Demo", ReadReport(temp.Path).ModuleName);
+                }
+                catch (Exception ex)
+                {
+                    readerFailures.Add(ex);
+                }
+            }
+        });
+
+        var writerTasks = Enumerable.Range(0, Writers).Select(_ => RunOnDedicatedThread(() =>
+        {
+            gate.SignalAndWait();
+            for (var round = 0; round < Rounds; round++)
+            {
+                try
+                {
+                    BindingArtifactManifestStore.Write(
+                        new BindingArtifactManifest
+                        {
+                            Module = "Demo",
+                            Generation = GenerationSection.From(NewReport()),
+                        },
+                        temp.Path,
+                        NullLogger.Instance);
+                }
+                catch (Exception ex)
+                {
+                    writerFailures.Add(ex);
+                }
+            }
+        })).ToArray();
+
+        await Task.WhenAll(writerTasks);
+        writersDone.Cancel();
+        await readerTask;
+
+        Assert.True(writerFailures.IsEmpty, DescribeFailures(writerFailures));
+        Assert.True(readerFailures.IsEmpty, DescribeFailures(readerFailures));
+    }
+
+    [Fact]
+    public void Store_FailedWrite_DoesNotLeaveItsTempBehind()
+    {
+        // Unique temp names would accumulate one orphan per failed write if the failure path
+        // did not clean up. A directory squatting on the manifest's name makes the rename fail
+        // deterministically, after the temp has already been created.
+        using var temp = new TempDirectory();
+        Directory.CreateDirectory(Path.Combine(temp.Path, BindingArtifactManifestStore.ManifestFileName));
+
+        var manifest = new BindingArtifactManifest
+        {
+            Module = "Demo",
+            Generation = GenerationSection.From(NewReport()),
+        };
+
+        Assert.ThrowsAny<IOException>(() =>
+            BindingArtifactManifestStore.Write(manifest, temp.Path, NullLogger.Instance));
+
+        Assert.Empty(Directory.GetFiles(temp.Path, "*.tmp"));
+    }
+
+    [Fact]
+    public void Store_Write_ReclaimsAbandonedTempsButNotInFlightOnes()
+    {
+        // A process killed between creating its temp and renaming it leaves the temp behind.
+        // Later writes reclaim those, but only once they are far older than any plausible
+        // write — a peer process still filling its temp must never have it deleted underneath.
+        using var temp = new TempDirectory();
+        var reportName = BindingArtifactManifestStore.ReportFileName;
+
+        var abandoned = Path.Combine(temp.Path, $"{reportName}.424242-1.tmp");
+        var legacyAbandoned = Path.Combine(temp.Path, $"{reportName}.tmp");
+        var inFlight = Path.Combine(temp.Path, $"{reportName}.535353-1.tmp");
+        foreach (var path in new[] { abandoned, legacyAbandoned, inFlight })
+            File.WriteAllText(path, "{}");
+        foreach (var path in new[] { abandoned, legacyAbandoned })
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddDays(-1));
+
+        BindingArtifactManifestStore.Write(
+            new BindingArtifactManifest
+            {
+                Module = "Demo",
+                Generation = GenerationSection.From(NewReport()),
+            },
+            temp.Path,
+            NullLogger.Instance);
+
+        Assert.False(File.Exists(abandoned));
+        Assert.False(File.Exists(legacyAbandoned));
+        Assert.True(File.Exists(inFlight));
+        Assert.Equal("Demo", ReadReport(temp.Path).ModuleName);
+    }
+
+    // Every participant blocks on a Barrier, so they need threads that cannot be starved by
+    // each other; the default pool would inject them only after a delay.
+    private static Task RunOnDedicatedThread(Action body) =>
+        Task.Factory.StartNew(body, CancellationToken.None,
+            TaskCreationOptions.LongRunning, TaskScheduler.Default);
+
+    private static BindingReport ReadReport(string outputDirectory) =>
+        JsonConvert.DeserializeObject<BindingReport>(
+            File.ReadAllText(Path.Combine(outputDirectory, BindingArtifactManifestStore.ReportFileName)),
+            new JsonSerializerSettings { Converters = new List<JsonConverter> { new StringEnumConverter() } })
+        ?? throw new InvalidDataException("Report deserialized to null.");
+
+    private static string DescribeFailures(ConcurrentBag<Exception> failures) =>
+        failures.IsEmpty
+            ? string.Empty
+            : $"{failures.Count} failure(s) across " +
+              $"[{string.Join(", ", failures.Select(f => f.GetType().Name).Distinct().Order())}]; " +
+              $"first: {failures.First()}";
 
     [Fact]
     public void WrapperSection_From_OutcomeSeverity_MapsToPhaseStatus()

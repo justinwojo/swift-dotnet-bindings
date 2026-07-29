@@ -11,9 +11,9 @@ namespace BindingsGeneration;
 /// <summary>
 /// Atomic read/write of <see cref="BindingArtifactManifest"/> on disk. Every phase
 /// of the generator pipeline reads the manifest, mutates the section it owns, then
-/// writes the manifest plus a rederived <c>binding-report.json</c>. Writes are
-/// same-directory temp + flush + rename so a crash mid-write leaves the prior valid
-/// manifest in place.
+/// writes the manifest plus a rederived <c>binding-report.json</c>. Writes go through
+/// <see cref="AtomicArtifactWriter"/>, so a crash mid-write leaves the prior valid manifest
+/// in place and concurrent invocations against one output directory do not fault each other.
 /// </summary>
 public static class BindingArtifactManifestStore
 {
@@ -82,16 +82,24 @@ public static class BindingArtifactManifestStore
         ArgumentNullException.ThrowIfNull(logger);
 
         var manifest = TryRead(outputDirectory);
-        if (manifest == null)
+        if (manifest == null && File.Exists(Path.Combine(outputDirectory, ReportFileName)))
         {
-            var reportPath = Path.Combine(outputDirectory, ReportFileName);
-            if (File.Exists(reportPath))
+            // Re-read before calling it corruption. Write lands the manifest first and the report
+            // second, so a peer process writing this directory concurrently can put a report on
+            // disk in the window between the read above and this existence check — by then its
+            // manifest is already there too. Only a report that survives a second look with still
+            // no manifest is a genuinely orphaned artifact.
+            manifest = TryRead(outputDirectory);
+            if (manifest == null)
             {
                 throw new InvalidDataException(
                     $"Output directory '{outputDirectory}' has '{ReportFileName}' but no '{ManifestFileName}'. " +
                     "This indicates a corrupt or out-of-date generation artifact. Re-run binding generation.");
             }
+        }
 
+        if (manifest == null)
+        {
             logger.LogWarning(
                 "No '{Manifest}' found in '{Dir}'. Treating as standalone-CLI invocation; the resulting manifest will be marked Partial.",
                 ManifestFileName, outputDirectory);
@@ -142,32 +150,11 @@ public static class BindingArtifactManifestStore
 
         var manifestPath = Path.Combine(outputDirectory, ManifestFileName);
         var manifestJson = JsonConvert.SerializeObject(manifest, SerializerSettings);
-        WriteAtomic(manifestPath, manifestJson);
+        AtomicArtifactWriter.Write(manifestPath, manifestJson);
 
         var report = BindingReportProjection.Project(manifest);
         var reportPath = Path.Combine(outputDirectory, ReportFileName);
         var reportJson = JsonConvert.SerializeObject(report, SerializerSettings);
-        WriteAtomic(reportPath, reportJson);
-    }
-
-    /// <summary>
-    /// Same-directory temp + flush + rename. <c>File.Move(overwrite: true)</c> is
-    /// rename(2) on POSIX (atomic when source and destination are on the same
-    /// filesystem, which they are because the temp lives in the same directory).
-    /// </summary>
-    private static void WriteAtomic(string finalPath, string content)
-    {
-        var dir = Path.GetDirectoryName(finalPath)!;
-        var tmpPath = Path.Combine(dir, Path.GetFileName(finalPath) + ".tmp");
-
-        using (var stream = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None))
-        using (var writer = new StreamWriter(stream))
-        {
-            writer.Write(content);
-            writer.Flush();
-            stream.Flush(flushToDisk: true);
-        }
-
-        File.Move(tmpPath, finalPath, overwrite: true);
+        AtomicArtifactWriter.Write(reportPath, reportJson);
     }
 }

@@ -394,7 +394,7 @@ namespace BindingsGeneration
                 try
                 {
                     var depResolution = XCFrameworkResolver.Resolve(
-                        siblingPath, Path.GetTempPath(), platformTarget, logger, runner, platformInfo: platformInfo,
+                        siblingPath, GeneratorScratchDirectory.Path, platformTarget, logger, runner, platformInfo: platformInfo,
                         companionFrameworkPaths: companionFrameworkPaths);
 
                     // Resolve both slices if needed
@@ -422,7 +422,7 @@ namespace BindingsGeneration
                         try
                         {
                             var oppositeResolution = XCFrameworkResolver.Resolve(
-                                siblingPath, Path.GetTempPath(), oppositeTarget, logger, runner, platformInfo: platformInfo,
+                                siblingPath, GeneratorScratchDirectory.Path, oppositeTarget, logger, runner, platformInfo: platformInfo,
                                 companionFrameworkPaths: companionFrameworkPaths);
                             var expectSimulator = oppositeTarget == XCFrameworkPlatformTarget.Simulator;
                             if (oppositeResolution.IsSimulatorSlice == expectSimulator)
@@ -459,7 +459,7 @@ namespace BindingsGeneration
                         try
                         {
                             var deviceResolution = XCFrameworkResolver.Resolve(
-                                siblingPath, Path.GetTempPath(),
+                                siblingPath, GeneratorScratchDirectory.Path,
                                 XCFrameworkPlatformTarget.Device, logger, runner, platformInfo: platformInfo,
                                 companionFrameworkPaths: companionFrameworkPaths);
                             if (!deviceResolution.IsSimulatorSlice)
@@ -491,7 +491,7 @@ namespace BindingsGeneration
                         try
                         {
                             var simResolution = XCFrameworkResolver.Resolve(
-                                siblingPath, Path.GetTempPath(),
+                                siblingPath, GeneratorScratchDirectory.Path,
                                 XCFrameworkPlatformTarget.Simulator, logger, runner, platformInfo: platformInfo,
                                 companionFrameworkPaths: companionFrameworkPaths);
                             if (simResolution.IsSimulatorSlice)

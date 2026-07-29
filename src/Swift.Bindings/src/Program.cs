@@ -2953,7 +2953,7 @@ namespace BindingsGeneration
                 try
                 {
                     var primaryDepResolution = XCFrameworkResolver.Resolve(
-                        depPath, Path.GetTempPath(),
+                        depPath, GeneratorScratchDirectory.Path,
                         primaryPlatformTarget, logger, commandRunner, platformInfo: platformInfo,
                         companionFrameworkPaths: dependencyPaths);
                     moduleName = primaryDepResolution.ModuleName;
@@ -3132,7 +3132,7 @@ namespace BindingsGeneration
                     try
                     {
                         var oppositeResolution = XCFrameworkResolver.Resolve(
-                            depPath, Path.GetTempPath(),
+                            depPath, GeneratorScratchDirectory.Path,
                             oppositeTarget, logger, commandRunner, platformInfo: platformInfo,
                             companionFrameworkPaths: dependencyPaths);
 
@@ -3155,7 +3155,7 @@ namespace BindingsGeneration
                     try
                     {
                         var deviceResolution = XCFrameworkResolver.Resolve(
-                            depPath, Path.GetTempPath(),
+                            depPath, GeneratorScratchDirectory.Path,
                             XCFrameworkPlatformTarget.Device, logger, commandRunner, platformInfo: platformInfo,
                             companionFrameworkPaths: dependencyPaths);
                         deviceSearchPath = deviceResolution.FrameworkSearchPath;
@@ -3174,7 +3174,7 @@ namespace BindingsGeneration
                     try
                     {
                         var simResolution = XCFrameworkResolver.Resolve(
-                            depPath, Path.GetTempPath(),
+                            depPath, GeneratorScratchDirectory.Path,
                             XCFrameworkPlatformTarget.Simulator, logger, commandRunner, platformInfo: platformInfo,
                             companionFrameworkPaths: dependencyPaths);
                         simSearchPath = simResolution.FrameworkSearchPath;

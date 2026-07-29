@@ -101,7 +101,7 @@ public static class BindingFailureReporting
             Directory.CreateDirectory(outputDirectory);
             var path = Path.Combine(outputDirectory, FileName);
             var json = JsonConvert.SerializeObject(report, SerializerSettings);
-            WriteAtomic(path, json);
+            AtomicArtifactWriter.Write(path, json);
             return path;
         }
         catch (Exception ex) when (
@@ -137,25 +137,5 @@ public static class BindingFailureReporting
 
         if (writtenPath is not null)
             logger.LogError("Structured failure evidence written to '{Path}'.", writtenPath);
-    }
-
-    /// <summary>
-    /// Same-directory temp + flush + rename, matching <see cref="BindingArtifactManifestStore"/>'s
-    /// atomic write: a crash mid-write leaves any prior report intact rather than a half-written file.
-    /// </summary>
-    private static void WriteAtomic(string finalPath, string content)
-    {
-        var dir = Path.GetDirectoryName(finalPath)!;
-        var tmpPath = Path.Combine(dir, Path.GetFileName(finalPath) + ".tmp");
-
-        using (var stream = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None))
-        using (var writer = new StreamWriter(stream))
-        {
-            writer.Write(content);
-            writer.Flush();
-            stream.Flush(flushToDisk: true);
-        }
-
-        File.Move(tmpPath, finalPath, overwrite: true);
     }
 }

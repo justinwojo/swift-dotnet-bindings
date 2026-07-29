@@ -5,6 +5,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
@@ -284,6 +285,48 @@ public class BindingFailureReportTests
         Assert.Equal("SWIFTBIND111", doc["Outcome"]!.Value<string>("ReasonCode"));
         Assert.NotEmpty((JArray)doc["Diagnostics"]!);
         Assert.NotEmpty((JArray)doc["AttributedUnits"]!);
+    }
+
+    [Fact]
+    public async Task TryWrite_ConcurrentWritersToOneOutputDirectory_AllPersistTheirReport()
+    {
+        // Two generator invocations legitimately target one output directory at the same time (a
+        // parallel build matrix regenerates the same RID-agnostic dependency project from two
+        // cells). A fixed temp file name made the second writer's exclusive create fail; TryWrite
+        // swallows IO errors, so the loser did not crash — it silently returned null and the
+        // durable failure evidence this type exists to produce was never written at all.
+        var outputDir = FreshOutputDir();
+        var recovery = WrapperRecoveryController.Run(
+            new ScriptedDriver(AttributedFailure(Coarse("sharedHelper", RecoveryScope.SharedHelperBundle))));
+        var report = BindingFailureReportBuilder.ForRecoveryNonConvergence(
+            "MyModule", NoInputs, recovery, Seed(), outputDir);
+
+        const int Writers = 8;
+        const int Rounds = 12;
+        using var gate = new Barrier(Writers);
+        var dropped = new ConcurrentBag<int>();
+
+        var tasks = Enumerable.Range(0, Writers).Select(_ => Task.Factory.StartNew(() =>
+        {
+            gate.SignalAndWait();
+            for (var round = 0; round < Rounds; round++)
+            {
+                if (BindingFailureReporting.TryWrite(report, outputDir, NullLogger.Instance) == null)
+                    dropped.Add(round);
+            }
+        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default)).ToArray();
+
+        await Task.WhenAll(tasks);
+
+        Assert.True(dropped.IsEmpty,
+            $"{dropped.Count} of {Writers * Rounds} concurrent writes dropped the failure report.");
+
+        var path = Path.Combine(outputDir, BindingFailureReporting.FileName);
+        Assert.True(File.Exists(path));
+        Assert.Empty(Directory.GetFiles(outputDir, "*.tmp"));
+        var doc = JObject.Parse(File.ReadAllText(path));
+        Assert.Equal("MyModule", doc.Value<string>("Module"));
+        Assert.NotEmpty((JArray)doc["Diagnostics"]!);
     }
 
     // ---- input fingerprint: stable for identical inputs, sensitive to content --------------
