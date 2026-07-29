@@ -227,6 +227,58 @@ public class SkipDispositionClassifierTests
         Assert.Equal(SkipDisposition.ExpectedStructural, EveryProtocolSkipCause.ClassifyDisposition(details));
     }
 
+    // ── SuppressedParentSkipCause: writer/reader vocabulary ──────────────────────────────────
+
+    /// <summary>
+    /// A member accounted for because its declaring type was suppressed inherits the parent's tier:
+    /// a never-public parent means nothing public was lost, any other suppressed parent means the
+    /// member has no C# type left to live on. Both halves have to survive the Details round-trip, or
+    /// the accounting rows land in the wrong bucket and the "lost public surface" figure moves in a
+    /// direction the suppression never justified.
+    /// </summary>
+    [Theory]
+    [InlineData(true, SkipDisposition.ExpectedNonPublic)]
+    [InlineData(false, SkipDisposition.ExpectedStructural)]
+    public void SuppressedParentCause_RoundTripsThroughDetails(bool parentNeverPublic, SkipDisposition expected)
+    {
+        var details = SuppressedParentSkipCause.Format("Demo.Widget", SkipReason.SwiftUIView, parentNeverPublic);
+        Assert.Equal(expected, SuppressedParentSkipCause.ClassifyDisposition(details));
+    }
+
+    /// <summary>
+    /// The reader is fail-loud: details it cannot recognise mean the tier was never recorded, which is
+    /// exactly the "someone needs to look at this" case — silently guessing a benign tier would hide a
+    /// broken writer behind a clean report.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("some unrelated explanation")]
+    public void SuppressedParentCause_UnrecognizedDetails_ClassifyReview(string? details)
+    {
+        Assert.Equal(SkipDisposition.Review, SuppressedParentSkipCause.ClassifyDisposition(details));
+    }
+
+    /// <summary>
+    /// The per-item overload is what the report actually calls; it must consult the recorded cause
+    /// rather than the reason-only table, which cannot tell the two tiers apart.
+    /// </summary>
+    [Fact]
+    public void ClassifyItem_ParentTypeSuppressed_PrefersTheRecordedCauseOverTheReasonDefault()
+    {
+        var item = new SkippedItem
+        {
+            Kind = BindingItemKind.Method,
+            Name = "doWork",
+            ContainingType = "Demo.Widget",
+            Reason = SkipReason.ParentTypeSuppressed,
+            Details = SuppressedParentSkipCause.Format("Demo.Widget", SkipReason.ModuleInternal, parentNeverPublic: true),
+        };
+
+        Assert.Equal(SkipDisposition.ExpectedNonPublic, SkipDispositionClassifier.Classify(item));
+        Assert.Equal(SkipDisposition.ExpectedStructural, SkipDispositionClassifier.Classify(item.Reason));
+    }
+
     private static ProtocolDecl Protocol(bool isModuleInternal, bool hasSelf, int associatedTypes)
     {
         var associated = new System.Collections.Generic.List<AssociatedTypeDecl>();

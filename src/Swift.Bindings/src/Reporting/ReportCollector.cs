@@ -49,8 +49,24 @@ public static class ReportCollector
         internal readonly object Sync = new();
         internal readonly BindingReport Report;
 
+        /// <summary>
+        /// The module the totals were computed from, kept so the post-emission reconciliation can
+        /// walk the same declarations again and account for members that whole-type suppression
+        /// meant were never enumerated. Read only after emission finishes, so it cannot influence
+        /// what is emitted.
+        /// </summary>
+        internal readonly ModuleDecl Module;
+
         internal readonly HashSet<string> EmittedTypeKeys = new(StringComparer.Ordinal);
         internal readonly HashSet<string> SkippedTypeKeys = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Why each skipped type was skipped, keyed the same way as <see cref="SkippedTypeKeys"/>.
+        /// The reconciliation needs the parent's reason to decide whether its unenumerated members
+        /// were ever public surface, and recovering that by scanning the flat skip list would be a
+        /// name match rather than the recorded fact.
+        /// </summary>
+        internal readonly Dictionary<string, SkipReason> SkippedTypeReasons = new(StringComparer.Ordinal);
         internal readonly HashSet<MemberDiagnosticIdentity> EmittedMemberIdentities = new();
         internal readonly HashSet<MemberDiagnosticIdentity> SkippedMemberIdentities = new();
         internal readonly HashSet<MemberDiagnosticIdentity> SynthesizedMemberIdentities = new();
@@ -84,7 +100,11 @@ public static class ReportCollector
         // a RecoveredBy annotation genuinely is unreachable.
         internal readonly Dictionary<(string? ContainingType, string Name), List<string>> RecoveredMembers = new();
 
-        internal ReportSession(BindingReport report) => Report = report;
+        internal ReportSession(BindingReport report, ModuleDecl module)
+        {
+            Report = report;
+            Module = module;
+        }
     }
 
     public static bool IsActive => Current != null;
@@ -124,7 +144,7 @@ public static class ReportCollector
 
         // Installing a fresh session supersedes any prior one on this flow without touching
         // another flow's session — the old cross-run wipe is gone.
-        Session.Value = new ReportSession(report);
+        Session.Value = new ReportSession(report, moduleDecl);
     }
 
     public static BindingReport? Complete()
@@ -136,6 +156,13 @@ public static class ReportCollector
         lock (session.Sync)
         {
             var report = session.Report;
+
+            // Account for members that whole-type suppression meant were never enumerated. This has
+            // to run before the counts below are read, and it deliberately runs at completion rather
+            // than at each suppression site: by now every emitted/skipped fact is settled, so the
+            // pass adds a row only where nothing else claimed the member — and because emission has
+            // already finished, nothing it records can feed back into what was generated.
+            ReconcileSuppressedParentMembers(session);
 
             report.EmittedTypes = session.EmittedTypeKeys.Count;
             report.SkippedTypes = session.SkippedTypeKeys.Count;
@@ -231,6 +258,7 @@ public static class ReportCollector
             if (session.EmittedTypeKeys.Contains(key) || !session.SkippedTypeKeys.Add(key))
                 return;
 
+            session.SkippedTypeReasons[key] = reason;
             session.Report.SkippedItems.Add(new SkippedItem
             {
                 Kind = BindingItemKind.Type,
@@ -709,6 +737,164 @@ public static class ReportCollector
             CountTypeAndMembers(nestedType, ref totalTypes, ref totalMembers);
         }
     }
+
+    /// <summary>
+    /// The declaring type whose suppression a member row is being attributed to, together with the
+    /// one fact that decides the row's tier: whether that type was public surface at all.
+    /// </summary>
+    private readonly record struct SuppressedParentType(string QualifiedName, SkipReason Reason, bool NeverPublic);
+
+    /// <summary>
+    /// Name-level key for "this member already has an accounting event". Coarser than
+    /// <see cref="MemberDiagnosticIdentity"/> on purpose: emitted and skipped rows are recorded
+    /// through a mix of per-overload (decl-aware) and per-name (legacy) entry points, so matching on
+    /// the full identity would miss an overload-keyed row and re-record the member. The totals this
+    /// reconciliation closes against are themselves per-name, so per-name is also the right grain.
+    /// </summary>
+    private readonly record struct MemberNameKey(string Module, string DeclPath, BindingItemKind Kind, string BaseName);
+
+    /// <summary>
+    /// Accounts for every member the emission walk never reached because the type declaring it was
+    /// suppressed as a whole. Whole-type suppression short-circuits before the member loop at every
+    /// site that records one (SwiftUI <c>View</c>, <c>@_spi</c>, underscore-internal,
+    /// supplement-owned, emitter-faulted, missing-handler, and the shared
+    /// <c>TypeSkipConditions</c> set), so those members are counted in
+    /// <see cref="BindingReport.TotalMembers"/> yet recorded as neither emitted nor skipped —
+    /// invisible to every roll-up computed from the skip list, and most invisible exactly where
+    /// suppression removes the most surface.
+    /// </summary>
+    /// <remarks>
+    /// Runs at completion, after every emitted/skipped fact is settled, so a row is added only where
+    /// nothing else claimed the member. Purely additive to the report — no emission decision reads
+    /// any of this state by the time it runs.
+    /// </remarks>
+    private static void ReconcileSuppressedParentMembers(ReportSession session)
+    {
+        if (session.SkippedTypeKeys.Count == 0)
+            return;
+
+        var accounted = BuildAccountedMemberKeys(session);
+        foreach (var typeDecl in session.Module.Types)
+            ReconcileType(session, typeDecl, accounted, suppressedBy: null);
+    }
+
+    /// <summary>
+    /// Every member that already has an accounting event, at the per-name grain described on
+    /// <see cref="MemberNameKey"/>. Synthesized members count as accounted: a synthesized member has
+    /// a C# surface, so recording it as lost would be false.
+    /// </summary>
+    private static HashSet<MemberNameKey> BuildAccountedMemberKeys(ReportSession session)
+    {
+        var accounted = new HashSet<MemberNameKey>();
+        foreach (var identity in session.EmittedMemberIdentities)
+            accounted.Add(KeyOf(identity));
+        foreach (var identity in session.SkippedMemberIdentities)
+            accounted.Add(KeyOf(identity));
+        foreach (var identity in session.SynthesizedMemberIdentities)
+            accounted.Add(KeyOf(identity));
+        return accounted;
+    }
+
+    private static MemberNameKey KeyOf(MemberDiagnosticIdentity identity) =>
+        new(identity.Module ?? string.Empty, identity.DeclPath ?? string.Empty, identity.Kind, identity.BaseName ?? string.Empty);
+
+    /// <summary>
+    /// Walks the declaration tree exactly the way <see cref="CountTypeAndMembers"/> does — same
+    /// nesting rule, so the reconciliation cannot visit a type the totals did not count, or miss one
+    /// they did.
+    /// </summary>
+    private static void ReconcileType(
+        ReportSession session,
+        TypeDecl typeDecl,
+        HashSet<MemberNameKey> accounted,
+        SuppressedParentType? suppressedBy)
+    {
+        var key = GetTypeKey(typeDecl);
+        if (session.SkippedTypeReasons.TryGetValue(key, out var ownReason))
+        {
+            // A type's own suppression is a more precise attribution for its members than an
+            // ancestor's, so it supersedes any inherited one.
+            suppressedBy = new SuppressedParentType(
+                key,
+                ownReason,
+                SkipDispositionClassifier.Classify(ownReason) == SkipDisposition.ExpectedNonPublic);
+        }
+
+        if (suppressedBy is { } parent)
+            RecordUnaccountedMembers(session, typeDecl, accounted, parent);
+
+        // Protocol nested types are neither emitted nor counted in the totals; mirror that here.
+        if (typeDecl is ProtocolDecl)
+            return;
+
+        foreach (var nested in typeDecl.Types)
+            ReconcileType(session, nested, accounted, suppressedBy);
+    }
+
+    /// <summary>
+    /// Adds one skip row per counted member of <paramref name="typeDecl"/> that nothing else claimed.
+    /// The enumeration mirrors <see cref="CountTypeAndMembers"/> kind for kind, including its
+    /// distinct-name collapse, so a fully suppressed type contributes exactly as many rows as it
+    /// contributed to <see cref="BindingReport.TotalMembers"/>.
+    /// </summary>
+    private static void RecordUnaccountedMembers(
+        ReportSession session,
+        TypeDecl typeDecl,
+        HashSet<MemberNameKey> accounted,
+        SuppressedParentType parent)
+    {
+        var details = SuppressedParentSkipCause.Format(parent.QualifiedName, parent.Reason, parent.NeverPublic);
+
+        foreach (var method in typeDecl.Methods.Where(m => !m.IsAccessor).DistinctBy(m => m.Name, StringComparer.Ordinal))
+            TryRecordUnaccountedMember(session, accounted, BindingItemKind.Method, method.Name, typeDecl, details, method.Position);
+
+        foreach (var property in typeDecl.Properties.DistinctBy(p => p.Name, StringComparer.Ordinal))
+            TryRecordUnaccountedMember(session, accounted, BindingItemKind.Property, property.Name, typeDecl, details, property.Position);
+
+        foreach (var op in typeDecl.Operators.DistinctBy(o => o.Name, StringComparer.Ordinal))
+        {
+            // An operator is recorded under its SYMBOL by the decl-aware path but counted under its
+            // declaration NAME, so both spellings have to be checked before calling it unaccounted.
+            if (accounted.Contains(KeyFor(BindingItemKind.Operator, op.OperatorSymbol, typeDecl)))
+                continue;
+            TryRecordUnaccountedMember(session, accounted, BindingItemKind.Operator, op.Name, typeDecl, details, op.Position);
+        }
+
+        // The totals give a protocol's whole subscript family a single slot regardless of overload
+        // count, so this contributes at most one row for it.
+        if (typeDecl is ProtocolDecl && typeDecl.Subscripts.Count > 0)
+        {
+            var subscript = typeDecl.Subscripts[0];
+            TryRecordUnaccountedMember(
+                session, accounted, BindingItemKind.Subscript, subscript.Name, typeDecl, details, subscript.Position);
+        }
+    }
+
+    private static void TryRecordUnaccountedMember(
+        ReportSession session,
+        HashSet<MemberNameKey> accounted,
+        BindingItemKind kind,
+        string name,
+        TypeDecl typeDecl,
+        string details,
+        SourcePosition? position)
+    {
+        // Add() doubles as the guard: false means the member is already emitted, already skipped, or
+        // already recorded by this pass.
+        if (!accounted.Add(KeyFor(kind, name, typeDecl)))
+            return;
+
+        RecordMemberSkippedInternal(
+            MemberDiagnosticIdentity.FromMember(kind, name, typeDecl),
+            name,
+            typeDecl,
+            SkipReason.ParentTypeSuppressed,
+            details,
+            position);
+    }
+
+    private static MemberNameKey KeyFor(BindingItemKind kind, string name, TypeDecl typeDecl) =>
+        KeyOf(MemberDiagnosticIdentity.FromMember(kind, name, typeDecl));
 
     private static string GetTypeKey(TypeDecl typeDecl) =>
         typeDecl.SwiftTypeName.ModuleQualifiedName;

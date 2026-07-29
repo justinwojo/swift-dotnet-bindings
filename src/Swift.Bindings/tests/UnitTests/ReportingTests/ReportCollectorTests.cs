@@ -98,7 +98,12 @@ public class ReportCollectorTests
         Assert.NotNull(report);
         Assert.Equal(0, report!.EmittedTypes);
         Assert.Equal(1, report.SkippedTypes);
-        Assert.Single(report.SkippedItems);
+        // One row for the type itself, plus one per member the suppression meant was never
+        // enumerated (Loader.State, Loader.Fetch, and Loader.Payload.Read under the suppressed
+        // parent) — those members are counted in TotalMembers, so leaving them unrecorded would
+        // make the report claim less was lost than actually was.
+        Assert.Single(report.SkippedItems, i => i.Kind == BindingItemKind.Type);
+        Assert.Equal(3, report.SkippedItems.Count(i => i.Reason == SkipReason.ParentTypeSuppressed));
 
         ReportCollector.Reset();
     }
@@ -126,9 +131,11 @@ public class ReportCollectorTests
         Assert.Equal(2, report.EmittedTypes);
         Assert.Equal(1, report.SkippedTypes);
         Assert.Equal(1, report.EmittedMembers);
-        Assert.Equal(1, report.SkippedMembers);
+        // State (recorded directly) plus Payload.Read, which is only reachable through the
+        // suppressed nested struct and so is accounted for against that suppression.
+        Assert.Equal(2, report.SkippedMembers);
         Assert.Equal(0, report.SynthesizedMembers);
-        Assert.Equal(2, report.SkippedItems.Count);
+        Assert.Equal(3, report.SkippedItems.Count);
 
         ReportCollector.Reset();
     }
@@ -906,7 +913,8 @@ public class ReportCollectorTests
         ReportCollector.RecordTypeSkipped(classDecl, SkipReason.UnsupportedType, "test");
 
         var report = ReportCollector.Complete();
-        var row = Assert.Single(report!.SkippedItems);
+        // The type's own row; its members are separately accounted for against the suppression.
+        var row = Assert.Single(report!.SkippedItems, i => i.Kind == BindingItemKind.Type);
         Assert.Equal(DeclIdFactory.ForType(classDecl).Canonical, row.DeclId);
 
         ReportCollector.Reset();
@@ -963,6 +971,220 @@ public class ReportCollectorTests
 
         ReportCollector.Reset();
     }
+
+    // ==================== Members of a suppressed parent type ====================
+    //
+    // Whole-type suppression short-circuits before the member loop, so the members of a suppressed
+    // type used to be counted in TotalMembers yet recorded as neither emitted nor skipped — silently
+    // absent from every roll-up computed off the skip list, and most absent exactly where suppression
+    // removes the most surface. The fixture below is that shape: a public parent type whose entire
+    // member surface, including the members of the types nested inside it, is reachable only through
+    // the parent's declaration.
+
+    [Fact]
+    public void SuppressedParentType_AccountsForEveryMemberCountedInTheTotals()
+    {
+        var moduleDecl = CreateSuppressedParentModule();
+        var parent = moduleDecl.Types[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordTypeSkipped(parent, SkipReason.SwiftUIView, "Type conforms to SwiftUI.View.");
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+
+        // Nothing emitted, so the whole counted member surface has to appear on the skip side —
+        // this is the arithmetic that used to be short by every unenumerated member.
+        Assert.Equal(0, report!.EmittedMembers);
+        Assert.Equal(report.TotalMembers, report.EmittedMembers + report.SkippedMembers);
+
+        // Every one of them is attributed to the suppression rather than left reason-less.
+        Assert.Equal(
+            report.TotalMembers,
+            report.SkippedItems.Count(i => i.Reason == SkipReason.ParentTypeSuppressed));
+
+        // Including the members that only exist under the nested types, which the suppressed
+        // parent's declaration is the only route to.
+        Assert.Contains(
+            report.SkippedItems,
+            i => i.Reason == SkipReason.ParentTypeSuppressed && i.ContainingType == "ToastModule.Toast.Style");
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void SuppressedPublicParent_MembersAreStructuralLosses_NotReviewItems()
+    {
+        // A public type suppressed by design still cost the consumer its members, so they count as
+        // lost surface — but the cause is attributed and lives on the parent's own row, so none of
+        // them may land in the tier that means "nobody can explain this".
+        var moduleDecl = CreateSuppressedParentModule();
+        var parent = moduleDecl.Types[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordTypeSkipped(parent, SkipReason.SwiftUIView, "Type conforms to SwiftUI.View.");
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        var memberRows = report!.SkippedItems.Where(i => i.Reason == SkipReason.ParentTypeSuppressed).ToList();
+        Assert.NotEmpty(memberRows);
+        Assert.All(memberRows, row =>
+            Assert.Equal(SkipDisposition.ExpectedStructural, SkipDispositionClassifier.Classify(row)));
+
+        var triage = SkipTriageBuilder.Build(report.SkippedItems);
+        Assert.Equal(0, triage.ReviewCount);
+        // Public surface that a consumer could have seen and didn't get now includes them.
+        Assert.Equal(triage.Total, triage.PublicSurfaceLost);
+    }
+
+    [Fact]
+    public void SuppressedNeverPublicParent_MembersAreNotCountedAsLostSurface()
+    {
+        // The mirror case: members of a type that was never public surface (module-internal, @_spi,
+        // underscore-internal) were never visible to a consumer, so accounting for them must not
+        // start reporting a public-surface loss that never existed.
+        var moduleDecl = CreateSuppressedParentModule();
+        var parent = moduleDecl.Types[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordTypeSkipped(parent, SkipReason.ModuleInternal, "@_spi type suppressed from bindings.");
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        var memberRows = report!.SkippedItems.Where(i => i.Reason == SkipReason.ParentTypeSuppressed).ToList();
+        Assert.NotEmpty(memberRows);
+        Assert.All(memberRows, row =>
+            Assert.Equal(SkipDisposition.ExpectedNonPublic, SkipDispositionClassifier.Classify(row)));
+
+        var triage = SkipTriageBuilder.Build(report.SkippedItems);
+        Assert.Equal(0, triage.ReviewCount);
+        Assert.Equal(0, triage.PublicSurfaceLost);
+    }
+
+    [Fact]
+    public void SuppressedParentType_DoesNotRestateMembersThatWereAlreadyRecorded()
+    {
+        // Some members of a suppressed type do get recorded on their own — the gate that fired for
+        // them ran before the type-level suppression. Those keep their specific reason, and only the
+        // ones nothing claimed are accounted for against the parent, so the arithmetic still closes
+        // with no member counted twice.
+        var moduleDecl = CreateSuppressedParentModule();
+        var parent = moduleDecl.Types[0];
+        var parentMethod = parent.Methods[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberSkipped(parentMethod, SkipReason.UnsupportedSignature, "already attributed");
+        ReportCollector.RecordTypeSkipped(parent, SkipReason.SwiftUIView, "Type conforms to SwiftUI.View.");
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        Assert.Equal(report!.TotalMembers, report.EmittedMembers + report.SkippedMembers);
+        Assert.Single(report.SkippedItems, i => i.Reason == SkipReason.UnsupportedSignature);
+        Assert.DoesNotContain(
+            report.SkippedItems,
+            i => i.Reason == SkipReason.ParentTypeSuppressed && i.Name == parentMethod.Name);
+    }
+
+    [Fact]
+    public void SuppressedParentType_DoesNotRestateMembersThatWereEmitted()
+    {
+        // A member with a real C# surface is not lost, whatever the type-level bookkeeping says.
+        var moduleDecl = CreateSuppressedParentModule();
+        var parent = moduleDecl.Types[0];
+        var parentProperty = parent.Properties[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberEmitted(parentProperty);
+        ReportCollector.RecordTypeSkipped(parent, SkipReason.SwiftUIView, "Type conforms to SwiftUI.View.");
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        Assert.Equal(1, report!.EmittedMembers);
+        Assert.Equal(report.TotalMembers, report.EmittedMembers + report.SkippedMembers);
+        Assert.DoesNotContain(
+            report.SkippedItems,
+            i => i.Reason == SkipReason.ParentTypeSuppressed && i.Name == parentProperty.Name);
+    }
+
+    [Fact]
+    public void EmittedTypeWithUnrecordedMembers_ProducesNoParentSuppressedRows()
+    {
+        // Scope guard: this accounts for members lost to a SUPPRESSED type. A member that went
+        // unrecorded under a type that emitted is a different question entirely, and attributing it
+        // to a parent suppression that never happened would be a lie.
+        var moduleDecl = CreateSuppressedParentModule();
+        var parent = moduleDecl.Types[0];
+        var nested = parent.Types[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordTypeEmitted(parent);
+        ReportCollector.RecordTypeSkipped(nested, SkipReason.UnsupportedType, "nested only");
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        Assert.DoesNotContain(
+            report!.SkippedItems,
+            i => i.Reason == SkipReason.ParentTypeSuppressed && i.ContainingType == "ToastModule.Toast");
+        Assert.Contains(
+            report.SkippedItems,
+            i => i.Reason == SkipReason.ParentTypeSuppressed && i.ContainingType == "ToastModule.Toast.Style");
+    }
+
+    /// <summary>
+    /// A public parent type carrying member surface of its own plus two nested types that carry
+    /// theirs — the shape a SwiftUI <c>View</c> with nested configuration enums has, and the shape
+    /// whole-type suppression makes wholly unreachable in one step. The module carries no top-level
+    /// members so <c>TotalMembers</c> is exactly this tree's member surface.
+    /// </summary>
+    private static ModuleDecl CreateSuppressedParentModule()
+    {
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "ToastModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        var parent = NewStruct("Toast", "ToastModule.Toast", moduleDecl, moduleDecl);
+        parent.Methods.Add(CreateMethod("init", parent));
+        parent.Properties.Add(CreateProperty("body", moduleDecl));
+        parent.Properties[0].ParentDecl = parent;
+
+        var style = NewStruct("Style", "ToastModule.Toast.Style", parent, moduleDecl);
+        style.Methods.Add(CreateMethod("hash", style));
+        style.Methods.Add(CreateMethod("equals", style));
+
+        var display = NewStruct("Display", "ToastModule.Toast.Display", parent, moduleDecl);
+        display.Methods.Add(CreateMethod("hash", display));
+
+        parent.Types.Add(style);
+        parent.Types.Add(display);
+        moduleDecl.Types.Add(parent);
+        return moduleDecl;
+    }
+
+    private static StructDecl NewStruct(string name, string qualified, BaseDecl parent, ModuleDecl moduleDecl) => new()
+    {
+        Name = name,
+        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(qualified),
+        MangledName = $"$s{qualified.Length}{name}V",
+        MetadataAccessor = $"$s{qualified.Length}{name}VMa",
+        Properties = new List<PropertyDecl>(),
+        Methods = new List<MethodDecl>(),
+        Types = new List<TypeDecl>(),
+        Operators = new List<OperatorDecl>(),
+        Subscripts = new List<SubscriptDecl>(),
+        GenericParameters = new List<GenericArgumentDecl>(),
+        Conformances = new List<TypeConformance>(),
+        IsFrozen = true,
+        ParentDecl = parent,
+        ModuleDecl = moduleDecl,
+    };
 
     /// <summary>
     /// Simple ILogger that captures log messages for assertions.

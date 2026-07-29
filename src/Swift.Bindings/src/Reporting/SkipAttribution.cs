@@ -293,6 +293,9 @@ public static class SkipCauseClassifier
         // A cascade inherits from its root; when the root cannot be resolved these stay deliberately
         // unattributed rather than borrowing an answer from the reason.
         Add(SkipReason.AncestorSkipped, CauseOwner.Unknown, RecoveryStage.Plan, AttributionConfidence.Low);
+        // Same shape one level down: the member's loss is entirely inherited from the declaring type's
+        // suppression, so the owner is whoever owns that type's row — never derivable from this reason.
+        Add(SkipReason.ParentTypeSuppressed, CauseOwner.Unknown, RecoveryStage.Plan, AttributionConfidence.Low);
         Add(SkipReason.Unknown, CauseOwner.Unknown, RecoveryStage.Plan, AttributionConfidence.Low);
 
         return builder.ToImmutable();

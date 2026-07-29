@@ -1,5 +1,5 @@
 {
-  "git_sha": "4ae2a813",
+  "git_sha": "56f1d1b4",
   "review_count": 0,
   "by_reason": [
     {
@@ -13,6 +13,10 @@
     {
       "key": "ParentModuleInternalNoFallback",
       "count": 2
+    },
+    {
+      "key": "ParentTypeSuppressed",
+      "count": 3
     },
     {
       "key": "Pattern2InternalTypeReach",
@@ -38,7 +42,7 @@
     },
     {
       "key": "ExpectedStructural",
-      "count": 8
+      "count": 11
     },
     {
       "key": "KnownLimitation",

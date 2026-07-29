@@ -147,6 +147,14 @@ public static class SkipDispositionClassifier
             [SkipReason.ObjCDuplicateSelector] = SkipDisposition.ExpectedStructural,
             [SkipReason.ObjCMissingNativeSymbol] = SkipDisposition.ExpectedStructural,
 
+            // A member accounted for because its declaring type was suppressed as a whole is
+            // context-dependent, like the EveryProtocol row below: a member of a never-public parent
+            // was never public either, while a member of any other suppressed parent is a structural
+            // loss. The per-item Classify(SkippedItem) overload refines this from the recorded cause;
+            // the reason-only default is the structural tier, which is the conservative half (it
+            // counts toward lost public surface rather than silently excusing itself).
+            [SkipReason.ParentTypeSuppressed] = SkipDisposition.ExpectedStructural,
+
             // ── Review — the tool cannot (yet) explain the skip ───────────────────────────────
             [SkipReason.MissingHandler] = SkipDisposition.Review,
             [SkipReason.MissingWrapperSymbol] = SkipDisposition.Review,
@@ -176,7 +184,9 @@ public static class SkipDispositionClassifier
     /// Classifies a single skipped item. Identical to <see cref="Classify(SkipReason)"/> except for
     /// <see cref="SkipReason.EveryProtocolConformanceSkipped"/>, whose actionability depends on the
     /// dropped protocol's shape (recorded into <see cref="SkippedItem.Details"/> by
-    /// <see cref="EveryProtocolSkipCause"/>).
+    /// <see cref="EveryProtocolSkipCause"/>), and <see cref="SkipReason.ParentTypeSuppressed"/>,
+    /// whose actionability follows the declaring type's own tier (recorded by
+    /// <see cref="SuppressedParentSkipCause"/>).
     /// </summary>
     public static SkipDisposition Classify(SkippedItem item)
     {
@@ -185,9 +195,73 @@ public static class SkipDispositionClassifier
         // reason — the annotation is an emission fact, so it overrides the reason-only tier.
         if (item.RecoveredBy is { Count: > 0 })
             return SkipDisposition.Recovered;
-        return item.Reason == SkipReason.EveryProtocolConformanceSkipped
-            ? EveryProtocolSkipCause.ClassifyDisposition(item.Details)
-            : Classify(item.Reason);
+        return item.Reason switch
+        {
+            SkipReason.EveryProtocolConformanceSkipped => EveryProtocolSkipCause.ClassifyDisposition(item.Details),
+            SkipReason.ParentTypeSuppressed => SuppressedParentSkipCause.ClassifyDisposition(item.Details),
+            _ => Classify(item.Reason),
+        };
+    }
+}
+
+/// <summary>
+/// The controlled vocabulary for a <see cref="SkipReason.ParentTypeSuppressed"/> row, shared between
+/// the writer (the post-emission reconciliation in <c>ReportCollector</c>) and the reader
+/// (<see cref="ClassifyDisposition"/>). A member accounted for this way carries no cause of its own —
+/// the cause is the declaring type's suppression — so the only thing the row has to encode is whether
+/// that type was public surface at all, which is what decides whether the member counts as lost.
+/// </summary>
+/// <remarks>
+/// The token is a fixed substring rather than the parent's <see cref="SkipReason"/> name so the reader
+/// never has to parse an enum out of prose: the two tiers are decided once, at record time, from the
+/// parent's own disposition.
+/// </remarks>
+public static class SuppressedParentSkipCause
+{
+    /// <summary>
+    /// The declaring type was never part of the module's public surface (module-internal,
+    /// underscore-internal, <c>@_spi</c>), so its members were never visible to a consumer and
+    /// nothing was lost by not binding them.
+    /// </summary>
+    public const string NeverPublicParent = "declaring type was never public surface";
+
+    /// <summary>
+    /// The declaring type was public but suppressed as a whole, so the member has no C# type to be
+    /// declared on. A real consumer-visible loss with an attributed structural cause.
+    /// </summary>
+    public const string SuppressedParent = "declaring type is suppressed and emits no C# declaration";
+
+    /// <summary>
+    /// Builds the <see cref="SkippedItem.Details"/> text for a member accounted for against a
+    /// suppressed declaring type. <paramref name="parentNeverPublic"/> selects the tier token;
+    /// <paramref name="parentReason"/> is echoed for the human reading the report so the row points
+    /// at the declaring type's own entry instead of dead-ending.
+    /// </summary>
+    public static string Format(string parentQualifiedName, SkipReason parentReason, bool parentNeverPublic)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(parentQualifiedName);
+        var tier = parentNeverPublic ? NeverPublicParent : SuppressedParent;
+        return $"'{parentQualifiedName}' — {tier} ({parentReason}); the member was never reached by a member gate.";
+    }
+
+    /// <summary>
+    /// Maps a recorded parent-suppressed <see cref="SkippedItem.Details"/> string to a disposition.
+    /// A never-public parent yields <see cref="SkipDisposition.ExpectedNonPublic"/> (the member was
+    /// never consumer-visible); any other suppressed parent yields
+    /// <see cref="SkipDisposition.ExpectedStructural"/> — the loss is real and counts toward lost
+    /// public surface, but it is attributed and the actionable row is the declaring type's, not one
+    /// copy of it per member. Details the writer did not stamp fall through to
+    /// <see cref="SkipDisposition.Review"/> rather than being excused by default.
+    /// </summary>
+    public static SkipDisposition ClassifyDisposition(string? details)
+    {
+        if (details == null)
+            return SkipDisposition.Review;
+        if (details.Contains(NeverPublicParent, StringComparison.Ordinal))
+            return SkipDisposition.ExpectedNonPublic;
+        if (details.Contains(SuppressedParent, StringComparison.Ordinal))
+            return SkipDisposition.ExpectedStructural;
+        return SkipDisposition.Review;
     }
 }
 

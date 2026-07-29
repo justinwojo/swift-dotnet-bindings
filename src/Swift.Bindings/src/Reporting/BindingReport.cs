@@ -287,6 +287,25 @@ public enum SkipReason
     /// </summary>
     EmitterFault,
 
+    /// <summary>
+    /// The declaration itself was never reached by a member gate: the type that declares it was
+    /// suppressed as a whole (a SwiftUI <c>View</c>, an <c>@_spi</c> or underscore-internal type, a
+    /// supplement-owned type, an emitter-faulted type, …), so emission skipped straight past the
+    /// member loop. Recorded by the post-emission reconciliation so a member counted in
+    /// <see cref="BindingReport.TotalMembers"/> is never left as neither emitted nor skipped —
+    /// without it the report silently loses exactly the members that whole-type suppression removes,
+    /// and every "lost surface" figure under-counts there.
+    /// <para>
+    /// The cause of the suppression lives on the declaring type's own skip row; this row exists to
+    /// account for the member. Its actionability therefore follows the parent: a member of a type
+    /// that was never public surface is itself never-public (nothing was lost), and any other
+    /// suppressed parent leaves a structural loss — the member has no C# type to live on. The token
+    /// that carries which of the two applies is stamped into <see cref="SkippedItem.Details"/> by
+    /// <c>SuppressedParentSkipCause</c>.
+    /// </para>
+    /// </summary>
+    ParentTypeSuppressed,
+
     Unknown,
 }
 
