@@ -137,15 +137,12 @@ public class Utf8SliceEmitterTests
     }
 
     [Fact]
-    public void EmitIfNeeded_NullContext_UsesDefaultSingleton()
+    public void EmitIfNeeded_DistinctContexts_DoNotShareDedupState()
     {
-        // Calling with null falls back to ModuleEmissionContext.Default (singleton).
-        // This was the original bug: callers passing null shared the Default context
-        // while the main emitter used its own context, so dedup never triggered.
-
-        // Reset: use a fresh Default by testing the behavior with explicit null
-        // We can't reset the Default singleton, but we can verify the semantics:
-        // two calls with null should share the same (Default) context.
+        // Dedup is a property of the context, not of the emitter: whoever wants two calls to agree
+        // on what has already been emitted has to hand both the same context. A caller that supplies
+        // none gets an isolated fallback per call, so it gets no dedup — which is why the emitter's
+        // own callers thread context.GetEmissionContext() rather than passing null.
         var ctx = new ModuleEmissionContext();
         var output1 = new StringWriter();
         Utf8SliceEmitter.EmitIfNeeded(new SwiftWriter(output1), ctx);

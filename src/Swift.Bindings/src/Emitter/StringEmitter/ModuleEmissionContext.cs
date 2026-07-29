@@ -31,7 +31,19 @@ public sealed class ModuleEmissionContext
     /// </remarks>
     public bool IsImplicitFallback { get; }
 
-    /// <summary>Creates a context for a caller that supplied none. See <see cref="IsImplicitFallback"/>.</summary>
+    /// <summary>
+    /// Creates a context for a caller that supplied none. See <see cref="IsImplicitFallback"/>.
+    /// </summary>
+    /// <remarks>
+    /// The contract a null context buys: an isolated fallback for that call and nothing more. It
+    /// shares no dedup state with the call before or after it, so a caller that needs continuity —
+    /// collecting into a context and reading back out of it later, or two emit steps that must agree
+    /// on what has already been emitted — must pass a real context. Restoring continuity by handing
+    /// every null-context caller one shared instance is what made concurrent emissions enumerate each
+    /// other's accumulators, and is not an option. A call path that reaches several registries should
+    /// normalize once (<c>ctx ??= CreateImplicitFallback()</c>) rather than coalescing per use site,
+    /// which mints a separate fallback per use and lets them disagree.
+    /// </remarks>
     public static ModuleEmissionContext CreateImplicitFallback() => new(implicitFallback: true);
 
     /// <summary>Creates a per-module emission context.</summary>
@@ -101,8 +113,8 @@ public sealed class ModuleEmissionContext
     /// <remarks>
     /// Publication happens only when a render reaches the end, so without this a render that throws
     /// part-way leaves its predecessor's map in place and nothing downstream can tell it is stale.
-    /// That is reachable on the shared <see cref="Default"/> context, where one context outlives many
-    /// modules — the map would then describe a different module's text entirely.
+    /// A context that renders more than once — one reused across retries, or reused across modules —
+    /// would otherwise hand out a map describing text that no longer exists.
     /// </remarks>
     public void BeginFragmentRender() => FragmentSet = null;
 
@@ -1356,13 +1368,12 @@ public sealed class ModuleEmissionContext
     // keeps every genuinely distinct call.
     private readonly HashSet<AbiCallPlan> _abiCallPlans = new();
 
-    // The side table lives on the static Default context (see the class-level note), which unit tests
-    // reach concurrently through TypeHandlerContext.Empty when xUnit runs emitter test classes in
-    // parallel. A bare HashSet.Add throws "concurrent update corrupted its state" under that race, so
-    // the public RecordAbiCallPlan/AbiCallPlans access paths serialize on this lock. (The reflective
-    // recovery snapshot enumerates the set without it, but only ever on a private, single-threaded
-    // recovery context — never the shared Default — so that path cannot race.) Production emission is
-    // single-threaded, so the lock is uncontended and the rendered text is unchanged.
+    // A context belongs to one emission, and an emission is single-threaded, so the lock is
+    // uncontended in production and the rendered text is unchanged. It is kept because nothing in the
+    // type's shape stops a caller from handing one context to two threads, and this set's failure mode
+    // under that is silent state corruption ("concurrent update corrupted its state" from a bare
+    // HashSet.Add), not a diagnosable error. The reflective recovery snapshot enumerates the set
+    // without the lock, but only on a private recovery context no one else holds.
     private readonly object _abiCallPlansLock = new();
 
     /// <summary>

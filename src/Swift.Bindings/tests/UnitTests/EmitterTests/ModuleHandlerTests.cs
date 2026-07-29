@@ -1469,9 +1469,8 @@ public class ModuleHandlerTests
         var env = handler.Marshal(moduleDecl, typeDatabase);
         var loggerFactory = new Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory();
         var conductor = new Conductor(loggerFactory);
-        // Fresh emission context, not the ModuleEmissionContext.Default singleton a bare
-        // TypeHandlerContext.Empty resolves to — a module emit ENUMERATES that shared state while
-        // tests in other classes concurrently register into it.
+        // An explicit emission context. A module emit ENUMERATES the accumulators it registers
+        // into, so it must own them outright rather than share them with anything else.
         handler.Emit(csWriter, swiftWriter, env, conductor,
             TypeHandlerContext.Empty with { EmissionContext = new ModuleEmissionContext() });
 
@@ -1712,14 +1711,12 @@ public class ModuleHandlerTests
         var loggerFactory = new Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory();
         var conductor = new Conductor(loggerFactory, namespaceResolver);
 
-        // Every emit gets a FRESH context, hook or no hook. TypeHandlerContext.Empty leaves
-        // EmissionContext null, which GetEmissionContext() resolves to the ModuleEmissionContext
-        // .Default singleton — shared, mutable, and written by any test in any class xUnit happens
-        // to be running in parallel. Emission both reads and writes it (EmitFrameworkResolver
-        // enumerates EmittedSwiftObjectTypes while another test's emit registers into the same
-        // list), so falling back to Default made this helper's tests fail intermittently with
-        // "Collection was modified; enumeration operation may not execute" — a test-isolation
-        // artifact, not a generator defect: a real run emits one module per process.
+        // Every emit gets its OWN context, hook or no hook, because a module emit both reads and
+        // writes the accumulators on it: EmitFrameworkResolver enumerates EmittedSwiftObjectTypes
+        // while emission is still registering into it. Two emits sharing one context therefore fail
+        // with "Collection was modified; enumeration operation may not execute" — which is why
+        // nothing hands out a shared one. A real run emits one module per process, so production
+        // never had two emits to share between.
         var emissionContext = new ModuleEmissionContext();
         preEmitHook?.Invoke(emissionContext);
         var context = TypeHandlerContext.Empty with { EmissionContext = emissionContext };

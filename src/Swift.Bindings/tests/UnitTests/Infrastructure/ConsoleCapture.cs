@@ -7,6 +7,7 @@ using System;
 using System.IO;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace BindingsGeneration.Tests
 {
@@ -24,12 +25,23 @@ namespace BindingsGeneration.Tests
     /// routes each write to the sink registered for the writing flow — and to the real console
     /// when the flow has none. Capturing then costs nothing globally: concurrent captures are
     /// independent, and a test that captures nothing keeps writing to the console it always had.
-    /// Registration rides an <see cref="AsyncLocal{T}"/>, so a thread or task started inside a
-    /// capture inherits it (the console logger's own output thread depends on that) while a flow
-    /// that started outside stays out.</para>
+    /// </para>
     /// </summary>
     /// <remarks>
-    /// Nesting is supported: a capture restores its enclosing one on dispose.
+    /// <para>Registration rides an <see cref="AsyncLocal{T}"/>, which is what makes a thread or task
+    /// STARTED INSIDE a capture inherit it: <see cref="Thread.Start()"/> and the task schedulers
+    /// capture the current <see cref="ExecutionContext"/>. The console logger's drain thread is
+    /// created inside the capture that builds the logger factory and writes from there, so it is
+    /// captured only because of that flow — starting such a thread under
+    /// <see cref="ExecutionContext.SuppressFlow"/>, or handing the work to a pre-existing
+    /// long-lived worker, would silently stop capturing its output.</para>
+    ///
+    /// <para>Inheritance runs one way only, so a thread can outlive the capture that spawned it —
+    /// the console logger's drain thread again, since a factory nobody disposes keeps it running for
+    /// the process lifetime. A disposed capture therefore stops being a destination: its late
+    /// writes go to the real console rather than into a buffer no one will read.</para>
+    ///
+    /// <para>Nesting is supported: a capture restores its enclosing one on dispose.</para>
     /// </remarks>
     public sealed class ConsoleCapture : IDisposable
     {
@@ -40,7 +52,11 @@ namespace BindingsGeneration.Tests
         private readonly SinkWriter _out = new();
         private readonly SinkWriter _error = new();
         private readonly ConsoleCapture? _enclosing;
-        private bool _disposed;
+
+        // Read by the router from threads other than the disposing one.
+        private volatile bool _disposed;
+        private string? _finalOut;
+        private string? _finalError;
 
         private ConsoleCapture(ConsoleCapture? enclosing) => _enclosing = enclosing;
 
@@ -55,16 +71,25 @@ namespace BindingsGeneration.Tests
             return capture;
         }
 
-        /// <summary>Everything this flow has written to stdout since the capture began.</summary>
-        public string Out => _out.Text;
+        /// <summary>
+        /// Everything this flow wrote to stdout while the capture was open. Stays readable after
+        /// disposal, and stops growing at it.
+        /// </summary>
+        public string Out => _finalOut ?? _out.Text;
 
-        /// <summary>Everything this flow has written to stderr since the capture began.</summary>
-        public string Error => _error.Text;
+        /// <summary>
+        /// Everything this flow wrote to stderr while the capture was open. Stays readable after
+        /// disposal, and stops growing at it.
+        /// </summary>
+        public string Error => _finalError ?? _error.Text;
 
         public void Dispose()
         {
             if (_disposed)
                 return;
+            // Frozen before the flag flips, so no reader can see a disposed capture with no text.
+            _finalOut = _out.DrainAndRelease();
+            _finalError = _error.DrainAndRelease();
             _disposed = true;
             ActiveCapture.Value = _enclosing;
         }
@@ -90,6 +115,11 @@ namespace BindingsGeneration.Tests
         /// own — it resolves the destination per write, so installing it is not an act anyone has
         /// to undo.
         /// </summary>
+        /// <remarks>
+        /// Every write and flush entry point is overridden rather than left to the base class, so a
+        /// caller cannot reach one destination by picking an overload the router does not know
+        /// about while its neighbours reach the other.
+        /// </remarks>
         private sealed class RoutingWriter : TextWriter
         {
             private readonly TextWriter _console;
@@ -104,20 +134,62 @@ namespace BindingsGeneration.Tests
             public override Encoding Encoding => _console.Encoding;
 
             private TextWriter Target =>
-                ActiveCapture.Value is { } capture ? _sinkOf(capture) : _console;
+                ActiveCapture.Value is { _disposed: false } capture ? _sinkOf(capture) : _console;
 
             public override void Write(char value) => Target.Write(value);
 
             public override void Write(string? value) => Target.Write(value);
 
+            public override void Write(char[]? buffer) => Target.Write(buffer);
+
             public override void Write(char[] buffer, int index, int count) =>
                 Target.Write(buffer, index, count);
 
+            public override void Write(ReadOnlySpan<char> buffer) => Target.Write(buffer);
+
             public override void WriteLine() => Target.WriteLine();
+
+            public override void WriteLine(char value) => Target.WriteLine(value);
 
             public override void WriteLine(string? value) => Target.WriteLine(value);
 
+            public override void WriteLine(char[]? buffer) => Target.WriteLine(buffer);
+
+            public override void WriteLine(char[] buffer, int index, int count) =>
+                Target.WriteLine(buffer, index, count);
+
+            public override void WriteLine(ReadOnlySpan<char> buffer) => Target.WriteLine(buffer);
+
+            public override Task WriteAsync(char value) => Target.WriteAsync(value);
+
+            public override Task WriteAsync(string? value) => Target.WriteAsync(value);
+
+            public override Task WriteAsync(char[] buffer, int index, int count) =>
+                Target.WriteAsync(buffer, index, count);
+
+            public override Task WriteAsync(
+                ReadOnlyMemory<char> buffer, CancellationToken cancellationToken = default) =>
+                Target.WriteAsync(buffer, cancellationToken);
+
+            public override Task WriteLineAsync() => Target.WriteLineAsync();
+
+            public override Task WriteLineAsync(char value) => Target.WriteLineAsync(value);
+
+            public override Task WriteLineAsync(string? value) => Target.WriteLineAsync(value);
+
+            public override Task WriteLineAsync(char[] buffer, int index, int count) =>
+                Target.WriteLineAsync(buffer, index, count);
+
+            public override Task WriteLineAsync(
+                ReadOnlyMemory<char> buffer, CancellationToken cancellationToken = default) =>
+                Target.WriteLineAsync(buffer, cancellationToken);
+
             public override void Flush() => Target.Flush();
+
+            public override Task FlushAsync() => Target.FlushAsync();
+
+            public override Task FlushAsync(CancellationToken cancellationToken) =>
+                Target.FlushAsync(cancellationToken);
         }
 
         /// <summary>
@@ -136,6 +208,21 @@ namespace BindingsGeneration.Tests
                 get { lock (_text) return _text.ToString(); }
             }
 
+            /// <summary>
+            /// Returns everything written so far and gives up the buffer, so a capture the test is
+            /// finished with does not hold its output for the rest of the process.
+            /// </summary>
+            internal string DrainAndRelease()
+            {
+                lock (_text)
+                {
+                    var text = _text.ToString();
+                    _text.Clear();
+                    _text.Capacity = 0;
+                    return text;
+                }
+            }
+
             public override void Write(char value)
             {
                 lock (_text) _text.Append(value);
@@ -146,14 +233,35 @@ namespace BindingsGeneration.Tests
                 lock (_text) _text.Append(value);
             }
 
+            public override void Write(char[]? buffer)
+            {
+                if (buffer is null)
+                    return;
+                lock (_text) _text.Append(buffer);
+            }
+
             public override void Write(char[] buffer, int index, int count)
             {
                 lock (_text) _text.Append(buffer, index, count);
             }
 
+            public override void Write(ReadOnlySpan<char> buffer)
+            {
+                lock (_text) _text.Append(buffer);
+            }
+
             public override void WriteLine()
             {
                 lock (_text) _text.Append(CoreNewLine);
+            }
+
+            public override void WriteLine(char value)
+            {
+                lock (_text)
+                {
+                    _text.Append(value);
+                    _text.Append(CoreNewLine);
+                }
             }
 
             public override void WriteLine(string? value)
@@ -163,6 +271,97 @@ namespace BindingsGeneration.Tests
                     _text.Append(value);
                     _text.Append(CoreNewLine);
                 }
+            }
+
+            public override void WriteLine(char[]? buffer)
+            {
+                lock (_text)
+                {
+                    if (buffer is not null)
+                        _text.Append(buffer);
+                    _text.Append(CoreNewLine);
+                }
+            }
+
+            public override void WriteLine(char[] buffer, int index, int count)
+            {
+                lock (_text)
+                {
+                    _text.Append(buffer, index, count);
+                    _text.Append(CoreNewLine);
+                }
+            }
+
+            public override void WriteLine(ReadOnlySpan<char> buffer)
+            {
+                lock (_text)
+                {
+                    _text.Append(buffer);
+                    _text.Append(CoreNewLine);
+                }
+            }
+
+            // The async overloads complete synchronously: appending to a StringBuilder cannot
+            // block, and the base class would otherwise schedule the work, reordering these writes
+            // against the synchronous ones interleaved with them.
+            public override Task WriteAsync(char value)
+            {
+                Write(value);
+                return Task.CompletedTask;
+            }
+
+            public override Task WriteAsync(string? value)
+            {
+                Write(value);
+                return Task.CompletedTask;
+            }
+
+            public override Task WriteAsync(char[] buffer, int index, int count)
+            {
+                Write(buffer, index, count);
+                return Task.CompletedTask;
+            }
+
+            public override Task WriteAsync(
+                ReadOnlyMemory<char> buffer, CancellationToken cancellationToken = default)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                    return Task.FromCanceled(cancellationToken);
+                Write(buffer.Span);
+                return Task.CompletedTask;
+            }
+
+            public override Task WriteLineAsync()
+            {
+                WriteLine();
+                return Task.CompletedTask;
+            }
+
+            public override Task WriteLineAsync(char value)
+            {
+                WriteLine(value);
+                return Task.CompletedTask;
+            }
+
+            public override Task WriteLineAsync(string? value)
+            {
+                WriteLine(value);
+                return Task.CompletedTask;
+            }
+
+            public override Task WriteLineAsync(char[] buffer, int index, int count)
+            {
+                WriteLine(buffer, index, count);
+                return Task.CompletedTask;
+            }
+
+            public override Task WriteLineAsync(
+                ReadOnlyMemory<char> buffer, CancellationToken cancellationToken = default)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                    return Task.FromCanceled(cancellationToken);
+                WriteLine(buffer.Span);
+                return Task.CompletedTask;
             }
         }
     }

@@ -917,6 +917,10 @@ public static class MethodWrapperEmitter
         bool needsResultPtr,
         CdeclReturnMapping returnMapping)
     {
+        // Normalized once so every dedup registry consulted below is the same one. Coalescing at
+        // each use site would mint an independent fallback per use, and two of those disagree
+        // about what has already been emitted.
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         var methodDecl = env.MethodDecl;
         var keptArgs = methodDecl.CSSignature.Skip(1).ToList();
         var genericParamNames = parentTypeDecl.GenericParameters
@@ -937,8 +941,8 @@ public static class MethodWrapperEmitter
         if (isString)
         {
             var moduleName = parentTypeDecl.SwiftTypeName.Module;
-            Utf8SliceEmitter.EmitIfNeeded(swiftWriter, ctx ?? ModuleEmissionContext.CreateImplicitFallback());
-            Utf8SliceEmitter.EmitFreeIfNeeded(swiftWriter, moduleName, ctx ?? ModuleEmissionContext.CreateImplicitFallback());
+            Utf8SliceEmitter.EmitIfNeeded(swiftWriter, ctx);
+            Utf8SliceEmitter.EmitFreeIfNeeded(swiftWriter, moduleName, ctx);
         }
 
         // Determine if return type references T

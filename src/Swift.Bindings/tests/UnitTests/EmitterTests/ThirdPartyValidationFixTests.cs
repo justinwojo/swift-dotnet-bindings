@@ -596,9 +596,8 @@ public class ThirdPartyValidationFixTests
         var handler = new ModuleHandler(
             new Microsoft.Extensions.Logging.Abstractions.NullLogger<ModuleHandler>());
         var env = handler.Marshal(moduleDecl, typeDatabase);
-        // Fresh emission context, not the ModuleEmissionContext.Default singleton a bare
-        // TypeHandlerContext.Empty resolves to — a module emit ENUMERATES that shared state while
-        // tests in other classes concurrently register into it.
+        // An explicit emission context. A module emit ENUMERATES the accumulators it registers
+        // into, so it must own them outright rather than share them with anything else.
         handler.Emit(csWriter, swiftWriter, env, conductor,
             TypeHandlerContext.Empty with { EmissionContext = new ModuleEmissionContext() });
 

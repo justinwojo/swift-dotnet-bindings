@@ -98,6 +98,40 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void DisposedCapture_StopsCollectingFromThreadsItSpawned()
+        {
+            const string earlyMarker = "SBX_WRITE_BEFORE_DISPOSE";
+            const string lateMarker = "SBX_WRITE_AFTER_DISPOSE";
+
+            using var disposed = new ManualResetEventSlim();
+            using var wrote = new ManualResetEventSlim();
+
+            var capture = ConsoleCapture.Begin();
+            // Started inside the capture, so it inherits the sink — and outlives the capture, which
+            // is the ordinary case rather than the exotic one: the console logger's drain thread
+            // belongs to whichever capture was open when its factory was built, and a caller that
+            // never disposes that factory leaves the thread running for the process lifetime.
+            var late = new Thread(() =>
+            {
+                disposed.Wait(Timeout);
+                Console.WriteLine(lateMarker);
+                wrote.Set();
+            })
+            { IsBackground = true };
+            late.Start();
+
+            Console.WriteLine(earlyMarker);
+            capture.Dispose();
+            disposed.Set();
+
+            Assert.True(wrote.Wait(Timeout));
+            late.Join(Timeout);
+
+            Assert.Contains(earlyMarker, capture.Out);
+            Assert.DoesNotContain(lateMarker, capture.Out);
+        }
+
+        [Fact]
         public void Capture_SeparatesStdoutFromStderr()
         {
             const string outMarker = "SBX_STDOUT_LINE";

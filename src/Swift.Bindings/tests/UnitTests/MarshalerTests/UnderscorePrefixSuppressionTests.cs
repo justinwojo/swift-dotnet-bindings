@@ -140,7 +140,7 @@ public class UnderscorePrefixSuppressionTests
     }
 
     [Fact]
-    public void ModuleEmissionContext_Default_NothingSuppressed()
+    public void ModuleEmissionContext_FreshlyConstructed_NothingSuppressed()
     {
         var ctx = new ModuleEmissionContext();
 

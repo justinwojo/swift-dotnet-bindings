@@ -316,8 +316,8 @@ public class BridgeDispatchTableTests
             new HashSet<string>());
         var env = new MethodEnvironment(methodDecl, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
-        // Per-test ModuleEmissionContext so the structural-claim guard in ExistentialBypassEmitter
-        // does not see prior tests' wrapper-symbol claims via the shared Default singleton.
+        // An explicit per-test ModuleEmissionContext, so the structural-claim guard in
+        // ExistentialBypassEmitter sees this test's wrapper-symbol claims and no one else's.
         var context = TypeHandlerContext.Empty with { EmissionContext = new ModuleEmissionContext() };
         handler.Emit(csWriter, swiftWriter, env, conductor, context);
 

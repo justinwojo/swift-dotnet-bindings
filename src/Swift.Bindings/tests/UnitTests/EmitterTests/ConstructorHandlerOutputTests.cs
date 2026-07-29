@@ -1265,7 +1265,7 @@ public class ConstructorHandlerOutputTests
         var handler = new ConstructorHandler(new NullLogger<ConstructorHandler>(), new HashSet<string>());
         var env = new MethodEnvironment(methodDecl, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
-        // Use a fresh ModuleEmissionContext to avoid cross-test dedup via the shared Default singleton.
+        // An explicit ModuleEmissionContext, so the dedup registries hold this test's emission only.
         var context = new TypeHandlerContext(null, new(), null, EmissionContext: new ModuleEmissionContext());
         handler.Emit(csWriter, swiftWriter, env, conductor, context);
 

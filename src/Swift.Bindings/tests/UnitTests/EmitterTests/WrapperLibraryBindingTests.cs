@@ -224,9 +224,8 @@ public class WrapperLibraryBindingTests
         ConformerKeyPathInitFactoryEmitter.EmitForModule(
             new CSharpWriter(sw), new SwiftWriter(new StringWriter()),
             localModule, typeDatabase,
-            // A fresh context, never ModuleEmissionContext.Default: the dedup key this emitter
-            // claims is process-wide on the singleton, so a second test would silently emit
-            // nothing.
+            // An explicit context: the dedup key this emitter claims is scoped to whatever context
+            // it is handed, so sharing one across tests would make the second emit nothing.
             new ModuleEmissionContext(),
             engine, NullLogger.Instance);
 

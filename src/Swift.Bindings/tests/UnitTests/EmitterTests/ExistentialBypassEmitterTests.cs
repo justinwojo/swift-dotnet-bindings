@@ -894,8 +894,8 @@ public class ExistentialBypassEmitterTests
         var csWriter = new CSharpWriter(csOutput);
         var swiftWriter = new SwiftWriter(swiftOutput);
 
-        // Per-test ModuleEmissionContext (never the shared Default) so the wrapper-symbol claim
-        // guard doesn't see prior tests' claims.
+        // An explicit per-test ModuleEmissionContext, so the wrapper-symbol claim guard sees this
+        // test's claims and no one else's.
         var env = new MethodEnvironment(methodDecl, typeDatabase)
         {
             EmissionContext = new ModuleEmissionContext()
@@ -1101,8 +1101,8 @@ public class ExistentialBypassEmitterTests
         var handler = new ConstructorHandler(new NullLogger<ConstructorHandler>(), new HashSet<string>());
         var env = new MethodEnvironment(methodDecl, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
-        // Per-test ModuleEmissionContext so the structural-claim guard in ExistentialBypassEmitter
-        // does not see prior tests' wrapper-symbol claims via the shared Default singleton.
+        // An explicit per-test ModuleEmissionContext, so the structural-claim guard in
+        // ExistentialBypassEmitter sees this test's wrapper-symbol claims and no one else's.
         var context = TypeHandlerContext.Empty with { EmissionContext = new ModuleEmissionContext() };
         handler.Emit(csWriter, swiftWriter, env, conductor, context);
 
