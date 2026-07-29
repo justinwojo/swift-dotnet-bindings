@@ -401,7 +401,6 @@ namespace BindingsGeneration
             // the module owning its protocol (see EmitTryGetMethod).
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase, conformanceGraph: null,
                 currentModuleName: enumDecl.ModuleDecl?.Name);
-            var tupleHandler = new TupleHandler(typeDatabase);
 
             // Validate tuple element count (max 7 per C# ValueTuple limit)
             if (tupleSpec.Elements.Count > TupleHandler.MaxSupportedTupleElements)

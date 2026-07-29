@@ -109,6 +109,10 @@ internal static class ClosureParamTombstoneEmitter
             ? GenericContext.FromMethodInType(method, parentType)
             : GenericContext.FromMethod(method);
 
+        // Same module context the emission below uses, so eligibility probes the exact
+        // projections that will be written.
+        var emittingModule = ResolveEmittingModule(method);
+
         try
         {
             var factory = new TypeProjectionFactory();
@@ -125,6 +129,7 @@ internal static class ClosureParamTombstoneEmitter
                         IsParameter = false,
                         GenericContext = genericContext,
                         ParentTypeDecl = parent as TypeDecl,
+                        CurrentModuleName = emittingModule,
                     });
                     if (proj == null) return false;
                 }
@@ -143,6 +148,7 @@ internal static class ClosureParamTombstoneEmitter
                     IsParameter = true,
                     GenericContext = genericContext,
                     ParentTypeDecl = parent as TypeDecl,
+                    CurrentModuleName = emittingModule,
                 });
                 if (proj == null) return false;
             }
@@ -164,7 +170,6 @@ internal static class ClosureParamTombstoneEmitter
         // comment stand. Types from this module, the Swift standard library, and the
         // Apple planes are always reachable — the generated project references those
         // unconditionally.
-        var emittingModule = ResolveEmittingModule(method);
         if (ReferencesUnreachableModule(method, closureHandler, emittingModule))
             return false;
 
@@ -282,6 +287,13 @@ internal static class ClosureParamTombstoneEmitter
             ? GenericContext.FromMethodInType(method, parentType)
             : GenericContext.FromMethod(method);
 
+        // A tombstone renders real projected type names into this compile unit, so the module
+        // being emitted has to travel with every projection below. The eligibility gate already
+        // rejects a signature naming a plainly foreign module, but a protocol whose spec carries
+        // an umbrella module name while its record lives in a sibling passes that gate — and its
+        // interface still has to name the module that actually owns it.
+        var emittingModule = ResolveEmittingModule(method);
+
         // Build the parameter list. Closures → object?; other params → projected public type.
         var paramStrings = new List<string>();
         var unsupportedClosureSpecs = new List<string>();
@@ -314,6 +326,7 @@ internal static class ClosureParamTombstoneEmitter
                         IsParameter = true,
                         GenericContext = genericContext,
                         ParentTypeDecl = parent as TypeDecl,
+                        CurrentModuleName = emittingModule,
                     });
                     paramType = proj?.PublicType ?? "object?";
                 }
@@ -326,6 +339,7 @@ internal static class ClosureParamTombstoneEmitter
                     IsParameter = true,
                     GenericContext = genericContext,
                     ParentTypeDecl = parent as TypeDecl,
+                    CurrentModuleName = emittingModule,
                 });
                 // IsEligible already verified non-null projection; defensive fallback.
                 paramType = proj?.PublicType ?? "object?";
@@ -394,6 +408,7 @@ internal static class ClosureParamTombstoneEmitter
                             IsParameter = false,
                             GenericContext = genericContext,
                             ParentTypeDecl = parent as TypeDecl,
+                            CurrentModuleName = emittingModule,
                         });
                         returnType = proj?.PublicType ?? "object?";
                     }
@@ -405,6 +420,7 @@ internal static class ClosureParamTombstoneEmitter
                             IsParameter = false,
                             GenericContext = genericContext,
                             ParentTypeDecl = parent as TypeDecl,
+                            CurrentModuleName = emittingModule,
                         });
                         returnType = proj?.PublicType ?? "object?";
                     }

@@ -138,6 +138,68 @@ public class CrossModuleContainerQualificationTests
         Assert.Contains($"I{ProtocolName}", translated);
     }
 
+    // ==================== Factory projections ====================
+    //
+    // Indexer types, container-shaped property types, and the accessor bodies that convert through
+    // them are resolved by the projection factory rather than by a marshaling-context handler. The
+    // factory only qualifies when the projection context carries the module being emitted, so a
+    // context built without it emits a bare element interface into a public signature.
+
+    private static NamedTypeSpec ArrayOfExistential() =>
+        new("Swift.Array", new TypeSpec[] { ExistentialSpec() });
+
+    private static string ProjectPublicType(TypeSpec spec, string currentModuleName, bool isParameter) =>
+        new TypeProjectionFactory().Project(spec, new ProjectionContext
+        {
+            TypeDatabase = new ProtocolOnlyTypeDatabase(),
+            IsParameter = isParameter,
+            CurrentModuleName = currentModuleName
+        })?.PublicType;
+
+    [Fact]
+    public void Factory_CrossModuleExistential_QualifiesPublicType()
+    {
+        var publicType = ProjectPublicType(ExistentialSpec(), ConsumingModule, isParameter: false);
+
+        Assert.Contains($"{OwningModule}.I{ProtocolName}", publicType);
+    }
+
+    [Fact]
+    public void Factory_SameModuleExistential_LeavesPublicTypeBare()
+    {
+        var publicType = ProjectPublicType(ExistentialSpec(), OwningModule, isParameter: false);
+
+        Assert.DoesNotContain($"{OwningModule}.I{ProtocolName}", publicType);
+        Assert.Contains($"I{ProtocolName}", publicType);
+    }
+
+    [Fact]
+    public void Factory_ArrayOfCrossModuleExistential_QualifiesElement()
+    {
+        var publicType = ProjectPublicType(ArrayOfExistential(), ConsumingModule, isParameter: false);
+
+        Assert.Contains($"{OwningModule}.I{ProtocolName}", publicType);
+    }
+
+    [Fact]
+    public void Factory_ArrayOfSameModuleExistential_LeavesElementBare()
+    {
+        var publicType = ProjectPublicType(ArrayOfExistential(), OwningModule, isParameter: false);
+
+        Assert.DoesNotContain($"{OwningModule}.I{ProtocolName}", publicType);
+        Assert.Contains($"I{ProtocolName}", publicType);
+    }
+
+    [Fact]
+    public void Factory_ArrayOfCrossModuleExistential_QualifiesElementInParameterPosition()
+    {
+        // The setter direction takes the parameter-position projection; it must qualify identically
+        // or a property's getter and setter disagree on the element type.
+        var publicType = ProjectPublicType(ArrayOfExistential(), ConsumingModule, isParameter: true);
+
+        Assert.Contains($"{OwningModule}.I{ProtocolName}", publicType);
+    }
+
     // ==================== The per-module context wires all of them ====================
 
     [Fact]

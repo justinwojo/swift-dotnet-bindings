@@ -54,6 +54,70 @@ public func describeDependencyList(_ deps: [any DependencyProtocol]) -> String {
     return deps.map { $0.describe() }.joined(separator: "|")
 }
 
+/// Concrete type whose SUBSCRIPTS return cross-module existentials. The indexer's public type
+/// and its getter conversion are resolved by their own projection instances — separate from the
+/// method and property paths above — so each is an independent chance to drop the module segment
+/// from the element interface.
+public final class DependencyRegistry {
+    private let entries: [any DependencyProtocol]
+
+    public init(entries: [any DependencyProtocol]) {
+        self.entries = entries
+    }
+
+    public var count: Int32 { Int32(entries.count) }
+
+    /// Stored property whose type is a bound generic over a cross-module existential. The
+    /// container-shaped property type is resolved by a projection that OVERRIDES the plain
+    /// existential name, and its getter and setter bodies each convert through their own
+    /// projection — three more places the module segment can go missing.
+    public var pinned: [any DependencyProtocol] = []
+
+    /// Scalar existential in return position.
+    public subscript(index: Int32) -> any DependencyProtocol {
+        return entries[Int(index)]
+    }
+
+    /// Bound-generic (array) of existentials in return position — the container arm of the same
+    /// indexer projection. The key type differs from the scalar subscript above on purpose: two
+    /// subscripts over the same parameter type collapse to one C# indexer and the second is dropped
+    /// as a duplicate signature, which would leave this arm unexercised.
+    public subscript(matching prefix: String) -> [any DependencyProtocol] {
+        return entries.filter { $0.describe().hasPrefix(prefix) }
+    }
+
+    public func describeAll() -> String {
+        return entries.map { $0.describe() }.joined(separator: "|")
+    }
+}
+
+/// Protocol whose OWN members carry cross-module existentials, in scalar and container positions.
+/// The `interface I…` declaration is rendered by the protocol emitter's private type-name oracles —
+/// separate instances from the concrete-type paths above — so this is the position where a dropped
+/// module segment lands inside an interface member signature rather than a class member.
+public protocol DependencyAggregating {
+    var dependencies: [any DependencyProtocol] { get }
+    func merge(with others: [any DependencyProtocol]) -> String
+    func primary() -> any DependencyProtocol
+}
+
+/// Concrete conformer so the interface has a Swift-side implementation to dispatch into.
+public final class DependencyAggregator: DependencyAggregating {
+    public let dependencies: [any DependencyProtocol]
+
+    public init(dependencies: [any DependencyProtocol]) {
+        self.dependencies = dependencies
+    }
+
+    public func merge(with others: [any DependencyProtocol]) -> String {
+        return (dependencies + others).map { $0.describe() }.joined(separator: "+")
+    }
+
+    public func primary() -> any DependencyProtocol {
+        return dependencies[0]
+    }
+}
+
 /// Closure parameter whose own parameter type is a cross-module existential.
 public func applyToDependency(
     _ dep: any DependencyProtocol,

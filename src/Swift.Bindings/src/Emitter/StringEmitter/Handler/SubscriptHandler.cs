@@ -34,11 +34,13 @@ namespace BindingsGeneration
             if (subscripts == null || subscripts.Count == 0)
                 return;
 
-            // Module context so an existential nested in a bound-generic argument's closure
-            // signature names the module owning its protocol — the emitted indexer type would
-            // otherwise carry a bare interface name the consuming assembly can't resolve.
+            // The module being emitted travels with every type-name oracle below: an existential
+            // owned by a sibling module has to name that module, because the generated file emits
+            // no using for the sibling's namespace and a bare interface or proxy name resolves to
+            // nothing in the consuming assembly.
+            var currentModuleName = typeDecl.SwiftTypeName?.Module ?? typeDecl.ModuleDecl?.Name;
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase, conformanceGraph: null,
-                currentModuleName: typeDecl.SwiftTypeName?.Module ?? typeDecl.ModuleDecl?.Name);
+                currentModuleName: currentModuleName);
             var emittedKeys = new HashSet<string>();
             var subscriptValidationPipeline = new MemberValidationPipeline(typeDatabase);
             // Collect convenience indexer overload candidates during the primary loop,
@@ -95,7 +97,7 @@ namespace BindingsGeneration
                 }
 
                 // Skip if return type or any parameter resolves to AnyType
-                var returnTypeName = ResolveSubscriptTypeName(subscriptDecl.ReturnTypeSpec, typeDatabase, boundGenericsHandler, isParameter: false);
+                var returnTypeName = ResolveSubscriptTypeName(subscriptDecl.ReturnTypeSpec, typeDatabase, boundGenericsHandler, isParameter: false, currentModuleName);
                 if (returnTypeName.Contains("AnyType"))
                 {
                     ReportCollector.RecordMemberSkipped(subscriptDecl,
@@ -109,7 +111,7 @@ namespace BindingsGeneration
                 NameProvider.DeduplicateParameterNamesForParameterList(subscriptDecl.IndexParameters);
                 foreach (var param in subscriptDecl.IndexParameters)
                 {
-                    var paramTypeName = ResolveSubscriptTypeName(param.SwiftTypeSpec, typeDatabase, boundGenericsHandler, isParameter: true);
+                    var paramTypeName = ResolveSubscriptTypeName(param.SwiftTypeSpec, typeDatabase, boundGenericsHandler, isParameter: true, currentModuleName);
                     if (paramTypeName.Contains("AnyType"))
                     {
                         hasAnyTypeParam = true;
@@ -122,7 +124,7 @@ namespace BindingsGeneration
                     // StringProjection and NativeRemappedProjection have simple conversions
                     // handled by BuildIndexParamConversions.
                     var paramProj = s_projectionFactory.Project(param.SwiftTypeSpec,
-                        new ProjectionContext { TypeDatabase = typeDatabase, IsParameter = true });
+                        new ProjectionContext { TypeDatabase = typeDatabase, IsParameter = true, CurrentModuleName = currentModuleName });
                     if (paramProj is DictionaryProjection or ExistentialProjection or ArrayProjection or OptionalProjection or SetProjection or ResultProjection)
                     {
                         hasComplexIndexParam = true;
@@ -436,7 +438,7 @@ namespace BindingsGeneration
 
                         // Emit indexer declaration
                         var subscriptHelperPrefix = context.PInvokeHelperContext != null ? $"{context.PInvokeHelperContext.HelperClassName}." : "";
-                        EmitIndexer(csWriter, subscriptDecl, typeDatabase, returnTypeName, paramInfos, subscriptHelperPrefix, context.GetEmissionContext());
+                        EmitIndexer(csWriter, subscriptDecl, typeDatabase, returnTypeName, paramInfos, currentModuleName, subscriptHelperPrefix, context.GetEmissionContext());
 
                         // Collect candidate for convenience int/uint overload (deferred to second pass)
                         convenienceCandidates.Add((subscriptDecl, returnTypeName, paramInfos));
@@ -463,6 +465,7 @@ namespace BindingsGeneration
             ITypeDatabase typeDatabase,
             string returnTypeName,
             List<(string typeName, string paramName, ITypeProjection? projection)> paramInfos,
+            string? currentModuleName,
             string helperPrefix = "",
             ModuleEmissionContext? emissionContext = null)
         {
@@ -522,13 +525,13 @@ namespace BindingsGeneration
             var getter = subscriptDecl.Accessors.OfType<GetAccessorDecl>().FirstOrDefault();
             if (getter != null)
             {
-                EmitIndexerGetter(csWriter, getter, subscriptDecl, typeDatabase, paramInfos, helperPrefix, emissionContext);
+                EmitIndexerGetter(csWriter, getter, subscriptDecl, typeDatabase, paramInfos, currentModuleName, helperPrefix, emissionContext);
             }
 
             var setter = subscriptDecl.Accessors.OfType<SetAccessorDecl>().FirstOrDefault();
             if (setter != null)
             {
-                EmitIndexerSetter(csWriter, setter, subscriptDecl, typeDatabase, paramInfos, emissionContext);
+                EmitIndexerSetter(csWriter, setter, subscriptDecl, typeDatabase, paramInfos, currentModuleName, emissionContext);
             }
 
             csWriter.Indent--;
@@ -542,6 +545,7 @@ namespace BindingsGeneration
             SubscriptDecl subscriptDecl,
             ITypeDatabase typeDatabase,
             List<(string typeName, string paramName, ITypeProjection? projection)> paramInfos,
+            string? currentModuleName,
             string helperPrefix = "",
             ModuleEmissionContext? emissionContext = null)
         {
@@ -587,6 +591,9 @@ namespace BindingsGeneration
                     // element projection (the change-8 suppressed-proxy emit-time gate) instead of emitting
                     // a dangling `new {Proxy}(`.
                     EmissionContext = emissionContext,
+                    // The getter body converts through this projection, so a sibling module's
+                    // existential element must name its owning module here too.
+                    CurrentModuleName = currentModuleName,
                 });
 
             // Probe the return projection for a suppressed-proxy element BEFORE any getter body is written.
@@ -670,6 +677,7 @@ namespace BindingsGeneration
             SubscriptDecl subscriptDecl,
             ITypeDatabase typeDatabase,
             List<(string typeName, string paramName, ITypeProjection? projection)> paramInfos,
+            string? currentModuleName,
             ModuleEmissionContext? emissionContext = null)
         {
             var methodName = NameProvider.GetMethodName(setter.Method.Name, null);
@@ -692,7 +700,9 @@ namespace BindingsGeneration
                 // wrap lambda (CONSUME arm) instead of emitting a dangling reference — the subscript
                 // twin of the PropertyHandler container-setter gate. (Scalar existential subscript
                 // values go through ExistentialContainerFactory.GetOrCreate, which constructs no proxy.)
-                new ProjectionContext { TypeDatabase = typeDatabase, IsParameter = true, EmissionContext = emissionContext });
+                // The setter body converts through this projection, so a sibling module's
+                // existential element must name its owning module here too.
+                new ProjectionContext { TypeDatabase = typeDatabase, IsParameter = true, EmissionContext = emissionContext, CurrentModuleName = currentModuleName });
 
             // Persist the CONSUME degrade for the COLLECTION subscript-setter surface: a `[any P]`/`Set`/
             // `[K: any P]`/`(any P)?` value whose existential element's proxy was suppressed drops its
@@ -1010,11 +1020,14 @@ namespace BindingsGeneration
             TypeSpec typeSpec,
             ITypeDatabase typeDatabase,
             BoundGenericsHandler boundGenericsHandler,
-            bool isParameter)
+            bool isParameter,
+            string? currentModuleName)
         {
-            // Try factory projection first for idiomatic types
+            // Try factory projection first for idiomatic types. This projection owns the public
+            // indexer type, so it needs the emitting module to qualify a sibling module's
+            // existential — otherwise `subscript(i: Int) -> any A.P` emits a bare `IP`.
             var projection = s_projectionFactory.Project(typeSpec,
-                new ProjectionContext { TypeDatabase = typeDatabase, IsParameter = isParameter });
+                new ProjectionContext { TypeDatabase = typeDatabase, IsParameter = isParameter, CurrentModuleName = currentModuleName });
             if (projection != null)
                 return projection.PublicType;
 
@@ -1024,9 +1037,9 @@ namespace BindingsGeneration
             // same routine so nested generic params, optionals, etc. project consistently.
             if (typeSpec is TupleTypeSpec tupleTypeSpec)
             {
-                var tupleHandler = new TupleHandler(typeDatabase);
+                var tupleHandler = new TupleHandler(typeDatabase, currentModuleName);
                 return tupleHandler.GetCSharpTupleType(tupleTypeSpec,
-                    elementSpec => ResolveSubscriptTypeName(elementSpec, typeDatabase, boundGenericsHandler, isParameter));
+                    elementSpec => ResolveSubscriptTypeName(elementSpec, typeDatabase, boundGenericsHandler, isParameter, currentModuleName));
             }
 
             // Check bound generics

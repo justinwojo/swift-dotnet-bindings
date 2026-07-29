@@ -365,7 +365,12 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             {
                 TypeDatabase = propertyEnv.TypeDatabase,
                 IsParameter = false,
-                GenericContext = propertyGenericContext
+                GenericContext = propertyGenericContext,
+                // This projection OVERRIDES the type name for container-shaped properties, so it needs
+                // the same module context the scalar existential path above already has: an element
+                // owned by a sibling module must name that module, or `[any SiblingProtocol]` emits a
+                // bare element interface the consuming assembly cannot resolve.
+                CurrentModuleName = propertyEnv.ExistentialHandler.CurrentModuleName
             });
             if (projection != null)
             {
@@ -1087,6 +1092,9 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 // emit-time gate). The scalar/optional-existential getter took the early-return wrapper
                 // path above; this projection path is the collection-of-existential case.
                 EmissionContext = propertyEnv.EmissionContext,
+                // The getter body converts through this projection, so a sibling module's existential
+                // element must name its owning module here too.
+                CurrentModuleName = propertyEnv.ExistentialHandler.CurrentModuleName,
             });
         if (projection != null)
         {
@@ -1385,7 +1393,9 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             // dangling reference. The scalar-existential setter special-case above already gates on
             // the same two-half oracle (IsProxyNameSuppressed + IsProxyStructurallyNeverEmitted);
             // the general projection path (containers) reached here was the symmetric gap.
-            new ProjectionContext { TypeDatabase = propertyEnv.TypeDatabase, IsParameter = true, GenericContext = genericContext, EmissionContext = propertyEnv.EmissionContext });
+            // The setter body converts through this projection, so a sibling module's existential
+            // element must name its owning module here too (same reason as the getter).
+            new ProjectionContext { TypeDatabase = propertyEnv.TypeDatabase, IsParameter = true, GenericContext = genericContext, EmissionContext = propertyEnv.EmissionContext, CurrentModuleName = propertyEnv.ExistentialHandler.CurrentModuleName });
         if (projection != null)
         {
             // Persist the CONSUME degrade for the COLLECTION setter surface: a `[any P]`/`Set`/`[K: any P]`/

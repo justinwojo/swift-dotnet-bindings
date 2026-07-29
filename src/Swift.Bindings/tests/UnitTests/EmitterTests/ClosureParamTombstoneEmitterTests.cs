@@ -407,6 +407,51 @@ public class ClosureParamTombstoneEmitterTests
     }
 
     [Fact]
+    public void Emit_ExistentialParamOwnedByAnotherModule_QualifiesInterfaceName()
+    {
+        // A tombstone still renders every non-closure parameter with its real projected type, so an
+        // existential owned by another module has to name that module: the generated file emits no
+        // using for a sibling binding's namespace, and a bare interface name resolves to nothing in
+        // the consuming assembly.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Registry", moduleDecl);
+        var method = CreateMethod("register", classDecl, moduleDecl);
+        method.CSSignature.Add(CreateArg("decoder", BuildUnsupportedClosure(), moduleDecl));
+        method.CSSignature.Add(CreateArg(
+            "encoder",
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("OtherModule.ForeignProtocol") }),
+            moduleDecl));
+        method.IsClosureParamTombstone = true;
+
+        var output = EmitTombstone(method, typeDatabase);
+
+        Assert.Contains("OtherModule.IForeignProtocol encoder", output);
+    }
+
+    [Fact]
+    public void Emit_ExistentialParamOwnedByEmittingModule_LeavesInterfaceNameBare()
+    {
+        // The paired control: the interface lives in the file being emitted, so qualifying it would
+        // name the namespace the file is already inside.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Registry", moduleDecl);
+        var method = CreateMethod("register", classDecl, moduleDecl);
+        method.CSSignature.Add(CreateArg("decoder", BuildUnsupportedClosure(), moduleDecl));
+        method.CSSignature.Add(CreateArg(
+            "encoder",
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.LocalProtocol") }),
+            moduleDecl));
+        method.IsClosureParamTombstone = true;
+
+        var output = EmitTombstone(method, typeDatabase);
+
+        Assert.DoesNotContain("TestModule.ILocalProtocol encoder", output);
+        Assert.Contains("ILocalProtocol encoder", output);
+    }
+
+    [Fact]
     public void GetProjectedCSharpMethodKey_TombstonedOverloadsWithDifferentClosureShapes_CollapseToSameKey()
     {
         // Two overloads `handle(callback: (() -> Void) -> Void)` and
@@ -770,7 +815,30 @@ public class ClosureParamTombstoneEmitterTests
                 Flags = TypeRecordFlags.Frozen,
                 Kind = TypeRecordKind.Struct
             });
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.LocalProtocol"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ILocalProtocol"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.LocalProtocol"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Protocol
+            });
         typeDb.AddModuleDatabase(testModule);
+
+        var siblingModule = new ModuleTypeDatabase("OtherModule", "/tmp/OtherModule.dylib");
+        siblingModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("OtherModule.ForeignProtocol"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("OtherModule", "IForeignProtocol"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OtherModule.ForeignProtocol"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Protocol
+            });
+        typeDb.AddModuleDatabase(siblingModule);
 
         return typeDb;
     }

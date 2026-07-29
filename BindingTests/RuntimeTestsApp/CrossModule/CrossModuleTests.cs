@@ -771,5 +771,67 @@ public class CrossModuleTests : TestBase
             "Closure parameter typed as a cross-module existential arrived projected and dispatchable");
     }
 
+    public void TestCrossModuleExistentialScalarIndexer()
+    {
+        var first = new CSharpDependencyConformer("x", "p");
+        var second = new CSharpDependencyConformer("y", "q");
+        using var registry = new DependencyRegistry(new[] { (IDependencyProtocol)first, second });
+
+        AssertEqual(2, registry.Count, "Registry stored both cross-module existentials");
+        AssertEqual("CS[q]: y", registry[1].GetDescribe(),
+            "Indexer returned the cross-module existential projected and dispatchable back into C#");
+    }
+
+    public void TestCrossModuleExistentialContainerIndexer()
+    {
+        var first = new CSharpDependencyConformer("x", "p");
+        var second = new CSharpDependencyConformer("y", "q");
+        using var registry = new DependencyRegistry(new[] { (IDependencyProtocol)first, second });
+
+        var matched = registry["CS[q]"];
+
+        AssertEqual(1, matched.Count, "Container-returning indexer filtered to the one matching entry");
+        AssertEqual("CS[q]: y", matched[0].GetDescribe(),
+            "Element of the returned container dispatches into the original C# impl");
+    }
+
+    public void TestCrossModuleExistentialContainerPropertyRoundTrips()
+    {
+        var first = new CSharpDependencyConformer("x", "p");
+        var second = new CSharpDependencyConformer("y", "q");
+        using var registry = new DependencyRegistry(new[] { (IDependencyProtocol)first });
+
+        registry.Pinned = new[] { (IDependencyProtocol)second, first };
+
+        var readBack = registry.Pinned;
+        AssertEqual(2, readBack.Count, "Container property of cross-module existentials round-tripped both elements");
+        AssertEqual("CS[q]: y", readBack[0].GetDescribe(),
+            "First element read back through the getter dispatches into the C# impl");
+        AssertEqual("CS[p]: x", readBack[1].GetDescribe(),
+            "Second element read back through the getter dispatches into the C# impl");
+    }
+
+    public void TestCrossModuleExistentialProtocolInterfaceMembers()
+    {
+        // The members here are declared on a protocol, so the emitted signatures come from the
+        // interface declaration — a different emission path than the concrete-type members above.
+        // Calling them through the interface proves the qualified element type is the one the
+        // marshalling actually uses, not just a name that happened to compile.
+        var first = new CSharpDependencyConformer("x", "p");
+        var second = new CSharpDependencyConformer("y", "q");
+        using var aggregator = new DependencyAggregator(new[] { (IDependencyProtocol)first });
+
+        IDependencyAggregating asInterface = aggregator;
+
+        AssertEqual(1, asInterface.Dependencies.Count,
+            "Interface-declared container property returned the stored cross-module existential");
+        AssertEqual("CS[p]: x", asInterface.Dependencies[0].GetDescribe(),
+            "Element of the interface-declared container dispatches into the C# impl");
+        AssertEqual("CS[p]: x", asInterface.GetPrimary().GetDescribe(),
+            "Interface-declared scalar existential return dispatches into the C# impl");
+        AssertEqual("CS[p]: x+CS[q]: y", asInterface.Merge(new[] { (IDependencyProtocol)second }),
+            "Interface-declared container parameter carried the cross-module existential into Swift");
+    }
+
     #endregion
 }
