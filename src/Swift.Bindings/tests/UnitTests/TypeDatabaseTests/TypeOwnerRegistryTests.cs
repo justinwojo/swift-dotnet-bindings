@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Collections.Concurrent;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -483,6 +484,91 @@ public class TypeOwnerRegistryTests
         Assert.Contains("Foundation", modules);
         Assert.Contains("CryptoKit", modules);
         Assert.Contains("WeatherKit", modules);
+    }
+
+    [Fact]
+    public void Resolve_ConcurrentWithReset_NeverObservesPartialSeedState()
+    {
+        // The registry is process-global: readers live in every other xunit collection and
+        // run concurrently with a reset here. A reset must therefore be atomic from a
+        // reader's point of view — an identity that resolves to a given owner before and
+        // after a reset must never resolve to anything else *during* one. Two canaries at
+        // different resolver levels: a module default (level 4) and a legacy canonical
+        // override (level 1), so a reset that drops either seeding pass is caught.
+        const string moduleDefaultIdentity = "Foundation.Locale.Language";
+        const string pinnedOverrideIdentity = "Swift.String";
+        const int readerThreads = 4;
+        const int resetCount = 2_000;
+        // Bounds the run only if the resetter thread never finishes; normally the readers
+        // stop because the reset loop ended.
+        const long readerIterationCap = 50_000_000;
+
+        var violations = new ConcurrentQueue<string>();
+        using var resetsDone = new ManualResetEventSlim(false);
+        // Every reader must be inside its loop before the first reset: without the
+        // handshake, adverse scheduling lets the resetter finish all its resets before any
+        // reader body runs, and the test passes having observed nothing.
+        using var readersReady = new Barrier(readerThreads + 1);
+        var resolutionsDuringResets = 0L;
+
+        var readers = new Thread[readerThreads];
+        for (var i = 0; i < readerThreads; i++)
+        {
+            readers[i] = new Thread(() =>
+            {
+                var resolutions = 0L;
+                readersReady.SignalAndWait();
+                for (; !resetsDone.IsSet && resolutions < readerIterationCap; resolutions++)
+                {
+                    var moduleDefault = TypeOwnerRegistry.Resolve(moduleDefaultIdentity);
+                    if (moduleDefault.Kind != TypeOwnerKind.AppleSupplement && violations.Count < 8)
+                    {
+                        violations.Enqueue($"{moduleDefaultIdentity} -> {moduleDefault.Kind}");
+                    }
+
+                    var pinned = TypeOwnerRegistry.Resolve(pinnedOverrideIdentity);
+                    if (pinned.Kind != TypeOwnerKind.Runtime && violations.Count < 8)
+                    {
+                        violations.Enqueue($"{pinnedOverrideIdentity} -> {pinned.Kind}");
+                    }
+                }
+                Interlocked.Add(ref resolutionsDuringResets, resolutions);
+            })
+            {
+                IsBackground = true,
+            };
+        }
+
+        var resetter = new Thread(() =>
+        {
+            readersReady.SignalAndWait();
+            for (var i = 0; i < resetCount; i++)
+            {
+                TypeOwnerRegistry.ResetForTests();
+            }
+            resetsDone.Set();
+        })
+        {
+            IsBackground = true,
+        };
+
+        foreach (var reader in readers)
+        {
+            reader.Start();
+        }
+        resetter.Start();
+
+        resetter.Join();
+        foreach (var reader in readers)
+        {
+            reader.Join();
+        }
+
+        // Guards against a vacuous pass: an empty violation queue only means anything if
+        // resolutions actually ran while resets were in flight.
+        Assert.True(resolutionsDuringResets > 0,
+            "No resolutions ran during the reset window; the probe proves nothing.");
+        Assert.Empty(violations);
     }
 }
 

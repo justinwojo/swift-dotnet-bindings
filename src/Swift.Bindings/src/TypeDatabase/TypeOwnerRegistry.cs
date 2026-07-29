@@ -123,39 +123,60 @@ internal static class TypeOwnerRegistry
     /// <summary>NuGet package id of the Apple supplement package.</summary>
     public const string AppleSupplementPackageId = "SwiftBindings.Apple";
 
-    // Level 1: Per-type overrides. Keyed on generic-stripped Swift identity so that
-    // both "Foundation.Measurement" and "Foundation.Measurement<UnitType>" resolve.
-    private static readonly ConcurrentDictionary<string, TypeOwner> s_overrides =
-        new(StringComparer.Ordinal);
+    /// <summary>
+    /// The registry's six lookup levels held together as one immutable-reference unit.
+    /// </summary>
+    /// <remarks>
+    /// The dictionaries stay mutable (registration adds to them); what is immutable is the
+    /// <em>reference</em>: a reset publishes a fully-seeded replacement instead of clearing
+    /// the live maps in place. The registry is process-global and read concurrently from
+    /// unrelated code paths (unit tests in other xunit collections, parallel generation), so
+    /// a clear-then-reseed sequence exposes a window in which a reader observes a registry
+    /// missing seeds it has never been without — e.g. "Foundation.Locale.Language" resolving
+    /// to <see cref="TypeOwnerKind.Unsupported"/> because the Apple module defaults had been
+    /// cleared but not yet re-added. Swapping one reference means every reader sees either
+    /// the whole old state or the whole new state.
+    /// </remarks>
+    private sealed class RegistryState
+    {
+        // Level 1: Per-type overrides. Keyed on generic-stripped Swift identity so that
+        // both "Foundation.Measurement" and "Foundation.Measurement<UnitType>" resolve.
+        public ConcurrentDictionary<string, TypeOwner> Overrides { get; } =
+            new(StringComparer.Ordinal);
 
-    // Level 2: Swift stdlib. Stored as a set; resolved to a Runtime-kind TypeOwner
-    // tagged with TypeOwnerKind.SwiftStdlib.
-    private static readonly ConcurrentDictionary<string, bool> s_stdlibTypes =
-        new(StringComparer.Ordinal);
+        // Level 2: Swift stdlib. Stored as a set; resolved to a Runtime-kind TypeOwner
+        // tagged with TypeOwnerKind.SwiftStdlib.
+        public ConcurrentDictionary<string, bool> StdlibTypes { get; } =
+            new(StringComparer.Ordinal);
 
-    // Level 3: ObjC workload projections. Value holds the projected managed type.
-    private static readonly ConcurrentDictionary<string, TypeOwner> s_objcProjections =
-        new(StringComparer.Ordinal);
+        // Level 3: ObjC workload projections. Value holds the projected managed type.
+        public ConcurrentDictionary<string, TypeOwner> ObjCProjections { get; } =
+            new(StringComparer.Ordinal);
 
-    // Level 4: Module-default resolution. Apple modules resolve to AppleSupplement,
-    // third-party modules to their registered package id.
-    private static readonly ConcurrentDictionary<string, bool> s_appleModules =
-        new(StringComparer.Ordinal);
-    private static readonly ConcurrentDictionary<string, string> s_thirdPartyModules =
-        new(StringComparer.Ordinal);
+        // Level 4: Module-default resolution. Apple modules resolve to AppleSupplement,
+        // third-party modules to their registered package id.
+        public ConcurrentDictionary<string, bool> AppleModules { get; } =
+            new(StringComparer.Ordinal);
+        public ConcurrentDictionary<string, string> ThirdPartyModules { get; } =
+            new(StringComparer.Ordinal);
 
-    // Cross-module protocol conformance owners. Keyed on (type Swift identity,
-    // protocol Swift identity). A type from module A may conform to a protocol from
-    // module B with the conformance itself owned by a third party — this is distinct
-    // from simple type ownership.
-    private static readonly ConcurrentDictionary<(string Type, string Protocol), TypeOwner> s_conformanceOwners =
-        new();
+        // Cross-module protocol conformance owners. Keyed on (type Swift identity,
+        // protocol Swift identity). A type from module A may conform to a protocol from
+        // module B with the conformance itself owned by a third party — this is distinct
+        // from simple type ownership.
+        public ConcurrentDictionary<(string Type, string Protocol), TypeOwner> ConformanceOwners { get; } =
+            new();
+    }
+
+    private static RegistryState s_state;
+
+    // Read the reference once per operation: a resolver walking six levels must see one
+    // consistent state, not a mix of pre- and post-swap states.
+    private static RegistryState State => Volatile.Read(ref s_state);
 
     static TypeOwnerRegistry()
     {
-        SeedLegacyCanonicals();
-        SeedDefaultAppleModules();
-        SeedAppleSupplementOverrides();
+        s_state = CreateSeededState();
     }
 
     /// <summary>
@@ -175,21 +196,23 @@ internal static class TypeOwnerRegistry
     {
         ArgumentException.ThrowIfNullOrEmpty(swiftIdentity);
 
+        var state = State;
+
         // Level 1: per-type overrides. Try exact first, then generic-stripped form so
         // the same override handles "Foundation.Measurement" and "Foundation.Measurement<T>".
-        if (s_overrides.TryGetValue(swiftIdentity, out var exact))
+        if (state.Overrides.TryGetValue(swiftIdentity, out var exact))
         {
             return exact;
         }
         var stripped = StripGenericArguments(swiftIdentity);
         if (!ReferenceEquals(stripped, swiftIdentity) &&
-            s_overrides.TryGetValue(stripped, out var generic))
+            state.Overrides.TryGetValue(stripped, out var generic))
         {
             return generic;
         }
 
         // Level 2: Swift stdlib — owned by Runtime but tagged distinctly.
-        if (s_stdlibTypes.ContainsKey(swiftIdentity) || s_stdlibTypes.ContainsKey(stripped))
+        if (state.StdlibTypes.ContainsKey(swiftIdentity) || state.StdlibTypes.ContainsKey(stripped))
         {
             return new TypeOwner
             {
@@ -201,12 +224,12 @@ internal static class TypeOwnerRegistry
 
         // Level 3: ObjC workload projection. Same exact-then-stripped pattern as levels 1–2
         // so a projection registered for the unbound stem also covers generic instantiations.
-        if (s_objcProjections.TryGetValue(swiftIdentity, out var objc))
+        if (state.ObjCProjections.TryGetValue(swiftIdentity, out var objc))
         {
             return objc;
         }
         if (!ReferenceEquals(stripped, swiftIdentity) &&
-            s_objcProjections.TryGetValue(stripped, out var objcStripped))
+            state.ObjCProjections.TryGetValue(stripped, out var objcStripped))
         {
             return objcStripped;
         }
@@ -215,7 +238,7 @@ internal static class TypeOwnerRegistry
         var moduleName = GetModuleName(swiftIdentity);
         if (moduleName is not null)
         {
-            if (s_appleModules.ContainsKey(moduleName))
+            if (state.AppleModules.ContainsKey(moduleName))
             {
                 return new TypeOwner
                 {
@@ -224,7 +247,7 @@ internal static class TypeOwnerRegistry
                     ModuleName = moduleName,
                 };
             }
-            if (s_thirdPartyModules.TryGetValue(moduleName, out var packageId))
+            if (state.ThirdPartyModules.TryGetValue(moduleName, out var packageId))
             {
                 return new TypeOwner
                 {
@@ -255,13 +278,14 @@ internal static class TypeOwnerRegistry
     {
         ArgumentException.ThrowIfNullOrEmpty(swiftIdentity);
 
-        if (s_overrides.TryGetValue(swiftIdentity, out owner))
+        var overrides = State.Overrides;
+        if (overrides.TryGetValue(swiftIdentity, out owner))
         {
             return true;
         }
         var stripped = StripGenericArguments(swiftIdentity);
         if (!ReferenceEquals(stripped, swiftIdentity) &&
-            s_overrides.TryGetValue(stripped, out owner))
+            overrides.TryGetValue(stripped, out owner))
         {
             return true;
         }
@@ -280,8 +304,9 @@ internal static class TypeOwnerRegistry
     public static void RegisterPerTypeOverride(string swiftIdentity, TypeOwner owner)
     {
         ArgumentException.ThrowIfNullOrEmpty(swiftIdentity);
+        var overrides = State.Overrides;
         var key = StripGenericArguments(swiftIdentity);
-        if (s_overrides.TryGetValue(key, out var existing) &&
+        if (overrides.TryGetValue(key, out var existing) &&
             !string.Equals(existing.PackageId, owner.PackageId, StringComparison.Ordinal))
         {
             throw new InvalidOperationException(
@@ -291,14 +316,14 @@ internal static class TypeOwnerRegistry
                 "same Swift type (for example both 'SwiftBindings.Apple' and its v2 successor). " +
                 "Remove one of the packages or ensure only one supplement is loaded.");
         }
-        s_overrides[key] = owner;
+        overrides[key] = owner;
     }
 
     /// <summary>Registers a Swift stdlib type. Stdlib types resolve to <see cref="TypeOwnerKind.SwiftStdlib"/>.</summary>
     public static void RegisterSwiftStdlibType(string swiftIdentity)
     {
         ArgumentException.ThrowIfNullOrEmpty(swiftIdentity);
-        s_stdlibTypes[StripGenericArguments(swiftIdentity)] = true;
+        State.StdlibTypes[StripGenericArguments(swiftIdentity)] = true;
     }
 
     /// <summary>
@@ -316,7 +341,7 @@ internal static class TypeOwnerRegistry
         // Resolver lookups canonicalize too, so pre-stripping here keeps the dictionary key
         // shape consistent across all s_* stores (one invariant, not two).
         var key = StripGenericArguments(swiftIdentity);
-        s_objcProjections[key] = new TypeOwner
+        State.ObjCProjections[key] = new TypeOwner
         {
             Kind = TypeOwnerKind.ObjCWorkload,
             PackageId = string.Empty,
@@ -329,7 +354,7 @@ internal static class TypeOwnerRegistry
     public static void RegisterAppleModule(string module)
     {
         ArgumentException.ThrowIfNullOrEmpty(module);
-        s_appleModules[module] = true;
+        State.AppleModules[module] = true;
     }
 
     /// <summary>
@@ -339,7 +364,7 @@ internal static class TypeOwnerRegistry
     {
         ArgumentException.ThrowIfNullOrEmpty(module);
         ArgumentException.ThrowIfNullOrEmpty(packageId);
-        s_thirdPartyModules[module] = packageId;
+        State.ThirdPartyModules[module] = packageId;
     }
 
     /// <summary>
@@ -355,7 +380,7 @@ internal static class TypeOwnerRegistry
         ArgumentException.ThrowIfNullOrEmpty(typeSwiftIdentity);
         ArgumentException.ThrowIfNullOrEmpty(protocolSwiftIdentity);
         var key = (StripGenericArguments(typeSwiftIdentity), StripGenericArguments(protocolSwiftIdentity));
-        s_conformanceOwners[key] = owner;
+        State.ConformanceOwners[key] = owner;
     }
 
     /// <summary>Looks up the owner of a specific type→protocol conformance, or returns null.</summary>
@@ -364,33 +389,41 @@ internal static class TypeOwnerRegistry
         ArgumentException.ThrowIfNullOrEmpty(typeSwiftIdentity);
         ArgumentException.ThrowIfNullOrEmpty(protocolSwiftIdentity);
         var key = (StripGenericArguments(typeSwiftIdentity), StripGenericArguments(protocolSwiftIdentity));
-        return s_conformanceOwners.TryGetValue(key, out var owner) ? owner : null;
+        return State.ConformanceOwners.TryGetValue(key, out var owner) ? owner : null;
     }
 
     /// <summary>
     /// Returns every registered Apple module name. Intended for tooling introspection and tests.
     /// </summary>
     public static IReadOnlyCollection<string> GetRegisteredAppleModules() =>
-        s_appleModules.Keys.ToArray();
+        State.AppleModules.Keys.ToArray();
 
     /// <summary>
     /// Test-only reset of all mutable state back to the seeded defaults. Keeps tests isolated
     /// when they mutate the registry (e.g. registering a third-party module for one case).
     /// </summary>
-    internal static void ResetForTests()
+    /// <remarks>
+    /// Seeds a replacement state and publishes it in a single reference assignment. Clearing
+    /// the live maps instead would let any concurrent reader — including tests in other xunit
+    /// collections, which this one cannot serialize — resolve against a registry that has lost
+    /// its seeds.
+    /// <para>Swap semantics make resolution safe against a concurrent reset, not registration:
+    /// a registering caller that already read the state writes into the retired instance, and
+    /// that write is dropped. Callers must therefore keep resets serialized with the
+    /// registration calls they are meant to undo.</para>
+    /// </remarks>
+    internal static void ResetForTests() => Volatile.Write(ref s_state, CreateSeededState());
+
+    private static RegistryState CreateSeededState()
     {
-        s_overrides.Clear();
-        s_stdlibTypes.Clear();
-        s_objcProjections.Clear();
-        s_appleModules.Clear();
-        s_thirdPartyModules.Clear();
-        s_conformanceOwners.Clear();
-        SeedLegacyCanonicals();
-        SeedDefaultAppleModules();
-        SeedAppleSupplementOverrides();
+        var state = new RegistryState();
+        SeedLegacyCanonicals(state);
+        SeedDefaultAppleModules(state);
+        SeedAppleSupplementOverrides(state);
+        return state;
     }
 
-    private static void SeedLegacyCanonicals()
+    private static void SeedLegacyCanonicals(RegistryState state)
     {
         // Runtime-pinned stdlib canonical types. These pre-date the Apple supplement and
         // have hand-tuned VWT/mangled-symbol layouts. Generic types are listed by stem only —
@@ -399,19 +432,19 @@ internal static class TypeOwnerRegistry
         // ownership to the supplement.
         foreach (var identity in s_legacyRuntimeCanonicals)
         {
-            s_overrides[identity] = TypeOwner.Runtime with { ModuleName = GetModuleName(identity) };
+            state.Overrides[identity] = TypeOwner.Runtime with { ModuleName = GetModuleName(identity) };
         }
     }
 
-    private static void SeedDefaultAppleModules()
+    private static void SeedDefaultAppleModules(RegistryState state)
     {
         foreach (var module in s_defaultAppleModules)
         {
-            s_appleModules[module] = true;
+            state.AppleModules[module] = true;
         }
     }
 
-    private static void SeedAppleSupplementOverrides()
+    private static void SeedAppleSupplementOverrides(RegistryState state)
     {
         // Per-type pins for Apple-supplement hand-rolled types whose Swift module is
         // suppressed from s_defaultAppleModules (SwiftUI is filtered at generation time —
@@ -419,7 +452,7 @@ internal static class TypeOwnerRegistry
         // would fall through to Unsupported.
         foreach (var identity in s_appleSupplementOverrides)
         {
-            s_overrides[identity] = TypeOwner.AppleSupplement with { ModuleName = GetModuleName(identity) };
+            state.Overrides[identity] = TypeOwner.AppleSupplement with { ModuleName = GetModuleName(identity) };
         }
     }
 
