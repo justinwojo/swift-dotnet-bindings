@@ -62,7 +62,30 @@
           },
           "valueTypes": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "description": "Type name (without module prefix) that is a value type and should NOT be ObjC-bridged. The shape is left undescribed, so the type itself stays unresolvable."
+                },
+                {
+                  "type": "object",
+                  "required": ["name"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "Type name without module prefix (nested types use dots, e.g. WKWebView.FullscreenState)"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": ["enum"],
+                      "description": "Declares the Swift-side shape so a real value-type record can be built instead of leaving the type unresolvable. 'enum' means an integer-backed NS_ENUM/NS_OPTIONS the Swift importer surfaces as a raw-value enum — never an NSString typed-constant group, which the .NET bindings also project as a C# enum."
+                    }
+                  }
+                }
+              ]
+            },
             "description": "Type names (without module prefix) that are value types and should NOT be ObjC-bridged"
           },
           "typeRemaps": {

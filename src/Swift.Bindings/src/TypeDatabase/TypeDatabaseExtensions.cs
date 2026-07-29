@@ -457,60 +457,31 @@ public static class TypeDatabaseExtensions
     internal static TypeRecord CreateObjCBridgedTypeRecord(SwiftTypeName swiftTypeName, string? usr = null)
     {
         // Check registry for explicit name remapping (Foundation Swift names → .NET ObjC names)
-        if (AppleFrameworkRegistry.TryGetNetTypeName(swiftTypeName.ModuleQualifiedName, out var netName))
+        if (TryGetRegistryRemappedIdentity(swiftTypeName, out var regNamespace, out var regName))
         {
-            var dotIdx = netName.IndexOf('.');
-            if (dotIdx > 0)
+            // Surface-verify the hand-authoritative remap against what the binding actually ships:
+            // project an integer enum as a value type, or withdraw a name the binding declares as a
+            // struct/static-constants/absent shape a Handle-bearing class can't stand in for. The
+            // registry name is the sole candidate (usr null) and a no-hit keeps the registry record
+            // (withdrawOnNoHit: false) — the remap is trusted; only a definitive wrong-kind hit
+            // overrides it.
+            var regVerified = TryProjectViaAppleSurface(
+                swiftTypeName, usr: null, regNamespace, regName,
+                AppleTypeSurfaceIndex.Default, withdrawOnNoHit: false);
+            if (regVerified is not null)
+                return regVerified;
+
+            return new TypeRecord
             {
-                var regNamespace = netName.Substring(0, dotIdx);
-                var regName = netName.Substring(dotIdx + 1);
-
-                // Surface-verify the hand-authoritative remap against what the binding actually ships:
-                // project an integer enum as a value type, or withdraw a name the binding declares as a
-                // struct/static-constants/absent shape a Handle-bearing class can't stand in for. The
-                // registry name is the sole candidate (usr null) and a no-hit keeps the registry record
-                // (withdrawOnNoHit: false) — the remap is trusted; only a definitive wrong-kind hit
-                // overrides it.
-                var regVerified = TryProjectViaAppleSurface(
-                    swiftTypeName, usr: null, regNamespace, regName,
-                    AppleTypeSurfaceIndex.Default, withdrawOnNoHit: false);
-                if (regVerified is not null)
-                    return regVerified;
-
-                return new TypeRecord
-                {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName(regNamespace, regName),
-                    SwiftTypeName = swiftTypeName,
-                    MetadataAccessor = string.Empty,
-                    Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
-                    Kind = TypeRecordKind.Class,
-                };
-            }
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(regNamespace, regName),
+                SwiftTypeName = swiftTypeName,
+                MetadataAccessor = string.Empty,
+                Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+            };
         }
 
-        // Resolve C# namespace: use centralized Swift→.NET mapping, then ObjectiveC/Foundation → Foundation,
-        // then use Swift module name as-is (e.g., UIKit → UIKit).
-        var mappedModule = AppleFrameworkRegistry.MapModuleToNetNamespace(swiftTypeName.Module);
-        string csharpNamespace;
-        if (mappedModule != swiftTypeName.Module)
-            csharpNamespace = mappedModule;
-        else if (swiftTypeName.Module == ObjCModuleName || swiftTypeName.Module == "Foundation")
-            csharpNamespace = "Foundation";
-        else
-            csharpNamespace = swiftTypeName.Module;
-
-        // For nested ObjC types (e.g., UIKit.UIView.ContentMode), .NET iOS bindings flatten
-        // the parent type into the name: UIView + ContentMode = UIViewContentMode.
-        var csharpName = swiftTypeName.Name;
-        var parts = swiftTypeName.ModuleQualifiedName.Split('.');
-        if (parts.Length > 2)
-        {
-            csharpName = parts[1];
-            for (int i = 2; i < parts.Length; i++)
-            {
-                csharpName = ConcatWithOverlapDedup(csharpName, parts[i]);
-            }
-        }
+        DeriveSynthesizedAppleIdentity(swiftTypeName, out var csharpNamespace, out var csharpName);
 
         // Verify the synthesized identity against the type Microsoft.iOS actually declares: correct
         // the name, project integer enums as value types, or mark an absent/value/static type so the
@@ -527,6 +498,108 @@ public static class TypeDatabaseExtensions
             Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
             Kind = TypeRecordKind.Class,
         };
+    }
+
+    /// <summary>
+    /// Splits the registry's hand-authored Swift→.NET remap for this type into a namespace and a
+    /// simple name. False when no remap exists, or when the mapped name carries no namespace
+    /// separator (nothing to bind the type to).
+    /// </summary>
+    private static bool TryGetRegistryRemappedIdentity(
+        SwiftTypeName swiftTypeName,
+        [NotNullWhen(true)] out string? netNamespace,
+        [NotNullWhen(true)] out string? netName)
+    {
+        netNamespace = null;
+        netName = null;
+        if (!AppleFrameworkRegistry.TryGetNetTypeName(swiftTypeName.ModuleQualifiedName, out var mapped))
+            return false;
+
+        var dotIdx = mapped.IndexOf('.');
+        if (dotIdx <= 0)
+            return false;
+
+        netNamespace = mapped.Substring(0, dotIdx);
+        netName = mapped.Substring(dotIdx + 1);
+        return true;
+    }
+
+    /// <summary>
+    /// Derives the .NET identity the platform binding is expected to use for an Apple type that has
+    /// no hand-authored remap: the Swift module mapped to its binding namespace, and — for a nested
+    /// Swift type such as <c>UIKit.UIView.ContentMode</c> — the parent chain flattened into a single
+    /// name the way the platform bindings spell it (<c>UIViewContentMode</c>).
+    /// </summary>
+    private static void DeriveSynthesizedAppleIdentity(
+        SwiftTypeName swiftTypeName, out string csharpNamespace, out string csharpName)
+    {
+        // Resolve C# namespace: use centralized Swift→.NET mapping, then ObjectiveC/Foundation → Foundation,
+        // then use Swift module name as-is (e.g., UIKit → UIKit).
+        var mappedModule = AppleFrameworkRegistry.MapModuleToNetNamespace(swiftTypeName.Module);
+        if (mappedModule != swiftTypeName.Module)
+            csharpNamespace = mappedModule;
+        else if (swiftTypeName.Module == ObjCModuleName || swiftTypeName.Module == "Foundation")
+            csharpNamespace = "Foundation";
+        else
+            csharpNamespace = swiftTypeName.Module;
+
+        csharpName = swiftTypeName.Name;
+        var parts = swiftTypeName.ModuleQualifiedName.Split('.');
+        if (parts.Length > 2)
+        {
+            csharpName = parts[1];
+            for (int i = 2; i < parts.Length; i++)
+            {
+                csharpName = ConcatWithOverlapDedup(csharpName, parts[i]);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Builds a value-type record for an Apple framework type the registry describes as an
+    /// integer-backed enum.
+    /// <para>
+    /// Listing a name as a value type only withholds the synthetic bridged-class record — it says
+    /// "not an ObjC class" and nothing else, which leaves the name with no record at all and skips
+    /// every member that mentions it. That is the right outcome for a shape the generator can't
+    /// marshal, but a plain integer enum crosses the boundary as its raw value and is fully
+    /// bindable. A registry entry that additionally declares the enum shape supplies the one fact
+    /// nothing else can establish — that the <em>Swift</em> side is a raw-value enum, not a
+    /// String-wrapping typed-constant group, which the platform bindings also project as a C# enum.
+    /// </para>
+    /// <para>
+    /// The .NET identity (namespace, spelling, raw-value width, option-set-ness) is read back from
+    /// the platform reference assembly rather than hand-carried, so it can never drift from the
+    /// surface the emitted C# must compile against. No index (workload absent), no match, or a match
+    /// the binding declares as something other than an enum all return null, which leaves the name
+    /// exactly as fail-closed as it is today.
+    /// </para>
+    /// </summary>
+    internal static TypeRecord? TryCreateRegisteredAppleEnumRecord(
+        SwiftTypeName swiftTypeName, string? usr, AppleTypeSurfaceIndex? index)
+    {
+        if (!AppleFrameworkRegistry.IsAutoBridgeModule(swiftTypeName.Module))
+            return null;
+        if (!AppleFrameworkRegistry.IsIntegerEnumValueType(swiftTypeName.ModuleQualifiedName))
+            return null;
+        if (index is null)
+            return null;
+
+        if (!TryGetRegistryRemappedIdentity(swiftTypeName, out var csharpNamespace, out var csharpName))
+            DeriveSynthesizedAppleIdentity(swiftTypeName, out csharpNamespace, out csharpName);
+
+        foreach (var candidate in AppleSurfaceCandidateNames(usr, csharpName))
+        {
+            if (index.TryResolveQualified(csharpNamespace, candidate, out var hit)
+                || index.TryResolveBare(candidate, out hit))
+            {
+                return hit.Kind == AppleTypeSurfaceKind.Enum
+                    ? CreateExternalEnumRecord(swiftTypeName, hit)
+                    : null;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

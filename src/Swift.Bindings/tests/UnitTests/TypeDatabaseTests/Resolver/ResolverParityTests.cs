@@ -423,7 +423,10 @@ public class ResolverParityTests
         // chain must run the SAME cascade instances in the SAME order, so the two
         // resolution surfaces cannot drift. Pin that the four cascade strategies
         // appear contiguously in Default, in arm order, right after AppleSupplement
-        // and right before the ObjCBridging fallback.
+        // and ahead of the ObjCBridging fallback. Only the registered Apple
+        // integer-enum arm may sit between the cascade and that fallback: it needs
+        // to lose to every database record yet still claim names the bridge
+        // fallback declines.
         var names = TypeResolver.Default.Strategies.Select(s => s.Name).ToArray();
         var cascadeNames = TypeResolver.DatabaseCascade.Select(s => s.Name).ToArray();
 
@@ -434,6 +437,8 @@ public class ResolverParityTests
         var start = Array.IndexOf(names, "DatabaseLookup");
         Assert.True(start > Array.IndexOf(names, "AppleSupplement"));
         Assert.Equal(cascadeNames, names.Skip(start).Take(cascadeNames.Length).ToArray());
-        Assert.Equal("ObjCBridging", names[start + cascadeNames.Length]);
+        Assert.Equal(
+            new[] { "RegisteredAppleEnum", "ObjCBridging" },
+            names.Skip(start + cascadeNames.Length).ToArray());
     }
 }

@@ -184,9 +184,13 @@ public class TypeResolverTests
         // sit immediately after DatabaseLookup in the SAME order they run inside
         // TryGetTypeRecordWithoutSupplement — F10 Stage 17 registers them
         // shadowed (DatabaseLookup still black-boxes arms 2–6) and Stage 18
-        // splits DatabaseLookup down to arms 2+3 to make them live. Pin the full
-        // sequence so a regression surfaces here and not as a parity test failure
-        // two screens away.
+        // splits DatabaseLookup down to arms 2+3 to make them live. The registered
+        // Apple integer-enum arm sits after the whole cascade (a hand-authored
+        // database record still wins) and before the ObjC bridge fallback (which
+        // declines names the framework registry lists as value types, so a
+        // registry-described enum would otherwise reach the end unresolved). Pin
+        // the full sequence so a regression surfaces here and not as a parity test
+        // failure two screens away.
         var names = TypeResolver.Default.Strategies.Select(s => s.Name).ToArray();
 
         Assert.Equal(new[]
@@ -206,6 +210,7 @@ public class TypeResolverTests
             "OutOfModuleLookup",
             "CrossModuleAlias",
             "SwiftError",
+            "RegisteredAppleEnum",
             "ObjCBridging",
         }, names);
     }
@@ -215,6 +220,8 @@ public class TypeResolverTests
     [InlineData("AppleSupplement", "DatabaseLookup")]    // supplement projections win over incidental DB entries
     [InlineData("BareGenericGuard", "BoundGenericSimdAlias")] // bare guard short-circuits before SIMD bound-generic claim
     [InlineData("SwiftAnyAnyObject", "Pointer")]         // Swift.Any/AnyObject claimed before pointer fallback
+    [InlineData("DatabaseLookup", "RegisteredAppleEnum")] // a hand-authored database record beats the registry description
+    [InlineData("RegisteredAppleEnum", "ObjCBridging")]   // registry-described enums resolve before the ObjC bridge fallback declines them
     public void Default_RelativeOrdering_HoldsForCorrectnessCriticalPairs(string earlier, string later)
     {
         var names = TypeResolver.Default.Strategies.Select(s => s.Name).ToArray();

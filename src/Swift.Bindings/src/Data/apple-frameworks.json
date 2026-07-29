@@ -493,9 +493,9 @@
       "objcPrefixes": ["HK"],
       "platformUnavailable": ["macOS"],
       "valueTypes": [
-        "HKWorkoutActivityType",
-        "HKWorkoutSessionLocationType",
-        "HKWorkoutSwimmingLocationType"
+        { "name": "HKWorkoutActivityType", "kind": "enum" },
+        { "name": "HKWorkoutSessionLocationType", "kind": "enum" },
+        { "name": "HKWorkoutSwimmingLocationType", "kind": "enum" }
       ]
     },
     {
@@ -674,8 +674,8 @@
       "wrapperImportable": true,
       "objcPrefixes": ["PK"],
       "valueTypes": [
-        "PKPaymentButtonType",
-        "PKPaymentButtonStyle",
+        { "name": "PKPaymentButtonType", "kind": "enum" },
+        { "name": "PKPaymentButtonStyle", "kind": "enum" },
         "PKPaymentNetwork",
         "PKPaymentAuthorizationStatus",
         "PKPaymentMethodType",
@@ -898,7 +898,7 @@
         "NSTextAlignment",
         "NSUnderlineStyle",
         "NSWritingDirection",
-        "UIAccessibilityCustomRotor.Direction",
+        { "name": "UIAccessibilityCustomRotor.Direction", "kind": "enum" },
         "UIAccessibilityTraits",
         "UIActivityIndicatorView.Style",
         "UIAlertAction.Style",
@@ -1039,7 +1039,7 @@
       "wrapperImportable": true,
       "objcPrefixes": ["WK"],
       "valueTypes": [
-        "WKWebView.FullscreenState",
+        { "name": "WKWebView.FullscreenState", "kind": "enum" },
         "WKMediaPlaybackState"
       ],
       "typeRemaps": {

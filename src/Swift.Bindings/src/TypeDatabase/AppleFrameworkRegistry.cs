@@ -3,6 +3,7 @@
 
 using System.Reflection;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace BindingsGeneration;
 
@@ -43,6 +44,15 @@ internal static class AppleFrameworkRegistry
     private static readonly Dictionary<string, List<string>> _compileImportSourceModules;
     private static readonly Dictionary<string, string> _typeNameRemaps;
     private static readonly HashSet<string> _valueTypes;
+    // The subset of _valueTypes whose entry additionally *describes* the shape: an integer-backed
+    // NS_ENUM/NS_OPTIONS the Swift importer surfaces as a raw-value enum. Listing a name as a value
+    // type only says "not an ObjC class", which withholds the synthetic bridged-class record and
+    // leaves the name unresolvable — correct for shapes we cannot bind (Swift-only nested structs,
+    // NSString-typedef constant groups, real classes with no .NET counterpart), but a needless loss
+    // for a plain integer enum, which marshals as its raw value. A described name is the standing
+    // claim that the *Swift* side is an integer enum — the one fact reflection over the .NET binding
+    // cannot establish, because the bindings project NSString typed-constant groups as C# enums too.
+    private static readonly HashSet<string> _integerEnumValueTypes;
     private static readonly Dictionary<ApplePlatform, HashSet<string>> _platformUnavailableModules;
     private static readonly string[] _objcPrefixes;
     // Per-module ObjC prefix tables. Modules that declare an explicit `objcPrefixes`
@@ -90,6 +100,30 @@ internal static class AppleFrameworkRegistry
     /// </summary>
     internal const int ExpectedObjCTypeMappingsSchemaVersion = 1;
 
+    /// <summary>The one shape a <c>valueTypes</c> entry may describe today: an integer-backed enum.</summary>
+    private const string IntegerEnumValueTypeKind = "enum";
+
+    /// <summary>
+    /// Classifies a <c>valueTypes</c> entry's declared shape: true when it describes an
+    /// integer-backed enum, false when it describes nothing (the bare-name form, which keeps its
+    /// historical "not an ObjC class" meaning and nothing more). An unrecognized shape throws
+    /// rather than degrading to "described by nothing" — a typo would otherwise be indistinguishable
+    /// from a deliberate bare entry and would silently leave the type unresolvable, which is the very
+    /// failure a description exists to remove.
+    /// </summary>
+    internal static bool DescribesIntegerEnum(string qualifiedName, string? kind)
+    {
+        if (kind == null)
+            return false;
+        if (string.Equals(kind, IntegerEnumValueTypeKind, StringComparison.Ordinal))
+            return true;
+
+        throw new InvalidOperationException(
+            $"apple-frameworks.json: value type '{qualifiedName}' declares unknown kind "
+            + $"'{kind}'. The only describable shape is '{IntegerEnumValueTypeKind}' "
+            + "(an integer-backed NS_ENUM/NS_OPTIONS).");
+    }
+
     // --- JSON Model ---
 
     private sealed class FrameworkDefinitionsFile
@@ -134,7 +168,7 @@ internal static class AppleFrameworkRegistry
         public string[]? PlatformUnavailable { get; set; }
 
         [JsonProperty("valueTypes")]
-        public string[]? ValueTypes { get; set; }
+        public ValueTypeDefinition[]? ValueTypes { get; set; }
 
         [JsonProperty("typeRemaps")]
         public Dictionary<string, string>? TypeRemaps { get; set; }
@@ -147,6 +181,52 @@ internal static class AppleFrameworkRegistry
 
         [JsonProperty("packageId")]
         public string? PackageId { get; set; }
+    }
+
+    /// <summary>
+    /// One <c>valueTypes</c> entry. Written either as a bare name — "this is not an ObjC class",
+    /// with no claim about what it *is*, so it stays unresolvable — or as an object that also
+    /// describes the shape (<c>{ "name": "PKPaymentButtonType", "kind": "enum" }</c>), which lets
+    /// the resolver supply a real value-type record instead. The description is deliberately the
+    /// narrow Swift-side fact only; the .NET identity (namespace, spelling, raw-value width,
+    /// bitmask-ness) is read from the platform binding that actually ships, so it can never drift
+    /// from what the emitted C# has to compile against.
+    /// </summary>
+    [JsonConverter(typeof(ValueTypeDefinitionConverter))]
+    private sealed class ValueTypeDefinition
+    {
+        public string Name { get; init; } = string.Empty;
+
+        /// <summary>Declared shape, or null when the entry only withholds ObjC bridging.</summary>
+        public string? Kind { get; init; }
+    }
+
+    /// <summary>Reads a <c>valueTypes</c> entry written either as a bare string or as an object.</summary>
+    private sealed class ValueTypeDefinitionConverter : JsonConverter<ValueTypeDefinition>
+    {
+        public override ValueTypeDefinition ReadJson(
+            JsonReader reader, Type objectType, ValueTypeDefinition? existingValue,
+            bool hasExistingValue, JsonSerializer serializer)
+        {
+            var token = JToken.Load(reader);
+            if (token.Type == JTokenType.String)
+                return new ValueTypeDefinition { Name = token.Value<string>() ?? string.Empty };
+
+            if (token is JObject obj)
+            {
+                var name = obj.Value<string>("name");
+                if (string.IsNullOrEmpty(name))
+                    throw new JsonSerializationException(
+                        "apple-frameworks.json: a valueTypes object entry must carry a non-empty 'name'.");
+                return new ValueTypeDefinition { Name = name!, Kind = obj.Value<string>("kind") };
+            }
+
+            throw new JsonSerializationException(
+                $"apple-frameworks.json: a valueTypes entry must be a string or an object, not {token.Type}.");
+        }
+
+        public override void WriteJson(JsonWriter writer, ValueTypeDefinition? value, JsonSerializer serializer)
+            => throw new NotSupportedException("apple-frameworks.json is read-only registry data.");
     }
 
     private sealed class ObjCTypeMappingsFile
@@ -209,6 +289,7 @@ internal static class AppleFrameworkRegistry
         _compileImportSourceModules = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         _typeNameRemaps = new Dictionary<string, string>(StringComparer.Ordinal);
         _valueTypes = new HashSet<string>(StringComparer.Ordinal);
+        _integerEnumValueTypes = new HashSet<string>(StringComparer.Ordinal);
         _netUnavailableTypes = new HashSet<string>(StringComparer.Ordinal);
         _packageIds = new Dictionary<string, string>(StringComparer.Ordinal);
         _perModuleObjcPrefixes = new Dictionary<string, string[]>(StringComparer.Ordinal);
@@ -285,7 +366,13 @@ internal static class AppleFrameworkRegistry
             if (def.ValueTypes != null)
             {
                 foreach (var vt in def.ValueTypes)
-                    _valueTypes.Add($"{def.Module}.{vt}");
+                {
+                    var qualifiedName = $"{def.Module}.{vt.Name}";
+                    _valueTypes.Add(qualifiedName);
+
+                    if (DescribesIntegerEnum(qualifiedName, vt.Kind))
+                        _integerEnumValueTypes.Add(qualifiedName);
+                }
             }
 
             if (def.TypeRemaps != null)
@@ -444,6 +531,15 @@ internal static class AppleFrameworkRegistry
 
         return false;
     }
+
+    /// <summary>
+    /// True when the registry describes this value type as an integer-backed enum — the Swift
+    /// importer surfaces it as a raw-value enum, so it can carry a real value-type record instead
+    /// of staying unresolvable. False for every bare <c>valueTypes</c> entry, which continues to
+    /// mean "not an ObjC class" and nothing more. See <see cref="_integerEnumValueTypes"/>.
+    /// </summary>
+    public static bool IsIntegerEnumValueType(string moduleQualifiedName)
+        => _integerEnumValueTypes.Contains(moduleQualifiedName);
 
     /// <summary>True when a module declares no ObjC classes — every type it exports is a
     /// Swift value type. See <see cref="_valueTypesOnlyModules"/>.</summary>

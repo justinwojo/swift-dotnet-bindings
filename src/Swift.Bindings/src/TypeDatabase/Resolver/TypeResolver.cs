@@ -108,6 +108,10 @@ public sealed class TypeResolver
         // the Apple supplement and the ObjC bridge fallback — the same slot the
         // single black-box DatabaseLookupStrategy occupied before the split.
         .Concat(DatabaseCascade)
+        // A registry-described Apple integer enum resolves as a value type here — after the
+        // database cascade so a hand-authored entry still wins, and before the ObjC bridge
+        // fallback, which declines registered value types and would leave the name unresolvable.
+        .Append(new RegisteredAppleEnumStrategy())
         .Append(new ObjCBridgingStrategy()));
 
     /// <summary>
