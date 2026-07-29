@@ -1554,18 +1554,49 @@ sed -i '' &quot;s|_SwiftBindingBridgeSliceCount&gt;[0-9]*|_SwiftBindingBridgeSli
   <Target Name="_BuildSiblingSwiftBindingDeps"
           DependsOnTargets="_DetectSwiftBindingTargetKind;_DiscoverProjectReferenceDependencies"
           Condition="'$(_SwiftBindingTargetKind)' != 'AppleFramework' AND '@(_UserProjectReference)' != ''">
-    <!-- Pinned slice: honour an explicit ProjectReference SetTargetFramework/SetConfiguration
+    <!-- PROPERTY-SET COALESCING (why these two tasks pass what they pass).
+         MSBuild identifies a build request by (project, GLOBAL PROPERTY SET, targets) and caches
+         the result per distinct set. ResolveProjectReferences — the authoritative build of the same
+         sibling, later in this same build — invokes it with
+             Properties="%(SetConfiguration);%(SetPlatform);%(SetTargetFramework)"
+             RemoveProperties="%(GlobalPropertiesToRemove)$(_GlobalPropertiesToRemoveFromProjectReferences)"
+         i.e. the parent's globals verbatim, plus any authored/negotiated pin, minus TargetFramework
+         (and friends) when the SDK undefines them. Any property this prep-build adds that the
+         authoritative call does NOT add makes the two requests DIFFERENT build instances, so the
+         sibling is built TWICE — concurrently, on different nodes. For a Swift binding that means two
+         generator runs and two ObjC bgen runs writing the SAME RID-less obj/<cfg>/<tfm>/<Module>/*.g.cs,
+         which can interleave into a truncated file (observed as a CS1513 on a bgen-emitted .g.cs), on
+         top of doubling every generate/wrapper/compile step.
+         So this prep build deliberately passes NOTHING the authoritative call would not pass:
+           - no Configuration=$(Configuration) default. It looks harmless because it equals the
+             parent's own value, but `dotnet build -c X` makes Configuration a GLOBAL (both requests
+             carry it, adding it is a no-op) while a plain `dotnet build` does NOT (adding it invents a
+             global the authoritative request lacks → two instances). Unpinned siblings therefore
+             inherit exactly what the parent inherited, which is also what ResolveProjectReferences
+             gives them — so they land in the same obj/<cfg>/ that _CollectSwiftModuleDatabases
+             Source 3 and the wrapper -F query scan with the same $(Configuration) fallback.
+           - RemoveProperties instead of NoBuild=false. A no-build pack outer (dotnet pack with the
+             no-build switch) sets NoBuild=true as a GLOBAL and the <MSBuild> task forwards it here;
+             with Targets="Build"
+             the sibling's own _CheckForBuildWithNoBuild guard would raise NETSDK1085, which
+             ContinueOnError would swallow into a SKIPPED pre-build leaving a stale module database (the
+             very failure this target exists to prevent). Removing the property neutralizes it exactly
+             as pinning false did — the sibling evaluates NoBuild from its own file — but leaves the
+             normal-case set (where no NoBuild global exists) byte-identical to the authoritative one,
+             so the two requests coalesce into a single build instead of forking a second.
+
+         Pinned slice: honour an explicit ProjectReference SetTargetFramework/SetConfiguration
          so a cross-TFM or cross-config pin builds (and is later discovered) under the same
          slice that _CollectSwiftModuleDatabases Source 3 and the wrapper -F query look for.
          SetTargetFramework/SetConfiguration are MSBuild's canonical `TargetFramework=<tfm>` /
          `Configuration=<cfg>` name=value forms (see Swift.Bindings.csproj's own Swift.Runtime
          reference), so they are passed through verbatim — re-prefixing would set the global
-         property to the literal string and build the wrong (or no) slice. SetConfiguration is
-         appended AFTER the Configuration=$(Configuration) default so a cross-config pin wins
-         (later value in the property list overrides); an absent pin contributes an empty
-         segment MSBuild ignores, leaving the parent Configuration in force. -->
+         property to the literal string and build the wrong (or no) slice. They are the same two
+         metadata ResolveProjectReferences forwards, so a pinned sibling coalesces too; an absent
+         pin contributes an empty segment MSBuild ignores, leaving the inherited value in force. -->
     <MSBuild Projects="@(_UserProjectReference)"
-             Properties="Configuration=$(Configuration);%(_UserProjectReference.SetConfiguration);%(_UserProjectReference.SetTargetFramework);NoBuild=false"
+             Properties="%(_UserProjectReference.SetConfiguration);%(_UserProjectReference.SetTargetFramework)"
+             RemoveProperties="NoBuild"
              Targets="Build"
              BuildInParallel="false"
              ContinueOnError="true"
@@ -1577,16 +1608,13 @@ sed -i '' &quot;s|_SwiftBindingBridgeSliceCount&gt;[0-9]*|_SwiftBindingBridgeSli
          consumer's Apple TFM (which would fail NETSDK1005). RemoveProperties is
          what actually strips the forwarded global TargetFramework — omitting it
          from Properties is not enough (the MSBuild task forwards the calling
-         project's global TargetFramework otherwise). A config-only pin
-         (SetConfiguration set, no SetTargetFramework) still lands here and is
-         honoured by appending SetConfiguration after the default.
-         NoBuild=false: same neutralization as the companion build below — these are out-of-band
-         SDK-internal prep builds, so a no-build pack outer (which forwards NoBuild=true as a global)
-         must not turn them into NETSDK1085 (here swallowed by ContinueOnError into a skipped
-         pre-build that leaves a stale module database) instead of an incremental no-op. -->
+         project's global TargetFramework otherwise), and it is also what
+         ResolveProjectReferences does via $(_GlobalPropertiesToRemoveFromProjectReferences),
+         so removing it keeps the two sets equal rather than diverging them. A config-only pin
+         (SetConfiguration set, no SetTargetFramework) still lands here and is honoured. -->
     <MSBuild Projects="@(_UserProjectReference)"
-             Properties="Configuration=$(Configuration);%(_UserProjectReference.SetConfiguration);NoBuild=false"
-             RemoveProperties="TargetFramework"
+             Properties="%(_UserProjectReference.SetConfiguration)"
+             RemoveProperties="TargetFramework;NoBuild"
              Targets="Build"
              BuildInParallel="false"
              ContinueOnError="true"
@@ -2275,30 +2303,42 @@ done; true"
                                             AND Exists('$(_SwiftBindingCompanionCsproj)')">true</_SwiftBindingHasCompanion>
     </PropertyGroup>
 
+    <!-- All three invocations below MUST carry the SAME Properties/RemoveProperties. MSBuild keys a
+         project instance on its global-property set, so a Build that differs from the neighbouring
+         Restore/GetTargetPath by even one property forks a SECOND instance of the companion: the
+         Restore and the GetTargetPath would then be answered by an instance the Build never ran in,
+         and the companion is evaluated (and potentially built) twice for one binding. Keeping the
+         three identical means one instance, restored, built and queried in that order. -->
     <MSBuild Condition="'$(_SwiftBindingHasCompanion)' == 'true'"
              Projects="$(_SwiftBindingCompanionCsproj)"
              Properties="Configuration=$(Configuration)"
-             RemoveProperties="TargetFramework"
+             RemoveProperties="TargetFramework;NoBuild"
              Targets="Restore"
              BuildInParallel="false" />
-    <!-- NoBuild=false neutralizes the outer invocation's NoBuild global. A no-build pack (the SDK
+    <!-- Removing NoBuild neutralizes the outer invocation's NoBuild global. A no-build pack (the SDK
          sets NoBuild=true as a GLOBAL property) forwards that global to this child <MSBuild> by
          default; with Targets="Build" the companion's own _CheckForBuildWithNoBuild guard would then
          raise NETSDK1085 and the package would never be produced (regression surfaced in SDK 0.14.0).
          NoBuild is a statement about the OUTER (binding) project reusing its built output; it was
          never meant to suppress this out-of-band companion build, whose assembly MUST exist to embed
-         in lib/ and to satisfy the Swift surface's references. Pinning NoBuild=false here builds the
-         companion incrementally (a no-op when up to date) regardless of how the outer was launched. -->
+         in lib/ and to satisfy the Swift surface's references. Dropping the inherited global lets the
+         companion evaluate NoBuild from its own file (unset), so it builds incrementally (a no-op when
+         up to date) regardless of how the outer was launched — the same neutralization pinning
+         NoBuild=false gave, without introducing a property the sibling Restore/GetTargetPath calls
+         lack (which is what would fork the second instance).
+         Configuration=$(Configuration) is safe to pin here — unlike a ProjectReference, this csproj is
+         generated into obj/ and is never reached by the normal project graph, so there is no
+         authoritative build whose property set it has to match. -->
     <MSBuild Condition="'$(_SwiftBindingHasCompanion)' == 'true'"
              Projects="$(_SwiftBindingCompanionCsproj)"
-             Properties="Configuration=$(Configuration);NoBuild=false"
-             RemoveProperties="TargetFramework"
+             Properties="Configuration=$(Configuration)"
+             RemoveProperties="TargetFramework;NoBuild"
              Targets="Build"
              BuildInParallel="false" />
     <MSBuild Condition="'$(_SwiftBindingHasCompanion)' == 'true'"
              Projects="$(_SwiftBindingCompanionCsproj)"
              Properties="Configuration=$(Configuration)"
-             RemoveProperties="TargetFramework"
+             RemoveProperties="TargetFramework;NoBuild"
              Targets="GetTargetPath"
              BuildInParallel="false">
       <Output TaskParameter="TargetOutputs" ItemName="_SwiftBindingCompanionBuildOutput" />

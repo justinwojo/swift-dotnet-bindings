@@ -1674,19 +1674,24 @@ namespace BindingsGeneration.Tests
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
             // Same global-NoBuild hazard as the companion (see
             // BuildMixedObjCCompanion_OuterNoBuild_CompanionBuildDoesNotInheritNoBuild): a
-            // `dotnet pack --no-build` outer sets NoBuild=true as a GLOBAL property which the
+            // pack-with-no-build outer sets NoBuild=true as a GLOBAL property which the
             // <MSBuild> task forwards to this out-of-band sibling pre-build. Here ContinueOnError
             // would SWALLOW the resulting NETSDK1085 into a skipped pre-build — silently leaving a
             // stale module database (the very failure mode _BuildSiblingSwiftBindingDeps exists to
             // prevent) instead of a hard error. _BuildSiblingSwiftBindingDeps must therefore
-            // neutralize the inherited NoBuild (Properties NoBuild=false) so the sibling actually
-            // pre-builds. Assert on the value the sibling's Build receives — true would trip the
-            // guard in a real SDK sibling.
+            // neutralize the inherited NoBuild so the sibling actually pre-builds.
+            //
+            // Neutralization is by RemoveProperties="NoBuild", not Properties="NoBuild=false":
+            // the guard (_CheckForBuildWithNoBuild) fires only on '$(NoBuild)' == 'true', so an
+            // absent NoBuild is equally safe, AND removing keeps the pre-build's global-property
+            // set identical to the authoritative ResolveProjectReferences build (see
+            // BuildSiblingSwiftBindingDeps_SharedSiblingBuildsExactlyOnce). Assert the BEHAVIOR —
+            // the sibling never sees a NoBuild that would trip the guard — not the literal value.
             var (output, exitCode) = RunSiblingPreBuildDump(noBuild: true);
             Assert.True(exitCode == 0, $"_CollectSwiftModuleDatabases (sibling pre-build) failed under outer NoBuild.\nOutput: {output}");
             Assert.Contains("SIBLING_PREBUILT", output);
+            Assert.Contains("SIBLING_PREBUILT_NOBUILD:[", output);
             Assert.DoesNotContain("SIBLING_PREBUILT_NOBUILD:[true]", output);
-            Assert.Contains("SIBLING_PREBUILT_NOBUILD:[false]", output);
         }
 
         /// <summary>
@@ -1783,8 +1788,9 @@ namespace BindingsGeneration.Tests
             // the pre-build did before this fix) builds the sibling into obj/Debug/ while a
             // Release-pinned discovery scans obj/Release/ → the database + wrapper xcframework are
             // missed on a clean first build. SetConfiguration is MSBuild's canonical
-            // `Configuration=<cfg>` form, passed verbatim and appended AFTER the parent default so
-            // the pin wins. This mirrors the reported repro shape (both pins set).
+            // `Configuration=<cfg>` form and is passed verbatim — the SAME metadata, with the same
+            // precedence, that ResolveProjectReferences itself forwards. This mirrors the reported
+            // repro shape (both pins set).
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
 
             // Sibling echoes the active Configuration/TargetFramework it was actually built under.
@@ -1838,6 +1844,115 @@ namespace BindingsGeneration.Tests
             Assert.Contains("SIBLING_CFG=Release", output);
             Assert.Contains("SIBLING_TFM=net10.0", output);
             Assert.DoesNotContain("SIBLING_CFG=Debug", output);
+        }
+
+        [Theory]
+        // Configuration is a GLOBAL property only when the outer command passes it; a plain
+        // `dotnet build` leaves it a normal (non-global) property. Both shapes must coalesce, so
+        // both are exercised: forwarding Configuration=$(Configuration) unconditionally diverged
+        // the first shape, forwarding nothing would have diverged had it been global-only.
+        [InlineData("", false)]
+        [InlineData(" -p:Configuration=Debug", false)]
+        // A pinned reference: the prep-build must still land on exactly the instance
+        // ResolveProjectReferences creates for the pin.
+        [InlineData("", true)]
+        [InlineData(" -p:Configuration=Debug", true)]
+        public void BuildSiblingSwiftBindingDeps_SharedSiblingBuildsExactlyOnce(string extraArgs, bool pinned)
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // An MSBuild build request is keyed on (project, GLOBAL PROPERTY SET, targets). When
+            // the out-of-band sibling pre-build passes a global set that does not match the one
+            // ResolveProjectReferences uses, MSBuild does not dedupe them: it creates TWO project
+            // instances and runs Build fully on each — potentially on different nodes, in parallel.
+            //
+            // For a binding project that is ProjectReferenced by a SIBLING binding, that is not
+            // merely 2x wasted work. Both instances run the whole build, including out-of-process
+            // generators writing into the RID-less obj/<cfg>/<tfm>/ intermediate dir. Two concurrent
+            // writers on one output path produce a TORN file; the observed failure was Microsoft's
+            // ObjC binding generator emitting a truncated .g.cs (`error CS1513: } expected`) that a
+            // later rebuild produced intact. We cannot make third-party tooling's writes atomic, so
+            // the fix is upstream of it: never fork the second instance.
+            //
+            // The tear itself is a timing race and is deliberately NOT what this asserts. This
+            // asserts the deterministic upstream condition that enables it: the shared sibling is
+            // built exactly ONCE across the pre-build and the authoritative reference build.
+            //
+            // The sibling must be a real Microsoft.NET.Sdk project, not the stub <Project> the
+            // other sibling tests use: _GetProjectReferenceTargetFrameworkProperties drops a
+            // reference whose GetTargetFrameworks returns nothing, so a stub never reaches the
+            // authoritative leg and the double build could not be observed at all.
+            var siblingDir = Path.Combine(_tempDir, "Sibling.Swift.iOS");
+            Directory.CreateDirectory(siblingDir);
+            var siblingCsproj = Path.Combine(siblingDir, "Sibling.Swift.iOS.csproj");
+            File.WriteAllText(siblingCsproj, """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+                  </PropertyGroup>
+                  <Target Name="_SiblingBuildMarker" AfterTargets="Build">
+                    <Message Importance="High" Text="SIBLING_BUILD_INSTANCE NoBuild=[$(NoBuild)]" />
+                  </Target>
+                </Project>
+                """);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            var pins = pinned
+                ? " SetConfiguration=\"Configuration=Debug\" SetTargetFramework=\"TargetFramework=net10.0\""
+                : "";
+
+            // Neutralize the SDK targets whose real bodies need an xcframework or shell the
+            // generator. Everything on the path under test stays real:
+            // _DiscoverProjectReferenceDependencies (populates _UserProjectReference),
+            // _BuildSiblingSwiftBindingDeps (the pre-build), and the stock
+            // ResolveProjectReferences (the authoritative build).
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <ProjectReference Include="{siblingCsproj}"{pins} />
+                  </ItemGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <Target Name="_ComputeSwiftFingerprint" />
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ValidateSwiftPackageItems" />
+                  <Target Name="_DetectAppleFrameworkCrossModuleDeps" />
+                  <Target Name="_GenerateSwiftBindings" />
+                  <Target Name="_GenerateSwiftBindingsAppleFramework" />
+                  <Target Name="_SynthesizeAppleFrameworkXcframework" />
+                  <Target Name="_CompileSwiftWrapper" />
+                  <Target Name="_ImportSwiftBindingMetadata" />
+                  <Target Name="_SynthesizeAppleFrameworkConsumerTargets" />
+                  <Target Name="_ValidateSwiftBindingPackSlices" />
+                  <Target Name="_ResolveSwiftFrameworkDependencies" />
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            // Both legs in ONE build so the two requests can dedupe (or not) exactly as they do in
+            // a real build: _CollectSwiftModuleDatabases pulls the pre-build, ResolveProjectReferences
+            // is the authoritative one. -restore is needed for the real SDK sibling's assets file.
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -restore " +
+                $"-t:_CollectSwiftModuleDatabases -t:ResolveProjectReferences -nologo -v:n{extraArgs}");
+
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.True(result.ExitCode == 0, $"Sibling pre-build + ResolveProjectReferences failed.\nOutput: {output}");
+
+            var builds = System.Text.RegularExpressions.Regex.Matches(output, "SIBLING_BUILD_INSTANCE").Count;
+            Assert.True(builds == 1,
+                $"Shared sibling built {builds} time(s); expected exactly 1. More than one means the " +
+                $"pre-build's global-property set diverged from ResolveProjectReferences' and forked a " +
+                $"second concurrent build instance over the same intermediate output dir.\nOutput: {output}");
         }
 
         // ── SwiftUI bridge -F search path must mirror the wrapper's (include BOTH the resolved
@@ -2369,20 +2484,25 @@ namespace BindingsGeneration.Tests
         public void BuildMixedObjCCompanion_OuterNoBuild_CompanionBuildDoesNotInheritNoBuild()
         {
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
-            // Regression (surfaced in SDK 0.14.0): `dotnet pack --no-build` sets NoBuild=true as a
+            // Regression (surfaced in SDK 0.14.0): pack-with-no-build sets NoBuild=true as a
             // GLOBAL property, which the <MSBuild> task forwards by default to the out-of-band
             // companion build. With Targets="Build", a real SDK companion's _CheckForBuildWithNoBuild
             // guard then raises NETSDK1085 and the package is never produced. _BuildMixedObjCCompanion
-            // must neutralize the inherited NoBuild (Properties NoBuild=false) so the companion builds
-            // regardless of how the outer command was launched. We assert on the value the companion's
-            // Build actually receives — true here would trip NETSDK1085 in a real companion.
+            // must neutralize the inherited NoBuild so the companion builds regardless of how the
+            // outer command was launched.
+            //
+            // Neutralization is by RemoveProperties="NoBuild": the guard fires only on
+            // '$(NoBuild)' == 'true', so an absent NoBuild is equally safe, and removing keeps all
+            // three companion invocations (Restore/Build/GetTargetPath) on ONE global-property set
+            // — differing sets would fork the companion into multiple concurrent build instances.
+            // Assert the BEHAVIOR (never a NoBuild that trips the guard), not the literal value.
             var (output, exitCode) = RunBuildMixedObjCCompanionDump(
                 frameworkType: "Mixed", companionPresent: true, noBuild: true);
 
             Assert.True(exitCode == 0, $"_BuildMixedObjCCompanion failed under outer NoBuild.\nOutput: {output}");
             Assert.Contains("COMPANION_BUILD:Config=", output);
+            Assert.Contains("COMPANION_BUILD_NOBUILD:[", output);
             Assert.DoesNotContain("COMPANION_BUILD_NOBUILD:[true]", output);
-            Assert.Contains("COMPANION_BUILD_NOBUILD:[false]", output);
         }
 
         [Fact]
