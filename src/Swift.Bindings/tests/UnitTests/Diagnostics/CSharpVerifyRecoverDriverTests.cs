@@ -289,6 +289,76 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
     }
 
     [Fact]
+    public void CSharpOnlyLoop_InconclusiveAfterAWithdrawal_FailsTheModuleClosedThroughTheController()
+    {
+        // The controller-level counterpart to the driver assertion above: let the loop actually withdraw a
+        // member and only then lose the verifier's verdict, so the fail-closed outcome is the CONTROLLER's
+        // — reached through a real round sequence, not a hand-built denylist. With no wrapper plane the
+        // bounded bisection declines (it has no vacuity signal to search under), so the unattributed round
+        // ends the loop closed rather than searching on a verdict it cannot trust.
+        using var harness = new JointDriverHarness(
+            this, CSharpBehavior.ErrorThenInconclusive, wrapperPlane: false);
+
+        var result = WrapperRecoveryController.Run(harness);
+
+        Assert.False(result.Converged);
+        // Non-vacuity: the loop got past a genuine withdrawal before the verifier went dark.
+        Assert.Single(result.Denylist);
+        Assert.True(harness.CSharpErrored, "the C# verifier never reported the compile error under test");
+    }
+
+    // ── ingestion quarantine is not a loop withdrawal ───────────────────────────────────────────
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void InconclusiveWithOnlyIngestionWithdrawals_PassesThrough_RatherThanFailingClosed(
+        bool wrapperPlane)
+    {
+        // Units quarantined at ingestion were withdrawn BEFORE the loop began, and the post-generate
+        // publication gate grades them whether or not the loop converges. So a round-0 inconclusive verdict
+        // on such a module must still pass through to that gate: the loop has given up nothing of its own,
+        // and there is no reduction of its making left unproven. Counting the quarantine as a loop
+        // withdrawal would fail an otherwise healthy module closed purely because its parse stage
+        // quarantined something. Asserted on both planes because the policy lives in the shared arm.
+        using var harness = new JointDriverHarness(
+            this, CSharpBehavior.AlwaysInconclusive,
+            wrapperPlane: wrapperPlane, withIngestionWithdrawal: true);
+
+        var result = WrapperRecoveryController.Run(harness);
+
+        Assert.True(result.Converged);
+        Assert.Empty(result.Denylist);
+        Assert.Equal(1, result.Rounds);
+        // Non-vacuity: the verifier really ran and really failed to reach a verdict.
+        Assert.Equal(1, harness.CSharpVerifyCalls);
+        Assert.False(harness.CSharpVerifiedClean);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void InconclusiveAfterALoopWithdrawal_StillFailsClosed_WhenIngestionUnitsArePresentToo(
+        bool wrapperPlane)
+    {
+        // The counterpart: once the LOOP has withdrawn something, an inconclusive verdict can no longer
+        // prove that reduction sound, and the presence of ingestion quarantine units does not soften it.
+        // One loop withdrawal is enough to fail the module closed.
+        using var harness = new JointDriverHarness(
+            this, CSharpBehavior.AlwaysInconclusive,
+            wrapperPlane: wrapperPlane, withIngestionWithdrawal: true);
+
+        var attribution = harness.RenderCompileAttribute(
+            new HashSet<RecoveryUnitId> { harness.WithdrawableMethodUnit() });
+
+        Assert.NotNull(attribution);
+        var decision = Assert.Single(attribution!.Diagnostics);
+        Assert.Equal(AttributionKind.Classification, decision.Kind);
+        Assert.Equal(CauseOwner.InputConfiguration, decision.Owner);
+        Assert.Empty(attribution.Culprits);
+    }
+
+    [Fact]
     public void DriverWithNeitherPlane_IsRefused_RatherThanCertifyingAnUnverifiedRender()
     {
         // A driver with no wrapper compile and no C# verifier would return null from every round — the
@@ -324,6 +394,13 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
         /// an unattributed error and fail closed.
         /// </summary>
         UnattributableError,
+
+        /// <summary>
+        /// One member fails the C# compile, and the verifier then loses the ability to reach a verdict at
+        /// all — the shape that walks the loop through a real withdrawal and only THEN goes inconclusive,
+        /// so the fail-closed policy is exercised by the controller rather than by a hand-built denylist.
+        /// </summary>
+        ErrorThenInconclusive,
     }
 
     /// <summary>
@@ -358,11 +435,17 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
         /// compile (the Apple system-framework direct path), where the loop runs the C# plane alone.
         /// </param>
         /// <param name="csharpPlane">Wire the C# verifier. False only to prove the no-plane refusal.</param>
+        /// <param name="withIngestionWithdrawal">
+        /// Seed the driver with one always-on ingestion quarantine unit — a member withdrawn BEFORE the
+        /// loop started. Models a module whose parse/ingestion stage quarantined something, so a test can
+        /// prove the loop's policies distinguish that from a withdrawal the loop itself made.
+        /// </param>
         public JointDriverHarness(
             CSharpVerifyRecoverDriverTests owner,
             CSharpBehavior behavior,
             bool wrapperPlane = true,
-            bool csharpPlane = true)
+            bool csharpPlane = true,
+            bool withIngestionWithdrawal = false)
         {
             _behavior = behavior;
             _scratch = Path.Combine(Path.GetTempPath(), "swiftbind-csharploop-" + Guid.NewGuid().ToString("N"));
@@ -413,7 +496,10 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
                 compileWrapper: wrapperPlane ? compileWrapper : null,
                 request: request,
                 preRender: ClearScratch,
-                verifyCsharp: csharpPlane ? VerifyCsharp : null);
+                verifyCsharp: csharpPlane ? VerifyCsharp : null,
+                ingestionWithdrawals: withIngestionWithdrawal
+                    ? new HashSet<RecoveryUnitId> { AccessorGroupUnit(_module) }
+                    : null);
         }
 
         /// <inheritdoc />
@@ -435,17 +521,28 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
         }
 
         /// <summary>The two withdrawable leaf/accessor units the ContainmentFixture exposes.</summary>
-        public HashSet<RecoveryUnitId> WithdrawableUnits()
+        public HashSet<RecoveryUnitId> WithdrawableUnits() =>
+            new() { LeafApiUnit(_module), AccessorGroupUnit(_module) };
+
+        /// <summary>
+        /// One withdrawable leaf-api unit, distinct from the accessor group an ingestion-seeded harness
+        /// quarantines — so a test can hand the loop exactly one withdrawal of its own.
+        /// </summary>
+        public RecoveryUnitId WithdrawableMethodUnit() => LeafApiUnit(_module);
+
+        private static RecoveryUnitId LeafApiUnit(ModuleDecl module)
         {
-            var registry = _module.Types.Single(t => t.Name == "Registry");
+            var registry = module.Types.Single(t => t.Name == "Registry");
             var method = registry.Methods.Single(m =>
                 m.Name == "register" && m.CSSignature.Any(p => p.Name == "third"));
+            return RecoveryUnitId.Create(DeclIdFactory.ForMethod(method), RecoveryScope.LeafApi);
+        }
+
+        private static RecoveryUnitId AccessorGroupUnit(ModuleDecl module)
+        {
+            var registry = module.Types.Single(t => t.Name == "Registry");
             var property = registry.Properties.Single(p => p.Name == "name");
-            return new HashSet<RecoveryUnitId>
-            {
-                RecoveryUnitId.Create(DeclIdFactory.ForMethod(method), RecoveryScope.LeafApi),
-                RecoveryUnitId.ForAccessorGroup(DeclIdFactory.ForProperty(property)),
-            };
+            return RecoveryUnitId.ForAccessorGroup(DeclIdFactory.ForProperty(property));
         }
 
         /// <summary>The concatenated emitted C# of the latest render still on disk.</summary>
@@ -491,31 +588,38 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
                                 Message: "The type or namespace name 'Nope' could not be found"),
                         });
 
+                case CSharpBehavior.ErrorThenInconclusive:
+                    // The verifier reaches no verdict once the culprit is gone, so the loop is left holding
+                    // a withdrawal it can no longer prove sound.
+                    return ErrorUntilWithdrawn(cleanVerdict: Inconclusive);
+
                 default:
                     return ErrorUntilWithdrawn();
             }
         }
 
-        private CSharpVerificationResult ErrorUntilWithdrawn()
+        private CSharpVerificationResult ErrorUntilWithdrawn(
+            Func<CSharpVerificationResult>? cleanVerdict = null)
         {
+            var settled = cleanVerdict ?? Clean;
             // Lock onto the first withdrawable member that has an emitted C#-plane fragment, once, so the
             // scenario is a single deterministic culprit rather than whichever member surfaces first each
             // round.
             var withdrawable = WithdrawableUnits();
             _target ??= FindCSharpFragment(u => withdrawable.Contains(u))?.Unit;
             if (_target == null)
-                return Clean();   // no withdrawable C# fragment — the non-vacuity assert will catch it
+                return settled();   // no withdrawable C# fragment — the non-vacuity assert will catch it
 
             // Once the culprit is withdrawn its member is a tombstone, not compilable code, so the C#
-            // compile goes clean — the joint state can settle.
+            // compile no longer errors on it — the settled verdict decides whether that is convergence.
             if (_currentDenylist.Contains(_target.Value))
-                return Clean();
+                return settled();
 
             // The culprit is still emitted this round: fail the C# compile on it, positioned at its real
             // fragment in the LIVE render so the driver's interval-map attribution names its recovery unit.
             var at = FindCSharpFragment(u => u.Equals(_target.Value));
             if (at == null)
-                return Clean();
+                return settled();
 
             CSharpErrored = true;
             return new CSharpVerificationResult(

@@ -201,6 +201,14 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
     public AttributionResult? RenderCompileAttribute(IReadOnlySet<RecoveryUnitId> denylist)
     {
         ArgumentNullException.ThrowIfNull(denylist);
+
+        // How many units the LOOP has withdrawn, captured before the ingestion quarantine set is folded
+        // in. Ingestion withdrawals are not loop reductions — they were removed before the loop started
+        // and the post-generate publication gate grades them regardless of how the loop ends — so the
+        // policy that keys on "has the loop given anything up yet?" must not count them. Folding them in
+        // would turn a round-0 inconclusive verdict on a quarantined module into a closed failure, when
+        // the loop has withdrawn nothing and the honest answer is to pass through to that gate.
+        var loopWithdrawalCount = denylist.Count;
         denylist = WithIngestionWithdrawals(denylist);
 
         // Drop the previous render's wrapper source and thunk-assembly files before re-emitting.
@@ -254,7 +262,7 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
         // stays null — this mode's wrapper (when it has one) is built after generation returns, from the
         // settled source, exactly as it is today without a loop.
         if (_compileWrapper == null)
-            return VerifyCSharpPlane(denylist, wrapperResult: null);
+            return VerifyCSharpPlane(denylist, loopWithdrawalCount, wrapperResult: null);
 
         var diagnostics = _compileWrapper(_request);
         if (diagnostics.NoWrapperSurface)
@@ -286,16 +294,21 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
             return null;
         }
 
-        return VerifyCSharpPlane(denylist, diagnostics.Result);
+        return VerifyCSharpPlane(denylist, loopWithdrawalCount, diagnostics.Result);
     }
 
     // The C# plane of one round: verify the emitted C# for the render that just settled and turn the
     // verdict into this round's attribution. Shared by the joint (wrapper + C#) path, where it runs only
     // after the wrapper compiled clean, and the C#-only path, where it IS the round. <paramref
-    // name="wrapperResult"/> is the converged wrapper artifact to publish through the side channel, or
-    // null when no wrapper plane produced one.
+    // name="denylist"/> is what the verifier must see excluded (loop withdrawals plus the always-on
+    // ingestion quarantine); <paramref name="loopWithdrawalCount"/> is the loop's own withdrawal count
+    // alone, which is what the inconclusive policy keys on. <paramref name="wrapperResult"/> is the
+    // converged wrapper artifact to publish through the side channel, or null when no wrapper plane
+    // produced one.
     private AttributionResult? VerifyCSharpPlane(
-        IReadOnlySet<RecoveryUnitId> denylist, SwiftWrapperCompilationResult? wrapperResult)
+        IReadOnlySet<RecoveryUnitId> denylist,
+        int loopWithdrawalCount,
+        SwiftWrapperCompilationResult? wrapperResult)
     {
         // A verifier throw is an infrastructure failure, not a C# verdict. The delegate extracts
         // metadata, probes native slices, re-emits the verification project, and runs an external
@@ -332,26 +345,28 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
             default:
                 // Inconclusive: the verifier could not reach a verdict (a restore/infrastructure failure
                 // or a verifier-internal error, never a genuine C# error — those are CompileErrors).
-                // With nothing yet withdrawn this is a round-0 pass-through, identical to the
+                // With nothing yet withdrawn BY THE LOOP this is a round-0 pass-through, identical to the
                 // post-generate publication gate, which also lets an inconclusive verdict pass — so
                 // converge and leave that gate the final say. But once the loop HAS withdrawn members,
                 // an inconclusive verdict can no longer confirm the withdrawals were sound; shipping a
                 // reduced binding on an unproven compile would be an over-withdrawal we cannot see, so
-                // fail the module closed instead.
-                if (denylist.Count == 0)
+                // fail the module closed instead. Ingestion quarantine deliberately does not count here:
+                // it is not something the loop gave up, and that same publication gate grades it either
+                // way, so counting it would fail a module closed on a round where the loop did nothing.
+                if (loopWithdrawalCount == 0)
                 {
                     _logger.LogWarning(
-                        "SWIFTBIND114: C# verify-recover inconclusive ({Reason}); nothing has been " +
-                        "withdrawn, so the loop passes through to the post-generate publication gate.",
+                        "SWIFTBIND114: C# verify-recover inconclusive ({Reason}); the loop has withdrawn " +
+                        "nothing, so it passes through to the post-generate publication gate.",
                         csharp.InconclusiveReason);
                     LastConvergedOutcome = wrapperResult;
                     return null;
                 }
 
                 _logger.LogWarning(
-                    "SWIFTBIND114: C# verify-recover inconclusive ({Reason}) after {Count} withdrawal(s); " +
+                    "SWIFTBIND114: C# verify-recover inconclusive ({Reason}) after {Count} loop withdrawal(s); " +
                     "failing the module closed rather than shipping a reduced binding on an unproven C# compile.",
-                    csharp.InconclusiveReason, denylist.Count);
+                    csharp.InconclusiveReason, loopWithdrawalCount);
                 return InconclusiveFailClosed(csharp);
         }
     }

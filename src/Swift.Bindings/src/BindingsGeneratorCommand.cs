@@ -1096,11 +1096,16 @@ public static class BindingsGeneratorCommand
         // implies it; for direct mode it is the system-framework target plus the same wrapper-compile
         // intent that gates the post-loop verification there. A direct run that is NOT a system-framework
         // target emits no csproj at all, so there is nothing to verify and nothing to recover into.
+        // The architecture test is a positive allowlist, not "anything but 'all'": the argument is only
+        // validated after GenerateBindings returns, so a bogus token would otherwise spend a whole
+        // verify-recover loop before the command rejects it. Only the two single-slice values this mode
+        // actually generates for qualify.
+        var directWrapperArch = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
         var directCSharpLoopMode =
             !hasXcframework
             && IsSystemFrameworkTarget(hasXcframework, libraryName)
             && !skipWrapperCompilation
-            && (wrapperArchitectures?.ToLowerInvariant() ?? "simulator") != "all"
+            && (directWrapperArch == "simulator" || directWrapperArch == "device")
             && !string.IsNullOrEmpty(directModuleName);
 
         Func<IReadOnlySet<RecoveryUnitId>, CSharpVerificationResult>? verifyRecoverCsharp = null;
