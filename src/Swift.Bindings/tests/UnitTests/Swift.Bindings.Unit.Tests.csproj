@@ -95,6 +95,12 @@
          runtime-test legs used to ignore the flag entirely, which turned one Mac Catalyst wrapper
          failure into 1296 unexplained test failures. BCL-only string work, AOT-clean. -->
     <Compile Include="../../../../build/Models/AsyncWrapperGate.cs" Link="Models/AsyncWrapperGate.cs" />
+    <!-- Link-compile the generator-exit policy for the same reason: the load-bearing decision is that
+         a non-zero generator exit is FATAL by default, only the permissive flag downgrades it, and
+         the strict flag re-escalates even that. The
+         desktop legs used to warn and carry on, so one generator failure that emitted no C# at all
+         reached the reader as ~2000 CS0246s accusing the bindings. BCL-only string work, AOT-clean. -->
+    <Compile Include="../../../../build/Models/GeneratorExitGate.cs" Link="Models/GeneratorExitGate.cs" />
     <!-- Link-compile the resume-on-crash attempt budget. The loops widen their bound by one for each
          launcher abort (an attempt in which the app never started produced no test signal, so it must
          not cost a crash-recovery retry), and every give-up point has to read that same widened

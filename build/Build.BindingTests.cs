@@ -28,10 +28,11 @@ partial class Build
     // wrapper compilation give-up (single-shot now; the wrapper-strip gate fails closed
     // when the generator's post-processor strips MORE than the committed baseline).
     // --permissive opts out for local exploration where the intent is "what survives"
-    // rather than "did anything regress?". Has no effect outside the --compile-only
-    // branch (other paths already throw on their own failures). Implies --strict in
-    // compile-only mode.
-    [Parameter("Allow non-fatal failures in --compile-only (generator exit, dep-gen, wrapper give-up)")]
+    // rather than "did anything regress?". Beyond the --compile-only gates it also demotes
+    // the macOS/Catalyst runtime lanes' non-zero-generator-exit gate (GeneratorExitGate)
+    // and the async-wrapper give-up gate. --strict outranks it everywhere it applies.
+    // Implies --strict in compile-only mode.
+    [Parameter("Allow non-fatal failures in the fail-closed gates (--compile-only's, and the macos/catalyst generator-exit gate)")]
     readonly bool Permissive;
 
     // --- Computed BindingTests paths ---

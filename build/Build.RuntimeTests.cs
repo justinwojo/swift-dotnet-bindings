@@ -3002,11 +3002,12 @@ partial class Build
     // ============================================================
 
     /// <summary>
-    /// Generates macOS bindings. Uses the shared output dir (BtOutputDir) but
-    /// skips --async-library because the generator's async wrapper separation
-    /// doesn't work with --platform macos. Async wrappers are compiled from the
-    /// inline Swift wrapper files by RunBuildAsyncWrapper.
-    /// Also generates dependency module bindings (unlike the original version).
+    /// Generates the desktop-class (macOS / Mac Catalyst) bindings into the shared output dir
+    /// (BtOutputDir), plus the dependency module's bindings. The emitted Swift wrappers are compiled
+    /// separately by RunBuildAsyncWrapper.
+    ///
+    /// <para>A non-zero generator exit aborts the leg by default — see <see cref="GeneratorExitGate"/>
+    /// for why continuing turns one real error into an avalanche of unrelated compile errors.</para>
     /// </summary>
     void RunRegenerateMacOSBindings(bool strict = false, ApplePlatform? platformOverride = null)
     {
@@ -3025,29 +3026,26 @@ partial class Build
             $"--xcframework \"{BtXcframeworkDir}\"",
             $"--platform {platform.Name}",
             $"-o \"{BtOutputDir}\"",
+            // Name the wrapper library the same thing RunBuildAsyncWrapper actually compiles.
+            // Omitting the flag lets the generator fall back to its "{Module}SwiftBindings"
+            // default, which then has to be textually patched back out of the emitted C# — and a
+            // rewrite that runs after generation cannot repair a binding the generator already
+            // refused to emit for that very mismatch.
+            $"--async-library {WrapperModule}",
         };
 
-        // Finding 50: fail-closed on a degraded input edge in strict mode (see the iOS
-        // RunRegenerateBindings path for the rationale). Mirrors the non-zero-exit escalation
-        // already gated on `strict` below.
+        // Fail-closed on a degraded input edge in strict mode — a device→sim slice fallback, a
+        // missing swiftinterface, an ABI-JSON fallback, an ambiguous TBD, or a degraded
+        // auto-detected dependency (see the iOS RunRegenerateBindings path for the rationale).
         if (strict)
             genArgs.Add("--strict-inputs");
 
-        // Note: --async-library, --framework-dependency, and --symbolgraph are
-        // intentionally not passed for macOS/Catalyst. All three cause the
-        // generator to produce no C# output when combined with desktop-class
-        // platforms (generator limitation). The wrapper compilation (which needs
-        // dep search paths) is handled separately by RunBuildAsyncWrapper.
-        //
-        // Without --async-library, the generator uses the default wrapper
-        // library name "{Module}SwiftBindings" instead of the WrapperModule
-        // constant ("SwiftBindings"). We post-process the generated C# to
-        // fix this so DllImport/LibraryImport names match the compiled wrapper.
-        //
-        // Without --framework-dependency, cross-module APIs (e.g. functions
-        // accepting dependency module types) are emitted as unsupported
-        // placeholders. This is acceptable — desktop cross-module coverage is
-        // not a priority and the runner doesn't include CrossModule/ tests.
+        // --framework-dependency and --symbolgraph are still intentionally not passed for the
+        // desktop-class platforms. Without --framework-dependency, cross-module APIs (e.g.
+        // functions accepting dependency-module types) are emitted as unsupported placeholders;
+        // that is acceptable here because the desktop runners don't include the CrossModule tests.
+        // The wrapper compilation, which does need the dependency search paths, is handled
+        // separately by RunBuildAsyncWrapper.
 
         var genProcess = ProcessTasks.StartProcess(
             "dotnet", string.Join(" ", genArgs),
@@ -3060,26 +3058,17 @@ partial class Build
 
         if (exitCode != 0)
         {
-            Log.Warning("{Platform} binding generation exited with code {ExitCode}", platform.Name, exitCode);
-            if (strict)
-                throw new Exception($"{platform.Name} generator exited with code {exitCode} (strict mode)");
-            Log.Information("This is expected if the test library includes features beyond current generator support.");
-        }
+            // The generator runs with logOutput:false so a passing run stays quiet, but that also
+            // hides WHY it failed. StartProcess still captured the stream, so replay it here —
+            // without this the hard-fail below is opaque and the reason never reaches the log.
+            foreach (var line in genProcess.Output)
+                Log.Information("[generator] {Text}", line.Text);
 
-        // Fix wrapper library name: without --async-library, the generator
-        // defaults to "{Module}SwiftBindings" but RunBuildAsyncWrapper compiles
-        // the wrapper as WrapperModule ("SwiftBindings").
-        var defaultWrapperName = $"{ModuleName}{WrapperModule}";
-        foreach (var csFile in Directory.GetFiles(BtOutputDir, "*.cs"))
-        {
-            var content = File.ReadAllText(csFile);
-            if (content.Contains(defaultWrapperName))
-            {
-                content = content.Replace(
-                    $"\"{defaultWrapperName}\"",
-                    $"\"{WrapperModule}\"");
-                File.WriteAllText(csFile, content);
-            }
+            var legLabel = $"the {platform.Name} runtime-test leg";
+            if (GeneratorExitGate.ShouldFail(exitCode, strict, Permissive))
+                throw new Exception(GeneratorExitGate.FailureMessage(legLabel, ModuleName, exitCode));
+            if (GeneratorExitGate.ShouldWarn(exitCode, strict, Permissive))
+                Log.Warning("{Message}", GeneratorExitGate.WarningMessage(legLabel, ModuleName, exitCode));
         }
 
         // Generate dependency module bindings
@@ -3105,11 +3094,20 @@ partial class Build
                 logOutput: false);
             depProcess.WaitForExit();
 
-            if (depProcess.ExitCode != 0)
+            var depExitCode = depProcess.ExitCode;
+            if (depExitCode != 0)
             {
-                Log.Warning("Dependency binding generation exited with code {ExitCode}", depProcess.ExitCode);
-                if (strict)
-                    throw new Exception($"Dependency binding generation exited with code {depProcess.ExitCode} (strict mode)");
+                foreach (var line in depProcess.Output)
+                    Log.Information("[dep-generator] {Text}", line.Text);
+
+                // Same policy as the main module: the dependency bindings are compiled into the
+                // same app, so a dependency generator that emitted nothing produces the same
+                // CS0246 avalanche.
+                var depLegLabel = $"the {platform.Name} runtime-test leg";
+                if (GeneratorExitGate.ShouldFail(depExitCode, strict, Permissive))
+                    throw new Exception(GeneratorExitGate.FailureMessage(depLegLabel, DepModuleName, depExitCode));
+                if (GeneratorExitGate.ShouldWarn(depExitCode, strict, Permissive))
+                    Log.Warning("{Message}", GeneratorExitGate.WarningMessage(depLegLabel, DepModuleName, depExitCode));
             }
 
             // Consolidate dependency CS files to root output dir
