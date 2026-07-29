@@ -813,11 +813,14 @@ public static class ReportCollector
         if (session.SkippedTypeReasons.TryGetValue(key, out var ownReason))
         {
             // A type's own suppression is a more precise attribution for its members than an
-            // ancestor's, so it supersedes any inherited one.
-            suppressedBy = new SuppressedParentType(
-                key,
-                ownReason,
-                SkipDispositionClassifier.Classify(ownReason) == SkipDisposition.ExpectedNonPublic);
+            // ancestor's, so it supersedes any inherited one — but only the attribution. Visibility
+            // does not come back: a type nested inside a never-public one is itself unreachable from
+            // outside the module whatever its own skip reason says, so the never-public verdict is
+            // sticky down the chain. Recomputing it from the nested reason alone would route those
+            // members to a structural loss and report public surface that never existed.
+            var neverPublic = suppressedBy is { NeverPublic: true }
+                || SkipDispositionClassifier.Classify(ownReason) == SkipDisposition.ExpectedNonPublic;
+            suppressedBy = new SuppressedParentType(key, ownReason, neverPublic);
         }
 
         if (suppressedBy is { } parent)

@@ -295,6 +295,8 @@ public static class SkipCauseClassifier
         Add(SkipReason.AncestorSkipped, CauseOwner.Unknown, RecoveryStage.Plan, AttributionConfidence.Low);
         // Same shape one level down: the member's loss is entirely inherited from the declaring type's
         // suppression, so the owner is whoever owns that type's row — never derivable from this reason.
+        // The linker normally resolves that row and the member inherits its attribution; this entry is
+        // the fallback for a row read in isolation, where the declaring type's row is not in hand.
         Add(SkipReason.ParentTypeSuppressed, CauseOwner.Unknown, RecoveryStage.Plan, AttributionConfidence.Low);
         Add(SkipReason.Unknown, CauseOwner.Unknown, RecoveryStage.Plan, AttributionConfidence.Low);
 

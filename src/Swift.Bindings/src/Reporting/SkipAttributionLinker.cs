@@ -15,15 +15,18 @@ namespace BindingsGeneration;
 /// built — so attribution has to happen after the fact regardless.
 /// </para>
 /// <para>
-/// <b>It annotates; it does not invent.</b> Only one cascade family is derivable from the rows as they
-/// exist: <see cref="SkipReason.AncestorSkipped"/>, whose root is found structurally by parsing
-/// <see cref="SkippedItem.DeclId"/> and locating the nearest enclosing declaration that also has a
-/// row. Everything else stays a root. In particular, a member row is <em>not</em> treated as a cascade
-/// of its containing type merely because both were skipped: a type-level skip returns before its
-/// members are walked, so the two rarely co-occur, and where they do — a suppressed proxy is recorded
-/// as a synthetic type row under the protocol — the containing type is not the cause. Suppressed
-/// -proxy declines name their cause only in prose today, so they stay roots at low confidence rather
-/// than being linked on a string match.
+/// <b>It annotates; it does not invent.</b> Two cascade families are derivable from the rows as they
+/// exist, and both are found the same structural way — by parsing <see cref="SkippedItem.DeclId"/> and
+/// locating the nearest enclosing declaration that also has a row. <see cref="SkipReason.AncestorSkipped"/>
+/// is a type whose ancestor was skipped; <see cref="SkipReason.ParentTypeSuppressed"/> is a member
+/// whose declaring type was suppressed as a whole, which by construction means the enclosing type has
+/// a row of its own and is the entire reason the member has one. Everything else stays a root. In
+/// particular, a member row is <em>not</em> treated as a cascade of its containing type merely because
+/// both were skipped: a member gate that fires on its own names its own cause, and where a type row
+/// and a member row co-occur incidentally — a suppressed proxy is recorded as a synthetic type row
+/// under the protocol — the containing type is not the cause. Suppressed-proxy declines name their
+/// cause only in prose today, so they stay roots at low confidence rather than being linked on a
+/// string match.
 /// </para>
 /// </remarks>
 public static class SkipAttributionLinker
@@ -95,8 +98,12 @@ public static class SkipAttributionLinker
 
     private static Row? ResolveCascadeParent(SkippedItem item, Dictionary<string, Row> byDecl)
     {
-        // The only structurally derivable family. Every other reason describes the row's own failure.
-        if (item.Reason != SkipReason.AncestorSkipped)
+        // The two structurally derivable families. Every other reason describes the row's own failure.
+        // A parent-suppressed member exists only because its declaring type has a row, so the same
+        // nearest-enclosing search that resolves an ancestor-skipped type resolves it — and resolving
+        // it is what lets the member inherit the owner and stage of the decision that caused it,
+        // instead of standing as its own unowned root.
+        if (item.Reason is not (SkipReason.AncestorSkipped or SkipReason.ParentTypeSuppressed))
             return null;
         if (item.DeclId is not { Length: > 0 } canonical || !DeclId.TryParse(canonical, out var decl))
             return null;

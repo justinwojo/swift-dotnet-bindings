@@ -176,6 +176,48 @@ public class SkipAttributionTests
     }
 
     /// <summary>
+    /// The one member shape that <em>is</em> a consequence of its containing type: a row that exists
+    /// only because the whole type was suppressed before any member gate ran. It must resolve to the
+    /// type's row and inherit that decision's owner, or the report grows a population of unowned roots
+    /// whose stated cause ("act on the declaring type") points at nothing joinable.
+    /// </summary>
+    [Fact]
+    public void Link_LinksAParentSuppressedMemberToItsDeclaringTypeRow()
+    {
+        var type = TypeDecl("KitchenView");
+        var member = DeclId.Create("M", "KitchenView", BindingItemKind.Method, "render");
+        var typeRow = Row(SkipReason.SwiftUIView, "KitchenView", BindingItemKind.Type, type);
+        var memberRow = Row(SkipReason.ParentTypeSuppressed, "render", decl: member, containingType: "KitchenView");
+
+        SkipAttributionLinker.Link(new[] { typeRow, memberRow });
+
+        var typeUnit = RecoveryUnitId.Create(type, RecoveryScope.TypeSurface).Canonical;
+        Assert.Equal(typeUnit, memberRow.CascadeFrom);
+        Assert.Equal(typeUnit, memberRow.RootCauseId);
+        // Inherited from the suppression decision, not the reason-only fallback.
+        Assert.Equal(typeRow.CauseOwner, memberRow.CauseOwner);
+        Assert.NotEqual(CauseOwner.Unknown, memberRow.CauseOwner);
+        Assert.Equal(typeRow.RecoveryStage, memberRow.RecoveryStage);
+    }
+
+    /// <summary>
+    /// Read in isolation — a projected report that never carried the type row — the member has nothing
+    /// to inherit from, and must say so rather than borrow a confident answer from its own reason.
+    /// </summary>
+    [Fact]
+    public void Link_LeavesAParentSuppressedMemberUnownedWhenTheTypeRowIsAbsent()
+    {
+        var member = DeclId.Create("M", "KitchenView", BindingItemKind.Method, "render");
+        var memberRow = Row(SkipReason.ParentTypeSuppressed, "render", decl: member, containingType: "KitchenView");
+
+        SkipAttributionLinker.Link(new[] { memberRow });
+
+        Assert.Null(memberRow.CascadeFrom);
+        Assert.Equal(CauseOwner.Unknown, memberRow.CauseOwner);
+        Assert.Equal(AttributionConfidence.Low, memberRow.Confidence);
+    }
+
+    /// <summary>
     /// A member skip is not a consequence of its containing type merely because both were skipped. A
     /// type-level skip returns before its members are walked, so co-presence is not causality — and a
     /// suppressed proxy is recorded as a synthetic type row under the protocol, where the containing

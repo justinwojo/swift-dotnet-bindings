@@ -1062,6 +1062,41 @@ public class ReportCollectorTests
     }
 
     [Fact]
+    public void NestedTypeUnderANeverPublicParent_StaysNeverPublic_WhateverItsOwnSkipReason()
+    {
+        // A type nested inside a never-public one is unreachable from outside the module however it
+        // was skipped itself, so its members were never public surface either. Deriving the tier from
+        // the nested type's own reason alone would call them a structural loss and report public
+        // surface disappearing from a module that never exposed any.
+        var moduleDecl = CreateSuppressedParentModule();
+        var parent = moduleDecl.Types[0];
+        var nested = parent.Types[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordTypeSkipped(parent, SkipReason.ModuleInternal, "@_spi type suppressed from bindings.");
+        ReportCollector.RecordTypeSkipped(nested, SkipReason.IndeterminateStructLayout, "layout not determinable");
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        var nestedRows = report!.SkippedItems
+            .Where(i => i.Reason == SkipReason.ParentTypeSuppressed && i.ContainingType == "ToastModule.Toast.Style")
+            .ToList();
+        Assert.NotEmpty(nestedRows);
+        Assert.All(nestedRows, row =>
+            Assert.Equal(SkipDisposition.ExpectedNonPublic, SkipDispositionClassifier.Classify(row)));
+
+        // The nested type's own reason still owns the attribution, even though it does not decide the tier.
+        Assert.All(nestedRows, row => Assert.Contains("IndeterminateStructLayout", row.Details!, StringComparison.Ordinal));
+
+        var triage = SkipTriageBuilder.Build(report.SkippedItems);
+        Assert.Equal(0, triage.ReviewCount);
+        Assert.Equal(
+            0,
+            SkipTriageBuilder.Build(
+                report.SkippedItems.Where(i => i.Reason == SkipReason.ParentTypeSuppressed).ToList()).PublicSurfaceLost);
+    }
+
+    [Fact]
     public void SuppressedParentType_DoesNotRestateMembersThatWereAlreadyRecorded()
     {
         // Some members of a suppressed type do get recorded on their own — the gate that fired for
