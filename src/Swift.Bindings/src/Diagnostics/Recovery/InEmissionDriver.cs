@@ -34,6 +34,16 @@ public sealed record WrapperRecoveryCompileRequest(
 /// </summary>
 /// <remarks>
 /// <para>
+/// The two verification planes are independently optional, so the same driver serves every generation
+/// mode. A mode that compiles a consumer-facing Swift wrapper as part of generation wires the wrapper
+/// plane and (when the emitted C# is verifiable) the C# plane, and convergence is the joint fixed-point
+/// over both. A mode that emits a verifiable binding csproj but has no in-generation wrapper compile to
+/// hang a loop on — the Apple system-framework/direct path, whose wrapper is built from the on-device
+/// SDK slice after emission returns — wires the C# plane alone: each round renders, verifies the
+/// emitted C#, and withdraws the attributed member, converging when the C# compiles clean. At least
+/// one plane must be wired; a driver with neither would "converge" on round 0 having verified nothing.
+/// </para>
+/// <para>
 /// Each round restores the pristine pre-loop baseline before it renders, so a later seeded render is a
 /// pure function of the denylist and never inherits an earlier render's stamps. Three mutation channels
 /// neither snapshot covers are rewound explicitly: the decl tree and emission context via their
@@ -62,7 +72,9 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
     private readonly ILogger _logger;
     private readonly Func<StringEmitter> _newEmitter;
     private readonly Action _rebuildCollaborators;
-    private readonly Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics> _compileWrapper;
+    // Null when this generation mode has no in-generation wrapper compile to verify against; the loop
+    // then runs the C# plane alone (see the class remarks).
+    private readonly Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics>? _compileWrapper;
     private readonly WrapperRecoveryCompileRequest _request;
     private readonly Action? _preRender;
     private readonly Func<IReadOnlySet<RecoveryUnitId>, CSharpVerificationResult>? _verifyCsharp;
@@ -125,6 +137,11 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
     /// injectors have run and before the first render, so the baseline is the state a first render
     /// would have started from.
     /// </summary>
+    /// <param name="compileWrapper">
+    /// The Swift wrapper plane, or null for a generation mode with no in-generation wrapper compile.
+    /// At least one of <paramref name="compileWrapper"/> and <paramref name="verifyCsharp"/> must be
+    /// non-null.
+    /// </param>
     public InEmissionDriver(
         ModuleDecl decl,
         ModuleEmissionContext context,
@@ -132,7 +149,7 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
         ILogger logger,
         Func<StringEmitter> newEmitter,
         Action rebuildCollaborators,
-        Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics> compileWrapper,
+        Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics>? compileWrapper,
         WrapperRecoveryCompileRequest request,
         Action? preRender = null,
         Func<IReadOnlySet<RecoveryUnitId>, CSharpVerificationResult>? verifyCsharp = null,
@@ -144,7 +161,15 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _newEmitter = newEmitter ?? throw new ArgumentNullException(nameof(newEmitter));
         _rebuildCollaborators = rebuildCollaborators ?? throw new ArgumentNullException(nameof(rebuildCollaborators));
-        _compileWrapper = compileWrapper ?? throw new ArgumentNullException(nameof(compileWrapper));
+        // Neither plane wired would make every round "converge" without verifying anything — a loop that
+        // silently certifies whatever it rendered. Refuse the construction rather than ship that.
+        if (compileWrapper == null && verifyCsharp == null)
+        {
+            throw new ArgumentException(
+                "The verify-recover driver needs at least one verification plane: pass a wrapper compile " +
+                "delegate, a C# verifier, or both.", nameof(compileWrapper));
+        }
+        _compileWrapper = compileWrapper;
         _request = request ?? throw new ArgumentNullException(nameof(request));
         _preRender = preRender;
         _verifyCsharp = verifyCsharp;
@@ -224,6 +249,13 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
             return abiAttribution;
         }
 
+        // No wrapper plane: the render is settled as far as Swift is concerned, so the C# verifier is the
+        // whole round. There is no wrapper compilation result to hand the caller, so LastConvergedOutcome
+        // stays null — this mode's wrapper (when it has one) is built after generation returns, from the
+        // settled source, exactly as it is today without a loop.
+        if (_compileWrapper == null)
+            return VerifyCSharpPlane(denylist, wrapperResult: null);
+
         var diagnostics = _compileWrapper(_request);
         if (diagnostics.NoWrapperSurface)
         {
@@ -254,6 +286,17 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
             return null;
         }
 
+        return VerifyCSharpPlane(denylist, diagnostics.Result);
+    }
+
+    // The C# plane of one round: verify the emitted C# for the render that just settled and turn the
+    // verdict into this round's attribution. Shared by the joint (wrapper + C#) path, where it runs only
+    // after the wrapper compiled clean, and the C#-only path, where it IS the round. <paramref
+    // name="wrapperResult"/> is the converged wrapper artifact to publish through the side channel, or
+    // null when no wrapper plane produced one.
+    private AttributionResult? VerifyCSharpPlane(
+        IReadOnlySet<RecoveryUnitId> denylist, SwiftWrapperCompilationResult? wrapperResult)
+    {
         // A verifier throw is an infrastructure failure, not a C# verdict. The delegate extracts
         // metadata, probes native slices, re-emits the verification project, and runs an external
         // build — a command-runner timeout, a spawn failure, or an IO fault can throw from any of
@@ -265,7 +308,7 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
         CSharpVerificationResult csharp;
         try
         {
-            csharp = _verifyCsharp(denylist);
+            csharp = _verifyCsharp!(denylist);
         }
         catch (Exception ex)
         {
@@ -277,7 +320,7 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
         switch (csharp.Outcome)
         {
             case CSharpVerificationOutcome.Clean:
-                LastConvergedOutcome = diagnostics.Result;
+                LastConvergedOutcome = wrapperResult;
                 CSharpVerifiedClean = true;
                 return null;
 
@@ -301,7 +344,7 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
                         "SWIFTBIND114: C# verify-recover inconclusive ({Reason}); nothing has been " +
                         "withdrawn, so the loop passes through to the post-generate publication gate.",
                         csharp.InconclusiveReason);
-                    LastConvergedOutcome = diagnostics.Result;
+                    LastConvergedOutcome = wrapperResult;
                     return null;
                 }
 
@@ -352,6 +395,15 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
     {
         ArgumentNullException.ThrowIfNull(denylist);
         denylist = WithIngestionWithdrawals(denylist);
+
+        // The search's soundness rests on a probe that withdrew the whole surface reading as NOT clean —
+        // otherwise an error in shared scaffolding disappears along with everything else and the search
+        // falsely confirms an innocent leaf. That vacuity signal comes from the wrapper compile
+        // (NoWrapperSurface); with no wrapper plane there is no equivalent, since an emptied module still
+        // yields C# that compiles perfectly. Decline rather than search on a verdict we cannot trust: an
+        // unattributed round then fails the module closed, which is the outcome this mode has today.
+        if (_compileWrapper == null)
+            return BisectionOutcome.Declined();
 
         var candidateGroups = BuildBisectionCandidateGroups(denylist);
         if (candidateGroups.Count == 0)

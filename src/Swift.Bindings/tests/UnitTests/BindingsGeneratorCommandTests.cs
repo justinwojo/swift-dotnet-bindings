@@ -829,8 +829,10 @@ public class IsMixedFrameworkTests
 /// generation: no ObjC surface at all, OR a "potential mixed" framework whose bridge filtered to
 /// zero records (an umbrella header re-exporting only Swift — the CocoaMQTT/Eureka/Hero shape) both
 /// emit companion-free C# and ARE verifiable in-loop; ≥1 bridged record keeps the post-loop
-/// fail-closed gate. The env preconditions (wrapper loop active, non-SDK, verify not opted out)
-/// must all hold.
+/// fail-closed gate. The env preconditions (the mode emits a verifiable binding project, non-SDK,
+/// verify not opted out) must all hold. The project-mode term is deliberately NOT "a Swift wrapper
+/// loop is running": the Apple system-framework direct path emits and grades a binding csproj without
+/// one, and gating on the wrapper delegate is what left it with no recovery net.
 /// </summary>
 public class CanVerifyCSharpInLoopTests
 {
@@ -851,7 +853,7 @@ public class CanVerifyCSharpInLoopTests
     {
         // mixedObjcResolution null: a framework with no modulemap/extra header at all.
         Assert.True(BindingsGeneratorCommand.CanVerifyCSharpInLoop(
-            wrapperLoopActive: true, sdkMode: false, noVerifyCSharp: false,
+            verifiableProjectMode: true, sdkMode: false, noVerifyCSharp: false,
             mixedObjcResolution: null, mixedBridgeRecords: null));
     }
 
@@ -862,7 +864,7 @@ public class CanVerifyCSharpInLoopTests
         // umbrella header, but the ObjC bridge filtered to zero records, so the emitted C# has no
         // companion reference — it IS verifiable in-loop.
         Assert.True(BindingsGeneratorCommand.CanVerifyCSharpInLoop(
-            wrapperLoopActive: true, sdkMode: false, noVerifyCSharp: false,
+            verifiableProjectMode: true, sdkMode: false, noVerifyCSharp: false,
             mixedObjcResolution: ObjCSurface(), mixedBridgeRecords: new List<TypeRecord>()));
     }
 
@@ -872,17 +874,31 @@ public class CanVerifyCSharpInLoopTests
         // ≥1 bridged ObjC record → the emitted C# references a companion assembly built only after
         // GenerateBindings returns → decline the loop and keep the post-loop fail-closed gate.
         Assert.False(BindingsGeneratorCommand.CanVerifyCSharpInLoop(
-            wrapperLoopActive: true, sdkMode: false, noVerifyCSharp: false,
+            verifiableProjectMode: true, sdkMode: false, noVerifyCSharp: false,
             mixedObjcResolution: ObjCSurface(),
             mixedBridgeRecords: new List<TypeRecord> { BridgeRecord("MqttClient") }));
     }
 
     [Fact]
-    public void WrapperLoopInactive_DeclinesRegardlessOfObjCSurface()
+    public void NoVerifiableProjectMode_DeclinesRegardlessOfObjCSurface()
     {
-        // No Swift wrapper loop (device/all arch, or skip-wrapper-compilation) → no loop to extend.
+        // The run reaches no branch that emits a consumer-facing binding csproj (device/all wrapper
+        // arch or --skip-wrapper-compilation in xcframework mode; a non-system-framework direct run,
+        // which emits C# + Wrapper.swift only). Nothing to build, nothing to verify.
         Assert.False(BindingsGeneratorCommand.CanVerifyCSharpInLoop(
-            wrapperLoopActive: false, sdkMode: false, noVerifyCSharp: false,
+            verifiableProjectMode: false, sdkMode: false, noVerifyCSharp: false,
+            mixedObjcResolution: null, mixedBridgeRecords: null));
+    }
+
+    [Fact]
+    public void DirectSystemFrameworkMode_WithNoWrapperLoop_StillVerifiesInLoop()
+    {
+        // The Apple system-framework direct path: no in-generation Swift wrapper compile exists for a
+        // wrapper loop to run on, but the run DOES emit a binding csproj and grade it with the
+        // fail-closed publication gate — so the C# leg is available and the loop runs on that plane
+        // alone. Keying this gate on a wrapper delegate is exactly what left the mode netless.
+        Assert.True(BindingsGeneratorCommand.CanVerifyCSharpInLoop(
+            verifiableProjectMode: true, sdkMode: false, noVerifyCSharp: false,
             mixedObjcResolution: null, mixedBridgeRecords: null));
     }
 
@@ -891,7 +907,7 @@ public class CanVerifyCSharpInLoopTests
     {
         // SDK two-pass flow defers wrapper compilation; the loop is a non-SDK-path facility.
         Assert.False(BindingsGeneratorCommand.CanVerifyCSharpInLoop(
-            wrapperLoopActive: true, sdkMode: true, noVerifyCSharp: false,
+            verifiableProjectMode: true, sdkMode: true, noVerifyCSharp: false,
             mixedObjcResolution: null, mixedBridgeRecords: null));
     }
 
@@ -899,7 +915,7 @@ public class CanVerifyCSharpInLoopTests
     public void NoVerifyCSharpOptOut_DeclinesInLoop()
     {
         Assert.False(BindingsGeneratorCommand.CanVerifyCSharpInLoop(
-            wrapperLoopActive: true, sdkMode: false, noVerifyCSharp: true,
+            verifiableProjectMode: true, sdkMode: false, noVerifyCSharp: true,
             mixedObjcResolution: null, mixedBridgeRecords: null));
     }
 }

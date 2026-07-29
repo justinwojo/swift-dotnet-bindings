@@ -1074,29 +1074,51 @@ public static class BindingsGeneratorCommand
             };
         }
 
-        // C# verify-recover: extend the Swift loop above into a JOINT fixed-point over both planes.
-        // After the Swift wrapper compiles clean in a round, this delegate emits the binding csproj for
-        // the CURRENT render and runs the authoritative MSBuild+SARIF C# verifier; a C# compile error is
-        // attributed (via the C#-plane interval map) to the SAME leaf/accessor recovery unit the Swift
-        // loop withdraws and fed into the same monotonic denylist, so the next round re-renders, drops
-        // the C# culprit, and re-verifies BOTH planes. The loop converges only when the wrapper AND the
-        // C# compile clean together; the command's unchanged post-loop csproj emit + VerifyGeneratedCSharp
-        // ship gate below then run over the settled source. Enabled when the emitted C# is companion-free
-        // (CanVerifyCSharpInLoop): the in-loop verification csproj sets ObjCProjectFileName = null, so a
-        // binding whose C# references a bridged ObjC companion assembly (built only AFTER GenerateBindings
-        // returns) can't be verified in-loop and keeps the post-loop publication gate (fail-closed)
-        // unchanged. A "potential mixed" framework whose ObjC bridge filtered to zero records (an umbrella
-        // header re-exporting only Swift) emits no companion reference and IS verified in-loop.
+        // C# verify-recover. In xcframework mode this extends the Swift loop above into a JOINT
+        // fixed-point over both planes; in Apple system-framework direct mode — which has no
+        // in-generation wrapper compile to hang a loop on, its wrapper being built from the on-device SDK
+        // slice after emission returns — it IS the loop. Either way this delegate emits the binding csproj
+        // for the CURRENT render and runs the authoritative MSBuild+SARIF C# verifier; a C# compile error
+        // is attributed (via the C#-plane interval map) to a leaf/accessor recovery unit and fed into the
+        // monotonic denylist, so the next round re-renders, drops the C# culprit, and re-verifies. The
+        // command's unchanged post-loop csproj emit + VerifyGeneratedCSharp ship gate below then run over
+        // the settled source, so the loop only ever REDUCES what reaches that fail-closed gate.
+        // Enabled when the emitted C# is companion-free (CanVerifyCSharpInLoop): the in-loop verification
+        // csproj sets ObjCProjectFileName = null, so a binding whose C# references a bridged ObjC companion
+        // assembly (built only AFTER GenerateBindings returns) can't be verified in-loop and keeps the
+        // post-loop publication gate (fail-closed) unchanged. A "potential mixed" framework whose ObjC
+        // bridge filtered to zero records (an umbrella header re-exporting only Swift) emits no companion
+        // reference and IS verified in-loop.
+        //
+        // The mode gate is "this run will emit a consumer-facing binding csproj the verifier can build,
+        // and the publication gate will grade it" — the two conditions the two emitting branches at the
+        // end of this method carry. For xcframework mode the wrapper loop's own precondition already
+        // implies it; for direct mode it is the system-framework target plus the same wrapper-compile
+        // intent that gates the post-loop verification there. A direct run that is NOT a system-framework
+        // target emits no csproj at all, so there is nothing to verify and nothing to recover into.
+        var directCSharpLoopMode =
+            !hasXcframework
+            && IsSystemFrameworkTarget(hasXcframework, libraryName)
+            && !skipWrapperCompilation
+            && (wrapperArchitectures?.ToLowerInvariant() ?? "simulator") != "all"
+            && !string.IsNullOrEmpty(directModuleName);
+
         Func<IReadOnlySet<RecoveryUnitId>, CSharpVerificationResult>? verifyRecoverCsharp = null;
         if (CanVerifyCSharpInLoop(
-                verifyRecoverCompile != null, sdkMode, noVerifyCSharp, mixedObjcResolution, mixedBridgeRecords))
+                verifyRecoverCompile != null || directCSharpLoopMode,
+                sdkMode, noVerifyCSharp, mixedObjcResolution, mixedBridgeRecords))
         {
-            var csharpResolution = resolution!;
+            // Both modes verify the same artifact — the emitted C# for this module, built through the
+            // csproj BindingProjectEmitter writes under the module's default package id. What differs is
+            // only where the module identity and its metadata come from: a resolved xcframework slice, or
+            // (direct mode) the ABI-peeked module name plus the .tbd's containing .framework, whose
+            // Info.plist layout Extract reads exactly as it reads a packaged slice.
+            var csharpModuleName = resolution?.ModuleName ?? directModuleName!;
             XCFrameworkMetadata? csharpMetadata = null;
             NativeLinkage? csharpNativeLinkage = null;
             var csharpRepoRoot = MsbuildSarifCSharpVerifier.TryFindSwiftBindingsRepoRoot();
             var csharpCsprojPath = Path.Combine(
-                outputDirectory, $"{platformInfo.GetDefaultSwiftPackageId(csharpResolution.ModuleName)}.csproj");
+                outputDirectory, $"{platformInfo.GetDefaultSwiftPackageId(csharpModuleName)}.csproj");
 
             // Verification caching — the economics layer for the loop's single most expensive stage, the
             // external dotnet build the Roslyn/MSBuild probe runs (measured ~0.9s warm / ~1.6s cold per
@@ -1159,18 +1181,28 @@ public static class BindingsGeneratorCommand
                 // render, so re-emit the verification csproj every round from the CURRENT
                 // AppleSupplementReferences state (a withdrawal only ever shrinks it, so the reference set
                 // is a sound superset of the shipped one — no CS0234 false positive, only an unused ref).
-                csharpMetadata ??= XCFrameworkMetadataExtractor.Extract(
-                    csharpResolution.DylibPath, csharpResolution.XCFrameworkPath,
-                    csharpResolution.ModuleName, logger, platformInfo: platformInfo);
-                csharpNativeLinkage ??= NativeLinkageProbe.Detect(
-                    csharpResolution.DylibPath, new SystemCommandRunner(), logger);
+                // Direct mode has no source xcframework and no source dylib to probe: the binary lives
+                // on-device under /System/Library/Frameworks and dyld resolves it at runtime, so the
+                // shipped csproj emits no source NativeReference and leaves the linkage at its default.
+                // Mirror that here — the in-loop csproj must present the same managed-compile inputs the
+                // publication gate will, or the loop would grade the render against a different project
+                // than the one that ships.
+                csharpMetadata ??= resolution != null
+                    ? XCFrameworkMetadataExtractor.Extract(
+                        resolution.DylibPath, resolution.XCFrameworkPath,
+                        csharpModuleName, logger, platformInfo: platformInfo)
+                    : XCFrameworkMetadataExtractor.Extract(
+                        tbdPath, xcframeworkPath: "", csharpModuleName, logger, platformInfo: platformInfo);
+                csharpNativeLinkage ??= resolution != null
+                    ? NativeLinkageProbe.Detect(resolution.DylibPath, new SystemCommandRunner(), logger)
+                    : NativeLinkage.Dynamic;
 
                 var prototypeCsproj = EmitAppleSupplementPrototype(
                     appleSupplementPrototypeDir, platformInfo, swiftRuntimeVersion,
                     csharpMetadata.EffectiveMinimumOSVersion, logger);
 
                 var frameworkName = BindingsGenerator.InferFrameworkName(
-                    csharpResolution.DylibPath, csharpResolution.ModuleName);
+                    resolution?.DylibPath ?? tbdPath, csharpModuleName);
                 var csharpNamespaceResolver = new NamespacePatternResolver(effectiveNamespacePattern, frameworkName);
 
                 // Verification csproj: the managed-compile-relevant inputs match the shipped csproj
@@ -1181,16 +1213,16 @@ public static class BindingsGeneratorCommand
                 BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
                 {
                     OutputDirectory = outputDirectory,
-                    ModuleName = csharpResolution.ModuleName,
+                    ModuleName = csharpModuleName,
                     Metadata = csharpMetadata,
-                    SourceXCFrameworkPath = csharpResolution.XCFrameworkPath,
+                    SourceXCFrameworkPath = resolution?.XCFrameworkPath,
                     SourceNativeLinkage = csharpNativeLinkage.Value,
                     WrapperXCFrameworkPath = null,
                     BridgeXCFrameworkPath = null,
                     HasBridgeSwift = false,
                     SwiftRuntimeVersion = swiftRuntimeVersion,
                     Dependencies = resolvedDependencies,
-                    ResolvedNamespace = csharpNamespaceResolver.ResolveNamespace(csharpResolution.ModuleName),
+                    ResolvedNamespace = csharpNamespaceResolver.ResolveNamespace(csharpModuleName),
                     ObjCProjectFileName = null,
                     PlatformInfo = platformInfo,
                     ResourceBundleNames = null,
@@ -1198,7 +1230,7 @@ public static class BindingsGeneratorCommand
                     AppleSupplementVersion = appleVersion,
                     AppleSupplementPrototypeProjectPath = prototypeCsproj,
                     AppleSiblingPackageReferences = ResolveSiblingAppleBindingPackages(
-                        csharpResolution.ModuleName, appleVersion, logger),
+                        csharpModuleName, appleVersion, logger),
                 }, logger);
 
                 // With the verification csproj now on disk, the fingerprint keys the dotnet build's verdict
@@ -2928,16 +2960,26 @@ public static class BindingsGeneratorCommand
     /// "potential mixed" framework whose ObjC bridge filtered to zero records — an umbrella header
     /// that only re-exports the Swift module (<paramref name="mixedBridgeRecords"/> empty). A
     /// framework that actually bridges ≥1 ObjC record keeps the post-loop publication gate
-    /// (fail-closed) unchanged. Also requires the Swift wrapper loop to be active, non-SDK mode, and
-    /// C# verification not opted out.
+    /// (fail-closed) unchanged.
+    ///
+    /// <para>The other precondition is that this generation mode will actually produce a verifiable
+    /// binding project — <paramref name="verifiableProjectMode"/>. It is deliberately NOT "the Swift
+    /// wrapper loop is active": the C# leg verifies the emitted C# through a binding csproj, which the
+    /// Apple system-framework direct path also emits and also grades with a fail-closed publication gate,
+    /// even though it has no in-generation wrapper compile for a Swift loop to run on. Keying this gate
+    /// on the wrapper delegate is what left that path with no withdrawal/re-emit net at all. What the
+    /// flag must mean at every call site is "the run reaches a branch that emits the consumer-facing
+    /// csproj and verifies it" — a mode that emits no csproj has nothing to build and no publication gate
+    /// for the loop to reduce work for. Non-SDK mode and C# verification not opted out still apply: SDK
+    /// mode defers both wrapper and project emission to its own passes.</para>
     /// </summary>
     internal static bool CanVerifyCSharpInLoop(
-        bool wrapperLoopActive,
+        bool verifiableProjectMode,
         bool sdkMode,
         bool noVerifyCSharp,
         XCFrameworkResolver.ObjCFrameworkResolution? mixedObjcResolution,
         IReadOnlyList<TypeRecord>? mixedBridgeRecords)
-        => wrapperLoopActive && !sdkMode && !noVerifyCSharp
+        => verifiableProjectMode && !sdkMode && !noVerifyCSharp
            && (mixedObjcResolution == null
                || mixedBridgeRecords == null
                || mixedBridgeRecords.Count == 0);

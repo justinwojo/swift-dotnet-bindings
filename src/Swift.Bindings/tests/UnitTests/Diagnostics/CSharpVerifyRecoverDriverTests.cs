@@ -204,6 +204,100 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
         Assert.Empty(attribution.Culprits);
     }
 
+    // ── C#-only loop: the mode with no in-generation wrapper compile (Apple system frameworks) ──
+
+    [Fact]
+    public void CSharpOnlyLoop_CleanCSharp_ConvergesWithoutAnyWrapperCompile()
+    {
+        // The Apple system-framework direct shape: no wrapper plane at all, because that mode's wrapper
+        // is built from the on-device SDK slice after emission returns. The loop still runs — round 0
+        // renders and verifies the emitted C# — and converges on a clean verdict, having genuinely
+        // verified the one plane it has.
+        using var harness = new JointDriverHarness(this, CSharpBehavior.AlwaysClean, wrapperPlane: false);
+
+        var result = WrapperRecoveryController.Run(harness);
+
+        Assert.True(result.Converged);
+        Assert.Empty(result.Denylist);
+        Assert.Equal(1, result.Rounds);
+        Assert.Equal(0, harness.SwiftCompileCalls);   // no wrapper plane was fabricated
+        Assert.Equal(1, harness.CSharpVerifyCalls);
+        Assert.True(harness.CSharpVerifiedClean);
+    }
+
+    [Fact]
+    public void CSharpOnlyLoop_CompileError_WithdrawsTheCulpritInsteadOfFailingTheModule()
+    {
+        // The whole point of wiring the loop into this mode: a C# compile error that used to reach only
+        // the single-shot publication gate (which fails the binding outright) is now attributed to the
+        // emitted member, withdrawn, and the module re-rendered until the C# compiles clean.
+        using var harness = new JointDriverHarness(
+            this, CSharpBehavior.ErrorUntilWithdrawn, wrapperPlane: false);
+
+        var result = WrapperRecoveryController.Run(harness);
+
+        Assert.True(result.Converged);
+        var withdrawn = Assert.Single(result.Denylist);
+        Assert.True(
+            WrapperRecoveryController.IsLeafRecoverable(withdrawn.Scope),
+            "the withdrawn unit must be a leaf/accessor scope — the C#-plane attribution landed on a real member");
+        Assert.Equal(2, result.Rounds);
+        Assert.Equal(0, harness.SwiftCompileCalls);
+        Assert.Equal(2, harness.CSharpVerifyCalls);
+
+        // Non-vacuity: a real compile error drove the withdrawal.
+        Assert.True(harness.CSharpErrored, "the C# verifier never reported the compile error under test");
+
+        // The withdrawal leaves the binding through the same single skip channel, wearing the C# wording.
+        var settled = harness.ReadEmittedCSharp();
+        Assert.Contains(EmitterFaultRecord.CSharpWithdrawalDetailsPrefix, settled, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CSharpOnlyLoop_UnattributableError_FailsClosed_RatherThanShippingAnUnprovenBinding()
+    {
+        // Recovery is not a licence to ship whatever compiles. A positioned-nowhere C# error cannot be
+        // attributed to any member, and with no wrapper plane the bounded bisection has no vacuity
+        // signal to search under, so the loop must fail the module closed — the same outcome this mode
+        // has today, never a silent pass.
+        using var harness = new JointDriverHarness(
+            this, CSharpBehavior.UnattributableError, wrapperPlane: false);
+
+        var result = WrapperRecoveryController.Run(harness);
+
+        Assert.False(result.Converged);
+        Assert.Empty(result.Denylist);
+    }
+
+    [Fact]
+    public void CSharpOnlyLoop_InconclusiveAfterAWithdrawal_FailsClosed()
+    {
+        // Once a member has been withdrawn, an inconclusive verdict can no longer prove the reduction
+        // sound. The C#-only path must fail closed exactly as the joint path does rather than shipping a
+        // narrowed binding on an unverified compile.
+        using var harness = new JointDriverHarness(
+            this, CSharpBehavior.AlwaysInconclusive, wrapperPlane: false);
+        var denylist = harness.WithdrawableUnits();
+
+        var attribution = harness.RenderCompileAttribute(denylist);
+
+        Assert.NotNull(attribution);
+        var decision = Assert.Single(attribution!.Diagnostics);
+        Assert.Equal(AttributionKind.Classification, decision.Kind);
+        Assert.Equal(CauseOwner.InputConfiguration, decision.Owner);
+        Assert.Empty(attribution.Culprits);
+    }
+
+    [Fact]
+    public void DriverWithNeitherPlane_IsRefused_RatherThanCertifyingAnUnverifiedRender()
+    {
+        // A driver with no wrapper compile and no C# verifier would return null from every round — the
+        // controller reads that as convergence, so the loop would certify whatever it rendered without
+        // compiling anything. Construction must refuse it.
+        Assert.Throws<ArgumentException>(() =>
+            new JointDriverHarness(this, CSharpBehavior.AlwaysClean, wrapperPlane: false, csharpPlane: false));
+    }
+
     // ── harness: the real driver with a C# verifier, driven as an IWrapperRecoveryDriver ────────
 
     private enum CSharpBehavior
@@ -223,6 +317,13 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
         /// it escape and fail generation.
         /// </summary>
         ThrowsInfrastructureFailure,
+
+        /// <summary>
+        /// A genuine C# compile error that no member owns — positioned in a file the fragment map does
+        /// not tile (shared scaffolding). Attribution resolves nothing, which the controller must read as
+        /// an unattributed error and fail closed.
+        /// </summary>
+        UnattributableError,
     }
 
     /// <summary>
@@ -252,7 +353,16 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
         /// Clean at convergence. The publication ledger reads exactly this.</summary>
         public bool CSharpVerifiedClean => _inner.CSharpVerifiedClean;
 
-        public JointDriverHarness(CSharpVerifyRecoverDriverTests owner, CSharpBehavior behavior)
+        /// <param name="wrapperPlane">
+        /// Wire the Swift wrapper compile. False models a generation mode with no in-generation wrapper
+        /// compile (the Apple system-framework direct path), where the loop runs the C# plane alone.
+        /// </param>
+        /// <param name="csharpPlane">Wire the C# verifier. False only to prove the no-plane refusal.</param>
+        public JointDriverHarness(
+            CSharpVerifyRecoverDriverTests owner,
+            CSharpBehavior behavior,
+            bool wrapperPlane = true,
+            bool csharpPlane = true)
         {
             _behavior = behavior;
             _scratch = Path.Combine(Path.GetTempPath(), "swiftbind-csharploop-" + Guid.NewGuid().ToString("N"));
@@ -300,10 +410,10 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
                 _module, _context, _typeDatabase, NullLogger.Instance,
                 newEmitter: newEmitter,
                 rebuildCollaborators: rebuildCollaborators,
-                compileWrapper: compileWrapper,
+                compileWrapper: wrapperPlane ? compileWrapper : null,
                 request: request,
                 preRender: ClearScratch,
-                verifyCsharp: VerifyCsharp);
+                verifyCsharp: csharpPlane ? VerifyCsharp : null);
         }
 
         /// <inheritdoc />
@@ -365,6 +475,21 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
                     // A real infrastructure fault: the external build's command runner times out. The
                     // driver, not this stub, is responsible for turning it into an Inconclusive verdict.
                     throw new TimeoutException("dotnet build exceeded the verification timeout");
+
+                case CSharpBehavior.UnattributableError:
+                    // A real compile error in a file the fragment map never tiled — no member owns it.
+                    CSharpErrored = true;
+                    return new CSharpVerificationResult(
+                        CSharpVerificationOutcome.CompileErrors,
+                        new[]
+                        {
+                            new CSharpCompileDiagnostic(
+                                Id: "CS0246",
+                                Severity: CSharpDiagnosticSeverity.Error,
+                                FilePath: "SharedScaffolding.g.cs",
+                                Line: 7, Column: 5, EndLine: 7, EndColumn: 9,
+                                Message: "The type or namespace name 'Nope' could not be found"),
+                        });
 
                 default:
                     return ErrorUntilWithdrawn();

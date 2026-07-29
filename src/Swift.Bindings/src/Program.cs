@@ -987,7 +987,14 @@ namespace BindingsGeneration
                 // delegate (which stays true even when convergence bypassed the verifier).
                 bool loopCSharpVerifiedClean = false;
 
-                if (compileWrapper == null)
+                // The loop runs whenever EITHER verification plane is wired. A mode with an in-generation
+                // wrapper compile drives both planes to a joint fixed-point; a mode that emits a verifiable
+                // binding csproj but has no in-generation wrapper compile (the Apple system-framework
+                // direct path, whose wrapper is built from the SDK slice after emission returns) drives the
+                // C# plane alone. Keying the arm on the wrapper delegate alone is what left that second
+                // mode with no withdrawal/re-emit net at all — only the single-shot publication gate.
+                var loopActive = compileWrapper != null || verifyRecoverCsharp != null;
+                if (!loopActive)
                 {
                     // Ordinary single render. This is the path for the CI compile gate
                     // (--compile-only, which never compiles a wrapper), non-wrapper modules, the SDK's
@@ -1027,10 +1034,12 @@ namespace BindingsGeneration
                     var recovery = Diagnostics.WrapperRecoveryController.Run(driver);
                     InputResolutionReport.Restore(inputResolutionBaseline);
 
-                    // When a C# verifier is wired, the loop is a joint fixed-point over both planes: it
-                    // converges only when the Swift wrapper AND the emitted C# compile clean in the same
-                    // round, so the diagnostics name both planes rather than the wrapper alone.
-                    var planes = verifyRecoverCsharp != null ? "wrapper and C#" : "wrapper";
+                    // Name the planes the loop actually drove, so a non-convergence line says what failed to
+                    // reach a clean compile. With both wired the loop is a joint fixed-point: it converges
+                    // only when the Swift wrapper AND the emitted C# compile clean in the same round.
+                    var planes = compileWrapper == null
+                        ? "C#"
+                        : verifyRecoverCsharp != null ? "wrapper and C#" : "wrapper";
                     if (!recovery.Converged)
                     {
                         logger.LogError(
@@ -1188,7 +1197,12 @@ namespace BindingsGeneration
                 // C# verifier was wired, the emitted C#; a surviving render proved the ABI validator raised
                 // no violation). The non-loop legacy legs keep their standalone MSBuild/SARIF gate and emit
                 // no ledger. Building the ledger is total — it cannot throw and regress a module.
-                IReadOnlyList<string> settledWithdrawnUnits = System.Array.Empty<string>();
+                // The settled disabled set is a property of the LOOP, not of the wrapper plane: whichever
+                // plane named a culprit, the withdrawal is what the shipped binding no longer contains, so
+                // the emission report must record it on every loop path. The obligation LEDGER stays keyed
+                // on the wrapper plane below — its evidence is largely wrapper-shaped, and a C#-only mode
+                // keeps its standalone post-generation publication gate as the authority.
+                IReadOnlyList<string> settledWithdrawnUnits = loopWithdrawnUnits;
                 PublicationObligationLedger? publicationLedger = null;
                 // Reconcile every emitted wrapper-symbol P/Invoke reference against the wrapper functions
                 // this generation emitted. This is the verifier that discharges obligation 4's existence
@@ -1205,7 +1219,6 @@ namespace BindingsGeneration
                 }
                 if (compileWrapper != null)
                 {
-                    settledWithdrawnUnits = loopWithdrawnUnits;
                     var hasWrapperSurface = !convergedWithNoWrapperSurface;
                     publicationLedger = PublicationObligationLedgerBuilder.Build(
                         new PublicationEvidence
