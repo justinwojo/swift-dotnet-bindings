@@ -124,6 +124,20 @@ internal static class AppleFrameworkRegistry
             + "(an integer-backed NS_ENUM/NS_OPTIONS).");
     }
 
+    /// <summary>
+    /// Reads a single <c>valueTypes</c> entry exactly as the registry loader does, so the
+    /// accept/reject boundary for hand-authored entries is observable without rebuilding the
+    /// embedded data file. Throws the same load-time exception a malformed entry raises in
+    /// production.
+    /// </summary>
+    internal static (string Name, string? Kind) ParseValueTypeEntry(string entryJson)
+    {
+        var parsed = JsonConvert.DeserializeObject<ValueTypeDefinition>(entryJson)
+            ?? throw new JsonSerializationException(
+                "apple-frameworks.json: a valueTypes entry must not be null.");
+        return (parsed.Name, parsed.Kind);
+    }
+
     // --- JSON Model ---
 
     private sealed class FrameworkDefinitionsFile
@@ -218,7 +232,30 @@ internal static class AppleFrameworkRegistry
                 if (string.IsNullOrEmpty(name))
                     throw new JsonSerializationException(
                         "apple-frameworks.json: a valueTypes object entry must carry a non-empty 'name'.");
-                return new ValueTypeDefinition { Name = name!, Kind = obj.Value<string>("kind") };
+
+                var unknown = obj.Properties()
+                    .Select(p => p.Name)
+                    .Where(p => !string.Equals(p, "name", StringComparison.Ordinal)
+                             && !string.Equals(p, "kind", StringComparison.Ordinal))
+                    .ToArray();
+                if (unknown.Length > 0)
+                    throw new JsonSerializationException(
+                        $"apple-frameworks.json: valueTypes entry '{name}' carries unknown "
+                        + $"propert{(unknown.Length == 1 ? "y" : "ies")} "
+                        + $"'{string.Join("', '", unknown)}'. Only 'name' and 'kind' are read.");
+
+                // The object form exists ONLY to describe the shape — the string form already says
+                // "value type, shape undescribed". An object with no readable 'kind' is therefore an
+                // authoring slip (a typo'd property name lands here), and silently degrading it to a
+                // bare entry would quietly withhold the very record the entry was written to supply.
+                var kind = obj.Value<string>("kind");
+                if (string.IsNullOrEmpty(kind))
+                    throw new JsonSerializationException(
+                        $"apple-frameworks.json: valueTypes entry '{name}' is written in object form "
+                        + "but declares no 'kind'. Use the plain string form for a value type whose "
+                        + "shape is deliberately left undescribed.");
+
+                return new ValueTypeDefinition { Name = name!, Kind = kind };
             }
 
             throw new JsonSerializationException(

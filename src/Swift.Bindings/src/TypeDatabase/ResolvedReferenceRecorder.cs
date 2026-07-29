@@ -17,12 +17,14 @@ namespace BindingsGeneration;
 /// (<c>Date</c> → <c>double</c>) — so "the type came from Foundation" implies nothing about
 /// which assembly a consumer must reference. What the emitted C# actually names is the
 /// projection, so the projection is what decides the reference.</para>
-/// <para>Called from the two — and only two — places a resolved record surfaces:
-/// <see cref="TypeResolver.TryResolve"/> (the <see cref="NamedTypeSpec"/> strategy chain) and
+/// <para>Called from the three — and only three — places a resolved record surfaces:
+/// <see cref="TypeResolver.TryResolve"/> (the <see cref="NamedTypeSpec"/> strategy chain),
 /// <c>TypeDatabase.TryGetTypeRecordWithoutSupplement</c> (the raw-<see cref="SwiftTypeName"/>
-/// database cascade). Hooking the chokepoints rather than the individual strategies means a
-/// new strategy inherits the recording for free and cannot silently reintroduce a
-/// reference-less resolution path.</para>
+/// database cascade), and the registry-described Apple integer-enum arm that runs after that
+/// cascade on the raw path (the one arm that synthesizes a record instead of finding one, so
+/// it cannot inherit either chokepoint). Hooking the chokepoints rather than the individual
+/// strategies means a new strategy inherits the recording for free and cannot silently
+/// reintroduce a reference-less resolution path.</para>
 /// <para>Over-recording is safe and under-recording is not: a reference to a package whose
 /// types the binding ends up not naming costs an unused restore edge, whereas a missing one is
 /// a hard compile failure in the consumer. The recorded sets are therefore a sound superset,

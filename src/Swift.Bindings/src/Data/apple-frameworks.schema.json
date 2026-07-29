@@ -70,8 +70,9 @@
                 },
                 {
                   "type": "object",
-                  "required": ["name"],
+                  "required": ["name", "kind"],
                   "additionalProperties": false,
+                  "description": "Object form: the entry describes the Swift-side shape. 'kind' is mandatory here — the string form already expresses an undescribed value type, so an object without a readable 'kind' is an authoring error and is rejected at load.",
                   "properties": {
                     "name": {
                       "type": "string",

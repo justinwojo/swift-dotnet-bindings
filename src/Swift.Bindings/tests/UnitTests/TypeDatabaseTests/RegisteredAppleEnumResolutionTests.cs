@@ -184,6 +184,105 @@ public class RegisteredAppleEnumResolutionTests
         Assert.False(AppleFrameworkRegistry.IsIntegerEnumValueType(swiftName));
     }
 
+    [Theory]
+    [MemberData(nameof(DescribedEnums))]
+    public void DescribedEnum_ResolvesOnTheRawNameSurfaceToo(
+        string swiftName, string netNamespace, string netName, string rawValueType)
+    {
+        // Two lookup surfaces reach the same records: the NamedTypeSpec strategy chain and the raw
+        // SwiftTypeName entry point. Leaf lookups inside containers take the raw one, so a record
+        // that exists on only one surface still loses every Optional/array position.
+        using var surface = Surface((netNamespace, netName, AppleTypeSurfaceKind.Enum, rawValueType, false));
+        var db = new TypeDatabase();
+
+        Assert.True(db.TryGetTypeRecord(SwiftTypeName.FromModuleQualifiedName(swiftName), out var byName));
+        Assert.True(db.TryGetTypeRecord(new NamedTypeSpec(swiftName), out var bySpec));
+
+        Assert.Equal(TypeRecordKind.Enum, byName!.Kind);
+        Assert.True((byName.Flags & TypeRecordFlags.SimpleEnum) != 0);
+        Assert.Equal(bySpec!.CSharpTypeName.FullyQualifiedName, byName.CSharpTypeName.FullyQualifiedName);
+        Assert.Equal(bySpec.RawValueTypeName, byName.RawValueTypeName);
+        Assert.Equal(bySpec.Flags, byName.Flags);
+    }
+
+    [Theory]
+    // Undescribed, though the binding does declare a C# enum for it.
+    [InlineData("PassKit.PKPaymentNetwork", "PassKit", "PKPaymentNetwork", nameof(AppleTypeSurfaceKind.Enum))]
+    // Described, but the binding declares something a raw integer cannot stand for.
+    [InlineData("PassKit.PKPaymentButtonType", "PassKit", "PKPaymentButtonType", nameof(AppleTypeSurfaceKind.Class))]
+    public void RawNameSurface_AppliesTheSameFailClosedRule(
+        string swiftName, string netNamespace, string netName, string kindName)
+    {
+        using var surface = Surface((netNamespace, netName, Enum.Parse<AppleTypeSurfaceKind>(kindName), "Int", false));
+
+        Assert.False(new TypeDatabase().TryGetTypeRecord(
+            SwiftTypeName.FromModuleQualifiedName(swiftName), out _));
+    }
+
+    [Theory]
+    [InlineData("Swift.Optional")]
+    [InlineData("Swift.Array")]
+    public void DescribedEnum_InsideAContainer_ProjectsAsARawValueEnum(string container)
+    {
+        // The container leaf resolves through the raw-name surface, so this is the shape that stayed
+        // broken while only the strategy chain knew the record: the projection factory would find no
+        // record and hand the whole container back unprojected.
+        using var surface = Surface(("PassKit", "PKPaymentButtonType", AppleTypeSurfaceKind.Enum, "Int", false));
+
+        var projection = new TypeProjectionFactory().Project(
+            new NamedTypeSpec(container, new NamedTypeSpec("PassKit.PKPaymentButtonType")),
+            new ProjectionContext { TypeDatabase = new TypeDatabase(), IsParameter = false });
+
+        var leaf = Assert.IsType<SimpleEnumProjection>(InnerProjection(projection));
+        Assert.Contains("PKPaymentButtonType", leaf.PublicType);
+    }
+
+    [Fact]
+    public void UndescribedValueType_InsideAContainer_StaysUnprojected()
+    {
+        using var surface = Surface(("PassKit", "PKPaymentNetwork", AppleTypeSurfaceKind.Enum, "Int", false));
+
+        var projection = new TypeProjectionFactory().Project(
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("PassKit.PKPaymentNetwork")),
+            new ProjectionContext { TypeDatabase = new TypeDatabase(), IsParameter = false });
+
+        Assert.Null(InnerProjection(projection) as SimpleEnumProjection);
+    }
+
+    [Theory]
+    // A typo'd property name is the failure this rejects: it would otherwise parse as an object with
+    // no kind and degrade to a bare entry, silently withholding the record the entry was added for.
+    [InlineData("{ \"name\": \"PKPaymentButtonType\", \"knid\": \"enum\" }")]
+    [InlineData("{ \"name\": \"PKPaymentButtonType\" }")]
+    [InlineData("{ \"name\": \"PKPaymentButtonType\", \"kind\": \"\" }")]
+    [InlineData("{ \"kind\": \"enum\" }")]
+    [InlineData("42")]
+    public void MalformedValueTypeEntry_FailsLoad(string entryJson)
+    {
+        Assert.ThrowsAny<Newtonsoft.Json.JsonException>(
+            () => AppleFrameworkRegistry.ParseValueTypeEntry(entryJson));
+    }
+
+    [Theory]
+    [InlineData("\"PKPaymentNetwork\"", "PKPaymentNetwork", null)]
+    [InlineData("{ \"name\": \"PKPaymentButtonType\", \"kind\": \"enum\" }", "PKPaymentButtonType", "enum")]
+    public void WellFormedValueTypeEntry_Loads(string entryJson, string name, string? kind)
+    {
+        var parsed = AppleFrameworkRegistry.ParseValueTypeEntry(entryJson);
+
+        Assert.Equal(name, parsed.Name);
+        Assert.Equal(kind, parsed.Kind);
+    }
+
+    // Unwraps whatever container projection the factory produced, so the assertions target the leaf
+    // the record actually drives rather than the container spelling.
+    private static ITypeProjection? InnerProjection(ITypeProjection? projection) => projection switch
+    {
+        OptionalProjection optional => optional.InnerProjection,
+        ArrayProjection array => array.ElementProjection,
+        _ => projection,
+    };
+
     [Fact]
     public void ValueTypeKind_Null_DescribesNothing()
         => Assert.False(AppleFrameworkRegistry.DescribesIntegerEnum("SomeModule.SomeType", null));

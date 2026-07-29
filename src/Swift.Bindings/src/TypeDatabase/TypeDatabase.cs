@@ -654,7 +654,27 @@ namespace BindingsGeneration
             if (TryResolveAppleSupplementArm(swiftTypeName, out record))
                 return true;
 
-            return TryGetTypeRecordWithoutSupplement(swiftTypeName, out record);
+            if (TryGetTypeRecordWithoutSupplement(swiftTypeName, out record))
+                return true;
+
+            // Arm 7 — an Apple framework type the framework registry describes as an integer
+            // enum. The registry withholds the synthetic bridged-class record for anything it
+            // lists as a value type, so without this arm the identity has NO record on this
+            // surface even though the NamedTypeSpec chain resolves it: every leaf lookup that
+            // goes through a raw name — notably the projection factory's container leaves, so
+            // Optional<T> and arrays of such an enum — would still degrade. Runs last so any
+            // real database record still wins, and applies the same fail-closed rule as the
+            // strategy chain: the registry must describe the Swift side as an integer enum AND
+            // the platform surface must confirm it, or the name stays unresolvable.
+            record = TypeDatabaseExtensions.TryCreateRegisteredAppleEnumRecord(
+                swiftTypeName, usr: null, AppleTypeSurfaceIndex.Default);
+            if (record is not null)
+            {
+                ResolvedReferenceRecorder.Record(record, "TypeDatabase.TryGetTypeRecord:RegisteredAppleEnum");
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>
