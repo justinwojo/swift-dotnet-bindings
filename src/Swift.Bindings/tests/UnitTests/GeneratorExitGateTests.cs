@@ -68,6 +68,28 @@ public class GeneratorExitGateTests
     }
 
     [Theory]
+    [InlineData("macos")]
+    [InlineData("maccatalyst")]
+    [InlineData("tvos")]
+    public void LegLabel_NamesTheSuppliedPlatform(string platformName)
+    {
+        Assert.Contains(platformName, GeneratorExitGate.LegLabel(platformName));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void LegLabel_FallsBackToIosWhenNoPlatformOverrideWasSupplied(string platformName)
+    {
+        // The iOS simulator, device and tvOS regeneration paths share one entry point that leaves the
+        // platform override unset for plain iOS, so the label must still name a leg. A blank here
+        // would print "the  binding-tests leg" — an unnamed leg in the one message whose entire job
+        // is telling the reader which leg died.
+        Assert.Equal("the ios binding-tests leg", GeneratorExitGate.LegLabel(platformName));
+    }
+
+    [Theory]
     [InlineData("the macos runtime-test leg", "SwiftBindingsTestLib")]
     [InlineData("the maccatalyst runtime-test leg", "SwiftBindingsTestLibDependency")]
     public void FailureMessage_NamesTheLeg_TheModule_TheCodeAndTheOptOut(string leg, string module)

@@ -3064,7 +3064,7 @@ partial class Build
             foreach (var line in genProcess.Output)
                 Log.Information("[generator] {Text}", line.Text);
 
-            var legLabel = $"the {platform.Name} runtime-test leg";
+            var legLabel = GeneratorExitGate.LegLabel(platform.Name);
             if (GeneratorExitGate.ShouldFail(exitCode, strict, Permissive))
                 throw new Exception(GeneratorExitGate.FailureMessage(legLabel, ModuleName, exitCode));
             if (GeneratorExitGate.ShouldWarn(exitCode, strict, Permissive))
@@ -3103,7 +3103,7 @@ partial class Build
                 // Same policy as the main module: the dependency bindings are compiled into the
                 // same app, so a dependency generator that emitted nothing produces the same
                 // CS0246 avalanche.
-                var depLegLabel = $"the {platform.Name} runtime-test leg";
+                var depLegLabel = GeneratorExitGate.LegLabel(platform.Name);
                 if (GeneratorExitGate.ShouldFail(depExitCode, strict, Permissive))
                     throw new Exception(GeneratorExitGate.FailureMessage(depLegLabel, DepModuleName, depExitCode));
                 if (GeneratorExitGate.ShouldWarn(depExitCode, strict, Permissive))

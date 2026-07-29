@@ -29,10 +29,10 @@ partial class Build
     // when the generator's post-processor strips MORE than the committed baseline).
     // --permissive opts out for local exploration where the intent is "what survives"
     // rather than "did anything regress?". Beyond the --compile-only gates it also demotes
-    // the macOS/Catalyst runtime lanes' non-zero-generator-exit gate (GeneratorExitGate)
-    // and the async-wrapper give-up gate. --strict outranks it everywhere it applies.
-    // Implies --strict in compile-only mode.
-    [Parameter("Allow non-fatal failures in the fail-closed gates (--compile-only's, and the macos/catalyst generator-exit gate)")]
+    // EVERY runtime lane's non-zero-generator-exit gate (GeneratorExitGate — sim, device,
+    // tvOS, macOS and Catalyst alike) and the async-wrapper give-up gate. --strict outranks
+    // it everywhere it applies. Implies --strict in compile-only mode.
+    [Parameter("Allow non-fatal failures in the fail-closed gates (--compile-only's, and every runtime lane's generator-exit gate)")]
     readonly bool Permissive;
 
     // --- Computed BindingTests paths ---
@@ -380,9 +380,20 @@ partial class Build
         .DependsOn(BuildXcframework)
         .Executes(() => RunRegenerateBindings(Strict));
 
+    /// <summary>
+    /// Regenerates the iOS-family (simulator / device / tvOS) bindings into the shared output dir
+    /// (BtOutputDir), plus the dependency module's bindings.
+    ///
+    /// <para>A non-zero generator exit aborts the leg by default — see <see cref="GeneratorExitGate"/>
+    /// for why continuing turns one real error into an avalanche of unrelated compile errors.</para>
+    /// </summary>
     void RunRegenerateBindings(bool strict, ApplePlatform? platformOverride = null)
     {
         Log.Information("=== Regenerating bindings for {Module} ===", ModuleName);
+
+        // Names the leg in the fail-closed diagnostics below. The generator's own default is iOS,
+        // which is exactly what an absent override means here.
+        var legLabel = GeneratorExitGate.LegLabel(platformOverride?.Name);
 
         // Ensure generator is built (also stages the SwiftInterfaceParser host binary it needs).
         EnsureGeneratorBuilt();
@@ -447,7 +458,6 @@ partial class Build
 
         if (exitCode != 0)
         {
-            Log.Warning("Generator exited with code {ExitCode}", exitCode);
             // The generator runs with logOutput:false so a passing run stays quiet, but that also
             // hides WHY it failed (a --strict-inputs SWIFTBIND027 degradation, an exception, a
             // wrapper-compile abort). StartProcess still captures the stream, so replay it here on
@@ -455,9 +465,11 @@ partial class Build
             // the Actions log).
             foreach (var line in genProcess.Output)
                 Log.Information("[generator] {Text}", line.Text);
-            if (strict)
-                throw new Exception($"Generator exited with code {exitCode} (strict mode)");
-            Log.Information("This is expected if the test library includes features beyond current generator support.");
+
+            if (GeneratorExitGate.ShouldFail(exitCode, strict, Permissive))
+                throw new Exception(GeneratorExitGate.FailureMessage(legLabel, ModuleName, exitCode));
+            if (GeneratorExitGate.ShouldWarn(exitCode, strict, Permissive))
+                Log.Warning("{Message}", GeneratorExitGate.WarningMessage(legLabel, ModuleName, exitCode));
         }
 
         // Generate dependency module bindings
@@ -489,13 +501,19 @@ partial class Build
                 logOutput: false);
             depProcess.WaitForExit();
 
-            if (depProcess.ExitCode != 0)
+            var depExitCode = depProcess.ExitCode;
+            if (depExitCode != 0)
             {
-                Log.Warning("Dependency bindings generation exited with code {Code}", depProcess.ExitCode);
                 foreach (var line in depProcess.Output)
                     Log.Information("[dep-generator] {Text}", line.Text);
-                if (strict)
-                    throw new Exception($"Dependency bindings generator exited with code {depProcess.ExitCode} (strict mode)");
+
+                // Same policy as the main module: the dependency bindings are compiled into the
+                // same app, so a dependency generator that emitted nothing produces the same
+                // CS0246 avalanche.
+                if (GeneratorExitGate.ShouldFail(depExitCode, strict, Permissive))
+                    throw new Exception(GeneratorExitGate.FailureMessage(legLabel, DepModuleName, depExitCode));
+                if (GeneratorExitGate.ShouldWarn(depExitCode, strict, Permissive))
+                    Log.Warning("{Message}", GeneratorExitGate.WarningMessage(legLabel, DepModuleName, depExitCode));
             }
 
             // Move the dependency C# alongside the main bindings: the {DepModule}.cs prelude
