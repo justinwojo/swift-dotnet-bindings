@@ -24,7 +24,7 @@ public partial class ProtocolProxyEmitter
         // BOTH paths (matching the struct), and IncludesMethod needs a ClosureHandler. The
         // property/subscript loops below still gate on the flag (their same-module fillability is
         // the skip sets, not the layout predicate).
-        var closureHandler = new ClosureHandler(_typeDatabase);
+        var closureHandler = new ClosureHandler(_typeDatabase, _moduleName);
 
         // Property receivers (skip static properties - they're not part of the interface)
         foreach (var property in protocolDecl.Properties)
@@ -273,7 +273,7 @@ public partial class ProtocolProxyEmitter
         // Dispatchable closure properties take a dedicated receiver shape — setter
         // accepts (fnPtr, ctxPtr) IntPtr pair, getter returns a 16-byte buffer
         // containing (fnPtr, ctxPtr). Skip the value-shaped emission below.
-        var closureHandlerForProp = new ClosureHandler(_typeDatabase);
+        var closureHandlerForProp = new ClosureHandler(_typeDatabase, _moduleName);
         if (EveryProtocolEmitter.IsDispatchableClosureProperty(property, closureHandlerForProp))
         {
             EmitDispatchableClosurePropertyReceivers(writer, property, protocolDecl, proxyClassName, interfaceName, closureHandlerForProp, emittedReceivers);
@@ -1052,7 +1052,7 @@ public partial class ProtocolProxyEmitter
         // Closure-returning protocol methods take a dedicated receiver shape — no
         // params, returns a 16-byte buffer of (fnPtr, ctxPtr) that Swift materialises
         // into a real `() -> Void` closure.
-        var closureHandlerForReturn = new ClosureHandler(_typeDatabase);
+        var closureHandlerForReturn = new ClosureHandler(_typeDatabase, _moduleName);
         if (EveryProtocolEmitter.IsDispatchableClosureReturningMethod(method, closureHandlerForReturn))
         {
             EmitDispatchableClosureReturningMethodReceiver(writer, method, protocolDecl, proxyClassName, interfaceName, index, closureHandlerForReturn);
@@ -1093,7 +1093,7 @@ public partial class ProtocolProxyEmitter
         // receiver signature matches the expanded EveryProtocol cdecl vtable trampoline
         // (see EveryProtocolEmitter.CountVtableSlots). `Optional<Closure>` also uses two slots;
         // nil round-trips as `IntPtr.Zero`. Value-shaped params remain a single IntPtr each.
-        var closureHandlerForParams = new ClosureHandler(_typeDatabase);
+        var closureHandlerForParams = new ClosureHandler(_typeDatabase, _moduleName);
         var receiverParamFragments = new List<string>();
         for (int i = 0; i < nonEmptyParams.Count; i++)
         {

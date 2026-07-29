@@ -188,7 +188,11 @@ public class TypeProjectionFactory
                     innerBoundGeneric.HasModule() &&
                     !IsStdlibContainer(innerBoundGeneric.Name))
                 {
-                    var bgh = new BoundGenericsHandler(context.TypeDatabase);
+                    // This raw name becomes the projection's emitted C# type, and a generic
+                    // argument that is a closure renders its delegate signature here — so an
+                    // existential inside it has to name the module owning the protocol.
+                    var bgh = new BoundGenericsHandler(context.TypeDatabase, conformanceGraph: null,
+                        currentModuleName: context.CurrentModuleName);
                     var rawCSharpName = bgh.TranslateBoundGenericTypeToCSharp(inner, context.GenericContext ?? GenericContext.Empty);
                     if (!rawCSharpName.Contains("AnyType") &&
                         context.TypeDatabase.TryGetTypeRecord(SwiftTypeName.FromModuleQualifiedName(innerBoundGeneric.Name), out var baseRecord))

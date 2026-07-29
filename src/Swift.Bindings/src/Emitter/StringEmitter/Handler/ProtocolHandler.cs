@@ -897,7 +897,12 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitInterfaceProperty(CSharpWriter csWriter, PropertyDecl propertyDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null, bool isExtensionDefault = false, bool isStaticAbstract = false, bool isObjCOptional = false, ModuleEmissionContext? emissionCtx = null)
         {
-            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            // Same module context as the factory projection this feeds: a bound-generic
+            // argument that is a closure renders its delegate signature through this handler,
+            // and an existential in that signature has to name the module owning the protocol
+            // or the interface declaration emits a name the consuming assembly can't resolve.
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase, conformanceGraph: null,
+                currentModuleName: protocolContext?.ModuleDecl?.Name);
 
             // Resolve property type using factory-first projection
             var csharpTypeName = GetCSharpTypeName(propertyDecl.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext, isParameter: false);
@@ -1105,7 +1110,10 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitInterfaceSubscript(CSharpWriter csWriter, SubscriptDecl subscriptDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null, ModuleEmissionContext? emissionCtx = null)
         {
-            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            // Module context so an existential nested in a bound-generic argument's closure
+            // signature names the module owning its protocol (see EmitInterfaceProperty).
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase, conformanceGraph: null,
+                currentModuleName: protocolContext?.ModuleDecl?.Name);
             NameProvider.DeduplicateParameterNamesForParameterList(subscriptDecl.IndexParameters);
 
             // Resolve return type using factory-first projection
@@ -1179,7 +1187,10 @@ namespace BindingsGeneration
             // are handled at the loop level in Emit(). This method is only called
             // for methods that pass all pre-checks.
 
-            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            // Module context so an existential nested in a bound-generic argument's closure
+            // signature names the module owning its protocol (see EmitInterfaceProperty).
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase, conformanceGraph: null,
+                currentModuleName: protocolContext?.ModuleDecl?.Name);
             NameProvider.DeduplicateParameterNames(methodDecl.CSSignature);
 
             // Get return type using factory-first projection
@@ -1542,7 +1553,10 @@ namespace BindingsGeneration
         /// </summary>
         private string GetClosureCSharpType(ClosureTypeSpec closureTypeSpec, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext)
         {
-            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            // Module context so an existential nested in a bound-generic argument's closure
+            // signature names the module owning its protocol (see EmitInterfaceProperty).
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase, conformanceGraph: null,
+                currentModuleName: protocolContext?.ModuleDecl?.Name);
 
             // Build parameter types
             var paramTypes = new List<string>();
@@ -1580,7 +1594,10 @@ namespace BindingsGeneration
         /// </summary>
         private string GetTupleCSharpType(TupleTypeSpec tupleTypeSpec, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext)
         {
-            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            // Module context so an existential nested in a bound-generic argument's closure
+            // signature names the module owning its protocol (see EmitInterfaceProperty).
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase, conformanceGraph: null,
+                currentModuleName: protocolContext?.ModuleDecl?.Name);
             var elements = new List<string>();
 
             foreach (var element in tupleTypeSpec.Elements)
@@ -1661,7 +1678,10 @@ namespace BindingsGeneration
             if (methodDecl.IsAsync)
                 return;
 
-            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            // Module context so an existential nested in a bound-generic argument's closure
+            // signature names the module owning its protocol (see EmitInterfaceProperty).
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase, conformanceGraph: null,
+                currentModuleName: protocolContext?.ModuleDecl?.Name);
             var csSignature = methodDecl.CSSignature;
             if (csSignature.Count < 2)
                 return;

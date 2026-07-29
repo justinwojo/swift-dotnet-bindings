@@ -21,7 +21,9 @@ public partial class ProtocolProxyEmitter
     private void EmitProtocolClosureInvokeThunkHelpers(CSharpWriter writer, ProtocolDecl protocolDecl)
     {
         var libraryPath = _typeDatabase.AsyncLibraryName ?? _typeDatabase.GetLibraryPath(_moduleName);
-        var closureHandler = new ClosureHandler(_typeDatabase);
+        // The thunk helpers write this handler's delegate type into the emitted invoker, so an
+        // existential in the closure signature must name the module that owns its protocol.
+        var closureHandler = new ClosureHandler(_typeDatabase, _moduleName);
 
         bool emittedAny = false;
         foreach (var (method, methodIdx) in EveryProtocolEmitter.EnumerateProtocolMethodsForDispatch(protocolDecl))

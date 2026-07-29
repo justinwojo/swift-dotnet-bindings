@@ -2459,7 +2459,7 @@ namespace BindingsGeneration
                     if (!emittedProperties.Add(property.Name))
                         continue;
 
-                    var csharpType = ResolvePropertyType(property, typeDatabase);
+                    var csharpType = ResolvePropertyType(property, typeDatabase, moduleDecl.Name);
                     var propertyName = NameProvider.GetPropertyName(property.Name);
                     var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
                     var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
@@ -2490,8 +2490,8 @@ namespace BindingsGeneration
                     if (!emittedMethods.Add(methodKey))
                         continue;
 
-                    var returnType = ResolveMethodReturnType(method, typeDatabase);
-                    var parameters = ResolveMethodParameters(method, typeDatabase);
+                    var returnType = ResolveMethodReturnType(method, typeDatabase, moduleDecl.Name);
+                    var parameters = ResolveMethodParameters(method, typeDatabase, moduleDecl.Name);
                     bool hasReturnValue = method.CSSignature.Count > 0 && !method.CSSignature.First().SwiftTypeSpec.IsEmptyTuple;
                     var methodName = NameProvider.GetPublicMethodName(ProtocolMethodDisambiguator.EffectiveNameInput(method, protocolDecl, typeDatabase), method.IsAsync, hasReturnValue,
                         parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple),
@@ -2514,26 +2514,26 @@ namespace BindingsGeneration
         /// <summary>
         /// Resolves a property's C# type using the same chain as ProtocolHandler.EmitInterfaceProperty.
         /// </summary>
-        private static string ResolvePropertyType(PropertyDecl property, ITypeDatabase typeDatabase)
+        private static string ResolvePropertyType(PropertyDecl property, ITypeDatabase typeDatabase, string? currentModuleName)
         {
-            return ResolveCSharpTypeName(property.SwiftTypeSpec, typeDatabase, isParameter: false);
+            return ResolveCSharpTypeName(property.SwiftTypeSpec, typeDatabase, currentModuleName, isParameter: false);
         }
 
         /// <summary>
         /// Resolves a method's return type using the same chain as ProtocolHandler.EmitInterfaceMethod.
         /// </summary>
-        private static string ResolveMethodReturnType(MethodDecl method, ITypeDatabase typeDatabase)
+        private static string ResolveMethodReturnType(MethodDecl method, ITypeDatabase typeDatabase, string? currentModuleName)
         {
             if (method.CSSignature.Count == 0) return "void";
             var returnArg = method.CSSignature[0];
             if (returnArg.SwiftTypeSpec is TupleTypeSpec tuple && tuple.IsEmptyTuple) return "void";
-            return ResolveCSharpTypeName(returnArg.SwiftTypeSpec, typeDatabase, isParameter: false);
+            return ResolveCSharpTypeName(returnArg.SwiftTypeSpec, typeDatabase, currentModuleName, isParameter: false);
         }
 
         /// <summary>
         /// Resolves method parameters to C# parameter declarations.
         /// </summary>
-        private static List<string> ResolveMethodParameters(MethodDecl method, ITypeDatabase typeDatabase)
+        private static List<string> ResolveMethodParameters(MethodDecl method, ITypeDatabase typeDatabase, string? currentModuleName)
         {
             var parameters = new List<string>();
             for (int i = 1; i < method.CSSignature.Count; i++)
@@ -2544,7 +2544,7 @@ namespace BindingsGeneration
                     continue;
                 if (arg.SwiftTypeSpec.IsEmptyTuple)
                     continue;
-                var paramTypeName = ResolveCSharpTypeName(arg.SwiftTypeSpec, typeDatabase);
+                var paramTypeName = ResolveCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, currentModuleName);
                 var paramName = NameProvider.GetCSharpParameterName(arg);
                 parameters.Add($"{paramTypeName} {paramName}");
             }
@@ -2555,15 +2555,19 @@ namespace BindingsGeneration
         /// Resolves a TypeSpec to its C# type name, handling closures, tuples, existentials, bound generics,
         /// and standard types. Mirrors ProtocolHandler.GetCSharpTypeName() for composition proxy stubs.
         /// </summary>
-        private static string ResolveCSharpTypeName(TypeSpec typeSpec, ITypeDatabase typeDatabase, bool isParameter = true)
+        private static string ResolveCSharpTypeName(TypeSpec typeSpec, ITypeDatabase typeDatabase, string? currentModuleName, bool isParameter = true)
         {
-            // Factory-first with GenericContext: handles all types including bound generics
+            // Factory-first with GenericContext: handles all types including bound generics.
+            // The module being emitted has to travel with the projection: an existential owned by
+            // a sibling module must name that module here, because the generated file emits no
+            // using for the sibling's namespace and a bare interface name resolves to nothing.
             var factory = new TypeProjectionFactory();
             var projection = factory.Project(typeSpec, new ProjectionContext
             {
                 TypeDatabase = typeDatabase,
                 IsParameter = isParameter,
-                GenericContext = GenericContext.Empty
+                GenericContext = GenericContext.Empty,
+                CurrentModuleName = currentModuleName
             });
             if (projection != null)
                 return projection.PublicType;
@@ -2571,7 +2575,8 @@ namespace BindingsGeneration
             // Bound generic fallback: produce raw ABI type name with generic args
             if (typeSpec is NamedTypeSpec boundGeneric && boundGeneric.ContainsGenericParameters)
             {
-                var bgh = new BoundGenericsHandler(typeDatabase);
+                var bgh = new BoundGenericsHandler(typeDatabase, conformanceGraph: null,
+                    currentModuleName: currentModuleName);
                 return bgh.TranslateBoundGenericTypeToCSharp(typeSpec, GenericContext.Empty);
             }
 

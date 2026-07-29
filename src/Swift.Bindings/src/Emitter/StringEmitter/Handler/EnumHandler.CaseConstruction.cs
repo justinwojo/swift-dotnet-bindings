@@ -19,7 +19,11 @@ namespace BindingsGeneration
                 NameProvider.GetCaseName(caseName, caseNameMap), propertyRenames);
             var pInvokeName = $"PInvoke_{capitalizedName}";
             var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
-            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            // Module context so an existential reached through this handler's closure arm names
+            // the module owning its protocol; a bare interface name in the emitted factory
+            // signature resolves to nothing in the consuming assembly.
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase, conformanceGraph: null,
+                currentModuleName: moduleDecl.Name);
 
             // Build parameter list from associated values
             // Track both internal type (for validation/P/Invoke) and public type (for method signatures)

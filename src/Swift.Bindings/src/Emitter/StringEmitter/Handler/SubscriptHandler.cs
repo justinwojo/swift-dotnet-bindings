@@ -34,7 +34,11 @@ namespace BindingsGeneration
             if (subscripts == null || subscripts.Count == 0)
                 return;
 
-            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            // Module context so an existential nested in a bound-generic argument's closure
+            // signature names the module owning its protocol — the emitted indexer type would
+            // otherwise carry a bare interface name the consuming assembly can't resolve.
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase, conformanceGraph: null,
+                currentModuleName: typeDecl.SwiftTypeName?.Module ?? typeDecl.ModuleDecl?.Name);
             var emittedKeys = new HashSet<string>();
             var subscriptValidationPipeline = new MemberValidationPipeline(typeDatabase);
             // Collect convenience indexer overload candidates during the primary loop,

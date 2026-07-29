@@ -106,7 +106,11 @@ namespace BindingsGeneration
         private void EmitGetTypeMetadataForElement(CSharpWriter csWriter, TypeSpec typeSpec, int index, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null, ModuleDecl? moduleDecl = null)
         {
             var existentialHandler = new ExistentialHandler(typeDatabase);
-            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            // Module context so an existential reached through this handler's closure arm names
+            // the module owning its protocol — this type name is written straight into the
+            // emitted metadata accessor, where a bare interface name resolves to nothing.
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase, conformanceGraph: null,
+                currentModuleName: moduleDecl?.Name);
 
             // Handle existential types
             if (existentialHandler.IsExistential(typeSpec))
@@ -273,7 +277,10 @@ namespace BindingsGeneration
             // not `using`, so a bare `new ParameterEncodingProxy(...)` fails CS0246 — the TryGet
             // arm of the same cross-module existential family the public signature fixes.
             var existentialHandler = new ExistentialHandler(typeDatabase) { CurrentModuleName = moduleDecl?.Name };
-            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            // Same reason as the existential handler above, one level in: an existential reached
+            // through this handler's closure arm must name the module owning its protocol.
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase, conformanceGraph: null,
+                currentModuleName: moduleDecl?.Name);
 
             // Bare generic type parameter (e.g. VerificationResult<T>.verified(T)): marshal via
             // the C# type parameter name. Mirrors the factory direction (CaseConstruction.cs)
@@ -482,7 +489,10 @@ namespace BindingsGeneration
             // module-qualified (GetQualifiedProxyClassName below) rather than a bare, CS0246
             // `new ParameterEncodingProxy(...)`. See EmitPayloadMarshalWithOffset.
             var existentialHandler = new ExistentialHandler(typeDatabase) { CurrentModuleName = moduleDecl?.Name };
-            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            // Same reason as the existential handler above, one level in: an existential reached
+            // through this handler's closure arm must name the module owning its protocol.
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase, conformanceGraph: null,
+                currentModuleName: moduleDecl?.Name);
 
             // Bare generic type parameter (e.g. VerificationResult<T>.verified(T)): marshal via
             // the C# type parameter name. See EmitPayloadMarshalWithOffset for the dispatch
@@ -694,7 +704,10 @@ namespace BindingsGeneration
             // module-qualified (GetQualifiedProxyClassName below) rather than a bare, CS0246
             // `new ParameterEncodingProxy(...)`. See EmitPayloadMarshalWithOffset.
             var existentialHandler = new ExistentialHandler(typeDatabase) { CurrentModuleName = moduleDecl?.Name };
-            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            // Same reason as the existential handler above, one level in: an existential reached
+            // through this handler's closure arm must name the module owning its protocol.
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase, conformanceGraph: null,
+                currentModuleName: moduleDecl?.Name);
 
             // Bare generic type parameter (e.g. VerificationResult<T>.verified(T)): marshal via
             // the C# type parameter name. See EmitPayloadMarshalWithOffset for the dispatch

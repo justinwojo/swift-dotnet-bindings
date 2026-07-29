@@ -466,7 +466,11 @@ internal static class ProtocolSignatureHelper
         // (e.g., BatchedCollection<Swift.AnyType> for unknown inner types).
         if (typeSpec is NamedTypeSpec boundGeneric && boundGeneric.ContainsGenericParameters)
         {
-            var bgh = new BoundGenericsHandler(typeDatabase);
+            // Same module context as the existential fallback above: a closure nested in the
+            // generic argument renders its delegate signature through this handler, and an
+            // existential in that signature has to name the module that owns the protocol.
+            var bgh = new BoundGenericsHandler(typeDatabase, conformanceGraph: null,
+                currentModuleName: currentModuleName);
             return MaybeNarrow(bgh.TranslateBoundGenericTypeToCSharp(typeSpec, effectiveGenericContext), narrowNativeInt);
         }
 

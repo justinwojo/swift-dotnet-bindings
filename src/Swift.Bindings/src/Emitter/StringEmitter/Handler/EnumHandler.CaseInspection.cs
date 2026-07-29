@@ -171,7 +171,11 @@ namespace BindingsGeneration
             }
 
             var tag = enumDecl.GetCaseTag(caseDecl);
-            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            // Module context so an existential reached through this handler's closure arm names
+            // the module owning its protocol; a bare interface name in the emitted out-parameter
+            // type resolves to nothing in the consuming assembly.
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase, conformanceGraph: null,
+                currentModuleName: enumDecl.ModuleDecl?.Name);
 
             // Determine the output type based on associated values
             string outType;
@@ -393,7 +397,10 @@ namespace BindingsGeneration
         {
             var caseName = caseDecl.Name;
             var capitalizedName = NameProvider.GetCaseName(caseName, caseNameMap);
-            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            // Module context so an existential reached through this handler's closure arm names
+            // the module owning its protocol (see EmitTryGetMethod).
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase, conformanceGraph: null,
+                currentModuleName: enumDecl.ModuleDecl?.Name);
             var tupleHandler = new TupleHandler(typeDatabase);
 
             // Validate tuple element count (max 7 per C# ValueTuple limit)

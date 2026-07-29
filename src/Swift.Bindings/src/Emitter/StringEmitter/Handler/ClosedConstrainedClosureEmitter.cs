@@ -121,7 +121,9 @@ public static class ClosedConstrainedClosureEmitter
         // The @_cdecl wrappers only exist in xcframework (wrapper) mode.
         if (!WrapperValidation.IsXCFrameworkMode(typeDatabase)) return;
 
-        var closureHandler = new ClosureHandler(typeDatabase);
+        // This handler renders the delegate types written into the emitted extension method, so an
+        // existential in a closure signature must name the module owning its protocol.
+        var closureHandler = new ClosureHandler(typeDatabase, moduleDecl.Name);
         var plans = parentClass.Methods
             .Select(m => TryBuildPlan(m, closureHandler, typeDatabase))
             .Where(p => p != null)
