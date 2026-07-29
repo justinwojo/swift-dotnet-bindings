@@ -1,8 +1,8 @@
 {
-  "git_sha": "50e9c8e3",
+  "git_sha": "3be5b540",
   "platforms": {
     "simulator": {
-      "pass_count": 3274,
+      "pass_count": 3276,
       "skips": [
         {
           "class": "AsyncClosureContextLifetimeTests",
@@ -57,6 +57,695 @@
         {
           "class": "FoundationKvoTests",
           "method": "TestObserveCounter_HandlerThrows_FailsFast",
+          "reason": ""
+        },
+        {
+          "class": "GenericClosureBridgeTests",
+          "method": "TestGenericProcessorRun",
+          "reason": ""
+        },
+        {
+          "class": "GenericClosureBridgeTests",
+          "method": "TestGenericProcessorRunWithFilter",
+          "reason": ""
+        },
+        {
+          "class": "InoutStructDispatchTests",
+          "method": "TestReverseInoutNonFrozenStructDispatch",
+          "reason": ""
+        },
+        {
+          "class": "LeakDetectionTests",
+          "method": "TestDelegatePatternWeakRef",
+          "reason": ""
+        },
+        {
+          "class": "LeakDetectionTests",
+          "method": "TestOwnerResourceUnowned",
+          "reason": ""
+        },
+        {
+          "class": "LeakDetectionTests",
+          "method": "TestStrongCycleCreation",
+          "reason": ""
+        },
+        {
+          "class": "LeakDetectionTests",
+          "method": "TestTreeCycleWithWeakParent",
+          "reason": ""
+        },
+        {
+          "class": "LifetimeTrackingTests",
+          "method": "TestEphemeralClosureReleasesCapturedSafeHandle",
+          "reason": ""
+        },
+        {
+          "class": "MethodLevelGenericTests",
+          "method": "TestGenericMethodHost_MixedParams",
+          "reason": ""
+        },
+        {
+          "class": "NestedOfParentTests",
+          "method": "TestCrossHostClass_AcceptsForeignOuterNested",
+          "reason": ""
+        },
+        {
+          "class": "NestedOfParentTests",
+          "method": "TestCrossHostStruct_AcceptsForeignOuterNested",
+          "reason": ""
+        },
+        {
+          "class": "NonStandardEnumTests",
+          "method": "TestPermissionCaseValues",
+          "reason": ""
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestClassReturningOperatorAdd",
+          "reason": ""
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestClassReturningOperatorScalarMultiply",
+          "reason": ""
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestClassReturningOperatorSubtract",
+          "reason": ""
+        },
+        {
+          "class": "OptionalMarshallingTests",
+          "method": "TestOptionalGenericHolderLargeStructPeek",
+          "reason": ""
+        },
+        {
+          "class": "OptionalThrowingVoidClosureTests",
+          "method": "TestHolder_SetValidator_DelegateThrows_GracefulFault",
+          "reason": ""
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_EphemeralRepeatCall",
+          "reason": ""
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_GCPressureDuringCall",
+          "reason": ""
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_HeapAllocShapeMatrix",
+          "reason": ""
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_PropertySetterReplace",
+          "reason": ""
+        },
+        {
+          "class": "PatParentAsyncMethodsTests",
+          "method": "TestAsyncBagMockIntItem_CancelRespondAsyncSurfacesCancellation",
+          "reason": ""
+        },
+        {
+          "class": "PatParentAsyncMethodsTests",
+          "method": "TestAsyncBagMockStringItem_CancelRespondAsyncSurfacesCancellation",
+          "reason": ""
+        },
+        {
+          "class": "PatParentAsyncVoidMethodsTests",
+          "method": "TestStringDonator_DonateOrThrowAsync_VoidThrowingErrorPath",
+          "reason": ""
+        },
+        {
+          "class": "ProtocolClosureSkipTests",
+          "method": "TestEphemeralKeyProviderProxy_DispatchesThroughSwift",
+          "reason": ""
+        },
+        {
+          "class": "ProtocolExtensionClosureTests",
+          "method": "TestEscapingVoidReleasesCapturedTrackedObject",
+          "reason": ""
+        },
+        {
+          "class": "SuppressedProxyChannelTests",
+          "method": "TestRunIndirectBoxableConsumerFailFastsByDesign",
+          "reason": ""
+        },
+        {
+          "class": "WrapperStrippingTests",
+          "method": "TestVariadicHolderConstruction",
+          "reason": ""
+        },
+        {
+          "class": "WrapperStrippingTests",
+          "method": "TestVariadicHolderSum",
+          "reason": ""
+        },
+        {
+          "class": "WrapperStrippingTests",
+          "method": "TestVariadicMethodEmittedViaCallConvSwift",
+          "reason": ""
+        }
+      ],
+      "known_fails": []
+    },
+    "device": {
+      "pass_count": 3290,
+      "skips": [
+        {
+          "class": "AsyncClosureTests",
+          "method": "TestAsyncClosure_UnhandledException_FailsFast",
+          "reason": ""
+        },
+        {
+          "class": "ClosureFanOutTests",
+          "method": "TestAsyncClosureFan_OwnerExistential",
+          "reason": ""
+        },
+        {
+          "class": "ClosureFanOutTests",
+          "method": "TestAsyncClosureFan_PeerExistential",
+          "reason": ""
+        },
+        {
+          "class": "CrossModuleAliasTests",
+          "method": "TestDescribeTokenA_ReturnsDescription",
+          "reason": ""
+        },
+        {
+          "class": "CrossModuleAliasTests",
+          "method": "TestMakeTokenA_ReturnsToken",
+          "reason": ""
+        },
+        {
+          "class": "CrossModuleAliasTests",
+          "method": "TestTokenHolder_Creation",
+          "reason": ""
+        },
+        {
+          "class": "FoundationKvoTests",
+          "method": "TestObserveCounter_HandlerThrows_FailsFast",
+          "reason": ""
+        },
+        {
+          "class": "GenericClosureBridgeTests",
+          "method": "TestGenericProcessorRun",
+          "reason": ""
+        },
+        {
+          "class": "GenericClosureBridgeTests",
+          "method": "TestGenericProcessorRunWithFilter",
+          "reason": ""
+        },
+        {
+          "class": "InoutStructDispatchTests",
+          "method": "TestReverseInoutNonFrozenStructDispatch",
+          "reason": ""
+        },
+        {
+          "class": "LeakDetectionTests",
+          "method": "TestDelegatePatternWeakRef",
+          "reason": ""
+        },
+        {
+          "class": "LeakDetectionTests",
+          "method": "TestOwnerResourceUnowned",
+          "reason": ""
+        },
+        {
+          "class": "LeakDetectionTests",
+          "method": "TestStrongCycleCreation",
+          "reason": ""
+        },
+        {
+          "class": "LeakDetectionTests",
+          "method": "TestTreeCycleWithWeakParent",
+          "reason": ""
+        },
+        {
+          "class": "MainActorTests",
+          "method": "TestMainActorGuard_OffMainThread_Throws",
+          "reason": ""
+        },
+        {
+          "class": "MethodLevelGenericTests",
+          "method": "TestGenericMethodHost_MixedParams",
+          "reason": ""
+        },
+        {
+          "class": "NestedOfParentTests",
+          "method": "TestCrossHostClass_AcceptsForeignOuterNested",
+          "reason": ""
+        },
+        {
+          "class": "NestedOfParentTests",
+          "method": "TestCrossHostStruct_AcceptsForeignOuterNested",
+          "reason": ""
+        },
+        {
+          "class": "NonStandardEnumTests",
+          "method": "TestPermissionCaseValues",
+          "reason": ""
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestClassReturningOperatorAdd",
+          "reason": ""
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestClassReturningOperatorScalarMultiply",
+          "reason": ""
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestClassReturningOperatorSubtract",
+          "reason": ""
+        },
+        {
+          "class": "ProtocolClosureSkipTests",
+          "method": "TestEphemeralKeyProviderProxy_DispatchesThroughSwift",
+          "reason": ""
+        },
+        {
+          "class": "SuppressedProxyChannelTests",
+          "method": "TestRunIndirectBoxableConsumerFailFastsByDesign",
+          "reason": ""
+        },
+        {
+          "class": "WrapperStrippingTests",
+          "method": "TestVariadicHolderConstruction",
+          "reason": ""
+        },
+        {
+          "class": "WrapperStrippingTests",
+          "method": "TestVariadicHolderSum",
+          "reason": ""
+        },
+        {
+          "class": "WrapperStrippingTests",
+          "method": "TestVariadicMethodEmittedViaCallConvSwift",
+          "reason": ""
+        }
+      ],
+      "known_fails": []
+    },
+    "macos": {
+      "pass_count": 2595,
+      "skips": [
+        {
+          "class": "AsyncClosureContextLifetimeTests",
+          "method": "TestBulkAsyncInvokeDoesNotAccumulateTargets",
+          "reason": ""
+        },
+        {
+          "class": "AsyncClosureContextLifetimeTests",
+          "method": "TestOneShotAsyncClosureReleasesDelegateTarget",
+          "reason": ""
+        },
+        {
+          "class": "AsyncClosureTests",
+          "method": "TestAsyncClosure_UnhandledException_FailsFast",
+          "reason": ""
+        },
+        {
+          "class": "ClosureFanOutTests",
+          "method": "TestAsyncClosureFan_OwnerExistential",
+          "reason": ""
+        },
+        {
+          "class": "ClosureFanOutTests",
+          "method": "TestAsyncClosureFan_PeerExistential",
+          "reason": ""
+        },
+        {
+          "class": "EscapingClosureLifetimeTests",
+          "method": "TestBulkSetClearDoesNotAccumulateTargets",
+          "reason": ""
+        },
+        {
+          "class": "EscapingClosureLifetimeTests",
+          "method": "TestClearedClosureReleasesDelegateTarget",
+          "reason": ""
+        },
+        {
+          "class": "GenericClosureBridgeTests",
+          "method": "TestGenericProcessorRun",
+          "reason": ""
+        },
+        {
+          "class": "GenericClosureBridgeTests",
+          "method": "TestGenericProcessorRunWithFilter",
+          "reason": ""
+        },
+        {
+          "class": "InoutStructDispatchTests",
+          "method": "TestReverseInoutNonFrozenStructDispatch",
+          "reason": ""
+        },
+        {
+          "class": "LeakDetectionTests",
+          "method": "TestDelegatePatternWeakRef",
+          "reason": ""
+        },
+        {
+          "class": "LeakDetectionTests",
+          "method": "TestOwnerResourceUnowned",
+          "reason": ""
+        },
+        {
+          "class": "LeakDetectionTests",
+          "method": "TestStrongCycleCreation",
+          "reason": ""
+        },
+        {
+          "class": "LeakDetectionTests",
+          "method": "TestTreeCycleWithWeakParent",
+          "reason": ""
+        },
+        {
+          "class": "LifetimeTrackingTests",
+          "method": "TestEphemeralClosureReleasesCapturedSafeHandle",
+          "reason": ""
+        },
+        {
+          "class": "MethodLevelGenericTests",
+          "method": "TestGenericMethodHost_MixedParams",
+          "reason": ""
+        },
+        {
+          "class": "NestedOfParentTests",
+          "method": "TestCrossHostClass_AcceptsForeignOuterNested",
+          "reason": ""
+        },
+        {
+          "class": "NestedOfParentTests",
+          "method": "TestCrossHostStruct_AcceptsForeignOuterNested",
+          "reason": ""
+        },
+        {
+          "class": "NonStandardEnumTests",
+          "method": "TestPermissionCaseValues",
+          "reason": ""
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestClassReturningOperatorAdd",
+          "reason": ""
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestClassReturningOperatorScalarMultiply",
+          "reason": ""
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestClassReturningOperatorSubtract",
+          "reason": ""
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_EphemeralRepeatCall",
+          "reason": ""
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_GCPressureDuringCall",
+          "reason": ""
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_HeapAllocShapeMatrix",
+          "reason": ""
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_PropertySetterReplace",
+          "reason": ""
+        },
+        {
+          "class": "ProtocolClosureSkipTests",
+          "method": "TestEphemeralKeyProviderProxy_DispatchesThroughSwift",
+          "reason": ""
+        },
+        {
+          "class": "ProtocolExtensionClosureTests",
+          "method": "TestEscapingVoidReleasesCapturedTrackedObject",
+          "reason": ""
+        },
+        {
+          "class": "SuppressedProxyChannelTests",
+          "method": "TestRunIndirectBoxableConsumerFailFastsByDesign",
+          "reason": ""
+        },
+        {
+          "class": "WrapperStrippingTests",
+          "method": "TestVariadicHolderConstruction",
+          "reason": ""
+        },
+        {
+          "class": "WrapperStrippingTests",
+          "method": "TestVariadicHolderSum",
+          "reason": ""
+        },
+        {
+          "class": "WrapperStrippingTests",
+          "method": "TestVariadicMethodEmittedViaCallConvSwift",
+          "reason": ""
+        }
+      ],
+      "known_fails": []
+    },
+    "maccatalyst": {
+      "pass_count": 2590,
+      "skips": [
+        {
+          "class": "AsyncClosureContextLifetimeTests",
+          "method": "TestBulkAsyncInvokeDoesNotAccumulateTargets",
+          "reason": ""
+        },
+        {
+          "class": "AsyncClosureContextLifetimeTests",
+          "method": "TestOneShotAsyncClosureReleasesDelegateTarget",
+          "reason": ""
+        },
+        {
+          "class": "AsyncClosureTests",
+          "method": "TestAsyncClosure_UnhandledException_FailsFast",
+          "reason": ""
+        },
+        {
+          "class": "ClosureFanOutTests",
+          "method": "TestAsyncClosureFan_OwnerExistential",
+          "reason": ""
+        },
+        {
+          "class": "ClosureFanOutTests",
+          "method": "TestAsyncClosureFan_PeerExistential",
+          "reason": ""
+        },
+        {
+          "class": "EscapingClosureLifetimeTests",
+          "method": "TestBulkSetClearDoesNotAccumulateTargets",
+          "reason": ""
+        },
+        {
+          "class": "EscapingClosureLifetimeTests",
+          "method": "TestClearedClosureReleasesDelegateTarget",
+          "reason": ""
+        },
+        {
+          "class": "GenericClosureBridgeTests",
+          "method": "TestGenericProcessorRun",
+          "reason": ""
+        },
+        {
+          "class": "GenericClosureBridgeTests",
+          "method": "TestGenericProcessorRunWithFilter",
+          "reason": ""
+        },
+        {
+          "class": "InoutStructDispatchTests",
+          "method": "TestReverseInoutNonFrozenStructDispatch",
+          "reason": ""
+        },
+        {
+          "class": "LeakDetectionTests",
+          "method": "TestDelegatePatternWeakRef",
+          "reason": ""
+        },
+        {
+          "class": "LeakDetectionTests",
+          "method": "TestOwnerResourceUnowned",
+          "reason": ""
+        },
+        {
+          "class": "LeakDetectionTests",
+          "method": "TestStrongCycleCreation",
+          "reason": ""
+        },
+        {
+          "class": "LeakDetectionTests",
+          "method": "TestTreeCycleWithWeakParent",
+          "reason": ""
+        },
+        {
+          "class": "LifetimeTrackingTests",
+          "method": "TestEphemeralClosureReleasesCapturedSafeHandle",
+          "reason": ""
+        },
+        {
+          "class": "MethodLevelGenericTests",
+          "method": "TestGenericMethodHost_MixedParams",
+          "reason": ""
+        },
+        {
+          "class": "NestedOfParentTests",
+          "method": "TestCrossHostClass_AcceptsForeignOuterNested",
+          "reason": ""
+        },
+        {
+          "class": "NestedOfParentTests",
+          "method": "TestCrossHostStruct_AcceptsForeignOuterNested",
+          "reason": ""
+        },
+        {
+          "class": "NonStandardEnumTests",
+          "method": "TestPermissionCaseValues",
+          "reason": ""
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestClassReturningOperatorAdd",
+          "reason": ""
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestClassReturningOperatorScalarMultiply",
+          "reason": ""
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestClassReturningOperatorSubtract",
+          "reason": ""
+        },
+        {
+          "class": "OptionalMarshallingTests",
+          "method": "TestOptionalGenericHolderLargeStructPeek",
+          "reason": ""
+        },
+        {
+          "class": "OptionalThrowingVoidClosureTests",
+          "method": "TestHolder_SetValidator_DelegateThrows_GracefulFault",
+          "reason": ""
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_EphemeralRepeatCall",
+          "reason": ""
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_GCPressureDuringCall",
+          "reason": ""
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_HeapAllocShapeMatrix",
+          "reason": ""
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_PropertySetterReplace",
+          "reason": ""
+        },
+        {
+          "class": "PatParentAsyncMethodsTests",
+          "method": "TestAsyncBagMockIntItem_CancelRespondAsyncSurfacesCancellation",
+          "reason": ""
+        },
+        {
+          "class": "PatParentAsyncMethodsTests",
+          "method": "TestAsyncBagMockStringItem_CancelRespondAsyncSurfacesCancellation",
+          "reason": ""
+        },
+        {
+          "class": "PatParentAsyncVoidMethodsTests",
+          "method": "TestStringDonator_DonateOrThrowAsync_VoidThrowingErrorPath",
+          "reason": ""
+        },
+        {
+          "class": "ProtocolClosureSkipTests",
+          "method": "TestEphemeralKeyProviderProxy_DispatchesThroughSwift",
+          "reason": ""
+        },
+        {
+          "class": "ProtocolExtensionClosureTests",
+          "method": "TestEscapingVoidReleasesCapturedTrackedObject",
+          "reason": ""
+        },
+        {
+          "class": "SuppressedProxyChannelTests",
+          "method": "TestRunIndirectBoxableConsumerFailFastsByDesign",
+          "reason": ""
+        },
+        {
+          "class": "WrapperStrippingTests",
+          "method": "TestVariadicHolderConstruction",
+          "reason": ""
+        },
+        {
+          "class": "WrapperStrippingTests",
+          "method": "TestVariadicHolderSum",
+          "reason": ""
+        },
+        {
+          "class": "WrapperStrippingTests",
+          "method": "TestVariadicMethodEmittedViaCallConvSwift",
+          "reason": ""
+        }
+      ],
+      "known_fails": []
+    },
+    "tvos_simulator": {
+      "pass_count": 2696,
+      "skips": [
+        {
+          "class": "AsyncClosureContextLifetimeTests",
+          "method": "TestBulkAsyncInvokeDoesNotAccumulateTargets",
+          "reason": ""
+        },
+        {
+          "class": "AsyncClosureContextLifetimeTests",
+          "method": "TestOneShotAsyncClosureReleasesDelegateTarget",
+          "reason": ""
+        },
+        {
+          "class": "AsyncClosureTests",
+          "method": "TestAsyncClosure_UnhandledException_FailsFast",
+          "reason": ""
+        },
+        {
+          "class": "ClosureFanOutTests",
+          "method": "TestAsyncClosureFan_OwnerExistential",
+          "reason": ""
+        },
+        {
+          "class": "ClosureFanOutTests",
+          "method": "TestAsyncClosureFan_PeerExistential",
+          "reason": ""
+        },
+        {
+          "class": "EscapingClosureLifetimeTests",
+          "method": "TestBulkSetClearDoesNotAccumulateTargets",
+          "reason": ""
+        },
+        {
+          "class": "EscapingClosureLifetimeTests",
+          "method": "TestClearedClosureReleasesDelegateTarget",
           "reason": ""
         },
         {
