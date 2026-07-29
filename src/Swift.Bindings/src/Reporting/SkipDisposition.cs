@@ -232,6 +232,16 @@ public static class SuppressedParentSkipCause
     public const string SuppressedParent = "declaring type is suppressed and emits no C# declaration";
 
     /// <summary>
+    /// The declaring type is deliberately left to the Apple supplement package, so its members ship
+    /// there with it — nothing is lost. Rows carrying this text also carry
+    /// <see cref="SkipReason.OwnedByAppleSupplement"/> as their own reason (not
+    /// <see cref="SkipReason.ParentTypeSuppressed"/>), so <see cref="ClassifyDisposition"/> never
+    /// reads it; it exists so the human-facing report tells the same story the reason does.
+    /// </summary>
+    public const string SupplementOwnedParent =
+        "declaring type is owned by the Apple supplement and its surface ships with the supplement projection";
+
+    /// <summary>
     /// Builds the <see cref="SkippedItem.Details"/> text for a member accounted for against a
     /// suppressed declaring type. <paramref name="parentNeverPublic"/> selects the tier token;
     /// <paramref name="parentReason"/> is echoed for the human reading the report so the row points
@@ -242,6 +252,18 @@ public static class SuppressedParentSkipCause
         ArgumentException.ThrowIfNullOrWhiteSpace(parentQualifiedName);
         var tier = parentNeverPublic ? NeverPublicParent : SuppressedParent;
         return $"'{parentQualifiedName}' — {tier} ({parentReason}); the member was never reached by a member gate.";
+    }
+
+    /// <summary>
+    /// Builds the <see cref="SkippedItem.Details"/> text for a member accounted for against a
+    /// supplement-owned declaring type — the arm of the reconciliation whose rows inherit
+    /// <see cref="SkipReason.OwnedByAppleSupplement"/> instead of the generic parent-suppression
+    /// reason, and whose wording must match: the surface exists in the supplement, it is not a hole.
+    /// </summary>
+    public static string FormatSupplementOwned(string parentQualifiedName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(parentQualifiedName);
+        return $"'{parentQualifiedName}' — {SupplementOwnedParent}; the member was never reached by a member gate.";
     }
 
     /// <summary>

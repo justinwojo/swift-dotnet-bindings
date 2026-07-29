@@ -34,7 +34,7 @@ internal sealed class RegisteredAppleEnumStrategy : IResolutionStrategy
         {
             var typeName = SwiftTypeName.FromTypeSpec(named);
             var record = TypeDatabaseExtensions.TryCreateRegisteredAppleEnumRecord(
-                typeName, named.Usr, AppleTypeSurfaceIndex.Default);
+                typeName, named.Usr, static () => AppleTypeSurfaceIndex.Default);
             if (record is not null)
             {
                 result = new TypeResolutionResult(

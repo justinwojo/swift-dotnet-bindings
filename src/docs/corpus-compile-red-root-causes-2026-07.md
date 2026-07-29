@@ -1,6 +1,15 @@
 # Corpus compile-red root causes — 2026-07-23
 
-Status: **root-cause investigation complete; fix wave proposed, not yet funded.**
+Status: **all fix work complete.** The six families documented here were fixed on
+`main` by the 2026-07-23/24 commits (`7fce8108`, `9fde3f34`, `325c1271`, `812f528b`,
+`b2ace759`, `8b607fa3`, `594bc4ae`). The 2026-07 pre-release D1 stream then root-caused
+and fixed the remaining live residual of the cross-module-qualification family —
+container/subscript/property/overload/async-position existentials from a sibling module
+emitting unqualified interface/proxy names — merged 2026-07-29 as `3160b4e8`,
+`9ffd207b`, `1898499c`, `50e9c8e3` (paired Codex+Grok review, 3 rounds, category
+close-out over every `ProjectionContext` construction). Corpus-level re-verification
+(do the 6 reds actually flip green) is pending the A14 corpus re-sweep in
+`pre-release-0.18.0-open-items.md`.
 Companion to `corpus-compile-red-recheck-2026-07.md` (the 2026-07-22 recheck that showed
 0 of 6 reds flipped by the proxy-availability work). This doc records the actual
 mechanisms behind all four families, with fix sites, sizes, and a session plan.
@@ -223,9 +232,11 @@ one half:
   (proxy witness-dispatch forwarding, e.g. `DataRenderer.DrawData(CGContext)`) checks
   only `IsObjCRootedClassType` (`WitnessDispatchEmitter.cs:756-771`,
   `TypeRecordFlags.ObjCRooted`). Swift's `CGContext` wraps a `CFTypeRef` and does NOT
-  inherit NSObject → false → falls to `.Payload`. The real problem: CoreGraphics types
-  lack the native-remap classification (`NativeTypeName`/`ObjCBridged`-style flag) that
-  `Foundation.URL`/`Data` correctly carry, so `IsSwiftClassType` doesn't exclude them.
+  inherit NSObject → false → falls to `.Payload`. **Premise correction (2026-07-29):**
+  the original diagnosis blamed a missing native-remap classification, but
+  `CoreGraphicsDatabase.xml:41` has carried `objcBridged="true"` on `CGContext` since
+  2026-05-06 — the data was present all along; the gap was purely the emitter check
+  consulting only the ObjC-*rooted* half of the union and ignoring the bridged flag.
 - **C2 (rive-ios, `RiveViewModel.Payload`):** `SwiftUIBridgeEmitter.InitAnalyzer.cs:488-511`
   builds `IsObjCBridgeable` from `IsObjCBridgeable || IsObjCBridged` only — never
   consults `IsObjCRooted`. `RiveViewModel` IS ObjC-rooted (a genuine generator-emitted

@@ -1062,6 +1062,78 @@ public class ReportCollectorTests
     }
 
     [Fact]
+    public void SupplementOwnedParent_MembersInheritTheLossExemption()
+    {
+        // A supplement-owned type's surface exists either way — the type row is exempt from loss
+        // counting by its reason, and the members accounted against it must inherit that reason, or
+        // the report re-counts the already-provided surface as lost once per member.
+        var moduleDecl = CreateSuppressedParentModule();
+        var parent = moduleDecl.Types[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordTypeSkipped(
+            parent, SkipReason.OwnedByAppleSupplement, "Type is provided by the Apple supplement package.");
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        // The accounting arithmetic is unchanged by the reason substitution.
+        Assert.Equal(0, report!.EmittedMembers);
+        Assert.Equal(report.TotalMembers, report.EmittedMembers + report.SkippedMembers);
+
+        // Every member row — including those of the nested types — carries the supplement reason.
+        Assert.DoesNotContain(report.SkippedItems, i => i.Reason == SkipReason.ParentTypeSuppressed);
+        Assert.Contains(
+            report.SkippedItems,
+            i => i.Reason == SkipReason.OwnedByAppleSupplement && i.ContainingType == "ToastModule.Toast.Style");
+
+        // And tells the same story in prose: shipped-with-the-supplement, never the
+        // parent-suppression wording that reads as a structural hole.
+        var memberRows = report.SkippedItems.Where(i => i.ContainingType is not null && i.Details is not null).ToList();
+        Assert.NotEmpty(memberRows);
+        Assert.All(memberRows, row =>
+        {
+            Assert.Contains(SuppressedParentSkipCause.SupplementOwnedParent, row.Details!, StringComparison.Ordinal);
+            Assert.DoesNotContain(SuppressedParentSkipCause.SuppressedParent, row.Details!, StringComparison.Ordinal);
+        });
+
+        // Which is what keeps the whole family out of the loss set and the review tier.
+        Assert.Equal(0, report.SkippedItems.Count(SkipAttributionLinker.IsLoss));
+        var triage = SkipTriageBuilder.Build(report.SkippedItems);
+        Assert.Equal(0, triage.ReviewCount);
+    }
+
+    [Fact]
+    public void SupplementOwnedTypeUnderANeverPublicParent_MembersStayOnTheNeverPublicTier()
+    {
+        // The sticky never-public verdict wins over the supplement exemption: members under a
+        // never-public chain were never consumer-visible, so they keep the generic parent-suppression
+        // reason whose details token routes them to ExpectedNonPublic — not the supplement reason,
+        // whose reason-tier classification would move them into the lost-public-surface arithmetic.
+        var moduleDecl = CreateSuppressedParentModule();
+        var parent = moduleDecl.Types[0];
+        var nested = parent.Types[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordTypeSkipped(parent, SkipReason.ModuleInternal, "@_spi type suppressed from bindings.");
+        ReportCollector.RecordTypeSkipped(
+            nested, SkipReason.OwnedByAppleSupplement, "Type is provided by the Apple supplement package.");
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        var nestedRows = report!.SkippedItems
+            .Where(i => i.Reason == SkipReason.ParentTypeSuppressed && i.ContainingType == "ToastModule.Toast.Style")
+            .ToList();
+        Assert.NotEmpty(nestedRows);
+        Assert.All(nestedRows, row =>
+            Assert.Equal(SkipDisposition.ExpectedNonPublic, SkipDispositionClassifier.Classify(row)));
+
+        // The nested type's OWN row keeps its reason-tier disposition (ExpectedStructural) — only it
+        // reaches the lost-surface arithmetic; no member row does.
+        var triage = SkipTriageBuilder.Build(report.SkippedItems);
+        Assert.Equal(1, triage.PublicSurfaceLost);
+    }
+
+    [Fact]
     public void NestedTypeUnderANeverPublicParent_StaysNeverPublic_WhateverItsOwnSkipReason()
     {
         // A type nested inside a never-public one is unreachable from outside the module however it

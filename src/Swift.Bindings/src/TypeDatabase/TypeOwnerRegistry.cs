@@ -487,8 +487,8 @@ internal static class TypeOwnerRegistry
     // filter for the supplement manifest). Listing them here would make
     // Resolve("SwiftUI.View") return AppleSupplement while the manifest contains no such
     // entry, and any direct Resolve caller not routed through TryGetTypeRecord would act
-    // on the lie. Runtime-canonical types from these modules (e.g. SwiftUI.Text) are
-    // pinned explicitly via s_legacyRuntimeCanonicals and therefore unaffected.
+    // on the lie. Hand-rolled supplement types from these modules (e.g. SwiftUI.Text) are
+    // pinned explicitly via s_appleSupplementOverrides and therefore unaffected.
     private static readonly string[] s_defaultAppleModules =
     {
         "Accessibility",

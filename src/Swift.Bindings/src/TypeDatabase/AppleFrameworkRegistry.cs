@@ -224,7 +224,13 @@ internal static class AppleFrameworkRegistry
         {
             var token = JToken.Load(reader);
             if (token.Type == JTokenType.String)
-                return new ValueTypeDefinition { Name = token.Value<string>() ?? string.Empty };
+            {
+                var bare = token.Value<string>();
+                if (string.IsNullOrEmpty(bare))
+                    throw new JsonSerializationException(
+                        "apple-frameworks.json: a valueTypes string entry must be a non-empty type name.");
+                return new ValueTypeDefinition { Name = bare };
+            }
 
             if (token is JObject obj)
             {

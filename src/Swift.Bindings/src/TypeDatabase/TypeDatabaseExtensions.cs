@@ -576,13 +576,16 @@ public static class TypeDatabaseExtensions
     /// </para>
     /// </summary>
     internal static TypeRecord? TryCreateRegisteredAppleEnumRecord(
-        SwiftTypeName swiftTypeName, string? usr, AppleTypeSurfaceIndex? index)
+        SwiftTypeName swiftTypeName, string? usr, Func<AppleTypeSurfaceIndex?> indexProvider)
     {
         if (!AppleFrameworkRegistry.IsAutoBridgeModule(swiftTypeName.Module))
             return null;
         if (!AppleFrameworkRegistry.IsIntegerEnumValueType(swiftTypeName.ModuleQualifiedName))
             return null;
-        if (index is null)
+        // The index is a provider, not a value, so the reference-pack surface is only resolved (and
+        // on first touch, built) for a name the registry actually describes — not for every name
+        // that merely reaches this arm on its way to failing resolution.
+        if (indexProvider() is not { } index)
             return null;
 
         if (!TryGetRegistryRemappedIdentity(swiftTypeName, out var csharpNamespace, out var csharpName))

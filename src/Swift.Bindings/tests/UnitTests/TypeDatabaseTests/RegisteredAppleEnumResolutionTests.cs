@@ -105,6 +105,23 @@ public class RegisteredAppleEnumResolutionTests
         Assert.False(new TypeDatabase().TryGetTypeRecord(new NamedTypeSpec(swiftName), out _));
     }
 
+    [Theory]
+    // Not an Apple auto-bridge module at all.
+    [InlineData("SwiftBindingsTestLib.SomeType")]
+    // An Apple module type the registry does not describe as an integer enum.
+    [InlineData("PassKit.PKPaymentNetwork")]
+    public void UndescribedName_NeverResolvesThePlatformSurface(string swiftName)
+    {
+        // Resolving the surface can mean building the reference-pack index on first touch. A name
+        // the registry gates already reject must not pay that cost — the provider stays uninvoked.
+        var record = TypeDatabaseExtensions.TryCreateRegisteredAppleEnumRecord(
+            SwiftTypeName.FromModuleQualifiedName(swiftName),
+            usr: null,
+            () => throw new InvalidOperationException("surface index resolved for an undescribed name"));
+
+        Assert.Null(record);
+    }
+
     [Fact]
     public void DescribedEnum_SurfaceUnavailable_StaysFailClosed()
     {
@@ -257,6 +274,9 @@ public class RegisteredAppleEnumResolutionTests
     [InlineData("{ \"name\": \"PKPaymentButtonType\", \"kind\": \"\" }")]
     [InlineData("{ \"kind\": \"enum\" }")]
     [InlineData("42")]
+    // The string form gets the same guard as the object form: an empty name would register an
+    // unmatchable entry instead of failing the load.
+    [InlineData("\"\"")]
     public void MalformedValueTypeEntry_FailsLoad(string entryJson)
     {
         Assert.ThrowsAny<Newtonsoft.Json.JsonException>(

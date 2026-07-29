@@ -667,7 +667,7 @@ namespace BindingsGeneration
             // strategy chain: the registry must describe the Swift side as an integer enum AND
             // the platform surface must confirm it, or the name stays unresolvable.
             record = TypeDatabaseExtensions.TryCreateRegisteredAppleEnumRecord(
-                swiftTypeName, usr: null, AppleTypeSurfaceIndex.Default);
+                swiftTypeName, usr: null, static () => AppleTypeSurfaceIndex.Default);
             if (record is not null)
             {
                 ResolvedReferenceRecorder.Record(record, "TypeDatabase.TryGetTypeRecord:RegisteredAppleEnum");

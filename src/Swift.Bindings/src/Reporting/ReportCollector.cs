@@ -846,13 +846,24 @@ public static class ReportCollector
         HashSet<MemberNameKey> accounted,
         SuppressedParentType parent)
     {
-        var details = SuppressedParentSkipCause.Format(parent.QualifiedName, parent.Reason, parent.NeverPublic);
+        // A supplement-owned type's members ship with the supplement package exactly like the type
+        // itself, so they inherit its reason — and with it the loss exemption keyed on that reason —
+        // instead of being recorded as generic parent-suppression, which would count already-provided
+        // surface as lost. The details text moves with the reason: the parent-suppression wording
+        // ("emits no C# declaration") would misread surface that exists in the supplement as a
+        // structural hole. A never-public chain keeps the generic reason and wording: those members
+        // were never consumer-visible and must stay on the ExpectedNonPublic tier its token selects.
+        var supplementOwned = parent is { Reason: SkipReason.OwnedByAppleSupplement, NeverPublic: false };
+        var reason = supplementOwned ? SkipReason.OwnedByAppleSupplement : SkipReason.ParentTypeSuppressed;
+        var details = supplementOwned
+            ? SuppressedParentSkipCause.FormatSupplementOwned(parent.QualifiedName)
+            : SuppressedParentSkipCause.Format(parent.QualifiedName, parent.Reason, parent.NeverPublic);
 
         foreach (var method in typeDecl.Methods.Where(m => !m.IsAccessor).DistinctBy(m => m.Name, StringComparer.Ordinal))
-            TryRecordUnaccountedMember(session, accounted, BindingItemKind.Method, method.Name, typeDecl, details, method.Position);
+            TryRecordUnaccountedMember(session, accounted, BindingItemKind.Method, method.Name, typeDecl, reason, details, method.Position);
 
         foreach (var property in typeDecl.Properties.DistinctBy(p => p.Name, StringComparer.Ordinal))
-            TryRecordUnaccountedMember(session, accounted, BindingItemKind.Property, property.Name, typeDecl, details, property.Position);
+            TryRecordUnaccountedMember(session, accounted, BindingItemKind.Property, property.Name, typeDecl, reason, details, property.Position);
 
         foreach (var op in typeDecl.Operators.DistinctBy(o => o.Name, StringComparer.Ordinal))
         {
@@ -860,7 +871,7 @@ public static class ReportCollector
             // declaration NAME, so both spellings have to be checked before calling it unaccounted.
             if (accounted.Contains(KeyFor(BindingItemKind.Operator, op.OperatorSymbol, typeDecl)))
                 continue;
-            TryRecordUnaccountedMember(session, accounted, BindingItemKind.Operator, op.Name, typeDecl, details, op.Position);
+            TryRecordUnaccountedMember(session, accounted, BindingItemKind.Operator, op.Name, typeDecl, reason, details, op.Position);
         }
 
         // The totals give a protocol's whole subscript family a single slot regardless of overload
@@ -869,7 +880,7 @@ public static class ReportCollector
         {
             var subscript = typeDecl.Subscripts[0];
             TryRecordUnaccountedMember(
-                session, accounted, BindingItemKind.Subscript, subscript.Name, typeDecl, details, subscript.Position);
+                session, accounted, BindingItemKind.Subscript, subscript.Name, typeDecl, reason, details, subscript.Position);
         }
     }
 
@@ -879,6 +890,7 @@ public static class ReportCollector
         BindingItemKind kind,
         string name,
         TypeDecl typeDecl,
+        SkipReason reason,
         string details,
         SourcePosition? position)
     {
@@ -891,7 +903,7 @@ public static class ReportCollector
             MemberDiagnosticIdentity.FromMember(kind, name, typeDecl),
             name,
             typeDecl,
-            SkipReason.ParentTypeSuppressed,
+            reason,
             details,
             position);
     }
