@@ -1560,9 +1560,19 @@ sed -i '' &quot;s|_SwiftBindingBridgeSliceCount&gt;[0-9]*|_SwiftBindingBridgeSli
          sibling, later in this same build — invokes it with
              Properties="%(SetConfiguration);%(SetPlatform);%(SetTargetFramework)"
              RemoveProperties="%(GlobalPropertiesToRemove)$(_GlobalPropertiesToRemoveFromProjectReferences)"
-         i.e. the parent's globals verbatim, plus any authored/negotiated pin, minus TargetFramework
-         (and friends) when the SDK undefines them. Any property this prep-build adds that the
-         authoritative call does NOT add makes the two requests DIFFERENT build instances, so the
+         plus — unioned in by the MSBuild task from per-item metadata — %(UndefineProperties), which
+         _GetProjectReferenceTargetFrameworkProperties fills in with TargetFramework (single-TFM or
+         already-negotiated reference) and with RuntimeIdentifier;SelfContained (any reference that is
+         not explicitly IsRidAgnostic=false). That per-item metadata, NOT
+         $(_GlobalPropertiesToRemoveFromProjectReferences), is where those three removals come from;
+         the property itself only really grows OutputPath. It matters here because
+         @(_UserProjectReference) is captured from @(ProjectReference) BEFORE that annotation runs, so
+         this prep-build sees none of it and has to name the removals itself.
+
+         Net: the authoritative set is the parent's globals verbatim, plus any authored/negotiated pin,
+         minus TargetFramework/RuntimeIdentifier/SelfContained. Any property this prep-build adds that
+         the authoritative call does NOT add — or fails to remove where it removes — makes the two
+         requests DIFFERENT build instances, so the
          sibling is built TWICE — concurrently, on different nodes. For a Swift binding that means two
          generator runs and two ObjC bgen runs writing the SAME RID-less obj/<cfg>/<tfm>/<Module>/*.g.cs,
          which can interleave into a truncated file (observed as a CS1513 on a bgen-emitted .g.cs), on
@@ -1584,19 +1594,35 @@ sed -i '' &quot;s|_SwiftBindingBridgeSliceCount&gt;[0-9]*|_SwiftBindingBridgeSli
              as pinning false did — the sibling evaluates NoBuild from its own file — but leaves the
              normal-case set (where no NoBuild global exists) byte-identical to the authoritative one,
              so the two requests coalesce into a single build instead of forking a second.
+           - RuntimeIdentifier and SelfContained are removed for the same reason TargetFramework is:
+             the authoritative call undefines both for every reference that is not explicitly
+             IsRidAgnostic=false, which is the universal case here (binding csprojs never declare a
+             RuntimeIdentifier). Leaving them in forks a second instance whenever the outer build
+             carries either global. The two shapes fail differently and both are real: with
+             SelfContained global, BOTH instances land in the same obj/<cfg>/<tfm>/ — the same-path,
+             tear-capable fork this whole block exists to prevent; with RuntimeIdentifier global, the
+             prep instance lands in a RID-scoped obj dir that _CollectSwiftModuleDatabases Source 3
+             never scans, so the pre-build silently buys nothing.
+             ACCEPTED RESIDUAL: a sibling that declares RuntimeIdentifier(s) in its own file is
+             IsRidAgnostic=false, so the authoritative call FORWARDS the parent RID while this one
+             strips it — that shape still forks. It is the pre-existing behavior, the two instances
+             use different obj dirs (no tearing), and matching it would mean replicating the SDK's
+             IsRidAgnostic negotiation before it has run.
 
-         Pinned slice: honour an explicit ProjectReference SetTargetFramework/SetConfiguration
-         so a cross-TFM or cross-config pin builds (and is later discovered) under the same
+         Pinned slice: honour an explicit ProjectReference SetTargetFramework/SetConfiguration/SetPlatform
+         so a cross-TFM, cross-config or cross-platform pin builds (and is later discovered) under the same
          slice that _CollectSwiftModuleDatabases Source 3 and the wrapper -F query look for.
-         SetTargetFramework/SetConfiguration are MSBuild's canonical `TargetFramework=<tfm>` /
-         `Configuration=<cfg>` name=value forms (see Swift.Bindings.csproj's own Swift.Runtime
-         reference), so they are passed through verbatim — re-prefixing would set the global
-         property to the literal string and build the wrong (or no) slice. They are the same two
-         metadata ResolveProjectReferences forwards, so a pinned sibling coalesces too; an absent
-         pin contributes an empty segment MSBuild ignores, leaving the inherited value in force. -->
+         SetTargetFramework/SetConfiguration/SetPlatform are MSBuild's canonical `TargetFramework=<tfm>` /
+         `Configuration=<cfg>` / `Platform=<plat>` name=value forms (see Swift.Bindings.csproj's own
+         Swift.Runtime reference), so they are passed through verbatim — re-prefixing would set the global
+         property to the literal string and build the wrong (or no) slice. They are the same three
+         metadata ResolveProjectReferences forwards, in the same order, so a pinned sibling coalesces too;
+         an absent pin contributes an empty segment MSBuild ignores, leaving the inherited value in force.
+         %(GlobalPropertiesToRemove) is likewise the same per-item removal list the authoritative call
+         applies, so a user-authored removal on the ProjectReference is honoured identically here. -->
     <MSBuild Projects="@(_UserProjectReference)"
-             Properties="%(_UserProjectReference.SetConfiguration);%(_UserProjectReference.SetTargetFramework)"
-             RemoveProperties="NoBuild"
+             Properties="%(_UserProjectReference.SetConfiguration);%(_UserProjectReference.SetPlatform);%(_UserProjectReference.SetTargetFramework)"
+             RemoveProperties="NoBuild;RuntimeIdentifier;SelfContained;%(_UserProjectReference.GlobalPropertiesToRemove)"
              Targets="Build"
              BuildInParallel="false"
              ContinueOnError="true"
@@ -1608,13 +1634,14 @@ sed -i '' &quot;s|_SwiftBindingBridgeSliceCount&gt;[0-9]*|_SwiftBindingBridgeSli
          consumer's Apple TFM (which would fail NETSDK1005). RemoveProperties is
          what actually strips the forwarded global TargetFramework — omitting it
          from Properties is not enough (the MSBuild task forwards the calling
-         project's global TargetFramework otherwise), and it is also what
-         ResolveProjectReferences does via $(_GlobalPropertiesToRemoveFromProjectReferences),
-         so removing it keeps the two sets equal rather than diverging them. A config-only pin
-         (SetConfiguration set, no SetTargetFramework) still lands here and is honoured. -->
+         project's global TargetFramework otherwise), and it is also what the
+         authoritative call ends up doing via the %(UndefineProperties) metadata
+         _GetProjectReferenceTargetFrameworkProperties stamps on the reference,
+         so removing it keeps the two sets equal rather than diverging them. A config-only or
+         platform-only pin (no SetTargetFramework) still lands here and is honoured. -->
     <MSBuild Projects="@(_UserProjectReference)"
-             Properties="%(_UserProjectReference.SetConfiguration)"
-             RemoveProperties="TargetFramework;NoBuild"
+             Properties="%(_UserProjectReference.SetConfiguration);%(_UserProjectReference.SetPlatform)"
+             RemoveProperties="TargetFramework;NoBuild;RuntimeIdentifier;SelfContained;%(_UserProjectReference.GlobalPropertiesToRemove)"
              Targets="Build"
              BuildInParallel="false"
              ContinueOnError="true"

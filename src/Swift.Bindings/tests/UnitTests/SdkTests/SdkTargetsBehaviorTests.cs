@@ -1851,13 +1851,26 @@ namespace BindingsGeneration.Tests
         // `dotnet build` leaves it a normal (non-global) property. Both shapes must coalesce, so
         // both are exercised: forwarding Configuration=$(Configuration) unconditionally diverged
         // the first shape, forwarding nothing would have diverged had it been global-only.
-        [InlineData("", false)]
-        [InlineData(" -p:Configuration=Debug", false)]
+        [InlineData("", "")]
+        [InlineData(" -p:Configuration=Debug", "")]
         // A pinned reference: the prep-build must still land on exactly the instance
         // ResolveProjectReferences creates for the pin.
-        [InlineData("", true)]
-        [InlineData(" -p:Configuration=Debug", true)]
-        public void BuildSiblingSwiftBindingDeps_SharedSiblingBuildsExactlyOnce(string extraArgs, bool pinned)
+        [InlineData("", " SetConfiguration=\"Configuration=Debug\" SetTargetFramework=\"TargetFramework=net10.0\"")]
+        [InlineData(" -p:Configuration=Debug", " SetConfiguration=\"Configuration=Debug\" SetTargetFramework=\"TargetFramework=net10.0\"")]
+        // RuntimeIdentifier / SelfContained: the authoritative call undefines BOTH for any reference
+        // that is not explicitly IsRidAgnostic=false, so the prep-build must too. These fail
+        // differently — SelfContained forks two instances into the SAME obj dir (tear-capable),
+        // RuntimeIdentifier forks the prep instance into a RID-scoped obj dir the database scan
+        // never looks at (silent discovery miss) — but both are the same identity bug.
+        [InlineData(" -p:RuntimeIdentifier=osx-arm64", "")]
+        [InlineData(" -p:SelfContained=true", "")]
+        // SetPlatform is the third pin ResolveProjectReferences forwards; omitting it left the prep
+        // instance on the inherited Platform while the authoritative one honoured the pin.
+        [InlineData("", " SetPlatform=\"Platform=x64\"")]
+        // A user-authored per-item removal: the authoritative call applies %(GlobalPropertiesToRemove),
+        // so a global the user asked to be stripped must be stripped on both sides or they diverge.
+        [InlineData(" -p:SwiftSiblingProbe=outer", " GlobalPropertiesToRemove=\"SwiftSiblingProbe\"")]
+        public void BuildSiblingSwiftBindingDeps_SharedSiblingBuildsExactlyOnce(string extraArgs, string refMetadata)
         {
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
 
@@ -1889,20 +1902,18 @@ namespace BindingsGeneration.Tests
                 <Project Sdk="Microsoft.NET.Sdk">
                   <PropertyGroup>
                     <TargetFramework>net10.0</TargetFramework>
+                    <Platforms>AnyCPU;x64</Platforms>
                     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
                   </PropertyGroup>
+                  <!-- Echo every global on an axis under test, so a count of 2 shows WHICH one diverged. -->
                   <Target Name="_SiblingBuildMarker" AfterTargets="Build">
-                    <Message Importance="High" Text="SIBLING_BUILD_INSTANCE NoBuild=[$(NoBuild)]" />
+                    <Message Importance="High" Text="SIBLING_BUILD_INSTANCE NoBuild=[$(NoBuild)] RID=[$(RuntimeIdentifier)] SelfContained=[$(SelfContained)] Platform=[$(Platform)] Probe=[$(SwiftSiblingProbe)]" />
                   </Target>
                 </Project>
                 """);
 
             var sdkTargetsPath = Path.Combine(FindRepoRoot(),
                 "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
-
-            var pins = pinned
-                ? " SetConfiguration=\"Configuration=Debug\" SetTargetFramework=\"TargetFramework=net10.0\""
-                : "";
 
             // Neutralize the SDK targets whose real bodies need an xcframework or shell the
             // generator. Everything on the path under test stays real:
@@ -1916,7 +1927,7 @@ namespace BindingsGeneration.Tests
                     <TargetFramework>net10.0</TargetFramework>
                   </PropertyGroup>
                   <ItemGroup>
-                    <ProjectReference Include="{siblingCsproj}"{pins} />
+                    <ProjectReference Include="{siblingCsproj}"{refMetadata} />
                   </ItemGroup>
                   <Import Project="{sdkTargetsPath}" />
                   <Target Name="_ComputeSwiftFingerprint" />
