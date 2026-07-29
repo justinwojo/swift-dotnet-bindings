@@ -50,7 +50,7 @@ namespace BindingsGeneration
         /// <param name="emissionContext">Per-module emission context.</param>
         public void EmitModule(ModuleDecl moduleDecl, ModuleEmissionContext? emissionContext = null)
         {
-            emissionContext ??= ModuleEmissionContext.Default;
+            emissionContext ??= ModuleEmissionContext.CreateImplicitFallback();
             emissionContext.BeginFragmentRender();
 
             if (_conductor.TryGetModuleHandler(moduleDecl, out var moduleHandler))

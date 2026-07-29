@@ -12,7 +12,8 @@ namespace BindingsGeneration
         /// Emits a C# module based on the module declaration.
         /// </summary>
         /// <param name="decl">The module declaration.</param>
-        /// <param name="emissionContext">Per-module emission context. Defaults to <see cref="ModuleEmissionContext.Default"/>.</param>
+        /// <param name="emissionContext">Per-module emission context. When null, this emission gets its own
+        /// (see <see cref="ModuleEmissionContext.CreateImplicitFallback"/>) rather than sharing one.</param>
         public void EmitModule(ModuleDecl decl, ModuleEmissionContext? emissionContext = null);
     }
 }

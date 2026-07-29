@@ -33,17 +33,14 @@ namespace BindingsGeneration.Tests
             const string errorMarker = "SBX_ERROR_ROUTES_TO_STDERR";
             const string infoMarker = "SBX_INFO_ROUTES_TO_STDOUT";
 
-            var stdoutWriter = new StringWriter();
-            var stderrWriter = new StringWriter();
-            var originalOut = Console.Out;
-            var originalError = Console.Error;
+            string stdout;
+            string stderr;
 
             // The console logger captures System.Console.Out/Error when its provider is constructed
-            // (inside CreateLoggerFactory), so the redirect must be in place before the factory is
-            // created and stay until it has flushed.
-            Console.SetOut(stdoutWriter);
-            Console.SetError(stderrWriter);
-            try
+            // (inside CreateLoggerFactory), so the capture must be open before the factory is
+            // created and stay open until it has flushed. Its output thread is started inside this
+            // scope, which is what puts its writes in this capture's flow.
+            using (var capture = ConsoleCapture.Begin())
             {
                 // Verbosity 1 == Information minimum — the level the SDK Exec invokes the generator at.
                 var factory = BindingsGenerator.CreateLoggerFactory(1);
@@ -51,18 +48,13 @@ namespace BindingsGeneration.Tests
                 logger.LogInformation(infoMarker);
                 logger.LogError(errorMarker);
                 // Disposing the factory completes the ConsoleLoggerProcessor queue and joins its output
-                // thread; a non-blocking StringWriter drains well within that join, so the captured
-                // writers are final on return.
+                // thread; a non-blocking sink drains well within that join, so the captured text is
+                // final on return.
                 factory.Dispose();
-            }
-            finally
-            {
-                Console.SetOut(originalOut);
-                Console.SetError(originalError);
-            }
 
-            var stdout = stdoutWriter.ToString();
-            var stderr = stderrWriter.ToString();
+                stdout = capture.Out;
+                stderr = capture.Error;
+            }
 
             // Error → stderr only.
             Assert.Contains(errorMarker, stderr);

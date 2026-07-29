@@ -705,7 +705,14 @@ public class NestedClosureBridgeTests
         var swiftOutput = new StringWriter();
         var swiftWriter = new SwiftWriter(swiftOutput);
 
-        NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+        // The escaping-closure owner-token preamble is module-shared: a real module emits it once
+        // ahead of every per-method bridge, and it consumes a takeRetainedValue for a reason that
+        // has nothing to do with the trampoline. Emit it elsewhere against this context so this
+        // writer holds only the per-method output the assertions below are about.
+        var ctx = new ModuleEmissionContext();
+        ClosureContextHelperEmitter.EmitIfNeeded(new SwiftWriter(new StringWriter()), ctx);
+
+        NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl, ctx);
 
         var swift = swiftOutput.ToString();
         // The trampoline borrows the box (takeUnretainedValue) so the inner closure can be

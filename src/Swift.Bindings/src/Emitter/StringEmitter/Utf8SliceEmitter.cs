@@ -22,7 +22,7 @@ public static class Utf8SliceEmitter
     /// <returns>True if the struct was emitted, false if it was already emitted.</returns>
     public static bool EmitIfNeeded(SwiftWriter swiftWriter, ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         if (ctx.Utf8SliceStructEmitted)
             return false;
 
@@ -57,7 +57,7 @@ public static class Utf8SliceEmitter
     /// <returns>True if the function was emitted, false if it was already emitted.</returns>
     public static bool EmitFreeIfNeeded(SwiftWriter swiftWriter, string moduleName, ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         if (ctx.Utf8SliceFreeEmitted)
             return false;
 
@@ -90,7 +90,7 @@ public static class Utf8SliceEmitter
     /// <returns>The symbol name, or null if no module has been set.</returns>
     public static string? GetCurrentFreeSymbolName(ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         return ctx.Utf8SliceCurrentModuleName != null ? GetFreeSymbolName(ctx.Utf8SliceCurrentModuleName) : null;
     }
 
@@ -102,7 +102,7 @@ public static class Utf8SliceEmitter
     /// <returns>True if already emitted, false otherwise.</returns>
     public static bool HasFreePInvokeForType(string typeName, ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         return ctx.HasUtf8SliceFreePInvoke(typeName);
     }
 
@@ -113,7 +113,7 @@ public static class Utf8SliceEmitter
     /// <param name="ctx">The per-module emission context.</param>
     public static void MarkFreePInvokeEmittedForType(string typeName, ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         ctx.TryAddUtf8SliceFreePInvoke(typeName);
     }
 
@@ -122,7 +122,7 @@ public static class Utf8SliceEmitter
     /// </summary>
     public static bool IsStructEmitted(ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         return ctx.Utf8SliceStructEmitted;
     }
 
@@ -131,7 +131,7 @@ public static class Utf8SliceEmitter
     /// </summary>
     public static bool IsFreeEmitted(ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         return ctx.Utf8SliceFreeEmitted;
     }
 
@@ -140,7 +140,7 @@ public static class Utf8SliceEmitter
     /// </summary>
     public static string? CurrentModuleName(ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         return ctx.Utf8SliceCurrentModuleName;
     }
 }

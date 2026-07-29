@@ -46,9 +46,18 @@ namespace BindingsGeneration
         Dictionary<string, string>? EnumPropertyRenames = null)
     {
         /// <summary>
-        /// Returns the emission context, falling back to the default singleton.
+        /// The context used when the caller threaded none. Scoped to this context and every
+        /// <c>with</c>-derived child (the record copy constructor carries the field over), so one
+        /// emission's nested handlers share one fallback while a second emission gets its own.
+        /// A process-wide fallback instead put concurrent emissions in the same dedup registries
+        /// and per-module accumulators, which emission enumerates while it is still adding to them.
         /// </summary>
-        public ModuleEmissionContext GetEmissionContext() => EmissionContext ?? ModuleEmissionContext.Default;
+        private readonly ModuleEmissionContext _implicitEmissionContext = ModuleEmissionContext.CreateImplicitFallback();
+
+        /// <summary>
+        /// Returns the emission context, falling back to this context's own implicit one.
+        /// </summary>
+        public ModuleEmissionContext GetEmissionContext() => EmissionContext ?? _implicitEmissionContext;
 
         public static TypeHandlerContext Empty => new(null, new(), null);
     }

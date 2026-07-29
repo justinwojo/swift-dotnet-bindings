@@ -18,7 +18,7 @@ public static class SwiftUIBridgeCollector
     /// </summary>
     public static void Collect(TypeDecl viewType, ModuleEmissionContext? ctx = null)
     {
-        (ctx ?? ModuleEmissionContext.Default).CollectSwiftUIView(viewType);
+        (ctx ?? ModuleEmissionContext.CreateImplicitFallback()).CollectSwiftUIView(viewType);
     }
 
     /// <summary>
@@ -26,6 +26,6 @@ public static class SwiftUIBridgeCollector
     /// </summary>
     public static IReadOnlyList<TypeDecl> GetCollectedViews(ModuleEmissionContext? ctx = null)
     {
-        return (ctx ?? ModuleEmissionContext.Default).GetCollectedSwiftUIViews();
+        return (ctx ?? ModuleEmissionContext.CreateImplicitFallback()).GetCollectedSwiftUIViews();
     }
 }

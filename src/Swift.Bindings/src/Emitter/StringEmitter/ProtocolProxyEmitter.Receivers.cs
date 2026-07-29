@@ -2266,7 +2266,7 @@ public partial class ProtocolProxyEmitter
     /// </summary>
     private void RecordClassBoundExistentialMetadata(ProtocolDecl protocolDecl)
     {
-        if (_emissionContext == ModuleEmissionContext.Default)
+        if (_emissionContext.IsImplicitFallback)
             return;
         if (!IsProtocolClassBound(protocolDecl))
             return;

@@ -140,7 +140,7 @@ public partial class ProtocolProxyEmitter
         _typeDatabase = typeDatabase;
         _logger = logger;
         _moduleName = moduleName;
-        _emissionContext = ctx ?? ModuleEmissionContext.Default;
+        _emissionContext = ctx ?? ModuleEmissionContext.CreateImplicitFallback();
     }
 
     /// <summary>
@@ -228,11 +228,11 @@ public partial class ProtocolProxyEmitter
         // — _setVtableEmitted is treated as true so existing tests stay green.
         // Keyed on the module-qualified name (matching EveryProtocolEmitter's Mark site) so a
         // dependency protocol sharing a simple name with a local one cannot mis-gate this proxy.
-        _setVtableEmitted = _emissionContext == ModuleEmissionContext.Default
+        _setVtableEmitted = _emissionContext.IsImplicitFallback
             || _emissionContext.WasSetVtableEmitted(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name);
         // Keyed on the module-qualified name (matching EveryProtocolEmitter's Mark site) so a
         // dependency protocol sharing a simple name with a local one cannot mis-gate this proxy.
-        _witnessGetterEmitted = _emissionContext == ModuleEmissionContext.Default
+        _witnessGetterEmitted = _emissionContext.IsImplicitFallback
             || _emissionContext.WasWitnessTableGetterEmitted(protocolDecl.SwiftTypeName!.ModuleQualifiedName);
 
         if (!_setVtableEmitted)
@@ -248,15 +248,15 @@ public partial class ProtocolProxyEmitter
         // the ObjC base — the gates in EveryProtocolEmitter classify each protocol
         // into exactly one base).
         // Both keyed on the module-qualified name, matching EveryProtocolEmitter's Mark sites.
-        _useObjCBase = _emissionContext != ModuleEmissionContext.Default
+        _useObjCBase = !_emissionContext.IsImplicitFallback
             && _emissionContext.UsesObjCBase(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name);
-        _useEntityBase = _emissionContext != ModuleEmissionContext.Default
+        _useEntityBase = !_emissionContext.IsImplicitFallback
             && _emissionContext.UsesEntityBase(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name);
         // Read-only (Swift-vended-only) proxy: no synthesizable EveryProtocol conformance, and the
         // module may export no EveryProtocol metadata accessor at all. Keyed on the SIMPLE name to
         // match ModuleHandler.MarkReadOnlyProxy(p.Name). The unit-test path (no ModuleEmissionContext)
         // keeps the legacy non-read-only behaviour so existing proxy tests stay green.
-        _isReadOnlyProxy = _emissionContext != ModuleEmissionContext.Default
+        _isReadOnlyProxy = !_emissionContext.IsImplicitFallback
             && _emissionContext.IsReadOnlyProxy(protocolDecl.Name);
 
         // Inherited protocol requirements are now handled: the proxy emits implementations

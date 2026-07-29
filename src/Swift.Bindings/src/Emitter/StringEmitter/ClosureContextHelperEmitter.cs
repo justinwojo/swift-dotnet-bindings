@@ -42,7 +42,7 @@ public static class ClosureContextHelperEmitter
     /// </summary>
     public static bool EmitIfNeeded(SwiftWriter swiftWriter, ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         if (ctx.ClosureContextHelpersEmitted)
             return false;
 

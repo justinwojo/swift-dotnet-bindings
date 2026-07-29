@@ -145,7 +145,7 @@ public static class NestedClosureBridge
         TypeDecl? parentDecl,
         ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         var method = env.MethodDecl;
 
         if (!IsEligible(method, env.ClosureHandler, env.TypeDatabase))
@@ -806,7 +806,7 @@ public static class NestedClosureBridge
     private static void EmitInnerBoxReleaseHelperIfNeeded(
         SwiftWriter swiftWriter, string moduleName, ModuleEmissionContext? ctx)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         var symbol = GetInnerBoxReleaseSymbolName(moduleName);
         if (!ctx.TryAddNcbInnerBoxReleaseSymbol(symbol))
             return;

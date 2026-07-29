@@ -205,7 +205,7 @@ public static class EnumCaseWrapperEmitter
         MethodEnvironment env,
         ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
 
         // enum case factories live in the constructor bucket; no
         // method/property/subscript emitter ever registers symbols here. The cdecl symbol

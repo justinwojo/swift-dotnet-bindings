@@ -35,9 +35,7 @@ namespace BindingsGeneration.Tests
             Directory.CreateDirectory(dir);
             try
             {
-                var writer = new StringWriter();
-                Console.SetOut(writer);
-                try
+                using (var capture = ConsoleCapture.Begin())
                 {
                     var exitCode = BindingsGenerator.Main(new[]
                     {
@@ -48,10 +46,6 @@ namespace BindingsGeneration.Tests
                         "--module-database", "/nonexistent/SomeModule.xml"
                     });
                     Assert.NotEqual(0, exitCode);
-                }
-                finally
-                {
-                    Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
                 }
             }
             finally { Directory.Delete(dir, true); }
@@ -176,9 +170,7 @@ namespace BindingsGeneration.Tests
             var invalidDbPath = Path.Combine(fixture.Dir, "invalid.xml");
             File.WriteAllText(invalidDbPath, "<notadatabase><child/></notadatabase>");
 
-            var writer = new StringWriter();
-            Console.SetOut(writer);
-            try
+            using (var capture = ConsoleCapture.Begin())
             {
                 var exitCode = BindingsGenerator.Main(new[]
                 {
@@ -189,10 +181,6 @@ namespace BindingsGeneration.Tests
                     "--module-database", invalidDbPath
                 });
                 Assert.NotEqual(0, exitCode);
-            }
-            finally
-            {
-                Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
             }
         }
 
@@ -212,9 +200,7 @@ namespace BindingsGeneration.Tests
                 </swifttypedatabase>
                 """);
 
-            var writer = new StringWriter();
-            Console.SetOut(writer);
-            try
+            using (var capture = ConsoleCapture.Begin())
             {
                 var exitCode = BindingsGenerator.Main(new[]
                 {
@@ -226,10 +212,6 @@ namespace BindingsGeneration.Tests
                 });
                 // Self-reference is silently skipped (info-level), generation continues
                 Assert.Equal(0, exitCode);
-            }
-            finally
-            {
-                Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
             }
         }
 
@@ -287,16 +269,10 @@ namespace BindingsGeneration.Tests
 
         private static string CaptureHelp()
         {
-            var writer = new StringWriter();
-            Console.SetOut(writer);
-            try
+            using (var capture = ConsoleCapture.Begin())
             {
                 BindingsGenerator.Main(new[] { "-h" });
-                return writer.ToString();
-            }
-            finally
-            {
-                Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+                return capture.Out;
             }
         }
     }

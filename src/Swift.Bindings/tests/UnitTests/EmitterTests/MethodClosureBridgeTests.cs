@@ -1943,7 +1943,14 @@ public class MethodClosureBridgeTests
         var swiftOutput = new StringWriter();
         var swiftWriter = new SwiftWriter(swiftOutput);
 
-        var result = MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, parentDecl);
+        // The escaping-closure owner-token preamble is module-shared: a real module emits it once
+        // ahead of every per-method bridge, and it mentions Unmanaged for reasons unrelated to
+        // self. Emit it elsewhere against this context so this writer holds only the per-method
+        // output the assertions below are about.
+        var ctx = new ModuleEmissionContext();
+        ClosureContextHelperEmitter.EmitIfNeeded(new SwiftWriter(new StringWriter()), ctx);
+
+        var result = MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, parentDecl, ctx);
 
         Assert.True(result);
         var swift = swiftOutput.ToString();

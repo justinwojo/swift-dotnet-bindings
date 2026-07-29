@@ -1575,7 +1575,7 @@ public class EveryProtocolEmitter
         // extension). EmitAsyncClosureBoxIfNeeded dedups across protocols and shares the box with any
         // forward closure of the same return type; the witness body (EmitRealAsyncWitnessImplementation)
         // references the SAME box symbols via ClosureEmitter.GetAsyncClosureBoxSymbols.
-        var realAsyncBoxCtx = _emissionContext ?? ModuleEmissionContext.Default;
+        var realAsyncBoxCtx = _emissionContext ?? ModuleEmissionContext.CreateImplicitFallback();
         bool emittedRealAsyncPreamble = false;
         foreach (var realAsyncMethod in protocolDecl.Methods)
         {

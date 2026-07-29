@@ -89,7 +89,7 @@ public static class ObjCOverridePropertyWrapperEmitter
         string symbolName,
         ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
 
         // ObjC override property accessors use @_silgen_name (not
         // @_cdecl) and are registered in the dedicated ObjC-property bucket. No other
@@ -139,7 +139,7 @@ public static class ObjCOverridePropertyWrapperEmitter
         string symbolName,
         ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
 
         // ObjC override property setter — same dedicated bucket as
         // the getter above. Setter and getter symbols are distinct ObjC selectors, and

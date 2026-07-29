@@ -576,7 +576,7 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitStringRawValueSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, ModuleDecl moduleDecl, string wrapperSymbol, ModuleEmissionContext? ctx = null)
         {
-            ctx ??= ModuleEmissionContext.Default;
+            ctx ??= ModuleEmissionContext.CreateImplicitFallback();
             // RawRep wrappers live in a dedicated `_enum_raw_rep` bucket — no other emitter writes to it. One init(rawValue:) wrapper per enum, keyed by symbol name.
             if (!ctx.TryAddEnumRawRepWrapperSymbol(wrapperSymbol, DeclIdFactory.ForType(enumDecl)))
             {
@@ -659,7 +659,7 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitBlittableRawValueSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, string rawTypeName, string wrapperSymbol, ModuleEmissionContext? ctx = null)
         {
-            ctx ??= ModuleEmissionContext.Default;
+            ctx ??= ModuleEmissionContext.CreateImplicitFallback();
             // RawRep wrappers live in a dedicated `_enum_raw_rep` bucket — no other emitter writes to it. One init(rawValue:) wrapper per enum, keyed by symbol name.
             if (!ctx.TryAddEnumRawRepWrapperSymbol(wrapperSymbol, DeclIdFactory.ForType(enumDecl)))
                 return;
@@ -687,7 +687,7 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitCaseByIndexSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, List<EnumCaseDecl> simpleCases, string caseByIndexSymbol, ModuleEmissionContext? ctx = null)
         {
-            ctx ??= ModuleEmissionContext.Default;
+            ctx ??= ModuleEmissionContext.CreateImplicitFallback();
             // RawRep wrappers live in a dedicated `_enum_raw_rep` bucket — no other emitter writes to it. One case-by-index wrapper per enum, keyed by symbol name.
             if (!ctx.TryAddEnumRawRepWrapperSymbol(caseByIndexSymbol, DeclIdFactory.ForType(enumDecl)))
                 return;

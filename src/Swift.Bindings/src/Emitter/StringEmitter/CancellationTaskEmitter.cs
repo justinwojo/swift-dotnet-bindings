@@ -28,7 +28,7 @@ public static class CancellationTaskEmitter
     /// <returns>True if the infrastructure was emitted, false if it was already emitted.</returns>
     public static bool EmitIfNeeded(SwiftWriter swiftWriter, string moduleName, ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         if (ctx.CancellationInfrastructureEmitted)
             return false;
 
@@ -146,7 +146,7 @@ public static class CancellationTaskEmitter
     /// <returns>The symbol name, or null if no module has been set.</returns>
     public static string? GetCurrentCancelSymbolName(ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         return ctx.CancellationCurrentModuleName != null ? GetCancelSymbolName(ctx.CancellationCurrentModuleName) : null;
     }
 
@@ -158,7 +158,7 @@ public static class CancellationTaskEmitter
     /// <returns>True if already emitted, false otherwise.</returns>
     public static bool HasCancelPInvokeForType(string typeName, ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         return ctx.HasCancellationPInvoke(typeName);
     }
 
@@ -169,7 +169,7 @@ public static class CancellationTaskEmitter
     /// <param name="ctx">The per-module emission context.</param>
     public static void MarkCancelPInvokeEmittedForType(string typeName, ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         ctx.TryAddCancellationPInvoke(typeName);
     }
 
@@ -178,7 +178,7 @@ public static class CancellationTaskEmitter
     /// </summary>
     public static bool IsEmitted(ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         return ctx.CancellationInfrastructureEmitted;
     }
 
@@ -187,7 +187,7 @@ public static class CancellationTaskEmitter
     /// </summary>
     public static string? GetCurrentModuleName(ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         return ctx.CancellationCurrentModuleName;
     }
 }

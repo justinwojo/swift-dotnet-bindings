@@ -128,7 +128,7 @@ public class WitnessDispatchEmitter
         _typeDatabase = typeDatabase;
         _logger = logger;
         _moduleName = moduleName;
-        _emissionContext = ctx ?? ModuleEmissionContext.Default;
+        _emissionContext = ctx ?? ModuleEmissionContext.CreateImplicitFallback();
     }
 
     /// <summary>

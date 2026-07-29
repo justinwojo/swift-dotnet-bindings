@@ -43,7 +43,7 @@ public static class ForeignTypeExtensionEmitter
         ModuleEmissionContext? ctx = null,
         IReadOnlyDictionary<string, List<AvailabilityAnnotation>>? availabilityAnnotations = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         if (foreignExtensions.Count == 0)
             return;
 
@@ -89,7 +89,7 @@ public static class ForeignTypeExtensionEmitter
     /// </summary>
     public static void EmitSwiftWrappers(SwiftWriter swiftWriter, ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         if (ctx.ForeignExtSwiftWrapperLines.Count == 0)
             return;
 
@@ -113,7 +113,7 @@ public static class ForeignTypeExtensionEmitter
     /// </summary>
     public static void EmitCSharpExtensionClasses(CSharpWriter csWriter, ITypeDatabase typeDatabase, string moduleName, ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         if (ctx.ForeignExtClasses.Count == 0)
             return;
 

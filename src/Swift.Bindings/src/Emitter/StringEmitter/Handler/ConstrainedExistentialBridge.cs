@@ -75,7 +75,7 @@ public static class ConstrainedExistentialBridge
         ILogger logger,
         ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
 
         // Gate: class parent only (struct constructors need different return pattern)
         if (env.ParentDecl is not ClassDecl classDecl)

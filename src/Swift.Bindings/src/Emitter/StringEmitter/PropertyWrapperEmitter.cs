@@ -183,7 +183,7 @@ public static class PropertyWrapperEmitter
         MethodEnvironment env,
         ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
 
         // property getters live in the property bucket; no
         // method/constructor/subscript emitter ever registers a getter mangled name.
@@ -488,7 +488,7 @@ public static class PropertyWrapperEmitter
         MethodEnvironment env,
         ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
 
         // property setters share the property bucket with getters but
         // Swift's accessor mangling distinguishes setter from getter at the symbol level, so

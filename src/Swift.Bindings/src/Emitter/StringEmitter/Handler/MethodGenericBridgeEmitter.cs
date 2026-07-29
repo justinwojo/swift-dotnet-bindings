@@ -41,7 +41,7 @@ public static class MethodGenericBridgeEmitter
         TypeDecl? parentDecl,
         ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         var methodDecl = env.MethodDecl;
 
         if (methodDecl.IsConstructor) return false;

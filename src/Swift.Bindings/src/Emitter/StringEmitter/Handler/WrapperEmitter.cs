@@ -180,7 +180,7 @@ namespace BindingsGeneration
         {
             _env = methodEnv;
             _fallbackInfo = fallbackInfo;
-            _emissionContext = emissionContext ?? ModuleEmissionContext.Default;
+            _emissionContext = emissionContext ?? ModuleEmissionContext.CreateImplicitFallback();
             _genericContext = methodEnv.ParentDecl is TypeDecl parentType
                 ? GenericContext.FromMethodInType(methodEnv.MethodDecl, parentType)
                 : GenericContext.FromMethod(methodEnv.MethodDecl);

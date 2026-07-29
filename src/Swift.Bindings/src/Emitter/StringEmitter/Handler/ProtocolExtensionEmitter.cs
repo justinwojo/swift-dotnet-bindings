@@ -28,7 +28,7 @@ public static class ProtocolExtensionEmitter
         ILogger logger,
         ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         if (protocolExtensionMethods.Count == 0)
             return;
 
@@ -92,7 +92,7 @@ public static class ProtocolExtensionEmitter
     /// </summary>
     public static void EmitSwiftWrappers(SwiftWriter swiftWriter, ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         if (ctx.ProtocolExtSwiftWrapperLines.Count == 0)
             return;
 

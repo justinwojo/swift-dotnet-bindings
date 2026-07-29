@@ -946,17 +946,11 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Help_IncludesNoAutoDetectOption()
         {
-            var writer = new StringWriter();
-            Console.SetOut(writer);
-            try
+            using (var capture = ConsoleCapture.Begin())
             {
                 BindingsGenerator.Main(new[] { "-h" });
-                var output = writer.ToString();
+                var output = capture.Out;
                 Assert.Contains("--no-auto-detect", output);
-            }
-            finally
-            {
-                Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
             }
         }
     }

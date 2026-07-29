@@ -238,7 +238,7 @@ public static class MethodWrapperEmitter
         string? silgenTarget = null,
         bool silgenHasResultBuffer = false)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
 
         var methodDecl = env.MethodDecl;
         var parentTypeDecl = env.ParentDecl as TypeDecl;
@@ -937,8 +937,8 @@ public static class MethodWrapperEmitter
         if (isString)
         {
             var moduleName = parentTypeDecl.SwiftTypeName.Module;
-            Utf8SliceEmitter.EmitIfNeeded(swiftWriter, ctx ?? ModuleEmissionContext.Default);
-            Utf8SliceEmitter.EmitFreeIfNeeded(swiftWriter, moduleName, ctx ?? ModuleEmissionContext.Default);
+            Utf8SliceEmitter.EmitIfNeeded(swiftWriter, ctx ?? ModuleEmissionContext.CreateImplicitFallback());
+            Utf8SliceEmitter.EmitFreeIfNeeded(swiftWriter, moduleName, ctx ?? ModuleEmissionContext.CreateImplicitFallback());
         }
 
         // Determine if return type references T

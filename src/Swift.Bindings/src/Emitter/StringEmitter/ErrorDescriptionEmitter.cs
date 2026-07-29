@@ -28,7 +28,7 @@ public static class ErrorDescriptionEmitter
     /// <returns>True if the infrastructure was emitted, false if it was already emitted.</returns>
     public static bool EmitIfNeeded(SwiftWriter swiftWriter, string moduleName, ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         if (ctx.ErrorDescInfrastructureEmitted)
             return false;
 
@@ -103,7 +103,7 @@ public static class ErrorDescriptionEmitter
     /// </summary>
     public static string? GetCurrentDescriptionSymbolName(ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         return ctx.ErrorDescCurrentModuleName != null ? GetDescriptionSymbolName(ctx.ErrorDescCurrentModuleName) : null;
     }
 
@@ -112,7 +112,7 @@ public static class ErrorDescriptionEmitter
     /// </summary>
     public static string? GetCurrentReleaseSymbolName(ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         return ctx.ErrorDescCurrentModuleName != null ? GetReleaseSymbolName(ctx.ErrorDescCurrentModuleName) : null;
     }
 
@@ -121,7 +121,7 @@ public static class ErrorDescriptionEmitter
     /// </summary>
     public static bool HasErrorPInvokeForType(string typeName, ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         return ctx.HasErrorDescPInvoke(typeName);
     }
 
@@ -130,7 +130,7 @@ public static class ErrorDescriptionEmitter
     /// </summary>
     public static void MarkErrorPInvokeEmittedForType(string typeName, ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         ctx.TryAddErrorDescPInvoke(typeName);
     }
 
@@ -139,7 +139,7 @@ public static class ErrorDescriptionEmitter
     /// </summary>
     public static bool IsEmitted(ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         return ctx.ErrorDescInfrastructureEmitted;
     }
 
@@ -148,7 +148,7 @@ public static class ErrorDescriptionEmitter
     /// </summary>
     public static string? GetCurrentModuleName(ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         return ctx.ErrorDescCurrentModuleName;
     }
 
@@ -164,7 +164,7 @@ public static class ErrorDescriptionEmitter
     /// <param name="ctx">The per-module emission context.</param>
     public static void EmitTypedErrorExtractorIfNeeded(SwiftWriter swiftWriter, string moduleName, string swiftErrorTypeName, ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         if (!ctx.TryAddTypedErrorExtractor(swiftErrorTypeName))
             return;
 
@@ -205,7 +205,7 @@ public static class ErrorDescriptionEmitter
     /// </summary>
     public static bool HasExtractorPInvokeForType(string key, ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         return ctx.HasExtractorPInvoke(key);
     }
 
@@ -214,7 +214,7 @@ public static class ErrorDescriptionEmitter
     /// </summary>
     public static void MarkExtractorPInvokeEmittedForType(string key, ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         ctx.TryAddExtractorPInvoke(key);
     }
 

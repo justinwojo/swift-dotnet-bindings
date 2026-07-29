@@ -171,7 +171,7 @@ public static class SubscriptWrapperEmitter
         MethodEnvironment env,
         ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
 
         // subscript getters share the property bucket by ABI convention,
         // but Swift's mangling shapes subscript accessors with a distinct `_subscript`
@@ -373,7 +373,7 @@ public static class SubscriptWrapperEmitter
         MethodEnvironment env,
         ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
 
         // subscript setters carry Swift's `_subscript`-discriminated
         // setter mangling — disjoint from getters, properties, methods, and constructors.

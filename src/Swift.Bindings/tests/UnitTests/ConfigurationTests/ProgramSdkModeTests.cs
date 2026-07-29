@@ -87,9 +87,7 @@ namespace BindingsGeneration.Tests
             Directory.CreateDirectory(dir);
             try
             {
-                var writer = new StringWriter();
-                Console.SetOut(writer);
-                try
+                using (var capture = ConsoleCapture.Begin())
                 {
                     var exitCode = BindingsGenerator.Main(new[]
                     {
@@ -99,10 +97,6 @@ namespace BindingsGeneration.Tests
                     });
                     Assert.NotEqual(0, exitCode);
                 }
-                finally
-                {
-                    Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
-                }
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -111,16 +105,10 @@ namespace BindingsGeneration.Tests
         public void MissingOutput_StillFails()
         {
             // Verify existing required-option behavior is preserved
-            var writer = new StringWriter();
-            Console.SetOut(writer);
-            try
+            using (var capture = ConsoleCapture.Begin())
             {
                 BindingsGenerator.Main(new[] { "--sdk-mode" });
                 // Should fail because -o is required
-            }
-            finally
-            {
-                Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
             }
         }
 
@@ -129,31 +117,19 @@ namespace BindingsGeneration.Tests
         {
             // Verifies the parser accepts the option string without crashing
             // (actual validation happens in the handler, which needs -o and inputs)
-            var writer = new StringWriter();
-            Console.SetOut(writer);
-            try
+            using (var capture = ConsoleCapture.Begin())
             {
                 BindingsGenerator.Main(new[] { "--wrapper-architectures", "invalid", "-o", "/tmp/test" });
-            }
-            finally
-            {
-                Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
             }
         }
 
         [Fact]
         public void MissingOutput_ReturnsNonZeroExitCode()
         {
-            var writer = new StringWriter();
-            Console.SetOut(writer);
-            try
+            using (var capture = ConsoleCapture.Begin())
             {
                 var exitCode = BindingsGenerator.Main(new[] { "--xcframework", "/nonexistent" });
                 Assert.NotEqual(0, exitCode);
-            }
-            finally
-            {
-                Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
             }
         }
 
@@ -164,9 +140,7 @@ namespace BindingsGeneration.Tests
             Directory.CreateDirectory(dir);
             try
             {
-                var writer = new StringWriter();
-                Console.SetOut(writer);
-                try
+                using (var capture = ConsoleCapture.Begin())
                 {
                     var exitCode = BindingsGenerator.Main(new[]
                     {
@@ -175,10 +149,6 @@ namespace BindingsGeneration.Tests
                         "-o", dir
                     });
                     Assert.NotEqual(0, exitCode);
-                }
-                finally
-                {
-                    Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
                 }
             }
             finally { Directory.Delete(dir, true); }
@@ -191,16 +161,10 @@ namespace BindingsGeneration.Tests
             Directory.CreateDirectory(dir);
             try
             {
-                var writer = new StringWriter();
-                Console.SetOut(writer);
-                try
+                using (var capture = ConsoleCapture.Begin())
                 {
                     var exitCode = BindingsGenerator.Main(new[] { "-o", dir });
                     Assert.NotEqual(0, exitCode);
-                }
-                finally
-                {
-                    Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
                 }
             }
             finally { Directory.Delete(dir, true); }
@@ -209,16 +173,10 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Help_ReturnsZeroExitCode()
         {
-            var writer = new StringWriter();
-            Console.SetOut(writer);
-            try
+            using (var capture = ConsoleCapture.Begin())
             {
                 var exitCode = BindingsGenerator.Main(new[] { "-h" });
                 Assert.Equal(0, exitCode);
-            }
-            finally
-            {
-                Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
             }
         }
 
@@ -254,9 +212,7 @@ namespace BindingsGeneration.Tests
                 var dylibPath = Path.Combine(dir, "lib.dylib");
                 File.WriteAllText(dylibPath, "");
 
-                var writer = new StringWriter();
-                Console.SetOut(writer);
-                try
+                using (var capture = ConsoleCapture.Begin())
                 {
                     var exitCode = BindingsGenerator.Main(new[]
                     {
@@ -269,26 +225,16 @@ namespace BindingsGeneration.Tests
                     // Should fail gracefully (non-zero exit) rather than crashing
                     Assert.NotEqual(0, exitCode);
                 }
-                finally
-                {
-                    Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
-                }
             }
             finally { Directory.Delete(dir, true); }
         }
 
         private static string CaptureHelp()
         {
-            var writer = new StringWriter();
-            Console.SetOut(writer);
-            try
+            using (var capture = ConsoleCapture.Begin())
             {
                 BindingsGenerator.Main(new[] { "-h" });
-                return writer.ToString();
-            }
-            finally
-            {
-                Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+                return capture.Out;
             }
         }
     }
@@ -320,9 +266,7 @@ namespace BindingsGeneration.Tests
             Directory.CreateDirectory(dir);
             try
             {
-                var writer = new StringWriter();
-                Console.SetOut(writer);
-                try
+                using (var capture = ConsoleCapture.Begin())
                 {
                     var exitCode = BindingsGenerator.Main(new[]
                     {
@@ -332,10 +276,6 @@ namespace BindingsGeneration.Tests
                         "-o", dir
                     });
                     Assert.NotEqual(0, exitCode);
-                }
-                finally
-                {
-                    Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
                 }
             }
             finally { Directory.Delete(dir, true); }
@@ -348,9 +288,7 @@ namespace BindingsGeneration.Tests
             Directory.CreateDirectory(dir);
             try
             {
-                var writer = new StringWriter();
-                Console.SetOut(writer);
-                try
+                using (var capture = ConsoleCapture.Begin())
                 {
                     var exitCode = BindingsGenerator.Main(new[]
                     {
@@ -359,26 +297,16 @@ namespace BindingsGeneration.Tests
                     });
                     Assert.NotEqual(0, exitCode);
                 }
-                finally
-                {
-                    Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
-                }
             }
             finally { Directory.Delete(dir, true); }
         }
 
         private static string CaptureHelp()
         {
-            var writer = new StringWriter();
-            Console.SetOut(writer);
-            try
+            using (var capture = ConsoleCapture.Begin())
             {
                 BindingsGenerator.Main(new[] { "-h" });
-                return writer.ToString();
-            }
-            finally
-            {
-                Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+                return capture.Out;
             }
         }
     }
@@ -985,9 +913,7 @@ namespace BindingsGeneration.Tests
             Directory.CreateDirectory(dir);
             try
             {
-                var writer = new StringWriter();
-                Console.SetOut(writer);
-                try
+                using (var capture = ConsoleCapture.Begin())
                 {
                     BindingsGenerator.Main(new[]
                     {
@@ -998,10 +924,6 @@ namespace BindingsGeneration.Tests
                         "--framework-dependency", "/some/dep.xcframework"
                     });
                     // Should not crash — error logged via ILogger
-                }
-                finally
-                {
-                    Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
                 }
             }
             finally { Directory.Delete(dir, true); }
@@ -1493,16 +1415,10 @@ namespace BindingsGeneration.Tests
 
         private static string CaptureHelp()
         {
-            var writer = new StringWriter();
-            Console.SetOut(writer);
-            try
+            using (var capture = ConsoleCapture.Begin())
             {
                 BindingsGenerator.Main(new[] { "-h" });
-                return writer.ToString();
-            }
-            finally
-            {
-                Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+                return capture.Out;
             }
         }
 

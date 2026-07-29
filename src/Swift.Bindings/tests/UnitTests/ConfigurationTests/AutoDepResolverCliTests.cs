@@ -76,28 +76,15 @@ namespace BindingsGeneration.Tests
 
         private static (string stdout, string stderr, int exitCode) RunResolveAutoDeps(string autoDepSpec, string explicitDeps)
         {
-            var stdoutWriter = new StringWriter();
-            var stderrWriter = new StringWriter();
-            var originalOut = Console.Out;
-            var originalError = Console.Error;
-            Console.SetOut(stdoutWriter);
-            Console.SetError(stderrWriter);
-            try
+            using var capture = ConsoleCapture.Begin();
+            // No --verbose: runs at the default Information verbosity the SDK Exec uses.
+            var exitCode = BindingsGenerator.Main(new[]
             {
-                // No --verbose: runs at the default Information verbosity the SDK Exec uses.
-                var exitCode = BindingsGenerator.Main(new[]
-                {
-                    "--resolve-auto-deps",
-                    "--auto-dep-spec", autoDepSpec,
-                    "--explicit-deps", explicitDeps,
-                });
-                return (stdoutWriter.ToString(), stderrWriter.ToString(), exitCode);
-            }
-            finally
-            {
-                Console.SetOut(originalOut);
-                Console.SetError(originalError);
-            }
+                "--resolve-auto-deps",
+                "--auto-dep-spec", autoDepSpec,
+                "--explicit-deps", explicitDeps,
+            });
+            return (capture.Out, capture.Error, exitCode);
         }
 
         private static string[] SplitNonEmptyLines(string text) =>

@@ -17,10 +17,29 @@ namespace BindingsGeneration;
 public sealed class ModuleEmissionContext
 {
     /// <summary>
-    /// Default singleton for use in tests and backward-compatible code paths.
-    /// Safe because unit tests disable xUnit parallelization via [Collection] attributes.
+    /// True for a context nobody supplied — one manufactured at a call site that was handed
+    /// <c>null</c>. Emitters that behave differently when no module context was threaded (the
+    /// EveryProtocol vtable / read-only-proxy admission gates, which have nothing to consult)
+    /// test this flag.
     /// </summary>
-    public static ModuleEmissionContext Default { get; } = new();
+    /// <remarks>
+    /// The flag exists so that "no context was supplied" can be a property of a context rather
+    /// than the identity of one process-wide instance. A single shared fallback puts every
+    /// concurrent emission in one set of dedup registries and per-module accumulators — and those
+    /// accumulators are enumerated (the module initializer walks the emitted-type and
+    /// payload-semantics lists) while another emission is still adding to them.
+    /// </remarks>
+    public bool IsImplicitFallback { get; }
+
+    /// <summary>Creates a context for a caller that supplied none. See <see cref="IsImplicitFallback"/>.</summary>
+    public static ModuleEmissionContext CreateImplicitFallback() => new(implicitFallback: true);
+
+    /// <summary>Creates a per-module emission context.</summary>
+    public ModuleEmissionContext()
+    {
+    }
+
+    private ModuleEmissionContext(bool implicitFallback) => IsImplicitFallback = implicitFallback;
 
     // ==================== Module / Type Name Collision ====================
 
@@ -99,9 +118,9 @@ public sealed class ModuleEmissionContext
     /// against the very runtime NuGet resolved. The primary generation path always sets this once per
     /// module (in <c>Program.cs</c>, right after the context is constructed) — to the baked-default
     /// epoch in the common no-override case (byte-identical to before), or to the pinned runtime's
-    /// epoch under <c>--swift-runtime-version</c>. It stays null only where nothing assigns it (the
-    /// shared <c>ModuleEmissionContext.Default</c> singleton and emitter unit tests); the emission
-    /// site then falls back to the baked-default epoch.
+    /// epoch under <c>--swift-runtime-version</c>. It stays null only where nothing assigns it (an
+    /// implicit-fallback context and emitter unit tests); the emission site then falls back to the
+    /// baked-default epoch.
     /// </summary>
     public int? RuntimeContractEpoch { get; set; }
 

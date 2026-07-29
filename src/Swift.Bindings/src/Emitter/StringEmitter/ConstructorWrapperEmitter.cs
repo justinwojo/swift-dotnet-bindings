@@ -358,7 +358,7 @@ public static class ConstructorWrapperEmitter
         ModuleEmissionContext? ctx = null,
         string? silgenTarget = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
 
         var methodDecl = env.MethodDecl;
         var parentTypeDecl = env.ParentDecl as TypeDecl;

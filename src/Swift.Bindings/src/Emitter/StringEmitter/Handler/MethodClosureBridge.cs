@@ -166,7 +166,7 @@ public static class MethodClosureBridge
         TypeDecl? parentDecl,
         ModuleEmissionContext? ctx = null)
     {
-        ctx ??= ModuleEmissionContext.Default;
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         var method = env.MethodDecl;
 
         if (!IsEligible(method, env.ClosureHandler, env.TypeDatabase))
