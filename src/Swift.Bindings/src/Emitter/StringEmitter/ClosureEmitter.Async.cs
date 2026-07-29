@@ -46,8 +46,16 @@ public static partial class ClosureEmitter
             : null;
         if (hasReturn && !isStringReturn)
         {
+            // The ABI type below is written into the emitted state type, and the public/ABI
+            // comparison that selects it must see the same names the handler renders — so the
+            // module being emitted travels with the projection.
             var projection = new TypeProjectionFactory().Project(closureTypeSpec.ReturnType,
-                new ProjectionContext { TypeDatabase = closureHandler.TypeDatabase, IsParameter = true });
+                new ProjectionContext
+                {
+                    TypeDatabase = closureHandler.TypeDatabase,
+                    IsParameter = true,
+                    CurrentModuleName = closureHandler.CurrentModuleName
+                });
             if (projection?.PInvokeType != null && projection.PInvokeType != projection.PublicType)
                 returnAbiType = projection.PInvokeType;
         }
@@ -356,8 +364,15 @@ public static partial class ClosureEmitter
         ITypeProjection? returnProjection = null;
         if (hasReturn && !isStringReturnSetup)
         {
+            // Same reason as the start-function path: the selected ABI type is emitted, so the
+            // projection has to know which module it is being rendered into.
             returnProjection = new TypeProjectionFactory().Project(closureTypeSpec.ReturnType,
-                new ProjectionContext { TypeDatabase = closureHandler.TypeDatabase, IsParameter = true });
+                new ProjectionContext
+                {
+                    TypeDatabase = closureHandler.TypeDatabase,
+                    IsParameter = true,
+                    CurrentModuleName = closureHandler.CurrentModuleName
+                });
             if (returnProjection?.PInvokeType != null && returnProjection.PInvokeType != returnProjection.PublicType)
                 returnAbiType = returnProjection.PInvokeType;
         }

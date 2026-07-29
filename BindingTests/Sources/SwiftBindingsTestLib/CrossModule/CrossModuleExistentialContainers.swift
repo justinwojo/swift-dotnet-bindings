@@ -125,3 +125,54 @@ public func applyToDependency(
 ) {
     body(dep)
 }
+
+/// Shapes whose C# surface is written by a SECOND emitter running alongside the primary
+/// signature — a convenience overload rather than the member itself. Each of these builds its
+/// own projection, so the primary member can qualify a cross-module existential correctly while
+/// the companion overload still emits a bare interface name that does not resolve.
+public final class DependencyLoader {
+    private let entries: [any DependencyProtocol]
+
+    public init(entries: [any DependencyProtocol]) {
+        self.entries = entries
+    }
+
+    /// Completion-handler method: the generated binding grows a Task-returning convenience
+    /// overload beside the callback signature. Both the overload's own parameter list (the
+    /// non-closure `fallback`) and its `Task<…>` result type are projected separately from the
+    /// primary — and the result type is additionally string-compared against the callback's
+    /// projected type, so a disagreement there drops the overload silently rather than failing
+    /// to compile.
+    public func loadDependency(
+        tag: Int32,
+        fallback: any DependencyProtocol,
+        completion: @escaping (any DependencyProtocol) -> Void
+    ) {
+        completion(entries.first ?? fallback)
+    }
+
+    /// A machine-width `Int` parameter makes the binding emit an extra `int`-taking convenience
+    /// overload; the sibling existential parameter is re-projected for that overload's signature.
+    public func describeAt(_ index: Int, fallback: any DependencyProtocol) -> String {
+        guard index >= 0 && index < entries.count else { return fallback.describe() }
+        return entries[index].describe()
+    }
+
+    /// Throwing closure parameter: the binding emits a simplified `Func`-taking overload beside
+    /// the `SwiftResult`-returning primary. That overload re-projects its sibling NON-closure
+    /// parameters through the same convenience-overload oracle the machine-width overload above
+    /// uses, so it is a second consumer of the module segment on a different emitter.
+    public func transformDependency(
+        _ fallback: any DependencyProtocol,
+        using transform: (Int32) throws -> Int32
+    ) throws -> Int32 {
+        return try transform(Int32(fallback.describe().count))
+    }
+
+    /// Async return whose element is a cross-module existential: the container conversion is
+    /// written into the async completion callback body by its own projection, separate from the
+    /// method's declared return type.
+    public func fetchDependencies() async -> [any DependencyProtocol] {
+        return entries
+    }
+}

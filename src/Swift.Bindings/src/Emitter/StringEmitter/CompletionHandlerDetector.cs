@@ -148,12 +148,19 @@ public static class CompletionHandlerDetector
     /// <param name="shape">The callback shape.</param>
     /// <param name="typeDatabase">The type database for type resolution.</param>
     /// <param name="typeConversionHandler">The type conversion handler for idiomatic type names.</param>
+    /// <param name="currentModuleName">
+    /// Name of the module being emitted. The result name is written into the emitted
+    /// <c>Task&lt;…&gt;</c> and is compared against the closure handler's projected callback type,
+    /// so an existential owned by a sibling module has to be qualified here exactly as it is
+    /// there — otherwise the two disagree and the overload is silently dropped.
+    /// </param>
     /// <returns>The C# result type name, or null for void-returning overloads.</returns>
     public static string? GetResultTypeName(
         ClosureTypeSpec closureSpec,
         CallbackShape shape,
         ITypeDatabase typeDatabase,
-        TypeConversionHandler typeConversionHandler)
+        TypeConversionHandler typeConversionHandler,
+        string? currentModuleName = null)
     {
         switch (shape)
         {
@@ -164,7 +171,7 @@ public static class CompletionHandlerDetector
             case CallbackShape.SingleResult:
             {
                 var argType = closureSpec.GetArgument(0);
-                return ResolveTypeName(argType, typeDatabase, typeConversionHandler);
+                return ResolveTypeName(argType, typeDatabase, typeConversionHandler, currentModuleName);
             }
 
             case CallbackShape.ResultWithError:
@@ -172,7 +179,7 @@ public static class CompletionHandlerDetector
                 // Keep the full Optional<T> type — the callback parameter is T? and Swift APIs
                 // can legitimately return nil result + nil error. Task<T?> is the correct mapping.
                 var argType = closureSpec.GetArgument(0);
-                return ResolveTypeName(argType, typeDatabase, typeConversionHandler);
+                return ResolveTypeName(argType, typeDatabase, typeConversionHandler, currentModuleName);
             }
 
             default:
@@ -185,14 +192,15 @@ public static class CompletionHandlerDetector
     /// For bound generic types (e.g., Result&lt;T, Error&gt;), resolves all generic arguments recursively.
     /// Returns null if the type or any generic argument cannot be resolved.
     /// </summary>
-    private static string? ResolveTypeName(TypeSpec typeSpec, ITypeDatabase typeDatabase, TypeConversionHandler typeConversionHandler)
+    private static string? ResolveTypeName(TypeSpec typeSpec, ITypeDatabase typeDatabase, TypeConversionHandler typeConversionHandler, string? currentModuleName = null)
     {
         // Try factory-based projection (handles String→string, Array→IReadOnlyList, closures, etc.)
         var factory = new TypeProjectionFactory();
         var projection = factory.Project(typeSpec, new ProjectionContext
         {
             TypeDatabase = typeDatabase,
-            IsParameter = true
+            IsParameter = true,
+            CurrentModuleName = currentModuleName
         });
         if (projection != null)
             return projection.PublicType;
@@ -213,7 +221,7 @@ public static class CompletionHandlerDetector
                 var genericArgs = new List<string>();
                 foreach (var genParam in namedSpec.GenericParameters)
                 {
-                    var resolvedArg = ResolveTypeName(genParam, typeDatabase, typeConversionHandler);
+                    var resolvedArg = ResolveTypeName(genParam, typeDatabase, typeConversionHandler, currentModuleName);
                     if (resolvedArg == null)
                         return null; // Can't resolve a generic arg — skip overload
                     genericArgs.Add(resolvedArg);

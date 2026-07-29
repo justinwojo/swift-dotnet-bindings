@@ -1871,7 +1871,8 @@ namespace BindingsGeneration
 
             // Resolve the result type for the Task
             var resultTypeName = CompletionHandlerDetector.GetResultTypeName(
-                closureSpec, shape, methodEnv.TypeDatabase, methodEnv.TypeConversionHandler);
+                closureSpec, shape, methodEnv.TypeDatabase, methodEnv.TypeConversionHandler,
+                methodEnv.ExistentialHandler.CurrentModuleName);
 
             // Guard: shapes that require a result type must have one resolved
             // (e.g., bound generic Result<T, Error> with unresolvable generic args)
@@ -1906,7 +1907,12 @@ namespace BindingsGeneration
                 var projection = factory.Project(p.SwiftTypeSpec, new ProjectionContext
                 {
                     TypeDatabase = methodEnv.TypeDatabase,
-                    IsParameter = true
+                    IsParameter = true,
+                    // This overload's parameter list is emitted alongside the primary signature, so
+                    // an existential owned by a sibling module has to name that module here too —
+                    // otherwise the primary compiles and the convenience overload emits a bare
+                    // interface name the consuming assembly cannot resolve.
+                    CurrentModuleName = methodEnv.ExistentialHandler.CurrentModuleName
                 });
                 string paramType;
                 if (projection != null)

@@ -833,5 +833,75 @@ public class CrossModuleTests : TestBase
             "Interface-declared container parameter carried the cross-module existential into Swift");
     }
 
+    // The members below are reached through a SECOND emitter that writes a convenience overload
+    // beside the primary signature — a Task-returning form of a completion-handler method, a
+    // machine-width `int` form of an `nint` method, a simplified `Func` form of a throwing-closure
+    // method, and the callback body of an async container return. Each builds its own projection,
+    // so each can drop the owning module's namespace independently of the primary. Calling the
+    // overload (rather than only compiling it) proves the qualified interface is the type the
+    // marshalling actually uses; the Task overload additionally has to EXIST — a disagreement
+    // between its result type and the callback's projected type drops it silently, so the call
+    // itself is the assertion.
+
+    public void TestCrossModuleExistentialCompletionCallback()
+    {
+        var stored = new CSharpDependencyConformer("stored", "s");
+        var fallback = new CSharpDependencyConformer("fallback", "f");
+        using var loader = new DependencyLoader(new[] { (IDependencyProtocol)stored });
+
+        string? seen = null;
+        loader.LoadDependency(1, fallback, dep => seen = dep.GetDescribe());
+
+        AssertEqual("CS[s]: stored", seen,
+            "Completion callback delivered the cross-module existential projected and dispatchable");
+    }
+
+    public void TestCrossModuleExistentialCompletionTaskOverload()
+    {
+        var stored = new CSharpDependencyConformer("stored", "s");
+        var fallback = new CSharpDependencyConformer("fallback", "f");
+        using var loader = new DependencyLoader(new[] { (IDependencyProtocol)stored });
+
+        var result = loader.LoadDependencyAsync(1, fallback).GetAwaiter().GetResult();
+
+        AssertEqual("CS[s]: stored", result.GetDescribe(),
+            "Task-returning convenience overload was emitted and its existential result dispatches into C#");
+    }
+
+    public void TestCrossModuleExistentialMachineWidthOverload()
+    {
+        var stored = new CSharpDependencyConformer("stored", "s");
+        var fallback = new CSharpDependencyConformer("fallback", "f");
+        using var loader = new DependencyLoader(new[] { (IDependencyProtocol)stored });
+
+        AssertEqual("CS[s]: stored", loader.DescribeAt(0, fallback),
+            "int-taking convenience overload forwarded the cross-module existential to the nint primary");
+        AssertEqual("CS[f]: fallback", loader.DescribeAt((nint)5, fallback),
+            "Out-of-range index falls back to the existential argument, dispatching back into C#");
+    }
+
+    public void TestCrossModuleExistentialThrowingClosureOverload()
+    {
+        var fallback = new CSharpDependencyConformer("abc", "f");
+        using var loader = new DependencyLoader(new[] { (IDependencyProtocol)fallback });
+
+        // "CS[f]: abc" is ten characters; the simplified overload's closure adds one.
+        AssertEqual(11, loader.TransformDependency(fallback, v => v + 1),
+            "Simplified Func-taking overload projected its sibling cross-module existential parameter");
+    }
+
+    public void TestCrossModuleExistentialAsyncContainerReturn()
+    {
+        var first = new CSharpDependencyConformer("x", "p");
+        var second = new CSharpDependencyConformer("y", "q");
+        using var loader = new DependencyLoader(new[] { (IDependencyProtocol)first, second });
+
+        var fetched = loader.FetchDependenciesAsync().GetAwaiter().GetResult();
+
+        AssertEqual(2, fetched.Count, "Async container return delivered both cross-module existentials");
+        AssertEqual("CS[q]: y", fetched[1].GetDescribe(),
+            "Element converted inside the async completion callback dispatches into the C# impl");
+    }
+
     #endregion
 }

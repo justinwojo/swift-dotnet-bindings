@@ -35,7 +35,7 @@ internal static class AsyncSequenceEmitter
         if (!AsyncSequenceHandler.IsAsyncSequence(typeDecl))
             return;
 
-        var handler = new AsyncSequenceHandler(typeDatabase);
+        var handler = new AsyncSequenceHandler(typeDatabase, typeDecl.SwiftTypeName?.Module ?? typeDecl.ModuleDecl?.Name);
         if (!handler.TryResolveElementCSharpType(typeDecl, out _, out _))
             return;
 
@@ -63,7 +63,7 @@ internal static class AsyncSequenceEmitter
         if (!AsyncSequenceHandler.IsAsyncSequence(typeDecl))
             return false;
 
-        var handler = new AsyncSequenceHandler(typeDatabase);
+        var handler = new AsyncSequenceHandler(typeDatabase, typeDecl.SwiftTypeName?.Module ?? typeDecl.ModuleDecl?.Name);
         if (!handler.TryResolveElementCSharpType(typeDecl, out var elementCSharpType, out var isElementOptional))
             return false;
 

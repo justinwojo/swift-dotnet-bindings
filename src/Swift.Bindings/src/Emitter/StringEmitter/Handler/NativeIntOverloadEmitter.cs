@@ -322,7 +322,11 @@ internal static class NativeIntOverloadEmitter
         var projection = factory.Project(typeSpec, new ProjectionContext
         {
             TypeDatabase = methodEnv.TypeDatabase,
-            IsParameter = isParameter
+            IsParameter = isParameter,
+            // The resolved name is written straight into the emitted overload signature, so an
+            // existential owned by a sibling module must name that module — the generated file
+            // emits no using for the sibling's namespace.
+            CurrentModuleName = methodEnv.ExistentialHandler.CurrentModuleName
         });
         if (projection != null)
             return projection.PublicType;

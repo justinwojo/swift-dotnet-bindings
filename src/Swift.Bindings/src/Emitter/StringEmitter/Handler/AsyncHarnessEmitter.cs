@@ -1137,7 +1137,12 @@ namespace BindingsGeneration
                 TypeDatabase = _env.TypeDatabase,
                 IsParameter = false,
                 IsAsync = false,
-                EmissionContext = _emissionContext
+                EmissionContext = _emissionContext,
+                // The element conversion built here is written verbatim into the async completion
+                // callback, so a container of existentials owned by a sibling module has to name
+                // that module — the generated file emits no using for a sibling's namespace, and a
+                // bare interface/proxy name there does not resolve in the consuming assembly.
+                CurrentModuleName = _env.ExistentialHandler.CurrentModuleName
             };
 
             var projection = s_projectionFactory.Project(returnTypeSpec, ctx);
@@ -1369,7 +1374,11 @@ namespace BindingsGeneration
                 // Project() call itself never throws (only conversion-string building does), so the
                 // probe-only callers (IsTopLevelObjCBridgeContainerReturn / IsOptionalObjCBridgeContainerReturn)
                 // are unaffected.
-                EmissionContext = _emissionContext
+                EmissionContext = _emissionContext,
+                // Same reason as the non-optional container path: the conversion built off this
+                // projection is emitted into the async completion callback, so an existential owned
+                // by a sibling module must be module-qualified there or the name does not resolve.
+                CurrentModuleName = _env.ExistentialHandler.CurrentModuleName
             };
             return s_projectionFactory.Project(returnSpec, ctx);
         }

@@ -605,7 +605,11 @@ public static class MethodGenericBridgeEmitter
                 {
                     TypeDatabase = env.TypeDatabase,
                     IsParameter = false,
-                    ParentTypeDecl = parentDecl
+                    ParentTypeDecl = parentDecl,
+                    // This name is emitted as the bridge method's declared return type, so an
+                    // existential owned by a sibling module has to carry that module's namespace —
+                    // the generated file emits no using for it and a bare name fails to resolve.
+                    CurrentModuleName = env.ExistentialHandler.CurrentModuleName
                 });
                 csReturnType = projection?.PublicType ?? "IntPtr";
             }

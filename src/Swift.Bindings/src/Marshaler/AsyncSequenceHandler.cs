@@ -34,10 +34,18 @@ public sealed class AsyncSequenceHandler
     };
 
     private readonly ITypeDatabase _typeDatabase;
+    private readonly string? _currentModuleName;
 
-    public AsyncSequenceHandler(ITypeDatabase typeDatabase)
+    /// <param name="typeDatabase">Type database used to resolve element types.</param>
+    /// <param name="currentModuleName">
+    /// Name of the module being emitted. Threaded into the element projection so an existential
+    /// element owned by a sibling module is written module-qualified; it is a no-op for elements
+    /// owned by the emitting module.
+    /// </param>
+    public AsyncSequenceHandler(ITypeDatabase typeDatabase, string? currentModuleName = null)
     {
         _typeDatabase = typeDatabase;
+        _currentModuleName = currentModuleName;
     }
 
     /// <summary>
@@ -276,6 +284,10 @@ public sealed class AsyncSequenceHandler
             {
                 TypeDatabase = _typeDatabase,
                 IsParameter = false,
+                // The element name lands in the emitted IAsyncEnumerable<T> and in the iterator's
+                // yielded values, so an existential element owned by a sibling module has to name
+                // that module here — the generated file emits no using for a sibling namespace.
+                CurrentModuleName = _currentModuleName,
             });
             if (projection != null && !string.IsNullOrEmpty(projection.PublicType))
             {

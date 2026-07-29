@@ -37,6 +37,13 @@ public class ClosureHandler
     public ITypeDatabase TypeDatabase => _typeDatabase;
 
     /// <summary>
+    /// Name of the module being emitted, as threaded into this handler's existential oracle.
+    /// Exposed so emitters that build their own projections off this handler render the same
+    /// module-qualified names the handler itself does.
+    /// </summary>
+    public string? CurrentModuleName => _existentialHandler.CurrentModuleName;
+
+    /// <summary>
     /// The per-module emission context, late-injected via the shared <see cref="MarshalingContext"/>.
     /// When set, <see cref="GetQualifiedProxyClassName"/> returns <c>null</c> for a proxy whose
     /// EveryProtocol conformance was suppressed, so the closure CONSUME sites emit the no-fallback

@@ -1266,7 +1266,8 @@ internal static class ProtocolConformanceHelper
         // GetAsyncEnumerator method body is emitted by the corresponding type
         // handler — adding the interface here keeps interface declaration and
         // member emission in sync.
-        var asyncSeq = new AsyncSequenceHandler(typeDatabase);
+        var asyncSeq = new AsyncSequenceHandler(
+            typeDatabase, typeDecl.SwiftTypeName?.Module ?? typeDecl.ModuleDecl?.Name);
         if (AsyncSequenceHandler.IsAsyncSequence(typeDecl) &&
             asyncSeq.TryResolveElementCSharpType(typeDecl, out var elementCSharpType))
         {

@@ -452,6 +452,32 @@ public class ClosureParamTombstoneEmitterTests
     }
 
     [Fact]
+    public void Emit_ExistentialParamNamedByEmittingModuleButRecordedElsewhere_QualifiesInterfaceName()
+    {
+        // The route the plain-sibling case cannot reach: the parameter's Swift name says the module
+        // being emitted — so the reachability guard lets the member through — while the type record
+        // places the emitted interface in a sibling namespace. The name still has to be qualified,
+        // because "which module owns the C# type" is decided by the record, not the Swift spelling.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Registry", moduleDecl);
+        var method = CreateMethod("register", classDecl, moduleDecl);
+        method.CSSignature.Add(CreateArg("decoder", BuildUnsupportedClosure(), moduleDecl));
+        method.CSSignature.Add(CreateArg(
+            "encoder",
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.CollapsedProtocol") }),
+            moduleDecl));
+        method.IsClosureParamTombstone = true;
+
+        // The guard has to admit the member, or the qualification below is never reached.
+        Assert.True(ClosureParamTombstoneEmitter.IsEligible(method, typeDatabase));
+
+        var output = EmitTombstone(method, typeDatabase);
+
+        Assert.Contains("OtherModule.ICollapsedProtocol encoder", output);
+    }
+
+    [Fact]
     public void GetProjectedCSharpMethodKey_TombstonedOverloadsWithDifferentClosureShapes_CollapseToSameKey()
     {
         // Two overloads `handle(callback: (() -> Void) -> Void)` and
@@ -821,6 +847,19 @@ public class ClosureParamTombstoneEmitterTests
             {
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ILocalProtocol"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.LocalProtocol"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Protocol
+            });
+        // A protocol whose Swift name carries the umbrella module being emitted while its record
+        // resolves to a sibling namespace. Umbrella ingestion produces exactly this: the spec says
+        // the emitting module, the emitted C# type lives next door.
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.CollapsedProtocol"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("OtherModule", "ICollapsedProtocol"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.CollapsedProtocol"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.Frozen,
                 Kind = TypeRecordKind.Protocol

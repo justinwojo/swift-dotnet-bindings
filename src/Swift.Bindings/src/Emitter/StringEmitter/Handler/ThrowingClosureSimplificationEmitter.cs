@@ -309,7 +309,11 @@ internal static class ThrowingClosureSimplificationEmitter
         var projection = factory.Project(closureSpec, new ProjectionContext
         {
             TypeDatabase = methodEnv.TypeDatabase,
-            IsParameter = true
+            IsParameter = true,
+            // The delegate type returned here is emitted and must match the primary method's
+            // signature exactly, so a sibling module's existential in the closure signature has
+            // to be qualified in both.
+            CurrentModuleName = methodEnv.ExistentialHandler.CurrentModuleName
         });
         return projection?.PublicType;
     }
