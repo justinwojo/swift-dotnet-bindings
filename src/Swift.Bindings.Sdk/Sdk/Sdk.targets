@@ -2396,8 +2396,38 @@ done; true"
        and @(_SwiftBindingCompanionBuildOutput) are set during _BuildMixedObjCCompanion's execution;
        a target-level Condition would be evaluated against evaluation-phase values and miss them
        (same reasoning as _GenerateSwiftBindings). Runs before ResolveProjectReferences so
-       ResolveAssemblyReferences picks up the injected reference. -->
+       ResolveAssemblyReferences picks up the injected reference.
+
+       DependsOnTargets — not just AfterTargets — on the producer is LOAD-BEARING, and the
+       AfterTargets alone was a silent-miscompile bug. AfterTargets is a soft ordering: it says
+       "if _BuildMixedObjCCompanion runs, run me after it", NOT "make sure it ran". This target
+       has its own independent trigger (BeforeTargets="ResolveProjectReferences"), so it can be
+       scheduled in a build request where the producer is not scheduled at all, and then it
+       injects nothing. That is reachable whenever a mixed binding is referenced by more than one
+       project:
+         * MSBuild runs a target at most once per project CONFIGURATION, and one configuration
+           serves a separate build request per requester (the app, and every sibling binding that
+           ProjectReferences it).
+         * A request that blocks on a nested <MSBuild> call YIELDS its node, and the scheduler
+           then starts another queued request against the SAME configuration. _BuildMixedObjCCompanion
+           is exactly such a call — it is blocked for the entire out-of-band companion
+           Restore/Build/GetTargetPath, which is seconds, not milliseconds.
+         * The interleaved request reaches ResolveProjectReferences, runs THIS target while the
+           producer is still mid-flight (so @(_SwiftBindingCompanionBuildOutput) is still empty),
+           injects nothing — and MSBuild caches that empty result for the whole configuration, so
+           the original request never gets to run it either. The binding's own generated Swift
+           surface then compiles without the ObjC companion on its reference set: ~70 CS0234s on
+           a real mixed binding (observed on a 3-sibling ObjC+Swift graph), with no diagnostic,
+           because SWIFTBIND041 below is deliberately scoped to non-packable projects.
+       Naming the producer in DependsOnTargets removes the soft edge: whichever request runs this
+       target first is the request that also drives (or waits on) the companion build, so the
+       capture is always populated by the time the ItemGroup is evaluated. DependsOnTargets is the
+       edge that guarantees the producer ran; AfterTargets is retained only so this target still
+       fires when _BuildMixedObjCCompanion is driven on its own (a bare -t:_BuildMixedObjCCompanion
+       entry, which is how the unit-test harness exercises it) rather than through
+       ResolveProjectReferences. -->
   <Target Name="_ReferenceMixedObjCCompanion"
+          DependsOnTargets="_BuildMixedObjCCompanion"
           AfterTargets="_BuildMixedObjCCompanion"
           BeforeTargets="ResolveProjectReferences">
     <ItemGroup Condition="'$(_SwiftBindingHasCompanion)' == 'true' AND '@(_SwiftBindingCompanionBuildOutput)' != ''">
@@ -2407,8 +2437,9 @@ done; true"
     </ItemGroup>
 
     <!-- Non-pack sibling of SWIFTBIND039 (the pack-time guard). Mixed metadata names an ObjC
-         companion, but _BuildMixedObjCCompanion (this target's AfterTargets) captured no built
-         assembly to reference. Scoped to NON-packable projects (IsPackable != 'true'): that is the
+         companion, but _BuildMixedObjCCompanion (this target's DependsOnTargets producer, which
+         therefore HAS run by the time this fires) captured no built assembly to reference. Scoped
+         to NON-packable projects (IsPackable != 'true'): that is the
          SDK-direct shape (path b), where the project IS the binding, compiles its own C# against the
          ObjC types, and is RUN rather than packed — so there is no later pack step to fail closed,
          and a silent no-op here surfaces as a confusing CS0246 in the consumer's own sources (or a

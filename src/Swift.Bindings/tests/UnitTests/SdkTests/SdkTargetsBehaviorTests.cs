@@ -2642,6 +2642,106 @@ namespace BindingsGeneration.Tests
             Assert.DoesNotContain("SWIFTBIND041", output);
         }
 
+        [Fact]
+        public void ReferenceMixedObjCCompanion_ProducerHookDidNotFire_StillInjectsCompanionReference()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // _ReferenceMixedObjCCompanion must not depend on its producer having been pulled in by
+            // an AfterTargets hook — that hook does NOT fire in every request that runs this target,
+            // and when it doesn't the companion reference is silently lost for the whole project.
+            //
+            // How that happens in a real build: MSBuild runs a target at most once per project
+            // CONFIGURATION, and one configuration serves a separate build request per requester —
+            // the app's ResolveProjectReferences and, for a binding a sibling binding also
+            // references, that sibling's out-of-band prep-build (_BuildSiblingSwiftBindingDeps,
+            // Targets="Build"). A request that blocks inside a nested <MSBuild> call yields its
+            // node and the scheduler starts another queued request against the SAME configuration.
+            // _BuildMixedObjCCompanion is exactly such a call — it restores, builds and queries the
+            // ObjC companion out of band, which takes seconds. The request that gets scheduled in
+            // that window skips _GenerateSwiftBindings (already built configuration-wide), so
+            // _BuildMixedObjCCompanion — reachable only through that target's AfterTargets hook —
+            // is never scheduled in it, while _ReferenceMixedObjCCompanion still runs off its own
+            // BeforeTargets="ResolveProjectReferences" trigger. It injects nothing, MSBuild caches
+            // that empty result for the configuration, and the original request never gets to run
+            // it either.
+            //
+            // This models that request's state directly rather than trying to win a scheduler race:
+            // _GenerateSwiftBindings is replaced by a hook-less no-op, so its AfterTargets chain
+            // cannot fire, and ResolveProjectReferences is driven as the entry target. That is the
+            // exact precondition — "this request reaches ResolveProjectReferences without the
+            // producer chain having fired in it" — and it is deterministic. Naming the producer in
+            // DependsOnTargets is what makes the injection survive it; with only AfterTargets this
+            // dump comes back empty, which is the ~70x CS0234 that a real mixed binding shows (no
+            // diagnostic, because SWIFTBIND041 is deliberately scoped to non-packable projects).
+            var bindingDir = Path.Combine(_tempDir, "HookMixed.Swift.iOS");
+            Directory.CreateDirectory(bindingDir);
+            var intermediateDir = Path.Combine(bindingDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), """
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingPackageVersion>1.0.0</_SwiftBindingPackageVersion>
+                    <_SwiftBindingModuleName>Mixed</_SwiftBindingModuleName>
+                    <_SwiftBindingFrameworkType>Mixed</_SwiftBindingFrameworkType>
+                    <_SwiftBindingObjCProjectName>Mixed.ObjC.iOS.csproj</_SwiftBindingObjCProjectName>
+                  </PropertyGroup>
+                </Project>
+                """);
+
+            File.WriteAllText(Path.Combine(intermediateDir, "Mixed.ObjC.iOS.csproj"), """
+                <Project>
+                  <Target Name="Restore" />
+                  <Target Name="Build" />
+                  <Target Name="GetTargetPath" Returns="@(_StubCompanionOutput)">
+                    <ItemGroup>
+                      <_StubCompanionOutput Include="$(MSBuildProjectDirectory)/stub-companion.dll" />
+                    </ItemGroup>
+                  </Target>
+                </Project>
+                """);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            // IsPackable=true is the shape that hides the bug: SWIFTBIND041 is scoped to
+            // non-packable projects, so a packable binding that loses the reference fails only at
+            // csc. TestDump hangs off ResolveProjectReferences so it observes @(Reference) exactly
+            // as the compile would.
+            File.WriteAllText(Path.Combine(bindingDir, "Test.csproj"), $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <IsPackable>true</IsPackable>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                  </PropertyGroup>
+                  <Target Name="_GenerateSwiftBindings" />
+                  <Target Name="_GenerateSwiftBindingsAppleFramework" />
+                  <Target Name="_SynthesizeAppleFrameworkXcframework" />
+                  <Target Name="_CompileSwiftWrapper" />
+                  <Target Name="_ResolveSwiftFrameworkDependencies" />
+                  <Target Name="TestDump" AfterTargets="ResolveProjectReferences">
+                    <Message Importance="high" Text="REF:%(Reference.Identity)" Condition="'@(Reference)' != ''" />
+                  </Target>
+                </Project>
+                """);
+
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(bindingDir, "Test.csproj")}\" -restore -t:ResolveProjectReferences -nologo -v:n");
+            var output = result.StdOut + "\n" + result.StdErr;
+
+            Assert.True(result.ExitCode == 0, $"ResolveProjectReferences failed.\nOutput: {output}");
+            Assert.Contains("stub-companion.dll", output);
+        }
+
         /// <summary>
         /// Runs the REAL _ComputeSwiftBindingSourceXcframeworkInclusion target against a
         /// binding-metadata.props carrying <paramref name="linkageNode"/>, optionally with the
