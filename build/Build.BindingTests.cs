@@ -29,10 +29,12 @@ partial class Build
     // when the generator's post-processor strips MORE than the committed baseline).
     // --permissive opts out for local exploration where the intent is "what survives"
     // rather than "did anything regress?". Beyond the --compile-only gates it also demotes
-    // EVERY runtime lane's non-zero-generator-exit gate (GeneratorExitGate — sim, device,
-    // tvOS, macOS and Catalyst alike) and the async-wrapper give-up gate. --strict outranks
-    // it everywhere it applies. Implies --strict in compile-only mode.
-    [Parameter("Allow non-fatal failures in the fail-closed gates (--compile-only's, and every runtime lane's generator-exit gate)")]
+    // the non-zero-generator-exit gate (GeneratorExitGate) on EVERY regeneration path — the
+    // sim, device, tvOS, macOS and Catalyst runtime lanes, and equally the standalone regen
+    // targets (regenerate-bindings, compile-check-bindings, build-async-wrapper), since those
+    // run the same generator invocation — plus the async-wrapper give-up gate. --strict
+    // outranks it everywhere it applies. Implies --strict in compile-only mode.
+    [Parameter("Allow non-fatal failures in the fail-closed gates (--compile-only's, and every regeneration path's generator-exit gate)")]
     readonly bool Permissive;
 
     // --- Computed BindingTests paths ---
@@ -421,11 +423,12 @@ partial class Build
         // redundant per-regen dotnet build of the binding csproj.
         genArgs.Add("--no-verify-csharp");
 
-        // Finding 50: in strict mode (explicit --strict or --compile-only's fail-closed
-        // default), make the generator fail-closed on a degraded input edge — a device→sim
-        // slice fallback, a missing swiftinterface, an ABI-JSON fallback, an ambiguous TBD,
-        // or a degraded auto-detected dependency. Mirrors how `strict` already escalates a
-        // non-zero generator exit to a thrown build error below.
+        // In strict mode (explicit --strict or --compile-only's fail-closed default), make the
+        // generator fail-closed on a degraded input edge — a device→sim slice fallback, a missing
+        // swiftinterface, an ABI-JSON fallback, an ambiguous TBD, or a degraded auto-detected
+        // dependency. This is deliberately narrower than the exit-code gate below, which fails
+        // closed by DEFAULT (see GeneratorExitGate): a degraded input still produces a binding, so
+        // rejecting it is an opt-in sharpening, whereas a non-zero exit may have produced nothing.
         if (strict)
             genArgs.Add("--strict-inputs");
 

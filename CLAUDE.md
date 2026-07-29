@@ -39,8 +39,8 @@ One target covers the compile gate and every runtime gate. Platform flags compos
 | `--macos` | macOS |
 | `--catalyst` | Mac Catalyst |
 | `--tvos` | tvOS Simulator |
-| `--strict` | Fail on non-zero generator exit (implied by `--compile-only`'s default; every runtime lane is fail-closed on that exit by default too) |
-| `--permissive` | Opt out of the fail-closed gates — `--compile-only`'s, and every runtime lane's non-zero-generator-exit gate. Local-exploration only. |
+| `--strict` | Fail on non-zero generator exit (implied by `--compile-only`'s default; every regeneration path — all runtime lanes plus the standalone `regenerate-bindings` / `compile-check-bindings` / `build-async-wrapper` targets — is fail-closed on that exit by default too) |
+| `--permissive` | Opt out of the fail-closed gates — `--compile-only`'s, and every regeneration path's non-zero-generator-exit gate (runtime lanes *and* the standalone regen targets). Local-exploration only. |
 | `--skip-regen` (~17s) | Skip binding regeneration; assumes bindings are current |
 | `--skip-build` (~5s) | Skip app build; just install + run |
 | `--class-filter NAME` | Run only one test class (Simulator path) |

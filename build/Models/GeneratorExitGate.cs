@@ -9,10 +9,11 @@ using System;
 /// The policy for what a NON-ZERO generator exit means to the runtime-test leg that requested the
 /// regeneration.
 ///
-/// <para><b>The defect this closes.</b> Every regeneration path — the iOS simulator / device / tvOS
-/// lanes as well as macOS / Mac Catalyst — logged a non-zero generator exit as a warning ("this is
-/// expected if the test library includes features beyond current generator support") and then went on
-/// to build the app against bindings that were never emitted. A generator that exits 1 having written zero C# does not produce a degraded run; it
+/// <para><b>The defect this closes.</b> Every regeneration path used to log a non-zero generator exit
+/// as a warning ("this is expected if the test library includes features beyond current generator
+/// support") and then go on to build the app against bindings that were never emitted. The macOS /
+/// Mac Catalyst paths were routed through this gate first; the iOS-family paths (simulator, device,
+/// tvOS, and the standalone regen targets that share their entry point) followed. A generator that exits 1 having written zero C# does not produce a degraded run; it
 /// produces roughly two thousand <c>CS0246</c>s in the app build, every one of them naming a binding
 /// type rather than the single generator error that actually happened. The reader is handed a wall of
 /// noise that accuses the bindings, and the one honest line scrolled past minutes earlier.</para>

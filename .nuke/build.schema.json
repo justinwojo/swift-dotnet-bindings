@@ -286,7 +286,7 @@
         },
         "Permissive": {
           "type": "boolean",
-          "description": "Allow non-fatal failures in the fail-closed gates (--compile-only's, and every runtime lane's generator-exit gate)"
+          "description": "Allow non-fatal failures in the fail-closed gates (--compile-only's, and every regeneration path's generator-exit gate)"
         },
         "Platform": {
           "type": "string",

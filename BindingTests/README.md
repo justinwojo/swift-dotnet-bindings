@@ -26,8 +26,8 @@ Use Nuke from the repository root. Do not use the old shell-script workflow.
 | `nuke binding-tests --macos` | Run macOS path. |
 | `nuke binding-tests --catalyst` | Run Mac Catalyst path. |
 | `nuke binding-tests --tvos` | Run tvOS simulator path. |
-| `nuke binding-tests --permissive` | Opt out of compile-only fail-closed behavior for local exploration. |
-| `nuke binding-tests --strict` | Fail on non-zero generator exit (implied by `--compile-only`). Composes with any mode. |
+| `nuke binding-tests --permissive` | Opt out of the fail-closed gates — `--compile-only`'s, and every regeneration path's non-zero-generator-exit gate (runtime lanes *and* the standalone `regenerate-bindings` / `compile-check-bindings` / `build-async-wrapper` targets). Local exploration only. |
+| `nuke binding-tests --strict` | Fail on non-zero generator exit (implied by `--compile-only`'s default; every regeneration path is fail-closed on that exit by default too, so this mainly matters alongside `--permissive`, which it outranks). Composes with any mode. |
 | `nuke binding-tests --mixed-pack` | **Opt-in, heavyweight.** Pack a mixed (ObjC+Swift) binding into one nupkg, consume it via a single `PackageReference`, and run on iOS sim/device (defaults sim). |
 | `nuke binding-tests --mixed-direct` | **Opt-in, heavyweight, sim-only.** Build a mixed (ObjC+Swift) binding in SDK-direct mode (the app's own csproj imports the SDK) and run it on the simulator. |
 | `nuke binding-tests --appstore-hygiene` | **Opt-in, heavyweight, host-only.** TN2435 App Store hygiene gate (issue #42). Pack the Runtime, assert the nupkg ships the `SwiftBindingsRuntime.xcframework` slices (no loose `libSwiftBindingsRuntime.dylib`), then build a single-`PackageReference` consumer and assert the finished `.ipa` embeds a signed `SwiftBindingsRuntime.framework`, zero `libswift*.dylib`, and no `SwiftSupport/` folder. No device/sim. |

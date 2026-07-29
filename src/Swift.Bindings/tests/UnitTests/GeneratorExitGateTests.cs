@@ -90,8 +90,8 @@ public class GeneratorExitGateTests
     }
 
     [Theory]
-    [InlineData("the macos runtime-test leg", "SwiftBindingsTestLib")]
-    [InlineData("the maccatalyst runtime-test leg", "SwiftBindingsTestLibDependency")]
+    [InlineData("the macos binding-tests leg", "SwiftBindingsTestLib")]
+    [InlineData("the ios binding-tests leg", "SwiftBindingsTestLibDependency")]
     public void FailureMessage_NamesTheLeg_TheModule_TheCodeAndTheOptOut(string leg, string module)
     {
         // The reader has to be told which leg and which module failed, and that the wall of compile
@@ -110,7 +110,7 @@ public class GeneratorExitGateTests
     {
         // Proceeding under --permissive still has to say the run's verdict means nothing — otherwise
         // the downgrade quietly reintroduces the behaviour it is an opt-out from.
-        var message = GeneratorExitGate.WarningMessage("the macos runtime-test leg", "SwiftBindingsTestLib", exitCode: 1);
+        var message = GeneratorExitGate.WarningMessage(GeneratorExitGate.LegLabel("macos"), "SwiftBindingsTestLib", exitCode: 1);
 
         Assert.Contains("macos", message);
         Assert.Contains("--permissive", message);
