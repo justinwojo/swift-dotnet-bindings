@@ -1,5 +1,5 @@
 {
-  "git_sha": "4ae2a813",
+  "git_sha": "8469072b",
   "entries": [
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -1139,6 +1139,18 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "type \u0027NumberListView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "type \u0027ObjCRootedModelView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "type \u0027ObjCRootedModelWithScalarView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {

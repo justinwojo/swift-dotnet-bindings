@@ -195,14 +195,18 @@ jobs:
         # this step already does). Fails on any upward skip-marker delta.
         run: dotnet nuke binding-tests --strict --compile-only --skip-surface
 
-      - name: Validate Issue 1 skip attribution
+      # Runs every generated-output sweep test (skip attribution, catch-free UCO callbacks,
+      # ExistentialUnion projection parity) non-skippably now that the compile gate above has
+      # produced BindingTests/output/. In the bare unit-test job these same tests skip with a
+      # marker the pass-floor gate credits, so this step is where they are actually enforced.
+      - name: Enforce generated-output sweep tests
         env:
           SWIFT_BINDINGS_REQUIRE_GENERATED_BINDINGTESTS_OUTPUT: true
         run: >
           dotnet test src/Swift.Bindings/tests/UnitTests
           --configuration Debug
-          --filter "FullyQualifiedName=BindingsGeneration.Tests.Issue1SkipAttributionTests.EveryIssue1Skip_NamesACallConvSwiftEntryPoint_OnItsOwnPath"
-          --logger "trx;LogFileName=issue1-skip-attribution.trx"
+          --filter "Category=RequiresGeneratedBindingsOutput"
+          --logger "trx;LogFileName=generated-output-sweeps.trx"
 
       - name: Generate coverage report
         working-directory: BindingTests

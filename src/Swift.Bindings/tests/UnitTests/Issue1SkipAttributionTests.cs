@@ -44,6 +44,7 @@ public class Issue1SkipAttributionTests
     private const string ModuleName = "SwiftBindingsTestLib";
 
     [SkippableFact]
+    [Trait("Category", GeneratedBindingsOutputRequirement.TraitCategory)]
     public void EveryIssue1Skip_NamesACallConvSwiftEntryPoint_OnItsOwnPath()
     {
         var repoRoot = LocateRepoRoot();
@@ -55,10 +56,8 @@ public class Issue1SkipAttributionTests
         // The module is emitted file-per-top-level-type: scan the prelude plus every
         // {module}.Types.*.cs so a P/Invoke that moved into a type file still counts.
         var generatedBindingsExist = SplitModuleSource.Exists(outputDir, ModuleName);
-        if (RequireGeneratedBindingsOutput())
-            Assert.True(generatedBindingsExist, $"Generated bindings not found at {preludePath}");
-        Skip.IfNot(generatedBindingsExist,
-            $"Generated bindings not found at {preludePath}; run `nuke binding-tests --compile-only` first.");
+        GeneratedBindingsOutputRequirement.SkipUnlessAvailable(generatedBindingsExist,
+            $"Generated bindings not found at {preludePath}");
 
         HashSet<string> callConvSwiftSymbols = ExtractCallConvSwiftEntryPoints(SplitModuleSource.ReadAll(outputDir, ModuleName));
 
@@ -252,10 +251,4 @@ public class Issue1SkipAttributionTests
         Assert.NotNull(dir);
         return dir!.FullName;
     }
-
-    private static bool RequireGeneratedBindingsOutput()
-        => string.Equals(
-            System.Environment.GetEnvironmentVariable("SWIFT_BINDINGS_REQUIRE_GENERATED_BINDINGTESTS_OUTPUT"),
-            "true",
-            System.StringComparison.OrdinalIgnoreCase);
 }

@@ -56,6 +56,7 @@ public class CatchFreeUcoValidatorTests
     private const int MinExpectedUcoMethods = 200;
 
     [SkippableFact]
+    [Trait("Category", GeneratedBindingsOutputRequirement.TraitCategory)]
     public void EveryEmittedUcoCallback_IsWrappedInATryCatch()
     {
         var repoRoot = LocateRepoRoot();
@@ -65,10 +66,8 @@ public class CatchFreeUcoValidatorTests
             ? Directory.EnumerateFiles(outputDir, "*.cs", SearchOption.TopDirectoryOnly).ToList()
             : new List<string>();
 
-        if (RequireGeneratedBindingsOutput())
-            Assert.True(corpus.Count > 0, $"Generated bindings corpus not found under {outputDir}");
-        Skip.IfNot(corpus.Count > 0,
-            $"Generated bindings corpus not found under {outputDir}; run `nuke binding-tests --compile-only` first.");
+        GeneratedBindingsOutputRequirement.SkipUnlessAvailable(corpus.Count > 0,
+            $"Generated bindings corpus not found under {outputDir}");
 
         var total = 0;
         var violations = new List<string>();
@@ -145,10 +144,4 @@ public class CatchFreeUcoValidatorTests
         Assert.NotNull(dir);
         return dir!.FullName;
     }
-
-    private static bool RequireGeneratedBindingsOutput()
-        => string.Equals(
-            System.Environment.GetEnvironmentVariable("SWIFT_BINDINGS_REQUIRE_GENERATED_BINDINGTESTS_OUTPUT"),
-            "true",
-            System.StringComparison.OrdinalIgnoreCase);
 }

@@ -39,6 +39,7 @@ public class ExistentialUnionReturnProjectionParityTests
     private const string Union = "Swift.Runtime.ExistentialUnion";
 
     [SkippableFact]
+    [Trait("Category", GeneratedBindingsOutputRequirement.TraitCategory)]
     public void PatExistentialReturnProjection_SignatureAndBodyAgree_PerPosition()
     {
         var generated = LoadGeneratedBindingsOrSkip();
@@ -148,10 +149,8 @@ public class ExistentialUnionReturnProjectionParityTests
         // {module}.Types.*.cs file so the projected members that moved into their own files
         // are still visible to this parity scan.
         var exists = SplitModuleSource.Exists(outputDir, "SwiftBindingsTestLib");
-        if (RequireGeneratedBindingsOutput())
-            Assert.True(exists, $"Generated bindings not found at {preludePath}");
-        Skip.IfNot(exists,
-            $"Generated bindings not found at {preludePath}; run `nuke binding-tests --compile-only` first.");
+        GeneratedBindingsOutputRequirement.SkipUnlessAvailable(exists,
+            $"Generated bindings not found at {preludePath}");
 
         return SplitModuleSource.ReadAll(outputDir, "SwiftBindingsTestLib");
     }
@@ -164,10 +163,4 @@ public class ExistentialUnionReturnProjectionParityTests
         Assert.NotNull(dir);
         return dir!.FullName;
     }
-
-    private static bool RequireGeneratedBindingsOutput()
-        => string.Equals(
-            Environment.GetEnvironmentVariable("SWIFT_BINDINGS_REQUIRE_GENERATED_BINDINGTESTS_OUTPUT"),
-            "true",
-            StringComparison.OrdinalIgnoreCase);
 }
