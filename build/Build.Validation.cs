@@ -686,14 +686,16 @@ partial class Build
 
             if (isFullRun && !validationFailed)
             {
-                // Preserve the existing runtime_tests baseline (populated by a separate
-                // nuke binding-tests --sim run) so a validate pass doesn't stomp it to null.
+                // Preserve the baseline blocks owned by other gates (runtime_tests is populated
+                // by a separate nuke binding-tests --sim run, unit_tests by the nuke test pass
+                // floor) so a validate pass doesn't stomp them to null.
                 var newBaseline = new ValidationBaseline
                 {
                     GitSha = GetGitShortSha(),
                     Gate = new() { Libraries = currentResults },
                     SkipMetrics = skipMetrics,
-                    RuntimeTests = prevBaseline.RuntimeTests
+                    RuntimeTests = prevBaseline.RuntimeTests,
+                    UnitTests = prevBaseline.UnitTests
                 };
                 newBaseline.Save(BaselinePath);
                 Log.Debug("  Baseline: {Path} (updated — green run)", BaselinePath);

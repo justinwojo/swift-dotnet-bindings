@@ -1,5 +1,5 @@
 {
-  "git_sha": "ff08abd5",
+  "git_sha": "e4bef867",
   "compile_gate": {
     "libraries": {
       "AppIntents": {
@@ -117,7 +117,7 @@
       "RealityKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10445,
+        "lines": 10485,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -236,7 +236,7 @@
       "WorkoutKit@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 11319,
+        "lines": 12404,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -467,7 +467,7 @@
       "StripePaymentSheet": {
         "compile": "ok",
         "errors": 0,
-        "lines": 34857,
+        "lines": 34905,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -922,18 +922,19 @@
       "YouTubePlayerKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 34277,
+        "lines": 34330,
         "dep_compile": "none",
         "swift_compile": "ok"
       }
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 25240,
-    "total_skipped_members": 7777,
-    "skip_rate_pct": 23.6,
+    "total_emitted_members": 25261,
+    "total_skipped_members": 10107,
+    "skip_rate_pct": 28.6,
     "skip_reasons": {
-      "UnsupportedSignature": 1395,
+      "ParentTypeSuppressed": 2303,
+      "UnsupportedSignature": 1385,
       "ModuleInternal": 1095,
       "SynthesizedCodable": 971,
       "NetUnavailableType": 780,
@@ -942,7 +943,7 @@
       "AnyTypeFallback": 418,
       "GenericProtocolConstraint": 394,
       "EveryProtocolConformanceSkipped": 372,
-      "UnsupportedType": 370,
+      "UnsupportedType": 359,
       "UnsatisfiedGenericConstraint": 271,
       "Pattern2InternalTypeReach": 198,
       "GenericTypeCallback": 128,
@@ -951,13 +952,13 @@
       "ConstrainedExtensionWrapper": 104,
       "UnsupportedExistential": 101,
       "StaticProtocolMember": 67,
+      "OwnedByAppleSupplement": 60,
       "SwiftUIView": 53,
       "SuppressedProxyMemberDegraded": 53,
       "ObjCMissingNativeSymbol": 26,
       "ObjCEmptyCategory": 24,
       "NonBlittableCallConvSwift": 22,
       "MissingWrapperSymbol": 15,
-      "OwnedByAppleSupplement": 12,
       "IndeterminatePwtShape": 9,
       "AbsentFrameworkType": 7,
       "ParentModuleInternalNoFallback": 7,
