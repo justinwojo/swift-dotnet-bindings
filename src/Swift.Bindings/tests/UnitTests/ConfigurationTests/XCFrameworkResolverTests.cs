@@ -835,6 +835,36 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void Resolve_AbiExtraction_RedirectsModuleByproductOutOfCwdAndDeletesIt()
+        {
+            using var fixture = new XCFrameworkFixture();
+            fixture.WriteInfoPlist(XCFrameworkModuleDiscoveryTests.MakeSimplePlist("Lib"));
+            var sliceDir = fixture.CreateSlice("ios-arm64-simulator", "Lib.framework", "Lib.framework/Lib");
+            var moduleDir = fixture.CreateSwiftModule(sliceDir, "Lib.framework", "Lib");
+            fixture.CreateSwiftInterface(moduleDir, "arm64-apple-ios-simulator");
+            fixture.CreateTbd(moduleDir, "Lib");
+
+            var runner = new MockCommandRunner();
+            runner.SetResponse("file", 0, "dynamically linked shared library");
+            runner.SetResponse("--show-sdk-path", 0, "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk");
+            runner.SetResponse("swift-frontend", 0, "");
+            File.WriteAllText(Path.Combine(fixture.OutputPath, "Lib.abi.json"), "{}");
+
+            XCFrameworkResolver.Resolve(
+                fixture.RootPath, fixture.OutputPath,
+                XCFrameworkPlatformTarget.Simulator, NullLogger.Instance, runner);
+
+            // The compiled-module byproduct must be steered via -o (otherwise swift-frontend drops
+            // {Module}.swiftmodule into the process CWD — the consumer's project dir under the SDK)
+            // and cleaned up after the run: only the ABI descriptor is a kept artifact.
+            var byproductPath = Path.Combine(fixture.OutputPath, "Lib.swiftmodule");
+            Assert.Contains(runner.Invocations, i =>
+                i.Arguments.Contains("compile-module-from-interface") &&
+                i.Arguments.Contains($"-o \"{byproductPath}\""));
+            Assert.False(File.Exists(byproductPath));
+        }
+
+        [Fact]
         public void Resolve_NoAbiJson_NoSwiftInterface_Throws()
         {
             using var fixture = new XCFrameworkFixture();

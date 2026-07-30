@@ -49,6 +49,7 @@ public class SwiftFrontendSettings
     public string? ModuleName { get; private set; }
     public string? Sdk { get; private set; }
     public string? AbiDescriptorPath { get; private set; }
+    public string? OutputModulePath { get; private set; }
     public string? WorkingDirectory { get; private set; }
 
     private readonly List<string> _frameworkSearchPaths = new();
@@ -64,6 +65,7 @@ public class SwiftFrontendSettings
     public SwiftFrontendSettings SetModuleName(string value) { ModuleName = value; return this; }
     public SwiftFrontendSettings SetSdk(string value) { Sdk = value; return this; }
     public SwiftFrontendSettings SetAbiDescriptorPath(string value) { AbiDescriptorPath = value; return this; }
+    public SwiftFrontendSettings SetOutputModulePath(string value) { OutputModulePath = value; return this; }
     public SwiftFrontendSettings SetWorkingDirectory(string value) { WorkingDirectory = value; return this; }
 
     public SwiftFrontendSettings AddFrameworkSearchPath(string path) { _frameworkSearchPaths.Add(path); return this; }
@@ -95,6 +97,13 @@ public class SwiftFrontendSettings
         args.AddRange(_extraArguments);
 
         if (AbiDescriptorPath != null) { args.Add("-emit-abi-descriptor-path"); args.Add(AbiDescriptorPath); }
+
+        // -compile-module-from-interface's primary output is the compiled .swiftmodule; without an
+        // explicit -o it lands in the process working directory (the repo root under nuke). Callers
+        // here only want the ABI descriptor, so default the byproduct into the system temp dir.
+        args.Add("-o");
+        args.Add(OutputModulePath ?? System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(), $"{ModuleName ?? "module"}-{Guid.NewGuid():N}.swiftmodule"));
 
         return ArgumentEscaper.Join(args);
     }

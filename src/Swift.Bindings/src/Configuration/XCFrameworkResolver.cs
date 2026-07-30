@@ -1392,6 +1392,12 @@ namespace BindingsGeneration
             Directory.CreateDirectory(outputDirectory);
             var abiOutputPath = Path.Combine(outputDirectory, $"{moduleName}.abi.json");
 
+            // -compile-module-from-interface's primary output is the compiled .swiftmodule itself;
+            // without an explicit -o, swift-frontend writes it to the process working directory —
+            // the repo root under nuke, or the consumer's project directory under the SDK. Only the
+            // ABI descriptor is kept; the module byproduct is redirected here and deleted after the run.
+            var moduleByproductPath = Path.Combine(outputDirectory, $"{moduleName}.swiftmodule");
+
             // `-F` lets swift-frontend resolve companion modules imported by the interface
             // (the framework's own slice plus any companion/sibling xcframework slices).
             var frameworkFlags = string.Concat(frameworkSearchPaths.Select(p => $"-F \"{p}\" "));
@@ -1404,9 +1410,12 @@ namespace BindingsGeneration
                        $"-module-name {moduleName} " +
                        $"-sdk \"{sdkPath}\" " +
                        $"{frameworkFlags}" +
-                       $"-emit-abi-descriptor-path \"{abiOutputPath}\"";
+                       $"-emit-abi-descriptor-path \"{abiOutputPath}\" " +
+                       $"-o \"{moduleByproductPath}\"";
 
             var (exitCode, _, stderr) = commandRunner.Run("xcrun", args, timeoutMs: 60000);
+            if (File.Exists(moduleByproductPath))
+                File.Delete(moduleByproductPath);
             if (exitCode != 0 || !File.Exists(abiOutputPath))
             {
                 // When the failure is a missing companion module, name it and explain how to supply
