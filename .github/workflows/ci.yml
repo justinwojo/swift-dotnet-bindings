@@ -125,12 +125,12 @@ jobs:
         run: xcrun simctl bootstatus "$SIM_UDID" -b
 
       - name: Run iOS Simulator tests
-        timeout-minutes: 20
+        timeout-minutes: 40
         run: >
           python3 build/scripts/ci/ci_ios_test.py
           --device-udid "$SIM_UDID" --skip-prepare --skip-build
           --tier 2 --timeout 90 --skip-regen
-          --step-timeout 1140
+          --step-timeout 2100
 
       - name: Validate blast radius
         timeout-minutes: 10

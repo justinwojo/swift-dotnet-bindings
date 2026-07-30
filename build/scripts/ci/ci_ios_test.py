@@ -146,8 +146,8 @@ def run_tests(
 
     # First attempt: generous timeout (build + test).
     # Retry overhead depends on whether the previous build completed.
-    FIRST_ATTEMPT_OVERHEAD = 480  # seconds for wrapper+bridge+app build (CI dotnet build can take 4+ min)
-    RETRY_OVERHEAD_CLEAN = 480    # full rebuild if build was interrupted
+    FIRST_ATTEMPT_OVERHEAD = 900  # seconds for wrapper+bridge+app build (a cold CI dotnet build has been measured north of 9 min)
+    RETRY_OVERHEAD_CLEAN = 900    # full rebuild if build was interrupted
     RETRY_OVERHEAD_CACHED = 120   # incremental rebuild if build completed
     APP_BUNDLE_ID = "com.swiftbindings.runtimetestsapp"
     last_output = ""  # Track output from previous attempt for smart cleanup
@@ -528,8 +528,8 @@ Examples:
                                  help="Max infrastructure retries (default: 1)")
     resilience_group.add_argument("--diag-dir", default="/tmp/sim-diagnostics",
                                  help="Directory for diagnostic artifacts")
-    resilience_group.add_argument("--step-timeout", type=int, default=1140,
-                                 help="Total wall-clock budget in seconds (default: 1140 = 19 min)")
+    resilience_group.add_argument("--step-timeout", type=int, default=2100,
+                                 help="Total wall-clock budget in seconds (default: 2100 = 35 min)")
 
     # Logging
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
