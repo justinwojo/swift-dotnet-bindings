@@ -16,9 +16,12 @@ documentation lives in the [GitHub wiki](https://github.com/justinwojo/swift-dot
 
 ## Conventions
 
-- **Keep only future-facing docs.** For completed work, the code and tests are the documentation;
-  historical program/audit docs are deleted. Tracked docs are recoverable via git history;
-  gitignored `sessions/` docs are archived to `/Users/wojo/Dev/SB-Backup-Docs/` before removal.
+- **Keep only future-facing docs.** For completed work, the code and tests are the documentation.
+  Historical program/audit docs are **archived to `/Users/wojo/Dev/SB-Backup-Docs/` and removed from
+  the repo** — that applies to tracked docs as well as gitignored `sessions/` ones. Git history is a
+  backstop, not the archive: it can't be browsed casually, and it holds nothing for the gitignored
+  docs at all. Before removing a doc, extract anything still load-bearing into `not-planned.md`,
+  `roadmap.md`, or the wiki; the archive is for reference, not for durable obligations.
 - **When closing out work, route leftovers to `not-planned.md`** (with a reopen trigger), never
   into `roadmap.md`.
 - **Durable design rationale goes to `Design/`** — but only if verified against the code it
