@@ -111,6 +111,16 @@ public static class ClangAstParser
         var astGenericContainers = ScanGenericContainerNames(inner);
         ObjCTypeRefParser.SetAdditionalGenericContainers(
             astGenericContainers.Count > 0 ? astGenericContainers : null);
+
+        // Pre-scan: which class/protocol names have a REAL definition somewhere in this TU, and in
+        // which file. Needed before Pass 1 so a body-less node in THIS framework's headers can be
+        // recognised as a re-declaration of a type another module defines — see
+        // IsForwardDeclaration for the full rationale and the byte-identity argument.
+        var definitionFileByName = new Dictionary<string, string>(StringComparer.Ordinal);
+        var redeclaredByThisFramework = new HashSet<string>(StringComparer.Ordinal);
+        var namesWithRealDefinition = ScanNamesWithRealDefinition(
+            inner, definitionFileByName, redeclaredByThisFramework, frameworkHeadersPath);
+
         try
         {
 
@@ -191,7 +201,7 @@ public static class ClangAstParser
             switch (kind)
             {
                 case "ObjCInterfaceDecl":
-                    if (!IsForwardDeclaration(node))
+                    if (!IsForwardDeclaration(node, namesWithRealDefinition))
                     {
                         var classDecl = ParseClassDecl(node, nodeResolvedFile);
                         if (classDecl != null)
@@ -200,7 +210,7 @@ public static class ClangAstParser
                     break;
 
                 case "ObjCProtocolDecl":
-                    if (!IsForwardDeclaration(node))
+                    if (!IsForwardDeclaration(node, namesWithRealDefinition))
                     {
                         var protocolDecl = ParseProtocolDecl(node, currentFile, nodeResolvedFile);
                         if (protocolDecl != null)
@@ -302,7 +312,12 @@ public static class ClangAstParser
                     };
                 }
             }
-            // If class not found (forward-declared in another framework), skip category
+            // Class not found: the category extends a type this framework does not declare. It is NOT
+            // lost — it stays in module.Categories, and ObjCPipeline.FilterToForeignCategories keeps
+            // exactly those for standalone [Category] [BaseType(typeof(Owner))] emission (MapLibre's
+            // 10 NSValue/NSExpression/NSPredicate +MLNAdditions categories ride this path). So the
+            // foreign-decl fix above cannot orphan a category's members: dropping the empty local
+            // shell for a foreign-owned class simply routes its categories down this branch instead.
         }
 
         // Pass 3: Deduplicate declarations by name.
@@ -320,6 +335,43 @@ public static class ClangAstParser
         structs = DeduplicateByRichest(structs, s => s.Name, s => s.Fields.Count);
         classes = MergeClasses(classes);
         protocols = MergeProtocols(protocols);
+
+        // Report every name this framework's headers only RE-declare while another module defines
+        // it. These used to be emitted as empty [Protocol]/[BaseType] shells that collide, in the
+        // static registrar, with the owning module's real binding (see IsForwardDeclaration). They
+        // are now omitted; any member of this framework typed by one of them is dropped downstream
+        // with the ObjCUnresolvableType reason, so the cause is named here and the consequence is
+        // already itemised in the binding report.
+        if (logger != null)
+        {
+            // Keys are "{kind}|{name}" (see DefinitionKey), so the same name declared as both a class
+            // and a protocol is tracked — and reported — separately.
+            var declaredHere = new HashSet<string>(
+                classes.Select(c => "ObjCInterfaceDecl|" + c.Name), StringComparer.Ordinal);
+            declaredHere.UnionWith(protocols.Select(p => "ObjCProtocolDecl|" + p.Name));
+            // Only names this framework's own headers actually re-declare are interesting. Every
+            // other name with a foreign definition simply belongs to a transitively included Apple
+            // SDK header this framework never mentioned, and reporting those buries the signal.
+            var foreignOwned = definitionFileByName
+                .Where(kv => redeclaredByThisFramework.Contains(kv.Key)
+                             && !declaredHere.Contains(kv.Key)
+                             && !IsUnderPath(kv.Value, frameworkHeadersPath))
+                .OrderBy(kv => kv.Key, StringComparer.Ordinal)
+                .ToList();
+            if (foreignOwned.Count > 0)
+            {
+                logger.LogInformation(
+                    "Module '{Module}': {Count} type(s) are only re-declared by this framework's headers and are defined by another module — omitted so they cannot collide with the owning module's binding: {Details}",
+                    moduleName,
+                    foreignOwned.Count,
+                    string.Join(", ", foreignOwned.Select(kv =>
+                    {
+                        var sep = kv.Key.IndexOf('|');
+                        var display = sep < 0 ? kv.Key : kv.Key[(sep + 1)..];
+                        return $"{display} (defined in {kv.Value})";
+                    })));
+            }
+        }
         // Functions/constants have no member-richness axis, but a real header shape DOES split
         // availability across duplicates: a bare forward declaration followed by a redeclaration that
         // carries the availability macro (e.g. `void F(void);` then `void F(void) API_AVAILABLE(...)`).
@@ -1654,16 +1706,201 @@ public static class ClangAstParser
     }
 
     internal static bool IsForwardDeclaration(JsonElement element)
+        => IsForwardDeclaration(element, null);
+
+    /// <summary>
+    /// Decides whether an <c>ObjCInterfaceDecl</c>/<c>ObjCProtocolDecl</c> node is a mere
+    /// re-declaration rather than the definition that owns the type's members.
+    ///
+    /// <para>The original rule was "no <c>inner</c> children and no <c>super</c> property". Both
+    /// halves over-accept, because clang attaches a REDECLARATION's inherited attributes to the
+    /// redeclaration node: a bare <c>@protocol FBSDKDataPersisting;</c> that follows a definition
+    /// carrying <c>NS_SWIFT_NAME</c> arrives as <c>inner: [SwiftNameAttr]</c>, and a bare
+    /// <c>@class X;</c> arrives with <c>super: {"id":"0x0"}</c>. Such a node then parses as a real
+    /// declaration with zero methods and zero properties, and the emitter turns it into an EMPTY
+    /// <c>[Protocol] interface X { }</c> / <c>[BaseType] interface X { }</c>.</para>
+    ///
+    /// <para>Verified consequence (Facebook iOS SDK 18.1.0): FBSDKCoreKit's own headers only
+    /// forward-declare 7 names — FBSDKDataPersisting, FBSDKCrashHandler, FBSDKCrashObserving,
+    /// FBSDKFileManaging, FBSDKFileDataExtracting, FBSDKInfoDictionaryProviding,
+    /// FBSDKNotificationDelivering — whose definitions live in FBSDKCoreKit_Basics. Every one of
+    /// them was emitted into FBSDKCoreKit's ApiDefinition as an empty <c>[Protocol]</c> shell, while
+    /// the FBSDKCoreKit_Basics binding declares the same names WITH members (and FBSDKCrashHandler
+    /// as a CLASS). An app linking both assemblies gives the static registrar two managed types
+    /// under one native name.</para>
+    ///
+    /// <para><paramref name="namesWithRealDefinition"/> is what keeps this fix from changing any
+    /// framework that does not have the problem. A body-less node is only reclassified as a
+    /// re-declaration when some OTHER node in the same translation unit declares the same name WITH
+    /// a real body. When no such node exists the pre-existing answer is returned verbatim, so a lone
+    /// attributed-but-empty <c>@protocol Marker NS_SWIFT_NAME(..) @end</c> — the only shape the old
+    /// rule accepted that this one could otherwise reject — still emits exactly as before.
+    /// Where a real local definition DOES exist, the empty duplicates were already discarded by
+    /// <c>MergeProtocols</c>/<c>MergeClasses</c> (richest-wins), so dropping them earlier changes
+    /// nothing a consumer can observe: verified on MapLibre 6.28.0, where the emitted lines are an
+    /// identical multiset and only the DECLARATION ORDER of three protocols shifts (the definition
+    /// now takes the slot its empty re-declaration used to hold). Two honest caveats rather than a
+    /// byte-identity guarantee: order is not preserved, and an attribute that a body-less
+    /// re-declaration carried ALONE (availability on a forward declaration — not a shape any header
+    /// in the corpus uses) would no longer be folded in by the merge. Only the case with no local
+    /// definition at all — i.e. the type is genuinely owned by another module — changes visibly.</para>
+    ///
+    /// <para>Deliberately conservative on the class half: once a class definition is in the TU,
+    /// clang gives its later <c>@class</c> re-declarations a NAMED super, so
+    /// <see cref="HasDefinitionBody"/> answers true and they are never reclassified. The load-bearing
+    /// case is the protocol/attribute-only one above; the class arm only catches a genuine
+    /// <c>super: {"id":"0x0"}</c> shell. A class forward-declared locally and never defined anywhere
+    /// in the TU is untouched by design — see not-planned.md, "Classes forward-declared but never
+    /// defined in the TU still emit as empty shells".</para>
+    /// </summary>
+    /// <param name="namesWithRealDefinition">
+    /// Keys of the form <c>{kind}|{name}</c> proven to have a definition somewhere in the TU (see
+    /// <see cref="ScanNamesWithRealDefinition"/> and <see cref="DefinitionKey"/>). Null disables the
+    /// narrowing and reproduces the historical rule exactly — used by the single-argument overload
+    /// and by tests that hand in one isolated node. The key carries the node kind because ObjC keeps
+    /// classes and protocols in SEPARATE namespaces: FBSDKCoreKit declares both a protocol and a
+    /// class named <c>FBSDKAppLink</c>, and a name-only match would let the protocol's definition
+    /// suppress the class's forward declaration.
+    /// </param>
+    internal static bool IsForwardDeclaration(JsonElement element, IReadOnlySet<string>? namesWithRealDefinition)
     {
-        // Forward declarations have no inner array, or empty inner, and no super
+        // A node that actually carries a body is a definition under either rule.
+        if (HasDefinitionBody(element))
+            return false;
+
+        if (namesWithRealDefinition != null)
+        {
+            var key = DefinitionKey(element);
+            if (key != null && namesWithRealDefinition.Contains(key))
+                return true;
+        }
+
+        // No proof that the definition lives elsewhere — preserve the historical answer so
+        // frameworks without the cross-module pattern generate byte-identical output.
         if (element.TryGetProperty("inner", out var inner) && inner.GetArrayLength() > 0)
             return false;
 
-        // If it has a superclass, it's a real definition even without inner
         if (element.TryGetProperty("super", out _))
             return false;
 
         return true;
+    }
+
+    /// <summary>
+    /// True when the node carries the substance of a definition: at least one child that is not an
+    /// attribute or a doc comment, or a named superclass. Attributes (<c>SwiftNameAttr</c>,
+    /// <c>AvailabilityAttr</c>, <c>ExternalSourceSymbolAttr</c>, …) and <c>FullComment</c> subtrees
+    /// are propagated onto re-declaration nodes by clang and therefore prove nothing.
+    /// A forward <c>@class X;</c> carries <c>super: {"id":"0x0"}</c> with no <c>name</c>; a real
+    /// <c>@interface X : NSObject</c> carries a named super.
+    /// </summary>
+    internal static bool HasDefinitionBody(JsonElement element)
+    {
+        if (element.TryGetProperty("super", out var super)
+            && super.ValueKind == JsonValueKind.Object
+            && super.TryGetProperty("name", out var superName)
+            && superName.ValueKind == JsonValueKind.String
+            && !string.IsNullOrEmpty(superName.GetString()))
+            return true;
+
+        // A conformance list can only be stated at the definition — `@protocol P;` / `@class X;`
+        // never carry one (confirmed against the real FBSDKCoreKit dump: every re-declaration node
+        // there has no `protocols` key at all).
+        if (element.TryGetProperty("protocols", out var protocols)
+            && protocols.ValueKind == JsonValueKind.Array
+            && protocols.GetArrayLength() > 0)
+            return true;
+
+        if (!element.TryGetProperty("inner", out var inner) || inner.ValueKind != JsonValueKind.Array)
+            return false;
+
+        foreach (var child in inner.EnumerateArray())
+        {
+            var kind = child.TryGetProperty("kind", out var k) ? k.GetString() : null;
+            if (kind == null)
+                continue;
+            if (kind.EndsWith("Attr", StringComparison.Ordinal))
+                continue;
+            if (kind.EndsWith("Comment", StringComparison.Ordinal))
+                continue;
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The key <see cref="ScanNamesWithRealDefinition"/> and <see cref="IsForwardDeclaration"/> agree
+    /// on: <c>{node kind}|{name}</c>. Kind-qualified because ObjC keeps class and protocol names in
+    /// separate namespaces — FBSDKCoreKit ships both a <c>@protocol FBSDKAppLink</c> (defined) and a
+    /// <c>@class FBSDKAppLink;</c> (forward only), and conflating them would let one suppress the
+    /// other. Null when the node has no kind or no name.
+    /// </summary>
+    internal static string? DefinitionKey(JsonElement element)
+    {
+        var kind = element.TryGetProperty("kind", out var k) ? k.GetString() : null;
+        if (kind == null)
+            return null;
+        var name = GetName(element);
+        return name == null ? null : kind + "|" + name;
+    }
+
+    /// <summary>
+    /// Pre-scan collecting every ObjC class/protocol that has a real definition ANYWHERE in the
+    /// translation unit — including headers outside the framework being bound, which is precisely
+    /// the evidence needed to recognise a locally-forward-declared, foreign-defined type. Entries are
+    /// <see cref="DefinitionKey"/> values, not bare names.
+    /// <paramref name="definitionFile"/> maps the same key to the file the definition was found in
+    /// (last one wins, matching clang's declaration order) so the caller can report who owns it.
+    /// <paramref name="redeclaredUnderPath"/>, when combined with a non-null
+    /// <paramref name="frameworkHeadersPath"/>, collects the keys the framework being bound merely
+    /// RE-declares (a node with no definition body sitting under its own headers). That is the
+    /// small, interesting set: without it a caller reporting "defined elsewhere" would name every
+    /// type in every transitively included Apple SDK header (1250 of them for FBSDKCoreKit).
+    /// </summary>
+    internal static HashSet<string> ScanNamesWithRealDefinition(
+        JsonElement inner,
+        IDictionary<string, string>? definitionFile = null,
+        ICollection<string>? redeclaredUnderPath = null,
+        string? frameworkHeadersPath = null)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        string? currentFile = null;
+
+        foreach (var node in inner.EnumerateArray())
+        {
+            var kind = node.TryGetProperty("kind", out var k) ? k.GetString() : null;
+
+            // Track the file across ALL nodes, not just the interesting kinds: clang omits loc.file
+            // when it is unchanged from the previous declaration, so skipping nodes would corrupt
+            // the inheritance chain and misattribute a definition to the wrong header.
+            var resolvedFile = ResolveLocFile(node);
+            if (resolvedFile != null)
+                currentFile = resolvedFile;
+
+            if (kind is not ("ObjCInterfaceDecl" or "ObjCProtocolDecl"))
+                continue;
+
+            var name = DefinitionKey(node);
+            if (name == null)
+                continue;
+
+            if (!HasDefinitionBody(node))
+            {
+                if (redeclaredUnderPath != null && frameworkHeadersPath != null
+                    && currentFile != null && IsUnderPath(currentFile, frameworkHeadersPath))
+                {
+                    redeclaredUnderPath.Add(name);
+                }
+                continue;
+            }
+
+            names.Add(name);
+            if (definitionFile != null && currentFile != null)
+                definitionFile[name] = currentFile;
+        }
+
+        return names;
     }
 
     // ──────────────────────────────────────────────

@@ -3998,4 +3998,335 @@ public class ClangAstParserTests
         Assert.DoesNotContain(module.Classes, c => c.Name == "SdkFirstClass");
         Assert.DoesNotContain(module.Classes, c => c.Name == "SdkSecondClass");
     }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Foreign-defined types: a name this framework's headers only RE-declare while
+    // another module defines it must not become an empty [Protocol]/[BaseType] shell.
+    // Two such shells (ours + the owning module's real binding) register the same
+    // native name and the static registrar rejects the app.
+    //
+    // The shapes below are taken from the real FBSDKCoreKit 18.1.0 clang dump: clang
+    // propagates a definition's attributes onto every later re-declaration, so
+    // `@protocol FBSDKDataPersisting;` in FBSDKCoreKit's headers arrives as
+    // `inner: [SwiftNameAttr]` — non-empty, and therefore a "definition" under the old
+    // no-inner-children rule.
+    // ──────────────────────────────────────────────────────────────────────────
+
+    private const string ForeignHeader = "/Frameworks/OtherLib.framework/Headers/OtherLib.h";
+
+    [Fact]
+    public void Parse_ProtocolDefinedInAnotherFramework_LocalRedeclarationWithAttributeOnly_IsNotEmitted()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCProtocolDecl",
+            "name": "DataPersisting",
+            "loc": { "file": "{{ForeignHeader}}" },
+            "inner": [
+                { "kind": "SwiftNameAttr" },
+                { "kind": "FullComment" },
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "store",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                }
+            ]
+        },
+        {
+            "kind": "ObjCProtocolDecl",
+            "name": "DataPersisting",
+            {{MakeLoc()}},
+            "inner": [ { "kind": "SwiftNameAttr" } ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        // The definition is foreign (dropped by the headers-path gate) and the local node is only a
+        // re-declaration, so this framework declares the type not at all — rather than declaring an
+        // empty shell that collides with OtherLib's binding.
+        Assert.DoesNotContain(module.Protocols, p => p.Name == "DataPersisting");
+    }
+
+    [Fact]
+    public void Parse_ClassDefinedInAnotherFramework_LocalForwardDeclaration_IsNotEmitted()
+    {
+        // A bare `@class CrashHandler;` carries `super: {"id":"0x0"}` — no name. The old rule read
+        // the mere presence of a `super` key as proof of a definition.
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "CrashHandler",
+            "loc": { "file": "{{ForeignHeader}}" },
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "disable",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                }
+            ]
+        },
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "CrashHandler",
+            {{MakeLoc()}},
+            "super": { "id": "0x0" },
+            "inner": []
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        Assert.DoesNotContain(module.Classes, c => c.Name == "CrashHandler");
+    }
+
+    [Fact]
+    public void Parse_LocalDefinitionPlusAttributeOnlyRedeclaration_KeepsTheDefinition()
+    {
+        // The same clang shape, but the definition is OURS. Nothing may change: the real
+        // declaration survives with all of its members.
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCProtocolDecl",
+            "name": "LocalProto",
+            {{MakeLoc()}},
+            "inner": [
+                { "kind": "SwiftNameAttr" },
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "doIt",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                }
+            ]
+        },
+        {
+            "kind": "ObjCProtocolDecl",
+            "name": "LocalProto",
+            {{MakeLoc()}},
+            "inner": [ { "kind": "SwiftNameAttr" } ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        var proto = Assert.Single(module.Protocols);
+        Assert.Equal("LocalProto", proto.Name);
+        Assert.Single(proto.Methods);
+    }
+
+    [Fact]
+    public void Parse_AttributedEmptyMarkerProtocolWithNoDefinitionAnywhere_StillEmits()
+    {
+        // The byte-identity guarantee: with no richer declaration of the name anywhere in the TU
+        // there is no evidence the type belongs to someone else, so the historical answer stands
+        // and an attributed-but-memberless protocol is emitted exactly as before.
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCProtocolDecl",
+            "name": "MarkerProto",
+            {{MakeLoc()}},
+            "inner": [ { "kind": "SwiftNameAttr" } ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        var proto = Assert.Single(module.Protocols);
+        Assert.Equal("MarkerProto", proto.Name);
+        Assert.Empty(proto.Methods);
+    }
+
+    [Fact]
+    public void Parse_EmptyDeclarationCarryingConformances_IsADefinition()
+    {
+        // `@protocol P <NSCopying> @end` has no members but does state conformances, which only a
+        // definition can. It must not be mistaken for a re-declaration even when a richer node for
+        // the same name exists elsewhere in the TU.
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCProtocolDecl",
+            "name": "ConformingProto",
+            "loc": { "file": "{{ForeignHeader}}" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "somethingElse",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                }
+            ]
+        },
+        {
+            "kind": "ObjCProtocolDecl",
+            "name": "ConformingProto",
+            {{MakeLoc()}},
+            "protocols": [{ "name": "NSCopying" }],
+            "inner": [ { "kind": "SwiftNameAttr" } ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        var proto = Assert.Single(module.Protocols);
+        Assert.Contains("NSCopying", proto.InheritedProtocolNames);
+    }
+
+    [Theory]
+    // Attribute- and comment-only children are propagated onto re-declarations by clang and are
+    // never evidence of a definition.
+    [InlineData("""{ "kind": "ObjCProtocolDecl", "name": "P", "inner": [ { "kind": "SwiftNameAttr" } ] }""", false)]
+    [InlineData("""{ "kind": "ObjCProtocolDecl", "name": "P", "inner": [ { "kind": "AvailabilityAttr" }, { "kind": "FullComment" } ] }""", false)]
+    [InlineData("""{ "kind": "ObjCProtocolDecl", "name": "P", "inner": [] }""", false)]
+    [InlineData("""{ "kind": "ObjCInterfaceDecl", "name": "C", "super": { "id": "0x0" } }""", false)]
+    // Real definition evidence.
+    [InlineData("""{ "kind": "ObjCProtocolDecl", "name": "P", "inner": [ { "kind": "ObjCMethodDecl" } ] }""", true)]
+    [InlineData("""{ "kind": "ObjCProtocolDecl", "name": "P", "protocols": [ { "name": "NSCopying" } ] }""", true)]
+    [InlineData("""{ "kind": "ObjCInterfaceDecl", "name": "C", "super": { "name": "NSObject" } }""", true)]
+    [InlineData("""{ "kind": "ObjCInterfaceDecl", "name": "C", "inner": [ { "kind": "ObjCPropertyDecl" } ] }""", true)]
+    public void HasDefinitionBody_DistinguishesDefinitionsFromRedeclarations(string nodeJson, bool expected)
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(nodeJson);
+        Assert.Equal(expected, ClangAstParser.HasDefinitionBody(doc.RootElement));
+    }
+
+    [Fact]
+    public void ScanNamesWithRealDefinition_RecordsTheDefiningFile_AndIgnoresRedeclarations()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCProtocolDecl",
+            "name": "Owned",
+            "loc": { "file": "{{ForeignHeader}}" },
+            "inner": [ { "kind": "ObjCMethodDecl" } ]
+        },
+        {
+            "kind": "ObjCProtocolDecl",
+            "name": "Owned",
+            {{MakeLoc()}},
+            "inner": [ { "kind": "SwiftNameAttr" } ]
+        },
+        {
+            "kind": "ObjCProtocolDecl",
+            "name": "NeverDefined",
+            {{MakeLoc()}},
+            "inner": []
+        }
+        """);
+
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var files = new Dictionary<string, string>();
+        var redeclared = new HashSet<string>();
+        var names = ClangAstParser.ScanNamesWithRealDefinition(
+            doc.RootElement.GetProperty("inner"), files, redeclared, DefaultHeadersPath);
+
+        Assert.Contains("ObjCProtocolDecl|Owned", names);
+        Assert.DoesNotContain("ObjCProtocolDecl|NeverDefined", names);
+        Assert.Equal(ForeignHeader, files["ObjCProtocolDecl|Owned"]);
+
+        // Only the re-declarations sitting under THIS framework's headers are collected — the
+        // foreign definition itself is not, so a caller reporting "defined elsewhere" stays scoped
+        // to what this framework actually mentioned.
+        Assert.Contains("ObjCProtocolDecl|Owned", redeclared);
+        Assert.Contains("ObjCProtocolDecl|NeverDefined", redeclared);
+    }
+
+    [Fact]
+    public void Parse_ProtocolDefinitionDoesNotSuppressASameNamedClassForwardDeclaration()
+    {
+        // ObjC keeps classes and protocols in separate namespaces, and real SDKs use that:
+        // FBSDKCoreKit ships `@protocol FBSDKAppLink` (defined) alongside `@class FBSDKAppLink;`
+        // (forward only). Matching on the bare name would let the protocol's definition suppress the
+        // class, silently deleting a type the old parser emitted.
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCProtocolDecl",
+            "name": "AppLink",
+            {{MakeLoc()}},
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "sourceURL",
+                    "instance": true,
+                    "returnType": { "qualType": "NSURL *" },
+                    "inner": []
+                }
+            ]
+        },
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "AppLink",
+            {{MakeLoc()}},
+            "super": { "id": "0x0" },
+            "inner": []
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        Assert.Contains(module.Protocols, p => p.Name == "AppLink");
+        Assert.Contains(module.Classes, c => c.Name == "AppLink");
+    }
+
+    [Fact]
+    public void Parse_CategoryOnAForeignDefinedClass_SurvivesAsAStandaloneCategory()
+    {
+        // The obvious worry about dropping the foreign-owned shell is that a category this framework
+        // declares on that class loses its anchor and its members vanish. It does not: the category
+        // stops being merged into a local class and instead stays in Categories, which
+        // ObjCPipeline.FilterToForeignCategories keeps for standalone
+        // [Category] [BaseType(typeof(Owner))] emission. Pinned so the routing is a decision.
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "ForeignOwned",
+            "loc": { "file": "{{ForeignHeader}}" },
+            "super": { "name": "NSObject" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "real",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                }
+            ]
+        },
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "ForeignOwned",
+            {{MakeLoc()}},
+            "super": { "id": "0x0" },
+            "inner": []
+        },
+        {
+            "kind": "ObjCCategoryDecl",
+            "name": "Local",
+            {{MakeLoc()}},
+            "interface": { "id": "0x1", "kind": "ObjCInterfaceDecl", "name": "ForeignOwned" },
+            "inner": [
+                {
+                    "kind": "ObjCMethodDecl",
+                    "name": "extra",
+                    "instance": true,
+                    "returnType": { "qualType": "void" },
+                    "inner": []
+                }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+
+        Assert.DoesNotContain(module.Classes, c => c.Name == "ForeignOwned");
+        var category = Assert.Single(module.Categories, c => c.ClassName == "ForeignOwned");
+        Assert.Contains(category.Methods, m => m.Selector == "extra");
+    }
 }
