@@ -432,4 +432,74 @@ public class ObjCUsingsEmitterTests
         var output = EmitApiDefinition(TrivialClassModule(), platformInfo: macOS);
         Assert.Contains("using Foundation;", output);
     }
+
+    // --- System-enum namespace channel (provenance-independent) ---
+
+    /// <summary>
+    /// A member typed by a registered system enum contributes its owning namespace even when NEITHER
+    /// AST provenance channel has anything to say. That is the <c>-fmodules</c> case, where SDK
+    /// declarations come from precompiled module files and never reach the AST at all — the only
+    /// mode a real pure-ObjC xcframework is parsed in — so without this channel the mapped enum name
+    /// would be emitted with no <c>using</c> to resolve it.
+    /// </summary>
+    [Fact]
+    public void CollectReferencedNamespaces_SystemEnumWithNoAstProvenance_YieldsOwningNamespace()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "MyClass",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "currentAuthorization",
+                            ReturnType = new ObjCTypeRef { Name = "CLAuthorizationStatus" },
+                            IsInstanceMethod = true,
+                        }
+                    ],
+                    Properties =
+                    [
+                        new ObjCPropertyDecl { Name = "interfaceStyle", Type = new ObjCTypeRef { Name = "UIUserInterfaceStyle" } }
+                    ]
+                }
+            ]
+        };
+
+        var namespaces = ObjCUsingsEmitter.CollectReferencedNamespaces(module, appleSdkTypeNamespaces: null);
+
+        Assert.Contains("CoreLocation", namespaces);
+        Assert.Contains("UIKit", namespaces);
+    }
+
+    /// <summary>
+    /// The channel is keyed on the registered vocabulary, not on a name-shape heuristic: an
+    /// unregistered type contributes nothing, so an unrelated third-party name can never pull in a
+    /// framework <c>using</c> that vouches for it.
+    /// </summary>
+    [Fact]
+    public void CollectReferencedNamespaces_UnregisteredType_ContributesNothing()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "MyClass",
+                    Properties =
+                    [
+                        new ObjCPropertyDecl { Name = "vendorStatus", Type = new ObjCTypeRef { Name = "ZZVendorAuthorizationStatus" } }
+                    ]
+                }
+            ]
+        };
+
+        Assert.Empty(ObjCUsingsEmitter.CollectReferencedNamespaces(module, appleSdkTypeNamespaces: null));
+    }
 }

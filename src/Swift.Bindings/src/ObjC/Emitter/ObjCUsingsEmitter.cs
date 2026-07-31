@@ -143,7 +143,10 @@ internal static class ObjCUsingsEmitter
     /// using is not an error) while omitting one a member needs is a CS0246. Matching is raw-ObjC-name
     /// to raw-ObjC-name (the map keys and the model type names are both pre-mapping ObjC identifiers),
     /// so it needs none of the acronym-reversal the resolvability gate performs against mapped C# names.
-    /// Returns an empty set when no provenance is available (e.g. -fmodules mode).
+    /// Draws on three channels — the parser's name→namespace provenance map, the usings-only Apple SDK
+    /// enum provenance map, and the registry's system-enum vocabulary. Only the last survives
+    /// <c>-fmodules</c>, where SDK declarations never reach the AST, so the walk runs even when both
+    /// provenance maps are empty.
     /// </summary>
     internal static IReadOnlySet<string> CollectReferencedNamespaces(
         ObjCModule module, IReadOnlyDictionary<string, string>? appleSdkTypeNamespaces)
@@ -152,10 +155,12 @@ internal static class ObjCUsingsEmitter
         var enumNamespaces = module.AppleSdkEnumNamespaces;
         var hasTypeMap = appleSdkTypeNamespaces is { Count: > 0 };
         var hasEnumMap = enumNamespaces is { Count: > 0 };
-        // Proceed when either provenance channel has entries: class/protocol map, or the
-        // usings-only enum map (e.g. MTLPixelFormat → Metal with no AppleSdkTypeNamespaces).
-        if (!hasTypeMap && !hasEnumMap)
-            return result;
+        // The walk always runs: beyond the two AST-provenance channels (class/protocol map, and the
+        // usings-only enum map, e.g. MTLPixelFormat → Metal with no AppleSdkTypeNamespaces) there is
+        // a third, provenance-INDEPENDENT channel below — the registry's system-enum vocabulary. That
+        // one is the only channel available under -fmodules, where SDK declarations come from
+        // precompiled module files and never reach the AST at all, so returning early on "no
+        // provenance" would drop the `using` that makes the mapped enum name resolve.
 
         void RecordName(string? rawName)
         {
@@ -167,11 +172,19 @@ internal static class ObjCUsingsEmitter
                 result.Add(ns);
                 return;
             }
-            // Fallback: Apple SDK enum provenance (usings-only; not in the resolvability map).
+            // Fallback 1: Apple SDK enum provenance (usings-only; not in the resolvability map).
             if (hasEnumMap
                 && enumNamespaces!.TryGetValue(rawName, out var enumNs)
                 && enumNs.Length > 0)
+            {
                 result.Add(enumNs);
+                return;
+            }
+            // Fallback 2: the registry's system-enum vocabulary, which carries the owning namespace
+            // alongside the managed name the type mapper binds the member to. Keyed on the raw ObjC
+            // spelling, the same identity the two provenance maps use.
+            if (AppleFrameworkRegistry.TryGetObjCSystemEnumNamespace(rawName, out var registryNs))
+                result.Add(registryNs);
         }
 
         void RecordType(ObjCTypeRef? type)

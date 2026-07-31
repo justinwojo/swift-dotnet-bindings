@@ -180,4 +180,36 @@ typedef id<OUElement> _Nonnull (^OUElementFactory)(NSInteger index);
 - (BOOL)delegateConformsToObserverProtocol;
 @end
 
+// MARK: - Shape 9a — a system struct whose PUBLIC name is a typedef over a differently-named
+// record tag.
+//
+// Foundation spells the range struct `typedef struct _NSRange NSRange;`. The header says `NSRange`,
+// clang's desugared spelling is the private tag `_NSRange`, and that typedef reaches the generator
+// through the system-header typedef set — so a naive typedef hop rewrites every member below to
+// `_NSRange`, a name no platform assembly declares. The member then fails the api-definition
+// resolvability gate and is silently DROPPED, which is exactly how a real map framework loses its
+// whole range-editing surface (coordinate get/replace/remove by range, plus range-carrying delegate
+// callbacks). Both parameter and return position are covered, and two same-typed parameters guard
+// the multi-parameter case. Round-trips known values so the struct's field layout is asserted, not
+// just its name.
+@interface OURangeSugarTypes : NSObject
+- (NSRange)rangeWithLocation:(NSUInteger)location length:(NSUInteger)length;
+- (NSUInteger)endOfRange:(NSRange)range;
+- (NSUInteger)combinedLengthOfRange:(NSRange)first andRange:(NSRange)second;
+@end
+
+// MARK: - Shape 9b — members typed by Apple SDK enums the platform assembly already declares.
+//
+// An Apple SDK enum is invisible to the parser's SDK type-name provenance (which collects classes
+// and protocols), so before the system-enum vocabulary existed a member typed by one had nothing to
+// resolve against and was dropped exactly like Shape 9a's. `NSComparisonResult` (Foundation) and
+// `UIUserInterfaceStyle` (UIKit) are deliberately from two different frameworks, so the emitted
+// `using` for each owning namespace is exercised, not just one. Neither type is reachable through
+// the older value-type registry Shape 7 guards — these bind purely through the enum vocabulary.
+@interface OUSystemEnumTypes : NSObject
+- (NSComparisonResult)compareLength:(NSUInteger)length toLength:(NSUInteger)other;
+- (UIUserInterfaceStyle)preferredInterfaceStyle;
+- (BOOL)acceptsInterfaceStyle:(UIUserInterfaceStyle)style;
+@end
+
 NS_ASSUME_NONNULL_END

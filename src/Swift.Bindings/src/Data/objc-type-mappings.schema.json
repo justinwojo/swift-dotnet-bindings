@@ -4,7 +4,7 @@
   "title": "ObjC type-mapping tables",
   "description": "Single-source-of-truth tables the ObjC pipeline uses to map ObjC/C type names onto C# types, folded out of the formerly-hardcoded ObjCTypeMapper/StructsAndEnumsEmitter tables and owned by AppleFrameworkRegistry.",
   "type": "object",
-  "required": ["schemaVersion", "pointerTypeMappings", "coreFoundationRefMappings", "primitiveTypeMappings", "acronymConventions", "objcValueTypes", "systemStructs"],
+  "required": ["schemaVersion", "pointerTypeMappings", "coreFoundationRefMappings", "primitiveTypeMappings", "acronymConventions", "objcValueTypes", "systemStructs", "systemEnums"],
   "additionalProperties": false,
   "properties": {
     "$schema": {
@@ -52,6 +52,14 @@
       "type": "array",
       "description": "Structs already defined by .NET MAUI's framework bindings — the ObjC struct emitter skips re-emitting these.",
       "items": { "type": "string" }
+    },
+    "systemEnums": {
+      "type": "object",
+      "description": "Apple SDK enums already bound by Microsoft.iOS, keyed by ObjC name and valued by the fully-qualified managed spelling ('Namespace.ManagedName', e.g. CLAuthorizationStatus -> CoreLocation.CLAuthorizationStatus). The namespace half drives the emitted 'using'; the name half is what a member's signature is bound to. Values carry the acronym convention already applied (NSJSONReadingOptions -> Foundation.NSJsonReadingOptions).",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)+$"
+      }
     }
   }
 }

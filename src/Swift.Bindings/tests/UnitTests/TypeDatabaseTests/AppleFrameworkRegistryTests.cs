@@ -1511,9 +1511,9 @@ public class AppleFrameworkRegistryTests
     // ──────────────────────────────────────────────
 
     [Fact]
-    public void HasObjCTypeMappings_IsTrue_AllSixTablesLoaded()
+    public void HasObjCTypeMappings_IsTrue_EveryTableLoaded()
     {
-        // The embedded objc-type-mappings.json must load all six tables non-empty.
+        // The embedded objc-type-mappings.json must load every table non-empty.
         // ObjCTypeMapper's static constructor startup-asserts on exactly this — a
         // false here means the resource failed to embed or the schema version
         // mismatched, which would otherwise silently pass every ObjC type through
@@ -1613,5 +1613,60 @@ public class AppleFrameworkRegistryTests
     public void IsCGFloat_NonCGFloatNames_Rejected(string name)
     {
         Assert.False(AppleFrameworkRegistry.IsCGFloat(name));
+    }
+
+    // --- systemEnums: Apple SDK enums Microsoft.iOS already declares ---
+
+    [Theory]
+    [InlineData("CLAuthorizationStatus", "CoreLocation", "CLAuthorizationStatus")]
+    [InlineData("CLAccuracyAuthorization", "CoreLocation", "CLAccuracyAuthorization")]
+    [InlineData("NSFormattingUnitStyle", "Foundation", "NSFormattingUnitStyle")]
+    [InlineData("NSJSONReadingOptions", "Foundation", "NSJsonReadingOptions")]
+    [InlineData("UIUserInterfaceStyle", "UIKit", "UIUserInterfaceStyle")]
+    [InlineData("CGBlendMode", "CoreGraphics", "CGBlendMode")]
+    public void SystemEnums_KnownEntries_ExposeBothHalves(string objcName, string expectedNamespace, string expectedManagedName)
+    {
+        // Both halves are consumed by different emitters — the namespace becomes a `using`, the name
+        // is what a member's signature binds to — so both are asserted from the ObjC key.
+        Assert.True(AppleFrameworkRegistry.IsObjCSystemEnum(objcName));
+        Assert.True(AppleFrameworkRegistry.TryMapObjCSystemEnum(objcName, out var managedName));
+        Assert.Equal(expectedManagedName, managedName);
+        Assert.True(AppleFrameworkRegistry.TryGetObjCSystemEnumNamespace(objcName, out var namespaceName));
+        Assert.Equal(expectedNamespace, namespaceName);
+    }
+
+    [Theory]
+    [InlineData("ZZVendorAuthorizationStatus")]
+    [InlineData("CLAuthorizationStatusExtra")]
+    [InlineData("")]
+    public void SystemEnums_UnregisteredNames_AreRejected(string objcName)
+    {
+        // The table is a vocabulary, not a prefix heuristic: an unregistered name must not resolve,
+        // or a third-party enum would bind to a platform type that does not exist.
+        Assert.False(AppleFrameworkRegistry.IsObjCSystemEnum(objcName));
+        Assert.False(AppleFrameworkRegistry.TryMapObjCSystemEnum(objcName, out _));
+        Assert.False(AppleFrameworkRegistry.TryGetObjCSystemEnumNamespace(objcName, out _));
+    }
+
+    [Fact]
+    public void SystemEnums_EveryEntry_IsSimpleNameOverARegisteredModule()
+    {
+        // The name half is emitted bare into a member signature and resolved through the `using`, so
+        // it must never carry the namespace. The namespace half becomes that emitted `using`, which
+        // the platform-availability filter gates by module name — an unregistered module silently
+        // bypasses that gate (unknown modules are treated as available), which is the exact cross-TFM
+        // CS0246 the filter exists to prevent.
+        foreach (var managedName in AppleFrameworkRegistry.ObjCSystemEnumMappedValues)
+            Assert.DoesNotContain('.', managedName);
+
+        var unregistered = new List<string>();
+        foreach (var objcName in AppleFrameworkRegistry.ObjCSystemEnumNames)
+        {
+            Assert.True(AppleFrameworkRegistry.TryGetObjCSystemEnumNamespace(objcName, out var ns));
+            if (!AppleFrameworkRegistry.IsKnownModule(ns))
+                unregistered.Add($"{objcName} -> {ns}");
+        }
+
+        Assert.Empty(unregistered);
     }
 }

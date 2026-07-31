@@ -103,6 +103,33 @@ public static class ObjCTypeMapper
         if (AppleFrameworkRegistry.TryMapCoreFoundationRefType(typeRef.Name, out var cfMapped))
             return cfMapped;
 
+        // 8b. Apple SDK structs the platform assembly already declares keep their PUBLIC (typedef)
+        // spelling. This has to run BEFORE the typedef hop below: Foundation spells `NSRange` as
+        // `typedef struct _NSRange NSRange;`, and that typedef reaches us through the system-header
+        // typedef set, so the hop would rewrite the member's type to the private record tag
+        // `_NSRange` — a name Microsoft.iOS never declares, which then fails the resolvability gate
+        // and silently drops every member taking one. The tag is an implementation detail of the
+        // header; the name the platform binds, and the one a consumer writes, is the typedef.
+        // Keyed on the registered system-struct set rather than a "strip a leading underscore"
+        // rewrite so it can only ever fire on names we have explicitly claimed — an underscore strip
+        // would also fire on an unrelated third-party `_Foo` and resolve it to a `Foo` that does not
+        // exist. Deliberately NOT keyed on the broader objcValueTypes set: that one also carries
+        // simd_*/MTL* names which de-sugar to scalars today, and claiming those would emit C# type
+        // names with no declaration (CS0246 → whole-binding failure).
+        if (AppleFrameworkRegistry.IsObjCSystemStruct(typeRef.Name))
+            return ApplyDotNetAcronymConvention(typeRef.Name);
+
+        // 8c. Apple SDK enums Microsoft.iOS already binds. Same ordering reason as 8b — an
+        // NS_ENUM/NS_OPTIONS typedef is visible in the system-header typedef set, so without this
+        // arm the member either de-sugars to the raw integer (losing the enum) or falls through to
+        // the bare-name fallback, which the api-definition resolvability gate rejects: enums are not
+        // in the Apple SDK type-name provenance set (that collects classes and protocols), so the
+        // -fmodules prefix fallback never gets a chance to accept them. The table also carries the
+        // acronym convention Microsoft.iOS applies (NSJSONReadingOptions → NSJsonReadingOptions),
+        // which a mechanical rename cannot always reproduce (UIControlEvents → UIControlEvent).
+        if (AppleFrameworkRegistry.TryMapObjCSystemEnum(typeRef.Name, out var systemEnum))
+            return systemEnum;
+
         // 9. Typedef alias resolution (pre-resolved, single-hop lookup)
         if (typedefMap != null && typedefMap.TryGetValue(typeRef.Name, out var resolved))
         {
@@ -345,6 +372,16 @@ public static class ObjCTypeMapper
         // -fmodules fallback because their prefixes aren't registered as ObjC class
         // prefixes (those frameworks expose only C structs, not ObjC classes).
         foreach (var v in AppleFrameworkRegistry.ObjCValueTypeNames) known.Add(v);
+        // The system-struct set is what MapType now claims by name (keeping the public typedef
+        // spelling instead of hopping to the private record tag), so the same set has to be known
+        // here or the claim would produce a name the resolvability gate still rejects. Almost all
+        // of these are already covered by the value-type set above; seeding both keeps the claim
+        // and the known-type set from drifting apart as either table grows.
+        foreach (var v in AppleFrameworkRegistry.ObjCSystemStructNames) known.Add(v);
+        // Apple SDK enums resolve through their framework `using` (Foundation/UIKit/CoreLocation/
+        // CoreGraphics) exactly like the value types above, and are likewise invisible to the Apple
+        // SDK type-name provenance set, which collects only classes and protocols.
+        foreach (var v in AppleFrameworkRegistry.ObjCSystemEnumMappedValues) known.Add(v);
         return known;
     }
 

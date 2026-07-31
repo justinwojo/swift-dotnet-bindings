@@ -120,3 +120,27 @@ int32_t OUExportedTriple(int32_t x) { return x * 3; }
     return [self.delegate conformsToProtocol:@protocol(NSURLBadgeObserver)];
 }
 @end
+
+// Shape 9a — build and read back the typedef-spelled Foundation range struct.
+@implementation OURangeSugarTypes
+- (NSRange)rangeWithLocation:(NSUInteger)location length:(NSUInteger)length {
+    return NSMakeRange(location, length);
+}
+- (NSUInteger)endOfRange:(NSRange)range { return NSMaxRange(range); }
+- (NSUInteger)combinedLengthOfRange:(NSRange)first andRange:(NSRange)second {
+    return first.length + second.length;
+}
+@end
+
+// Shape 9b — return and consume enums the platform assembly already declares.
+@implementation OUSystemEnumTypes
+- (NSComparisonResult)compareLength:(NSUInteger)length toLength:(NSUInteger)other {
+    if (length < other) return NSOrderedAscending;
+    if (length > other) return NSOrderedDescending;
+    return NSOrderedSame;
+}
+- (UIUserInterfaceStyle)preferredInterfaceStyle { return UIUserInterfaceStyleDark; }
+- (BOOL)acceptsInterfaceStyle:(UIUserInterfaceStyle)style {
+    return style == UIUserInterfaceStyleDark;
+}
+@end

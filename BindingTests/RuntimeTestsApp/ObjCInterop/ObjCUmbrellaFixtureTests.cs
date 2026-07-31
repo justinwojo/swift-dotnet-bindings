@@ -32,6 +32,11 @@ namespace RuntimeTestsApp.ObjCInterop;
 /// send finds nothing. Every other rename defect (a reference left on the raw spelling, a dangling
 /// <c>instancetype</c>) is a hard compile error already gated by the unit suite and the compile gate,
 /// so these three tests are deliberately the whole runtime surface for renaming.
+///
+/// Shape 9 covers the two ways an Apple SDK type reaches the generator under a name it cannot resolve
+/// on its own: a struct spelled through a typedef over a differently-named record tag
+/// (<c>NSRange</c>/<c>_NSRange</c>), and an enum, which the parser's SDK provenance never sees because
+/// that channel collects classes and protocols only. Both used to drop the whole member.
 /// </summary>
 public class ObjCUmbrellaFixtureTests : TestBase
 {
@@ -226,6 +231,54 @@ public class ObjCUmbrellaFixtureTests : TestBase
         // own [Export] is what answers respondsToSelector:. Ask Objective-C for the protocol directly.
         AssertTrue(emitter.DelegateConformsToObserverProtocol(),
             "the managed model registers as conforming to the native protocol `NSURLBadgeObserver`");
+    }
+
+    /// <summary>
+    /// Shape 9a — a Foundation struct whose public name is a typedef over a differently-named record
+    /// tag (<c>typedef struct _NSRange NSRange;</c>). Hopping that typedef rewrites the member's type
+    /// to the private tag <c>_NSRange</c>, which no platform assembly declares, so the member fails the
+    /// api-definition resolvability gate and vanishes. That these members exist to be called is the
+    /// standing proof the public spelling is kept; the round-tripped values additionally assert the
+    /// struct's field layout survived, in both return and parameter position.
+    /// </summary>
+    public void TestTypedefSpelledSystemStructRoundTrips()
+    {
+        using var ranges = new OURangeSugarTypes();
+
+        NSRange range = ranges.RangeWithLocation(4, 6);
+        AssertEqual(4, (int)range.Location, "the typedef-spelled struct round-trips its location field");
+        AssertEqual(6, (int)range.Length, "the typedef-spelled struct round-trips its length field");
+
+        AssertEqual(10, (int)ranges.EndOfRange(range), "the struct passes back into ObjC by value");
+        AssertEqual(9, (int)ranges.CombinedLengthOfRange(new NSRange(0, 3), new NSRange(0, 6)),
+            "two same-typed struct parameters both marshal");
+    }
+
+    /// <summary>
+    /// Shape 9b — members typed by Apple SDK enums the platform assembly already declares. An SDK enum
+    /// is absent from the parser's class/protocol provenance, so without the system-enum vocabulary
+    /// these members have nothing to resolve against and are dropped. <c>NSComparisonResult</c>
+    /// (Foundation) and <c>UIUserInterfaceStyle</c> (UIKit) come from two different frameworks, so both
+    /// owning <c>using</c> directives are exercised; that they compare equal to the platform's own enum
+    /// members proves the binding resolved to Microsoft.iOS's type, not a re-emitted local copy.
+    /// </summary>
+    public void TestSystemEnumMembersResolveAndRoundTrip()
+    {
+        using var enums = new OUSystemEnumTypes();
+
+        AssertEqual((int)NSComparisonResult.Ascending, (int)enums.CompareLength(1, 2),
+            "NSComparisonResult resolves to the Foundation enum and round-trips the ascending case");
+        AssertEqual((int)NSComparisonResult.Same, (int)enums.CompareLength(2, 2),
+            "NSComparisonResult round-trips the equal case");
+        AssertEqual((int)NSComparisonResult.Descending, (int)enums.CompareLength(3, 2),
+            "NSComparisonResult round-trips the descending case");
+
+        AssertEqual((int)UIUserInterfaceStyle.Dark, (int)enums.PreferredInterfaceStyle(),
+            "UIUserInterfaceStyle resolves to the UIKit enum in return position");
+        AssertTrue(enums.AcceptsInterfaceStyle(UIUserInterfaceStyle.Dark),
+            "UIUserInterfaceStyle marshals into ObjC in parameter position");
+        AssertFalse(enums.AcceptsInterfaceStyle(UIUserInterfaceStyle.Light),
+            "a different UIUserInterfaceStyle member is distinguished across the boundary");
     }
 
     /// <summary>

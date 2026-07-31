@@ -2385,6 +2385,99 @@ public class ApiDefinitionEmitterTests
         Assert.DoesNotContain("BadThing", result);
     }
 
+    /// <summary>
+    /// A member typed by a system struct spelled through a typedef over a differently-named record
+    /// tag (<c>typedef struct _NSRange NSRange;</c>) survives emission. Before the registry claimed
+    /// the public spelling, the typedef hop rewrote the member to <c>_NSRange</c> — a name no
+    /// platform assembly declares — and the member was dropped as unresolvable.
+    /// </summary>
+    [Fact]
+    public void Emit_MemberTypedBySystemStructOverRecordTag_Survives()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["NSError"] = "Foundation" },
+            Typedefs =
+            [
+                new ObjCTypedefDecl { Name = "NSRange", UnderlyingType = new ObjCTypeRef { Name = "_NSRange" } }
+            ],
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "MyClass",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "coordinatesInRange:",
+                            ReturnType = new ObjCTypeRef { Name = "NSRange" },
+                            Parameters = [new ObjCParameterDecl { Name = "range", Type = new ObjCTypeRef { Name = "NSRange" } }],
+                            IsInstanceMethod = true,
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var (content, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+        Assert.Contains("CoordinatesInRange", content);
+        Assert.Contains("NSRange", content);
+        Assert.DoesNotContain("_NSRange", content);
+        Assert.DoesNotContain(diagnostics.SkippedSymbols, s => s.Reason == ObjCSkipReason.UnresolvableType);
+    }
+
+    /// <summary>
+    /// Members typed by registered Apple SDK enums survive emission; one typed by an enum outside the
+    /// vocabulary is still dropped AND the drop is recorded, so an unbound member never disappears
+    /// without a persisted diagnostic.
+    /// </summary>
+    [Fact]
+    public void Emit_MembersTypedBySystemEnums_Survive_UnknownEnumRecordsSkip()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["NSError"] = "Foundation" },
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "MyClass",
+                    Properties =
+                    [
+                        new ObjCPropertyDecl { Name = "interfaceStyle", Type = new ObjCTypeRef { Name = "UIUserInterfaceStyle" } }
+                    ],
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "currentAuthorization",
+                            ReturnType = new ObjCTypeRef { Name = "CLAuthorizationStatus" },
+                            IsInstanceMethod = true,
+                        },
+                        new ObjCMethodDecl
+                        {
+                            Selector = "vendorAuthorization",
+                            ReturnType = new ObjCTypeRef { Name = "ZZVendorAuthorizationStatus" },
+                            IsInstanceMethod = true,
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var (content, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+        Assert.Contains("CurrentAuthorization", content);
+        Assert.Contains("CLAuthorizationStatus", content);
+        Assert.Contains("InterfaceStyle", content);
+        Assert.Contains("UIUserInterfaceStyle", content);
+        Assert.DoesNotContain("VendorAuthorization", content);
+        Assert.Contains(diagnostics.SkippedSymbols,
+            s => s.SymbolName == "vendorAuthorization" && s.Reason == ObjCSkipReason.UnresolvableType);
+    }
+
     [Fact]
     public void Emit_ApiDefinitionFiltering_AcceptsProtocolInterfacePrefix()
     {

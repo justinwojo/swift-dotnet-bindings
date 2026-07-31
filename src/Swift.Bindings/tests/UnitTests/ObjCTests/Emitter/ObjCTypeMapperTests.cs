@@ -1507,4 +1507,150 @@ public class ObjCTypeMapperTests
         var appleSdkTypeNames = new HashSet<string>(StringComparer.Ordinal) { "NSError" };
         Assert.Equal(expected, ObjCTypeMapper.IsApiDefinitionTypeResolvable(mappedType, knownTypes, appleSdkTypeNames, NoSynthesized));
     }
+
+    // --- System structs spelled through a typedef over a differently-named record tag ---
+    // Foundation declares `typedef struct _NSRange NSRange;`. The header (and every member
+    // signature) says `NSRange`; clang's desugared spelling is the private tag `_NSRange`, and that
+    // typedef arrives in the system-header typedef set. Hopping it rewrites the member's type to a
+    // name no platform assembly declares, the member fails the resolvability gate, and it is
+    // silently dropped — which is how a real pure-ObjC framework loses its whole range-taking API.
+
+    /// <summary>
+    /// The mapper keeps the PUBLIC (typedef) spelling for a registered system struct instead of
+    /// hopping to the private record tag, in return and parameter position alike.
+    /// </summary>
+    [Fact]
+    public void MapType_SystemStructOverRecordTagTypedef_KeepsPublicSpelling()
+    {
+        var typedefMap = new Dictionary<string, ObjCTypeRef>
+        {
+            // The shape ObjCTypeRefParser produces for `typedef struct _NSRange NSRange;`
+            // (the `struct ` specifier is stripped before it reaches the map).
+            ["NSRange"] = new ObjCTypeRef { Name = "_NSRange" },
+        };
+
+        Assert.Equal("NSRange", ObjCTypeMapper.MapType(new ObjCTypeRef { Name = "NSRange" }, typedefMap: typedefMap));
+    }
+
+    /// <summary>
+    /// The public spelling resolves for api-definition emission where the record tag does not — the
+    /// two halves of the same defect. SDK-name mode is used deliberately: an SDK <em>struct</em> is
+    /// absent from the class/protocol provenance set, so the registry is the only thing that can
+    /// accept it.
+    /// </summary>
+    [Fact]
+    public void IsApiDefinitionTypeResolvable_SystemStructPublicSpellingResolves_RecordTagDoesNot()
+    {
+        var knownTypes = ObjCTypeMapper.BuildKnownMappedTypes();
+        var appleSdkTypeNames = new HashSet<string>(StringComparer.Ordinal) { "NSError" };
+
+        Assert.True(ObjCTypeMapper.IsApiDefinitionTypeResolvable("NSRange", knownTypes, appleSdkTypeNames, NoSynthesized));
+        Assert.False(ObjCTypeMapper.IsApiDefinitionTypeResolvable("_NSRange", knownTypes, appleSdkTypeNames, NoSynthesized));
+    }
+
+    /// <summary>
+    /// The claim is keyed on the registered system-struct vocabulary, NOT on stripping a leading
+    /// underscore: a third-party typedef over its own `_`-prefixed tag keeps hopping to that tag and
+    /// stays unresolvable. An underscore strip would instead invent a de-underscored name that has no
+    /// declaration anywhere and bind the member to it (CS0246 in the contract compile).
+    /// </summary>
+    [Fact]
+    public void MapType_UnregisteredUnderscoredRecordTag_IsNotFalseResolved()
+    {
+        var typedefMap = new Dictionary<string, ObjCTypeRef>
+        {
+            ["ZZVendorExtent"] = new ObjCTypeRef { Name = "_ZZVendorExtent" },
+        };
+
+        var mapped = ObjCTypeMapper.MapType(new ObjCTypeRef { Name = "ZZVendorExtent" }, typedefMap: typedefMap);
+        Assert.Equal("_ZZVendorExtent", mapped);
+
+        var knownTypes = ObjCTypeMapper.BuildKnownMappedTypes();
+        var appleSdkTypeNames = new HashSet<string>(StringComparer.Ordinal) { "NSError" };
+        Assert.False(ObjCTypeMapper.IsApiDefinitionTypeResolvable(mapped, knownTypes, appleSdkTypeNames, NoSynthesized));
+        // The de-underscored form is equally absent — nothing invented it.
+        Assert.False(ObjCTypeMapper.IsApiDefinitionTypeResolvable("ZZVendorExtent", knownTypes, appleSdkTypeNames, NoSynthesized));
+    }
+
+    // --- Apple SDK enums the platform assembly already declares ---
+
+    /// <summary>
+    /// A registered system enum maps to the managed spelling Microsoft.iOS binds it under, including
+    /// the acronym convention (JSON→Json, URL→Url) and the singularisation the platform applies to
+    /// some flag enums (UIControlEvents→UIControlEvent), which no mechanical rename reproduces.
+    /// </summary>
+    [Theory]
+    [InlineData("CLAuthorizationStatus", "CLAuthorizationStatus")]
+    [InlineData("CLAccuracyAuthorization", "CLAccuracyAuthorization")]
+    [InlineData("CLActivityType", "CLActivityType")]
+    [InlineData("CLDeviceOrientation", "CLDeviceOrientation")]
+    [InlineData("NSFormattingUnitStyle", "NSFormattingUnitStyle")]
+    [InlineData("NSComparisonResult", "NSComparisonResult")]
+    [InlineData("NSJSONReadingOptions", "NSJsonReadingOptions")]
+    [InlineData("NSURLRequestCachePolicy", "NSUrlRequestCachePolicy")]
+    [InlineData("UIUserInterfaceStyle", "UIUserInterfaceStyle")]
+    [InlineData("UIControlEvents", "UIControlEvent")]
+    [InlineData("CGBlendMode", "CGBlendMode")]
+    public void MapType_SystemEnum_MapsToManagedSpelling(string objcName, string expected)
+    {
+        Assert.Equal(expected, ObjCTypeMapper.MapType(new ObjCTypeRef { Name = objcName }));
+    }
+
+    /// <summary>
+    /// The vocabulary claims the enum BEFORE the typedef hop. An NS_ENUM/NS_OPTIONS declaration is a
+    /// typedef over an integer, so a hop would de-sugar the member to the raw scalar and lose the
+    /// enum entirely.
+    /// </summary>
+    [Fact]
+    public void MapType_SystemEnum_ClaimedBeforeTypedefDesugaring()
+    {
+        var typedefMap = new Dictionary<string, ObjCTypeRef>
+        {
+            ["CLAuthorizationStatus"] = new ObjCTypeRef { Name = "int" },
+            ["NSJSONReadingOptions"] = new ObjCTypeRef { Name = "NSUInteger" },
+        };
+
+        Assert.Equal("CLAuthorizationStatus",
+            ObjCTypeMapper.MapType(new ObjCTypeRef { Name = "CLAuthorizationStatus" }, typedefMap: typedefMap));
+        Assert.Equal("NSJsonReadingOptions",
+            ObjCTypeMapper.MapType(new ObjCTypeRef { Name = "NSJSONReadingOptions" }, typedefMap: typedefMap));
+    }
+
+    /// <summary>
+    /// A <c>T *</c> parameter for a registered system enum still routes through the pointer-parameter
+    /// classifier, and the pointee it hands back carries the platform's enum spelling rather than the
+    /// integer the typedef de-sugars to — so the emitted member reads <c>out CLAuthorizationStatus</c>,
+    /// not <c>out int</c>. The classifier recognises the pointer by hopping the same typedef; the
+    /// vocabulary supplies the name.
+    /// </summary>
+    [Fact]
+    public void ValueTypePointerParameter_SystemEnumPointee_KeepsEnumSpelling()
+    {
+        var typedefMap = new Dictionary<string, ObjCTypeRef>
+        {
+            ["CLAuthorizationStatus"] = new ObjCTypeRef { Name = "int" },
+        };
+        var pointer = new ObjCTypeRef { Name = "CLAuthorizationStatus", IsPointer = true };
+
+        Assert.True(ObjCTypeMapper.IsValueTypePointerParameter(pointer, typedefMap, enumNames: null));
+        Assert.Equal("CLAuthorizationStatus",
+            ObjCTypeMapper.MapValueTypePointerParameterType(pointer, typedefMap));
+    }
+
+    /// <summary>
+    /// Registered system enums are resolvable for api-definition emission even in SDK-name mode,
+    /// where the provenance set (classes and protocols only) can never vouch for them. An enum
+    /// outside the vocabulary is still rejected — the table is a vocabulary, not a blanket accept.
+    /// </summary>
+    [Fact]
+    public void IsApiDefinitionTypeResolvable_SystemEnumsResolve_UnknownEnumDoesNot()
+    {
+        var knownTypes = ObjCTypeMapper.BuildKnownMappedTypes();
+        var appleSdkTypeNames = new HashSet<string>(StringComparer.Ordinal) { "NSError" };
+
+        Assert.True(ObjCTypeMapper.IsApiDefinitionTypeResolvable("CLAuthorizationStatus", knownTypes, appleSdkTypeNames, NoSynthesized));
+        Assert.True(ObjCTypeMapper.IsApiDefinitionTypeResolvable("NSJsonReadingOptions", knownTypes, appleSdkTypeNames, NoSynthesized));
+        Assert.True(ObjCTypeMapper.IsApiDefinitionTypeResolvable("UIUserInterfaceStyle", knownTypes, appleSdkTypeNames, NoSynthesized));
+        Assert.False(ObjCTypeMapper.IsApiDefinitionTypeResolvable("ZZVendorAuthorizationStatus", knownTypes, appleSdkTypeNames, NoSynthesized));
+    }
 }

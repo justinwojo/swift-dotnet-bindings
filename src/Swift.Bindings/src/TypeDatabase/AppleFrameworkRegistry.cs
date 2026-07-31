@@ -82,6 +82,12 @@ internal static class AppleFrameworkRegistry
     private static readonly (string ObjC, string Dotnet)[] _objcAcronymConventions;
     private static readonly HashSet<string> _objcValueTypes;
     private static readonly HashSet<string> _objcSystemStructs;
+    // Apple SDK enums Microsoft.iOS already binds, keyed by ObjC spelling. The value carries both
+    // halves the emitters need: the owning .NET namespace (which becomes a `using`) and the managed
+    // type name a member's signature binds to. Kept separate from _objcValueTypes because that set
+    // answers "is this a C value type?" for pointer projection, while this one answers "does the
+    // platform assembly already declare this enum, and under what name?".
+    private static readonly Dictionary<string, (string Namespace, string ManagedName)> _objcSystemEnums;
 
     // CGFloat is declared in CoreGraphics and re-exported through CoreFoundation, so the ABI
     // JSON surfaces both module-qualified spellings for the same scalar. This is a fixed Swift
@@ -98,7 +104,7 @@ internal static class AppleFrameworkRegistry
     /// Bump in lockstep with the data file's <c>schemaVersion</c> whenever the shape changes,
     /// mirroring the SwiftInterfaceParser kSchemaVersion/ExpectedSchemaVersion handshake.
     /// </summary>
-    internal const int ExpectedObjCTypeMappingsSchemaVersion = 1;
+    internal const int ExpectedObjCTypeMappingsSchemaVersion = 2;
 
     /// <summary>The one shape a <c>valueTypes</c> entry may describe today: an integer-backed enum.</summary>
     private const string IntegerEnumValueTypeKind = "enum";
@@ -294,6 +300,9 @@ internal static class AppleFrameworkRegistry
 
         [JsonProperty("systemStructs")]
         public List<string> SystemStructs { get; set; } = new();
+
+        [JsonProperty("systemEnums")]
+        public Dictionary<string, string> SystemEnums { get; set; } = new();
     }
 
     private sealed class AcronymConventionEntry
@@ -318,6 +327,9 @@ internal static class AppleFrameworkRegistry
             .ToArray();
         _objcValueTypes = new HashSet<string>(objcTypeMappings.ObjcValueTypes, StringComparer.Ordinal);
         _objcSystemStructs = new HashSet<string>(objcTypeMappings.SystemStructs, StringComparer.Ordinal);
+        _objcSystemEnums = new Dictionary<string, (string, string)>(StringComparer.Ordinal);
+        foreach (var (objcName, qualified) in objcTypeMappings.SystemEnums)
+            _objcSystemEnums[objcName] = SplitQualifiedSystemEnum(objcName, qualified);
 
         var definitions = LoadFrameworkDefinitions();
 
@@ -492,6 +504,24 @@ internal static class AppleFrameworkRegistry
         return file;
     }
 
+    /// <summary>
+    /// Splits a <c>systemEnums</c> value ("Namespace.ManagedName") into its two halves. Both halves
+    /// are load-bearing and are consumed by different emitters — the namespace becomes a <c>using</c>,
+    /// the name is what a member's signature binds to — so a malformed entry throws at load rather
+    /// than silently yielding an empty namespace (a dropped <c>using</c> → CS0246 in the
+    /// api-definition contract compile) or an empty name.
+    /// </summary>
+    private static (string Namespace, string ManagedName) SplitQualifiedSystemEnum(string objcName, string qualified)
+    {
+        var lastDot = qualified.LastIndexOf('.');
+        if (lastDot > 0 && lastDot < qualified.Length - 1)
+            return (qualified[..lastDot], qualified[(lastDot + 1)..]);
+
+        throw new InvalidOperationException(
+            $"objc-type-mappings.json: systemEnums entry '{objcName}' must map to a "
+            + $"namespace-qualified managed name (e.g. 'CoreLocation.CLAuthorizationStatus'), not '{qualified}'.");
+    }
+
     // --- Public API (unchanged) ---
 
     /// <summary>Narrower set used by IsObjCModuleType to gate auto-bridging.</summary>
@@ -623,6 +653,42 @@ internal static class AppleFrameworkRegistry
     /// <summary>True if the struct is already defined by .NET MAUI's framework bindings and must not be re-emitted.</summary>
     public static bool IsObjCSystemStruct(string name) => _objcSystemStructs.Contains(name);
 
+    /// <summary>
+    /// Maps an Apple SDK enum's ObjC spelling to the managed name Microsoft.iOS binds it under
+    /// (e.g. CLAuthorizationStatus → CLAuthorizationStatus, NSJSONReadingOptions → NSJsonReadingOptions).
+    /// </summary>
+    public static bool TryMapObjCSystemEnum(string objcName, out string managedName)
+    {
+        if (_objcSystemEnums.TryGetValue(objcName, out var entry))
+        {
+            managedName = entry.ManagedName;
+            return true;
+        }
+
+        managedName = string.Empty;
+        return false;
+    }
+
+    /// <summary>
+    /// Resolves the .NET namespace that owns a known system enum, so an emitter can add the
+    /// <c>using</c> that makes the mapped name resolve. Keyed by the ObjC spelling — the same key
+    /// <see cref="TryMapObjCSystemEnum"/> takes — because that is the identity the parser retains.
+    /// </summary>
+    public static bool TryGetObjCSystemEnumNamespace(string objcName, out string namespaceName)
+    {
+        if (_objcSystemEnums.TryGetValue(objcName, out var entry))
+        {
+            namespaceName = entry.Namespace;
+            return true;
+        }
+
+        namespaceName = string.Empty;
+        return false;
+    }
+
+    /// <summary>True if the name is a known Apple SDK enum already bound by Microsoft.iOS.</summary>
+    public static bool IsObjCSystemEnum(string objcName) => _objcSystemEnums.ContainsKey(objcName);
+
     /// <summary>Acronym casing pairs (objc → dotnet), ordered longer-first for correct substring replacement.</summary>
     public static IReadOnlyList<(string ObjC, string Dotnet)> ObjCAcronymConventions => _objcAcronymConventions;
 
@@ -638,6 +704,15 @@ internal static class AppleFrameworkRegistry
     /// <summary>All known Apple framework value-type names.</summary>
     public static IEnumerable<string> ObjCValueTypeNames => _objcValueTypes;
 
+    /// <summary>All struct names .NET MAUI's framework bindings already declare.</summary>
+    public static IEnumerable<string> ObjCSystemStructNames => _objcSystemStructs;
+
+    /// <summary>All managed enum names the system-enum table can produce. Used to seed known-type sets.</summary>
+    public static IEnumerable<string> ObjCSystemEnumMappedValues => _objcSystemEnums.Values.Select(e => e.ManagedName);
+
+    /// <summary>Every ObjC enum spelling the system-enum table claims (the table's keys).</summary>
+    public static IEnumerable<string> ObjCSystemEnumNames => _objcSystemEnums.Keys;
+
     /// <summary>
     /// True once the folded ObjC type-mapping tables are loaded and non-empty. Consumers
     /// (ObjCTypeMapper) startup-assert on this so a failed embed/load fails loud rather than
@@ -649,7 +724,8 @@ internal static class AppleFrameworkRegistry
         && _objcPrimitiveTypeMappings.Count > 0
         && _objcAcronymConventions.Length > 0
         && _objcValueTypes.Count > 0
-        && _objcSystemStructs.Count > 0;
+        && _objcSystemStructs.Count > 0
+        && _objcSystemEnums.Count > 0;
 
     /// <summary>Module-level only remapping (ObjectiveC→Foundation, QuartzCore→CoreAnimation, etc.)</summary>
     public static string MapModuleToNetNamespace(string swiftModule)
