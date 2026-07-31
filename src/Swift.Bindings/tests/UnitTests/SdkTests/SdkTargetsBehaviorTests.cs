@@ -725,6 +725,406 @@ namespace BindingsGeneration.Tests
             Assert.Contains("SWIFTBIND005", result.StdOut + "\n" + result.StdErr);
         }
 
+        // ── SWIFTBIND074: pure-ObjC pack shape (the sidecar is the only native carrier) ──
+        // A pure-ObjC binding ($(SwiftFrameworkType) == 'ObjC') packs no runtimes/ and emits
+        // no buildTransitive consumer .targets — the classic Microsoft.iOS binding sidecar
+        // lib/<tfm>/$(AssemblyName).resources[.zip] carries the whole native payload, and the
+        // consumer's ResolveNativeReferences extracts/embeds/signs it. That makes the sidecar
+        // load-bearing and invisible: a pack whose sidecar is missing, or which lost a slice
+        // the source xcframework had, restores clean and fails at the CONSUMER's link/dyld.
+        // _ValidateObjCBindingPackShape fails the pack instead. SWIFTBIND038 cannot cover this
+        // lane (it is gated on _SwiftBindingHasWrapperXCFramework, never true for pure-ObjC).
+        //
+        // The assertion is a MATCH against the source, not a fixed minimum: a vendor that ships
+        // a device-only xcframework packs faithfully and must not trip the guard. These tests
+        // pin both directions (lost slice fails; genuinely-partial source passes).
+        // See src/docs/Design/objc-binding-consumption.md.
+
+        // Writes a temp project that exercises the REAL guard: an ObjC-lane pack with one
+        // bound xcframework. Discovery/metadata-import are stubbed to no-ops (the guard only
+        // needs @(SwiftFramework), which is declared inline), so no generation ever runs.
+        private void WriteObjCPackShapeProject(
+            string frameworkName = "MapLibre",
+            string swiftFrameworkType = "ObjC",
+            string targetFramework = "net10.0-ios",
+            params string[] dependencyFrameworkNames)
+        {
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            var deps = string.Concat(dependencyFrameworkNames.Select(d =>
+                "\n                    <SwiftFrameworkDependency Include=\""
+                + Path.Combine(_tempDir, d + ".xcframework") + "\" />"));
+
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>{targetFramework}</TargetFramework>
+                    <SwiftFrameworkType>{swiftFrameworkType}</SwiftFrameworkType>
+                    <IsPackable>true</IsPackable>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <SwiftFramework Include="{Path.Combine(_tempDir, frameworkName + ".xcframework")}" />{deps}
+                  </ItemGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ImportSwiftBindingMetadata" />
+                </Project>
+                """;
+            WriteTestProject(project);
+        }
+
+        // $(TargetDir) for the temp project — where the build would drop Test.dll and,
+        // next to it, the binding resource package the guard looks for.
+        private string ObjCPackShapeOutputDir(string targetFramework = "net10.0-ios")
+            => Path.Combine(_tempDir, "bin", "Debug", targetFramework);
+
+        // The SOURCE xcframework the project binds, at the path WriteObjCPackShapeProject
+        // declares. Its slice directories are what the sidecar is matched against.
+        private void StageSourceXcframework(string frameworkName, params string[] sliceIds)
+        {
+            var root = Path.Combine(_tempDir, frameworkName + ".xcframework");
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+            Directory.CreateDirectory(root);
+            File.WriteAllText(Path.Combine(root, "Info.plist"), "<plist/>");   // must be ignored: not a slice
+            foreach (var slice in sliceIds)
+            {
+                var sliceDir = Path.Combine(root, slice, frameworkName + ".framework");
+                Directory.CreateDirectory(sliceDir);
+                File.WriteAllText(Path.Combine(sliceDir, frameworkName), "not-a-real-macho");
+            }
+        }
+
+        // Empties the sidecar staging dir (one sidecar can carry several xcframeworks —
+        // _CreateBindingResourcePackage packs every @(NativeReference) into the same one).
+        private string ResetSidecarStaging()
+        {
+            var staging = Path.Combine(_tempDir, "sidecar-staging");
+            if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true);
+            Directory.CreateDirectory(staging);
+            return staging;
+        }
+
+        // Lays out <framework>.xcframework/<slice>/... under an existing staging dir.
+        private void AddSidecarFramework(string staging, string frameworkName, params string[] sliceIds)
+        {
+            foreach (var slice in sliceIds)
+            {
+                var sliceDir = Path.Combine(
+                    staging, frameworkName + ".xcframework", slice, frameworkName + ".framework");
+                Directory.CreateDirectory(sliceDir);
+                File.WriteAllText(Path.Combine(sliceDir, frameworkName), "not-a-real-macho");
+            }
+        }
+
+        // Single-framework convenience: reset + add, returning the staging dir.
+        private string StageSidecarPayload(string frameworkName, params string[] sliceIds)
+        {
+            var staging = ResetSidecarStaging();
+            AddSidecarFramework(staging, frameworkName, sliceIds);
+            return staging;
+        }
+
+        private void ZipSidecar(string staging, string targetFramework)
+        {
+            var outDir = ObjCPackShapeOutputDir(targetFramework);
+            Directory.CreateDirectory(outDir);
+            var zip = Path.Combine(outDir, "Test.resources.zip");
+            if (File.Exists(zip)) File.Delete(zip);
+            System.IO.Compression.ZipFile.CreateFromDirectory(staging, zip);
+        }
+
+        private void WriteSidecarZip(string targetFramework, string frameworkName, params string[] sliceIds)
+            => ZipSidecar(StageSidecarPayload(frameworkName, sliceIds), targetFramework);
+
+        [Fact]
+        public void ObjCPack_WithoutBindingResourcePackage_FailsWithSWIFTBIND074()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // No sidecar at all: the nupkg would ship managed-only.
+            WriteObjCPackShapeProject();
+            StageSourceXcframework("MapLibre", "ios-arm64", "ios-arm64_x86_64-simulator");
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" " +
+                "-t:_ValidateObjCBindingPackShape -nologo -v:n");
+
+            Assert.NotEqual(0, result.ExitCode);
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.Contains("SWIFTBIND074", output);
+            Assert.Contains("missing its native payload", output);
+        }
+
+        [Fact]
+        public void ObjCPack_SidecarCarriesEverySourceSlice_Passes()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // The healthy vendor shape. The simulator slice carries the VENDOR spelling
+            // (ios-arm64_x86_64-simulator), never the wrapper convention ios-arm64-simulator —
+            // the guard compares slice ids verbatim against the source and assumes no shape.
+            WriteObjCPackShapeProject();
+            StageSourceXcframework("MapLibre", "ios-arm64", "ios-arm64_x86_64-simulator");
+            WriteSidecarZip("net10.0-ios", "MapLibre", "ios-arm64", "ios-arm64_x86_64-simulator");
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" " +
+                "-t:_ValidateObjCBindingPackShape -nologo -v:n");
+
+            Assert.True(result.ExitCode == 0,
+                $"Guard fired on a healthy sidecar.\nStdOut: {result.StdOut}\nStdErr: {result.StdErr}");
+            Assert.DoesNotContain("SWIFTBIND074", result.StdOut + "\n" + result.StdErr);
+        }
+
+        [Fact]
+        public void ObjCPack_SidecarLostASourceSlice_FailsWithSWIFTBIND074()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // The defect this guard exists for: the source has both slices, the packed copy
+            // kept only one. Names the exact slice so the copy step is findable.
+            WriteObjCPackShapeProject();
+            StageSourceXcframework("MapLibre", "ios-arm64", "ios-arm64_x86_64-simulator");
+            WriteSidecarZip("net10.0-ios", "MapLibre", "ios-arm64");
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" " +
+                "-t:_ValidateObjCBindingPackShape -nologo -v:n");
+
+            Assert.NotEqual(0, result.ExitCode);
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.Contains("SWIFTBIND074", output);
+            Assert.Contains("MapLibre/ios-arm64_x86_64-simulator:missing-from-sidecar", output);
+        }
+
+        [Fact]
+        public void ObjCPack_DeviceOnlySourceXcframework_Passes()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // A vendor legitimately shipping a device-only (or otherwise partial) xcframework
+            // is packed faithfully. The guard asserts a MATCH, never a two-slice minimum, so
+            // this must not fire — the same reasoning covers macOS/Mac Catalyst, which have
+            // no simulator slice to lose.
+            WriteObjCPackShapeProject();
+            StageSourceXcframework("MapLibre", "ios-arm64");
+            WriteSidecarZip("net10.0-ios", "MapLibre", "ios-arm64");
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" " +
+                "-t:_ValidateObjCBindingPackShape -nologo -v:n");
+
+            Assert.True(result.ExitCode == 0,
+                $"Guard demanded slices the source xcframework never had.\nStdOut: {result.StdOut}\nStdErr: {result.StdErr}");
+            Assert.DoesNotContain("SWIFTBIND074", result.StdOut + "\n" + result.StdErr);
+        }
+
+        [Fact]
+        public void ObjCPack_SidecarMissingTheBoundFramework_FailsWithSWIFTBIND074()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // A sidecar exists but carries a different xcframework — the per-framework
+            // check is what catches a partially-wired @(NativeReference) set.
+            WriteObjCPackShapeProject();
+            StageSourceXcframework("MapLibre", "ios-arm64", "ios-arm64_x86_64-simulator");
+            WriteSidecarZip("net10.0-ios", "SomethingElse", "ios-arm64", "ios-arm64_x86_64-simulator");
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" " +
+                "-t:_ValidateObjCBindingPackShape -nologo -v:n");
+
+            Assert.NotEqual(0, result.ExitCode);
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.Contains("SWIFTBIND074", output);
+            Assert.Contains("MapLibre:absent", output);
+        }
+
+        [Fact]
+        public void ObjCPack_UnreadableSourceXcframework_ChecksPresenceOnly()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // No source xcframework on disk at pack time: there is nothing to match against,
+            // so the per-slice comparison is skipped rather than guessed. Sidecar presence is
+            // still asserted (the framework IS in the sidecar here, so this passes).
+            WriteObjCPackShapeProject();
+            WriteSidecarZip("net10.0-ios", "MapLibre", "ios-arm64");
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" " +
+                "-t:_ValidateObjCBindingPackShape -nologo -v:n");
+
+            Assert.True(result.ExitCode == 0,
+                $"Guard fired with no source xcframework to compare against.\nStdOut: {result.StdOut}\nStdErr: {result.StdErr}");
+            Assert.DoesNotContain("SWIFTBIND074", result.StdOut + "\n" + result.StdErr);
+        }
+
+        [Fact]
+        public void ObjCPack_UncompressedSidecarDirectory_Passes()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // $(CompressBindingResourcePackage) defaults to 'auto', so the workload may emit
+            // a .resources DIRECTORY instead of a .resources.zip. Both shapes must validate.
+            WriteObjCPackShapeProject();
+            StageSourceXcframework("MapLibre", "ios-arm64", "ios-arm64_x86_64-simulator");
+            var staging = StageSidecarPayload("MapLibre", "ios-arm64", "ios-arm64_x86_64-simulator");
+            var resourcesDir = Path.Combine(ObjCPackShapeOutputDir(), "Test.resources");
+            Directory.CreateDirectory(Path.GetDirectoryName(resourcesDir)!);
+            Directory.Move(staging, resourcesDir);
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" " +
+                "-t:_ValidateObjCBindingPackShape -nologo -v:n");
+
+            Assert.True(result.ExitCode == 0,
+                $"Guard fired on a healthy uncompressed sidecar.\nStdOut: {result.StdOut}\nStdErr: {result.StdErr}");
+            Assert.DoesNotContain("SWIFTBIND074", result.StdOut + "\n" + result.StdErr);
+        }
+
+        [Fact]
+        public void ObjCPack_DependencyXcframeworkMissingFromSidecar_FailsWithSWIFTBIND074()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // _CreateBindingResourcePackage packs EVERY @(NativeReference) into one sidecar,
+            // and _ResolveSwiftNativeReferences promotes each existing @(SwiftFrameworkDependency)
+            // to a NativeReference. So the guard must check the dependency frameworks too —
+            // checking only the primary would let a multi-native pack drop one and stay green.
+            WriteObjCPackShapeProject(dependencyFrameworkNames: new[] { "Extra" });
+            StageSourceXcframework("MapLibre", "ios-arm64", "ios-arm64_x86_64-simulator");
+            StageSourceXcframework("Extra", "ios-arm64");
+            var staging = StageSidecarPayload("MapLibre", "ios-arm64", "ios-arm64_x86_64-simulator");
+            ZipSidecar(staging, "net10.0-ios");   // Extra deliberately not staged
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" " +
+                "-t:_ValidateObjCBindingPackShape -nologo -v:n");
+
+            Assert.NotEqual(0, result.ExitCode);
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.Contains("SWIFTBIND074", output);
+            Assert.Contains("Extra:absent", output);
+        }
+
+        [Fact]
+        public void ObjCPack_FrameworkNameWithDots_IsMatchedLiterally()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // The framework name is a plain string, never a regex: 'Foo.Bar' must not be
+            // satisfied by a sidecar entry 'FooXBar.xcframework/…'. (A grep-based matcher
+            // treated the '.' as "any character" and passed this.)
+            WriteObjCPackShapeProject(frameworkName: "Foo.Bar");
+            StageSourceXcframework("Foo.Bar", "ios-arm64");
+            WriteSidecarZip("net10.0-ios", "FooXBar", "ios-arm64");
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" " +
+                "-t:_ValidateObjCBindingPackShape -nologo -v:n");
+
+            Assert.NotEqual(0, result.ExitCode);
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.Contains("SWIFTBIND074", output);
+            Assert.Contains("Foo.Bar:absent", output);
+        }
+
+        [Fact]
+        public void ObjCPack_FrameworkNameWithSpaces_IsNotWordSplit()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // Paths and slice ids are quoted/globbed in the guard's shell pass, so a space
+            // anywhere in the path cannot split into two bogus "frameworks". The lost slice
+            // must still be reported with the full name.
+            WriteObjCPackShapeProject(frameworkName: "My Framework");
+            StageSourceXcframework("My Framework", "ios-arm64", "ios-arm64_x86_64-simulator");
+            WriteSidecarZip("net10.0-ios", "My Framework", "ios-arm64");
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" " +
+                "-t:_ValidateObjCBindingPackShape -nologo -v:n");
+
+            Assert.NotEqual(0, result.ExitCode);
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.Contains("SWIFTBIND074", output);
+            Assert.Contains("My Framework/ios-arm64_x86_64-simulator:missing-from-sidecar", output);
+        }
+
+        [Fact]
+        public void ObjCPack_StaleEmptyZipBesideHealthyDirectory_Passes()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // $(CompressBindingResourcePackage) can flip between builds, and an interrupted
+            // compress can leave an empty Test.resources.zip next to a healthy
+            // Test.resources/. Both shapes are read and unioned, so the real payload wins —
+            // preferring the zip would fail a pack that is fine.
+            WriteObjCPackShapeProject();
+            StageSourceXcframework("MapLibre", "ios-arm64", "ios-arm64_x86_64-simulator");
+            var staging = StageSidecarPayload("MapLibre", "ios-arm64", "ios-arm64_x86_64-simulator");
+            var outDir = ObjCPackShapeOutputDir();
+            Directory.CreateDirectory(outDir);
+            Directory.Move(staging, Path.Combine(outDir, "Test.resources"));
+            var emptyStaging = ResetSidecarStaging();
+            System.IO.Compression.ZipFile.CreateFromDirectory(
+                emptyStaging, Path.Combine(outDir, "Test.resources.zip"));
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" " +
+                "-t:_ValidateObjCBindingPackShape -nologo -v:n");
+
+            Assert.True(result.ExitCode == 0,
+                $"Stale empty zip masked a healthy sidecar directory.\nStdOut: {result.StdOut}\nStdErr: {result.StdErr}");
+            Assert.DoesNotContain("SWIFTBIND074", result.StdOut + "\n" + result.StdErr);
+        }
+
+        [Fact]
+        public void ObjCPack_EmptySidecarZip_FailsAsMissingPayload()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // An empty sidecar carries no native at all — same consumer outcome as no
+            // sidecar, so it takes the missing-payload message rather than a per-framework one.
+            WriteObjCPackShapeProject();
+            StageSourceXcframework("MapLibre", "ios-arm64");
+            var outDir = ObjCPackShapeOutputDir();
+            Directory.CreateDirectory(outDir);
+            System.IO.Compression.ZipFile.CreateFromDirectory(
+                ResetSidecarStaging(), Path.Combine(outDir, "Test.resources.zip"));
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" " +
+                "-t:_ValidateObjCBindingPackShape -nologo -v:n");
+
+            Assert.NotEqual(0, result.ExitCode);
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.Contains("SWIFTBIND074", output);
+            Assert.Contains("missing its native payload", output);
+        }
+
+        [Fact]
+        public void SwiftLanePack_ObjCPackShapeGuard_StaysInert()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // Swift/mixed packs carry their native under runtimes/ and wire it through a
+            // packed consumer .targets — they have no sidecar and must not trip this guard.
+            WriteObjCPackShapeProject(swiftFrameworkType: "Swift");
+            StageSourceXcframework("MapLibre", "ios-arm64", "ios-arm64_x86_64-simulator");
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" " +
+                "-t:_ValidateObjCBindingPackShape -nologo -v:n");
+
+            Assert.True(result.ExitCode == 0,
+                $"ObjC-lane guard fired on the Swift lane.\nStdOut: {result.StdOut}\nStdErr: {result.StdErr}");
+            Assert.DoesNotContain("SWIFTBIND074", result.StdOut + "\n" + result.StdErr);
+        }
+
         // ── Auto-detected dependency resolution behavioral tests ──
 
         [Fact]
@@ -878,8 +1278,20 @@ namespace BindingsGeneration.Tests
             Assert.True(result.ExitCode == 0,
                 $"WARN-path test failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
             Assert.Contains("SWIFTBIND080", output);
-            // The SWIFTBIND080 guidance reconstructs the user's package id from the WARN fields.
-            Assert.Contains("MissingCore.Swift.iOS", output);
+
+            // The guidance names the OBSERVED module, and must NOT name the SYNTHESIZED package id.
+            // `MissingCore.Swift.iOS` is what `GetEffectivePackageId` invents when an auto-detected
+            // dependency has no PackageId of its own — telling the user to PackageReference it sends
+            // them after a package that was never published. Assert on the warning's own line so the
+            // MSBuild echo of the --auto-dep-spec Exec command line (which does carry the raw record)
+            // cannot make this vacuously pass or fail.
+            var warningLine = (result.StdOut + "\n" + result.StdErr)
+                .Split('\n')
+                .FirstOrDefault(l => l.Contains("SWIFTBIND080", StringComparison.Ordinal));
+            Assert.NotNull(warningLine);
+            Assert.Contains("Swift module 'MissingCore'", warningLine!);
+            Assert.DoesNotContain("MissingCore.Swift.iOS", warningLine!);
+            Assert.Contains("id of the package that ships MissingCore", output);
         }
 
         // ── Declared-dependency managed-reference guard (SWIFTBIND081) ──

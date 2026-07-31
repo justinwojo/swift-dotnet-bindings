@@ -3616,6 +3616,132 @@ done; true"
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 7a': Validate pure-ObjC pack shape (the sidecar lane)            -->
+  <!--                                                                         -->
+  <!-- Guard-coverage boundary. _ValidateSwiftBindingPackSlices above is       -->
+  <!-- explicitly '$(SwiftFrameworkType)' != 'ObjC', and SWIFTBIND038 in       -->
+  <!-- _ConfigureSwiftBindingPack is gated on                                  -->
+  <!-- _SwiftBindingHasWrapperXCFramework == 'True' — never true for a         -->
+  <!-- pure-ObjC binding, which compiles no Swift wrapper. So before this      -->
+  <!-- target NO guard covered the pure-ObjC lane at all: a pack that lost its -->
+  <!-- native payload shipped green and failed at the consumer's link/dyld.    -->
+  <!-- That is the issue-#39 silent-broken-nupkg shape in the one lane the     -->
+  <!-- issue-#39 guard cannot see.                                             -->
+  <!--                                                                         -->
+  <!-- What carries the native on this lane: a pure-ObjC binding is a real     -->
+  <!-- Microsoft.iOS binding project (IsBindingProject=true), so the workload's -->
+  <!-- _CreateBindingResourcePackage packs every @(NativeReference) xcframework -->
+  <!-- into the classic sidecar $(TargetDir)$(TargetName).resources[.zip], and  -->
+  <!-- Xamarin.Shared.Sdk.targets packs it to lib/<tfm>/. The consumer's       -->
+  <!-- _ExpandNativeReferences finds it next to the restored assembly          -->
+  <!-- (_ReferencesWithNativeReferencesToExpand) and ResolveNativeReferences   -->
+  <!-- extracts, embeds and signs the frameworks. No buildTransitive/ and no   -->
+  <!-- runtimes/ are involved — see src/docs/Design/objc-binding-consumption.md. -->
+  <!--                                                                         -->
+  <!-- CompressBindingResourcePackage defaults to 'auto', so the sidecar is    -->
+  <!-- either a .zip or a .resources DIRECTORY; both are accepted here.        -->
+  <!--                                                                         -->
+  <!-- The assertion is a MATCH against the source, never a fixed minimum:     -->
+  <!-- every slice directory present in a bound xcframework must still be      -->
+  <!-- present in the sidecar. A vendor that legitimately ships a device-only   -->
+  <!-- (or otherwise partial) xcframework is packed faithfully and does not     -->
+  <!-- trip the guard — what fails is a sidecar that LOST a slice the source    -->
+  <!-- had, which is the copy-step defect this exists to catch.                 -->
+  <!-- Slice ids are compared verbatim and no id shape is assumed (vendors      -->
+  <!-- spell the simulator slice ios-arm64_x86_64-simulator, never our          -->
+  <!-- $(_SwiftBindingSimulatorSliceId) wrapper convention), so nothing here    -->
+  <!-- needs to know which slice is which. If a source xcframework is not       -->
+  <!-- readable on disk at pack time there is nothing to match against; the     -->
+  <!-- sidecar-presence checks still apply and the per-slice comparison is      -->
+  <!-- skipped for that framework rather than guessing.                         -->
+  <!--                                                                         -->
+  <!-- Checked set = every xcframework the workload packs into THIS sidecar,   -->
+  <!-- not just the primary: @(SwiftFramework) plus the                        -->
+  <!-- @(SwiftFrameworkDependency)- and @(NativeReference)-derived ones that    -->
+  <!-- _ResolveSwiftNativeReferences contributes (Target 6 above). Otherwise a  -->
+  <!-- multi-native pack could drop a dependency framework from the sidecar and -->
+  <!-- still pass. Dependency/NativeReference entries are filtered on Exists()  -->
+  <!-- because that is exactly the condition under which they become            -->
+  <!-- NativeReference items and reach the sidecar; @(SwiftFramework) is        -->
+  <!-- checked unconditionally so a vanished primary is still caught.           -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="_ValidateObjCBindingPackShape"
+          DependsOnTargets="_DiscoverSwiftFrameworks;_ImportSwiftBindingMetadata"
+          BeforeTargets="_ConfigureSwiftBindingPack"
+          Condition="'$(IsPackable)' == 'true' AND '$(TargetFramework)' != '' AND '@(SwiftFramework)' != '' AND '$(SwiftFrameworkType)' == 'ObjC'">
+
+    <PropertyGroup>
+      <_ObjCBindingResourceBase>$(TargetDir)$(TargetName).resources</_ObjCBindingResourceBase>
+      <_ObjCBindingResourceBase Condition="'$(TargetDir)' == ''">$([System.IO.Path]::GetDirectoryName('$(TargetPath)'))/$(TargetName).resources</_ObjCBindingResourceBase>
+    </PropertyGroup>
+
+    <!-- Everything the workload packs into this sidecar (see the header comment): the
+         primary bound framework(s) unconditionally, dependency/NativeReference-derived
+         xcframeworks when they exist on disk (the same Exists() condition Target 6 uses
+         to promote them). Filtered to .xcframework and de-duplicated by full path so a
+         framework named through two item types is checked once. -->
+    <ItemGroup>
+      <_ObjCSidecarNativeRaw Include="@(SwiftFramework)" />
+      <_ObjCSidecarNativeRaw Include="@(SwiftFrameworkDependency)"
+                             Condition="Exists('%(SwiftFrameworkDependency.FullPath)')" />
+      <_ObjCSidecarNativeRaw Include="@(NativeReference)"
+                             Condition="Exists('%(NativeReference.FullPath)')" />
+      <_ObjCSidecarXcfw Include="@(_ObjCSidecarNativeRaw)"
+                        Condition="'%(_ObjCSidecarNativeRaw.Extension)' == '.xcframework'" />
+      <_ObjCSidecarNative Include="@(_ObjCSidecarXcfw->'%(FullPath)'->Distinct())" />
+    </ItemGroup>
+
+    <!-- One shell pass: list the sidecar (zip or directory), then per bound xcframework
+         report 'absent' (not in the sidecar at all) or '<slice>:missing-from-sidecar' for
+         every slice directory the SOURCE xcframework has and the sidecar copy does not.
+         Emits nothing when the shape is healthy, so the Errors below stay inert. -->
+    <!-- Shell command substitution is written with backticks, NOT $(…): MSBuild would
+         evaluate a $( … ) as a property/property-function before the shell ever sees it. -->
+    <!-- Both sidecar shapes are read and UNIONED rather than preferring the zip: a
+         compress-mode flip (or an interrupted compress) can leave a stale/empty
+         Test.resources.zip beside a healthy Test.resources/, and preferring the zip
+         would fail a pack whose real payload is fine. The union is then filtered to
+         xcframework entries, so a present-but-empty sidecar (an interrupted or zero-entry
+         archive — note `unzip -Z1` prints "Empty zipfile." on stdout for one) reports the
+         same missing-payload failure as no sidecar at all: same consumer outcome, and the
+         listing chatter can never be mistaken for content. Names are matched literally in awk (index()==1,
+         string ==) — never as grep regexes, because framework names contain '.' and a
+         name like Foo must not match FooBar. Paths and slice ids are quoted/globbed so
+         spaces in either are safe. -->
+    <Exec Command="BASE=&quot;$(_ObjCBindingResourceBase)&quot;; \
+ZIPLIST=&quot;&quot;; DIRLIST=&quot;&quot;; \
+if [ -f &quot;$BASE.zip&quot; ]; then ZIPLIST=`unzip -Z1 &quot;$BASE.zip&quot; 2&gt;/dev/null`; fi; \
+if [ -d &quot;$BASE&quot; ]; then DIRLIST=`cd &quot;$BASE&quot; &amp;&amp; find . | sed 's|^\./||'`; fi; \
+LIST=`{ echo &quot;$ZIPLIST&quot;; echo &quot;$DIRLIST&quot;; } | grep -F '.xcframework/'`; \
+if [ -z &quot;$LIST&quot; ]; then echo MISSING_SIDECAR; exit 0; fi; \
+ISSUES=&quot;&quot;; \
+for XCFW in @(_ObjCSidecarNative->'&quot;%(Identity)&quot;', ' '); do \
+  FW=`basename &quot;$XCFW&quot; .xcframework`; \
+  SLICES=`echo &quot;$LIST&quot; | awk -v fw=&quot;$FW.xcframework/&quot; 'index($0, fw) == 1 { rest = substr($0, length(fw) + 1); n = index(rest, &quot;/&quot;); if (n &gt; 1) print substr(rest, 1, n - 1); else if (n == 0 &amp;&amp; rest != &quot;&quot;) print rest }' | sort -u`; \
+  if [ -z &quot;$SLICES&quot; ]; then ISSUES=&quot;$ISSUES $FW:absent&quot;; continue; fi; \
+  [ -d &quot;$XCFW&quot; ] || continue; \
+  for SDIR in &quot;$XCFW&quot;/*/; do \
+    [ -d &quot;$SDIR&quot; ] || continue; \
+    S=`basename &quot;$SDIR&quot;`; \
+    echo &quot;$SLICES&quot; | awk -v s=&quot;$S&quot; '$0 == s { f = 1 } END { exit f ? 0 : 1 }' || ISSUES=&quot;$ISSUES $FW/$S:missing-from-sidecar&quot;; \
+  done; \
+done; \
+echo &quot;$ISSUES&quot;"
+          ConsoleToMSBuild="true"
+          StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_ObjCBindingPackShapeIssues" />
+    </Exec>
+
+    <Error Condition="'$(_ObjCBindingPackShapeIssues)' != '' AND $(_ObjCBindingPackShapeIssues.Contains('MISSING_SIDECAR'))"
+           Code="SWIFTBIND074"
+           Text="Pure-ObjC binding pack is missing its native payload: there is no binding resource package at '$(_ObjCBindingResourceBase)' or '$(_ObjCBindingResourceBase).zip', or the one that exists carries no xcframework. On this lane the sidecar is the ONLY carrier of the native xcframework (no buildTransitive/ consumer .targets is emitted and no runtimes/ is packed), so the resulting nupkg would restore managed-only and fail at the consumer's link/dyld with missing ObjC symbols. Verify the project is a real binding project (&lt;IsBindingProject&gt;true&lt;/IsBindingProject&gt;), that &lt;NoBindingEmbedding&gt; is not disabled, and that the build produced the sidecar next to $(TargetName).dll before packing." />
+
+    <Error Condition="'$(_ObjCBindingPackShapeIssues)' != '' AND '$(_ObjCBindingPackShapeIssues.Trim())' != '' AND !$(_ObjCBindingPackShapeIssues.Contains('MISSING_SIDECAR'))"
+           Code="SWIFTBIND074"
+           Text="Pure-ObjC binding resource package at '$(_ObjCBindingResourceBase)[.zip]' does not match the xcframeworks it was built from — $(_ObjCBindingPackShapeIssues.Trim()) ('&lt;Name&gt;:absent' = that xcframework is not in the sidecar at all; '&lt;Name&gt;/&lt;slice&gt;:missing-from-sidecar' = the source xcframework has that slice and the packed copy lost it). The sidecar is the only native carrier on this lane, so a consumer building for the dropped slice restores the package and then fails to link. This is a packaging defect, not a vendor one: a source xcframework that genuinely ships fewer slices packs faithfully and does not reach this message. Find the copy step that dropped the slice, or set &lt;IsPackable&gt;false&lt;/IsPackable&gt; for local-only use." />
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 7b: Synthesize consumer .targets for Apple-framework packs      -->
   <!-- In SDK mode the generator skips ConsumerTargetsEmitter (the SDK IS     -->
   <!-- the project system). For NuGet pack, _ConfigureSwiftBindingPack needs  -->
@@ -3795,10 +3921,15 @@ TARGETSEOF"
   <!-- Glob CodeResources files explicitly so a re-signed-in-place source     -->
   <!-- xcframework invalidates the staged slice and we don't ship stale sigs. -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Pure-ObjC packs don't ship runtimes/ at all (the sidecar resources.zip carries the
+       native), so slicing for a directory that is never packed is pure cost — skipped here
+       rather than at the pack item. Unlike the static-archive drop above, this decision is a
+       stable property read from persisted metadata, so a target-level Condition is safe (it
+       does not depend on _ComputeSwiftBindingSourceXcframeworkInclusion's live-disk probe). -->
   <Target Name="_SliceSourceXcframework"
           DependsOnTargets="_ImportSwiftBindingMetadata;_SetSlicePaths;_ComputeSwiftFingerprint"
           BeforeTargets="_ConfigureSwiftBindingPack"
-          Condition="'$(IsPackable)' == 'true' AND '$(TargetFramework)' != '' AND '@(SwiftFramework)' != ''"
+          Condition="'$(IsPackable)' == 'true' AND '$(TargetFramework)' != '' AND '@(SwiftFramework)' != '' AND '$(SwiftFrameworkType)' != 'ObjC'"
           Inputs="$(_SwiftStampFile);$(_SwiftBindingGeneratorDir)Swift.Bindings.dll;@(_SourceXcfwSigFiles)"
           Outputs="$(_StagedSourceXcfwStamp)">
     <MakeDir Directories="$(_StagedSourceXcfwBaseDir)" />
@@ -3915,10 +4046,25 @@ TARGETSEOF"
            decision is computed), but the staged slice is never packed. The shared
            _ComputeSwiftBindingSourceXcframeworkInclusion decision packs the source as the sole
            carrier when the wrapper is absent (SwiftWrapperRequired=false soft-failure) so the
-           nupkg never ships with no native, and stays in lockstep with the reference sites. -->
+           nupkg never ships with no native, and stays in lockstep with the reference sites.
+
+           ALSO dropped for the pure-ObjC lane ($(SwiftFrameworkType) == 'ObjC'), where it is
+           dead weight rather than a carrier. A pure-ObjC binding is a real Microsoft.iOS binding
+           project (IsBindingProject=true), so the workload already packs its @(NativeReference)
+           xcframeworks into the classic sidecar lib/<tfm>/$(AssemblyName).resources.zip, which
+           the CONSUMER's build extracts, embeds and signs. Nothing on this lane ever reads
+           runtimes/: ConsumerTargetsEmitter is unreachable on the pure-ObjC generator branch
+           (BindingsGeneratorCommand returns after ObjCPipeline.Run) and
+           _SynthesizeAppleFrameworkConsumerTargets is @(SwiftAppleFrameworkTarget)-only, so no
+           $(PackageId).targets exists to emit a NativeReference into runtimes/ — the payload was
+           a byte-for-byte duplicate of the sidecar with no reference pointing at it. The sidecar
+           is the load-bearing copy and _ValidateObjCBindingPackShape (SWIFTBIND074) asserts it.
+           Swift/mixed packs KEEP runtimes/: their packed consumer .targets NativeReference into
+           exactly this path. See src/docs/Design/objc-binding-consumption.md. -->
       <TfmSpecificPackageFile Include="$(_StagedSourceXcfwDir)**"
             PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingSourceXcfwName)/"
             Condition="'@(SwiftFramework)' != ''
+                       AND '$(SwiftFrameworkType)' != 'ObjC'
                        AND '$(_SwiftBindingIncludeSourceXcframework)' == 'true'" />
       <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework/**"
             PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingWrapperModuleName).xcframework/"

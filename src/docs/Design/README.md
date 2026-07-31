@@ -15,6 +15,7 @@ These docs are useful for contributors who need to understand the internals of t
 - [binding-typedatabase.md](binding-typedatabase.md) — Type database: flat XML layout, registration lifecycle, resolution cascade, ownership/supplement resolvers
 - [binding-value-witness-table.md](binding-value-witness-table.md) — Value witness table layout (incl. enum witnesses) and the as-built `Swift.Runtime.ValueWitnessTable` mirror
 - [async-non-frozen-types.md](async-non-frozen-types.md) — Async members with non-frozen types: dual-copy buffer model, `AsyncResultPlanner` ownership algebra
+- [objc-binding-consumption.md](objc-binding-consumption.md) — Pure-ObjC packages carry their native in the classic Microsoft.iOS binding sidecar (`lib/<tfm>/<Assembly>.resources[.zip]`), not `runtimes/` + a consumer `.targets`; guard-coverage boundary SWIFTBIND038 vs SWIFTBIND074
 
 ### Runtime
 - [memory-management.md](memory-management.md) — Native memory ownership at the Swift–C# boundary
