@@ -14,7 +14,11 @@
     <!-- CS0169: Field is never used (Buffer struct fields reserved for future use) -->
     <!-- CA1422: Obsolete API warnings (UIWindow, etc.) -->
     <!-- IL2075/IL2087: AOT trimming warnings (reflection use in tests) -->
-    <!-- SB0001: Mono JIT crash risk warnings (test code intentionally calls these methods) -->
+    <!-- SB0001: direct-CallConvSwift caution on members the tests intentionally call and assert
+         round-trip values for. The marker's predicate reads the Swift declaration before projection,
+         so it also fires on shapes (open generics above all) that lower to a blittable extern and
+         work; SB0009, the id for members with no sound call path at all, is deliberately NOT
+         suppressed here — nothing in this app may call one. -->
     <!-- CS0108/CS0109: resolved by Session I4 virtual/override dispatch -->
     <!-- CS0649: protocol proxy vtable entries for closure-skipped methods (never assigned) -->
     <!-- CA1418: 'visionos' missing from the .NET 10.0.107 analyzer's KnownPlatforms list

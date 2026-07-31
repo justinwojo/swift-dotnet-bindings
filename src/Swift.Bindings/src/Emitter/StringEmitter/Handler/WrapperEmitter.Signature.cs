@@ -306,10 +306,12 @@ namespace BindingsGeneration
                                   or "SendableMetatype" or "BitwiseCopyable";
 
         /// <summary>
-        /// Emits [Obsolete] with custom DiagnosticId for methods with unmitigated JIT risks or missing exported symbols.
-        /// Uses SB0001 for JIT risk (Mono-specific, safe on NativeAOT) and SB0002 for missing symbols.
-        /// Combined issues use SB0001 (broader scope). Skips accessors — property-level [Obsolete] requires
-        /// separate PropertyHandler wiring. Consumer .targets suppress these via SwiftBindingsInteropMode=Direct.
+        /// Emits [Obsolete] with a custom DiagnosticId for members carrying unmitigated direct-CallConvSwift
+        /// risk or a missing exported symbol. SB0001 marks a member whose direct-CallConvSwift P/Invoke is
+        /// predicted non-blittable but which is still callable; SB0009 marks the uncallable subset, whose
+        /// body is a throwing tombstone. SB0002 marks a missing symbol or a silent-tombstone return.
+        /// Combined issues take the non-blittable id (broader scope). Skips accessors — property-level
+        /// [Obsolete] requires separate PropertyHandler wiring.
         /// </summary>
         private void EmitSafetyObsolete(CSharpWriter csWriter)
         {
@@ -325,20 +327,20 @@ namespace BindingsGeneration
             if (deprecationMsg != null)
                 issues.Insert(0, $"Deprecated: {deprecationMsg}");
 
-            // No wrapper/thunk warning (skip accessors — see property deferral).
+            // Unmitigated direct-CallConvSwift risk (skip accessors — see property deferral).
             // UsesFreeFunctionWrapper means a Swift @_silgen_name wrapper exists — C# calls it with
             // CallConvSwift matching the wrapper's swiftcc, so there's no ABI mismatch risk.
             // Also skip when every P/Invoke type is blittable: CallConvSwift on a blittable
-            // signature is ABI-stable on both Mono and NativeAOT, so there is no JIT risk.
-            if (!_env.MethodDecl.IsAccessor
-                && !_env.MethodDecl.UsesCdeclWrapper
-                && !_env.MethodDecl.UsesNativeThunk
-                && !_env.MethodDecl.UsesFreeFunctionWrapper
-                && WrapperValidation.HasNonBlittablePInvokeTypes(_env))
+            // signature is ABI-stable on both Mono and NativeAOT. The sentence is chosen centrally
+            // so it matches the body actually emitted — a throw for the uncallable subset, a live
+            // call for the rest.
+            var nonBlittableIssue = WrapperValidation.GetNonBlittableCallConvSwiftIssue(_env);
+            string? nonBlittableDiagnosticId = null;
+            if (nonBlittableIssue != null)
             {
                 hasJitRisk = true;
-                issues.Add("No @_cdecl wrapper or native thunk available. " +
-                    "P/Invoke calling convention may not match Swift ABI");
+                nonBlittableDiagnosticId = nonBlittableIssue.Value.DiagnosticId;
+                issues.Add(nonBlittableIssue.Value.Message);
             }
 
             // Deliverable 2: Missing symbol (skip accessors — same as JIT risk above)
@@ -366,17 +368,21 @@ namespace BindingsGeneration
                 var message = string.Join(". ", issues) + ".";
                 if (hasSafetyIssues)
                 {
-                    // SB0001: JIT risk (suppressible on NativeAOT via SwiftBindingsInteropMode=Direct)
-                    // SB0002: Missing symbol or silent-tombstone return (not runtime-dependent — always relevant)
-                    var diagnosticId = hasJitRisk ? "SB0001" : "SB0002";
+                    // The non-blittable condition carries its own id (SB0001 advisory / SB0009
+                    // uncallable-and-throwing) chosen alongside the sentence, so the marker and the
+                    // body agree. SB0002 covers a missing symbol or a silent-tombstone return (not
+                    // runtime-dependent — always relevant). A member with both takes the
+                    // non-blittable id: it is the broader condition.
+                    var diagnosticId = nonBlittableDiagnosticId ?? "SB0002";
                     csWriter.WriteLine($"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\", " +
                         $"DiagnosticId = \"{diagnosticId}\", " +
                         $"UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\")]");
-                    // An SB0001 stub throws on the JIT runtimes (Mono/sim — the common inner loop)
-                    // and is only reachable under NativeAOT with SwiftBindingsInteropMode=Direct.
-                    // Hide it from IntelliSense so it doesn't clutter completion for the majority
-                    // case; it stays callable + compilable, and the [Obsolete] message + wiki URL
-                    // remain the discovery path for the NativeAOT-Direct consumers who want it.
+                    // Such a member is either uncallable (its body throws) or reachable only through a
+                    // direct P/Invoke whose ABI we cannot vouch for. Either way the declaration stays: a
+                    // conformance that requires it must still compile (dropping it would be CS0535) and the
+                    // pinned public surface must not silently shrink. Hide it from IntelliSense so it does
+                    // not clutter completion for the majority case; the [Obsolete] message + wiki URL remain
+                    // the discovery path for anyone who reaches it deliberately.
                     if (hasJitRisk)
                     {
                         csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");

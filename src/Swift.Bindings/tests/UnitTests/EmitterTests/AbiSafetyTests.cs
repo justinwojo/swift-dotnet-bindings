@@ -2692,52 +2692,288 @@ public class AbiSafetyTests
     }
 
     [Fact]
-    public void ShouldSuppressNonBlittable_CannotWrapWithNonBlittable_ReturnsTrue()
+    public void UnmitigatedNonBlittable_NoWrapperWithNonBlittableParam_ReturnsTrue()
     {
-        // CannotWrap + non-blittable params → returns true (method would crash at runtime)
-        // No AsyncLibraryName → ShouldEmitWrapper=false → CannotWrap decision
+        // No wrapper of any kind was assigned and the direct-CallConvSwift P/Invoke would carry a
+        // non-blittable parameter — the member carries unmitigated risk and must be marked SB0001.
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
             "TestModule.OpaqueStruct", TypeRecordFlags.None, TypeRecordKind.Struct);
-        // Deliberately omit typeDb.AsyncLibraryName — forces CannotWrap
 
         var parentDecl = CreateClassDecl("MyClass", moduleDecl, isFinal: false);
         var method = CreateMethodWithParam("process", new NamedTypeSpec("TestModule.OpaqueStruct"), "value", parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.True(WrapperValidation.ShouldSuppressNonBlittableCallConvSwift(env));
+        Assert.True(WrapperValidation.HasUnmitigatedNonBlittableCallConvSwift(env));
     }
 
     [Fact]
-    public void ShouldSuppressNonBlittable_WrapperRequired_ReturnsFalse()
+    public void UnmitigatedNonBlittable_HasCdeclWrapper_ReturnsFalse()
     {
-        // ShouldSuppressNonBlittableCallConvSwift returns false when wrapper is available
-        // (WrapperRequired decision → method will get @_cdecl wrapper)
+        // A member that WAS assigned a @_cdecl wrapper calls the wrapper, not the raw Swift symbol,
+        // so its non-blittable Swift signature is irrelevant — no marker.
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
             "TestModule.OpaqueStruct", TypeRecordFlags.None, TypeRecordKind.Struct);
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var parentDecl = CreateClassDecl("MyClass", moduleDecl, isFinal: false);
         var method = CreateMethodWithParam("process", new NamedTypeSpec("TestModule.OpaqueStruct"), "value", parentDecl, moduleDecl);
+        method.UsesCdeclMethodWrapper = true;
         var env = new MethodEnvironment(method, typeDb);
 
-        // WrapperRequired → no suppression
-        Assert.False(WrapperValidation.ShouldSuppressNonBlittableCallConvSwift(env));
+        Assert.False(WrapperValidation.HasUnmitigatedNonBlittableCallConvSwift(env));
     }
 
     [Fact]
-    public void ShouldSuppressNonBlittable_AlreadyHasCdeclWrapper_ReturnsFalse()
+    public void UnmitigatedNonBlittable_HasFreeFunctionWrapper_ReturnsFalse()
     {
-        // Method that already has a @_cdecl wrapper set — should never suppress
+        // A @_silgen_name free-function wrapper keeps swiftcc and the P/Invoke matches it — a
+        // matched pair, so the direct-path classification does not apply.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.OpaqueStruct", TypeRecordFlags.None, TypeRecordKind.Struct);
+
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl, isFinal: false);
+        var method = CreateMethodWithParam("process", new NamedTypeSpec("TestModule.OpaqueStruct"), "value", parentDecl, moduleDecl);
+        method.UsesFreeFunctionWrapper = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.HasUnmitigatedNonBlittableCallConvSwift(env));
+    }
+
+    [Fact]
+    public void UnmitigatedNonBlittable_BlittableSignature_ReturnsFalse()
+    {
+        // CallConvSwift on an all-blittable signature is ABI-stable even with no wrapper.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.OpaqueStruct", TypeRecordFlags.None, TypeRecordKind.Struct);
+
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl, isFinal: false);
+        var method = CreateMethodWithParam("process", new NamedTypeSpec("Swift.Int"), "value", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.HasUnmitigatedNonBlittableCallConvSwift(env));
+    }
+
+    [Fact]
+    public void UnmitigatedNonBlittable_Accessor_ReturnsFalse()
+    {
+        // Property/subscript accessors never reach the SB0001 marker path; the predicate must
+        // exclude them so the marker describes exactly the members that can carry it.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.OpaqueStruct", TypeRecordFlags.None, TypeRecordKind.Struct);
+
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl, isFinal: false);
+        var method = CreateMethodWithParam("process", new NamedTypeSpec("TestModule.OpaqueStruct"), "value", parentDecl, moduleDecl);
+        method.IsAccessor = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.HasUnmitigatedNonBlittableCallConvSwift(env));
+    }
+
+    [Fact]
+    public void UncallableInternalDirectDispatch_ModuleInternalWithNonBlittableParam_ReturnsTrue()
+    {
+        // The fatal combination: the Swift declaration is module-internal, so a @_cdecl wrapper
+        // cannot name it (the wrapper compiles as a separate client module), AND the direct
+        // CallConvSwift fallback it is left with carries a non-blittable value. Nothing can call
+        // this member soundly, so its body must become a throwing tombstone.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.OpaqueStruct", TypeRecordFlags.None, TypeRecordKind.Struct);
+
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl, isFinal: false);
+        var method = CreateMethodWithParam("process", new NamedTypeSpec("TestModule.OpaqueStruct"), "value", parentDecl, moduleDecl);
+        method.IsModuleInternal = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.IsUncallableInternalDirectDispatch(env));
+    }
+
+    [Fact]
+    public void UncallableInternalDirectDispatch_PublicWithNonBlittableParam_ReturnsFalse()
+    {
+        // Same non-blittable signature, but the declaration is public: SB0001 still cautions, yet
+        // the member keeps a live body. The prediction that drives the marker runs on the Swift
+        // declaration and over-reports — shapes the emitter passes indirectly (open generics being
+        // the clearest case) lower to a blittable extern and call correctly. Tombstoning on the
+        // marker's predicate would replace working members with throws.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.OpaqueStruct", TypeRecordFlags.None, TypeRecordKind.Struct);
+
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl, isFinal: false);
+        var method = CreateMethodWithParam("process", new NamedTypeSpec("TestModule.OpaqueStruct"), "value", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.HasUnmitigatedNonBlittableCallConvSwift(env));
+        Assert.False(WrapperValidation.IsUncallableInternalDirectDispatch(env));
+    }
+
+    [Fact]
+    public void UncallableInternalDirectDispatch_ModuleInternalWithBlittableSignature_ReturnsFalse()
+    {
+        // Module-internal is not on its own disqualifying: an internal member with an all-blittable
+        // signature reaches its exported symbol through a sound direct CallConvSwift call and must
+        // keep working. It is the combination of "no wrapper possible" and "signature the calling
+        // convention cannot carry" that leaves nothing to bind to.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.OpaqueStruct", TypeRecordFlags.None, TypeRecordKind.Struct);
+
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl, isFinal: false);
+        var method = CreateMethodWithParam("process", new NamedTypeSpec("Swift.Int"), "value", parentDecl, moduleDecl);
+        method.IsModuleInternal = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.IsUncallableInternalDirectDispatch(env));
+    }
+
+    [Fact]
+    public void UncallableInternalDirectDispatch_PublicMemberOnModuleInternalParent_ReturnsTrue()
+    {
+        // The other way to be unwrappable: the member itself is public, but the wrapper body would
+        // have to name the PARENT type to reconstruct `self`, and the separate wrapper-compilation
+        // module cannot see an internal type. Same proof, same fallback, same fatal outcome — so the
+        // floor has to cover it, or a public member on a @usableFromInline internal parent keeps
+        // emitting a live call that faults.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.OpaqueStruct", TypeRecordFlags.None, TypeRecordKind.Struct);
+
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl, isFinal: false);
+        parentDecl.IsModuleInternal = true;
+        var method = CreateMethodWithParam("process", new NamedTypeSpec("TestModule.OpaqueStruct"), "value", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(method.IsModuleInternal);
+        Assert.True(WrapperValidation.IsUncallableInternalDirectDispatch(env));
+    }
+
+    [Fact]
+    public void UncallableInternalDirectDispatch_PublicMemberOnPublicTypeNestedInInternalType_ReturnsFalse()
+    {
+        // An internal ENCLOSING type is not treated as proof of unspellability, because the flag it
+        // carries is not always that fact: a type declared in an extension of another module's type
+        // has that foreign type as its enclosing decl, and a foreign type reads as module-internal
+        // here merely for being absent from this module's public-type names while being public — and
+        // wrappable — where it is declared. The floor tracks the wrapper-eligibility gate exactly, so
+        // it claims no member that gate has not already refused a wrapper.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.OpaqueStruct", TypeRecordFlags.None, TypeRecordKind.Struct);
+
+        var outerDecl = CreateClassDecl("Outer", moduleDecl, isFinal: false);
+        outerDecl.IsModuleInternal = true;
+        var parentDecl = CreateClassDecl("Inner", moduleDecl, isFinal: false);
+        parentDecl.ParentDecl = outerDecl;
+        var method = CreateMethodWithParam("process", new NamedTypeSpec("TestModule.OpaqueStruct"), "value", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(parentDecl.IsModuleInternal);
+        Assert.False(WrapperValidation.IsUncallableInternalDirectDispatch(env));
+    }
+
+    [Fact]
+    public void UncallableInternalDirectDispatch_ModuleInternalParentWithBlittableSignature_ReturnsFalse()
+    {
+        // The unwrappable receiver on its own is not disqualifying — a blittable signature still
+        // dispatches soundly through the direct path, which is why those members are kept.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.OpaqueStruct", TypeRecordFlags.None, TypeRecordKind.Struct);
+
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl, isFinal: false);
+        parentDecl.IsModuleInternal = true;
+        var method = CreateMethodWithParam("process", new NamedTypeSpec("Swift.Int"), "value", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.IsUncallableInternalDirectDispatch(env));
+    }
+
+    [Fact]
+    public void UncallableInternalDirectDispatch_ModuleInternalWithCdeclWrapper_ReturnsFalse()
+    {
+        // Defensive: if a wrapper was somehow assigned, the member calls the wrapper and the floor
+        // must not fire — the tombstone would replace a working call with a throw.
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
             "TestModule.OpaqueStruct", TypeRecordFlags.None, TypeRecordKind.Struct);
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var parentDecl = CreateClassDecl("MyClass", moduleDecl, isFinal: false);
         var method = CreateMethodWithParam("process", new NamedTypeSpec("TestModule.OpaqueStruct"), "value", parentDecl, moduleDecl);
-        method.UsesCdeclMethodWrapper = true; // Already has wrapper
+        method.IsModuleInternal = true;
+        method.UsesCdeclMethodWrapper = true;
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(WrapperValidation.ShouldSuppressNonBlittableCallConvSwift(env));
+        Assert.False(WrapperValidation.IsUncallableInternalDirectDispatch(env));
+    }
+
+    [Fact]
+    public void NonBlittableCallConvSwiftIssue_UncallableMember_AnnouncesTheThrow()
+    {
+        // The marker sentence must match the body the emitter produced. For the uncallable subset
+        // the body is a throw, so the marker has to say so rather than describe a mere "may not
+        // match" risk — otherwise a consumer reads a caution and writes a call that always throws.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.OpaqueStruct", TypeRecordFlags.None, TypeRecordKind.Struct);
+
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl, isFinal: false);
+        var method = CreateMethodWithParam("process", new NamedTypeSpec("TestModule.OpaqueStruct"), "value", parentDecl, moduleDecl);
+        method.IsModuleInternal = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        var issue = WrapperValidation.GetNonBlittableCallConvSwiftIssue(env);
+
+        Assert.NotNull(issue);
+        Assert.Contains("throws", issue!.Value.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("internal", issue.Value.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void NonBlittableCallConvSwiftIssue_UncallableMember_TakesItsOwnDiagnosticId()
+    {
+        // The uncallable subset must NOT share the advisory id: consumers building for NativeAOT
+        // suppress the advisory wholesale (the direct call being sound there is the premise), and
+        // that premise does not reach a member whose body throws on every runtime.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.OpaqueStruct", TypeRecordFlags.None, TypeRecordKind.Struct);
+
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl, isFinal: false);
+        var method = CreateMethodWithParam("process", new NamedTypeSpec("TestModule.OpaqueStruct"), "value", parentDecl, moduleDecl);
+        method.IsModuleInternal = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        var issue = WrapperValidation.GetNonBlittableCallConvSwiftIssue(env);
+
+        Assert.NotNull(issue);
+        Assert.Equal(WrapperValidation.UncallableAbiDiagnosticId, issue!.Value.DiagnosticId);
+        Assert.NotEqual(WrapperValidation.DirectCallConvSwiftDiagnosticId, issue.Value.DiagnosticId);
+    }
+
+    [Fact]
+    public void NonBlittableCallConvSwiftIssue_CallableMember_DoesNotClaimItThrows()
+    {
+        // The public/callable side keeps the advisory wording. Claiming a throw here would be a
+        // false statement about a member whose body still makes the call.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.OpaqueStruct", TypeRecordFlags.None, TypeRecordKind.Struct);
+
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl, isFinal: false);
+        var method = CreateMethodWithParam("process", new NamedTypeSpec("TestModule.OpaqueStruct"), "value", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        var issue = WrapperValidation.GetNonBlittableCallConvSwiftIssue(env);
+
+        Assert.NotNull(issue);
+        Assert.DoesNotContain("throws", issue!.Value.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(WrapperValidation.DirectCallConvSwiftDiagnosticId, issue.Value.DiagnosticId);
+    }
+
+    [Fact]
+    public void NonBlittableCallConvSwiftIssue_NoRisk_ReturnsNull()
+    {
+        // No unmitigated risk at all → no sentence and no id, so no marker is emitted.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.OpaqueStruct", TypeRecordFlags.None, TypeRecordKind.Struct);
+
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl, isFinal: false);
+        var method = CreateMethodWithParam("process", new NamedTypeSpec("Swift.Int"), "value", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.Null(WrapperValidation.GetNonBlittableCallConvSwiftIssue(env));
     }
 
     [Fact]

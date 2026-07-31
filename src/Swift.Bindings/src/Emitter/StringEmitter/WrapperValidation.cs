@@ -328,6 +328,17 @@ public static class WrapperValidation
     /// parent-internal eligibility decision so the rejection site cannot drift. Returns
     /// false for free functions (their <see cref="MethodEnvironment.ParentDecl"/> is a
     /// <c>ModuleDecl</c>, not a <see cref="TypeDecl"/>).
+    ///
+    /// <para>Deliberately the IMMEDIATE parent only, unlike the type-keyed
+    /// <see cref="IsTypeOrEnclosingModuleInternal"/>. Walking enclosing types here would
+    /// withdraw working wrappers: a type declared in an extension of a FOREIGN module's
+    /// type has that foreign type as its enclosing decl, and the foreign type carries
+    /// <see cref="TypeDecl.IsModuleInternal"/> merely because it is absent from THIS
+    /// module's public-type names — it is public where it is declared and perfectly
+    /// spellable from wrapper source through the import. Treating that as unspellable
+    /// retargets those members off wrappers that compile today. Closing the genuine
+    /// same-module nested case therefore needs a spellability fact that separates the two,
+    /// not a broader walk over this flag.</para>
     /// </summary>
     public static bool IsParentTypeModuleInternal(MethodEnvironment env)
         => (env.ParentDecl as TypeDecl)?.IsModuleInternal == true;
@@ -1924,8 +1935,9 @@ public static class WrapperValidation
             return false;
 
         // Sync methods through the legacy direct-CallConvSwift path are diagnosed via SB0001
-        // / HasNonBlittablePInvokeTypes (they're emitted with an [Obsolete] warning, not
-        // skipped). The trigger is async-specific because the Swift async ABI is the
+        // / HasNonBlittablePInvokeTypes — marked with [Obsolete] and still emitted, except for
+        // the module-internal subset whose body becomes a throwing tombstone. Either way the
+        // declaration survives. The trigger here is async-specific because the Swift async ABI is the
         // boundary that's under-specified for direct P/Invoke.
         if (!env.MethodDecl.IsAsync)
             return false;
@@ -1958,47 +1970,115 @@ public static class WrapperValidation
     }
 
     /// <summary>
-    /// Returns true when a method has no @_cdecl wrapper or native thunk AND has non-blittable
-    /// P/Invoke types. Used for SB0001 diagnostic — these methods are still emitted but may
-    /// crash at runtime. Suppression was not feasible because it breaks protocol conformance (CS0535).
+    /// True when a member reaches the direct-CallConvSwift path carrying <b>no mitigation</b>:
+    /// no @_cdecl wrapper, no native thunk and no @_silgen_name free-function wrapper, while
+    /// <see cref="HasNonBlittablePInvokeTypes(MethodEnvironment)"/> predicts a non-blittable
+    /// signature from the Swift declaration.
+    ///
+    /// <para>This is the <b>advisory</b> condition — it drives the SB0001 marker, not a refusal
+    /// to emit. The prediction runs on the Swift type spec, before projection, so it fires on
+    /// shapes the emitter then passes <i>indirectly</i> and which call correctly: an open generic
+    /// (<c>identity&lt;T&gt;(_: T) -&gt; T</c>) predicts "generic container in the signature" yet
+    /// lowers to a fully blittable <c>(SwiftIndirectResult, IntPtr payload, IntPtr metadata)</c>
+    /// extern that round-trips its value. Treating this predicate as fatal would therefore
+    /// destroy working surface; the fatal subset is
+    /// <see cref="IsUncallableInternalDirectDispatch"/>.</para>
+    ///
+    /// <para>Accessors are excluded because the property/subscript accessor path never reaches
+    /// the marker.</para>
     /// </summary>
-    public static bool ShouldSuppressNonBlittableCallConvSwift(MethodEnvironment env)
-    {
-        // If the method already has a @_cdecl wrapper or native thunk, it's safe — no suppression needed
-        if (env.MethodDecl.UsesCdeclWrapper || env.MethodDecl.UsesNativeThunk)
-            return false;
-
-        // Check the method wrapper decision: only flag when wrapping is not possible
-        var decision = env.MethodDecl.IsConstructor
-            ? DetermineConstructorWrapperDecision(env)
-            : DetermineMethodWrapperDecision(env);
-
-        // CannotWrap: ShouldEmitWrapper=false — method has no wrapper/thunk path
-        // WrapperRequired: will get a wrapper — safe
-        if (decision != WrapperDecision.CannotWrap)
-            return false;
-
-        // Wrapping is impossible. Check if the P/Invoke would have non-blittable types.
-        return HasNonBlittablePInvokeTypes(env);
-    }
+    internal static bool HasUnmitigatedNonBlittableCallConvSwift(MethodEnvironment env) =>
+        !env.MethodDecl.IsAccessor
+        && !env.MethodDecl.UsesCdeclWrapper
+        && !env.MethodDecl.UsesNativeThunk
+        && !env.MethodDecl.UsesFreeFunctionWrapper
+        && HasNonBlittablePInvokeTypes(env);
 
     /// <summary>
-    /// Property-specific overload: returns true when a property accessor has no @_cdecl
-    /// wrapper or native thunk AND has non-blittable P/Invoke types. Used for SB0001 diagnostic.
+    /// The subset of <see cref="HasUnmitigatedNonBlittableCallConvSwift"/> that has <b>no call
+    /// route at all</b>: a @_cdecl wrapper is not merely undesirable but impossible, and the
+    /// direct-CallConvSwift fallback it is left with carries a signature the Swift calling
+    /// convention cannot deliver.
+    ///
+    /// <para>Impossibility is decided on what the wrapper would have to spell, since the wrapper
+    /// compiles as a separate client module and can only name what that module can see. Two
+    /// independent ways to be unspellable, and either is sufficient: the member is itself
+    /// module-internal (its own symbol cannot be named), or its parent type is, so the wrapper
+    /// body cannot reconstruct <c>self</c> through a module-qualified path. Both are the same
+    /// proof, differing only in which name is missing, so both belong to the same floor; gating
+    /// on the member's own flag alone would leave a public member on a
+    /// <c>@usableFromInline internal</c> parent emitting a live call that faults.</para>
+    ///
+    /// <para>The receiver half deliberately shares
+    /// <see cref="IsParentTypeModuleInternal"/> with the wrapper-eligibility gate rather than
+    /// carrying its own, broader notion of unspellability. The two must agree by construction:
+    /// this floor may only fire where that gate has already refused the wrapper, so a member it
+    /// tombstones is one the emitter has itself established cannot be wrapped — never one whose
+    /// wrapper merely failed to materialise for some other reason.</para>
+    ///
+    /// <para>A member with a fully blittable signature is NOT in this set however unspellable it
+    /// is: those call correctly through the direct path today (a plain <c>Bool</c>/<c>Int</c>
+    /// setter on an internal-but-exported symbol round-trips). It is the combination — no wrapper
+    /// possible AND a signature carrying an existential / SafeHandle / multi-register value —
+    /// that leaves the emitted call with nothing sound to bind to, and invoking one faults the
+    /// process rather than failing cleanly.</para>
+    ///
+    /// <para>Members in this set are emitted as throwing tombstones: the declaration and its
+    /// attributes stay so a conformance requiring the member still compiles (dropping it would
+    /// be CS0535) and the pinned public surface does not silently shrink, but the body throws
+    /// instead of making a call that cannot work.</para>
     /// </summary>
-    public static bool ShouldSuppressNonBlittableCallConvSwift(PropertyDecl propertyDecl, MethodEnvironment env)
+    internal static bool IsUncallableInternalDirectDispatch(MethodEnvironment env) =>
+        (env.MethodDecl.IsModuleInternal || IsParentTypeModuleInternal(env))
+        && HasUnmitigatedNonBlittableCallConvSwift(env);
+
+    /// <summary>
+    /// Diagnostic id for a member left on the direct-CallConvSwift path with a predicted
+    /// non-blittable signature. Advisory: the member is still callable, and for the shapes the
+    /// emitter passes indirectly the call works.
+    /// </summary>
+    internal const string DirectCallConvSwiftDiagnosticId = "SB0001";
+
+    /// <summary>
+    /// Diagnostic id for a member with no sound call route at all
+    /// (<see cref="IsUncallableInternalDirectDispatch"/>), whose body is therefore a throw.
+    ///
+    /// <para>Deliberately NOT <see cref="DirectCallConvSwiftDiagnosticId"/>: that id is suppressed
+    /// wholesale by consumers running in the NativeAOT-oriented interop mode, on the reasoning that
+    /// a direct CallConvSwift call is safe there. That reasoning does not reach this member — it
+    /// throws on every runtime — so sharing the id would silently hide the one notice a consumer
+    /// gets before calling something that cannot work.</para>
+    /// </summary>
+    internal const string UncallableAbiDiagnosticId = "SB0009";
+
+    /// <summary>
+    /// The diagnostic id and sentence for <paramref name="env"/>'s unmitigated direct-CallConvSwift
+    /// condition, or <c>null</c> when the member carries none. Two different things are marked here
+    /// and they must neither claim the same thing nor share an id: an <b>uncallable</b> member (see
+    /// <see cref="IsUncallableInternalDirectDispatch"/>) says plainly that it throws, because its
+    /// body is a throw, while the rest are a caution — the direct call may still be exercised and,
+    /// for the indirectly-passed shapes, works. Single source so every site that renders the marker
+    /// (the method signature emitter and the derived async-overload attribute) stays consistent with
+    /// the body the emitter actually produced.
+    /// </summary>
+    internal static (string DiagnosticId, string Message)? GetNonBlittableCallConvSwiftIssue(MethodEnvironment env)
     {
-        // If the property already has a @_cdecl wrapper or native thunk, it's safe
-        if (env.MethodDecl.UsesCdeclWrapper || env.MethodDecl.UsesNativeThunk)
-            return false;
+        if (!HasUnmitigatedNonBlittableCallConvSwift(env))
+            return null;
 
-        var decision = DeterminePropertyWrapperDecision(propertyDecl, env);
+        if (IsUncallableInternalDirectDispatch(env))
+        {
+            return (UncallableAbiDiagnosticId,
+                "This member, or the Swift type declaring it, is internal to its Swift module, so no "
+                + "@_cdecl wrapper or native thunk can be generated for it, and the direct P/Invoke "
+                + "signature it falls back to is not blittable, which the Swift calling convention "
+                + "cannot carry. It is declared for source and conformance compatibility only and "
+                + "throws NotSupportedException when called");
+        }
 
-        if (decision != WrapperDecision.CannotWrap)
-            return false;
-
-        // Wrapping is impossible. Check if the P/Invoke would have non-blittable types.
-        return HasNonBlittablePInvokeTypes(env, propertyDecl);
+        return (DirectCallConvSwiftDiagnosticId,
+            "No @_cdecl wrapper or native thunk available. "
+            + "P/Invoke calling convention may not match Swift ABI");
     }
 
     /// <summary>

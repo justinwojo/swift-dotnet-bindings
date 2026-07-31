@@ -485,6 +485,11 @@ namespace BindingsGeneration
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isConstructor: true);
             EmitMainActorMemberAnnotation(csWriter);
             EmitSignatureConstructor(csWriter);
+            // ABI floor, same contract as the method path: capture the body start so a constructor with
+            // no ABI-correct call route can have its call replaced by a throw once the body has been
+            // emitted (emitting first, then rolling back the TEXT, keeps every emit-time counter and
+            // side table balanced — skipping the emission outright would not).
+            var abiFloorBodyCheckpoint = csWriter.Checkpoint();
             EmitBodyStart(csWriter);
             EmitAvailabilityGuard(csWriter);
             EmitMainActorGuard(csWriter);
@@ -543,6 +548,7 @@ namespace BindingsGeneration
             EmitUnsafeBlockEnd(csWriter);
             EmitBodyEnd(csWriter);
             AssertRawBufferFixedDepthZero();
+            ApplyAbiFloorTombstone(csWriter, abiFloorBodyCheckpoint);
         }
 
         /// <summary>
@@ -568,6 +574,12 @@ namespace BindingsGeneration
             var helperName = $"CreateSwiftInstance_{NameProvider.GetPInvokeName(_env.EmissionSymbol, (MethodDecl)_env.MethodDecl)}";
             var helperParams = _wrapperSignature.ParametersString();
             csWriter.WriteLine($"private static unsafe ObjCRuntime.NativeHandle {helperName}({helperParams})");
+            // ABI floor: the Swift init runs inside this helper, which the public constructor invokes from
+            // its `: base(helper(...))` initializer — so replacing the HELPER's body is what makes an
+            // ObjC-rooted constructor with no ABI-correct call route throw instead of fault. Capture the
+            // helper's body start (the checkpoint sits ahead of its opening brace, which the replacement
+            // body re-emits).
+            var abiFloorHelperBodyCheckpoint = csWriter.Checkpoint();
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
@@ -654,6 +666,7 @@ namespace BindingsGeneration
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();
+            ApplyAbiFloorTombstone(csWriter, abiFloorHelperBodyCheckpoint);
 
             // Now emit the public constructor that calls the helper
             EmitFallbackAttribute(csWriter);
@@ -728,6 +741,18 @@ namespace BindingsGeneration
                 // accessors that restub here rather than in their own handler.
                 SuppressedProxyReporting.Record(_env.MethodDecl, SuppressedProxyReporting.Site.ProduceThrow, ex.ProxyClassName);
                 produceThrew = true;
+            }
+            // ABI floor. A member that reached the direct-CallConvSwift path with a non-blittable P/Invoke
+            // signature has no call route the Swift calling convention can carry: invoking it faults the
+            // process rather than throwing, which no consumer can defend against and no compile gate can
+            // see. Replace the call with a throw at the SAME body checkpoint the suppressed-proxy recovery
+            // uses, so the attributes (including the SB0001 marker the signature emitter already wrote from
+            // this same predicate), the signature and the caller's P/Invoke are preserved byte-for-byte and
+            // only the body changes. The suppressed-proxy path already throws for its own reason and adds an
+            // error-level marker on top, so it wins when both apply.
+            if (!produceThrew)
+            {
+                ApplyAbiFloorTombstone(csWriter, proxyBodyCheckpoint);
             }
             if (produceThrew)
             {
@@ -955,6 +980,72 @@ namespace BindingsGeneration
             EmitBodyStart(csWriter);
             csWriter.WriteLine($"throw new NotSupportedException(\"{ProxySuppressedMessage}\");");
             EmitBodyEnd(csWriter);
+        }
+
+        /// <summary>
+        /// The throw message carried by a member with no ABI-correct call route — the Swift declaration, or
+        /// the type declaring it, is module-internal, so no @_cdecl wrapper can name it, and the
+        /// direct-CallConvSwift fallback it is left with carries a signature the calling convention cannot
+        /// deliver. Self-describing on purpose: the consumer sees why the call cannot exist without having
+        /// to correlate the throw with the [Obsolete] text.
+        /// </summary>
+        internal const string UnmitigatedAbiMessage =
+            "This member has no ABI-correct call path: it — or the Swift type declaring it — is internal " +
+            "to its Swift module, so no Swift wrapper can be generated for it, and its direct P/Invoke " +
+            "signature is not blittable, which the Swift calling convention cannot carry. It is declared " +
+            "so that source and protocol conformances referencing it still compile.";
+
+        /// <summary>
+        /// Body replacement for a member classified as having no ABI-correct call route. Emitting the call
+        /// anyway does not produce a member that "might" misbehave — it faults the process on invocation —
+        /// so the call is replaced by a throw while the declaration, its attributes and the caller-emitted
+        /// P/Invoke stay put. Keeping the declaration is what separates this from a skip: a protocol-required
+        /// member that vanished would break its conformance (CS0535) and the pinned public surface would
+        /// silently shrink. The P/Invoke left behind targets the library's own exported Swift symbol (a
+        /// wrapped member never reaches here), so nothing dangles. Uses <see cref="EmitBodyStart"/>/
+        /// <see cref="EmitBodyEnd"/> so the brace framing and trailing blank line match a normal body.
+        /// </summary>
+        private void EmitUnmitigatedAbiThrowBody(CSharpWriter csWriter)
+        {
+            EmitBodyStart(csWriter);
+            csWriter.WriteLine(
+                $"throw new NotSupportedException(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(UnmitigatedAbiMessage)}\");");
+            EmitBodyEnd(csWriter);
+        }
+
+        /// <summary>
+        /// The one place the ABI floor is applied. If the member has no call route at all
+        /// (<see cref="WrapperValidation.IsUncallableInternalDirectDispatch"/>), the already-emitted body
+        /// text is rolled back to <paramref name="bodyCheckpoint"/> and replaced with a throw, and the
+        /// decline is persisted as a classified skip so the surface report does not count a tombstone as a
+        /// working binding. Every emitting path (method, constructor, ObjC-rooted constructor helper,
+        /// failable-init factory) routes through here so the floor cannot apply unevenly across member
+        /// kinds — a member kind that emits its own body without calling this keeps emitting a call that
+        /// faults the process.
+        ///
+        /// <para>Deliberately narrower than the SB0001 marker: the marker's predicate runs on the Swift
+        /// declaration and over-reports, firing on open generics and other shapes the emitter passes
+        /// indirectly and which call correctly. Tombstoning on the marker's predicate would replace working
+        /// members with throws.</para>
+        /// </summary>
+        /// <returns><c>true</c> when the body was replaced.</returns>
+        private bool ApplyAbiFloorTombstone(CSharpWriter csWriter, BufferedSourceWriter.WriterCheckpoint bodyCheckpoint)
+        {
+            if (!WrapperValidation.IsUncallableInternalDirectDispatch(_env))
+                return false;
+
+            csWriter.RollbackTo(bodyCheckpoint);
+            EmitUnmitigatedAbiThrowBody(csWriter);
+            ReportCollector.RecordMemberSkipped(
+                _env.MethodDecl,
+                SkipReason.NonBlittableCallConvSwift,
+                "The Swift declaration, or the type declaring it, is module-internal, so no @_cdecl "
+                + "wrapper, native thunk or free-function wrapper can name it, and the direct "
+                + "CallConvSwift P/Invoke it falls back "
+                + "to has a non-blittable signature. The member is emitted as a throwing tombstone "
+                + "(declaration retained so conformances referencing it still compile) and carries the "
+                + $"{WrapperValidation.UncallableAbiDiagnosticId} marker.");
+            return true;
         }
 
         /// <summary>

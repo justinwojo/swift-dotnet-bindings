@@ -278,6 +278,25 @@ public class ParentModuleInternalGateTests
     }
 
     [Fact]
+    public void IsParentTypeModuleInternal_PublicParentNestedInForeignExtensionReceiver_ReturnsFalse()
+    {
+        // A type declared in an extension of ANOTHER module's type has that foreign type as
+        // its enclosing decl, and the foreign type reads as module-internal here only because
+        // it is absent from this module's public-type names — it is public where it is
+        // declared and spellable from wrapper source through the import. The gate keys on the
+        // IMMEDIATE parent precisely so these members keep the wrappers that compile today.
+        var (module, typeDb) = XcframeworkEnv();
+        var foreignReceiver = InternalClass("ForeignHost", module);
+        var parent = PublicClass("HostedPayload", module);
+        parent.ParentDecl = foreignReceiver;
+        var env = Env(SyncMethod("describe", parent, module), typeDb);
+
+        Assert.False(WrapperValidation.IsParentTypeModuleInternal(env));
+        Assert.NotEqual("parent_module_internal",
+            WrapperValidation.GetMemberRejectionReason(env, MemberKind.Method));
+    }
+
+    [Fact]
     public void IsParentTypeModuleInternal_FreeFunctionModuleParent_ReturnsFalse()
     {
         // A free function's ParentDecl is the ModuleDecl (a BaseDecl, not a

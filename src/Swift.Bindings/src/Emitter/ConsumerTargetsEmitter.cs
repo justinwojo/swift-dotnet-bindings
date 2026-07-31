@@ -179,8 +179,10 @@ namespace BindingsGeneration
                 <Project>
                   <!-- SwiftBindingsInteropMode: Auto (default) | Safe | Direct
                        Auto: NativeAOT (PublishAot=true) -> Direct, everything else -> Safe
-                       Direct: Suppresses Mono JIT safety warnings (SB0001) - clean API for NativeAOT
-                       Safe: Shows Mono JIT safety warnings - protects simulator/Mono builds -->
+                       Direct: Suppresses the direct-CallConvSwift caution (SB0001) - clean API for NativeAOT
+                       Safe: Shows the direct-CallConvSwift caution - protects simulator/Mono builds
+                       Neither mode suppresses SB0009: that member has no sound call path on any
+                       runtime and its body throws, so the notice stays in both modes. -->
                   <PropertyGroup>
                     <SwiftBindingsInteropMode Condition="'$(SwiftBindingsInteropMode)' == ''">Auto</SwiftBindingsInteropMode>
                   </PropertyGroup>

@@ -290,6 +290,27 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void Emit_InteropMode_NoModeSuppressesSB0009()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: false);
+                // SB0009 marks a member whose body is a throw — it has no sound call route on ANY
+                // runtime, so the reasoning that lets the NativeAOT-oriented mode suppress the
+                // direct-CallConvSwift caution does not reach it. Suppressing it would remove the only
+                // compile-time notice a consumer gets before calling something that cannot work.
+                var suppressions = content
+                    .Split('\n')
+                    .Where(l => l.Contains("<NoWarn>", StringComparison.Ordinal))
+                    .ToList();
+                Assert.NotEmpty(suppressions);
+                Assert.DoesNotContain(suppressions, l => l.Contains("SB0009", StringComparison.Ordinal));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
         public void Emit_InteropMode_DoesNotSuppressSB0002()
         {
             var dir = CreateTempDir();

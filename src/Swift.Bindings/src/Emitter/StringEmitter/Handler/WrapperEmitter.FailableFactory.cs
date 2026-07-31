@@ -58,6 +58,14 @@ namespace BindingsGeneration
             }
 
             EmitFallbackAttribute(csWriter);
+            // A factory that is about to become a throwing tombstone has to say so on the declaration,
+            // not only in the exception text — otherwise the one compile-time notice a consumer gets
+            // before calling something that cannot work is missing on this member kind alone. The marker
+            // is emitted ONLY for that case: this path has never carried the advisory direct-CallConvSwift
+            // marker, and turning it on for every failable factory would surface a new obsoletion warning
+            // on members whose call route is unchanged.
+            if (WrapperValidation.IsUncallableInternalDirectDispatch(_env))
+                EmitSafetyObsolete(csWriter);
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isFailableFactory: true);
             // Emit signature: public static bool TryCreate(params, out TypeName result)
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.IsSynthesizedAccessor);
@@ -86,6 +94,11 @@ namespace BindingsGeneration
             // the first-declared/no-collision case keeps the plain "TryCreate".
             var factoryName = _env.FailableFactoryName ?? "TryCreate";
             csWriter.WriteLine($"{accessModifier} static bool {factoryName}({_wrapperSignature.ParametersStringWithoutDefaults()}{(_wrapperSignature.Parameters.Count > 0 ? ", " : "")}out {typeName} {resultName})");
+            // ABI floor, same contract as the method and constructor paths: capture the body start so a
+            // failable init with no ABI-correct call route can have its call replaced by a throw once the
+            // body has been emitted. A throw satisfies the `out` parameter's definite assignment, so the
+            // replaced body needs no assignment to it.
+            var abiFloorBodyCheckpoint = csWriter.Checkpoint();
             EmitBodyStart(csWriter);
             EmitAvailabilityGuard(csWriter);
             EmitUnsafeBlockStart(csWriter);
@@ -261,6 +274,7 @@ namespace BindingsGeneration
 
             EmitUnsafeBlockEnd(csWriter);
             EmitBodyEnd(csWriter);
+            ApplyAbiFloorTombstone(csWriter, abiFloorBodyCheckpoint);
         }
 
         /// <summary>

@@ -2009,16 +2009,17 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Returns the [Obsolete] attribute string for SB0001/SB0002 safety diagnostics if the method
-        /// has JIT risk or missing symbol issues, or null if no safety attribute is needed.
-        /// Used to propagate safety attributes to derived methods (e.g., async wrappers).
-        /// Mirrors the gate in <see cref="WrapperEmitter.EmitSafetyObsolete"/>: SB0001 only
-        /// fires when there is no wrapper AND the P/Invoke signature contains non-blittable types.
+        /// Returns the [Obsolete] attribute string for the SB0001/SB0009/SB0002 safety diagnostics if
+        /// the method has an unmitigated direct-CallConvSwift condition or a missing symbol, or null if
+        /// no safety attribute is needed. Used to propagate safety attributes to derived methods (e.g.,
+        /// async wrappers). Mirrors the gate in <see cref="WrapperEmitter.EmitSafetyObsolete"/>: the
+        /// non-blittable ids only fire when there is no wrapper AND the P/Invoke signature contains
+        /// non-blittable types.
         /// </summary>
         internal static string? GetSafetyObsoleteAttribute(MethodEnvironment env)
         {
             var methodDecl = env.MethodDecl;
-            bool hasJitRisk = false;
+            string? nonBlittableDiagnosticId = null;
             var issues = new List<string>();
 
             // UsesFreeFunctionWrapper means a Swift-side wrapper (either @_cdecl or @_silgen_name)
@@ -2026,15 +2027,11 @@ namespace BindingsGeneration
             // swiftcc and C# calls them with CallConvSwift — still a matched pair, not a JIT risk.
             // When every P/Invoke type is blittable, CallConvSwift is ABI-stable on Mono/NativeAOT
             // even without a wrapper.
-            if (!methodDecl.IsAccessor
-                && !methodDecl.UsesCdeclWrapper
-                && !methodDecl.UsesNativeThunk
-                && !methodDecl.UsesFreeFunctionWrapper
-                && WrapperValidation.HasNonBlittablePInvokeTypes(env))
+            var nonBlittableIssue = WrapperValidation.GetNonBlittableCallConvSwiftIssue(env);
+            if (nonBlittableIssue != null)
             {
-                hasJitRisk = true;
-                issues.Add("No @_cdecl wrapper or native thunk available. " +
-                    "P/Invoke calling convention may not match Swift ABI");
+                nonBlittableDiagnosticId = nonBlittableIssue.Value.DiagnosticId;
+                issues.Add(nonBlittableIssue.Value.Message);
             }
 
             if (methodDecl.IsMissingExportedSymbol)
@@ -2047,7 +2044,7 @@ namespace BindingsGeneration
                 return null;
 
             var message = string.Join(". ", issues) + ".";
-            var diagnosticId = hasJitRisk ? "SB0001" : "SB0002";
+            var diagnosticId = nonBlittableDiagnosticId ?? "SB0002";
             return $"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\", " +
                 $"DiagnosticId = \"{diagnosticId}\", " +
                 $"UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\")]";
