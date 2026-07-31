@@ -1711,11 +1711,12 @@ public class ApiDefinitionEmitterTests
     }
 
     [Fact]
-    public void Emit_Category_InstancePropertyOnly_SkippedAsEmpty()
+    public void Emit_Category_InstancePropertyOnly_ProjectedAsAccessorMethod()
     {
-        // Categories with only instance properties and no methods are skipped entirely.
-        // MAUI bgen generates [Category] interfaces as static classes, which cannot
-        // have instance members (CS0708).
+        // A category carrying only instance properties still has surface to bind: bgen generates a
+        // [Category] interface as a static extension class, which cannot hold an instance PROPERTY
+        // (CS0708) but does hold an instance METHOD (it becomes an extension method carrying the
+        // receiver). The property is therefore projected as an accessor method instead of dropped.
         var module = new ObjCModule
         {
             ModuleName = "Test",
@@ -1735,9 +1736,14 @@ public class ApiDefinitionEmitterTests
             ]
         };
 
-        var result = EmitAndRead(module);
-        Assert.DoesNotContain("[Category]", result);
-        Assert.DoesNotContain("Widget_Info", result);
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+        Assert.Contains("[Category]", result);
+        Assert.Contains("partial interface Widget_Info", result);
+        Assert.Contains("[Export(\"version\")]", result);
+        Assert.Contains("string GetVersion();", result);
+        // No instance property declaration survives (that shape is the CS0708).
+        Assert.DoesNotContain("string Version {", result);
+        Assert.DoesNotContain(diagnostics.SkippedSymbols, s => s.Reason == ObjCSkipReason.EmptyCategory);
     }
 
     [Fact]
@@ -2134,9 +2140,11 @@ public class ApiDefinitionEmitterTests
     }
 
     [Fact]
-    public void Emit_CategoryMethodPropertyCollision_PropertySkipped()
+    public void Emit_CategoryMethodPropertyCollision_MethodDroppedAccessorKept()
     {
-        // Category paths also need method→property collision tracking
+        // Category paths also need method→property collision tracking. The property's projected
+        // getter exports `tintColor`, so the like-named method is the same selector — it drops in
+        // favour of the property, matching the class and protocol paths.
         var module = new ObjCModule
         {
             ModuleName = "Test",
@@ -2152,12 +2160,15 @@ public class ApiDefinitionEmitterTests
             ]
         };
 
-        var result = EmitAndRead(module);
-        // Method emitted
-        Assert.Contains("UIColor TintColor();", result);
-        // Property with same name should be skipped
-        var propertyLines = result.Split('\n').Where(l => l.Contains("{ get; }")).ToList();
-        Assert.Empty(propertyLines);
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+        // The selector is exported exactly once, by the projected accessor.
+        Assert.Equal(1, CountOccurrences(result, "[Export(\"tintColor\")]"));
+        Assert.Contains("UIColor GetTintColor();", result);
+        Assert.DoesNotContain("UIColor TintColor();", result);
+        // A category is a static extension class, so the property form never appears (CS0708).
+        Assert.DoesNotContain(result.Split('\n'), l => l.Contains("TintColor { get; }"));
+        var skip = Assert.Single(diagnostics.SkippedSymbols, s => s.SymbolKind == "Method" && s.SymbolName == "tintColor");
+        Assert.Equal(ObjCSkipReason.DuplicateSelector, skip.Reason);
     }
 
     // --- Fix: ApiDefinition.cs includes CoreAnimation using ---
@@ -3871,10 +3882,11 @@ public class ApiDefinitionEmitterTests
     }
 
     [Fact]
-    public void Emit_ForeignTypeCategoryWithProperties_SkipsInstanceProperties()
+    public void Emit_ForeignTypeCategoryWithProperties_ProjectsInstancePropertiesAsAccessorMethods()
     {
-        // Instance properties are skipped: bgen generates static classes
-        // which cannot have instance members (CS0708)
+        // bgen generates a [Category] as a static class, which cannot hold an instance PROPERTY
+        // (CS0708) — but an instance METHOD is fine (it becomes an extension method carrying the
+        // receiver), so the property is projected onto accessor methods rather than dropped.
         var module = ObjCModuleBuilder.Create()
             .WithCategory(new ObjCCategoryDecl
             {
@@ -3897,7 +3909,7 @@ public class ApiDefinitionEmitterTests
                         Name = "sd_currentImageURL",
                         Type = SimpleType("NSUrl", isPointer: true),
                         IsReadonly = true,
-                        IsClass = false, // instance property — should be skipped
+                        IsClass = false, // instance property — projected as an accessor method
                     }
                 ]
             })
@@ -3907,8 +3919,11 @@ public class ApiDefinitionEmitterTests
         Assert.Contains("[Category]", result);
         // Method emitted as extension method
         Assert.Contains("Sd_setImageWithURL(", result);
-        // Instance property skipped (CS0708)
-        Assert.DoesNotContain("Sd_currentImageURL", result);
+        // Instance property reachable through its accessor, on the property's own selector
+        Assert.Contains("[Export(\"sd_currentImageURL\")]", result);
+        Assert.Contains("NSUrl GetSd_currentImageURL();", result);
+        // …but never as an instance property (CS0708)
+        Assert.DoesNotContain("NSUrl Sd_currentImageURL {", result);
     }
 
     [Fact]
@@ -5504,6 +5519,910 @@ public class ApiDefinitionEmitterTests
 
         // The parent owns the member; the child inherits it rather than redeclaring it.
         Assert.Equal(1, CountOccurrences(result, "INSUrlThing Thing { get; }"));
+    }
+
+    // --- Category instance-property projection ---
+
+    [Fact]
+    public void Emit_CategoryWithMethodsAndInstanceProperties_ProjectsPropertiesAsAccessorMethods()
+    {
+        // The shape that used to lose half a library's surface in silence: a boxing/unboxing
+        // category whose boxing half is class METHODS (emitted) and whose unboxing half is readonly
+        // instance PROPERTIES. The instance properties are projected as accessor methods so both
+        // halves reach the consumer, and nothing is dropped.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "Boxing",
+                    ClassName = "NSValue",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "valueForSpan:",
+                            ReturnType = new ObjCTypeRef { Name = "NSValue", IsPointer = true },
+                            Parameters = [new ObjCParameterDecl { Name = "span", Type = new ObjCTypeRef { Name = "double" } }]
+                        }
+                    ],
+                    Properties =
+                    [
+                        new ObjCPropertyDecl { Name = "spanValue", Type = new ObjCTypeRef { Name = "double" }, IsReadonly = true },
+                        new ObjCPropertyDecl { Name = "scaleValue", Type = new ObjCTypeRef { Name = "double" }, IsReadonly = true }
+                    ]
+                }
+            ]
+        };
+
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+
+        // Class-method half still emits.
+        Assert.Contains("[Export(\"valueForSpan:\")]", result);
+        // Instance-property half survives as accessor methods carrying the property's own selector.
+        Assert.Contains("[Export(\"spanValue\")]", result);
+        Assert.Contains("double GetSpanValue();", result);
+        Assert.Contains("[Export(\"scaleValue\")]", result);
+        Assert.Contains("double GetScaleValue();", result);
+        // Never as instance properties — a bgen static extension class rejects those (CS0708).
+        Assert.DoesNotContain("double SpanValue {", result);
+        Assert.DoesNotContain("double ScaleValue {", result);
+        Assert.Empty(diagnostics.SkippedSymbols);
+    }
+
+    [Fact]
+    public void Emit_CategoryReadWriteInstanceProperty_ProjectsBothAccessors()
+    {
+        // A read-write category instance property loses nothing either: the setter projects as a
+        // second accessor method exporting the property's real setter selector.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "Extras",
+                    ClassName = "Widget",
+                    Properties =
+                    [
+                        new ObjCPropertyDecl
+                        {
+                            Name = "label",
+                            Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                            GetterSelector = "extraLabel",
+                            SetterSelector = "setExtraLabel:"
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+
+        Assert.Contains("[Export(\"extraLabel\")]", result);
+        Assert.Contains("string GetLabel();", result);
+        Assert.Contains("[Export(\"setExtraLabel:\")]", result);
+        Assert.Contains("void SetLabel(string value);", result);
+        Assert.Empty(diagnostics.SkippedSymbols);
+    }
+
+    [Fact]
+    public void Emit_CategoryInstancePropertyWithUnresolvableType_RecordsSkipAndKeepsMethods()
+    {
+        // Fail-closed: an accessor that cannot be projected soundly must be visible in the binding
+        // report rather than disappearing, and it must not take the category's methods with it.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "Extras",
+                    ClassName = "Widget",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "refresh",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true
+                        }
+                    ],
+                    Properties =
+                    [
+                        new ObjCPropertyDecl
+                        {
+                            Name = "gadget",
+                            Type = new ObjCTypeRef { Name = "ThirdPartyGadget", IsPointer = true },
+                            IsReadonly = true
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+
+        Assert.Contains("void Refresh();", result);
+        Assert.DoesNotContain("GetGadget", result);
+        var skip = Assert.Single(diagnostics.SkippedSymbols, s => s.SymbolName == "Gadget");
+        Assert.Equal("Property", skip.SymbolKind);
+        Assert.Equal(ObjCSkipReason.UnresolvableType, skip.Reason);
+    }
+
+    [Fact]
+    public void Emit_CategoryPointerValuedInstanceProperty_KeepsGetterAndRecordsSetterSkip()
+    {
+        // A pointer-to-value-type setter value would project as `out T`, which cannot carry the
+        // value INTO the call. The setter half drops with a record; the getter half still emits.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "Extras",
+                    ClassName = "Widget",
+                    Properties =
+                    [
+                        new ObjCPropertyDecl
+                        {
+                            Name = "cursor",
+                            Type = new ObjCTypeRef { Name = "double", IsPointer = true }
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+
+        Assert.Contains("GetCursor();", result);
+        Assert.DoesNotContain("SetCursor", result);
+        var skip = Assert.Single(diagnostics.SkippedSymbols, s => s.SymbolName == "setCursor");
+        Assert.Equal(ObjCSkipReason.UnsupportedConstruct, skip.Reason);
+    }
+
+    [Fact]
+    public void Emit_CategoryProjectedAccessorNameCollidingWithMethod_EmitsDistinctMembers()
+    {
+        // The projected name goes through the same dedup as any other method name, so a category
+        // method that already occupies `GetLabel` does not end up declared twice (CS0111).
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "Extras",
+                    ClassName = "Widget",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "getLabel",
+                            ReturnType = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                            IsInstanceMethod = true
+                        }
+                    ],
+                    Properties =
+                    [
+                        new ObjCPropertyDecl
+                        {
+                            Name = "label",
+                            Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                            IsReadonly = true
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+
+        // Both selectors survive, and no member signature is declared twice.
+        Assert.Contains("[Export(\"getLabel\")]", result);
+        Assert.Contains("[Export(\"label\")]", result);
+        Assert.Equal(1, CountOccurrences(result, "string GetLabel();"));
+    }
+
+    [Fact]
+    public void Emit_CategoryMethodSharingProjectedAccessorSelector_DropsMethodAndRecordsSkip()
+    {
+        // The projected accessors export the property's real ObjC selectors, so a category method
+        // exporting one of them is the SAME selector registered twice — which aborts the .NET
+        // registrar at launch. The method is dropped in favour of the property, exactly as on the
+        // class path.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "Extras",
+                    ClassName = "Widget",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "tintColor",
+                            ReturnType = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                            IsInstanceMethod = true
+                        },
+                        new ObjCMethodDecl
+                        {
+                            Selector = "setTintColor:",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true,
+                            Parameters = [new ObjCParameterDecl { Name = "color", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true } }]
+                        }
+                    ],
+                    Properties =
+                    [
+                        new ObjCPropertyDecl
+                        {
+                            Name = "tintColor",
+                            Type = new ObjCTypeRef { Name = "NSString", IsPointer = true }
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+
+        // Each selector is exported exactly once — by the projected accessor, not the method.
+        Assert.Equal(1, CountOccurrences(result, "[Export(\"tintColor\")]"));
+        Assert.Equal(1, CountOccurrences(result, "[Export(\"setTintColor:\")]"));
+        Assert.Contains("GetTintColor();", result);
+        Assert.Contains("SetTintColor(", result);
+        Assert.Equal(2, diagnostics.SkippedSymbols.Count(s => s.SymbolKind == "Method" && s.Reason == ObjCSkipReason.DuplicateSelector));
+    }
+
+    [Fact]
+    public void Emit_InstanceOnlyCategoryWithAllPropertiesUnresolvable_RecordsEmptyCategory()
+    {
+        // Nothing is projectable, so the category has no content at all — it must record
+        // EmptyCategory rather than opening an empty [Category] shell.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "Extras",
+                    ClassName = "Widget",
+                    Properties =
+                    [
+                        new ObjCPropertyDecl
+                        {
+                            Name = "helper",
+                            Type = new ObjCTypeRef { Name = "MysteryHelper", IsPointer = true },
+                            IsReadonly = true
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+
+        Assert.DoesNotContain("Widget_Extras", result);
+        Assert.Contains(diagnostics.SkippedSymbols, s => s.SymbolKind == "Category" && s.Reason == ObjCSkipReason.EmptyCategory);
+    }
+
+    // --- Superclass-chain property re-declaration ---
+
+    [Fact]
+    public void Emit_SubclassRedeclaresIdenticalInheritedProperty_DefersToInheritedMember()
+    {
+        // ObjC headers routinely re-declare an inherited property to restate a protocol
+        // conformance. bgen generates a real C# class deriving from its [BaseType], so re-emitting
+        // the member hides the inherited one (CS0108 in every consumer build). An identical
+        // re-declaration adds nothing, so the inherited member is kept and the copy is recorded.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "BaseShape",
+                    Properties = [new ObjCPropertyDecl { Name = "title", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true }, IsReadonly = true }]
+                },
+                new ObjCClassDecl
+                {
+                    Name = "DerivedShape",
+                    SuperclassName = "BaseShape",
+                    Properties = [new ObjCPropertyDecl { Name = "title", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true }, IsReadonly = true }]
+                }
+            ]
+        };
+
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+
+        Assert.Equal(1, CountOccurrences(result, "string Title { get; }"));
+        Assert.DoesNotContain("[New]", result);
+        var skip = Assert.Single(diagnostics.SkippedSymbols, s => s.SymbolName == "Title");
+        Assert.Equal("Property", skip.SymbolKind);
+        Assert.Contains("BaseShape", skip.Detail);
+    }
+
+    [Fact]
+    public void Emit_SubclassNarrowsInheritedReadWriteProperty_DefersToWiderInheritedMember()
+    {
+        // The live regression: headers re-declare an inherited read-write property read-only to
+        // restate a protocol conformance. Emitting that copy hides the base member and makes the
+        // setter unreachable through a subclass-typed variable. The widest surface wins — here the
+        // base already IS the widest, so the subclass keeps inheriting it and nothing is hidden.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "BaseShape",
+                    Properties = [new ObjCPropertyDecl
+                    {
+                        Name = "title",
+                        Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                        SetterSelector = "setDisplayTitle:"
+                    }]
+                },
+                new ObjCClassDecl
+                {
+                    Name = "DerivedShape",
+                    SuperclassName = "BaseShape",
+                    Properties = [new ObjCPropertyDecl
+                    {
+                        Name = "title",
+                        Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                        IsReadonly = true
+                    }]
+                }
+            ]
+        };
+
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+
+        // Exactly one Title member survives — the base's, still read-write on its own selector —
+        // so nothing is hidden (no CS0108) and the setter stays reachable from the subclass.
+        Assert.Equal(1, CountOccurrences(result, "[Export(\"setDisplayTitle:\")] set;"));
+        Assert.DoesNotContain("[New]", result);
+        var skip = Assert.Single(diagnostics.SkippedSymbols, s => s.SymbolName == "Title");
+        Assert.Contains("BaseShape", skip.Detail);
+    }
+
+    [Fact]
+    public void Emit_SubclassRetypedReadonlyRedeclaration_EmitsNewAndRecordsUnprojectableSetter()
+    {
+        // A re-declaration that changes the bound type has to emit, and it hides a read-write
+        // ancestor member. The inherited setter CANNOT be re-exported here: it takes the ancestor's
+        // type, so sending its selector with this member's type would be a message the ancestor's
+        // implementation cannot decode. The accessor is recorded as lost instead.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "BaseShape",
+                    Properties = [new ObjCPropertyDecl
+                    {
+                        Name = "tag",
+                        Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                        SetterSelector = "setDisplayTag:"
+                    }]
+                },
+                new ObjCClassDecl
+                {
+                    Name = "DerivedShape",
+                    SuperclassName = "BaseShape",
+                    Properties = [new ObjCPropertyDecl
+                    {
+                        Name = "tag",
+                        Type = new ObjCTypeRef { Name = "NSNumber", IsPointer = true },
+                        IsReadonly = true
+                    }]
+                }
+            ]
+        };
+
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+
+        Assert.Contains("[New]", result);
+        Assert.Contains("NSNumber Tag { get; }", result);
+        // Only the base member exports the setter — the retyped re-declaration does not claim it.
+        Assert.Equal(1, CountOccurrences(result, "[Export(\"setDisplayTag:\")] set;"));
+        var skip = Assert.Single(diagnostics.SkippedSymbols, s => s.SymbolName == "setTag");
+        Assert.Equal(ObjCSkipReason.UnsupportedConstruct, skip.Reason);
+        Assert.Contains("BaseShape", skip.Detail);
+    }
+
+    [Fact]
+    public void Emit_SubclassWidensInheritedReadonlyProperty_EmitsNewWithSetter()
+    {
+        // The mirror case: the base is read-only and the subclass adds a setter. The subclass
+        // member is genuinely wider, so it emits — marked [New] because it hides the base member.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "BaseShape",
+                    Properties = [new ObjCPropertyDecl { Name = "title", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true }, IsReadonly = true }]
+                },
+                new ObjCClassDecl
+                {
+                    Name = "DerivedShape",
+                    SuperclassName = "BaseShape",
+                    Properties = [new ObjCPropertyDecl { Name = "title", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true } }]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+
+        Assert.Contains("[New]", result);
+        Assert.Contains("[Export(\"setTitle:\")] set;", result);
+    }
+
+    [Fact]
+    public void Emit_SubclassRedeclaresInheritedPropertyWithDifferentType_EmitsNew()
+    {
+        // A re-declaration that changes the bound type is not a duplicate — it must emit, and it
+        // must announce the hiding.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "BaseShape",
+                    Properties = [new ObjCPropertyDecl { Name = "tag", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true }, IsReadonly = true }]
+                },
+                new ObjCClassDecl
+                {
+                    Name = "DerivedShape",
+                    SuperclassName = "BaseShape",
+                    Properties = [new ObjCPropertyDecl { Name = "tag", Type = new ObjCTypeRef { Name = "NSNumber", IsPointer = true }, IsReadonly = true }]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+
+        Assert.Contains("string Tag { get; }", result);
+        Assert.Contains("[New]", result);
+        Assert.Contains("NSNumber Tag { get; }", result);
+    }
+
+    [Fact]
+    public void Emit_GrandparentPropertyRedeclaration_DefersToInheritedMember()
+    {
+        // The walk is transitive: the member may come from any ancestor, not just the direct base.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "RootShape",
+                    Properties = [new ObjCPropertyDecl { Name = "title", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true }, IsReadonly = true }]
+                },
+                new ObjCClassDecl { Name = "MiddleShape", SuperclassName = "RootShape" },
+                new ObjCClassDecl
+                {
+                    Name = "LeafShape",
+                    SuperclassName = "MiddleShape",
+                    Properties = [new ObjCPropertyDecl { Name = "title", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true }, IsReadonly = true }]
+                }
+            ]
+        };
+
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+
+        Assert.Equal(1, CountOccurrences(result, "string Title { get; }"));
+        var skip = Assert.Single(diagnostics.SkippedSymbols, s => s.SymbolName == "Title");
+        Assert.Contains("RootShape", skip.Detail);
+    }
+
+    [Fact]
+    public void Emit_SubclassOfForeignSuperclass_EmitsPropertyUnchanged()
+    {
+        // A superclass outside this module exposes no members the walk can see, so the emitter
+        // degrades to plain emission rather than guessing what the foreign base declares.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["UIView"] = "UIKit" },
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "DerivedView",
+                    SuperclassName = "UIView",
+                    Properties = [new ObjCPropertyDecl { Name = "title", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true }, IsReadonly = true }]
+                }
+            ]
+        };
+
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+
+        Assert.Contains("string Title { get; }", result);
+        Assert.DoesNotContain("[New]", result);
+        Assert.Empty(diagnostics.SkippedSymbols);
+    }
+
+    [Fact]
+    public void Emit_SubclassRedeclaresIdenticalDelegateProperty_DefersToInheritedPair()
+    {
+        // A delegate property emits as a [Wrap] + weak pair. An identical re-declaration adds
+        // nothing, so — exactly as for a plain property — the inherited pair is kept rather than
+        // hidden by a second copy.
+        var module = BuildDelegateRedeclarationModule(baseIsReadonly: false, derivedIsReadonly: false);
+
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+
+        Assert.DoesNotContain("[New]", result);
+        Assert.Equal(1, CountOccurrences(result, "ShapeDelegate Delegate {"));
+        Assert.Equal(1, CountOccurrences(result, "NSObject WeakDelegate {"));
+        var skip = Assert.Single(diagnostics.SkippedSymbols, s => s.SymbolName == "Delegate");
+        Assert.Contains("BaseShape", skip.Detail);
+    }
+
+    [Fact]
+    public void Emit_SubclassNarrowsInheritedDelegateProperty_DefersToWiderInheritedPair()
+    {
+        // The delegate path takes the same widest-surface rule as a plain property: a read-only
+        // re-declaration over a read-write base must not hide the base's setters.
+        var module = BuildDelegateRedeclarationModule(baseIsReadonly: false, derivedIsReadonly: true);
+
+        var result = EmitAndRead(module);
+
+        Assert.DoesNotContain("[New]", result);
+        // The surviving pair is the base's, still writable.
+        Assert.Equal(1, CountOccurrences(result, "ShapeDelegate Delegate { get; set; }"));
+        Assert.Equal(1, CountOccurrences(result, "[Export(\"setDelegate:\")] set;"));
+    }
+
+    [Fact]
+    public void Emit_SubclassWidensInheritedDelegateProperty_MarksBothHalvesNew()
+    {
+        // A genuinely wider re-declaration emits, hiding TWO base members — so both halves of the
+        // pair need the `new` keyword.
+        var module = BuildDelegateRedeclarationModule(baseIsReadonly: true, derivedIsReadonly: false);
+
+        var result = EmitAndRead(module);
+
+        // One [New] for the [Wrap] property, one for its weak backing property.
+        Assert.Equal(2, CountOccurrences(result, "[New]"));
+        Assert.Contains("ShapeDelegate Delegate { get; set; }", result);
+    }
+
+    static ObjCModule BuildDelegateRedeclarationModule(bool baseIsReadonly, bool derivedIsReadonly) => new()
+    {
+        ModuleName = "Test",
+        Protocols =
+        [
+            new ObjCProtocolDecl { Name = "ShapeDelegate", IsDelegateProtocol = true }
+        ],
+        Classes =
+        [
+            new ObjCClassDecl
+            {
+                Name = "BaseShape",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "delegate",
+                    Type = new ObjCTypeRef { Name = "id", IsPointer = true, ProtocolQualifications = ["ShapeDelegate"] },
+                    IsReadonly = baseIsReadonly
+                }]
+            },
+            new ObjCClassDecl
+            {
+                Name = "DerivedShape",
+                SuperclassName = "BaseShape",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "delegate",
+                    Type = new ObjCTypeRef { Name = "id", IsPointer = true, ProtocolQualifications = ["ShapeDelegate"] },
+                    IsReadonly = derivedIsReadonly
+                }]
+            }
+        ]
+    };
+
+    [Fact]
+    public void Emit_SubclassInstancePropertyOverInheritedClassProperty_EmitsNewWithoutDropping()
+    {
+        // `+tally` and `-tally` are DIFFERENT ObjC selectors and different C# members, so the
+        // instance member is not a duplicate of the inherited static one — dropping it would delete
+        // reachable API. It emits, marked [New] to declare the C#-level hiding.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "BaseShape",
+                    Properties = [new ObjCPropertyDecl { Name = "tally", Type = new ObjCTypeRef { Name = "NSInteger" }, IsReadonly = true, IsClass = true }]
+                },
+                new ObjCClassDecl
+                {
+                    Name = "DerivedShape",
+                    SuperclassName = "BaseShape",
+                    Properties = [new ObjCPropertyDecl { Name = "tally", Type = new ObjCTypeRef { Name = "NSInteger" }, IsReadonly = true }]
+                }
+            ]
+        };
+
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+
+        Assert.Equal(2, CountOccurrences(result, "nint Tally { get; }"));
+        Assert.Contains("[New]", result);
+        Assert.DoesNotContain(diagnostics.SkippedSymbols, s => s.SymbolName == "Tally");
+    }
+
+    [Fact]
+    public void Emit_SubclassRedeclarationRenamingGetter_EmitsNewAndKeepsBothSelectors()
+    {
+        // `getter=childValue` exports a DIFFERENT ObjC selector than the inherited `baseValue`, so
+        // the inherited member cannot stand in for it — deferring would delete a reachable selector.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "BaseShape",
+                    Properties = [new ObjCPropertyDecl
+                    {
+                        Name = "value",
+                        Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                        GetterSelector = "baseValue",
+                        IsReadonly = true
+                    }]
+                },
+                new ObjCClassDecl
+                {
+                    Name = "DerivedShape",
+                    SuperclassName = "BaseShape",
+                    Properties = [new ObjCPropertyDecl
+                    {
+                        Name = "value",
+                        Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                        GetterSelector = "childValue",
+                        IsReadonly = true
+                    }]
+                }
+            ]
+        };
+
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+
+        Assert.Contains("[Bind(\"baseValue\")]", result);
+        Assert.Contains("[Bind(\"childValue\")]", result);
+        Assert.Equal(1, CountOccurrences(result, "[New]"));
+        Assert.DoesNotContain(diagnostics.SkippedSymbols, s => s.SymbolName == "Value");
+    }
+
+    [Fact]
+    public void Emit_SubclassRedeclarationRenamingSetter_EmitsNewAndKeepsBothSelectors()
+    {
+        // Same rule on the write half: a renamed setter is a distinct selector, so the read-write
+        // re-declaration is not covered by the inherited member.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "BaseShape",
+                    Properties = [new ObjCPropertyDecl
+                    {
+                        Name = "value",
+                        Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                        SetterSelector = "setBaseValue:"
+                    }]
+                },
+                new ObjCClassDecl
+                {
+                    Name = "DerivedShape",
+                    SuperclassName = "BaseShape",
+                    Properties = [new ObjCPropertyDecl
+                    {
+                        Name = "value",
+                        Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                        SetterSelector = "setChildValue:"
+                    }]
+                }
+            ]
+        };
+
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+
+        Assert.Contains("[Export(\"setBaseValue:\")] set;", result);
+        Assert.Contains("[Export(\"setChildValue:\")] set;", result);
+        Assert.Equal(1, CountOccurrences(result, "[New]"));
+        Assert.DoesNotContain(diagnostics.SkippedSymbols, s => s.SymbolName == "Value");
+    }
+
+    [Fact]
+    public void Emit_ParallelClassAndInstanceMembersInChain_ClassifyIndependently()
+    {
+        // A class and an instance member can be inherited under ONE C# name. The middle class's
+        // static member must not displace the root's instance member in the walk, or the leaf's
+        // instance re-declaration would be classified against the wrong one and hide the root's
+        // writable member.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "RootShape",
+                    Properties = [new ObjCPropertyDecl { Name = "value", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true } }]
+                },
+                new ObjCClassDecl
+                {
+                    Name = "MiddleShape",
+                    SuperclassName = "RootShape",
+                    Properties = [new ObjCPropertyDecl { Name = "value", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true }, IsReadonly = true, IsClass = true }]
+                },
+                new ObjCClassDecl
+                {
+                    Name = "LeafShape",
+                    SuperclassName = "MiddleShape",
+                    Properties = [new ObjCPropertyDecl { Name = "value", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true }, IsReadonly = true }]
+                }
+            ]
+        };
+
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+
+        // The root's writable instance member survives, and the leaf defers to it rather than
+        // hiding it with a read-only copy.
+        Assert.Equal(1, CountOccurrences(result, "[Export(\"setValue:\")] set;"));
+        Assert.Contains("[Static]", result);
+        var skip = Assert.Single(diagnostics.SkippedSymbols, s => s.SymbolName == "Value");
+        Assert.Contains("RootShape", skip.Detail);
+        Assert.DoesNotContain(diagnostics.SkippedSymbols, s => s.SymbolName == "setValue");
+    }
+
+    [Fact]
+    public void Emit_InstanceRedeclarationOverInheritedReadWriteClassProperty_RecordsNoSetterLoss()
+    {
+        // `+tally` and `-tally` are different selectors, so a read-only instance declaration does
+        // not narrow the inherited STATIC setter — nothing is lost and nothing must be recorded.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "BaseShape",
+                    Properties = [new ObjCPropertyDecl { Name = "tally", Type = new ObjCTypeRef { Name = "NSInteger" }, IsClass = true }]
+                },
+                new ObjCClassDecl
+                {
+                    Name = "DerivedShape",
+                    SuperclassName = "BaseShape",
+                    Properties = [new ObjCPropertyDecl { Name = "tally", Type = new ObjCTypeRef { Name = "NSInteger" }, IsReadonly = true }]
+                }
+            ]
+        };
+
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+
+        Assert.Contains("[New]", result);
+        Assert.Contains("nint Tally { get; }", result);
+        Assert.Empty(diagnostics.SkippedSymbols);
+    }
+
+    [Fact]
+    public void Emit_MiddleClassDeferredRedeclaration_LeafStillDefersToRootMember()
+    {
+        // The map must describe the member a subclass really inherits, not the raw declarations of
+        // every ancestor. The middle class defers (its read-only copy adds nothing), so the name
+        // keeps resolving to the root's read-write member — and the leaf must defer to THAT, not
+        // hide a middle member that was never emitted.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "RootShape",
+                    Properties = [new ObjCPropertyDecl
+                    {
+                        Name = "tag",
+                        Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                        SetterSelector = "setDisplayTag:"
+                    }]
+                },
+                new ObjCClassDecl
+                {
+                    Name = "MiddleShape",
+                    SuperclassName = "RootShape",
+                    Properties = [new ObjCPropertyDecl { Name = "tag", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true }, IsReadonly = true }]
+                },
+                new ObjCClassDecl
+                {
+                    Name = "LeafShape",
+                    SuperclassName = "MiddleShape",
+                    Properties = [new ObjCPropertyDecl { Name = "tag", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true }, IsReadonly = true }]
+                }
+            ]
+        };
+
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+
+        Assert.Equal(1, CountOccurrences(result, "[Export(\"setDisplayTag:\")] set;"));
+        Assert.DoesNotContain("[New]", result);
+        // Both re-declarations defer, and both name the root as the owner they deferred to.
+        Assert.Equal(2, diagnostics.SkippedSymbols.Count(s => s.SymbolName == "Tag"));
+        Assert.All(diagnostics.SkippedSymbols.Where(s => s.SymbolName == "Tag"), s => Assert.Contains("RootShape", s.Detail));
+    }
+
+    [Fact]
+    public void Emit_MiddleClassWidenedRedeclaration_LeafDefersToMiddleMember()
+    {
+        // The mirror: the middle class widens the root's read-only member, so it DOES emit and the
+        // name now resolves to the middle's read-write member. An identical leaf re-declaration
+        // defers to that one.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "RootShape",
+                    Properties = [new ObjCPropertyDecl { Name = "tag", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true }, IsReadonly = true }]
+                },
+                new ObjCClassDecl
+                {
+                    Name = "MiddleShape",
+                    SuperclassName = "RootShape",
+                    Properties = [new ObjCPropertyDecl { Name = "tag", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true } }]
+                },
+                new ObjCClassDecl
+                {
+                    Name = "LeafShape",
+                    SuperclassName = "MiddleShape",
+                    Properties = [new ObjCPropertyDecl { Name = "tag", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true } }]
+                }
+            ]
+        };
+
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+
+        // Middle's widening member is the only writable Tag; the leaf copy is deferred to it.
+        Assert.Equal(1, CountOccurrences(result, "[Export(\"setTag:\")] set;"));
+        Assert.Equal(1, CountOccurrences(result, "[New]"));
+        var skip = Assert.Single(diagnostics.SkippedSymbols, s => s.SymbolName == "Tag");
+        Assert.Contains("MiddleShape", skip.Detail);
     }
 
     static int CountOccurrences(string haystack, string needle)

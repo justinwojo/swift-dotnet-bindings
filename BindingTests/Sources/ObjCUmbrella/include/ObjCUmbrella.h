@@ -212,4 +212,50 @@ typedef id<OUElement> _Nonnull (^OUElementFactory)(NSInteger index);
 - (BOOL)acceptsInterfaceStyle:(UIUserInterfaceStyle)style;
 @end
 
+// MARK: - Shape 10 — a category on a system class mixing class methods with INSTANCE properties.
+//
+// The boxing/unboxing category shape: the boxing half is class methods, the unboxing half is
+// instance properties. bgen compiles a `[Category]` into a static extension class, which cannot
+// hold an instance PROPERTY (CS0708) but does hold an instance METHOD (it becomes an extension
+// method carrying the receiver) — so the instance properties are projected onto accessor methods
+// (`GetOu_spanValue()` / `SetOu_spanRank(…)`) rather than dropped. Filtering them out instead
+// silently deletes half a library's surface: consumers could box and never unbox. This shape is
+// here because the ONLY proof the projection is legal is bgen itself accepting it, which the
+// compile gate runs; the emitter unit tests cover the projection's shape and its skip records.
+@interface NSValue (OUBoxing)
++ (NSValue *)ou_valueWithSpan:(double)span;
+// Readonly — projects to a getter method alone.
+@property (nonatomic, readonly) double ou_spanValue;
+// Read-write — projects to the getter/setter method pair, on the property's real selectors.
+@property (nonatomic, assign) NSInteger ou_spanRank;
+@end
+
+// MARK: - Shape 11 — a subclass re-declaring an inherited property.
+//
+// ObjC headers routinely re-declare an inherited property to restate a protocol conformance, and
+// bgen generates a class binding as a real C# class deriving from its `[BaseType]` — so re-emitting
+// the member HIDES the inherited one: CS0108 in every consumer build, and, when the re-declaration
+// narrows a read-write base to readonly, the setter becomes unreachable through a subclass-typed
+// variable. `title` is that narrowing case (the emitter must defer to the wider inherited member),
+// `rank` is the widening case (the subclass member is genuinely wider, so it emits and must carry
+// the `new` keyword). Whether bgen accepts `[New]` on a property is only answerable by running it,
+// which is what the compile gate does here.
+@protocol OUTitled <NSObject>
+@property (nonatomic, copy, readonly) NSString *title;
+@end
+
+@interface OUShape : NSObject
+@property (nonatomic, copy) NSString *title;
+@property (nonatomic, readonly) NSInteger rank;
+@end
+
+@interface OUPolyShape : OUShape <OUTitled>
+// Narrowed to readonly to satisfy OUTitled — must NOT narrow the binding's surface. clang itself
+// flags this line (-Wproperty-attribute-mismatch); the warning IS the shape under test, and it is
+// exactly what real headers ship.
+@property (nonatomic, copy, readonly) NSString *title;
+// Widened to read-write — a genuine addition, so it emits over the inherited member.
+@property (nonatomic, assign) NSInteger rank;
+@end
+
 NS_ASSUME_NONNULL_END

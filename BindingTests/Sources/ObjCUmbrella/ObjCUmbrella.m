@@ -2,6 +2,9 @@
 // Licensed under the MIT License.
 
 #import "ObjCUmbrella.h"
+// Shape 10's read-write category property needs associated-object storage: an ObjC category
+// cannot add an ivar.
+#import <objc/runtime.h>
 
 // Shape 2 — the genuinely-exported C function (the inline sibling is header-only).
 int32_t OUExportedTriple(int32_t x) { return x * 3; }
@@ -143,4 +146,36 @@ int32_t OUExportedTriple(int32_t x) { return x * 3; }
 - (BOOL)acceptsInterfaceStyle:(UIUserInterfaceStyle)style {
     return style == UIUserInterfaceStyleDark;
 }
+@end
+
+// Shape 10 — the boxing half is a class method, the unboxing half instance properties.
+@implementation NSValue (OUBoxing)
++ (NSValue *)ou_valueWithSpan:(double)span {
+    return [NSValue valueWithBytes:&span objCType:@encode(double)];
+}
+- (double)ou_spanValue {
+    double span = 0;
+    if (strcmp(self.objCType, @encode(double)) == 0) {
+        [self getValue:&span size:sizeof(span)];
+    }
+    return span;
+}
+- (NSInteger)ou_spanRank {
+    NSNumber *rank = objc_getAssociatedObject(self, @selector(ou_spanRank));
+    return rank.integerValue;
+}
+- (void)setOu_spanRank:(NSInteger)rank {
+    objc_setAssociatedObject(self, @selector(ou_spanRank), @(rank), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+@end
+
+// Shape 11 — the base owns the wide `title`; the subclass owns the widened `rank`.
+@implementation OUShape
+- (NSInteger)rank { return 1; }
+@end
+
+@implementation OUPolyShape
+// `title` is the superclass's member — the subclass declaration only restates the conformance.
+@dynamic title;
+@synthesize rank = _rank;
 @end

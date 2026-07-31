@@ -126,8 +126,13 @@ public static class ApiDefinitionEmitter
         // [BaseType(typeof(X))] would otherwise reference a missing type.
         var droppedClassReasons = ComputeUnresolvableBaseClasses(module, knownTypes, appleSdkTypes);
         var droppedClassNames = new HashSet<string>(droppedClassReasons.Keys, StringComparer.Ordinal);
+        // Superclass lookup for the inherited-property walk in EmitClass. First declaration wins so
+        // the map agrees with emission, which also takes the first of a duplicated name.
+        var classesByName = new Dictionary<string, ObjCClassDecl>(StringComparer.Ordinal);
         foreach (var cls in module.Classes)
-            EmitClass(sb, cls, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, localProtocolNames, classProtocolClashNames, delegateProtocolNames, enumNames, droppedClassReasons, protocolsByName, logger, diagnostics);
+            classesByName.TryAdd(cls.Name, cls);
+        foreach (var cls in module.Classes)
+            EmitClass(sb, cls, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, localProtocolNames, classProtocolClashNames, delegateProtocolNames, enumNames, droppedClassReasons, protocolsByName, classesByName, logger, diagnostics);
 
         foreach (var cat in module.Categories)
             EmitCategory(sb, cat, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, enumNames, droppedClassNames, localProtocolNames, classProtocolClashNames, logger, diagnostics);
@@ -324,7 +329,7 @@ public static class ApiDefinitionEmitter
         sb.AppendLine();
     }
 
-    static void EmitClass(StringBuilder sb, ObjCClassDecl cls, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, HashSet<string>? delegateProtocolNames, HashSet<string>? enumNames, IReadOnlyDictionary<string, string>? droppedClassReasons, Dictionary<string, ObjCProtocolDecl>? protocolsByName, ILogger logger, ObjCBindingDiagnostics? diagnostics)
+    static void EmitClass(StringBuilder sb, ObjCClassDecl cls, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, HashSet<string>? delegateProtocolNames, HashSet<string>? enumNames, IReadOnlyDictionary<string, string>? droppedClassReasons, Dictionary<string, ObjCProtocolDecl>? protocolsByName, IReadOnlyDictionary<string, ObjCClassDecl>? classesByName, ILogger logger, ObjCBindingDiagnostics? diagnostics)
     {
         // Resolvability gate (must run before any emission): drop the class if it's in the
         // precomputed unresolvable-base-class set — the fixpoint closure of classes whose base type
@@ -453,17 +458,66 @@ public static class ApiDefinitionEmitter
             if (emittedName != null) emittedMemberNames.Add(emittedName);
         }
 
+        // Members the RESOLVED superclass chain already emits. bgen generates a class binding as a
+        // real C# class deriving from its [BaseType], so a property this class re-declares (ObjC
+        // headers routinely re-declare an inherited property to restate a protocol conformance)
+        // becomes a member HIDING the inherited one: CS0108 in every consumer build, and — when the
+        // re-declaration is read-only over a read-write base — the setter becomes unreachable
+        // through a subclass-typed variable. The chain is walked here so the loop below can either
+        // defer to the inherited member — when the re-declaration adds nothing it doesn't already
+        // offer — or hide it deliberately, recording whatever the hiding costs.
+        var inheritedProperties = BuildInheritedClassPropertyMap(cls, classesByName, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, localProtocolNames, classProtocolClashNames, delegateProtocolNames);
+
         // Emit properties, with WeakDelegate/Wrap pattern for delegate properties (Fix #8)
         foreach (var prop in cls.Properties)
         {
-            if (IsDelegateProperty(prop, delegateProtocolNames))
+            var propName = ToPascalCase(prop.Name);
+            // The C# type the emitted member will carry — the [Wrap]'d protocol name for a delegate
+            // property, the mapped property type otherwise. The re-declaration comparison must be
+            // made against what is EMITTED, so both member shapes classify on the same axis.
+            var delegateProtocol = IsDelegateProperty(prop, delegateProtocolNames)
+                ? ResolveDelegateProtocolName(prop, delegateProtocolNames)
+                : null;
+            var mappedType = delegateProtocol != null
+                ? ObjCTypeMapper.MapProtocolName(delegateProtocol, classProtocolClashNames)
+                : ObjCTypeMapper.MapType(prop.Type, classDeclarationName, classGenericParams, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames);
+
+            var emitNew = false;
+            if (inheritedProperties.TryGetValue(propName, out var inheritedMembers))
             {
-                EmitWeakDelegatePattern(sb, prop, delegateProtocolNames, classProtocolClashNames, emittedMemberNames, emittedPropertyNames);
+                // C# hiding is name-based, so ANY inherited member of this name means the
+                // declaration needs `new`; the defer/widest-surface decision, in contrast, is made
+                // only against the member of the SAME ObjC dispatch kind — an inherited `+foo`
+                // cannot stand in for a declared `-foo`, so deferring across kinds would delete
+                // reachable API.
+                emitNew = true;
+                if (inheritedMembers.OfKind(prop.IsClass) is { } inherited)
+                {
+                    var (getterSelector, setterSelector) = PropertyAccessorSelectors(prop);
+                    if (ClassifyRedeclaration(inherited, mappedType, prop.IsReadonly, getterSelector, setterSelector) == RedeclarationDisposition.Defer)
+                    {
+                        logger.LogDebug("Skipping property {PropName} on {Class}: re-declaration of the member inherited from {Owner}", propName, cls.Name, inherited.OwnerClassName);
+                        diagnostics?.RecordSkip("Property", propName, ObjCSkipReason.DuplicateSelector, $"re-declaration of inherited '{inherited.OwnerClassName}.{propName}' on '{cls.Name}' (kept the inherited member, which is at least as wide)");
+                        continue;
+                    }
+                    // Hiding a read-write ancestor member with a read-only one makes the setter
+                    // unreachable through a subclass-typed variable. It cannot be re-exported here:
+                    // this member differs from the inherited one in type or accessor selector (an
+                    // otherwise-identical re-declaration would have deferred above), so re-using
+                    // the ancestor's setter selector would send a message its implementation cannot
+                    // decode. Record the lost accessor instead of silently narrowing.
+                    if (prop.IsReadonly && !inherited.IsReadonly)
+                    {
+                        logger.LogDebug("Setter for {PropName} on {Class} is not projected: read-only re-declaration hides the read-write member inherited from {Owner}", propName, cls.Name, inherited.OwnerClassName);
+                        diagnostics?.RecordSkip("Property", $"set{propName}", ObjCSkipReason.UnsupportedConstruct, $"read-only re-declaration of '{propName}' on '{cls.Name}' hides the read-write '{inherited.OwnerClassName}.{propName}', whose setter takes the inherited declaration's type and selector (set through '{inherited.OwnerClassName}')");
+                    }
+                }
             }
+
+            if (delegateProtocol != null)
+                EmitWeakDelegatePattern(sb, prop, delegateProtocolNames, classProtocolClashNames, emittedMemberNames, emittedPropertyNames, inheritedProperties, emitNew);
             else
-            {
-                EmitProperty(sb, prop, declaringClassName: classDeclarationName, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMemberNames: emittedMemberNames, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics);
-            }
+                EmitProperty(sb, prop, declaringClassName: classDeclarationName, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMemberNames: emittedMemberNames, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics, emitNew: emitNew);
         }
 
         sb.AppendLine("    }");
@@ -483,30 +537,39 @@ public static class ApiDefinitionEmitter
         // MAUI bgen compiles [Category] interfaces into static extension classes.
         // Constraints: static classes cannot implement interfaces (CS0714) and
         // cannot have instance properties (CS0708). Only instance methods and
-        // class (static) properties are valid members.
+        // class (static) properties are valid members — an instance PROPERTY is
+        // recovered as instance accessor METHODS instead (see the projection below),
+        // which are legal members of a static extension class.
         // Filter out init methods — MAUI category interfaces cannot declare constructors.
         var emittableMethods = cat.Methods
             .Where(m => m.Selector != "init" && !m.Selector.StartsWith("initWith", StringComparison.Ordinal))
             .ToList();
         var emittableClassProperties = cat.Properties.Where(p => p.IsClass).ToList();
-
-        // Skip category entirely if it has no emittable content
-        if (emittableMethods.Count == 0 && emittableClassProperties.Count == 0)
-        {
-            diagnostics?.RecordSkip("Category", $"{cat.ClassName}.{cat.CategoryName}", ObjCSkipReason.EmptyCategory,
-                cat.ProtocolNames.Count > 0
-                    ? $"protocol-only category ({string.Join(", ", cat.ProtocolNames)}) — static classes cannot implement interfaces"
-                    : "no emittable members (instance properties not supported in static extension classes)");
-            return;
-        }
-
-        ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, cat.Availability, "    ");
-        sb.AppendLine("    [Category]");
+        var categoryGenericParams = cat.GenericTypeParamNames.Count > 0
+            ? new HashSet<string>(cat.GenericTypeParamNames)
+            : null;
         // One mapped spelling for the extended class, used by every reference below: the [BaseType]
         // target, the generated interface name, and `declaringClassName` (which is what `instancetype`
         // resolves to). Passing the raw ObjC name to any of them dangles once the acronym convention
         // renames the class declaration.
         var categoryClassName = ObjCTypeMapper.MapClassName(cat.ClassName);
+        // Resolve the instance-property projection BEFORE anything is emitted: the accessors it
+        // will actually produce decide both whether this category has any content at all and which
+        // ObjC selectors it claims (which the method loop below must not export a second time).
+        var instanceAccessorPlans = PlanCategoryInstancePropertyAccessors(cat, categoryClassName, categoryGenericParams, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, enumNames, localProtocolNames, classProtocolClashNames, logger, diagnostics);
+
+        // Skip category entirely if it has no emittable content
+        if (emittableMethods.Count == 0 && emittableClassProperties.Count == 0 && instanceAccessorPlans.Count == 0)
+        {
+            diagnostics?.RecordSkip("Category", $"{cat.ClassName}.{cat.CategoryName}", ObjCSkipReason.EmptyCategory,
+                cat.ProtocolNames.Count > 0
+                    ? $"protocol-only category ({string.Join(", ", cat.ProtocolNames)}) — static classes cannot implement interfaces"
+                    : "no emittable members");
+            return;
+        }
+
+        ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, cat.Availability, "    ");
+        sb.AppendLine("    [Category]");
         sb.AppendLine($"    [BaseType(typeof({categoryClassName}))]");
 
         // Strip protocol conformance — static classes cannot implement interfaces (CS0714)
@@ -514,43 +577,163 @@ public static class ApiDefinitionEmitter
         sb.AppendLine($"    partial interface {interfaceName}");
         sb.AppendLine("    {");
 
-        var categoryGenericParams = cat.GenericTypeParamNames.Count > 0
-            ? new HashSet<string>(cat.GenericTypeParamNames)
-            : null;
-
         var emittedMethodSignatures = new HashSet<string>();
         var emittedMemberNames = new HashSet<string>();
         var emittedPropertyNames = new HashSet<string>();
 
-        // Categories emit only class (static) properties; pre-seed their names + accessor selectors
-        // before the method loop for the same method-vs-property collision reasons as EmitClass.
-        var emittableCategoryProperties = cat.Properties
-            .Where(p => p.IsClass)
+        // Categories emit class (static) properties AS properties; pre-seed their names + accessor
+        // selectors before the method loop for the same method-vs-property collision reasons as
+        // EmitClass.
+        var emittableCategoryProperties = emittableClassProperties
             .Where(p => WouldEmitProperty(p, categoryClassName, categoryGenericParams, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames, knownTypes, appleSdkTypes))
             .ToList();
         foreach (var prop in emittableCategoryProperties)
             emittedPropertyNames.Add(ToPascalCase(prop.Name));
         var categoryAccessorSelectors = BuildPropertyAccessorSelectors(emittableCategoryProperties);
 
+        // The projected instance accessors export the very selectors the instance property would
+        // have exported, so they claim them exactly like a property does. Folding them into the
+        // collision set BEFORE the method loop is what keeps a category that declares both a method
+        // `-tintColor` and a property `tintColor` from exporting that selector twice — a duplicate
+        // registration that aborts the .NET registrar at launch.
+        foreach (var plan in instanceAccessorPlans)
+        {
+            categoryAccessorSelectors.Instance.Add(plan.GetterSelector);
+            if (plan.SetterSelector != null)
+                categoryAccessorSelectors.Instance.Add(plan.SetterSelector);
+        }
+
         foreach (var method in emittableMethods)
         {
             if (CollidesWithPropertyAccessor(method, categoryAccessorSelectors))
             {
-                logger.LogDebug("Skipping method {Selector} on category {Class}_{Category}: selector also exported by a class property accessor", method.Selector, cat.ClassName, cat.CategoryName);
-                diagnostics?.RecordSkip("Method", method.Selector, ObjCSkipReason.DuplicateSelector, $"selector also exported by a class property accessor on category '{cat.ClassName}.{cat.CategoryName}' (kept the property)");
+                logger.LogDebug("Skipping method {Selector} on category {Class}_{Category}: selector also exported by a property accessor", method.Selector, cat.ClassName, cat.CategoryName);
+                diagnostics?.RecordSkip("Method", method.Selector, ObjCSkipReason.DuplicateSelector, $"selector also exported by a property accessor on category '{cat.ClassName}.{cat.CategoryName}' (kept the property)");
                 continue;
             }
             var emittedName = EmitMethod(sb, method, declaringClassName: categoryClassName, isProtocol: false, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, enumNames: enumNames, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics);
             if (emittedName != null) emittedMemberNames.Add(emittedName);
         }
 
-        // Skip instance properties — static classes cannot have instance members (CS0708).
-        // Only emit [Static] properties (class methods/properties).
-        foreach (var prop in cat.Properties.Where(p => p.IsClass))
+        // Only [Static] properties can be emitted AS properties — a static extension class cannot
+        // carry instance members (CS0708).
+        foreach (var prop in emittableClassProperties)
             EmitProperty(sb, prop, declaringClassName: categoryClassName, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMemberNames: emittedMemberNames, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics);
+
+        // An instance property survives as instance accessor METHODS. bgen compiles a [Category]
+        // interface's instance method into a static extension method carrying the receiver, so the
+        // CS0708 constraint that bars an instance property does not bar its accessors — the ObjC
+        // getter/setter selectors are the same ones the property would have exported, only reached
+        // through Get{Name}()/Set{Name}(). Dropping them instead loses genuinely public API (a
+        // boxing category whose class-method half emits while its unboxing half silently vanishes),
+        // so the projection is the recovery and any accessor that cannot be projected soundly is
+        // recorded as a skip rather than dropped in silence.
+        foreach (var plan in instanceAccessorPlans)
+            EmitCategoryInstancePropertyAccessors(sb, plan, categoryClassName, categoryGenericParams, typedefMap, blockTypedefMap, emittedMethodSignatures, emittedMemberNames, emittedPropertyNames, knownTypes, appleSdkTypes, enumNames, localProtocolNames, classProtocolClashNames, logger, diagnostics);
 
         sb.AppendLine("    }");
         sb.AppendLine();
+    }
+
+    /// <summary>
+    /// One category instance property resolved to the accessor methods it will actually be emitted
+    /// as, together with the ObjC selectors those accessors claim. <c>SetterSelector</c> is null for
+    /// a read-only property and for a read-write property whose setter could not be projected.
+    /// </summary>
+    readonly record struct CategoryAccessorPlan(ObjCPropertyDecl Property, string PropName, string GetterSelector, string? SetterSelector);
+
+    /// <summary>
+    /// Decides, for every INSTANCE property on a category, which accessor methods are soundly
+    /// projectable — and records a skip for each half that is not. Runs as a pre-pass because the
+    /// answer feeds two decisions made before any member is written: whether the category has any
+    /// content at all, and which ObjC selectors it claims (a method exporting a claimed selector
+    /// must be dropped, exactly as on the class path).
+    /// </summary>
+    static List<CategoryAccessorPlan> PlanCategoryInstancePropertyAccessors(ObjCCategoryDecl cat, string categoryClassName, HashSet<string>? categoryGenericParams, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? enumNames, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, ILogger logger, ObjCBindingDiagnostics? diagnostics)
+    {
+        var plans = new List<CategoryAccessorPlan>();
+        var categoryLabel = $"{cat.ClassName}.{cat.CategoryName}";
+
+        foreach (var prop in cat.Properties)
+        {
+            if (prop.IsClass)
+                continue;
+
+            var propName = ToPascalCase(prop.Name);
+
+            // Same resolvability gate EmitProperty applies, asked here so the skip record names the
+            // PROPERTY the consumer was looking for rather than the synthesized accessor selector.
+            var synthesized = new HashSet<string>(StringComparer.Ordinal);
+            var mappedType = ObjCTypeMapper.MapType(prop.Type, categoryClassName, categoryGenericParams, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames, synthesized);
+            if (!ObjCTypeMapper.IsApiDefinitionTypeResolvable(mappedType, knownTypes, appleSdkTypes, synthesized))
+            {
+                logger.LogDebug("Skipping category instance property {PropName} on {Category}: unresolvable type '{TypeName}'", propName, categoryLabel, mappedType);
+                diagnostics?.RecordSkip("Property", propName, ObjCSkipReason.UnresolvableType, $"unresolvable type '{mappedType}' on category '{categoryLabel}'");
+                continue;
+            }
+
+            string? setterSelector = null;
+            if (!prop.IsReadonly)
+            {
+                // A setter parameter that would project as `out T` (the value-type-pointer path) or
+                // as the NSError out-parameter cannot carry the value INTO the call — C# assigns
+                // `default` to an `out` argument before the callee runs. There is no sound
+                // projection for such a setter, so it drops with a record while the getter emits.
+                if (ObjCTypeMapper.IsNSErrorOutParameter(prop.Type)
+                    || ObjCTypeMapper.IsValueTypePointerParameter(prop.Type, typedefMap, enumNames))
+                {
+                    logger.LogDebug("Skipping setter for category instance property {PropName} on {Category}: pointer-typed setter value projects as an out-parameter", propName, categoryLabel);
+                    diagnostics?.RecordSkip("Property", $"set{propName}", ObjCSkipReason.UnsupportedConstruct, $"setter for category instance property '{propName}' on '{categoryLabel}' takes a pointer value that projects as an out-parameter (kept the getter)");
+                }
+                else
+                {
+                    setterSelector = prop.SetterSelector ?? $"set{propName}:";
+                }
+            }
+
+            plans.Add(new CategoryAccessorPlan(prop, propName, prop.GetterSelector ?? prop.Name, setterSelector));
+        }
+
+        return plans;
+    }
+
+    /// <summary>
+    /// Emits a planned category instance property as instance accessor methods — a getter
+    /// <c>Get{Name}()</c> exporting the property's getter selector, plus, when the plan kept it, a
+    /// setter <c>Set{Name}(value)</c> exporting its setter selector. Both are ordinary instance
+    /// methods, which a bgen static extension class accepts; the property form would not compile
+    /// (CS0708).
+    /// </summary>
+    static void EmitCategoryInstancePropertyAccessors(StringBuilder sb, CategoryAccessorPlan plan, string categoryClassName, HashSet<string>? categoryGenericParams, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> emittedMethodSignatures, HashSet<string> emittedMemberNames, HashSet<string> emittedPropertyNames, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? enumNames, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, ILogger logger, ObjCBindingDiagnostics? diagnostics)
+    {
+        var prop = plan.Property;
+
+        var getter = new ObjCMethodDecl
+        {
+            Selector = plan.GetterSelector,
+            ReturnType = prop.Type,
+            IsInstanceMethod = true,
+            DocComment = prop.DocComment,
+            Availability = prop.Availability,
+        };
+        var getterName = EmitMethod(sb, getter, declaringClassName: categoryClassName, isProtocol: false, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, enumNames: enumNames, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics, nameOverride: $"Get{plan.PropName}");
+        if (getterName != null)
+            emittedMemberNames.Add(getterName);
+
+        if (plan.SetterSelector == null)
+            return;
+
+        var setter = new ObjCMethodDecl
+        {
+            Selector = plan.SetterSelector,
+            ReturnType = new ObjCTypeRef { Name = "void" },
+            IsInstanceMethod = true,
+            Parameters = [new ObjCParameterDecl { Name = "value", Type = prop.Type }],
+            Availability = prop.Availability,
+        };
+        var setterName = EmitMethod(sb, setter, declaringClassName: categoryClassName, isProtocol: false, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, enumNames: enumNames, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics, nameOverride: $"Set{plan.PropName}");
+        if (setterName != null)
+            emittedMemberNames.Add(setterName);
     }
 
     internal static string GenerateCategoryInterfaceName(string className, string categoryName)
@@ -563,8 +746,11 @@ public static class ApiDefinitionEmitter
     /// <summary>
     /// Emits a method and returns the final emitted C# method name (after any dedup renaming),
     /// or null for constructors. Callers use this to track method-property name collisions.
+    /// <paramref name="nameOverride"/> replaces the selector-derived starting name (used by the
+    /// category instance-property projection, whose members are named after the property rather
+    /// than the accessor selector); dedup still applies on top of it.
     /// </summary>
-    static string? EmitMethod(StringBuilder sb, ObjCMethodDecl method, string? declaringClassName, bool isProtocol, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? emittedConstructorSignatures = null, HashSet<string>? emittedMethodSignatures = null, HashSet<string>? emittedPropertyNames = null, HashSet<string>? knownTypes = null, HashSet<string>? appleSdkTypes = null, HashSet<string>? enumNames = null, bool isDelegateProtocol = false, HashSet<string>? localProtocolNames = null, HashSet<string>? classProtocolClashNames = null, ILogger? logger = null, ObjCBindingDiagnostics? diagnostics = null)
+    static string? EmitMethod(StringBuilder sb, ObjCMethodDecl method, string? declaringClassName, bool isProtocol, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? emittedConstructorSignatures = null, HashSet<string>? emittedMethodSignatures = null, HashSet<string>? emittedPropertyNames = null, HashSet<string>? knownTypes = null, HashSet<string>? appleSdkTypes = null, HashSet<string>? enumNames = null, bool isDelegateProtocol = false, HashSet<string>? localProtocolNames = null, HashSet<string>? classProtocolClashNames = null, ILogger? logger = null, ObjCBindingDiagnostics? diagnostics = null, string? nameOverride = null)
     {
         // Pre-check: skip methods with types not resolvable in ApiDefinition context.
         //
@@ -638,7 +824,8 @@ public static class ApiDefinitionEmitter
 
         var methodName = isConstructor
             ? "Constructor"
-            : isDelegateProtocol ? SelectorToDelegateMethodName(method.Selector) : SelectorToMethodName(method.Selector);
+            : nameOverride
+              ?? (isDelegateProtocol ? SelectorToDelegateMethodName(method.Selector) : SelectorToMethodName(method.Selector));
 
         // Duplicate method signature detection: rename with full selector parts if collision.
         // Also rename if the short name collides with an already-emitted PROPERTY name (CS0102) —
@@ -668,7 +855,12 @@ public static class ApiDefinitionEmitter
         return isConstructor ? null : methodName;
     }
 
-    static void EmitProperty(StringBuilder sb, ObjCPropertyDecl prop, string? declaringClassName, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? emittedMemberNames = null, HashSet<string>? emittedPropertyNames = null, HashSet<string>? knownTypes = null, HashSet<string>? appleSdkTypes = null, HashSet<string>? localProtocolNames = null, HashSet<string>? classProtocolClashNames = null, ILogger? logger = null, ObjCBindingDiagnostics? diagnostics = null)
+    /// <summary>
+    /// Emits one property. <paramref name="emitNew"/> marks it <c>[New]</c> so bgen adds the
+    /// <c>new</c> keyword to the generated member — required whenever it deliberately hides a
+    /// member of the generated base class, which is otherwise a CS0108 in every consumer build.
+    /// </summary>
+    static void EmitProperty(StringBuilder sb, ObjCPropertyDecl prop, string? declaringClassName, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? emittedMemberNames = null, HashSet<string>? emittedPropertyNames = null, HashSet<string>? knownTypes = null, HashSet<string>? appleSdkTypes = null, HashSet<string>? localProtocolNames = null, HashSet<string>? classProtocolClashNames = null, ILogger? logger = null, ObjCBindingDiagnostics? diagnostics = null, bool emitNew = false)
     {
         var propName = ToPascalCase(prop.Name);
 
@@ -707,6 +899,10 @@ public static class ApiDefinitionEmitter
 
         if (prop.IsClass)
             sb.AppendLine("        [Static]");
+
+        // Deliberate shadowing of a generated-base member: bgen renders `new` on the member.
+        if (emitNew)
+            sb.AppendLine("        [New]");
 
         var getterSelector = prop.GetterSelector ?? prop.Name;
         var argSemantic = FormatArgumentSemantic(prop.MemorySemantic);
@@ -753,6 +949,164 @@ public static class ApiDefinitionEmitter
     }
 
     /// <summary>
+    /// One property member the superclass chain emits, as seen from a subclass: which ancestor
+    /// declared it, the C# type it is emitted with, whether it is read-only there, and the ObjC
+    /// accessor selectors it exports (<see cref="SetterSelector"/> is null when it is read-only).
+    /// </summary>
+    readonly record struct InheritedProperty(string OwnerClassName, string MappedType, bool IsReadonly, string GetterSelector, string? SetterSelector);
+
+    /// <summary>
+    /// The inherited members carrying ONE emitted C# name. ObjC keeps class and instance members in
+    /// separate dispatch namespaces (`+foo` and `-foo` are different selectors, and bgen emits them
+    /// as a static and an instance member), so both can be inherited under the same name and each
+    /// must be classified against its own kind. C# hiding, by contrast, is name-based — a
+    /// re-declaration of EITHER kind needs <c>new</c>.
+    /// </summary>
+    readonly record struct InheritedMembers(InheritedProperty? Instance, InheritedProperty? ClassMember)
+    {
+        public InheritedProperty? OfKind(bool isClass) => isClass ? ClassMember : Instance;
+
+        public InheritedMembers With(InheritedProperty member, bool isClass)
+            => isClass ? this with { ClassMember = member } : this with { Instance = member };
+    }
+
+    /// <summary>What a re-declaration of an inherited property member should do.</summary>
+    enum RedeclarationDisposition
+    {
+        /// <summary>Emit nothing — the inherited member already covers this declaration.</summary>
+        Defer,
+
+        /// <summary>Emit, marked <c>[New]</c>, deliberately hiding the inherited member.</summary>
+        HideWithNew,
+    }
+
+    /// <summary>
+    /// Decides whether a re-declaration of a same-kind member the superclass chain already emits
+    /// should defer to the inherited member or hide it. Widest surface wins: a re-declaration that
+    /// offers nothing the inherited member doesn't already have — same C# type, same ObjC accessor
+    /// selectors, no extra accessor — is pure shadowing (CS0108 with no gain) and defers, keeping
+    /// the inherited member directly reachable. Anything else is a real difference and hides
+    /// deliberately: notably a re-declaration that renames an accessor exports a DIFFERENT selector,
+    /// so the inherited member cannot stand in for it and deferring would delete reachable API.
+    /// </summary>
+    static RedeclarationDisposition ClassifyRedeclaration(in InheritedProperty inherited, string mappedType, bool isReadonly, string getterSelector, string? setterSelector)
+    {
+        if (!string.Equals(mappedType, inherited.MappedType, StringComparison.Ordinal)
+            || !string.Equals(getterSelector, inherited.GetterSelector, StringComparison.Ordinal))
+            return RedeclarationDisposition.HideWithNew;
+
+        // Wider than the inherited member (it adds a setter the ancestor lacks) — must emit.
+        var widestIsReadonly = isReadonly && inherited.IsReadonly;
+        if (widestIsReadonly != inherited.IsReadonly)
+            return RedeclarationDisposition.HideWithNew;
+
+        // Both read-write: a renamed setter is again a distinct selector the inherited member does
+        // not export.
+        return setterSelector != null && !string.Equals(setterSelector, inherited.SetterSelector, StringComparison.Ordinal)
+            ? RedeclarationDisposition.HideWithNew
+            : RedeclarationDisposition.Defer;
+    }
+
+    /// <summary>
+    /// The ObjC accessor selectors a property declaration exports, matching what
+    /// <see cref="EmitProperty"/> and <see cref="EmitWeakDelegatePattern"/> actually emit. The
+    /// setter is null for a read-only declaration.
+    /// </summary>
+    static (string Getter, string? Setter) PropertyAccessorSelectors(ObjCPropertyDecl prop)
+        => (prop.GetterSelector ?? prop.Name,
+            prop.IsReadonly ? null : prop.SetterSelector ?? $"set{ToPascalCase(prop.Name)}:");
+
+    /// <summary>
+    /// Collects the property members the RESOLVED superclass chain of <paramref name="cls"/> emits,
+    /// keyed by emitted C# name. Walks only superclasses declared in this module: a foreign/SDK base
+    /// has no visible members here, so the walk stops there and the caller degrades to the un-seeded
+    /// behaviour rather than guessing. Mirrors what each ancestor actually emits — the same
+    /// resolvability gate, the delegate WeakDelegate/Wrap pair, the first-name-wins drop for two
+    /// properties that project to one C# name, and (by walking ROOT-first and re-applying
+    /// <see cref="ClassifyRedeclaration"/> at each level) that ancestor's own re-declaration
+    /// decisions. Replaying those decisions is what keeps the map describing the member a subclass
+    /// would really inherit: a middle class that deferred emits nothing, so the name must keep
+    /// resolving to the ancestor it deferred to, not to the middle declaration. An ancestor METHOD
+    /// can't take a property's name away from it (method dedup renames off an already-seeded
+    /// property name), so only properties are replayed.
+    /// </summary>
+    static Dictionary<string, InheritedMembers> BuildInheritedClassPropertyMap(ObjCClassDecl cls, IReadOnlyDictionary<string, ObjCClassDecl>? classesByName, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, HashSet<string>? delegateProtocolNames)
+    {
+        var map = new Dictionary<string, InheritedMembers>(StringComparer.Ordinal);
+        if (classesByName == null)
+            return map;
+
+        // Collect the chain nearest-first, then replay it root-first so each ancestor is classified
+        // against what ITS ancestors emit, exactly as EmitClass classifies `cls`.
+        var chain = new List<ObjCClassDecl>();
+        var visited = new HashSet<string>(StringComparer.Ordinal) { cls.Name };
+        var superName = cls.SuperclassName;
+        while (superName != null && visited.Add(superName) && classesByName.TryGetValue(superName, out var ancestor))
+        {
+            chain.Add(ancestor);
+            superName = ancestor.SuperclassName;
+        }
+        chain.Reverse();
+
+        foreach (var ancestor in chain)
+        {
+            var ancestorDeclName = ObjCTypeMapper.MapClassName(ancestor.Name);
+            var ancestorGenericParams = ancestor.GenericTypeParamNames.Count > 0
+                ? new HashSet<string>(ancestor.GenericTypeParamNames)
+                : null;
+            // Names already emitted within THIS ancestor: its own emission drops a property whose
+            // C# name a previous member of the same class already claimed.
+            var claimedInAncestor = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (var prop in ancestor.Properties)
+            {
+                if (!WouldEmitProperty(prop, ancestorDeclName, ancestorGenericParams, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames, knownTypes, appleSdkTypes))
+                    continue;
+                var propName = ToPascalCase(prop.Name);
+
+                var delegateProtocol = IsDelegateProperty(prop, delegateProtocolNames)
+                    ? ResolveDelegateProtocolName(prop, delegateProtocolNames)
+                    : null;
+                var mappedType = delegateProtocol != null
+                    ? ObjCTypeMapper.MapProtocolName(delegateProtocol, classProtocolClashNames)
+                    : ObjCTypeMapper.MapType(prop.Type, ancestorDeclName, ancestorGenericParams, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames);
+                var (getterSelector, setterSelector) = PropertyAccessorSelectors(prop);
+                var entry = new InheritedProperty(ancestor.Name, mappedType, prop.IsReadonly, getterSelector, setterSelector);
+
+                map.TryGetValue(propName, out var alreadyInherited);
+                if (alreadyInherited.OfKind(prop.IsClass) is { } sameKind
+                    && ClassifyRedeclaration(sameKind, mappedType, prop.IsReadonly, getterSelector, setterSelector) == RedeclarationDisposition.Defer)
+                {
+                    // This ancestor emits nothing for the name, so the entry it deferred to stays.
+                    claimedInAncestor.Add(propName);
+                    if (delegateProtocol != null)
+                        claimedInAncestor.Add($"Weak{propName}");
+                    continue;
+                }
+
+                if (delegateProtocol != null)
+                {
+                    // The Weak/Wrap pair emits two members or none.
+                    var weakPropName = $"Weak{propName}";
+                    if (claimedInAncestor.Contains(propName) || claimedInAncestor.Contains(weakPropName))
+                        continue;
+                    claimedInAncestor.Add(propName);
+                    claimedInAncestor.Add(weakPropName);
+                    map[propName] = alreadyInherited.With(entry, prop.IsClass);
+                    map.TryGetValue(weakPropName, out var alreadyWeak);
+                    map[weakPropName] = alreadyWeak.With(entry with { MappedType = "NSObject" }, prop.IsClass);
+                    continue;
+                }
+
+                if (!claimedInAncestor.Add(propName))
+                    continue;
+                map[propName] = alreadyInherited.With(entry, prop.IsClass);
+            }
+        }
+        return map;
+    }
+
+    /// <summary>
     /// Checks whether a property references a delegate protocol type and should use
     /// the WeakDelegate/Wrap pattern instead of normal property emission.
     /// </summary>
@@ -795,9 +1149,12 @@ public static class ApiDefinitionEmitter
     /// <summary>
     /// Emits the Xamarin WeakDelegate/Wrap two-property pattern for delegate/dataSource properties.
     /// Preserves the original property's doc comments, static, readonly shape, and argument
-    /// semantics.
+    /// semantics. The strong-typed half is marked <c>[New]</c> when the caller classified this
+    /// declaration as deliberately hiding an inherited member; the weak half is marked
+    /// independently, from the inherited map, so neither claims to hide something that isn't there
+    /// (which would be CS0109) nor hides silently (CS0108).
     /// </summary>
-    static void EmitWeakDelegatePattern(StringBuilder sb, ObjCPropertyDecl prop, HashSet<string>? delegateProtocolNames, HashSet<string>? classProtocolClashNames, HashSet<string>? emittedMemberNames, HashSet<string>? emittedPropertyNames)
+    static void EmitWeakDelegatePattern(StringBuilder sb, ObjCPropertyDecl prop, HashSet<string>? delegateProtocolNames, HashSet<string>? classProtocolClashNames, HashSet<string>? emittedMemberNames, HashSet<string>? emittedPropertyNames, IReadOnlyDictionary<string, InheritedMembers>? inheritedProperties = null, bool emitNew = false)
     {
         var rawProtocolName = ResolveDelegateProtocolName(prop, delegateProtocolNames);
         if (rawProtocolName == null) return;
@@ -834,6 +1191,8 @@ public static class ApiDefinitionEmitter
         // 1. Strong-typed property with [Wrap]
         if (prop.IsClass)
             sb.AppendLine("        [Static]");
+        if (emitNew)
+            sb.AppendLine("        [New]");
         sb.AppendLine($"        [Wrap(\"{weakPropName}\")]");
         sb.AppendLine("        [NullAllowed]");
         if (prop.IsReadonly)
@@ -853,6 +1212,8 @@ public static class ApiDefinitionEmitter
             : ", ArgumentSemantic.Weak";
         if (prop.IsClass)
             sb.AppendLine("        [Static]");
+        if (inheritedProperties != null && inheritedProperties.ContainsKey(weakPropName))
+            sb.AppendLine("        [New]");
         sb.AppendLine($"        [NullAllowed, Export(\"{selector}\"{argSemantic})]");
         if (prop.IsReadonly)
         {
