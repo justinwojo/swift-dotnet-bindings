@@ -515,7 +515,124 @@ partial class Build
         // (d) The app signature still verifies — proves packaging did not corrupt the bundle.
         AssertCodesignVerifies((AbsolutePath)appBundle, "the app bundle", failures);
 
-        ReportAppStoreHygiene(failures, $"IPA {ipa.Name}");
+        // (e) Privacy manifests survive the embed (ITMS-91053).
+        var privacyChecked = AssertPrivacyManifestsPreserved((AbsolutePath)appBundle, scratch / "packages", failures);
+
+        ReportAppStoreHygiene(failures, $"IPA {ipa.Name}", privacyChecked);
+    }
+
+    // (e) PrivacyInfo.xcprivacy preservation. Apple requires a privacy manifest inside any
+    // third-party SDK that uses a required-reason API (App Store rejects with ITMS-91053 /
+    // "Missing API declaration" otherwise), and the manifest is only honored when it travels
+    // INSIDE the embedded .framework bundle. Every copy step between the vendor xcframework and
+    // the app's Frameworks/ — our pack staging, the sidecar round-trip, the workload's embed and
+    // re-sign — is an opportunity to drop a non-code file, and nothing else in this repo would
+    // notice: the app builds, launches and passes every runtime test without it. Only App Store
+    // submission fails, at the consumer, months later.
+    //
+    // Source-driven and therefore self-calibrating: the assertion is "if the SOURCE shipped a
+    // manifest, the EMBEDDED copy still has one", never "every framework must have one" (which
+    // would be wrong — a framework touching no required-reason API legitimately ships none).
+    // Sources are read from the local feed this leg packed. Inert for the runtime-only fixture
+    // (SwiftBindingsRuntime declares no required-reason API and ships no manifest); it becomes
+    // load-bearing the moment a leg embeds a vendor framework that has one (Facebook, Intercom).
+    // Returns the number of embedded frameworks actually compared, so the OK banner only claims
+    // the check when it ran (it is inert on the runtime-only fixture).
+    static int AssertPrivacyManifestsPreserved(AbsolutePath appBundle, AbsolutePath feedDir, List<string> failures)
+    {
+        var sources = ReadSourcePrivacyManifests(feedDir);
+        if (sources.Count == 0)
+        {
+            Log.Information("    privacy manifests: no source xcframework found in the feed — nothing to compare.");
+            return 0;
+        }
+
+        var withManifest = sources.Where(kv => kv.Value).Select(kv => kv.Key).OrderBy(k => k, StringComparer.Ordinal).ToList();
+        if (withManifest.Count == 0)
+        {
+            Log.Information(
+                "    privacy manifests: none of the {Count} source framework(s) ({Names}) ships a PrivacyInfo.xcprivacy — assertion inert.",
+                sources.Count, string.Join(", ", sources.Keys.OrderBy(k => k, StringComparer.Ordinal)));
+            return 0;
+        }
+
+        var checkedCount = 0;
+        var frameworksDir = Path.Combine(appBundle, "Frameworks");
+        foreach (var name in withManifest)
+        {
+            var embedded = Path.Combine(frameworksDir, name + ".framework");
+            if (!Directory.Exists(embedded))
+                continue;   // not embedded in this app — not this assertion's business.
+
+            checkedCount++;
+
+            // iOS framework bundles are flat, but search the bundle so a versioned (macOS-style)
+            // layout still counts.
+            if (Directory.GetFiles(embedded, "PrivacyInfo.xcprivacy", SearchOption.AllDirectories).Length == 0)
+                failures.Add(
+                    $"embedded Frameworks/{name}.framework lost its PrivacyInfo.xcprivacy — the source xcframework in " +
+                    "the packed feed ships one, the embedded copy does not. Apple reads the privacy manifest from " +
+                    "inside the embedded framework bundle; without it, App Store submission fails with ITMS-91053 " +
+                    "(missing API declaration) for every consumer of this package. Find the copy step that dropped " +
+                    "the non-code file (pack staging, binding-resource sidecar round-trip, or the workload embed).");
+        }
+
+        Log.Information(
+            "    privacy manifests: {Count} source framework(s) ship one ({Names}); {Checked} embedded copy/copies checked.",
+            withManifest.Count, string.Join(", ", withManifest), checkedCount);
+        return checkedCount;
+    }
+
+    // Framework name → "its source xcframework ships a PrivacyInfo.xcprivacy in at least one slice".
+    // Reads every nupkg in the leg's local feed and covers both native carriers: the Swift/mixed
+    // runtimes/<rid>/native/<Name>.xcframework/** tree, and the pure-ObjC binding sidecar
+    // lib/<tfm>/<Assembly>.resources[.zip] (see Design/objc-binding-consumption.md). A framework seen
+    // without a manifest is recorded false rather than omitted, so the log can distinguish
+    // "no source has one" from "no source was found at all".
+    static Dictionary<string, bool> ReadSourcePrivacyManifests(AbsolutePath feedDir)
+    {
+        var result = new Dictionary<string, bool>(StringComparer.Ordinal);
+        if (!Directory.Exists(feedDir)) return result;
+
+        foreach (var nupkg in Directory.GetFiles(feedDir, "*.nupkg"))
+        {
+            using var zip = ZipFile.OpenRead(nupkg);
+            foreach (var entry in zip.Entries)
+            {
+                RecordPrivacyManifestPath(entry.FullName, result);
+
+                // Nested sidecar: read the inner zip's entry names too. ZipArchive needs a seekable
+                // stream, and a zip entry stream is not seekable, so the inner archive is copied
+                // through memory. That is the whole native payload, not metadata — MapLibre's
+                // sidecar is ~10 MB and a multi-framework vendor could be several times that. Fine
+                // for a gate that runs once per leg on a dev/CI mac; if a feed ever grows large
+                // enough for this to matter, spill to a temp file instead of MemoryStream.
+                if (!entry.FullName.EndsWith(".resources.zip", StringComparison.Ordinal)) continue;
+                using var mem = new MemoryStream();
+                using (var s = entry.Open()) s.CopyTo(mem);
+                mem.Position = 0;
+                using var inner = new ZipArchive(mem, ZipArchiveMode.Read);
+                foreach (var innerEntry in inner.Entries)
+                    RecordPrivacyManifestPath(innerEntry.FullName, result);
+            }
+        }
+        return result;
+    }
+
+    // Records one archive path against the map: any path inside <Name>.framework/ marks <Name> as
+    // seen, and a PrivacyInfo.xcprivacy under it flips it to true. Zip paths are always '/'-joined.
+    // The INNERMOST .framework segment wins: for a nested Outer.framework/.../Inner.framework/
+    // PrivacyInfo.xcprivacy the manifest belongs to Inner, and attributing it to Outer would assert
+    // against the wrong bundle.
+    static void RecordPrivacyManifestPath(string path, Dictionary<string, bool> result)
+    {
+        var segments = path.Split('/');
+        var fwIndex = Array.FindLastIndex(segments, s => s.EndsWith(".framework", StringComparison.Ordinal));
+        if (fwIndex < 0) return;
+
+        var name = segments[fwIndex][..^".framework".Length];
+        var hasManifest = segments[^1] == "PrivacyInfo.xcprivacy";
+        result[name] = result.TryGetValue(name, out var had) ? had || hasManifest : hasManifest;
     }
 
     // codesign --verify --strict on a bundle/binary, collecting a failure with the codesign output.
@@ -533,7 +650,7 @@ partial class Build
     }
 
     // Common pass/fail reporting: fail the gate with all collected defects, or log the OK line.
-    static void ReportAppStoreHygiene(List<string> failures, string artifact)
+    static void ReportAppStoreHygiene(List<string> failures, string artifact, int privacyManifestsChecked = 0)
     {
         if (failures.Count > 0)
         {
@@ -542,9 +659,17 @@ partial class Build
             Assert.Fail($"--appstore-hygiene: {failures.Count} defect(s) in {artifact} — see log.");
         }
 
+        // The privacy clause is appended only when at least one embedded framework was actually
+        // compared — the check is inert whenever no source framework in the feed ships a manifest,
+        // and a banner that claimed it anyway would read as coverage this leg does not have.
+        var privacyClause = privacyManifestsChecked > 0
+            ? $", {privacyManifestsChecked} embedded framework(s) retain the privacy manifests their sources ship"
+            : " (no privacy-manifest comparison: no source framework in the feed ships one)";
+
         Log.Information(
             "--appstore-hygiene gate OK — {Artifact}: runtime embedded as a signed SwiftBindingsRuntime.framework " +
-            "(@rpath install_name), no loose dylib, zero embedded libswift*.dylib, no SwiftSupport/ folder, app signature verifies.",
-            artifact);
+            "(@rpath install_name), no loose dylib, zero embedded libswift*.dylib, no SwiftSupport/ folder, app signature " +
+            "verifies{PrivacyClause}.",
+            artifact, privacyClause);
     }
 }
