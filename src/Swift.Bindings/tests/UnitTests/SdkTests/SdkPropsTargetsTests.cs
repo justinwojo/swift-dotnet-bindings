@@ -760,10 +760,42 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void Targets_ResolveAutoDeps_PassesTheConsumerProjectPath()
+        {
+            // The name-independent probe must be able to exclude the project being built, or a
+            // dependency xcframework sitting in the consumer's own directory resolves to a
+            // self-ProjectReference (MSBuild circular reference). The exclusion is only as good
+            // as this argument, so pin that the Exec actually passes it — and passes MSBuild's
+            // own full path, not a reconstructed one.
+            var target = TargetsContent.Substring(
+                TargetsContent.IndexOf("Name=\"_ResolveSwiftAutoDetectedDependencies\"", StringComparison.Ordinal));
+            var execStart = target.IndexOf("--resolve-auto-deps", StringComparison.Ordinal);
+            Assert.True(execStart >= 0, "--resolve-auto-deps Exec not found in the target");
+            var execEnd = target.IndexOf("</Exec>", execStart, StringComparison.Ordinal);
+            Assert.True(execEnd > execStart, "the --resolve-auto-deps Exec is unterminated");
+            var exec = target.Substring(execStart, execEnd - execStart);
+
+            Assert.Contains("--consumer-project", exec);
+            Assert.Contains("$(MSBuildProjectFullPath)", exec);
+        }
+
+        [Fact]
         public void Targets_HasSwiftBind080WarningCode()
         {
             Assert.Contains("SWIFTBIND080", TargetsContent);
-            Assert.Contains("Cross-module dependency detected", TargetsContent);
+            Assert.Contains("Cross-module dependency on Swift module", TargetsContent);
+
+            // The remedy text must never render the SYNTHESIZED package id / version (WARN fields
+            // [2] and [3]) — those are the CLI default `{Module}.Swift.{Platform}` and `0.0.0`,
+            // i.e. an identity nobody published. Only the module ([1]) and the xcframework path
+            // ([4]) are observed values and may be named.
+            var warningStart = TargetsContent.IndexOf("Code=\"SWIFTBIND080\"", StringComparison.Ordinal);
+            Assert.True(warningStart >= 0, "SWIFTBIND080 Warning task not found");
+            var warningEnd = TargetsContent.IndexOf("/>", warningStart, StringComparison.Ordinal);
+            Assert.True(warningEnd > warningStart, "SWIFTBIND080 Warning task is unterminated");
+            var warningTask = TargetsContent.Substring(warningStart, warningEnd - warningStart);
+            Assert.DoesNotContain("Split('|')[2]", warningTask);
+            Assert.DoesNotContain("Split('|')[3]", warningTask);
         }
 
         [Fact]

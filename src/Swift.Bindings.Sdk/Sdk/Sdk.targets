@@ -2101,7 +2101,10 @@ done; true"
         - parses the semicolon-delimited _SwiftBindingDependencies property
           (each entry ModuleName|PackageId|Version|XCFrameworkPath),
         - dedups against the explicit SwiftFrameworkDependency module names,
-        - probes for a sibling .csproj, and
+        - probes for a sibling .csproj (the consumer-project argument below passes
+          this project's own path, so the name-independent probe can never return
+          THIS project and inject a self-ProjectReference when a dependency
+          xcframework happens to sit in the same directory), and
         - emits the FROZEN line grammar this target consumes below:
             PROJREF|<absolute-csproj>           -> injected as a ProjectReference
             WARN|<mod>|<pkg>|<ver>|<xcframework> -> surfaced as SWIFTBIND080
@@ -2118,7 +2121,7 @@ done; true"
     </PropertyGroup>
 
     <Exec Condition="'$(_SwiftBindingDependencies)' != ''"
-          Command="dotnet exec &quot;$(_SwiftBindingGeneratorDir)Swift.Bindings.dll&quot; --resolve-auto-deps --auto-dep-spec &quot;$(_SwiftBindingDependencies)&quot; --explicit-deps &quot;@(SwiftFrameworkDependency->'%(Filename)', ';')&quot;"
+          Command="dotnet exec &quot;$(_SwiftBindingGeneratorDir)Swift.Bindings.dll&quot; --resolve-auto-deps --auto-dep-spec &quot;$(_SwiftBindingDependencies)&quot; --explicit-deps &quot;@(SwiftFrameworkDependency->'%(Filename)', ';')&quot; --consumer-project &quot;$(MSBuildProjectFullPath)&quot;"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" ItemName="_SwiftAutoDepResult" />
     </Exec>
@@ -2130,10 +2133,19 @@ done; true"
     </ItemGroup>
 
     <!-- Emit SWIFTBIND080 warnings for unresolved dependencies -->
-    <!-- WARN fields are pipe-delimited: WARN|module|packageId|version|xcframeworkPath -->
+    <!-- WARN fields are pipe-delimited: WARN|module|packageId|version|xcframeworkPath
+         Field [2] (packageId) and field [3] (version) are DELIBERATELY NOT rendered into the
+         remedy text. An auto-detected dependency is discovered from this binding's own binary
+         (otool -L) and carries only a module name and an xcframework path — nothing in that run
+         observes the sibling's package identity — so the generator falls back to the CLI default
+         `{Module}.Swift.{Platform}` and version `0.0.0`. Printing those told the user to add a
+         PackageReference on a package that does not exist (e.g. `FBAEMKit.Swift.iOS 0.0.0`), which
+         is worse than saying "we don't know": it looks authoritative and is unfollowable. The
+         fields stay in the grammar because the resolver's name-derived probes are built from them;
+         only the human-facing text drops them for honest placeholders. -->
     <Warning Condition="'$(_SwiftBindingDependencies)' != '' AND $([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').StartsWith('WARN|'))"
              Code="SWIFTBIND080"
-             Text="Cross-module dependency detected but no sibling binding project found. To resolve, add one of:%0A%0A  For local source builds:%0A    &lt;ProjectReference Include=&quot;../$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[2])/$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[2]).csproj&quot; /&gt;%0A%0A  For NuGet package consumption (both items required — SwiftFrameworkDependency for build-time framework resolution, PackageReference for NuGet restore):%0A    &lt;SwiftFrameworkDependency Include=&quot;$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[4])&quot;%0A                              PackageId=&quot;$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[2])&quot; PackageVersion=&quot;$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[3])&quot; /&gt;%0A    &lt;PackageReference Include=&quot;$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[2])&quot;%0A                      Version=&quot;$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[3])&quot; /&gt;" />
+             Text="Cross-module dependency on Swift module '$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[1])' detected, but no sibling binding project for it was found next to '$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[4])'. Reference whatever project or package binds that xcframework, by adding one of:%0A%0A  For local source builds:%0A    &lt;ProjectReference Include=&quot;&lt;path to the binding project for $([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[1])&gt;.csproj&quot; /&gt;%0A%0A  For NuGet package consumption (both items required — SwiftFrameworkDependency for build-time framework resolution, PackageReference for NuGet restore):%0A    &lt;SwiftFrameworkDependency Include=&quot;$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[4])&quot;%0A                              PackageId=&quot;&lt;id of the package that ships $([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[1])&gt;&quot; PackageVersion=&quot;&lt;its version&gt;&quot; /&gt;%0A    &lt;PackageReference Include=&quot;&lt;id of the package that ships $([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[1])&gt;&quot;%0A                      Version=&quot;&lt;its version&gt;&quot; /&gt;%0A%0AThe package id and version above are placeholders: an auto-detected dependency carries only the module name and the xcframework path, so this SDK cannot know which package ships '$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[1])'." />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->

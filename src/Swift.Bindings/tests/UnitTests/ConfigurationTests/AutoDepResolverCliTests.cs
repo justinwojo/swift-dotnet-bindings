@@ -4,6 +4,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Xunit;
@@ -67,6 +68,78 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void ResolveAutoDeps_DifferentlyNamedSiblingBindingProject_ResolvesAgainstTheRealFilesystem()
+        {
+            // The verb's REAL probes (Directory.GetFiles + File.ReadAllText) must find a binding
+            // project whose file name has nothing to do with the synthesized `{Module}.Swift.{Platform}`
+            // package id — the swift-dotnet-packages shape, where `FBAEMKit.xcframework` sits next to
+            // `SwiftBindings.Facebook.AEM.csproj`. Unit tests inject those probes; this pins the wiring.
+            var tempRoot = Path.Combine(Path.GetTempPath(), "autodep-cli-" + Guid.NewGuid().ToString("N"));
+            var depDir = Path.Combine(tempRoot, "FBAEMKit");
+            Directory.CreateDirectory(depDir);
+            try
+            {
+                var bindingProject = Path.Combine(depDir, "SwiftBindings.Facebook.AEM.csproj");
+                File.WriteAllText(bindingProject, "<Project Sdk=\"SwiftBindings.Sdk/0.18.0\"></Project>");
+                // A non-binding project in the same directory must not create ambiguity.
+                File.WriteAllText(Path.Combine(depDir, "Unrelated.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+
+                var xcfw = Path.Combine(depDir, "FBAEMKit.xcframework");
+                var spec = $"FBAEMKit|FBAEMKit.Swift.iOS|0.0.0|{xcfw}";
+
+                var (stdout, _, exitCode) = RunResolveAutoDeps(spec, explicitDeps: "");
+
+                Assert.Equal(0, exitCode);
+                var lines = SplitNonEmptyLines(stdout);
+                var projRef = Assert.Single(lines);
+                Assert.StartsWith("PROJREF|", projRef, StringComparison.Ordinal);
+                Assert.EndsWith("SwiftBindings.Facebook.AEM.csproj", projRef, StringComparison.Ordinal);
+            }
+            finally
+            {
+                try { Directory.Delete(tempRoot, recursive: true); } catch { /* best-effort cleanup */ }
+            }
+        }
+
+        [Fact]
+        public void ResolveAutoDeps_ConsumerProjectBesideTheDependencyXcframework_WarnsInsteadOfSelfReferencing()
+        {
+            // --consumer-project carries $(MSBuildProjectFullPath) from the SDK Exec. When the
+            // project being built is the only binding csproj in a dependency xcframework's
+            // directory, the probe must skip it rather than emit PROJREF| for the project itself
+            // (MSBuild would then fail with a circular ProjectReference). Pins the CLI wiring of
+            // the option, not just the resolver logic.
+            var tempRoot = Path.Combine(Path.GetTempPath(), "autodep-cli-" + Guid.NewGuid().ToString("N"));
+            var depDir = Path.Combine(tempRoot, "Facebook");
+            Directory.CreateDirectory(depDir);
+            try
+            {
+                var self = Path.Combine(depDir, "SwiftBindings.Facebook.Core.csproj");
+                File.WriteAllText(self, "<Project Sdk=\"SwiftBindings.Sdk/0.18.0\"></Project>");
+
+                var xcfw = Path.Combine(depDir, "FBSDKCoreKit_Basics.xcframework");
+                var spec = $"FBSDKCoreKit_Basics|FBSDKCoreKit_Basics.Swift.iOS|0.0.0|{xcfw}";
+
+                var (withSelf, _, selfExit) = RunResolveAutoDeps(spec, explicitDeps: "", consumerProject: self);
+                Assert.Equal(0, selfExit);
+                var selfLine = Assert.Single(SplitNonEmptyLines(withSelf));
+                Assert.StartsWith("WARN|FBSDKCoreKit_Basics|", selfLine, StringComparison.Ordinal);
+
+                // Control: the same layout WITHOUT the exclusion resolves to that very project —
+                // proving the assertion above is the exclusion at work, not an unrelated miss.
+                var (withoutSelf, _, exit) = RunResolveAutoDeps(spec, explicitDeps: "");
+                Assert.Equal(0, exit);
+                var line = Assert.Single(SplitNonEmptyLines(withoutSelf));
+                Assert.StartsWith("PROJREF|", line, StringComparison.Ordinal);
+                Assert.EndsWith("SwiftBindings.Facebook.Core.csproj", line, StringComparison.Ordinal);
+            }
+            finally
+            {
+                try { Directory.Delete(tempRoot, recursive: true); } catch { /* best-effort cleanup */ }
+            }
+        }
+
+        [Fact]
         public void ResolveAutoDeps_EmptySpec_ProducesNoStdout()
         {
             var (stdout, _, exitCode) = RunResolveAutoDeps(autoDepSpec: "", explicitDeps: "");
@@ -74,16 +147,24 @@ namespace BindingsGeneration.Tests
             Assert.Empty(SplitNonEmptyLines(stdout));
         }
 
-        private static (string stdout, string stderr, int exitCode) RunResolveAutoDeps(string autoDepSpec, string explicitDeps)
+        private static (string stdout, string stderr, int exitCode) RunResolveAutoDeps(
+            string autoDepSpec, string explicitDeps, string? consumerProject = null)
         {
             using var capture = ConsoleCapture.Begin();
-            // No --verbose: runs at the default Information verbosity the SDK Exec uses.
-            var exitCode = BindingsGenerator.Main(new[]
+            var args = new List<string>
             {
                 "--resolve-auto-deps",
                 "--auto-dep-spec", autoDepSpec,
                 "--explicit-deps", explicitDeps,
-            });
+            };
+            if (consumerProject is not null)
+            {
+                args.Add("--consumer-project");
+                args.Add(consumerProject);
+            }
+
+            // No --verbose: runs at the default Information verbosity the SDK Exec uses.
+            var exitCode = BindingsGenerator.Main(args.ToArray());
             return (capture.Out, capture.Error, exitCode);
         }
 

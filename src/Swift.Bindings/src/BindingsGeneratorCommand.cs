@@ -70,6 +70,7 @@ public static class BindingsGeneratorCommand
         var resolveAutoDeps = parseResult.GetValueForOption(options.ResolveAutoDeps);
         var autoDepSpec = parseResult.GetValueForOption(options.AutoDepSpec);
         var explicitDeps = parseResult.GetValueForOption(options.ExplicitDeps);
+        var consumerProject = parseResult.GetValueForOption(options.ConsumerProject);
         var emitAppleTypesManifest = parseResult.GetValueForOption(options.EmitAppleTypesManifest);
         var appleAbiJsonPaths = parseResult.GetValueForOption(options.AppleAbiJson);
         var appleIncludeTypes = parseResult.GetValueForOption(options.AppleIncludeTypes);
@@ -193,7 +194,7 @@ public static class BindingsGeneratorCommand
         {
             try
             {
-                AutoDepResolver.Run(autoDepSpec, explicitDeps, Console.Out);
+                AutoDepResolver.Run(autoDepSpec, explicitDeps, Console.Out, consumerProject);
                 context.ExitCode = 0;
             }
             catch (Exception ex)

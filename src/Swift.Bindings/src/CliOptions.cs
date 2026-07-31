@@ -285,6 +285,13 @@ public class CliOptions
                      "SwiftFrameworkDependency. Used by --resolve-auto-deps to skip " +
                      "auto-detected dependencies the project already declares explicitly.");
 
+    public Option<string?> ConsumerProject { get; } = new(
+        aliases: new[] { "--consumer-project" },
+        description: "Full path of the project being built ($(MSBuildProjectFullPath)). Used by " +
+                     "--resolve-auto-deps to exclude that project from the name-independent " +
+                     "sibling-binding-project probe, so a dependency xcframework sitting in the " +
+                     "consumer's own directory cannot resolve to a self-ProjectReference. Optional.");
+
     public Option<bool> EmitAppleTypesManifest { get; } = new(
         aliases: new[] { "--emit-apple-types-manifest" },
         description: "Emit-apple-types-manifest mode: ingest one or more Apple Xcode SDK ABI JSON dumps and write the " +
@@ -481,6 +488,7 @@ public class CliOptions
             ResolveAutoDeps,
             AutoDepSpec,
             ExplicitDeps,
+            ConsumerProject,
             EmitAppleTypesManifest,
             AppleAbiJson,
             AppleIncludeTypes,

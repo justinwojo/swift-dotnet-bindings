@@ -1,6 +1,9 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Xml;
+using System.Xml.Linq;
+
 namespace BindingsGeneration
 {
     /// <summary>
@@ -43,11 +46,30 @@ namespace BindingsGeneration
         /// </param>
         /// <param name="fileExists">Probe predicate for candidate csproj paths (real: <see cref="File.Exists"/>).</param>
         /// <param name="toAbsolutePath">Absolute-path normalizer for a found csproj (real: <see cref="Path.GetFullPath(string)"/>).</param>
+        /// <param name="enumerateProjectFiles">
+        /// Lists the <c>*.csproj</c> files directly inside a directory (real:
+        /// <see cref="Directory.GetFiles(string, string, SearchOption)"/>). Together with
+        /// <paramref name="readFileText"/> this enables the NAME-INDEPENDENT fifth probe; pass
+        /// <see langword="null"/> for either to run the four name-derived probes only.
+        /// </param>
+        /// <param name="readFileText">
+        /// Reads a candidate csproj's text so the fifth probe can confirm it is a binding project
+        /// (real: <see cref="File.ReadAllText(string)"/>, returning <see langword="null"/> on I/O error).
+        /// </param>
+        /// <param name="consumerProjectPath">
+        /// The project being built (<c>$(MSBuildProjectFullPath)</c>), excluded from the fifth
+        /// probe's candidates so a dependency xcframework co-located with the consumer's own csproj
+        /// cannot produce a self-<c>ProjectReference</c>. Optional: omit it and the exclusion is
+        /// simply not applied.
+        /// </param>
         public static IReadOnlyList<string> Resolve(
             string? autoDepSpec,
             string? explicitDeps,
             Func<string, bool> fileExists,
-            Func<string, string> toAbsolutePath)
+            Func<string, string> toAbsolutePath,
+            Func<string, IReadOnlyList<string>>? enumerateProjectFiles = null,
+            Func<string, string?>? readFileText = null,
+            string? consumerProjectPath = null)
         {
             ArgumentNullException.ThrowIfNull(fileExists);
             ArgumentNullException.ThrowIfNull(toAbsolutePath);
@@ -123,6 +145,42 @@ namespace BindingsGeneration
                     }
                 }
 
+                // Probe 5 — NAME-INDEPENDENT, strictly additive after the four frozen probes.
+                //
+                // Why it is needed: the PackageId in the record is SYNTHESIZED, not observed. An
+                // auto-detected dependency is discovered from the consumer's own binary (otool -L)
+                // and carries only a module name and an xcframework path; nothing in that run knows
+                // the sibling's real package identity, so `GetEffectivePackageId` falls back to the
+                // CLI default `{Module}.Swift.{Platform}` and `EffectiveVersion` to `0.0.0`
+                // (FrameworkDependencyInfo.cs). All four probes above build their candidate FROM
+                // that synthesized name, so they can only hit a repo that happens to name its
+                // projects by the same convention. A repo that names them anything else — e.g.
+                // `FBAEMKit/SwiftBindings.Facebook.AEM.csproj` next to `FBAEMKit.xcframework` —
+                // misses every probe and reports a satisfied dependency closure as unresolved.
+                //
+                // Threading the real identity through the record instead is not available: the
+                // dependency xcframework is a vendor artifact and the consumer's generation run is
+                // the only run that writes the record, so the sibling's PackageId is simply not
+                // knowable at record-write time. The directory itself is the evidence.
+                //
+                // Fail-closed on ambiguity: the hit must be the ONE csproj in the dependency
+                // xcframework's own directory that is a Swift-bindings binding project (proven by
+                // parsing its XML and matching an exact SDK declaration — see IsBindingProjectText).
+                // Zero matches or two-or-more matches leave `found` null and the record warns,
+                // exactly as before — a wrong ProjectReference is worse than a warning. The project
+                // being built is excluded outright, so a co-located dependency cannot self-reference.
+                //
+                // What this deliberately does NOT do is prove the candidate binds THIS xcframework
+                // (by parsing its SwiftFramework items or its generated metadata). Directory
+                // co-location plus exactly-one plus a verified SDK declaration is the evidence;
+                // demanding more would reject the auto-discovery shape this probe exists to serve,
+                // and a wrong hit here fails visibly at build (the referenced project's types simply
+                // are not the ones the generated code names) rather than silently. Recorded as a
+                // dismissed-by-design residual in src/docs/not-planned.md.
+                if (found is null && enumerateProjectFiles is not null && readFileText is not null)
+                    found = ProbeSiblingBindingProject(
+                        parent, enumerateProjectFiles, readFileText, consumerProjectPath, toAbsolutePath);
+
                 if (found is not null)
                 {
                     // Shell: FOUND_ABS=`cd $(dirname FOUND) && pwd`; echo PROJREF|$FOUND_ABS/$(basename FOUND).
@@ -153,11 +211,279 @@ namespace BindingsGeneration
         /// <c>--resolve-auto-deps</c> CLI verb; the SDK captures these via
         /// <c>ConsoleToMSBuild</c>.
         /// </summary>
-        public static void Run(string? autoDepSpec, string? explicitDeps, TextWriter output)
+        public static void Run(
+            string? autoDepSpec,
+            string? explicitDeps,
+            TextWriter output,
+            string? consumerProjectPath = null)
         {
             ArgumentNullException.ThrowIfNull(output);
-            foreach (var line in Resolve(autoDepSpec, explicitDeps, File.Exists, Path.GetFullPath))
+            foreach (var line in Resolve(
+                         autoDepSpec, explicitDeps, File.Exists, Path.GetFullPath,
+                         EnumerateProjectFiles, ReadFileTextOrNull, consumerProjectPath))
                 output.WriteLine(line);
+        }
+
+        /// <summary>
+        /// The SDK name a Swift-bindings binding project declares. Compared EXACTLY (ordinal)
+        /// against the name component of an SDK reference, never as a substring.
+        /// </summary>
+        internal const string SwiftBindingsSdkName = "SwiftBindings.Sdk";
+
+        /// <summary>
+        /// True when <paramref name="text"/> parses as an MSBuild project that DECLARES the
+        /// Swift-bindings SDK — either as <c>&lt;Project Sdk="SwiftBindings.Sdk[/version]"&gt;</c>
+        /// (the attribute form, which may carry a <c>;</c>-delimited list) or as a top-level
+        /// <c>&lt;Sdk Name="SwiftBindings.Sdk" [Version="…"] /&gt;</c> element.
+        /// <para>
+        /// This is a real XML parse rather than a substring scan, and the difference is the whole
+        /// point of the check. Substring markers accepted a commented-out declaration
+        /// (<c>&lt;!-- &lt;Project Sdk="SwiftBindings.Sdk/0.18.0"&gt; --&gt;</c>) and a prefix
+        /// collision (<c>Sdk="SwiftBindings.SdkSomethingElse"</c>) while MISSING valid XML that
+        /// spells the attribute with whitespace (<c>Sdk = "SwiftBindings.Sdk"</c>) — three ways to
+        /// get the wrong answer about a file whose grammar is fully specified. A false positive here
+        /// injects a <c>ProjectReference</c> on an unrelated project, so the check is exact:
+        /// the root element must be <c>Project</c>, and some SDK reference's name component (the
+        /// text before the optional <c>/version</c>) must equal <see cref="SwiftBindingsSdkName"/>.
+        /// </para>
+        /// <para>
+        /// FAIL CLOSED: malformed XML, a non-<c>Project</c> root, or an empty file returns false —
+        /// consistent with the rest of this probe, where "no evidence" always means "warn", never
+        /// "guess". Element and attribute NAMES are matched case-insensitively and namespace-
+        /// agnostically (MSBuild tolerates both, and the legacy
+        /// <c>xmlns="…/developer/msbuild/2003"</c> form is still valid); the SDK name VALUE is
+        /// matched ordinal-exactly. A project spelling the SDK id in a different case would
+        /// therefore be missed and warn — the safe direction, and not a shape this repo's
+        /// templates or the generator ever emit.
+        /// </para>
+        /// <para>
+        /// Generator-emitted binding projects (<c>{Module}.Swift.{Platform}.csproj</c>) use
+        /// <c>Microsoft.NET.Sdk</c> and are found by the four name-derived probes; this probe exists
+        /// for consumer-authored SDK-mode projects, which are exactly the ones free to be named
+        /// anything.
+        /// </para>
+        /// </summary>
+        internal static bool IsBindingProjectText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            XDocument document;
+            try
+            {
+                // XDocument.Parse prohibits DTD processing by default, so a candidate csproj
+                // cannot pull in an external entity while being sniffed.
+                document = XDocument.Parse(text, LoadOptions.None);
+            }
+            catch (XmlException)
+            {
+                return false; // not well-formed XML — not a project we can vouch for.
+            }
+
+            var root = document.Root;
+            if (root is null || !NameIs(root.Name, "Project"))
+                return false;
+
+            // <Project Sdk="SwiftBindings.Sdk/0.18.0"> — the attribute may list several SDKs.
+            foreach (var attribute in root.Attributes())
+            {
+                if (NameIs(attribute.Name, "Sdk") && DeclaresSwiftBindingsSdk(attribute.Value))
+                    return true;
+            }
+
+            // <Project><Sdk Name="SwiftBindings.Sdk" Version="0.18.0" /></Project>. Only direct
+            // children count: that is the only position MSBuild honors, and accepting a nested
+            // element would reintroduce a false-positive surface for no gain.
+            foreach (var element in root.Elements())
+            {
+                if (!NameIs(element.Name, "Sdk"))
+                    continue;
+
+                foreach (var attribute in element.Attributes())
+                {
+                    if (NameIs(attribute.Name, "Name") && DeclaresSwiftBindingsSdk(attribute.Value))
+                        return true;
+                }
+            }
+
+            // <Import Project="Sdk.props" Sdk="SwiftBindings.Sdk" /> — the explicit-import form,
+            // which a project uses when it needs to interleave its own properties between the
+            // SDK's props and targets. It is a real declaration and the previous substring markers
+            // accepted it, so rejecting it here would be a regression that silently turns a
+            // resolvable dependency back into SWIFTBIND080. Imports are matched at any depth
+            // (ImportGroup/Choose are legal parents); the Sdk ATTRIBUTE is still required, so an
+            // <Import Project="…/SwiftBindings.Sdk/Sdk.props" /> naming the SDK only inside a path
+            // remains a non-match.
+            foreach (var element in root.Descendants())
+            {
+                if (!NameIs(element.Name, "Import"))
+                    continue;
+
+                foreach (var attribute in element.Attributes())
+                {
+                    if (NameIs(attribute.Name, "Sdk") && DeclaresSwiftBindingsSdk(attribute.Value))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Namespace-agnostic, case-insensitive XML name comparison. MSBuild accepts both the
+        /// bare and the 2003-namespaced project grammar and does not care about element-name
+        /// casing, so neither may decide whether a project is a binding project.
+        /// </summary>
+        private static bool NameIs(XName name, string localName) =>
+            string.Equals(name.LocalName, localName, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// True when a <c>Sdk</c>/<c>Name</c> attribute value references the Swift-bindings SDK.
+        /// The value is a <c>;</c>-delimited list of <c>Name[/Version]</c> entries; each entry's
+        /// NAME component must equal <see cref="SwiftBindingsSdkName"/> exactly, so
+        /// <c>SwiftBindings.SdkSomethingElse</c> does not qualify.
+        /// </summary>
+        private static bool DeclaresSwiftBindingsSdk(string sdkReferenceList)
+        {
+            foreach (var entry in sdkReferenceList.Split(';'))
+            {
+                var slash = entry.IndexOf('/');
+                var name = (slash < 0 ? entry : entry.Substring(0, slash)).Trim();
+                if (string.Equals(name, SwiftBindingsSdkName, StringComparison.Ordinal))
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Fifth probe: the single binding project living in the dependency xcframework's OWN
+        /// directory, found by content rather than by a synthesized name. Returns null when the
+        /// directory holds no binding project or more than one (ambiguous — fail closed).
+        /// <para>
+        /// <paramref name="consumerProjectPath"/>, when supplied, is the project currently being
+        /// built and is never a candidate. It has to be excluded explicitly because the consumer's
+        /// own csproj can legitimately sit in the same directory as an auto-detected dependency's
+        /// xcframework (a vendor dropping several xcframeworks beside one binding project), where
+        /// it would otherwise be the sole content match and probe 5 would inject a self-
+        /// <c>ProjectReference</c>. Comparison is on the normalized path and case-insensitive:
+        /// this generator runs on macOS, whose default filesystem is case-insensitive, and being
+        /// permissive here only ever removes a candidate — the fail-closed direction.
+        /// </para>
+        /// <para>
+        /// The comparison normalizes but does not RESOLVE (no <c>realpath</c>): two spellings of the
+        /// same file that differ by a symlinked directory — macOS's <c>/tmp</c> vs <c>/private/tmp</c>
+        /// being the classic pair — are not recognized as equal, and the exclusion silently does not
+        /// apply. Both paths come from the same build (MSBuild's <c>$(MSBuildProjectFullPath)</c> and
+        /// a directory walked up from the dependency's absolutized xcframework path), so they agree
+        /// in practice; when they do not, the outcome is simply the pre-exclusion behavior — a
+        /// self-<c>ProjectReference</c> that MSBuild rejects loudly as a circular reference, never a
+        /// silently wrong build.
+        /// </para>
+        /// </summary>
+        internal static string? ProbeSiblingBindingProject(
+            string directory,
+            Func<string, IReadOnlyList<string>> enumerateProjectFiles,
+            Func<string, string?> readFileText,
+            string? consumerProjectPath = null,
+            Func<string, string>? toAbsolutePath = null)
+        {
+            var normalize = toAbsolutePath ?? (p => p);
+            var consumer = string.IsNullOrEmpty(consumerProjectPath) ? null : Normalize(consumerProjectPath, normalize);
+
+            string? single = null;
+            foreach (var candidate in enumerateProjectFiles(directory))
+            {
+                if (consumer is not null &&
+                    string.Equals(Normalize(candidate, normalize), consumer, StringComparison.OrdinalIgnoreCase))
+                    continue; // the project being built is not its own dependency.
+
+                var text = readFileText(candidate);
+                if (text is null || !IsBindingProjectText(text))
+                    continue;
+
+                if (single is not null)
+                    return null; // two binding projects in one directory — refuse to guess.
+
+                single = candidate;
+            }
+
+            return single;
+        }
+
+        /// <summary>
+        /// Best-effort path normalization for the self-reference comparison; a normalizer that
+        /// throws on a malformed path degrades to the raw string rather than aborting resolution.
+        /// </summary>
+        private static string Normalize(string path, Func<string, string> toAbsolutePath)
+        {
+            try
+            {
+                return toAbsolutePath(path);
+            }
+            catch (ArgumentException)
+            {
+                return path;
+            }
+            catch (IOException)
+            {
+                return path;
+            }
+            catch (NotSupportedException)
+            {
+                return path;
+            }
+            catch (System.Security.SecurityException)
+            {
+                return path;
+            }
+        }
+
+        /// <summary>
+        /// Real <c>*.csproj</c> enumeration for <see cref="Run"/>. Ordinal-sorted so the
+        /// ambiguity check is deterministic regardless of filesystem enumeration order, and
+        /// best-effort: an unreadable or missing directory yields no candidates rather than
+        /// aborting resolution of the remaining records.
+        /// </summary>
+        private static IReadOnlyList<string> EnumerateProjectFiles(string directory)
+        {
+            try
+            {
+                if (!Directory.Exists(directory))
+                    return Array.Empty<string>();
+
+                var files = Directory.GetFiles(directory, "*.csproj", SearchOption.TopDirectoryOnly);
+                Array.Sort(files, StringComparer.Ordinal);
+                return files;
+            }
+            catch (IOException)
+            {
+                return Array.Empty<string>();
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Array.Empty<string>();
+            }
+        }
+
+        /// <summary>
+        /// Real csproj read for <see cref="Run"/>; null on any I/O failure so an unreadable
+        /// candidate is simply not a match.
+        /// </summary>
+        private static string? ReadFileTextOrNull(string path)
+        {
+            try
+            {
+                return File.ReadAllText(path);
+            }
+            catch (IOException)
+            {
+                return null;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return null;
+            }
         }
 
         /// <summary>

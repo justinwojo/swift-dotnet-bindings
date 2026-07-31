@@ -283,5 +283,287 @@ namespace BindingsGeneration.Tests
             Assert.Equal(new[] { "PROJREF|" + hit }, r1);
             Assert.Equal(new[] { "PROJREF|" + hit }, r2);
         }
+
+        // ── Probe 5: name-independent sibling-binding-project lookup ──────────────────
+        //
+        // The PackageId in a dependency record is SYNTHESIZED (`{Module}.Swift.{Platform}`) because
+        // an auto-detected dependency only ever carries a module name and an xcframework path. The
+        // four name-derived probes above are therefore blind to any repo that names its binding
+        // projects differently — the real shape being `FBAEMKit/SwiftBindings.Facebook.AEM.csproj`
+        // next to `FBAEMKit.xcframework`. Probe 5 looks in the dependency xcframework's OWN
+        // directory and identifies the binding project by CONTENT, so a satisfied dependency
+        // closure stops reporting itself as unresolved.
+
+        // Directory listing that "contains" exactly the supplied files, keyed by directory.
+        private static Func<string, IReadOnlyList<string>> Listing(params (string Dir, string[] Files)[] dirs)
+        {
+            var map = dirs.ToDictionary(d => d.Dir, d => (IReadOnlyList<string>)d.Files, StringComparer.Ordinal);
+            return dir => map.TryGetValue(dir, out var files) ? files : Array.Empty<string>();
+        }
+
+        private const string BindingProjectXml = "<Project Sdk=\"SwiftBindings.Sdk/0.18.0\"></Project>";
+        private const string PlainProjectXml = "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>";
+
+        private static Func<string, string?> Contents(params (string Path, string Text)[] files)
+        {
+            var map = files.ToDictionary(f => f.Path, f => f.Text, StringComparer.Ordinal);
+            return path => map.TryGetValue(path, out var text) ? text : null;
+        }
+
+        [Fact]
+        public void Probe5_FindsDifferentlyNamedSiblingBindingProject()
+        {
+            // The synthesized package id (FBAEMKit.Swift.iOS) matches nothing on disk; the project
+            // that actually binds this xcframework is named after its NuGet package instead.
+            var spec = "FBAEMKit|FBAEMKit.Swift.iOS|0.0.0|/repo/FBAEMKit/FBAEMKit.xcframework";
+            var real = "/repo/FBAEMKit/SwiftBindings.Facebook.AEM.csproj";
+
+            var result = AutoDepResolver.Resolve(
+                spec, "", Exists(), Identity,
+                Listing(("/repo/FBAEMKit", new[] { real })),
+                Contents((real, BindingProjectXml))).ToList();
+
+            Assert.Equal(new[] { "PROJREF|" + real }, result);
+        }
+
+        [Fact]
+        public void Probe5_RunsOnlyAfterTheFourNameDerivedProbesMiss()
+        {
+            // A conventionally-named sibling still wins: the frozen probe order is unchanged and
+            // probe 5 is strictly a fallback.
+            var spec = "Core|Core.Swift.iOS|1.0.0|/root/sheet/Sheet.xcframework";
+            var conventional = "/root/sheet/Core.Swift.iOS.csproj";
+            var other = "/root/sheet/SwiftBindings.Core.csproj";
+
+            var result = AutoDepResolver.Resolve(
+                spec, "", Exists(conventional), Identity,
+                Listing(("/root/sheet", new[] { other })),
+                Contents((other, BindingProjectXml))).ToList();
+
+            Assert.Equal(new[] { "PROJREF|" + conventional }, result);
+        }
+
+        [Fact]
+        public void Probe5_IgnoresNonBindingProjectsInTheSameDirectory()
+        {
+            // An app/test/tool csproj next to a vendored xcframework must never be mistaken for the
+            // dependency's binding — the marker is the SwiftBindings.Sdk declaration, not proximity.
+            var spec = "Core|Core.Swift.iOS|1.0.0|/root/sheet/Sheet.xcframework";
+            var app = "/root/sheet/SomeApp.csproj";
+
+            var result = AutoDepResolver.Resolve(
+                spec, "", Exists(), Identity,
+                Listing(("/root/sheet", new[] { app })),
+                Contents((app, PlainProjectXml))).ToList();
+
+            Assert.Equal(new[] { "WARN|Core|Core.Swift.iOS|1.0.0|/root/sheet/Sheet.xcframework" }, result);
+        }
+
+        [Fact]
+        public void Probe5_AmbiguousDirectory_WarnsRatherThanGuessing()
+        {
+            // Two binding projects in one directory: there is no evidence which one binds this
+            // xcframework, and a wrong ProjectReference is worse than a warning. Fail closed.
+            var spec = "Core|Core.Swift.iOS|1.0.0|/root/sheet/Sheet.xcframework";
+            var a = "/root/sheet/SwiftBindings.A.csproj";
+            var b = "/root/sheet/SwiftBindings.B.csproj";
+
+            var result = AutoDepResolver.Resolve(
+                spec, "", Exists(), Identity,
+                Listing(("/root/sheet", new[] { a, b })),
+                Contents((a, BindingProjectXml), (b, BindingProjectXml))).ToList();
+
+            Assert.Equal(new[] { "WARN|Core|Core.Swift.iOS|1.0.0|/root/sheet/Sheet.xcframework" }, result);
+        }
+
+        [Fact]
+        public void Probe5_UnreadableCandidate_IsNotAMatch()
+        {
+            // readFileText returns null on I/O failure; a candidate we cannot read is not evidence.
+            var spec = "Core|Core.Swift.iOS|1.0.0|/root/sheet/Sheet.xcframework";
+            var unreadable = "/root/sheet/SwiftBindings.Core.csproj";
+
+            var result = AutoDepResolver.Resolve(
+                spec, "", Exists(), Identity,
+                Listing(("/root/sheet", new[] { unreadable })),
+                Contents(/* nothing readable */)).ToList();
+
+            Assert.Equal(new[] { "WARN|Core|Core.Swift.iOS|1.0.0|/root/sheet/Sheet.xcframework" }, result);
+        }
+
+        [Fact]
+        public void Probe5_LooksOnlyInTheXcframeworksOwnDirectory()
+        {
+            // The grandparent is NOT scanned: a repo root holding one binding project would
+            // otherwise resolve every unrelated dependency to it.
+            var spec = "Core|Core.Swift.iOS|1.0.0|/root/sheet/Sheet.xcframework";
+            var upOne = "/root/SwiftBindings.Core.csproj";
+
+            var result = AutoDepResolver.Resolve(
+                spec, "", Exists(), Identity,
+                Listing(("/root", new[] { upOne })),
+                Contents((upOne, BindingProjectXml))).ToList();
+
+            Assert.Equal(new[] { "WARN|Core|Core.Swift.iOS|1.0.0|/root/sheet/Sheet.xcframework" }, result);
+        }
+
+        [Fact]
+        public void Probe5_Disabled_WhenNoListingDelegateIsInjected()
+        {
+            // The four-argument overload keeps the pre-existing behavior exactly: no directory
+            // scanning, so a differently-named sibling still warns.
+            var spec = "FBAEMKit|FBAEMKit.Swift.iOS|0.0.0|/repo/FBAEMKit/FBAEMKit.xcframework";
+
+            var result = Resolve(spec, "", Exists("/repo/FBAEMKit/SwiftBindings.Facebook.AEM.csproj"));
+
+            Assert.Equal(new[] { "WARN|FBAEMKit|FBAEMKit.Swift.iOS|0.0.0|/repo/FBAEMKit/FBAEMKit.xcframework" }, result);
+        }
+
+        [Fact]
+        public void Probe5_DedupStillWins_ExplicitlyDeclaredModuleIsNeverProbed()
+        {
+            var spec = "FBAEMKit|FBAEMKit.Swift.iOS|0.0.0|/repo/FBAEMKit/FBAEMKit.xcframework";
+            var real = "/repo/FBAEMKit/SwiftBindings.Facebook.AEM.csproj";
+
+            var result = AutoDepResolver.Resolve(
+                spec, explicitDeps: "FBAEMKit", Exists(), Identity,
+                Listing(("/repo/FBAEMKit", new[] { real })),
+                Contents((real, BindingProjectXml))).ToList();
+
+            Assert.Empty(result);
+        }
+
+        [Fact]
+        public void Probe5_ResultIsNormalizedThroughToAbsolutePath()
+        {
+            var spec = "FBAEMKit|FBAEMKit.Swift.iOS|0.0.0|/repo/FBAEMKit/FBAEMKit.xcframework";
+            var real = "/repo/FBAEMKit/SwiftBindings.Facebook.AEM.csproj";
+
+            var result = AutoDepResolver.Resolve(
+                spec, "", Exists(), _ => "/ABS/AEM.csproj",
+                Listing(("/repo/FBAEMKit", new[] { real })),
+                Contents((real, BindingProjectXml))).ToList();
+
+            Assert.Equal(new[] { "PROJREF|/ABS/AEM.csproj" }, result);
+        }
+
+        [Theory]
+        [InlineData("<Project Sdk=\"SwiftBindings.Sdk/0.18.0\"></Project>", true)]
+        [InlineData("<Project Sdk='SwiftBindings.Sdk'></Project>", true)]
+        [InlineData("<Project><Sdk Name=\"SwiftBindings.Sdk\" Version=\"0.18.0\" /></Project>", true)]
+        // A bare mention in a path/comment is NOT a declaration — this is the false-positive shape
+        // the attribute-form markers exist to reject.
+        [InlineData("<Project><Import Project=\"/x/SwiftBindings.Sdk/Sdk.props\" /></Project>", false)]
+        [InlineData("<Project Sdk=\"Microsoft.NET.Sdk\"></Project>", false)]
+        // ── Cases the old substring markers got WRONG, now decided by a real XML parse ──
+        // A commented-out declaration is not a declaration. The substring markers matched it.
+        [InlineData("<!-- <Project Sdk=\"SwiftBindings.Sdk/0.18.0\"> --><Project Sdk=\"Microsoft.NET.Sdk\"></Project>", false)]
+        [InlineData("<Project Sdk=\"Microsoft.NET.Sdk\"><!-- was Sdk=\"SwiftBindings.Sdk/0.18.0\" --></Project>", false)]
+        // A different SDK that merely STARTS with our id is not our SDK. The substring markers matched it.
+        [InlineData("<Project Sdk=\"SwiftBindings.SdkSomethingElse\"></Project>", false)]
+        // Valid XML may put whitespace around '='. The substring markers MISSED this real binding project.
+        [InlineData("<Project Sdk = \"SwiftBindings.Sdk/0.18.0\" ></Project>", true)]
+        // The single-quoted <Sdk Name='…'/> spelling (marker existed, was never covered by a test).
+        [InlineData("<Project><Sdk Name='SwiftBindings.Sdk' /></Project>", true)]
+        // The Sdk attribute is a ';'-delimited list; our SDK anywhere in it counts.
+        [InlineData("<Project Sdk=\"Microsoft.NET.Sdk;SwiftBindings.Sdk/0.18.0\"></Project>", true)]
+        // The explicit-import form is a real SDK declaration (and one the previous substring
+        // markers accepted) — rejecting it would turn a resolvable dependency back into a warning.
+        [InlineData("<Project><Import Project=\"Sdk.props\" Sdk=\"SwiftBindings.Sdk\" /></Project>", true)]
+        // The legacy 2003 xmlns is still valid MSBuild and must not change the answer.
+        [InlineData("<Project xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\" Sdk=\"SwiftBindings.Sdk\"></Project>", true)]
+        // Fail closed on anything we cannot parse or that is not a project at all.
+        [InlineData("<Project Sdk=\"SwiftBindings.Sdk\"", false)]
+        [InlineData("<Sdk Name=\"SwiftBindings.Sdk\" />", false)]
+        public void Probe5_BindingProjectMarker_MatchesOnlyTheSdkDeclaration(string csprojText, bool expectMatch)
+        {
+            var path = "/root/sheet/Candidate.csproj";
+
+            var found = AutoDepResolver.ProbeSiblingBindingProject(
+                "/root/sheet",
+                Listing(("/root/sheet", new[] { path })),
+                Contents((path, csprojText)));
+
+            Assert.Equal(expectMatch ? path : null, found);
+        }
+
+        [Fact]
+        public void Probe5_ExcludesTheProjectBeingBuilt_NeverSelfReferences()
+        {
+            // A vendor can drop several xcframeworks beside ONE binding project, so an
+            // auto-detected dependency's directory can be the consumer's own directory. Without
+            // the exclusion the consumer is the sole content match and probe 5 injects a
+            // self-ProjectReference (an MSBuild circular reference). Warn instead.
+            var self = "/repo/Facebook/SwiftBindings.Facebook.Core.csproj";
+            var spec = "FBSDKCoreKit_Basics|FBSDKCoreKit_Basics.Swift.iOS|0.0.0|/repo/Facebook/FBSDKCoreKit_Basics.xcframework";
+
+            var result = AutoDepResolver.Resolve(
+                spec, "", Exists(), Identity,
+                Listing(("/repo/Facebook", new[] { self })),
+                Contents((self, BindingProjectXml)),
+                consumerProjectPath: self).ToList();
+
+            Assert.Equal(
+                new[] { "WARN|FBSDKCoreKit_Basics|FBSDKCoreKit_Basics.Swift.iOS|0.0.0|/repo/Facebook/FBSDKCoreKit_Basics.xcframework" },
+                result);
+        }
+
+        [Fact]
+        public void Probe5_ExcludingTheProjectBeingBuilt_StillFindsARealSiblingInTheSameDirectory()
+        {
+            // The exclusion removes exactly one candidate — it must not disable the probe, and it
+            // must not make a genuine two-project directory look ambiguous.
+            var self = "/repo/Facebook/SwiftBindings.Facebook.Core.csproj";
+            var sibling = "/repo/Facebook/SwiftBindings.Facebook.CoreBasics.csproj";
+            var spec = "FBSDKCoreKit_Basics|FBSDKCoreKit_Basics.Swift.iOS|0.0.0|/repo/Facebook/FBSDKCoreKit_Basics.xcframework";
+
+            var result = AutoDepResolver.Resolve(
+                spec, "", Exists(), Identity,
+                Listing(("/repo/Facebook", new[] { self, sibling })),
+                Contents((self, BindingProjectXml), (sibling, BindingProjectXml)),
+                consumerProjectPath: self).ToList();
+
+            Assert.Equal(new[] { "PROJREF|" + sibling }, result);
+        }
+
+        [Fact]
+        public void Probe5_ConsumerExclusion_ComparesNormalizedPaths()
+        {
+            // MSBuild hands us $(MSBuildProjectFullPath); the enumerator yields whatever the
+            // filesystem spells. The exclusion compares both through toAbsolutePath, so an
+            // un-normalized spelling of the same file still excludes it.
+            var self = "/repo/Facebook/SwiftBindings.Facebook.Core.csproj";
+            var selfAsGiven = "/repo/Facebook/./SwiftBindings.Facebook.Core.csproj";
+            var spec = "Dep|Dep.Swift.iOS|0.0.0|/repo/Facebook/Dep.xcframework";
+
+            var result = AutoDepResolver.Resolve(
+                spec, "", Exists(),
+                toAbsolutePath: p => p.Replace("/./", "/", StringComparison.Ordinal),
+                Listing(("/repo/Facebook", new[] { self })),
+                Contents((self, BindingProjectXml)),
+                consumerProjectPath: selfAsGiven).ToList();
+
+            Assert.Equal(new[] { "WARN|Dep|Dep.Swift.iOS|0.0.0|/repo/Facebook/Dep.xcframework" }, result);
+        }
+
+        [Fact]
+        public void Probe5_ADifferentBindingProjectBesideTheXcframework_IsStillAccepted()
+        {
+            // Pins a DISMISSED-BY-DESIGN behavior (src/docs/not-planned.md): the probe proves the
+            // candidate is a binding project, not that it binds THIS xcframework. A lone unrelated
+            // binding project beside a vendored dependency is therefore accepted. Requiring linking
+            // evidence would reject the auto-discovery shape the probe exists to serve, and a wrong
+            // hit fails visibly at build (the referenced project does not carry the types the
+            // generated code names) rather than silently. Change this test only with that decision.
+            var unrelated = "/repo/vendor/SwiftBindings.SomethingElse.csproj";
+            var spec = "Dep|Dep.Swift.iOS|0.0.0|/repo/vendor/Dep.xcframework";
+
+            var result = AutoDepResolver.Resolve(
+                spec, "", Exists(), Identity,
+                Listing(("/repo/vendor", new[] { unrelated })),
+                Contents((unrelated, BindingProjectXml))).ToList();
+
+            Assert.Equal(new[] { "PROJREF|" + unrelated }, result);
+        }
     }
 }
