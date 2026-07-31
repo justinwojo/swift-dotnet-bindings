@@ -171,15 +171,47 @@ public class ObjCBindingProjectEmitterTests
         }
     }
 
+    /// <summary>
+    /// The array-overload file the emitter can now produce pins its managed array with <c>fixed</c>,
+    /// which is only legal in an unsafe context. The binding-project SDK enables unsafe code too, but
+    /// that is a property-evaluation-order dependency on a file we now REQUIRE to compile, so the
+    /// project states it outright.
+    /// </summary>
     [Fact]
-    public void DoesNotContain_AllowUnsafeBlocks()
+    public void Contains_AllowUnsafeBlocks()
     {
         var tmpDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         try
         {
             ObjCBindingProjectEmitter.Emit(CreateOptions(tmpDir), Logger);
             var content = File.ReadAllText(Path.Combine(tmpDir, "TestModule.ObjC.iOS.csproj"));
-            Assert.DoesNotContain("AllowUnsafeBlocks", content);
+            Assert.Contains("<AllowUnsafeBlocks>true</AllowUnsafeBlocks>", content);
+        }
+        finally
+        {
+            if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, true);
+        }
+    }
+
+    /// <summary>
+    /// The array-overload file is a plain <c>Compile</c> item guarded by <c>Exists()</c>: it must NOT
+    /// be an <c>ObjcBindingCoreSource</c>, which is also fed to bgen's api-definition contract compile
+    /// — that compile runs before bgen generates the <c>[Internal]</c> members the overloads forward
+    /// to, so the file would fail it with unresolved members.
+    /// </summary>
+    [Fact]
+    public void ArrayOverloadsFile_IsAPlainConditionalCompileItem()
+    {
+        var tmpDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            ObjCBindingProjectEmitter.Emit(CreateOptions(tmpDir), Logger);
+            var content = File.ReadAllText(Path.Combine(tmpDir, "TestModule.ObjC.iOS.csproj"));
+
+            var itemLine = content.Split('\n').Single(l => l.Contains($"Include=\"{ObjCArrayOverloadsEmitter.FileName}\""));
+            Assert.Contains("<Compile", itemLine);
+            Assert.DoesNotContain("ObjcBindingCoreSource", itemLine);
+            Assert.Contains($"Exists('{ObjCArrayOverloadsEmitter.FileName}')", content);
         }
         finally
         {

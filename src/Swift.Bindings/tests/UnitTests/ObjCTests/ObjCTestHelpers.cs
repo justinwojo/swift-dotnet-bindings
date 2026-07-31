@@ -64,6 +64,40 @@ public static class ObjCTestHelpers
     }
 
     /// <summary>
+    /// Emit an ObjCModule through ApiDefinitionEmitter and return the ApiDefinition content, the
+    /// companion array-overloads file (null when none was written), and the diagnostics collector.
+    /// The two files are a pair — the overload forwards to an <c>[Internal]</c> member declared in
+    /// the ApiDefinition — so tests that assert on one usually need to assert on the other.
+    /// </summary>
+    /// <param name="seedStaleArrayOverloads">
+    /// Writes a placeholder array-overloads file before emitting, so a test can observe that a run
+    /// producing no overloads clears a leftover from a previous generate.
+    /// </param>
+    public static (string ApiDefinition, string? ArrayOverloads, ObjCBindingDiagnostics Diagnostics) EmitApiDefinitionWithArrayOverloads(
+        ObjCModule module, string ns = "TestNamespace", PlatformInfo? platformInfo = null, bool seedStaleArrayOverloads = false)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"apidefinition_test_{Guid.NewGuid():N}");
+        var diagnostics = new ObjCBindingDiagnostics();
+        try
+        {
+            Directory.CreateDirectory(dir);
+            var overloadsPath = Path.Combine(dir, ObjCArrayOverloadsEmitter.FileName);
+            if (seedStaleArrayOverloads)
+                File.WriteAllText(overloadsPath, "// stale content from a previous generate\n");
+
+            var path = ApiDefinitionEmitter.Emit(module, dir, ns, Logger, diagnostics: diagnostics, platformInfo: platformInfo);
+            return (File.ReadAllText(path),
+                    File.Exists(overloadsPath) ? File.ReadAllText(overloadsPath) : null,
+                    diagnostics);
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+                Directory.Delete(dir, true);
+        }
+    }
+
+    /// <summary>
     /// Emit an ObjCModule through StructsAndEnumsEmitter and return the main file content.
     /// Handles temp directory creation and cleanup.
     /// </summary>

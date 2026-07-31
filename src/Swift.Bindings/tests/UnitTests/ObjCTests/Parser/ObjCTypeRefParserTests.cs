@@ -654,4 +654,80 @@ public class ObjCTypeRefParserTests
         Assert.Equal(ObjCNullability.Nonnull, result.GenericArgs[0].Nullability);
         Assert.Equal(ObjCNullability.Nullable, result.GenericArgs[1].Nullability);
     }
+
+    // --- const recovery ---
+    //
+    // The qualifier has no C# spelling so it is still stripped out of the type text, but the FACT
+    // has to survive on the parsed ref: a const pointee is read-only, which is what separates an
+    // input buffer from a caller-allocated output slot downstream.
+
+    [Theory]
+    [InlineData("const CGPoint *")]
+    [InlineData("CGPoint const *")]
+    [InlineData("const CGPoint * _Nonnull")]
+    [InlineData("const CLLocationCoordinate2D *")]
+    public void Parse_ConstPointee_FlagsIsConst(string qualType)
+    {
+        var result = ObjCTypeRefParser.Parse(qualType);
+        Assert.True(result.IsConst);
+        Assert.True(result.IsPointer);
+    }
+
+    [Fact]
+    public void Parse_ConstPointee_KeepsNameNullabilityAndRawText()
+    {
+        var result = ObjCTypeRefParser.Parse("const CGPoint * _Nonnull");
+        Assert.Equal("CGPoint", result.Name);
+        Assert.Equal(ObjCNullability.Nonnull, result.Nullability);
+        Assert.Equal("const CGPoint * _Nonnull", result.RawQualType);
+    }
+
+    /// <summary>
+    /// <c>T *const</c> constrains the pointer VARIABLE and says nothing about whether the callee may
+    /// write through it, so it must not be confused with a read-only pointee: a mutable pointee is
+    /// still a legitimate caller-allocated output slot.
+    /// </summary>
+    [Theory]
+    [InlineData("CGPoint *const")]
+    [InlineData("CGPoint * const")]
+    public void Parse_PointerConst_DoesNotFlagIsConst(string qualType)
+    {
+        var result = ObjCTypeRefParser.Parse(qualType);
+        Assert.False(result.IsConst);
+        Assert.True(result.IsPointer);
+        Assert.Equal("CGPoint", result.Name);
+    }
+
+    [Theory]
+    [InlineData("CGPoint *")]
+    [InlineData("NSInteger *")]
+    [InlineData("NSString *")]
+    public void Parse_UnqualifiedType_DoesNotFlagIsConst(string qualType)
+    {
+        Assert.False(ObjCTypeRefParser.Parse(qualType).IsConst);
+    }
+
+    /// <summary>
+    /// The qualifier is matched on word boundaries, so a type whose NAME merely contains the letters
+    /// "const" keeps its spelling and is not mistaken for read-only storage.
+    /// </summary>
+    [Theory]
+    [InlineData("pb_const_t *", "pb_const_t")]
+    [InlineData("MyConstants *", "MyConstants")]
+    [InlineData("constant_t *", "constant_t")]
+    public void Parse_NameContainingConst_NotTreatedAsQualifier(string qualType, string expectedName)
+    {
+        var result = ObjCTypeRefParser.Parse(qualType);
+        Assert.False(result.IsConst);
+        Assert.Equal(expectedName, result.Name);
+    }
+
+    [Fact]
+    public void Parse_ConstQualifiedNonPointer_FlagsIsConstWithoutPointer()
+    {
+        var result = ObjCTypeRefParser.Parse("const NSInteger");
+        Assert.True(result.IsConst);
+        Assert.False(result.IsPointer);
+        Assert.Equal("NSInteger", result.Name);
+    }
 }

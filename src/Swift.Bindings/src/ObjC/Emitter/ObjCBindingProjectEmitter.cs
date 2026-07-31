@@ -132,6 +132,10 @@ public static class ObjCBindingProjectEmitter
                 <TargetFramework>{pi.PackTfm}</TargetFramework>
                 <Nullable>enable</Nullable>
                 <IsBindingProject>true</IsBindingProject>
+                <!-- The array-overload file pins its managed array with `fixed`, and bgen's own
+                     generated classes are declared `unsafe`. Stated explicitly rather than relied on
+                     from the binding-project defaults. -->
+                <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
                 <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
                 <!-- Not a standalone package. A mixed framework is ONE xcframework and ships as
                      ONE NuGet package: the Swift binding's pack embeds THIS companion's managed
@@ -152,6 +156,12 @@ public static class ObjCBindingProjectEmitter
                      excluded from C# compilation (bgen auto-generates these in SupportDelegates.g.cs) -->
                 <ObjcBindingCoreSource Include="BgenDelegates.cs"
                                        Condition="Exists('BgenDelegates.cs')" />
+                <!-- Array overloads for selectors taking a C array of value types: a plain Compile
+                     item, deliberately NOT a bgen input. It forwards to the [Internal] pointer+count
+                     members bgen generates FROM the ApiDefinition, so those members do not exist yet
+                     during the api-definition contract compile that bgen runs over its own inputs. -->
+                <Compile Include="{ObjCArrayOverloadsEmitter.FileName}"
+                         Condition="Exists('{ObjCArrayOverloadsEmitter.FileName}')" />
               </ItemGroup>
 
               <!-- Remove bgen-only delegate hints from C# compilation.

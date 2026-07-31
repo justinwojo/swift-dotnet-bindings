@@ -277,6 +277,19 @@ internal static class ObjCUsingsEmitter
         AppendProvenanceUsings(sb, BgenDelegatesUsings, referencedAppleNamespaces, platformInfo);
     }
 
+    /// <summary>
+    /// Emits the ObjCArrayOverloads.cs <c>using</c> header. It reuses the ApiDefinition baseline
+    /// because the overloads restate types the ApiDefinition already names — the same element,
+    /// count, return and pass-through parameter types, produced by the same mapper — so anything
+    /// that resolves there must resolve here.
+    /// </summary>
+    public static void EmitArrayOverloadsHeader(
+        StringBuilder sb, PlatformInfo? platformInfo, IReadOnlySet<string> referencedAppleNamespaces)
+    {
+        EmitFiltered(sb, ApiDefinitionUsings, platformInfo);
+        AppendProvenanceUsings(sb, ApiDefinitionUsings, referencedAppleNamespaces, platformInfo);
+    }
+
     private static void EmitFiltered(StringBuilder sb, string[] usings, PlatformInfo? platformInfo)
     {
         foreach (var ns in usings)

@@ -755,6 +755,21 @@ public static class StructsAndEnumsEmitter
             return;
         }
 
+        // A const pointer to a value type is read-only by construction, so it can never be the
+        // `out T` the value-type-pointer path below emits — C# `out` zeroes the caller's storage
+        // before the call, silently destroying the data the function was given to read. Unlike an
+        // ObjC selector, a C function carries no keyword that could identify the parameter as an
+        // array to project instead, so there is no sound signature for it and the function drops.
+        var constPointerParam = function.Parameters.FirstOrDefault(
+            p => ObjCTypeMapper.IsConstValueTypePointerParameter(p.Type, typedefMap, enumNames));
+        if (constPointerParam != null)
+        {
+            var detail = $"parameter '{constPointerParam.Name}' ('{constPointerParam.Type.RawQualType}') is a const pointer to a value type — read-only, so it cannot be an out parameter, and a C function has no keyword identifying it as an array";
+            logger.LogDebug("Skipping function {FuncName}: {Detail}", function.Name, detail);
+            diagnostics?.RecordSkip("Function", function.Name, ObjCSkipReason.UnsupportedConstruct, detail);
+            return;
+        }
+
         var parameters = string.Join(", ", function.Parameters.Select((p, i) =>
         {
             var paramName = string.IsNullOrEmpty(p.Name) ? $"arg{i}" : SanitizeIdentifier(p.Name);

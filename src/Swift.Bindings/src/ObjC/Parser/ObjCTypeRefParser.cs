@@ -13,10 +13,19 @@ public static class ObjCTypeRefParser
         var raw = qualType;
         var s = qualType.Trim();
 
-        // 0. Strip __attribute__((...)) decorations and ObjC macros
+        // 0. Strip __attribute__((...)) decorations and ObjC macros. Constness has no C# spelling
+        //    so it leaves the type text here, but the fact survives on the parsed ref: a
+        //    const-qualified pointee is read-only by construction, which downstream projections
+        //    need in order to tell an input buffer from a caller-allocated output slot.
         s = StripAttributes(s);
-        s = StripObjCMacros(s);
+        s = StripObjCMacros(s, out var isPointeeConst);
 
+        var parsed = ParseStripped(s, raw);
+        return isPointeeConst ? parsed with { IsConst = true } : parsed;
+    }
+
+    private static ObjCTypeRef ParseStripped(string s, string raw)
+    {
         // 1. Detect anonymous union/struct types from clang: "union (unnamed union at ...)"
         if (s.StartsWith("union (", StringComparison.Ordinal) ||
             s.StartsWith("struct (", StringComparison.Ordinal))
@@ -169,8 +178,18 @@ public static class ObjCTypeRefParser
         return s.Trim();
     }
 
-    private static string StripObjCMacros(string s)
+    /// <summary>
+    /// Removes the ObjC/availability macro decorations clang leaves in a qualType and reports
+    /// whether a <c>const</c> qualifier applied to the *pointee* (or to the value itself) was
+    /// removed. The two flavours are deliberately distinguished: <c>T *const</c> constrains the
+    /// pointer variable and says nothing about what the callee may write through it, while
+    /// <c>const T *</c> makes the pointed-to storage read-only — the only one that carries binding
+    /// meaning.
+    /// </summary>
+    private static string StripObjCMacros(string s, out bool isPointeeConst)
     {
+        isPointeeConst = false;
+
         // Strip NS_REFINED_FOR_SWIFT
         s = s.Replace("NS_REFINED_FOR_SWIFT", "");
 
@@ -178,10 +197,16 @@ public static class ObjCTypeRefParser
         // Pattern-based: strip any NS_/API_/__ prefixed macro token.
         s = StripPrefixedMacros(s);
 
-        // Strip C const qualifier (no C# equivalent in binding context)
-        if (s.StartsWith("const ", StringComparison.Ordinal))
-            s = s[6..];
+        // Strip the C const qualifier (no C# equivalent in binding context). Pointer-const goes
+        // first and unflagged; whatever const token survives that qualified the pointee. Match on
+        // word boundaries so a typedef whose name merely contains "const" (e.g. "pb_const_t") is
+        // left alone.
         s = s.Replace("* const", "*").Replace("*const", "*");
+        if (ConstQualifierRegex.IsMatch(s))
+        {
+            isPointeeConst = true;
+            s = ConstQualifierRegex.Replace(s, " ");
+        }
 
         // Strip ObjC type qualifiers
         if (s.StartsWith("__kindof ", StringComparison.Ordinal))
@@ -202,6 +227,9 @@ public static class ObjCTypeRefParser
 
         return s.Trim();
     }
+
+    private static readonly System.Text.RegularExpressions.Regex ConstQualifierRegex =
+        new(@"\bconst\b", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private static readonly System.Text.RegularExpressions.Regex ArcOwnershipQualifierRegex =
         new(@"\b(?:__strong|__weak|__unsafe_unretained|__autoreleasing)\b",

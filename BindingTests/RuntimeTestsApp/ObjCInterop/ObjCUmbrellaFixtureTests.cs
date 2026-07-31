@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using CoreGraphics;
 using Foundation;
 using ObjCRuntime;
 using ObjCUmbrella;
@@ -279,6 +280,66 @@ public class ObjCUmbrellaFixtureTests : TestBase
             "UIUserInterfaceStyle marshals into ObjC in parameter position");
         AssertFalse(enums.AcceptsInterfaceStyle(UIUserInterfaceStyle.Light),
             "a different UIUserInterfaceStyle member is distinguished across the boundary");
+    }
+
+    /// <summary>
+    /// Shape 12a — a C array of value types passed as an element pointer + <c>count:</c> pair, on a
+    /// class factory. The values themselves are the assertion: projected as a C# <c>out</c>, the
+    /// pointer parameter would zero the caller's storage before the call and every coordinate would
+    /// arrive as (0,0) — which compiles, links, and runs, so only reading the data back catches it.
+    /// </summary>
+    public void TestConstPointArrayInputReachesNativeIntact()
+    {
+        var points = new CGPoint[] { new(1, 10), new(2, 20), new(4, 40) };
+        using var buffer = OUPointBuffer.BufferWithPoints(points);
+
+        AssertEqual(3, (int)buffer.StoredCount, "every element of the array crossed, not just the first");
+        AssertApproxEqual(7.0, (double)buffer.SumOfX(), 0.001, "the element VALUES crossed intact (zeroes would sum to 0)");
+    }
+
+    /// <summary>
+    /// Shape 12b — the same pair on an instance method, with a trailing value-type parameter that has
+    /// to pass through the generated array overload untouched.
+    /// </summary>
+    public void TestConstPointArrayInputForwardsTrailingParameter()
+    {
+        using var buffer = OUPointBuffer.BufferWithPoints(new CGPoint[] { new(1, 1) });
+        buffer.AppendPoints(new CGPoint[] { new(2, 2), new(3, 3) }, (nfloat)10);
+
+        AssertEqual(3, (int)buffer.StoredCount, "the appended elements crossed");
+        // 1 + (2*10) + (3*10): a dropped or zeroed scale would give 1 + 2 + 3.
+        AssertApproxEqual(51.0, (double)buffer.SumOfX(), 0.001, "the trailing scale parameter passed through unchanged");
+    }
+
+    /// <summary>
+    /// Shape 12c — a MUTABLE element pointer + <c>count:</c> is an OUTPUT buffer of <c>count</c>
+    /// elements. As an <c>out</c> the callee would be handed room for exactly one element and write
+    /// <c>count</c> of them, corrupting whatever followed; as an array it fills the caller's storage.
+    /// </summary>
+    public void TestMutablePointArrayOutputFillsCallerBuffer()
+    {
+        using var buffer = OUPointBuffer.BufferWithPoints(new CGPoint[] { new(5, 50), new(6, 60) });
+
+        var destination = new CGPoint[2];
+        buffer.CopyPointsInto(destination);
+
+        AssertApproxEqual(5.0, (double)destination[0].X, 0.001, "the callee wrote the first element");
+        AssertApproxEqual(60.0, (double)destination[1].Y, 0.001, "the callee wrote past the first element too");
+    }
+
+    /// <summary>
+    /// Shape 12e — the positive control for the projection that stays. A single MUTABLE element
+    /// pointer with no count really is one caller-allocated slot, so it remains an <c>out</c>
+    /// parameter; the const-pointer work must not have swept it up.
+    /// </summary>
+    public void TestSingleMutablePointerRemainsOutParameter()
+    {
+        using var empty = OUPointBuffer.BufferWithPoints(System.Array.Empty<CGPoint>());
+        AssertFalse(empty.TryFirstPoint(out _), "an empty buffer reports no first point");
+
+        using var buffer = OUPointBuffer.BufferWithPoints(new CGPoint[] { new(9, 90) });
+        AssertTrue(buffer.TryFirstPoint(out var first), "a populated buffer reports a first point");
+        AssertApproxEqual(9.0, (double)first.X, 0.001, "the out parameter carries the value back");
     }
 
     /// <summary>

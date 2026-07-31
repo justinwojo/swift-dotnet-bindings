@@ -338,13 +338,10 @@ public static class ObjCTypeMapper
 
         // Resolve chains: A → B → NSString* becomes A → NSString*
         var resolved = new Dictionary<string, ObjCTypeRef>();
-        foreach (var (name, typeRef) in raw)
+        foreach (var name in raw.Keys)
         {
-            var current = typeRef;
-            var visited = new HashSet<string> { name };
-            while (raw.TryGetValue(current.Name, out var next) && visited.Add(current.Name))
-                current = next;
-            resolved[name] = current;
+            TryResolveTypedefChain(name, raw, out var terminal, out var isConst, out var pointerDepth);
+            resolved[name] = ApplyChainQualifiers(terminal, isConst, pointerDepth);
         }
         return resolved;
     }
@@ -588,30 +585,136 @@ public static class ObjCTypeMapper
     /// <paramref name="typedefMap"/> resolves typedef'd names (e.g., MyErrorCode → NSInteger).
     /// <paramref name="enumNames"/> is the set of enum type names defined in the module.
     /// </summary>
-    public static bool IsValueTypePointerParameter(ObjCTypeRef typeRef, Dictionary<string, ObjCTypeRef>? typedefMap, HashSet<string>? enumNames)
+    public static bool IsValueTypePointerParameter(ObjCTypeRef typeRef, Dictionary<string, ObjCTypeRef>? typedefMap, HashSet<string>? enumNames) =>
+        !HasConstPointee(typeRef, typedefMap) && IsValueTypePointerShape(typeRef, typedefMap, enumNames);
+
+    /// <summary>
+    /// The const-qualified counterpart of <see cref="IsValueTypePointerParameter"/>: same pointer-to-
+    /// value-type shape, but the pointee is <c>const</c>. Such a parameter is an input the callee may
+    /// only read, so it must never be projected as a C# <c>out</c> — <c>out</c> zeroes the caller's
+    /// storage before the call, which silently destroys the data the callee was meant to read. It is
+    /// also the shape a C array argument takes (<c>const CGPoint *points</c> paired with a count), so
+    /// callers use this to route the parameter to an array projection or to fail closed.
+    /// </summary>
+    public static bool IsConstValueTypePointerParameter(ObjCTypeRef typeRef, Dictionary<string, ObjCTypeRef>? typedefMap, HashSet<string>? enumNames) =>
+        HasConstPointee(typeRef, typedefMap) && IsValueTypePointerShape(typeRef, typedefMap, enumNames);
+
+    /// <summary>
+    /// Whether the pointee is read-only, counting constness a typedef hides. Clang spells
+    /// <c>typedef const CGPoint ConstPoint; -m:(ConstPoint *)p</c> as plain <c>ConstPoint *</c>, so
+    /// the qualifier survives only on the typedef's own target; reading the parameter's own flag
+    /// alone would classify a read-only input as mutable and hand it to the <c>out</c> projection.
+    /// Walks the alias chain the same way <see cref="IsValueTypePointerShape"/> does, and stops on a
+    /// repeat so a self-referential map cannot spin.
+    /// </summary>
+    public static bool HasConstPointee(ObjCTypeRef typeRef, Dictionary<string, ObjCTypeRef>? typedefMap) =>
+        typeRef.IsConst
+        || (TryResolveTypedefChain(typeRef.Name, typedefMap, out _, out var chainIsConst, out _) && chainIsConst);
+
+    /// <summary>
+    /// Walks <paramref name="name"/> down its typedef alias chain and reports what it ultimately
+    /// names, plus the qualifiers the hops along the way applied. Both reported qualifiers are
+    /// STICKY, because only the last hop's type survives a flatten: <c>typedef CGPoint Pt; typedef
+    /// const Pt *PtRun;</c> ends at a bare <c>CGPoint</c>, and dropping what the middle alias said
+    /// loses exactly the two facts that decide how a pointer parameter is projected — a read-only
+    /// pointee that reads as mutable gets an <c>out</c> (zeroing the caller's data before the callee
+    /// reads it), and a pointer that reads as a plain value gets bound BY VALUE (handing the callee a
+    /// copy in registers where it expects an address). Stops on a repeat so a self-referential map
+    /// cannot spin. Returns false when the name is not an alias at all.
+    /// </summary>
+    static bool TryResolveTypedefChain(
+        string name,
+        Dictionary<string, ObjCTypeRef>? typedefMap,
+        out ObjCTypeRef terminal,
+        out bool isConst,
+        out int pointerDepth)
     {
-        // Must be a pointer type
-        if (!typeRef.IsPointer) return false;
-        // Double pointers are not value-type out params (e.g., NSError **)
-        if (typeRef.PointeeType != null) return false;
+        terminal = null!;
+        isConst = false;
+        pointerDepth = 0;
+        if (typedefMap == null || !typedefMap.TryGetValue(name, out var target)) return false;
+
+        var visited = new HashSet<string>(StringComparer.Ordinal) { name };
+        while (true)
+        {
+            if (target.IsConst) isConst = true;
+
+            var depth = PointerDepthOf(target);
+            // A `const` an EARLIER hop applied qualified whatever the rest of the chain turned out to
+            // be — and if that is a pointer, it is the pointer that is read-only, not the value it
+            // addresses. `typedef CGPoint *Ptr; typedef const Ptr ConstPtr;` spells `CGPoint *const`:
+            // the callee may still write through it, so it stays a legal single-value out slot and
+            // must not be dropped as a read-only input. A hop that spells the star and the qualifier
+            // together (`const CGPoint *`) is the opposite case, already told apart by the parser, so
+            // only a pointer a hop introduces WITHOUT its own const clears the flag.
+            if (depth > 0 && !target.IsConst) isConst = false;
+            pointerDepth += depth;
+
+            if (!visited.Add(target.Name) || !typedefMap.TryGetValue(target.Name, out var deeper))
+                break;
+            target = deeper;
+        }
+        terminal = target;
+        return true;
+    }
+
+    /// <summary>
+    /// How many levels of indirection a single type reference spells. <c>PointeeType</c> is the
+    /// marker the parser sets for a directly-written <c>T **</c>, so it counts as a second level on
+    /// top of <c>IsPointer</c>.
+    /// </summary>
+    static int PointerDepthOf(ObjCTypeRef typeRef) =>
+        (typeRef.IsPointer ? 1 : 0) + (typeRef.PointeeType != null ? 1 : 0);
+
+    /// <summary>
+    /// Bakes the qualifiers a chain walk accumulated back onto the flattened entry, so a later reader
+    /// of the resolved map recovers the same facts the walk saw. Depth of two or more is recorded on
+    /// <c>PointeeType</c> — the marker the pointer-shape test already reads for a directly-spelled
+    /// <c>T **</c> — rather than as a second signal every reader would have to learn.
+    /// </summary>
+    static ObjCTypeRef ApplyChainQualifiers(ObjCTypeRef terminal, bool isConst, int pointerDepth)
+    {
+        var result = terminal;
+        if (isConst && !result.IsConst)
+            result = result with { IsConst = true };
+        if (pointerDepth >= 1 && !result.IsPointer)
+            result = result with { IsPointer = true };
+        if (pointerDepth >= 2 && result.PointeeType == null)
+            result = result with { PointeeType = new ObjCTypeRef { Name = result.Name, IsPointer = true } };
+        return result;
+    }
+
+    /// <summary>
+    /// The purely structural half of the value-type-pointer test: does this parameter point at a
+    /// single value type (primitive, Apple struct, enum), ignoring constness? Constness decides how
+    /// the parameter is projected, not whether it has this shape.
+    /// </summary>
+    public static bool IsValueTypePointerShape(ObjCTypeRef typeRef, Dictionary<string, ObjCTypeRef>? typedefMap, HashSet<string>? enumNames)
+    {
+        // Resolve through typedefs FIRST: e.g., typedef NSInteger MyErrorCode; MyErrorCode * → out
+        // nint. The alias can also carry the indirection itself (`typedef const CGPoint *PointRun;`
+        // used as a bare `PointRun`), and Clang spells such a parameter with the alias name alone —
+        // so deciding pointer-ness from the usage only would read a pointer parameter as a plain
+        // value and bind the struct BY VALUE, handing the callee a copy in registers where it
+        // expects an address.
+        var hasAlias = TryResolveTypedefChain(typeRef.Name, typedefMap, out var alias, out _, out var aliasDepth);
+
+        // Exactly one level of indirection, counting what the usage spells and what the chain adds.
+        // Anything deeper addresses a pointer rather than a value — `PointRun *` and the directly
+        // spelled `NSError **` are the same shape, and neither is an out-param slot for one value.
+        if (PointerDepthOf(typeRef) + (hasAlias ? aliasDepth : 0) != 1) return false;
+
+        var effective = hasAlias ? alias : typeRef;
+
         // Blocks, function pointers, anonymous records are not value type pointers
         if (typeRef.IsBlock || typeRef.IsFunctionPointer || typeRef.IsAnonymousRecord) return false;
+        if (effective.IsBlock || effective.IsFunctionPointer || effective.IsAnonymousRecord) return false;
         // id<Protocol> pointers are object types
-        if (typeRef.ProtocolQualifications.Count > 0) return false;
+        if (typeRef.ProtocolQualifications.Count > 0 || effective.ProtocolQualifications.Count > 0) return false;
         // Generic containers (NSArray<T> *) are object types
-        if (typeRef.GenericArgs.Count > 0) return false;
+        if (typeRef.GenericArgs.Count > 0 || effective.GenericArgs.Count > 0) return false;
 
-        var name = typeRef.Name;
-
-        // Resolve through typedefs: e.g., typedef NSInteger MyErrorCode; MyErrorCode * → out nint
-        if (typedefMap != null && typedefMap.TryGetValue(name, out var resolved))
-        {
-            var underlying = resolved;
-            var visited = new HashSet<string> { name };
-            while (typedefMap.TryGetValue(underlying.Name, out var deeper) && visited.Add(underlying.Name))
-                underlying = deeper;
-            name = underlying.Name;
-        }
+        var name = effective.Name;
 
         // void * → IntPtr, not an out param
         if (name == "void") return false;
@@ -643,8 +746,16 @@ public static class ObjCTypeMapper
     /// </summary>
     public static string MapValueTypePointerParameterType(ObjCTypeRef typeRef, Dictionary<string, ObjCTypeRef>? typedefMap = null)
     {
-        // Map the pointee (non-pointer version of the type)
-        var pointee = new ObjCTypeRef { Name = typeRef.Name };
+        // Map the pointee (non-pointer version of the type). When the indirection comes from the
+        // typedef rather than the usage (`typedef CGPoint *PointRef;` spelled as a bare `PointRef`),
+        // the pointee is what the ALIAS names — the alias name on its own still resolves back to the
+        // pointer, which would map the parameter to the pointer type instead of the value.
+        var pointeeName = !typeRef.IsPointer
+            && TryResolveTypedefChain(typeRef.Name, typedefMap, out var aliasTarget, out _, out var aliasDepth)
+            && aliasDepth >= 1
+                ? aliasTarget.Name
+                : typeRef.Name;
+        var pointee = new ObjCTypeRef { Name = pointeeName };
         return MapType(pointee, typedefMap: typedefMap);
     }
 

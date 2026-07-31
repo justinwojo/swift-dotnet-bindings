@@ -179,3 +179,57 @@ int32_t OUExportedTriple(int32_t x) { return x * 3; }
 @dynamic title;
 @synthesize rank = _rank;
 @end
+
+// Shape 12 — the element-pointer + `count:` array shapes. Every method reads or writes `count`
+// elements through the pointer, so a binding that projected the pointer as a single `out` value
+// would be observably wrong here (zeroed input, one-slot output) without failing to compile.
+@implementation OUPointBuffer {
+    NSMutableData *_points;
+}
+
+- (instancetype)init {
+    if ((self = [super init])) { _points = [NSMutableData data]; }
+    return self;
+}
+
+- (NSInteger)storedCount { return (NSInteger)(_points.length / sizeof(CGPoint)); }
+
++ (instancetype)bufferWithPoints:(const CGPoint *)points count:(NSUInteger)count {
+    OUPointBuffer *buffer = [[OUPointBuffer alloc] init];
+    [buffer->_points appendBytes:points length:count * sizeof(CGPoint)];
+    return buffer;
+}
+
+- (void)appendPoints:(const CGPoint *)points count:(NSUInteger)count scaledBy:(CGFloat)scale {
+    for (NSUInteger i = 0; i < count; i++) {
+        CGPoint scaled = CGPointMake(points[i].x * scale, points[i].y * scale);
+        [_points appendBytes:&scaled length:sizeof(CGPoint)];
+    }
+}
+
+- (void)copyPointsInto:(CGPoint *)points count:(NSUInteger)count {
+    const CGPoint *stored = (const CGPoint *)_points.bytes;
+    NSUInteger available = _points.length / sizeof(CGPoint);
+    NSUInteger copyCount = count < available ? count : available;
+    for (NSUInteger i = 0; i < copyCount; i++) points[i] = stored[i];
+}
+
+- (CGFloat)distanceFromOrigin:(const CGPoint *)point {
+    return (CGFloat)sqrt((double)(point->x * point->x + point->y * point->y));
+}
+
+- (BOOL)tryFirstPoint:(CGPoint *)outPoint {
+    if (_points.length < sizeof(CGPoint)) return NO;
+    *outPoint = *((const CGPoint *)_points.bytes);
+    return YES;
+}
+
+- (CGFloat)sumOfX {
+    const CGPoint *stored = (const CGPoint *)_points.bytes;
+    NSUInteger count = _points.length / sizeof(CGPoint);
+    CGFloat sum = 0;
+    for (NSUInteger i = 0; i < count; i++) sum += stored[i].x;
+    return sum;
+}
+
+@end

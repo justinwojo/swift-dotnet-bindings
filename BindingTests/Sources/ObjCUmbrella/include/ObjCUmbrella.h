@@ -258,4 +258,43 @@ typedef id<OUElement> _Nonnull (^OUElementFactory)(NSInteger index);
 @property (nonatomic, assign) NSInteger rank;
 @end
 
+// MARK: - Shape 12 — a C array of value types passed as an element pointer + `count:` pair.
+//
+// A pointer to a value type is structurally identical whether it addresses ONE value or the FIRST
+// ELEMENT of an array; only the selector's `count:` keyword tells them apart. Getting that wrong is
+// silent: projected as a C# `out`, the pointer parameter zeroes the caller's storage before the
+// call, so an input array arrives as zeros and an output array is written past its one-element
+// slot. Nothing about that fails to compile, which is why the shape is fixtured here rather than
+// left to the type mapper's unit coverage. (Found in the wild on a map-rendering framework's
+// polyline/polygon constructors, which take `const CLLocationCoordinate2D *` + `count:`.)
+@interface OUPointBuffer : NSObject
+
+@property (nonatomic, readonly) NSInteger storedCount;
+
+// 12a — const element pointer + count on a class factory: read-only input, the canonical array shape.
++ (instancetype)bufferWithPoints:(const CGPoint *)points count:(NSUInteger)count;
+
+// 12b — the same pair on an instance method, followed by a value-type parameter that has to pass
+// straight through the generated array overload untouched.
+- (void)appendPoints:(const CGPoint *)points count:(NSUInteger)count scaledBy:(CGFloat)scale;
+
+// 12c — a MUTABLE element pointer + count: a caller-allocated output buffer the callee fills. The
+// pair is still an array — an `out` here would hand the callee room for one element to write
+// `count` of.
+- (void)copyPointsInto:(CGPoint *)points count:(NSUInteger)count;
+
+// 12d — a const element pointer with NO count sibling. Read-only, so it cannot be an `out`, and
+// nothing identifies it as an array either: the member has no sound projection and must drop out of
+// the binding with a recorded skip rather than ship as a callable that corrupts its argument.
+- (CGFloat)distanceFromOrigin:(const CGPoint *)point;
+
+// 12e — the positive control for the projection that stays: a single MUTABLE element pointer with no
+// count really is one caller-allocated slot, and remains an `out` parameter.
+- (BOOL)tryFirstPoint:(CGPoint *)outPoint;
+
+// Readback for the round-trip assertions.
+- (CGFloat)sumOfX;
+
+@end
+
 NS_ASSUME_NONNULL_END
