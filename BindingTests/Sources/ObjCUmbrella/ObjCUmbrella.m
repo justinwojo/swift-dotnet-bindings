@@ -180,6 +180,10 @@ int32_t OUExportedTriple(int32_t x) { return x * 3; }
 @synthesize rank = _rank;
 @end
 
+// The conformance-only subclass inherits `title` wholesale; nothing to declare.
+@implementation OUQuietPolyShape
+@end
+
 // Shape 12 — the element-pointer + `count:` array shapes. Every method reads or writes `count`
 // elements through the pointer, so a binding that projected the pointer as a single `out` value
 // would be observably wrong here (zeroed input, one-slot output) without failing to compile.

@@ -447,6 +447,45 @@ public static class ApiDefinitionEmitter
         propertyAccessorSelectors.Instance.UnionWith(inheritedAccessorSelectors.Instance);
         propertyAccessorSelectors.Class.UnionWith(inheritedAccessorSelectors.Class);
 
+        // Members the RESOLVED superclass chain already emits. bgen generates a class binding as a
+        // real C# class deriving from its [BaseType], so a property this class re-declares (ObjC
+        // headers routinely re-declare an inherited property to restate a protocol conformance)
+        // becomes a member HIDING the inherited one: CS0108 in every consumer build, and — when the
+        // re-declaration is read-only over a read-write base — the setter becomes unreachable
+        // through a subclass-typed variable. The chain is walked here so the property loop below can
+        // either defer to the inherited member — when the re-declaration adds nothing it doesn't
+        // already offer — or hide it deliberately, recording whatever the hiding costs.
+        var inheritedProperties = BuildInheritedClassPropertyMap(cls, classesByName, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, localProtocolNames, classProtocolClashNames, delegateProtocolNames);
+
+        // Deferring to the inherited member is only enough while nothing else re-introduces a
+        // narrower view of it. bgen inlines the members of the protocols in THIS class's conformance
+        // list into the generated class, so a protocol restating an ancestor's read-write property
+        // as read-only puts a getter-only member on the subclass that hides the inherited setter
+        // (CS0200 for any consumer assigning through a subclass-typed variable). An explicit
+        // re-declaration carrying the ancestor's accessor set pre-empts that inline; these are the
+        // members that need one.
+        var protocolNarrowedProperties = PlanProtocolNarrowedRedeclarations(
+            filteredProtocols, protocolsByName, inheritedProperties, classDeclarationName, classGenericParams,
+            typedefMap, blockTypedefMap,
+            knownTypes, appleSdkTypes, localProtocolNames, classProtocolClashNames, delegateProtocolNames);
+        var protocolNarrowedKeys = new HashSet<(string Name, bool IsClass)>();
+        var protocolNarrowedNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var plan in protocolNarrowedProperties)
+        {
+            protocolNarrowedKeys.Add((plan.PropName, plan.IsClass));
+            protocolNarrowedNames.Add(plan.PropName);
+            // A planned re-declaration claims its C# name and exports its accessor selectors exactly
+            // as an own property does, so it joins both collision sets BEFORE the method loop — a
+            // method sharing either would otherwise export a selector twice (registrar abort) or
+            // collide on the name (CS0102).
+            emittedPropertyNames.Add(plan.PropName);
+            var accessorTarget = plan.IsClass ? propertyAccessorSelectors.Class : propertyAccessorSelectors.Instance;
+            var (planGetter, planSetter) = PropertyAccessorSelectors(plan.Declaration);
+            accessorTarget.Add(planGetter);
+            if (planSetter != null)
+                accessorTarget.Add(planSetter);
+        }
+
         foreach (var method in cls.Methods.Where(m =>
             !(conformsToNSCoding && m.Selector == "initWithCoder:")
             // Suppress explicit parameterless init when DisableDefaultCtor is emitted (Fix #6)
@@ -469,15 +508,9 @@ public static class ApiDefinitionEmitter
             if (emittedName != null) emittedMemberNames.Add(emittedName);
         }
 
-        // Members the RESOLVED superclass chain already emits. bgen generates a class binding as a
-        // real C# class deriving from its [BaseType], so a property this class re-declares (ObjC
-        // headers routinely re-declare an inherited property to restate a protocol conformance)
-        // becomes a member HIDING the inherited one: CS0108 in every consumer build, and — when the
-        // re-declaration is read-only over a read-write base — the setter becomes unreachable
-        // through a subclass-typed variable. The chain is walked here so the loop below can either
-        // defer to the inherited member — when the re-declaration adds nothing it doesn't already
-        // offer — or hide it deliberately, recording whatever the hiding costs.
-        var inheritedProperties = BuildInheritedClassPropertyMap(cls, classesByName, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, localProtocolNames, classProtocolClashNames, delegateProtocolNames);
+        // Own declarations that already carry a planned re-declaration's member, so the post-pass
+        // below doesn't emit a second copy of it.
+        var supersededNarrowedKeys = new HashSet<(string Name, bool IsClass)>();
 
         // Emit properties, with WeakDelegate/Wrap pattern for delegate properties (Fix #8)
         foreach (var prop in cls.Properties)
@@ -507,6 +540,16 @@ public static class ApiDefinitionEmitter
                     var (getterSelector, setterSelector) = PropertyAccessorSelectors(prop);
                     if (ClassifyRedeclaration(inherited, mappedType, prop.IsReadonly, getterSelector, setterSelector) == RedeclarationDisposition.Defer)
                     {
+                        // Deferring is only safe while nothing re-introduces a narrower view of the
+                        // inherited member. When a conformed protocol does, the post-pass emits the
+                        // ancestor's full accessor set in this declaration's place — which is at
+                        // least as wide as this declaration (that is what Defer means), so the
+                        // member is superseded, not skipped, and nothing is recorded as lost.
+                        if (protocolNarrowedKeys.Contains((propName, prop.IsClass)))
+                        {
+                            logger.LogDebug("Property {PropName} on {Class} is superseded by an explicit re-declaration of the member inherited from {Owner}", propName, cls.Name, inherited.OwnerClassName);
+                            continue;
+                        }
                         logger.LogDebug("Skipping property {PropName} on {Class}: re-declaration of the member inherited from {Owner}", propName, cls.Name, inherited.OwnerClassName);
                         diagnostics?.RecordSkip("Property", propName, ObjCSkipReason.DuplicateSelector, $"re-declaration of inherited '{inherited.OwnerClassName}.{propName}' on '{cls.Name}' (kept the inherited member, which is at least as wide)");
                         continue;
@@ -525,10 +568,39 @@ public static class ApiDefinitionEmitter
                 }
             }
 
-            if (delegateProtocol != null)
-                EmitWeakDelegatePattern(sb, prop, delegateProtocolNames, classProtocolClashNames, emittedMemberNames, emittedPropertyNames, inheritedProperties, emitNew);
-            else
-                EmitProperty(sb, prop, declaringClassName: classDeclarationName, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMemberNames: emittedMemberNames, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics, emitNew: emitNew);
+            // A planned re-declaration means a conformed protocol emits a member of this C# name, so
+            // this declaration hides it right here in the ApiDefinition — the same hiding the plan
+            // states with the `new` keyword, and the same CS0108 without it. Keyed on the name alone
+            // because C# hiding is name-based: a class member hides a same-named instance one.
+            var hidesConformedMember = protocolNarrowedNames.Contains(propName);
+
+            var emitted = delegateProtocol != null
+                ? EmitWeakDelegatePattern(sb, prop, delegateProtocolNames, classProtocolClashNames, emittedMemberNames, emittedPropertyNames, inheritedProperties, emitNew)
+                : EmitProperty(sb, prop, declaringClassName: classDeclarationName, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMemberNames: emittedMemberNames, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics, emitNew: emitNew, hidesInheritedInterfaceMember: hidesConformedMember);
+
+            // Only a declaration that REACHED emission carries the planned member. Both emit helpers
+            // can still drop it (unresolvable type, name already claimed), and marking the plan
+            // superseded on the attempt would leave the class with no declaration at all — exactly
+            // the narrowed-by-the-inline shape the plan exists to pre-empt.
+            if (emitted)
+                supersededNarrowedKeys.Add((propName, prop.IsClass));
+        }
+
+        // Re-declare the inherited members a conformed protocol would otherwise narrow. Emitting the
+        // ancestor's declaration verbatim keeps its accessor set and its ObjC selectors, and [New]
+        // states the C#-level hiding of the ancestor member it re-exports.
+        //
+        // The `new` KEYWORD is a second, separate need: this interface inherits the interface of the
+        // protocol that declares the narrower view, so the re-declaration hides an interface member
+        // right here in the ApiDefinition source, which is a CS0108 in the binding's own build unless
+        // the hiding is stated. (`[New]` only reaches bgen's generated class.) It is never spurious
+        // here — the member is only planned when a conformed protocol emits the same C# name.
+        foreach (var plan in protocolNarrowedProperties)
+        {
+            if (supersededNarrowedKeys.Contains((plan.PropName, plan.IsClass)))
+                continue;
+            logger.LogDebug("Re-declaring inherited property {PropName} on {Class}: conformance to {Protocol} would otherwise narrow the member inherited from {Owner}", plan.PropName, cls.Name, plan.ProtocolName, plan.OwnerClassName);
+            EmitProperty(sb, plan.Declaration, declaringClassName: classDeclarationName, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMemberNames: emittedMemberNames, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics, emitNew: true, hidesInheritedInterfaceMember: true);
         }
 
         sb.AppendLine("    }");
@@ -1032,8 +1104,13 @@ public static class ApiDefinitionEmitter
     /// Emits one property. <paramref name="emitNew"/> marks it <c>[New]</c> so bgen adds the
     /// <c>new</c> keyword to the generated member — required whenever it deliberately hides a
     /// member of the generated base class, which is otherwise a CS0108 in every consumer build.
+    /// <paramref name="hidesInheritedInterfaceMember"/> is the separate ApiDefinition-source-level
+    /// case: the declaration hides a member of an interface THIS interface inherits (a conformed
+    /// protocol's), so the C# <c>new</c> keyword goes on the declaration itself. Pass it only when
+    /// the hidden member is really there — a spurious <c>new</c> is a CS0109.
+    /// Returns whether a member was actually emitted.
     /// </summary>
-    static void EmitProperty(StringBuilder sb, ObjCPropertyDecl prop, string? declaringClassName, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? emittedMemberNames = null, HashSet<string>? emittedPropertyNames = null, HashSet<string>? knownTypes = null, HashSet<string>? appleSdkTypes = null, HashSet<string>? localProtocolNames = null, HashSet<string>? classProtocolClashNames = null, ILogger? logger = null, ObjCBindingDiagnostics? diagnostics = null, bool emitNew = false)
+    static bool EmitProperty(StringBuilder sb, ObjCPropertyDecl prop, string? declaringClassName, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? emittedMemberNames = null, HashSet<string>? emittedPropertyNames = null, HashSet<string>? knownTypes = null, HashSet<string>? appleSdkTypes = null, HashSet<string>? localProtocolNames = null, HashSet<string>? classProtocolClashNames = null, ILogger? logger = null, ObjCBindingDiagnostics? diagnostics = null, bool emitNew = false, bool hidesInheritedInterfaceMember = false)
     {
         var propName = ToPascalCase(prop.Name);
 
@@ -1047,14 +1124,14 @@ public static class ApiDefinitionEmitter
             {
                 logger?.LogDebug("Skipping property {PropName}: unresolvable type '{TypeName}'", propName, checkType);
                 diagnostics?.RecordSkip("Property", propName, ObjCSkipReason.UnresolvableType, $"unresolvable type '{checkType}'");
-                return;
+                return false;
             }
         }
 
         // Drop if any prior member (method or property) already claimed this name — properties
         // can't be renamed (CS0102 in bgen-flattened output otherwise).
         if (emittedMemberNames != null && !emittedMemberNames.Add(propName))
-            return;
+            return false;
         emittedPropertyNames?.Add(propName);
 
         ObjCDocCommentEmitter.EmitDocComment(sb, prop.DocComment, null, "        ");
@@ -1093,24 +1170,26 @@ public static class ApiDefinitionEmitter
         // Emit [Bind] when getter selector differs from property name (e.g., isAutoInitEnabled vs autoInitEnabled)
         var hasCustomGetter = prop.GetterSelector != null && prop.GetterSelector != prop.Name;
 
+        var newKeyword = hidesInheritedInterfaceMember ? "new " : "";
+
         if (prop.IsReadonly)
         {
             if (hasCustomGetter)
             {
-                sb.AppendLine($"        {mappedType} {ToPascalCase(prop.Name)} {{");
+                sb.AppendLine($"        {newKeyword}{mappedType} {ToPascalCase(prop.Name)} {{");
                 sb.AppendLine($"            [Bind(\"{prop.GetterSelector}\")] get;");
                 sb.AppendLine($"        }}");
             }
             else
             {
-                sb.AppendLine($"        {mappedType} {ToPascalCase(prop.Name)} {{ get; }}");
+                sb.AppendLine($"        {newKeyword}{mappedType} {ToPascalCase(prop.Name)} {{ get; }}");
             }
         }
         else
         {
             // Emit setter with custom selector if present
             var setterSelector = prop.SetterSelector ?? $"set{ToPascalCase(prop.Name)}:";
-            sb.AppendLine($"        {mappedType} {ToPascalCase(prop.Name)} {{");
+            sb.AppendLine($"        {newKeyword}{mappedType} {ToPascalCase(prop.Name)} {{");
             if (hasCustomGetter)
                 sb.AppendLine($"            [Bind(\"{prop.GetterSelector}\")] get;");
             else
@@ -1119,14 +1198,17 @@ public static class ApiDefinitionEmitter
             sb.AppendLine($"        }}");
         }
         sb.AppendLine();
+        return true;
     }
 
     /// <summary>
     /// One property member the superclass chain emits, as seen from a subclass: which ancestor
     /// declared it, the C# type it is emitted with, whether it is read-only there, and the ObjC
     /// accessor selectors it exports (<see cref="SetterSelector"/> is null when it is read-only).
+    /// <see cref="Declaration"/> is the ancestor declaration itself, kept so a subclass that has to
+    /// re-declare the member can re-emit exactly what the ancestor emits.
     /// </summary>
-    readonly record struct InheritedProperty(string OwnerClassName, string MappedType, bool IsReadonly, string GetterSelector, string? SetterSelector);
+    readonly record struct InheritedProperty(string OwnerClassName, string MappedType, bool IsReadonly, string GetterSelector, string? SetterSelector, ObjCPropertyDecl Declaration);
 
     /// <summary>
     /// The inherited members carrying ONE emitted C# name. ObjC keeps class and instance members in
@@ -1178,6 +1260,103 @@ public static class ApiDefinitionEmitter
         return setterSelector != null && !string.Equals(setterSelector, inherited.SetterSelector, StringComparison.Ordinal)
             ? RedeclarationDisposition.HideWithNew
             : RedeclarationDisposition.Defer;
+    }
+
+    /// <summary>
+    /// One inherited property member a class has to re-declare EXPLICITLY, carrying the ancestor's
+    /// full accessor set, because a protocol the class itself conforms to states the same selector
+    /// more narrowly. <see cref="Declaration"/> is the ancestor's declaration, re-emitted verbatim
+    /// (marked <c>[New]</c>) on the subclass.
+    /// </summary>
+    readonly record struct ProtocolNarrowedProperty(string PropName, bool IsClass, ObjCPropertyDecl Declaration, string OwnerClassName, string ProtocolName);
+
+    /// <summary>
+    /// Finds the inherited property members a conformed protocol would NARROW on this class. bgen
+    /// inlines the members of every protocol in a class's own conformance list (and their
+    /// transitive protocol parents) into the generated class, so when such a protocol restates an
+    /// ancestor's read-write property as read-only, that inlined read-only member hides the
+    /// inherited setter: assigning through a subclass-typed variable stops compiling (CS0200) even
+    /// though the ObjC object implements the setter. Declaring the member explicitly on the class
+    /// pre-empts the inline, so each hit here is re-emitted with the ancestor's accessor set.
+    ///
+    /// Deliberately narrow, since each condition is what makes the re-declaration SOUND: the
+    /// protocol view must be read-only over a read-write ancestor (otherwise nothing narrows), on
+    /// the same ObjC getter selector and the same bound C# type (otherwise the ancestor's accessors
+    /// do not implement what the protocol asks for, and re-exporting its setter selector would send
+    /// a message the implementation cannot decode). Delegate properties are excluded: they emit as a
+    /// [Wrap]/weak PAIR whose accessor set is not the declaration's own.
+    ///
+    /// The ancestor's declaration is re-emitted in the SUBCLASS's declaration context, so it is only
+    /// planned when it maps to the same C# type there: a type written against the ancestor —
+    /// <c>instancetype</c>, or an ObjC lightweight-generic parameter the subclass does not carry —
+    /// means something else (or nothing) here, and the re-declaration would either change the bound
+    /// type or be dropped as unresolvable, leaving the class with no declaration at all.
+    /// </summary>
+    static List<ProtocolNarrowedProperty> PlanProtocolNarrowedRedeclarations(
+        IEnumerable<string> conformedProtocolNames,
+        Dictionary<string, ObjCProtocolDecl>? protocolsByName,
+        IReadOnlyDictionary<string, InheritedMembers> inheritedProperties,
+        string emittingClassDeclName, HashSet<string>? emittingClassGenericParams,
+        Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap,
+        HashSet<string> knownTypes, HashSet<string>? appleSdkTypes,
+        HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames,
+        HashSet<string>? delegateProtocolNames)
+    {
+        var plans = new List<ProtocolNarrowedProperty>();
+        if (protocolsByName == null || inheritedProperties.Count == 0)
+            return plans;
+
+        var planned = new HashSet<(string Name, bool IsClass)>();
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+
+        void Walk(string protoName)
+        {
+            if (!visited.Add(protoName))
+                return;
+            // External/SDK protocol — its members aren't visible here, so what bgen would inline
+            // from it can't be enumerated.
+            if (!protocolsByName.TryGetValue(protoName, out var proto))
+                return;
+
+            foreach (var prop in proto.Properties)
+            {
+                // Only a read-only protocol view can narrow; a read-write one carries the setter.
+                if (!prop.IsReadonly)
+                    continue;
+                // Same gate the protocol's own emission applies — an unemittable member is never
+                // inlined, so it cannot narrow anything.
+                if (!WouldEmitProperty(prop, null, null, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames, knownTypes, appleSdkTypes))
+                    continue;
+
+                var propName = ToPascalCase(prop.Name);
+                if (!inheritedProperties.TryGetValue(propName, out var inheritedMembers)
+                    || inheritedMembers.OfKind(prop.IsClass) is not { } inherited
+                    || inherited.IsReadonly)
+                    continue;
+                if (!string.Equals(prop.GetterSelector ?? prop.Name, inherited.GetterSelector, StringComparison.Ordinal))
+                    continue;
+                var protocolType = ObjCTypeMapper.MapType(prop.Type, declaringClassName: null, genericTypeParams: null, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames);
+                if (!string.Equals(protocolType, inherited.MappedType, StringComparison.Ordinal))
+                    continue;
+                if (IsDelegateProperty(inherited.Declaration, delegateProtocolNames))
+                    continue;
+                // What the ancestor's declaration means in THIS class's context — the context the
+                // re-declaration is emitted in.
+                var reEmittedType = ObjCTypeMapper.MapType(inherited.Declaration.Type, emittingClassDeclName, emittingClassGenericParams, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames);
+                if (!string.Equals(reEmittedType, inherited.MappedType, StringComparison.Ordinal))
+                    continue;
+
+                if (planned.Add((propName, prop.IsClass)))
+                    plans.Add(new ProtocolNarrowedProperty(propName, prop.IsClass, inherited.Declaration, inherited.OwnerClassName, protoName));
+            }
+
+            foreach (var parent in proto.InheritedProtocolNames)
+                Walk(parent);
+        }
+
+        foreach (var name in conformedProtocolNames)
+            Walk(name);
+        return plans;
     }
 
     /// <summary>
@@ -1244,7 +1423,7 @@ public static class ApiDefinitionEmitter
                     ? ObjCTypeMapper.MapProtocolName(delegateProtocol, classProtocolClashNames)
                     : ObjCTypeMapper.MapType(prop.Type, ancestorDeclName, ancestorGenericParams, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames);
                 var (getterSelector, setterSelector) = PropertyAccessorSelectors(prop);
-                var entry = new InheritedProperty(ancestor.Name, mappedType, prop.IsReadonly, getterSelector, setterSelector);
+                var entry = new InheritedProperty(ancestor.Name, mappedType, prop.IsReadonly, getterSelector, setterSelector, prop);
 
                 map.TryGetValue(propName, out var alreadyInherited);
                 if (alreadyInherited.OfKind(prop.IsClass) is { } sameKind
@@ -1327,10 +1506,10 @@ public static class ApiDefinitionEmitter
     /// independently, from the inherited map, so neither claims to hide something that isn't there
     /// (which would be CS0109) nor hides silently (CS0108).
     /// </summary>
-    static void EmitWeakDelegatePattern(StringBuilder sb, ObjCPropertyDecl prop, HashSet<string>? delegateProtocolNames, HashSet<string>? classProtocolClashNames, HashSet<string>? emittedMemberNames, HashSet<string>? emittedPropertyNames, IReadOnlyDictionary<string, InheritedMembers>? inheritedProperties = null, bool emitNew = false)
+    static bool EmitWeakDelegatePattern(StringBuilder sb, ObjCPropertyDecl prop, HashSet<string>? delegateProtocolNames, HashSet<string>? classProtocolClashNames, HashSet<string>? emittedMemberNames, HashSet<string>? emittedPropertyNames, IReadOnlyDictionary<string, InheritedMembers>? inheritedProperties = null, bool emitNew = false)
     {
         var rawProtocolName = ResolveDelegateProtocolName(prop, delegateProtocolNames);
-        if (rawProtocolName == null) return;
+        if (rawProtocolName == null) return false;
         // The strong-typed [Wrap] property is typed by the delegate protocol's bare managed name
         // (Xamarin [Model] convention) — i.e. the Model CLASS bgen generates from the `[Protocol,
         // Model] interface {Name}` declaration. So it must be the same spelling that declaration
@@ -1349,7 +1528,7 @@ public static class ApiDefinitionEmitter
         if (emittedMemberNames != null)
         {
             if (emittedMemberNames.Contains(propName) || emittedMemberNames.Contains(weakPropName))
-                return;
+                return false;
             emittedMemberNames.Add(propName);
             emittedMemberNames.Add(weakPropName);
         }
@@ -1401,6 +1580,7 @@ public static class ApiDefinitionEmitter
             sb.AppendLine($"        }}");
         }
         sb.AppendLine();
+        return true;
     }
 
     static void EmitGenericTypeHints(StringBuilder sb, ObjCTypeRef returnType, List<ObjCParameterDecl> parameters, string? declaringClassName, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap)

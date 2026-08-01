@@ -343,6 +343,54 @@ public class ObjCUmbrellaFixtureTests : TestBase
     }
 
     /// <summary>
+    /// Shape 11 — the inherited read-write property stays WRITABLE through a subclass-typed
+    /// variable. Two things conspire to narrow it: the subclass's own read-only re-declaration
+    /// (dropped in favour of the inherited member), and bgen inlining the read-only view from the
+    /// protocol in the subclass's conformance list. That this method compiles at all is the
+    /// assertion — a getter-only <c>Title</c> on the subclass is CS0200 — and the round-trip through
+    /// the base-typed reference proves the re-declared accessors reach the same native property
+    /// rather than some shadow copy.
+    /// </summary>
+    public void TestInheritedSetterReachableThroughRedeclaringSubclass()
+    {
+        using var shape = new OUPolyShape();
+        shape.Title = "polyline";
+
+        AssertEqual("polyline", shape.Title, "the setter is reachable through the subclass-typed variable");
+        OUShape asBase = shape;
+        AssertEqual("polyline", asBase.Title, "the write landed on the inherited property, not a shadow");
+    }
+
+    /// <summary>
+    /// Shape 11 — the same guarantee for a subclass that only ADOPTS the narrowing protocol and
+    /// re-declares nothing. The conformance alone is what makes bgen inline the read-only view, so
+    /// dropping a subclass re-declaration cannot be the whole fix.
+    /// </summary>
+    public void TestInheritedSetterReachableThroughConformanceOnlySubclass()
+    {
+        using var shape = new OUQuietPolyShape();
+        shape.Title = "quiet";
+
+        AssertEqual("quiet", shape.Title, "the setter is reachable through the conformance-only subclass");
+        AssertEqual("quiet", ((OUShape)shape).Title, "the write landed on the inherited property");
+    }
+
+    /// <summary>
+    /// Shape 11 — the widening half. <c>rank</c> is read-only on the base and read-write on the
+    /// subclass, so the subclass member genuinely adds surface and emits over the inherited one;
+    /// it must still round-trip.
+    /// </summary>
+    public void TestWidenedSubclassPropertyRoundTrips()
+    {
+        using var baseShape = new OUShape();
+        AssertEqual(1, (int)baseShape.Rank, "the base member reports its own value");
+
+        using var shape = new OUPolyShape();
+        shape.Rank = 42;
+        AssertEqual(42, (int)shape.Rank, "the widened subclass member round-trips through its setter");
+    }
+
+    /// <summary>
     /// Managed adopter of the optional-callback protocol. Conforming to <see cref="IOUListener"/> plus
     /// the <c>[Export("didReceiveValue:")]</c> selector makes <c>respondsToSelector:</c> return true,
     /// so the notifier invokes it.

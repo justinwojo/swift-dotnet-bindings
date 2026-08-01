@@ -230,16 +230,23 @@ typedef id<OUElement> _Nonnull (^OUElementFactory)(NSInteger index);
 @property (nonatomic, assign) NSInteger ou_spanRank;
 @end
 
-// MARK: - Shape 11 — a subclass re-declaring an inherited property.
+// MARK: - Shape 11 — a subclass re-declaring an inherited property, under a narrowing conformance.
 //
 // ObjC headers routinely re-declare an inherited property to restate a protocol conformance, and
 // bgen generates a class binding as a real C# class deriving from its `[BaseType]` — so re-emitting
 // the member HIDES the inherited one: CS0108 in every consumer build, and, when the re-declaration
 // narrows a read-write base to readonly, the setter becomes unreachable through a subclass-typed
-// variable. `title` is that narrowing case (the emitter must defer to the wider inherited member),
-// `rank` is the widening case (the subclass member is genuinely wider, so it emits and must carry
-// the `new` keyword). Whether bgen accepts `[New]` on a property is only answerable by running it,
-// which is what the compile gate does here.
+// variable.
+//
+// `title` is that narrowing case, and dropping the subclass copy is not enough on its own: bgen
+// also inlines the members of the protocols in a class's OWN conformance list into the generated
+// class, so `OUTitled`'s read-only `title` lands on `OUPolyShape` anyway and shadows the inherited
+// setter — assigning through an `OUPolyShape`-typed variable then fails to compile (CS0200). The
+// emitter therefore re-declares the member explicitly with the base's read-write accessor set,
+// which pre-empts the inline. `rank` is the plain widening case (the subclass member is genuinely
+// wider, so it emits over the inherited member). Both carry the `new` keyword, and whether bgen
+// accepts `[New]` on a property is only answerable by running it, which is what the compile gate
+// does here; that the setter is REACHABLE from the subclass is what the runtime test asserts.
 @protocol OUTitled <NSObject>
 @property (nonatomic, copy, readonly) NSString *title;
 @end
@@ -256,6 +263,13 @@ typedef id<OUElement> _Nonnull (^OUElementFactory)(NSInteger index);
 @property (nonatomic, copy, readonly) NSString *title;
 // Widened to read-write — a genuine addition, so it emits over the inherited member.
 @property (nonatomic, assign) NSInteger rank;
+@end
+
+// A second subclass that adopts the narrowing protocol WITHOUT re-declaring the property at all —
+// the conformance alone is what makes bgen inline the read-only view, so the setter has to survive
+// here too. (Both spellings ship side by side in the wild; a map-rendering framework's shape
+// hierarchy declares its overlay geometries this way.)
+@interface OUQuietPolyShape : OUShape <OUTitled>
 @end
 
 // MARK: - Shape 12 — a C array of value types passed as an element pointer + `count:` pair.

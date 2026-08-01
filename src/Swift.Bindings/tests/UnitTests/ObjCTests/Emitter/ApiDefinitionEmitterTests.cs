@@ -5977,6 +5977,10 @@ public class ApiDefinitionEmitterTests
 
         Assert.Contains("[New]", result);
         Assert.Contains("[Export(\"setTitle:\")] set;", result);
+        // The hidden member belongs to the generated BASE CLASS, which an ApiDefinition interface
+        // reaches through [BaseType] and not through interface inheritance — so the declaration must
+        // NOT carry the C# `new` keyword here (nothing to hide at this level: CS0109).
+        Assert.DoesNotContain("new string Title", result);
     }
 
     [Fact]
@@ -6423,6 +6427,301 @@ public class ApiDefinitionEmitterTests
         Assert.Equal(1, CountOccurrences(result, "[New]"));
         var skip = Assert.Single(diagnostics.SkippedSymbols, s => s.SymbolName == "Tag");
         Assert.Contains("MiddleShape", skip.Detail);
+    }
+
+    // --- Conformed-protocol narrowing of an inherited property ---
+
+    [Fact]
+    public void Emit_ConformedProtocolNarrowsInheritedProperty_ReDeclaresWithAncestorAccessors()
+    {
+        // bgen inlines a conformed protocol's members into the generated class, so a protocol
+        // restating an ancestor's read-write property as read-only puts a getter-only member on the
+        // subclass that hides the inherited setter — assigning through a subclass-typed variable
+        // stops compiling. Declaring the member explicitly pre-empts that inline, so the ancestor's
+        // read-write shape has to be re-declared here even though the subclass's own headers say
+        // nothing about it.
+        var module = BuildProtocolNarrowingModule(protocolIsReadonly: true, derivedRedeclares: false);
+
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+
+        var derived = InterfaceBody(result, "DerivedShape");
+        Assert.Contains("[New]", derived);
+        Assert.Contains("[Export(\"setTitle:\")] set;", derived);
+        // The declaration also hides the conformed protocol interface's member right here in the
+        // ApiDefinition, so it states the hiding — an unstated one is a CS0108 in the binding build.
+        Assert.Contains("new string Title", derived);
+        // Nothing was dropped, so nothing is recorded as skipped.
+        Assert.DoesNotContain(diagnostics.SkippedSymbols, s => s.SymbolName == "Title");
+    }
+
+    [Fact]
+    public void Emit_ConformedProtocolNarrowsRedeclaredInheritedProperty_EmitsInsteadOfDeferring()
+    {
+        // The shape real headers ship: the subclass ALSO re-declares the property read-only to
+        // restate the conformance. Deferring to the inherited member (which is what an otherwise
+        // identical re-declaration earns) leaves the protocol's read-only view to be inlined in its
+        // place, so the widening re-declaration supersedes it — and since the member is emitted,
+        // it is not recorded as a skip.
+        var module = BuildProtocolNarrowingModule(protocolIsReadonly: true, derivedRedeclares: true);
+
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+
+        var derived = InterfaceBody(result, "DerivedShape");
+        Assert.Contains("[New]", derived);
+        Assert.Contains("new string Title", derived);
+        Assert.Contains("[Export(\"setTitle:\")] set;", derived);
+        Assert.DoesNotContain(diagnostics.SkippedSymbols, s => s.SymbolName == "Title");
+    }
+
+    [Fact]
+    public void Emit_ConformedProtocolMatchesInheritedAccessors_StillDefersToInheritedMember()
+    {
+        // The protocol view is read-write too, so nothing narrows: the inlined member and the
+        // inherited one carry the same accessors. The identical re-declaration keeps deferring and
+        // stays recorded — a re-declaration nobody needs must not appear just because a conformance
+        // mentions the selector.
+        var module = BuildProtocolNarrowingModule(protocolIsReadonly: false, derivedRedeclares: true);
+
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+
+        Assert.DoesNotContain("[New]", result);
+        Assert.Equal("", InterfaceBody(result, "DerivedShape").Trim());
+        var skip = Assert.Single(diagnostics.SkippedSymbols, s => s.SymbolName == "Title");
+        Assert.Contains("BaseShape", skip.Detail);
+    }
+
+    [Fact]
+    public void Emit_ConformedProtocolWithoutInheritedMember_EmitsNoRedeclaration()
+    {
+        // Narrowing needs something to narrow. With no ancestor member of that name in this module,
+        // the protocol's read-only view is all there is, and re-declaring it on the class would
+        // both invent API and claim to hide a member that isn't there (CS0109).
+        var module = BuildProtocolNarrowingModule(protocolIsReadonly: true, derivedRedeclares: false);
+        module.Classes[0].Properties.Clear();
+
+        var result = EmitAndRead(module);
+
+        Assert.DoesNotContain("[New]", result);
+        Assert.Equal("", InterfaceBody(result, "DerivedShape").Trim());
+    }
+
+    [Fact]
+    public void Emit_InheritedProtocolNarrowsInheritedProperty_ReDeclaresWithAncestorAccessors()
+    {
+        // bgen inlines the conformance list's TRANSITIVE protocol parents too, so the narrowing view
+        // can arrive through a protocol the class never names directly (the shape a map-rendering
+        // framework's overlay/annotation protocols take).
+        var module = BuildProtocolNarrowingModule(protocolIsReadonly: true, derivedRedeclares: false);
+        module.Protocols.Add(new ObjCProtocolDecl { Name = "Overlay", InheritedProtocolNames = ["Titled"] });
+        module.Classes[1].ProtocolNames.Clear();
+        module.Classes[1].ProtocolNames.Add("Overlay");
+
+        var result = EmitAndRead(module);
+
+        var derived = InterfaceBody(result, "DerivedShape");
+        Assert.Contains("[New]", derived);
+        Assert.Contains("new string Title", derived);
+        Assert.Contains("[Export(\"setTitle:\")] set;", derived);
+    }
+
+    [Fact]
+    public void Emit_RequiredConformedProtocolNarrowsInheritedProperty_ReDeclaresWithAncestorAccessors()
+    {
+        // bgen inlines a conformed protocol's REQUIRED members into the class too, so optionality
+        // is not what decides whether the narrower view lands on the subclass. Real headers write
+        // the narrowing property both ways; the re-declaration has to be there either way.
+        var module = BuildProtocolNarrowingModule(protocolIsReadonly: true, derivedRedeclares: false);
+        module.Protocols[0].Properties[0] = module.Protocols[0].Properties[0] with { IsOptional = false };
+
+        var result = EmitAndRead(module);
+
+        var derived = InterfaceBody(result, "DerivedShape");
+        Assert.Contains("[New]", derived);
+        Assert.Contains("new string Title", derived);
+        Assert.Contains("[Export(\"setTitle:\")] set;", derived);
+    }
+
+    [Fact]
+    public void Emit_MethodSharingPlannedRedeclarationSetterSelector_IsSkipped()
+    {
+        // The re-declaration is planned before the method loop precisely so its accessor selectors
+        // are already claimed: a method exporting `setTitle:` would otherwise export that selector a
+        // second time (the method plus the flattened property accessor), which aborts the .NET
+        // registrar at launch. Here the ONLY declaration exporting it is the planned re-declaration
+        // — the class itself declares no property at all.
+        var module = BuildProtocolNarrowingModule(protocolIsReadonly: true, derivedRedeclares: false);
+        module.Classes[1].Methods.Add(new ObjCMethodDecl
+        {
+            Selector = "setTitle:",
+            ReturnType = new ObjCTypeRef { Name = "void" },
+            IsInstanceMethod = true,
+            Parameters = [new ObjCParameterDecl { Name = "title", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true } }]
+        });
+
+        var (result, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+
+        var derived = InterfaceBody(result, "DerivedShape");
+        Assert.Equal(1, CountOccurrences(derived, "[Export(\"setTitle:\")]"));
+        var skip = Assert.Single(diagnostics.SkippedSymbols, s => s.SymbolName == "setTitle:");
+        Assert.Equal(ObjCSkipReason.DuplicateSelector, skip.Reason);
+    }
+
+    [Fact]
+    public void Emit_UnemittableOwnPropertyOverPlannedRedeclaration_StillReDeclaresTheInheritedMember()
+    {
+        // The subclass declares the property itself, but with a type that cannot be resolved in the
+        // ApiDefinition, so its declaration never reaches the output. The planned re-declaration is
+        // the class's only chance to keep the inherited setter reachable, so an own declaration that
+        // was DROPPED must not count as having carried it.
+        var module = BuildProtocolNarrowingModule(protocolIsReadonly: true, derivedRedeclares: true);
+        module.Classes[1].Properties[0] = module.Classes[1].Properties[0] with
+        {
+            Type = new ObjCTypeRef { Name = "OUCompletelyUnknownType", IsPointer = true }
+        };
+
+        var result = EmitAndRead(module);
+
+        var derived = InterfaceBody(result, "DerivedShape");
+        Assert.Contains("new string Title", derived);
+        Assert.Contains("[Export(\"setTitle:\")] set;", derived);
+    }
+
+    [Fact]
+    public void Emit_OwnDeclarationSupersedingPlannedRedeclaration_StatesTheInterfaceHiding()
+    {
+        // The subclass re-declares the member with a renamed setter, so it exports a selector the
+        // inherited member does not and has to emit in its own right (superseding the plan). It
+        // still hides the conformed protocol interface's member, so it states the hiding — and the
+        // planned re-declaration must not also emit, which would be a second `Title` (CS0102).
+        var module = BuildProtocolNarrowingModule(protocolIsReadonly: true, derivedRedeclares: true);
+        module.Classes[1].Properties[0] = module.Classes[1].Properties[0] with
+        {
+            IsReadonly = false,
+            SetterSelector = "assignTitle:"
+        };
+
+        var result = EmitAndRead(module);
+
+        var derived = InterfaceBody(result, "DerivedShape");
+        Assert.Equal(1, CountOccurrences(derived, "new string Title"));
+        Assert.Contains("[Export(\"assignTitle:\")] set;", derived);
+        Assert.DoesNotContain("[Export(\"setTitle:\")] set;", derived);
+    }
+
+    [Fact]
+    public void Emit_AncestorPropertyTypedRelativeToItsOwnClass_EmitsNoRedeclaration()
+    {
+        // The ancestor's declaration is re-emitted in the SUBCLASS's declaration context, so a type
+        // written relative to the ancestor means something else here: `instancetype` binds the
+        // SUBCLASS, and the re-declaration would re-export the ancestor's setter selector under a
+        // narrower type than the implementation accepts. (An ObjC lightweight-generic parameter the
+        // subclass doesn't carry is the same problem, one step further along — it names nothing.)
+        // Leave the narrowing alone rather than answer it with a declaration that doesn't hold.
+        var module = BuildProtocolNarrowingModule(protocolIsReadonly: true, derivedRedeclares: false);
+        var baseShapeRef = new ObjCTypeRef { Name = "BaseShape", IsPointer = true };
+        module.Classes[0].Properties[0] = new ObjCPropertyDecl { Name = "partner", Type = new ObjCTypeRef { Name = "instancetype" } };
+        module.Protocols[0].Properties[0] = new ObjCPropertyDecl { Name = "partner", Type = baseShapeRef, IsReadonly = true, IsOptional = true };
+
+        var result = EmitAndRead(module);
+
+        var derived = InterfaceBody(result, "DerivedShape");
+        Assert.Equal("", derived.Trim());
+        // Specifically, no re-declaration bound to the subclass rather than the ancestor.
+        Assert.DoesNotContain("DerivedShape Partner", result);
+    }
+
+    [Fact]
+    public void Emit_ConformedProtocolNarrowsInheritedClassProperty_ReDeclaresOnlyTheStaticMember()
+    {
+        // Class and instance members live in separate ObjC dispatch namespaces, so the narrowing
+        // decision is made per kind. Here only the protocol's CLASS property narrows: the static
+        // member is re-declared (carrying [Static]) and the unrelated inherited instance member is
+        // left alone.
+        var module = BuildProtocolNarrowingModule(protocolIsReadonly: true, derivedRedeclares: false);
+        var tallyType = new ObjCTypeRef { Name = "NSInteger" };
+        module.Protocols[0].Properties[0] = new ObjCPropertyDecl { Name = "tally", Type = tallyType, IsReadonly = true, IsOptional = true, IsClass = true };
+        module.Classes[0].Properties.Add(new ObjCPropertyDecl { Name = "tally", Type = tallyType, IsClass = true });
+
+        var result = EmitAndRead(module);
+
+        var derived = InterfaceBody(result, "DerivedShape");
+        Assert.Equal(1, CountOccurrences(derived, "[New]"));
+        Assert.Contains("[Static]", derived);
+        Assert.Contains("[Export(\"setTally:\")] set;", derived);
+        // The inherited instance `title` is untouched — no conformance narrows it.
+        Assert.DoesNotContain("Title", derived);
+    }
+
+    [Fact]
+    public void Emit_ConformedProtocolNarrowsDifferentlyTypedInheritedProperty_EmitsNoRedeclaration()
+    {
+        // Same selector, different bound type: the ancestor's accessors do not implement what the
+        // protocol asks for, so re-exporting its setter selector under the protocol's member would
+        // send a message the implementation cannot decode. No re-declaration is sound here.
+        var module = BuildProtocolNarrowingModule(protocolIsReadonly: true, derivedRedeclares: false);
+        module.Protocols[0].Properties[0] = module.Protocols[0].Properties[0] with
+        {
+            Type = new ObjCTypeRef { Name = "NSNumber", IsPointer = true }
+        };
+
+        var result = EmitAndRead(module);
+
+        Assert.DoesNotContain("[New]", result);
+        Assert.Equal("", InterfaceBody(result, "DerivedShape").Trim());
+    }
+
+    /// <summary>
+    /// A base class owning a read-write <c>title</c>, a protocol restating that selector, and a
+    /// subclass conforming to the protocol — the geometry in which bgen's protocol inlining can
+    /// shadow the inherited setter.
+    /// </summary>
+    static ObjCModule BuildProtocolNarrowingModule(bool protocolIsReadonly, bool derivedRedeclares)
+    {
+        var titleType = new ObjCTypeRef { Name = "NSString", IsPointer = true };
+        return new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols =
+            [
+                new ObjCProtocolDecl
+                {
+                    Name = "Titled",
+                    Properties = [new ObjCPropertyDecl { Name = "title", Type = titleType, IsReadonly = protocolIsReadonly, IsOptional = true }]
+                }
+            ],
+            Classes =
+            [
+                new ObjCClassDecl
+                {
+                    Name = "BaseShape",
+                    Properties = [new ObjCPropertyDecl { Name = "title", Type = titleType }]
+                },
+                new ObjCClassDecl
+                {
+                    Name = "DerivedShape",
+                    SuperclassName = "BaseShape",
+                    ProtocolNames = ["Titled"],
+                    Properties = derivedRedeclares
+                        ? [new ObjCPropertyDecl { Name = "title", Type = titleType, IsReadonly = protocolIsReadonly }]
+                        : []
+                }
+            ]
+        };
+    }
+
+    /// <summary>
+    /// The body of one emitted <c>partial interface</c>, so an assertion can name the type the
+    /// member has to land on rather than searching the whole file.
+    /// </summary>
+    static string InterfaceBody(string emitted, string interfaceName)
+    {
+        var header = $"    partial interface {interfaceName}";
+        var start = emitted.IndexOf(header, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"emitted output declares '{interfaceName}'");
+        var open = emitted.IndexOf("    {", start, StringComparison.Ordinal);
+        var close = emitted.IndexOf("\n    }", open, StringComparison.Ordinal);
+        Assert.True(open >= 0 && close > open, $"'{interfaceName}' has a body");
+        return emitted[(open + "    {".Length)..close];
     }
 
     static int CountOccurrences(string haystack, string needle)
