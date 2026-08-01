@@ -996,6 +996,21 @@ namespace BindingsGeneration
             "so that source and protocol conformances referencing it still compile.";
 
         /// <summary>
+        /// The throw message carried by a member whose Optional is physically wider than the single
+        /// machine word its direct P/Invoke signature reserves for it. A separate sentence from
+        /// <see cref="UnmitigatedAbiMessage"/> because it is a different failure with a different
+        /// cause: nothing here is unnameable or non-blittable — the call is well-formed and simply
+        /// too narrow to carry the value, which is why it produced wrong answers instead of errors.
+        /// </summary>
+        internal const string TruncatedLargeOptionalAbiMessage =
+            "This member has no ABI-correct call path: it carries an Optional whose Swift representation " +
+            "is wider than the single machine word its direct P/Invoke signature reserves for it, and no " +
+            "Swift wrapper is available to pass the value through memory instead. Calling it would read " +
+            "the remaining bytes from uninitialized memory — which, for an Optional that has no separate " +
+            "tag byte, also decides whether the value reads as nil. It is declared so that source and " +
+            "protocol conformances referencing it still compile.";
+
+        /// <summary>
         /// Body replacement for a member classified as having no ABI-correct call route. Emitting the call
         /// anyway does not produce a member that "might" misbehave — it faults the process on invocation —
         /// so the call is replaced by a throw while the declaration, its attributes and the caller-emitted
@@ -1005,11 +1020,11 @@ namespace BindingsGeneration
         /// wrapped member never reaches here), so nothing dangles. Uses <see cref="EmitBodyStart"/>/
         /// <see cref="EmitBodyEnd"/> so the brace framing and trailing blank line match a normal body.
         /// </summary>
-        private void EmitUnmitigatedAbiThrowBody(CSharpWriter csWriter)
+        private void EmitUnmitigatedAbiThrowBody(CSharpWriter csWriter, string message)
         {
             EmitBodyStart(csWriter);
             csWriter.WriteLine(
-                $"throw new NotSupportedException(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(UnmitigatedAbiMessage)}\");");
+                $"throw new NotSupportedException(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\");");
             EmitBodyEnd(csWriter);
         }
 
@@ -1031,20 +1046,47 @@ namespace BindingsGeneration
         /// <returns><c>true</c> when the body was replaced.</returns>
         private bool ApplyAbiFloorTombstone(CSharpWriter csWriter, BufferedSourceWriter.WriterCheckpoint bodyCheckpoint)
         {
-            if (!WrapperValidation.IsUncallableInternalDirectDispatch(_env))
+            // Two independent ways to have no ABI-correct call route, checked in order of how
+            // badly each fails. Truncation comes first because it is the one that produces a wrong
+            // answer rather than a fault, so its message is the more useful one when a member
+            // happens to satisfy both.
+            string message;
+            string skipDetail;
+
+            if (WrapperValidation.HasTruncatedLargeOptionalDirectDispatch(_env))
+            {
+                message = TruncatedLargeOptionalAbiMessage;
+                skipDetail =
+                    "The member carries an Optional whose Swift representation is wider than the single "
+                    + "machine word the direct CallConvSwift P/Invoke reserves for it, and no @_cdecl "
+                    + "wrapper, native thunk, free-function wrapper or Optional out-buffer wrapper is "
+                    + "available to pass it through memory instead, so the emitted call would transfer "
+                    + "only the first word and read the rest from uninitialized memory. The member is "
+                    + "emitted as a throwing tombstone (declaration retained so conformances referencing "
+                    + $"it still compile) and carries the {WrapperValidation.UncallableAbiDiagnosticId} marker.";
+            }
+            else if (WrapperValidation.IsUncallableInternalDirectDispatch(_env))
+            {
+                message = UnmitigatedAbiMessage;
+                skipDetail =
+                    "The Swift declaration, or the type declaring it, is module-internal, so no @_cdecl "
+                    + "wrapper, native thunk or free-function wrapper can name it, and the direct "
+                    + "CallConvSwift P/Invoke it falls back "
+                    + "to has a non-blittable signature. The member is emitted as a throwing tombstone "
+                    + "(declaration retained so conformances referencing it still compile) and carries the "
+                    + $"{WrapperValidation.UncallableAbiDiagnosticId} marker.";
+            }
+            else
+            {
                 return false;
+            }
 
             csWriter.RollbackTo(bodyCheckpoint);
-            EmitUnmitigatedAbiThrowBody(csWriter);
+            EmitUnmitigatedAbiThrowBody(csWriter, message);
             ReportCollector.RecordMemberSkipped(
                 _env.MethodDecl,
                 SkipReason.NonBlittableCallConvSwift,
-                "The Swift declaration, or the type declaring it, is module-internal, so no @_cdecl "
-                + "wrapper, native thunk or free-function wrapper can name it, and the direct "
-                + "CallConvSwift P/Invoke it falls back "
-                + "to has a non-blittable signature. The member is emitted as a throwing tombstone "
-                + "(declaration retained so conformances referencing it still compile) and carries the "
-                + $"{WrapperValidation.UncallableAbiDiagnosticId} marker.");
+                skipDetail);
             return true;
         }
 

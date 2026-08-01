@@ -523,9 +523,16 @@ namespace BindingsGeneration
             // Same constraints as closure Cdecl: frozen struct only, not failable, not async.
             // Skip generic structs — wrapper emits `TypeName.self` without type parameters,
             // causing "generic parameter could not be inferred" errors (Issue O).
+            // The wrapper is a separate Swift module that must name the parent type to write
+            // `ParentType(...)`. A module-internal parent is not nameable from there, so claiming
+            // the wrapper here would emit a P/Invoke against an `_optbuf` symbol that can never be
+            // produced (dangling wrapper, SWIFTBIND108). Declining leaves the constructor on its
+            // ordinary route, where the ABI floor decides whether it is callable at all.
             if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
                 !methodEnv.MethodDecl.IsFailable &&
                 !methodEnv.MethodDecl.IsAsync &&
+                !methodEnv.MethodDecl.IsModuleInternal &&
+                !WrapperValidation.IsParentTypeModuleInternal(methodEnv) &&
                 methodEnv.ParentDecl is StructDecl ctorOptStruct && ctorOptStruct.IsFrozen &&
                 !ctorOptStruct.IsGeneric &&
                 methodEnv.BoundGenericsHandler.HasLargeOptionalParams(methodEnv.MethodDecl))
@@ -1360,9 +1367,20 @@ namespace BindingsGeneration
             // method requires `inout` — a Swift compile error in the emitted wrapper. Decline
             // here so the method falls through to the raw CallConvSwift P/Invoke path instead,
             // which already forwards inout params via `ref` (PInvokeEmitter.cs).
+            // Parent-visibility check: the wrapper compiles as a separate client module, so its
+            // body can only name what that module can see. A public member on a
+            // @usableFromInline internal parent is just as unspellable as an internal member —
+            // the wrapper would have to reconstruct `self` through a type name that does not
+            // exist outside the defining module. Checking only the member's own flag lets such a
+            // member set HasOptionalPointerWrapper and emit a P/Invoke against an `_optbuf`
+            // symbol that the wrapper source can then never define, leaving a dangling reference
+            // the wrapper-symbol audit reports as SWIFTBIND108 and the generator exits non-zero
+            // on. Declining here routes the member to the direct path instead, where the ABI
+            // floor can classify it honestly.
             if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
                 !methodEnv.MethodDecl.IsAsync &&
                 !methodEnv.MethodDecl.IsModuleInternal &&
+                !WrapperValidation.IsParentTypeModuleInternal(methodEnv) &&
                 !hasDynamicSelfReturn &&
                 !WrapperValidation.HasRawGenericTypeParams(methodEnv.MethodDecl) &&
                 !hasMethodOwnGenericParams &&

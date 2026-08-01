@@ -64,7 +64,7 @@ namespace BindingsGeneration
             // is emitted ONLY for that case: this path has never carried the advisory direct-CallConvSwift
             // marker, and turning it on for every failable factory would surface a new obsoletion warning
             // on members whose call route is unchanged.
-            if (WrapperValidation.IsUncallableInternalDirectDispatch(_env))
+            if (WrapperValidation.IsAbiFloorTombstoned(_env))
                 EmitSafetyObsolete(csWriter);
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isFailableFactory: true);
             // Emit signature: public static bool TryCreate(params, out TypeName result)

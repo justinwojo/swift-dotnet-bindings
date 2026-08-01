@@ -2033,6 +2033,180 @@ public static class WrapperValidation
         && HasUnmitigatedNonBlittableCallConvSwift(env);
 
     /// <summary>
+    /// True when the member reaches the direct-CallConvSwift path carrying an
+    /// <c>Optional&lt;T&gt;</c> that is wider than the single pointer-sized slot that path gives
+    /// it — a value the emitted call physically cannot transfer intact.
+    ///
+    /// <para>This is a <b>second, independent</b> floor alongside
+    /// <see cref="IsUncallableInternalDirectDispatch"/>, and the two overlap only by coincidence.
+    /// That one asks whether a call route exists at all and answers from visibility; this one
+    /// assumes the route exists and asks whether the bytes fit. Neither subsumes the other: the
+    /// blittability predicate behind the first is <b>width-blind</b> — the truncating fallback
+    /// declares its return as <c>IntPtr</c>, which is perfectly .NET-blittable, so a member can be
+    /// public, wrappable in principle, and still silently lose half its return value.</para>
+    ///
+    /// <para>What goes wrong without this floor: the emitter's preferred route for a wide Optional
+    /// is a Swift wrapper with an out-buffer parameter, but that route is conditional on the member
+    /// being wrapper-eligible. When it is not — an internal parent, a generic parent, a
+    /// generic or opaque return, a DynamicSelf return — the emitter falls back to a direct P/Invoke
+    /// that declares the Optional as one <c>IntPtr</c>, then hands the address of that
+    /// pointer-sized local to a marshaller which copies the type metadata's full
+    /// <c>Size</c> out of it. For a 16-byte <c>Optional&lt;String&gt;</c> that reads 8 real bytes
+    /// and 8 bytes of whatever else was on the stack. It is not a corrupt payload with an intact
+    /// nil flag either: an Optional whose payload has spare bits carries no separate tag byte, so
+    /// the value witness derives Some-vs-None from the full width — and the discriminating bits
+    /// are exactly the ones that were never transferred. The observable result is a nil that
+    /// decodes as a non-nil garbage value, or differently on each runtime, with no diagnostic.</para>
+    ///
+    /// <para>Deliberately <b>not</b> keyed on <c>IsLargeOptionalParam</c> alone. That predicate is
+    /// a routing preference and calls several genuinely one-word Optionals "large" — notably
+    /// <c>Optional&lt;Array&gt;</c>, <c>Optional&lt;Dictionary&gt;</c> and
+    /// <c>Optional&lt;Set&gt;</c>, each a single refcounted pointer using null as its extra
+    /// inhabitant. Those members bind correctly on the direct path today, so refusing them would
+    /// destroy working surface to fix a bug they do not have. The width question is therefore
+    /// asked separately, of <see cref="DirectOptionalAbi"/>, which answers only from lowerings it
+    /// can positively establish.</para>
+    ///
+    /// <para>Accessors are deliberately <b>in</b> scope, unlike
+    /// <see cref="HasUnmitigatedNonBlittableCallConvSwift"/>, which excludes them because the
+    /// advisory marker it drives is never rendered on the accessor path. That exclusion is about
+    /// where a marker can be printed; this is about whether a call can be correct. A
+    /// <c>public var name: String?</c> getter on a wrapper-ineligible parent truncates exactly
+    /// like the equivalent method, so excluding accessors here would leave the defect reachable
+    /// through the most ordinary shape a Swift API has.</para>
+    ///
+    /// <para>Like the sibling floor, members in this set are emitted as throwing tombstones rather
+    /// than dropped: the declaration and its attributes stay, so conformances still compile and
+    /// the pinned public surface does not silently shrink, but the body throws instead of making a
+    /// call that returns a value derived from uninitialized memory. Refusing is the conservative
+    /// direction — a member that throws is a bug report, whereas a member that answers with stack
+    /// garbage is a data-corruption incident that reaches production looking like it worked.</para>
+    /// </summary>
+    internal static bool HasTruncatedLargeOptionalDirectDispatch(MethodEnvironment env)
+    {
+        // Any Swift-side carrier — an @_cdecl wrapper, a native thunk, a @_silgen_name free
+        // function, or the Optional-pointer out-buffer wrapper built for exactly this problem —
+        // moves the value through memory rather than a register slot, so width stops mattering.
+        if (env.MethodDecl.UsesCdeclWrapper
+            || env.MethodDecl.UsesNativeThunk
+            || env.MethodDecl.UsesFreeFunctionWrapper
+            || env.MethodDecl.UsesWrapperLibrary
+            || env.MethodDecl.HasOptionalPointerWrapper)
+            return false;
+
+        // An async member delivers its result through a completion-handler buffer, never through
+        // the synchronous return slot this floor is about.
+        if (env.MethodDecl.IsAsync)
+            return false;
+
+        var signature = env.MethodDecl.CSSignature.ToList();
+        if (signature.Count == 0)
+            return false;
+
+        // The classifier is asked about every Optional on this member, NOT only the ones the
+        // large-Optional routing predicates flag. Gating on those predicates leaves a hole
+        // exactly where they answer "not large": they early-out on IsOptionalWithReferenceInner,
+        // which is a question about *bridging* — true for ObjC-bridgeable Swift value types like
+        // Foundation.URL and Date. There is no bridging on this path, so those keep their native
+        // layout (URL? measures 16 bytes, Date? 9, IndexPath? 17) and the emitted call reads a
+        // single word and hands it to GetINativeObject as though it were an object pointer,
+        // releasing a value that was never a reference. That is the same defect as the String?
+        // truncation with an added bogus release, so the floor has to reach it too.
+        //
+        // Return slot. Skipped when the result is passed indirectly, since an sret buffer is as
+        // wide as the value is.
+        if (!IsClosurePayloadOptional(signature[0].SwiftTypeSpec)
+            && !MarshallingHelpers.MethodRequiresIndirectResult(env)
+            && DirectOptionalAbi.ExceedsDirectSlot(signature[0].SwiftTypeSpec, env.TypeDatabase))
+            return true;
+
+        // Parameter slots. Same reasoning in the other direction: Swift reads a wider-than-a-word
+        // Optional argument out of more than one register, and supplying only one slot leaves the
+        // callee's own nil check reading whatever the rest happened to hold. Protocol existentials
+        // are covered here too — an existential container is five words wide, nowhere near a slot.
+        //
+        // Measured on the iOS Simulator against this exact emission: with this arm disabled, a
+        // String? argument SIGSEGVs the process on the first call, while a single-word [String]?
+        // argument returns correct answers for both Some and None. So the width split is the right
+        // one on the parameter side as well, and it is load-bearing rather than precautionary.
+        var visibleGenericNames = BaseHandler.CollectVisibleGenericParamNames(env.MethodDecl);
+        foreach (var arg in signature.Skip(1))
+        {
+            if (!IsClosurePayloadOptional(arg.SwiftTypeSpec)
+                && !IsGenericPayloadOptional(arg.SwiftTypeSpec, visibleGenericNames)
+                && DirectOptionalAbi.ExceedsDirectSlot(arg.SwiftTypeSpec, env.TypeDatabase))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// True when the Optional's payload is a function value. These are outside this floor's
+    /// jurisdiction, and deliberately so.
+    ///
+    /// <para>Width alone would not decide them correctly: a <c>@convention(c)</c> function value
+    /// is a bare C function pointer and its Optional is one word (measured 8 bytes), while a
+    /// Swift closure carries a context alongside the pointer and its Optional is two (measured
+    /// 16). The distinction is not decidable from the type spec on its own — closures parsed
+    /// from ABI JSON carry no convention attribute, which is why ClosureHandler.IsConventionC
+    /// has a second overload that consults the method's mangled name. Refusing every
+    /// Optional-closure here would therefore tombstone working <c>@convention(c)</c> members on
+    /// the strength of a missing attribute.</para>
+    ///
+    /// <para>They also do not need this floor: Optional closures have their own marshalling
+    /// path, which passes the function pointer and its context explicitly rather than reading a
+    /// value out of a single return slot. This floor exists for the value shapes nothing else
+    /// models.</para>
+    /// </summary>
+    private static bool IsClosurePayloadOptional(TypeSpec typeSpec)
+        => IsOptionalType(typeSpec)
+           && typeSpec is NamedTypeSpec named
+           && named.GenericParameters.Count == 1
+           && named.GenericParameters[0] is ClosureTypeSpec;
+
+    /// <summary>
+    /// True when the Optional's payload is one of the generic parameters visible at this member —
+    /// the parent type's or the method's own. Like the closure case this is a question of
+    /// jurisdiction rather than width, but for the opposite reason: the value is not carried in
+    /// the argument slot at all.
+    ///
+    /// <para>The caller has no static size for a generic payload, so Swift takes such an argument
+    /// indirectly and the emitter matches it — <c>WrapperEmitter</c>'s marshalling passes the
+    /// buffer ADDRESS for an Optional whose inner projection is a generic parameter, rather than
+    /// a value word. A pointer is a carrier for the whole value however wide the value turns out
+    /// to be, so there is nothing here to truncate and the floor must not fire. Confirmed on the
+    /// Simulator: a <c>Tag?</c> argument on a public generic parent answers correctly for both
+    /// nil and non-nil, so refusing it destroys surface that works.</para>
+    ///
+    /// <para>Scoped to the parameter side deliberately. A generic RESULT is already excluded by
+    /// the indirect-result check on the return arm, and unlike the parameter case it has not been
+    /// measured here — so it keeps the conservative answer rather than inheriting this one.</para>
+    /// </summary>
+    private static bool IsGenericPayloadOptional(TypeSpec typeSpec, HashSet<string> visibleGenericNames)
+        => IsOptionalType(typeSpec)
+           && typeSpec is NamedTypeSpec named
+           && named.GenericParameters.Count == 1
+           && named.GenericParameters[0] is NamedTypeSpec inner
+           && (visibleGenericNames.Contains(inner.Name)
+               || TypeSpecHelpers.IsGenericTypeParameter(inner.Name));
+
+    /// <summary>
+    /// True when the ABI floor will replace this member's body with a throw, for either of the two
+    /// independent reasons it recognises — no nameable call route
+    /// (<see cref="IsUncallableInternalDirectDispatch"/>) or a value too wide for the slot
+    /// (<see cref="HasTruncatedLargeOptionalDirectDispatch"/>).
+    ///
+    /// <para>Exists so that emission sites which must agree with the tombstone decision without
+    /// caring which arm produced it — chiefly the failable-factory path, which decides separately
+    /// whether to stamp the marker on the declaration — cannot fall out of step by consulting only
+    /// one arm. A site checking a single arm silently emits an unmarked tombstone for members
+    /// caught by the other.</para>
+    /// </summary>
+    internal static bool IsAbiFloorTombstoned(MethodEnvironment env)
+        => HasTruncatedLargeOptionalDirectDispatch(env) || IsUncallableInternalDirectDispatch(env);
+
+    /// <summary>
     /// Diagnostic id for a member left on the direct-CallConvSwift path with a predicted
     /// non-blittable signature. Advisory: the member is still callable, and for the shapes the
     /// emitter passes indirectly the call works.
@@ -2063,6 +2237,31 @@ public static class WrapperValidation
     /// </summary>
     internal static (string DiagnosticId, string Message)? GetNonBlittableCallConvSwiftIssue(MethodEnvironment env)
     {
+        // Checked before the blittability condition because it is not a subset of it: the
+        // truncating fallback's IntPtr slot IS blittable, so this member can be perfectly
+        // well-formed by that measure and still be unable to carry its own value.
+        //
+        // Accessors are excluded HERE and only here. The floor itself still covers them — a
+        // property getter truncates exactly like the equivalent method, and its body is replaced
+        // by a throw on the separate ApplyAbiFloorTombstone path, so nothing unsound is emitted.
+        // What must not happen is stamping the marker on the PRIVATE synthesized accessor: the
+        // public property's `get => Name_Get()` then calls an error-severity-obsolete member and
+        // the generated binding stops compiling. That is the same "property deferral" the
+        // sibling risk markers below observe, which they get for free because
+        // HasUnmitigatedNonBlittableCallConvSwift opens with its own !IsAccessor test — a shield
+        // this arm sits in front of and therefore has to repeat.
+        if (!env.MethodDecl.IsAccessor && HasTruncatedLargeOptionalDirectDispatch(env))
+        {
+            return (UncallableAbiDiagnosticId,
+                "This member carries an Optional whose Swift representation is wider than the "
+                + "single machine word the direct P/Invoke signature has for it, and no Swift "
+                + "wrapper is available to pass it through memory instead. Calling it would read "
+                + "the bytes past the first word from uninitialized memory, which for an Optional "
+                + "with no separate tag byte also decides whether the value reads as nil. It is "
+                + "declared for source and conformance compatibility only and throws "
+                + "NotSupportedException when called");
+        }
+
         if (!HasUnmitigatedNonBlittableCallConvSwift(env))
             return null;
 

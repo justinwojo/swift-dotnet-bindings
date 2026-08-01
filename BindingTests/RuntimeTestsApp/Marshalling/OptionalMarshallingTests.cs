@@ -366,4 +366,191 @@ public class OptionalMarshallingTests : TestBase
     }
 
     #endregion
+
+    #region Tier 3 — Direct-path Optional ABI width
+
+    // Optionals reaching the direct CallConvSwift path on a wrapper-ineligible parent.
+    //
+    // The emitter's preferred route for a wide Optional is a Swift wrapper with an out-buffer
+    // parameter, but that route needs the member to be wrapper-eligible. A generic parent is one
+    // of the conditions that makes it ineligible, so GenericOptionalAbiBox<T>'s members take the
+    // direct fallback — historically a P/Invoke declaring the Optional as a single IntPtr, whose
+    // result was then read back at the type metadata's full width. For a 16-byte
+    // Optional<String> that read 8 real bytes plus 8 bytes of adjacent stack memory, and since
+    // that Optional carries no separate tag byte, the never-transferred bytes were exactly the
+    // ones deciding nil. It produced no error on either runtime — just a nil that decoded as a
+    // garbage value, and differently under Mono JIT than under NativeAOT.
+    //
+    // These members are now refused at emission rather than emitted as a call that cannot work,
+    // so the assertions below are that the refusal is real and reaches the caller as an
+    // exception. A member that throws is a bug report; a member that answers with stack garbage
+    // is a data-corruption incident that reaches production looking like it worked.
+    //
+    // The nil-seed argument on each is deliberate: nil is the case the truncation decided
+    // incorrectly, so it is the case worth naming even though the call no longer reaches Swift.
+
+#pragma warning disable SB0009 // Tombstoned by the ABI floor — throwing is the behavior under test.
+
+    public void TestDirectPathOptionalStringReturnIsRefused()
+    {
+        using var box = new GenericOptionalAbiBox<Animal>(-1);
+        AssertThrows<NotSupportedException>(
+            () => box.GetLabel(),
+            "Optional<String> return on the direct path throws instead of truncating");
+        TestLogger.Info("GenericOptionalAbiBox<Animal>(-1).GetLabel() threw NotSupportedException");
+    }
+
+    public void TestDirectPathOptionalStringParamIsRefused()
+    {
+        using var box = new GenericOptionalAbiBox<Animal>(1);
+        AssertThrows<NotSupportedException>(
+            () => box.Width(null),
+            "Optional<String> parameter on the direct path throws instead of truncating");
+        TestLogger.Info("GenericOptionalAbiBox<Animal>(1).Width(null) threw NotSupportedException");
+    }
+
+    public void TestDirectPathOptionalDoubleReturnIsRefused()
+    {
+        // Optional<Double> is 9 bytes — an 8-byte payload plus a tag byte, because Double has no
+        // spare bits to steal. A single-word return captured the payload and dropped the tag.
+        using var box = new GenericOptionalAbiBox<Animal>(-1);
+        AssertThrows<NotSupportedException>(
+            () => box.GetTimestamp(),
+            "Optional<Double> return on the direct path throws instead of truncating");
+        TestLogger.Info("GenericOptionalAbiBox<Animal>(-1).GetTimestamp() threw NotSupportedException");
+    }
+
+#pragma warning restore SB0009
+
+    // The controls. Optional<[String]> is ONE machine word — Array is a single refcounted
+    // pointer and nil is its null extra inhabitant — so the single-slot direct call was always
+    // correct for it. The routing predicate that selects the wrapper nonetheless calls it
+    // "large", so a fail-closed gate keyed on that predicate rather than on real width would
+    // tombstone these too. They must keep binding AND keep returning right answers; if either
+    // starts throwing, the gate has become over-broad and is destroying working surface.
+
+    public void TestDirectPathSingleWordOptionalReturnSome()
+    {
+        using var box = new GenericOptionalAbiBox<Animal>(7);
+        var names = box.GetNames();
+        AssertNotNull(names, "Optional<[String]> return still binds on the direct path");
+        AssertEqual(1, names!.Count, "Optional<[String]> Some carries its element");
+        AssertEqual("g-7", names[0], "Optional<[String]> element round-trips intact");
+        TestLogger.Info($"GenericOptionalAbiBox<Animal>(7).GetNames() = [\"{names[0]}\"]");
+    }
+
+    public void TestDirectPathSingleWordOptionalReturnNone()
+    {
+        // The nil half of the control, and the more important one: nil-ness for a single-word
+        // Optional rides on the null extra inhabitant in the one word that IS transferred, so
+        // this reads correctly on the direct path and must keep doing so.
+        using var box = new GenericOptionalAbiBox<Animal>(-1);
+        var names = box.GetNames();
+        AssertNull(names, "Optional<[String]> None reads as null on the direct path");
+        TestLogger.Info("GenericOptionalAbiBox<Animal>(-1).GetNames() = null");
+    }
+
+    public void TestDirectPathSingleWordOptionalParamRoundTrips()
+    {
+        // The parameter-side half of the over-breadth control. The return side and the parameter
+        // side are separate arms of the floor, so each needs its own live canary — and unlike the
+        // return side, the parameter side had none. Optional<[String]> is one machine word, so
+        // the floor leaves it live; this asserts the surviving call actually answers correctly
+        // rather than merely compiling. (Disabling the parameter arm and calling the 16-byte
+        // String? sibling SIGSEGVs on the first call, so this arm is load-bearing, not
+        // precautionary — which makes a live control on the other side of the split necessary.)
+        using var box = new GenericOptionalAbiBox<Animal>(1);
+        AssertEqual(2, box.NameCount(new List<string> { "a", "b" }),
+            "Optional<[String]> parameter Some carries its element count into Swift");
+        AssertEqual(-1, box.NameCount(null),
+            "Optional<[String]> parameter None is seen as nil by Swift");
+        TestLogger.Info("GenericOptionalAbiBox<Animal>.NameCount round-trips Some and None");
+    }
+
+    public void TestDirectPathGenericPayloadOptionalParamRoundTrips()
+    {
+        // Optional of the parent's own generic parameter. The caller has no static size for it,
+        // so Swift takes the argument indirectly and the emitter passes the buffer address — a
+        // carrier for the whole value, whatever its width. Nothing is truncated, so the floor
+        // must not fire, and this asserts the call both survives and answers correctly. Without
+        // this control the floor silently tombstones every `T?` argument on a wrapper-ineligible
+        // generic parent, which is working surface.
+        using var box = new GenericOptionalAbiBox<Animal>(1);
+        AssertFalse(box.TagIsPresent(null), "Optional<T> parameter None is seen as nil by Swift");
+        using var cat = TestLibFunctions.CreateAnimal("Cat", "Meow");
+        AssertTrue(box.TagIsPresent(cat), "Optional<T> parameter Some is seen as non-nil by Swift");
+        TestLogger.Info("GenericOptionalAbiBox<Animal>.TagIsPresent round-trips Some and None");
+    }
+
+#pragma warning disable SB0009 // Tombstoned by the ABI floor — throwing is the behavior under test.
+
+    public void TestDirectPathSingleWordPointerOptionalParamIsRefused()
+    {
+        // The counter-example to "one word means it fits". OpaquePointer? measures 8 bytes, the
+        // same as the [String]? argument that round-trips fine, yet calling it with the floor
+        // lifted SIGSEGVs on the first call. Width is necessary but not sufficient for the direct
+        // argument slot, so this must stay refused; the assertion exists so that a future attempt
+        // to classify nullable pointers as SingleWord on the strength of their measured size
+        // fails here instead of shipping a crash.
+        using var box = new GenericOptionalAbiBox<Animal>(1);
+        AssertThrows<NotSupportedException>(
+            () => box.OpaqueWidth(null),
+            "Optional<OpaquePointer> parameter on the direct path throws instead of crashing");
+        TestLogger.Info("GenericOptionalAbiBox<Animal>.OpaqueWidth threw NotSupportedException");
+    }
+
+#pragma warning restore SB0009
+
+    public void TestDirectPathOptionalStringPropertyIsRefused()
+    {
+        // A `public var x: String?` truncates exactly like the equivalent method — same direct
+        // call, same 16-byte return — so the floor covers accessors too. It is also the most
+        // ordinary shape a Swift API has, which makes it the likeliest way a consumer meets this
+        // defect. The refusal has to reach the caller THROUGH the public property: the throwing
+        // body lives on the private synthesized accessor, and a property that swallowed it or
+        // never delegated would leave the truncation reachable behind an innocent-looking read.
+        using var box = new GenericOptionalAbiBox<Animal>(-1);
+        AssertThrows<NotSupportedException>(
+            () => { _ = box.BoxedLabel; },
+            "Optional<String> property getter on the direct path throws instead of truncating");
+    }
+
+    public void TestDirectPathSingleWordOptionalPropertyStillWorks()
+    {
+        // Accessor-side over-breadth control, the property counterpart of GetNames(). A
+        // single-word Optional through a property getter is ABI-correct on the direct path and
+        // must keep binding — if the accessor arm of the floor ever widens to "any Optional on an
+        // accessor", this read is what stops compiling or starts throwing.
+        using var box = new GenericOptionalAbiBox<Animal>(7);
+        var names = box.BoxedNames;
+        AssertNotNull(names, "Optional<[String]> property Some is not null");
+        AssertEqual(1, names!.Count, "Optional<[String]> property Some has one element");
+        AssertEqual("p-7", names[0], "Optional<[String]> property Some element round-trips");
+
+        using var noneBox = new GenericOptionalAbiBox<Animal>(-1);
+        AssertNull(noneBox.BoxedNames, "Optional<[String]> property None reads as null");
+        TestLogger.Info("GenericOptionalAbiBox<Animal> BoxedNames round-trips Some and None");
+    }
+
+#pragma warning disable SB0009 // Tombstoned by the ABI floor — throwing is the behavior under test.
+
+    public void TestDirectPathBridgedValueTypeOptionalIsRefused()
+    {
+        // Foundation.URL is a Swift *struct* that bridges to NSURL only at an ObjC boundary. The
+        // direct CallConvSwift path has no such boundary, so the value arrives in its native
+        // 16-byte Swift layout — but the routing predicates classify it as a reference, which is
+        // why this shape slipped past a floor keyed on those predicates instead of on physical
+        // width. What used to be emitted was worse than truncation: the first word of a half-read
+        // struct handed to GetINativeObject(..., owns: true), i.e. reinterpreted as an ObjC object
+        // AND released. This must fail closed on both runtimes.
+        using var box = new GenericOptionalAbiBox<Animal>(-1);
+        AssertThrows<NotSupportedException>(
+            () => { _ = box.GetBoxedUrl(); },
+            "Optional<URL> on the direct path throws instead of projecting half a struct as NSURL");
+        TestLogger.Info("GenericOptionalAbiBox<Animal>(-1).GetBoxedUrl() threw NotSupportedException");
+    }
+
+#pragma warning restore SB0009
+
+    #endregion
 }
