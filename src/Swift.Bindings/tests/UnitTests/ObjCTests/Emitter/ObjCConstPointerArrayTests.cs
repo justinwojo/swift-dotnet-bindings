@@ -776,6 +776,217 @@ public class ObjCConstPointerArrayTests
     }
 
     // ─────────────────────────────────────────────
+    // Apple SDK enums are value pointees too
+    // ─────────────────────────────────────────────
+
+    /// <summary>
+    /// An enum the platform assembly already binds is a value type like any struct, but most of that
+    /// vocabulary is absent from the Apple value-type set, so nothing else in the pointee test claims
+    /// it. Missing it does not produce a diagnostic — the parameter simply leaves the pointer path and
+    /// binds BY VALUE, which compiles and then hands the callee a copy where it wanted an address.
+    /// </summary>
+    [Theory]
+    [InlineData("CLRegionState *")]
+    [InlineData("NSComparisonResult *")]
+    [InlineData("NSJSONReadingOptions *")]
+    public void IsValueTypePointerShape_SystemEnumPointee_WithoutATypedefEntry_IsAPointerShape(string qualType)
+    {
+        Assert.True(ObjCTypeMapper.IsValueTypePointerShape(
+            ObjCTypeRefParser.Parse(qualType), typedefMap: null, enumNames: null));
+    }
+
+    /// <summary>
+    /// The projected pointee is the name the platform assembly declares, which is not always the ObjC
+    /// spelling — the acronym convention rewrites some of them, and a mechanical rename reproduces
+    /// neither <c>NSJSONReadingOptions → NSJsonReadingOptions</c> nor the singularised
+    /// <c>UIControlEvents → UIControlEvent</c>.
+    /// </summary>
+    [Theory]
+    [InlineData("CLRegionState *", "CLRegionState")]
+    [InlineData("NSJSONReadingOptions *", "NSJsonReadingOptions")]
+    [InlineData("UIControlEvents *", "UIControlEvent")]
+    public void MapValueTypePointerParameterType_SystemEnumPointee_UsesTheManagedSpelling(string qualType, string expected)
+    {
+        Assert.Equal(expected, ObjCTypeMapper.MapValueTypePointerParameterType(
+            ObjCTypeRefParser.Parse(qualType), typedefMap: null));
+    }
+
+    /// <summary>
+    /// An <c>NS_ENUM</c> reaches the resolution map as a typedef over its storage type. Following that
+    /// hop to the end erases the enum: the parameter still projects as a pointer, but to the raw
+    /// integer, so the consumer loses the type the header declared.
+    /// </summary>
+    [Fact]
+    public void SystemEnumPointee_SurvivesTheHeadersIntegerTypedef()
+    {
+        var typedefMap = new Dictionary<string, ObjCTypeRef> { ["CLRegionState"] = SimpleType("NSInteger") };
+        var typeRef = ObjCTypeRefParser.Parse("CLRegionState *");
+
+        Assert.True(ObjCTypeMapper.IsValueTypePointerShape(typeRef, typedefMap, enumNames: null));
+        Assert.Equal("CLRegionState", ObjCTypeMapper.MapValueTypePointerParameterType(typeRef, typedefMap));
+    }
+
+    /// <summary>
+    /// The same erasure, one alias further out: when the indirection comes from a library typedef the
+    /// chain walk keeps going past the enum into its storage type unless it stops where the bare-name
+    /// mapping stops.
+    /// </summary>
+    [Fact]
+    public void SystemEnumPointee_SurvivesAnAliasThatCarriesTheIndirection()
+    {
+        var typedefMap = new Dictionary<string, ObjCTypeRef>
+        {
+            ["TLStateRef"] = new ObjCTypeRef { Name = "CLRegionState", IsPointer = true },
+            ["CLRegionState"] = SimpleType("NSInteger"),
+        };
+        var typeRef = ObjCTypeRefParser.Parse("TLStateRef");
+
+        Assert.True(ObjCTypeMapper.IsValueTypePointerShape(typeRef, typedefMap, enumNames: null));
+        Assert.Equal("CLRegionState", ObjCTypeMapper.MapValueTypePointerParameterType(typeRef, typedefMap));
+    }
+
+    /// <summary>
+    /// The struct half of the same erasure. Foundation spells <c>NSRange</c> as a typedef over the
+    /// private record tag <c>_NSRange</c>, so resolving the pointee through the map names a type no
+    /// platform assembly declares and the parameter leaves this path for a by-value bind.
+    /// </summary>
+    [Fact]
+    public void SystemStructPointee_SurvivesTheHeadersRecordTagTypedef()
+    {
+        var typedefMap = new Dictionary<string, ObjCTypeRef> { ["NSRange"] = SimpleType("_NSRange") };
+        var typeRef = ObjCTypeRefParser.Parse("NSRange *");
+
+        Assert.True(ObjCTypeMapper.IsValueTypePointerShape(typeRef, typedefMap, enumNames: null));
+        Assert.Equal("NSRange", ObjCTypeMapper.MapValueTypePointerParameterType(typeRef, typedefMap));
+    }
+
+    /// <summary>
+    /// The resolution map is shared with readers that never see the pointer projection — struct
+    /// fields, return types, block parameters. Those map an alias by NAME, so if the chain walk left
+    /// an indirection-carrying alias resolving to a value type, they would bind the pointer BY VALUE
+    /// and compile. Today the alias resolves to a name none of them can claim, so the member fails
+    /// the resolvability gate instead: wrong-but-loud rather than wrong-and-silent.
+    /// </summary>
+    [Fact]
+    public void MapType_AliasCarryingIndirectionToAValueType_DoesNotResolveToThatValueTypeByName()
+    {
+        var module = ObjCModuleBuilder.Create()
+            .WithTypedef(new ObjCTypedefDecl
+            {
+                Name = "TLRangeRef",
+                UnderlyingType = new ObjCTypeRef { Name = "NSRange", IsPointer = true },
+            })
+            .WithTypedef("NSRange", "_NSRange")
+            .Build();
+        var typedefMap = ObjCTypeMapper.BuildResolvedTypedefMap(module);
+
+        Assert.NotEqual("NSRange", ObjCTypeMapper.MapType(SimpleType("TLRangeRef"), typedefMap: typedefMap));
+    }
+
+    /// <summary>End to end for the struct spelling, the same silent bind the enum arm closes.</summary>
+    [Fact]
+    public void Method_SystemStructPointerBehindTheRecordTagTypedef_DoesNotBindByValue()
+    {
+        var module = ObjCModuleBuilder.Create()
+            .WithTypedef("NSRange", "_NSRange")
+            .WithClass("TLPointBuffer", "NSObject", c => c.Method(
+                Method("readRange:", "BOOL", ("outRange", "NSRange *"))))
+            .Build();
+
+        var (apiDefinition, arrayOverloads, diagnostics) = EmitApiDefinitionWithArrayOverloads(module);
+
+        Assert.Contains("out NSRange", apiDefinition);
+        Assert.DoesNotMatch(@"[(,]\s*NSRange\s+\w", apiDefinition);
+        Assert.Null(arrayOverloads);
+        Assert.Empty(diagnostics.SkippedSymbols);
+    }
+
+    /// <summary>
+    /// End to end, the shape this arm exists to kill: an enum pointer the resolution map says nothing
+    /// about must not arrive as a by-value parameter. Nothing downstream can detect that mistake — it
+    /// compiles, registers, and only shows up as garbage at the call.
+    /// </summary>
+    [Fact]
+    public void Method_SystemEnumPointerWithoutATypedefEntry_DoesNotBindByValue()
+    {
+        var module = BuildClass(Method("readState:", "BOOL", ("outState", "CLRegionState *")));
+
+        var (apiDefinition, arrayOverloads, diagnostics) = EmitApiDefinitionWithArrayOverloads(module);
+
+        Assert.Contains("out CLRegionState", apiDefinition);
+        // No parameter position may name the enum without `out` in front of it.
+        Assert.DoesNotMatch(@"[(,]\s*CLRegionState\s+\w", apiDefinition);
+        Assert.Null(arrayOverloads);
+        Assert.Empty(diagnostics.SkippedSymbols);
+    }
+
+    /// <summary>
+    /// With the header's storage typedef present the parameter reached the pointer path already, but
+    /// through the primitive arm — it must still land on the enum, not on <c>nint</c>.
+    /// </summary>
+    [Fact]
+    public void Method_MutableSystemEnumPointerWithoutCount_StaysASingleOutSlot()
+    {
+        var module = ObjCModuleBuilder.Create()
+            .WithTypedef("CLRegionState", "NSInteger")
+            .WithClass("TLPointBuffer", "NSObject", c => c.Method(
+                Method("readState:", "BOOL", ("outState", "CLRegionState *"))))
+            .Build();
+
+        var (apiDefinition, arrayOverloads, diagnostics) = EmitApiDefinitionWithArrayOverloads(module);
+
+        Assert.Contains("out CLRegionState", apiDefinition);
+        Assert.DoesNotContain("out nint", apiDefinition);
+        Assert.Null(arrayOverloads);
+        Assert.Empty(diagnostics.SkippedSymbols);
+    }
+
+    /// <summary>
+    /// An enum is an unmanaged type, so an array of them pins exactly like an array of structs and the
+    /// same buffer projection applies.
+    /// </summary>
+    [Fact]
+    public void Method_ConstSystemEnumPointerWithCount_ProjectsAnArrayOverload()
+    {
+        var module = BuildClass(Method("appendStates:count:", "void",
+            ("states", "const CLRegionState *"), ("count", "NSUInteger")));
+
+        var (apiDefinition, arrayOverloads, diagnostics) = EmitApiDefinitionWithArrayOverloads(module);
+
+        Assert.Contains("IntPtr states", apiDefinition);
+        Assert.DoesNotContain("out CLRegionState", apiDefinition);
+
+        Assert.NotNull(arrayOverloads);
+        Assert.Contains("public void AppendStates(CLRegionState[] states)", arrayOverloads);
+        Assert.Contains("fixed (CLRegionState*", arrayOverloads);
+        // The mapped name only resolves if the namespace declaring it is in scope.
+        Assert.Contains("using CoreLocation;", arrayOverloads);
+
+        Assert.Empty(diagnostics.SkippedSymbols);
+    }
+
+    /// <summary>
+    /// And the fail-closed end: read-only, no length, no sound projection — the same drop a const
+    /// struct run takes, rather than the silent by-value bind the missing arm used to produce.
+    /// </summary>
+    [Fact]
+    public void Method_ConstSystemEnumPointerWithoutCount_DropsWithRecordedSkip()
+    {
+        var module = BuildClass(Method("matchesState:", "BOOL", ("state", "const CLRegionState *")));
+
+        var (apiDefinition, arrayOverloads, diagnostics) = EmitApiDefinitionWithArrayOverloads(module);
+
+        Assert.DoesNotContain("MatchesState", apiDefinition);
+        Assert.Null(arrayOverloads);
+
+        var skip = Assert.Single(diagnostics.SkippedSymbols, s => s.SymbolName == "matchesState:");
+        Assert.Equal("Method", skip.SymbolKind);
+        Assert.Equal(ObjCSkipReason.UnsupportedConstruct, skip.Reason);
+        Assert.Contains("state", skip.Detail);
+        Assert.Contains("const CLRegionState *", skip.Detail);
+    }
+
+    // ─────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────
 

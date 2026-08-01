@@ -650,6 +650,25 @@ public static class ObjCTypeMapper
             if (depth > 0 && !target.IsConst) isConst = false;
             pointerDepth += depth;
 
+            // Stop on an Apple SDK enum. An NS_ENUM reaches the typedef set as an alias over its
+            // storage type, so a library alias that spells the indirection (`typedef CLRegionState
+            // *StateRef;`) otherwise flattens to a pointer-to-NSInteger and the enum is gone by the
+            // time anything asks what the pointee is. The bare-name mapping keeps these names for
+            // itself before it consults the typedef map for the same reason; the walk has to agree
+            // with it or the shape test and the projected pointee disagree.
+            //
+            // Deliberately NOT extended to the system STRUCT set, whose members are spelled the same
+            // way (`typedef struct _NSRange NSRange;`). Stopping there too would leave the alias
+            // resolving to a value type rather than to the private record tag, and every OTHER reader
+            // of this map — struct fields, return types, block parameters, none of which go through
+            // the pointer projection — would then map the alias to the value type by NAME and drop
+            // the indirection, turning a member that fails the resolvability gate today into one that
+            // compiles with a pointer bound by value. The struct spelling this projection actually
+            // needs is claimed on the written name in the shape test instead, which no other reader
+            // consults.
+            if (AppleFrameworkRegistry.IsObjCSystemEnum(target.Name))
+                break;
+
             if (!visited.Add(target.Name) || !typedefMap.TryGetValue(target.Name, out var deeper))
                 break;
             target = deeper;
@@ -731,6 +750,24 @@ public static class ObjCTypeMapper
 
         // Struct types from Apple frameworks (CG*, CL*, MK*, CM*, etc.)
         if (AppleFrameworkRegistry.IsObjCValueType(name)) return true;
+
+        // Apple SDK enums and structs the platform assembly already binds, read on the WRITTEN name
+        // as well as the resolved one. Most of the enum vocabulary is absent from the value-type set
+        // above, so without this arm a `CLRegionState *` parameter falls out of the pointer-parameter
+        // path entirely and the ordinary type mapping binds the enum BY VALUE — the callee is handed
+        // a copy in a register where it expects an address, and nothing downstream can see that the
+        // signature is wrong. An enum pointee is a value pointee like any other, so it belongs on the
+        // same project / `out` / drop logic as a struct or a primitive.
+        //
+        // The written name matters because both families reach the resolution map as typedefs over
+        // their storage: resolving `NSRange *` through it lands on the private record tag `_NSRange`,
+        // which nothing claims, so the parameter would leave this path for the same silent by-value
+        // bind. These are exactly the two sets the bare-name mapping keeps for itself before it
+        // consults the typedef map, so reading them here keeps the shape test and the projected
+        // pointee type in agreement.
+        if (AppleFrameworkRegistry.IsObjCSystemEnum(name)
+            || AppleFrameworkRegistry.IsObjCSystemEnum(typeRef.Name)
+            || AppleFrameworkRegistry.IsObjCSystemStruct(typeRef.Name)) return true;
 
         // Enum types are value types — pointer to enum is an out-param
         // Check both the resolved name (for typedef aliases) and the original name
