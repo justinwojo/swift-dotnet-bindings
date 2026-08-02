@@ -206,6 +206,40 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// True when <paramref name="argumentDecl"/> is the value a Swift setter takes ownership of.
+        ///
+        /// <para>Setters are the one accessor shape whose argument is <c>@owned</c>: SILGen lowers
+        /// <c>foo.setter</c> as <c>(@owned Value, @guaranteed self) -&gt; ()</c>, and a subscript
+        /// setter as <c>(@owned Value, @guaranteed Index..., @guaranteed self)</c>. So the new value
+        /// — always the first parameter — is handed over, while the index arguments beside it are
+        /// borrowed like any ordinary argument. The distinction is per-argument, not per-member:
+        /// treating a whole setter as consuming would skip the Destroy on its indices and leak them,
+        /// and treating none of it as consuming double-releases the value. This is also why the test
+        /// is written against the parameter position rather than the member: there is no
+        /// ownership annotation to read here, because <c>@owned</c> is implied by the accessor's
+        /// lowering and never appears in the ABI JSON that populates
+        /// <see cref="ArgumentDecl.Ownership"/>.</para>
+        /// </summary>
+        private bool IsConsumedSetterValue(ArgumentDecl argumentDecl)
+            => MarshallingHelpers.MethodIsSetter(_env.MethodDecl)
+               && ReferenceEquals(_env.MethodDecl.CSSignature.ElementAtOrDefault(1), argumentDecl);
+
+        /// <summary>
+        /// True when the callee this argument is being marshalled for is Swift's own setter, so the
+        /// <c>@owned</c> lowering described on <see cref="IsConsumedSetterValue"/> actually applies.
+        ///
+        /// <para>Ownership is a property of the callee, not of the C# type, which is why every arm
+        /// that hands a setter value across asks this one question. Where a Swift-side carrier sits
+        /// in between — a <c>@_cdecl</c> wrapper, a native thunk, an async bridge — the P/Invoke
+        /// targets that generated wrapper rather than the real accessor symbol, and the wrapper takes
+        /// its parameter borrowed; transferring there would drop the only release and leak. Only on
+        /// direct dispatch does the extern name the accessor itself.</para>
+        /// </summary>
+        private bool ConsumesSetterValueDirectly(ArgumentDecl argumentDecl)
+            => IsConsumedSetterValue(argumentDecl)
+               && !DirectOptionalAbi.UsesSwiftSideCarrier(_env.MethodDecl);
+
+        /// <summary>
         /// Emits bound generic argument marshalling.
         /// Skips arguments that have type conversion (those are handled by EmitTypeConversions).
         /// </summary>
@@ -240,11 +274,25 @@ namespace BindingsGeneration
 
                 // Optional<ObjC> accessor setter: parameter is already IntPtr (nullable pointer ABI).
                 // Just alias to the buffer name that the P/Invoke expects.
+                //
+                // The property conversion that produced this pointer read it off a managed wrapper
+                // that keeps owning the object, so it arrives borrowed. That suits a @_cdecl
+                // wrapper, which takes its parameter borrowed as well — but a direct setter is
+                // Swift's own accessor, and Swift lowers a setter's new value as @owned. Handing a
+                // borrowed pointer to a callee that releases it costs the object a retain it never
+                // received, and the managed wrapper releases the same object again later; the crash
+                // surfaces on whichever thread touches it after the count reaches zero. Retaining
+                // isa-dispatched (not swift_retain: an NSObject-rooted payload needs objc_retain)
+                // gives the callee the +1 its convention says it was passed, and leaves the managed
+                // wrapper's own release balanced.
                 if (_env.MethodDecl.IsAccessor && MarshallingHelpers.IsOptionalObjCBridged(argumentDecl.SwiftTypeSpec, _env.TypeDatabase))
                 {
                     var csName = NameProvider.GetCSharpParameterName(argumentDecl);
                     var bufferName = NameProvider.GetBoundGenericBufferName(csName);
-                    csWriter.WriteLine($"IntPtr {bufferName} = {csName};");
+                    var handedOver = ConsumesSetterValueDirectly(argumentDecl)
+                        ? $"global::Swift.Runtime.Arc.UnknownObjectRetain({csName})"
+                        : csName;
+                    csWriter.WriteLine($"IntPtr {bufferName} = {handedOver};");
                     continue;
                 }
 
@@ -299,10 +347,41 @@ namespace BindingsGeneration
                                 csWriter.WriteLine($"IntPtr {bufferName} = {csName}Pin.Handle;");
                             }
                         }
+                        // Direct CallConvSwift with a proven-wide Optional: the P/Invoke slot for
+                        // this parameter is a carrier struct, decided by PInvokeEmitter from this
+                        // same oracle, so the buffer local has to BE that carrier. The pointer arms
+                        // around it are for paths with Swift code on the other side to dereference
+                        // one; there is none here, and handing the extern a handle where it declares
+                        // a value only ever produced a compile error and a member the verify-recover
+                        // loop then dropped. Reached by accessors in practice — a method-shaped
+                        // parameter is converted by the projection path before this runs.
+                        else if (DirectOptionalAbi.TryGetDirectCarrier(
+                                     _env.MethodDecl, argumentDecl.SwiftTypeSpec, _env.TypeDatabase, argumentDecl.IsInOut) is { } accessorCarrier)
+                        {
+                            // Setters take their new value at +1 and release it themselves, so the
+                            // carrier hands the payload over instead of lending it; anything else
+                            // reaching here is an ordinary borrowed argument and keeps its Destroy.
+                            var carrierAccessor = ConsumesSetterValueDirectly(argumentDecl)
+                                ? "GetCarrierBufferTransferring"
+                                : "GetCarrierBuffer";
+                            csWriter.WriteLine($"using PayloadBuffer<{accessorCarrier}> {csName}Disposable = {csName}.{carrierAccessor}<{accessorCarrier}>();");
+                            csWriter.WriteLine($"{accessorCarrier} {bufferName} = {csName}Disposable.Buffer;");
+                        }
                         // Large optional accessor params (e.g., Optional<SwiftString>) have payloads
                         // exceeding IntPtr size. PayloadBuffer<IntPtr> would truncate — use the full
                         // buffer via DangerousGetHandle instead, pinned via SafeHandlePin.
-                        else if (_env.MethodDecl.IsAccessor && _env.BoundGenericsHandler.IsLargeOptionalParam(argumentDecl.SwiftTypeSpec))
+                        //
+                        // Only where Swift dereferences that address: a @_cdecl wrapper (handled
+                        // above), the Optional-pointer out-buffer wrapper, a native thunk, an async
+                        // bridge. On pure direct dispatch the P/Invoke slot holds the Optional's own
+                        // value, and a buffer address is never zero — so passing one there would make
+                        // `nil` arrive as a present value whose contents are the buffer's own bytes.
+                        // Those shapes are one word wide by then (a wider one either took the carrier
+                        // arm above or was refused by the emission floor), so the value arm below is
+                        // both correct and complete for them.
+                        else if (_env.MethodDecl.IsAccessor
+                                 && DirectOptionalAbi.UsesSwiftSideCarrier(_env.MethodDecl)
+                                 && _env.BoundGenericsHandler.IsLargeOptionalParam(argumentDecl.SwiftTypeSpec))
                         {
                             csWriter.WriteLine($"using SafeHandlePin {csName}Pin = new SafeHandlePin({csName}.Payload);");
                             csWriter.WriteLine($"IntPtr {bufferName} = {csName}Pin.Handle;");
@@ -311,6 +390,15 @@ namespace BindingsGeneration
                         {
                             csWriter.WriteLine($"using PayloadBuffer<IntPtr> {csName}Disposable = {csName}.PayloadBuffer;");
                             csWriter.WriteLine($"IntPtr {bufferName} = {csName}Disposable.Buffer;");
+
+                            // Same +1 hand-over the carrier arm above spells as
+                            // GetCarrierBufferTransferring. This arm serves whatever single-word
+                            // shapes reach it, not just Optionals, so the transfer is expressed on
+                            // the payload handle rather than through a typed accessor. Marking
+                            // before the call is deliberate: if it throws, the value leaks instead
+                            // of being destroyed a second time by a callee that may already own it.
+                            if (ConsumesSetterValueDirectly(argumentDecl))
+                                csWriter.WriteLine($"{csName}.Payload.MarkConsumed();");
                         }
                     }
                     else
@@ -768,6 +856,16 @@ namespace BindingsGeneration
                 if (needsLargeOptOverride || needsCdeclOptOverride || needsGenericOptOverride)
                 {
                     projection = new OptionalProjection(optProjForHandle.InnerProjection, optProjForHandle.IsExistentialInner, useDangerousGetHandle: true);
+                }
+                // Direct CallConvSwift with no Swift-side carrier: none of the pointer routes above
+                // apply, because there is no Swift code on the other side to dereference a pointer.
+                // The value must travel in registers, so it needs a carrier wide enough to hold all
+                // of them — the default single-word load would send only the first.
+                else if (DirectOptionalAbi.TryGetDirectCarrier(
+                             _env.MethodDecl, argumentDecl.SwiftTypeSpec, _env.TypeDatabase, argumentDecl.IsInOut) is { } paramCarrier)
+                {
+                    projection = new OptionalProjection(
+                        optProjForHandle.InnerProjection, optProjForHandle.IsExistentialInner, carrierTypeName: paramCarrier);
                 }
 
                 // Raw CallConvSwift Optional<generic-param> uses Swift @in (callee-destroyed)

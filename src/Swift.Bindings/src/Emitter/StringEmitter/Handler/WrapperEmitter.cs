@@ -1002,6 +1002,21 @@ namespace BindingsGeneration
         /// cause: nothing here is unnameable or non-blittable — the call is well-formed and simply
         /// too narrow to carry the value, which is why it produced wrong answers instead of errors.
         /// </summary>
+        /// <summary>
+        /// The throw message carried by a member whose payload the direct path can only render as a
+        /// foreign object. A third sentence rather than a reuse of
+        /// <see cref="TruncatedLargeOptionalAbiMessage"/> because the width that message blames is
+        /// correct here — an <c>Array</c> is one refcounted pointer either way — and pointing a
+        /// consumer at a truncation that is not happening costs them the search.
+        /// </summary>
+        internal const string ForeignObjectRenderedAbiMessage =
+            "This member has no ABI-correct call path: it carries a container whose elements bridge " +
+            "to Objective-C, and the direct P/Invoke can only render that as a Foundation collection " +
+            "object. Its slot is the right width — what would cross it is the wrong value, because " +
+            "there is no Swift wrapper here to unwrap the collection back into the native container " +
+            "the callee reads. It is declared so that source and protocol conformances referencing " +
+            "it still compile.";
+
         internal const string TruncatedLargeOptionalAbiMessage =
             "This member has no ABI-correct call path: it carries an Optional whose Swift representation " +
             "is wider than the single machine word its direct P/Invoke signature reserves for it, and no " +
@@ -1053,7 +1068,20 @@ namespace BindingsGeneration
             string message;
             string skipDetail;
 
-            if (WrapperValidation.HasTruncatedLargeOptionalDirectDispatch(_env))
+            if (WrapperValidation.HasForeignObjectRenderedDirectDispatch(_env))
+            {
+                message = ForeignObjectRenderedAbiMessage;
+                skipDetail =
+                    "The member carries a container whose elements bridge to Objective-C, which the "
+                    + "direct CallConvSwift path can only render as an NSArray/NSDictionary/NSSet "
+                    + "object — but with no @_cdecl wrapper to unwrap it on entry, Swift reads that "
+                    + "object where its own native container storage belongs, and reads a returned "
+                    + "one back as a Foundation collection it then owns. The slot is the right width; "
+                    + "what crosses it is the wrong value. The member is emitted as a throwing "
+                    + "tombstone (declaration retained so conformances referencing it still compile) "
+                    + $"and carries the {WrapperValidation.UncallableAbiDiagnosticId} marker.";
+            }
+            else if (WrapperValidation.HasTruncatedLargeOptionalDirectDispatch(_env))
             {
                 message = TruncatedLargeOptionalAbiMessage;
                 skipDetail =

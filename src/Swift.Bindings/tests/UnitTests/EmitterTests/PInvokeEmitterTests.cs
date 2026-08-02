@@ -68,13 +68,37 @@ public class PInvokeEmitterTests
     }
 
     [Fact]
-    public void ReturnType_BoundGenericOptional_ReturnsIntPtr()
+    public void ReturnType_WideBoundGenericOptional_ReturnsCarrier()
     {
+        // Optional<Int> is NINE bytes: Int fills a word and has no spare bits, so the Optional
+        // appends a separate tag byte. A single IntPtr return declares eight, transferring the
+        // payload and dropping the byte that says whether the value is nil at all.
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Loader", moduleDecl);
         var method = CreateMethod("getOpt", classDecl, moduleDecl);
         var optType = new NamedTypeSpec("Swift.Optional");
         optType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        method.CSSignature[0] = CreateArg("", optType, moduleDecl);
+
+        var typeDb = CreateBasicTypeDatabase("Loader");
+        var sig = GetPInvokeSignature(method, typeDb);
+
+        Assert.Equal("global::Swift.Runtime.SwiftOptionalCarrier9", sig.ReturnType);
+    }
+
+    [Fact]
+    public void ReturnType_SingleWordBoundGenericOptional_ReturnsIntPtr()
+    {
+        // The companion control. Optional<[Int]> is one machine word — Array is a single refcounted
+        // pointer and nil rides its null extra inhabitant — so the plain IntPtr return is already
+        // the whole value and must not be disturbed by the carrier work.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethod("getOptArray", classDecl, moduleDecl);
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var optType = new NamedTypeSpec("Swift.Optional");
+        optType.GenericParameters.Add(arrayType);
         method.CSSignature[0] = CreateArg("", optType, moduleDecl);
 
         var typeDb = CreateBasicTypeDatabase("Loader");

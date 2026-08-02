@@ -46,15 +46,30 @@ internal enum DirectOptionalAbiWidth
     TwoIntegerWords,
 
     /// <summary>
-    /// The generator cannot prove the physical lowering. Either the value is known to be wider
-    /// than one word without its register classes being pinned down (a payload-plus-tag-byte
-    /// Optional such as <c>Optional&lt;Double&gt;</c>, whose payload lands in a floating-point
-    /// register while its tag is an integer byte), or the layout is not statically knowable at
-    /// all (resilient/non-<c>@frozen</c> inner types, which are address-only across their
-    /// resilience boundary; generic payloads whose layout depends on runtime metadata).
+    /// Provably one 8-byte payload word followed by a separate tag byte — nine bytes total, the
+    /// shape of every 8-byte primitive with no spare bit patterns to steal
+    /// (<c>Optional&lt;Int&gt;</c>, <c>Optional&lt;Double&gt;</c>, <c>Optional&lt;CGFloat&gt;</c>).
+    /// Swift returns it in x0 + w1 and takes it as the same two argument words.
     ///
-    /// <para>Emitting a direct single-slot call for one of these is unsound, and the failure is
-    /// invisible to both compilers, so the only honest outcome is to refuse.</para>
+    /// <para>Both words are <b>integer</b> registers even when the payload is floating-point.
+    /// Swift lowers an enum payload as opaque integer storage, so <c>Optional&lt;Double&gt;</c>
+    /// travels in x0, not d0 — <c>probe_take_opt_double</c> opens with <c>fmov d0, x0</c>,
+    /// moving the payload out of the integer register before using it. A carrier that declares
+    /// the payload as <c>double</c> is therefore wrong: .NET would faithfully lower that field
+    /// into an FP register and silently disagree with Swift. Carriers for this width must use
+    /// integer-typed fields only.</para>
+    /// </summary>
+    WordAndTagByte,
+
+    /// <summary>
+    /// The generator cannot prove the physical lowering: the layout is not statically knowable
+    /// at all. Resilient/non-<c>@frozen</c> inner types are address-only across their resilience
+    /// boundary regardless of their measured runtime size; generic payloads and existential
+    /// containers depend on runtime metadata; and any type whose record the database does not
+    /// carry is simply unknown.
+    ///
+    /// <para>Emitting a direct call for one of these is unsound, and the failure is invisible to
+    /// both compilers, so the only honest outcome is to refuse.</para>
     /// </summary>
     Unprovable,
 }
@@ -111,6 +126,23 @@ internal static class DirectOptionalAbi
         "Swift.Int16", "Int16", "Swift.UInt16", "UInt16",
         "Swift.Int32", "Int32", "Swift.UInt32", "UInt32",
         "Swift.Float", "Float",
+    };
+
+    /// <summary>
+    /// Primitive inner types that occupy a full machine word and have no spare bit patterns for
+    /// Swift to use as an extra inhabitant, so <c>Optional</c> of one of them appends a separate
+    /// tag byte and lands at nine bytes.
+    ///
+    /// <para><c>CGFloat</c> is listed under every spelling the databases use for it. It is a
+    /// <c>@frozen</c> single-<c>Double</c> wrapper on 64-bit Apple platforms — the only targets
+    /// this generator emits for — so it lowers exactly like <c>Double</c>.</para>
+    /// </summary>
+    private static readonly HashSet<string> s_wordPlusTagPrimitives = new(StringComparer.Ordinal)
+    {
+        "Swift.Int", "Int", "Swift.UInt", "UInt",
+        "Swift.Int64", "Int64", "Swift.UInt64", "UInt64",
+        "Swift.Double", "Double",
+        "CoreFoundation.CGFloat", "CoreGraphics.CGFloat", "CGFloat",
     };
 
     /// <summary>
@@ -183,11 +215,76 @@ internal static class DirectOptionalAbi
         if (inner.Name is "Swift.String" or "String")
             return DirectOptionalAbiWidth.TwoIntegerWords;
 
-        // Everything else — Int/Double/CGFloat (payload plus a tag byte, mixed register classes),
-        // resilient and non-@frozen structs (address-only), enums, generic payloads, and any type
-        // whose record the database does not carry — is not provable here.
+        // A full-word primitive with no spare bits: payload word plus an appended tag byte.
+        if (s_wordPlusTagPrimitives.Contains(inner.Name))
+            return DirectOptionalAbiWidth.WordAndTagByte;
+
+        // Everything else — resilient and non-@frozen structs (address-only regardless of their
+        // measured size), enums, generic payloads, and any type whose record the database does
+        // not carry — is not provable here.
         return DirectOptionalAbiWidth.Unprovable;
     }
+
+    /// <summary>
+    /// The unmanaged carrier struct that transports <paramref name="typeSpec"/> across a direct
+    /// CallConvSwift P/Invoke, or <see langword="null"/> when the single pointer-sized slot is
+    /// already the whole value (<see cref="DirectOptionalAbiWidth.SingleWord"/>) or the lowering
+    /// is not provable.
+    ///
+    /// <para>The carrier is pure transport. It collects every byte Swift actually passes so the
+    /// value arrives complete; deciding Some vs None from those bytes stays with the Optional's
+    /// value-witness table, which is the only ABI-stable reader of an extra-inhabitant tag.
+    /// Nothing here infers a spare-bit encoding.</para>
+    /// </summary>
+    internal static string? TryGetCarrierTypeName(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+        => Classify(typeSpec, typeDatabase) switch
+        {
+            DirectOptionalAbiWidth.WordAndTagByte => "global::Swift.Runtime.SwiftOptionalCarrier9",
+            DirectOptionalAbiWidth.TwoIntegerWords => "global::Swift.Runtime.SwiftOptionalCarrier16",
+            _ => null,
+        };
+
+    /// <summary>
+    /// The carrier <paramref name="member"/> will actually emit for <paramref name="typeSpec"/>,
+    /// or <see langword="null"/> when this member carries that Optional some other way.
+    ///
+    /// <para>This is the decision itself, not an ingredient of it: the P/Invoke emitter, the
+    /// wrapper's argument marshalling, and the blittability predictor that decides whether the
+    /// member is callable at all must all reach the SAME answer for a given member and type, so
+    /// they ask here rather than each re-combining <see cref="UsesSwiftSideCarrier"/> with
+    /// <see cref="TryGetCarrierTypeName"/>. Recombining is what let them drift once already —
+    /// the emitter had learned to emit a blittable carrier parameter while the predictor still
+    /// answered "Optional argument, therefore non-blittable", so members whose P/Invoke was by
+    /// then perfectly well-formed were tombstoned as uncallable.</para>
+    ///
+    /// <para><paramref name="isInOut"/> withdraws the carrier entirely. A carrier transports the
+    /// value <em>by value</em>, which is precisely the wrong shape for an <c>inout</c> argument:
+    /// Swift expects the address of the caller's storage there and writes back through it. Handing
+    /// it a register pair holding a copy means the callee's write lands nowhere and, worse, that it
+    /// reads an address out of what is actually payload data. Refusing the carrier leaves the
+    /// member on the floor's refusal path, which is the honest outcome — an <c>inout</c> wide
+    /// Optional has no sound direct lowering here, only an unproven one.</para>
+    /// </summary>
+    internal static string? TryGetDirectCarrier(
+        MethodDecl member, TypeSpec typeSpec, ITypeDatabase typeDatabase, bool isInOut = false)
+        => isInOut || UsesSwiftSideCarrier(member) || ReturnsOpaqueExistential(member)
+            ? null
+            : TryGetCarrierTypeName(typeSpec, typeDatabase);
+
+    /// <summary>
+    /// True when the member returns an opaque <c>some P</c> existential, which forces a Swift-side
+    /// wrapper to erase the opaque type before the value can cross. Such a member marshals its
+    /// arguments through that wrapper rather than through direct register slots.
+    ///
+    /// <para>Kept in the carrier oracle rather than in <see cref="UsesSwiftSideCarrier"/> because
+    /// the two sets answer different questions. <see cref="UsesSwiftSideCarrier"/> names the
+    /// members the emission floor need not guard at all; this member still needs guarding — it
+    /// takes no carrier, so a wide Optional argument on it would truncate exactly as before — it
+    /// simply cannot be rescued by one.</para>
+    /// </summary>
+    private static bool ReturnsOpaqueExistential(MethodDecl member)
+        => member.CSSignature.Count > 0
+           && member.CSSignature.First().SwiftTypeSpec is ProtocolListTypeSpec { IsOpaque: true };
 
     /// <summary>
     /// True when the payload is a Swift <em>value</em> type that the reference predicate accepts
@@ -202,11 +299,72 @@ internal static class DirectOptionalAbi
            && record.Kind is TypeRecordKind.Struct or TypeRecordKind.Enum;
 
     /// <summary>
-    /// True when <paramref name="typeSpec"/> is an Optional that cannot be carried correctly by
-    /// the direct path's single pointer-sized slot — i.e. anything this classifier could not
-    /// prove fits in one word.
+    /// True when the member moves its values through memory on the Swift side — an
+    /// <c>@_cdecl</c> wrapper, a native thunk, a <c>@_silgen_name</c> free function, the
+    /// Optional-pointer out-buffer wrapper, or an async completion handler. Width stops mattering
+    /// for these, so they must keep their existing slot types and never take a carrier.
+    ///
+    /// <para>This is the same set the emission floor early-outs on, named once so the floor's
+    /// idea of "the direct path" and the emitter's cannot drift apart. If they did, the half that
+    /// still believed a shape was direct would either refuse a member the other emits correctly,
+    /// or — the dangerous direction — emit a bare slot for one the floor had stopped guarding.</para>
+    /// </summary>
+    internal static bool UsesSwiftSideCarrier(MethodDecl methodDecl)
+        => methodDecl.UsesCdeclWrapper
+           || methodDecl.UsesNativeThunk
+           || methodDecl.UsesFreeFunctionWrapper
+           || methodDecl.UsesWrapperLibrary
+           || methodDecl.HasOptionalPointerWrapper
+           || methodDecl.IsAsync;
+
+    /// <summary>
+    /// True when <paramref name="typeSpec"/> is an Optional too wide for a single pointer-sized
+    /// P/Invoke slot. Such a shape needs a carrier; it is not by itself a reason to refuse — see
+    /// <see cref="HasNoSoundDirectCallPath"/> for that question.
     /// </summary>
     internal static bool ExceedsDirectSlot(TypeSpec typeSpec, ITypeDatabase typeDatabase)
-        => Classify(typeSpec, typeDatabase) is DirectOptionalAbiWidth.TwoIntegerWords
+        => Classify(typeSpec, typeDatabase) is DirectOptionalAbiWidth.WordAndTagByte
+                                            or DirectOptionalAbiWidth.TwoIntegerWords
                                             or DirectOptionalAbiWidth.Unprovable;
+
+    /// <summary>
+    /// True when <paramref name="typeSpec"/> is an Optional the direct path can carry neither in
+    /// its single slot nor in a proven carrier — the condition the emission floor tombstones on.
+    ///
+    /// <para>Written as "too wide AND no carrier" rather than as a direct test for
+    /// <see cref="DirectOptionalAbiWidth.Unprovable"/> so the refusal stays keyed to the absence
+    /// of a call path. A width added to the enum without a matching carrier is refused by
+    /// construction; it cannot fall through into a truncated direct call.</para>
+    /// </summary>
+    internal static bool HasNoSoundDirectCallPath(
+        MethodDecl member, TypeSpec typeSpec, ITypeDatabase typeDatabase, bool isInOut = false)
+        => (ExceedsDirectSlot(typeSpec, typeDatabase)
+            && TryGetDirectCarrier(member, typeSpec, typeDatabase, isInOut) is null)
+           || RendersAsForeignObject(typeSpec, typeDatabase);
+
+    /// <summary>
+    /// True when the direct path's only rendering of <paramref name="typeSpec"/> is an
+    /// Objective-C collection object that is not the value Swift reads.
+    ///
+    /// <para>Width is sound here and that is the trap: <c>[URL]?</c> really is one refcounted
+    /// pointer, so the slot is the right size. What crosses it is the wrong object. The C# side
+    /// builds an <c>NSArray</c> and passes its handle, because the conversion that renders an
+    /// ObjC-bridgeable container asks what the payload bridges TO without asking whether there is
+    /// a boundary to bridge AT. A <c>@_cdecl</c> wrapper supplies one and unwraps the collection
+    /// back to Swift on entry; a direct <c>CallConvSwift</c> accessor supplies none, so Swift
+    /// receives an <c>NSArray</c> pointer where its own native array storage belongs — and for an
+    /// element that is a struct, that storage has no representation an ObjC object can inhabit.
+    /// The getter is wrong in the same way and worse: it reads Swift's array storage back as an
+    /// <c>NSArray</c> and takes ownership of it.</para>
+    ///
+    /// <para>Sibling to the bridged-value-type exclusion in <see cref="Classify"/>, one level out:
+    /// that one covers a payload that bridges (<c>URL?</c>), this one a container whose ELEMENTS
+    /// bridge. Kept here rather than in the classifier because it is not a claim about width —
+    /// stating it as one would make the classifier answer a layout question with a marshalling
+    /// fact. An <c>Optional&lt;ObjC class&gt;</c> deliberately does NOT land here: for a class
+    /// reference the object pointer IS Swift's representation, so that shape stays callable and
+    /// its ownership is settled at the call instead.</para>
+    /// </summary>
+    internal static bool RendersAsForeignObject(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+        => CdeclParamMapper.IsOptionalObjCBridgeableContainer(typeSpec, typeDatabase);
 }

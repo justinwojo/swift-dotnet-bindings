@@ -93,6 +93,17 @@ namespace BindingsGeneration
                     }
                     else
                     {
+                        // Direct path, no Swift-side carrier: an Optional wider than one word gets
+                        // a right-sized unmanaged carrier instead of the default IntPtr slot.
+                        // IntPtr collects only the first return register, so the remaining bytes —
+                        // which for an extra-inhabitant Optional such as String? are what decides
+                        // Some vs None — are read from whatever the stack happened to hold.
+                        if (DirectOptionalAbi.TryGetDirectCarrier(_env.MethodDecl, returnType.SwiftTypeSpec, _env.TypeDatabase) is { } returnCarrier)
+                        {
+                            SetReturnType(returnCarrier);
+                            return;
+                        }
+
                         var csTypeParam = _env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnType) switch
                         {
                             true => _env.BoundGenericsHandler.GetBufferType(returnType),
@@ -474,6 +485,17 @@ namespace BindingsGeneration
                     {
                         var simdCsType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(argument, _genericContext);
                         AddParameter(new MarshalledType.CdeclFrozenStruct(simdCsType), csName);
+                        continue;
+                    }
+
+                    // Direct path, no Swift-side carrier: same widening as the return slot, in the
+                    // other direction. Swift reads a wider-than-a-word Optional argument out of
+                    // more than one register, so supplying a single slot leaves the callee's own
+                    // nil check reading whatever the remaining registers happened to hold.
+                    if (DirectOptionalAbi.TryGetDirectCarrier(
+                            _env.MethodDecl, argument.SwiftTypeSpec, _env.TypeDatabase, argument.IsInOut) is { } argCarrier)
+                    {
+                        AddParameter(argCarrier, NameProvider.GetBoundGenericBufferName(csName));
                         continue;
                     }
 

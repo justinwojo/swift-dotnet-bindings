@@ -1,11 +1,11 @@
 {
-  "git_sha": "8469072b",
+  "git_sha": "cf88cc1f",
   "entries": [
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "ObsoleteSB0001",
       "reason": "No @_cdecl wrapper or native thunk available. P/Invoke calling convention may not match Swift ABI",
-      "count": 82
+      "count": 87
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",

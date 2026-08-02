@@ -32,8 +32,10 @@ import Foundation
 //   * `[String]?` — 8 bytes: Array is a single refcounted pointer and the
 //                   Optional uses the null extra inhabitant. One machine word.
 //
-// Only the third fits in the single `IntPtr` slot a naive direct P/Invoke
-// gives it. The first two do not, which is the ABI hazard this fixture pins.
+// Each of the first two is carried by a blittable carrier struct wide enough to
+// hold every register Swift actually passes; the third already fits the single
+// slot a direct P/Invoke gives it. What must never happen is a *bare* single
+// slot for the first two — that is the truncation this fixture pins.
 //
 // The `[String]?` member is here on purpose as a NEGATIVE control: it is
 // classified "large" by the generator's inner-type heuristic even though its
@@ -127,21 +129,93 @@ internal enum InternalOptionalAbiHost {
         return Int32(value)
     }
 
-    /// Single-word Optional in argument position.
+    /// Single-word Optional in argument position — the parameter-side control
+    /// for the internal-parent path, and the counterpart to `names(forSeed:)`.
     ///
-    /// NOTE: unlike `names(forSeed:)`, this member does NOT stay live — but not
-    /// because of the width floor, which correctly leaves it alone. A separate,
-    /// pre-existing floor tombstones every member on an internal parent whose
-    /// P/Invoke signature is non-blittable, and that blittability test counts
-    /// any Optional in *argument* position as a generic container regardless of
-    /// its real width (the return side has no such arm, which is why `names`
-    /// survives and this does not). The genuine parameter-side width control
-    /// therefore lives on `GenericOptionalAbiBox`, whose public parent keeps
-    /// that other floor out of the picture.
+    /// This member is also where the two floors that guard this path have to
+    /// agree. The width floor correctly leaves it alone, but a *second*,
+    /// pre-existing floor tombstones any member on an internal parent whose
+    /// P/Invoke signature is non-blittable — and that blittability test used to
+    /// count every Optional in argument position as a generic container passed
+    /// by SafeHandle, regardless of its real width. A one-word `[String]?`
+    /// argument is not passed that way: it travels as its own value in an
+    /// `IntPtr`, which is blittable, so the verdict was wrong and this member
+    /// was tombstoned despite a perfectly well-formed call. It now binds.
     public static func nameCount(_ names: [String]?) -> Int32 {
         guard let names else { return -1 }
         return Int32(names.count)
     }
+
+    // MARK: Accessor round-trip — the SETTER side of the carrier
+
+    /// A settable two-word `Optional<String>` on the wrapper-ineligible parent.
+    /// The getter is the carried-return shape `label(forSeed:)` already covers;
+    /// the setter is the mirror image and a genuinely separate emission path,
+    /// because accessor bodies are built without the parameter rewrite that
+    /// method bodies get. A setter whose argument is lowered as anything other
+    /// than the carrier the P/Invoke declares either fails to compile or hands
+    /// Swift a buffer address where it reads two payload words.
+    ///
+    /// Stored rather than computed so the round-trip asserts the value Swift
+    /// actually received, not one the accessor could have reconstructed.
+    public static var storedLabel: String? = nil
+
+    // MARK: inout — the shape that must stay refused
+
+    /// `inout` wide Optional. Swift passes `inout` as the ADDRESS of the
+    /// caller's storage and writes back through it; a carrier transports the
+    /// value, which is the opposite shape. Handing the callee a register pair
+    /// holding a copy means its write-back lands nowhere and its read treats
+    /// payload bytes as a pointer. There is no sound direct lowering for this,
+    /// so the member must stay on the refusal path rather than acquiring a
+    /// carrier along with the by-value shapes above.
+    public static func swapLabel(_ label: inout String?) {
+        label = label.map { $0 + "-swapped" } ?? "swapped"
+    }
+
+    /// The one-word sibling of `swapLabel`. `inout` is passed as an address
+    /// whatever the value's width, so refusing only the wide shapes would leave
+    /// this one passing the array's storage pointer where the callee expects the
+    /// address of the caller's variable — Swift would then dereference object
+    /// memory as if it were an `Optional<Array>` slot. Width is the wrong axis
+    /// for this decision; the parameter convention is.
+    public static func swapNames(_ names: inout [String]?) {
+        names = (names ?? []) + ["swapped"]
+    }
+
+    // MARK: Settable one-word Optional — the residual accessor route
+
+    /// A settable one-word `Optional<Array>`. It takes no carrier (its real
+    /// lowering already fits the single slot a direct P/Invoke gives it), so the
+    /// setter falls past the carrier arm onto whatever route handles the rest —
+    /// and that route must still pass the array's *value*, not the address of
+    /// the buffer holding it. An address is never zero, so passing one would
+    /// make `nil` arrive as a non-nil array whose contents are the buffer's own
+    /// bytes. Stored, so the round-trip reads back what Swift actually received.
+    public static var storedNames: [String]? = nil
+
+    // MARK: Settable Optionals whose payload also has an ObjC representation
+
+    /// A settable `Optional<ObjC class>`. One word wide, so it takes the same
+    /// residual route as `storedNames` — but its payload is a *reference* the
+    /// managed side owns, and the setter Swift exports takes its new value at
+    /// +1. Whatever the route hands over has to account for that release, or the
+    /// object is released once by Swift and again by whoever owns it in C#.
+    ///
+    /// The two representations of this payload are the point: at an ObjC or
+    /// `@_cdecl` boundary it travels as an object pointer, and this path has
+    /// neither boundary, so it travels as Swift's own `Optional<NSObject>` —
+    /// which for a class reference happens to be the same bit pattern. The
+    /// ownership question is what separates them, not the width.
+    public static var storedBridgedObject: NSObject? = nil
+
+    /// A settable `Optional` of an ObjC-*bridgeable container*. `Array` bridges
+    /// to `NSArray` at an ObjC boundary, and `URL` to `NSURL` — but neither
+    /// bridge happens here. A direct CallConvSwift setter takes Swift's native
+    /// `Array` representation, and for an element that is a struct that storage
+    /// is native-only: an `NSArray` pointer is not a value it can hold. Handing
+    /// one over is a representation error before it is an ownership error.
+    public static var storedBridgedUrls: [URL]? = nil
 }
 
 /// Public, constructible generic struct carrying the same large-Optional
@@ -158,6 +232,33 @@ public struct GenericOptionalAbiBox<Tag> {
 
     public init(seed: Int32) {
         self.seed = seed
+    }
+
+    /// The public-parent controls for the two ObjC-representation members on
+    /// the internal host above. Visibility is not what decides whether the
+    /// direct path renders a payload in its ObjC form — the absence of an ObjC
+    /// boundary is — so a public parent that declines the wrapper for its own
+    /// reasons must reach the same verdict as the internal one. Kept
+    /// non-`static` so a passing member would also be callable from a runtime
+    /// test rather than merely present.
+    public var bridgedObject: NSObject? {
+        get { seed < 0 ? nil : NSObject() }
+        set { _ = newValue }
+    }
+
+    public var bridgedUrls: [URL]? {
+        get { seed < 0 ? nil : [URL(string: "https://example.invalid/\(seed)")!] }
+        set { _ = newValue }
+    }
+
+    /// The same ObjC-rendered container in *method* position. The accessor
+    /// shapes above cannot carry the declaration marker — a marker on a private
+    /// synthesized accessor would stop the public property that calls it from
+    /// compiling — so a method is the only shape that shows whether a consumer
+    /// gets a compile-time notice before calling something that throws.
+    public func urlCount(of urls: [URL]?) -> Int32 {
+        guard let urls else { return -1 }
+        return Int32(urls.count)
     }
 
     /// Two-word `Optional<String>` return on the direct fallback path.
@@ -188,9 +289,9 @@ public struct GenericOptionalAbiBox<Tag> {
     /// parameter-side over-breadth control, and the counterpart to `names()`.
     /// The return side and the parameter side are separate arms of the width
     /// floor, so a regression that tombstones only one of them needs a control
-    /// on both. (The equivalent member on the internal-parent host cannot serve
-    /// as this control: a different, pre-existing floor tombstones it there for
-    /// non-blittability, which is why this one lives on the public parent.)
+    /// on both. The equivalent member on the internal-parent host is the same
+    /// control seen through the second floor; this one isolates the width floor
+    /// from it by sitting on a public parent.
     public func nameCount(of names: [String]?) -> Int32 {
         guard let names else { return -1 }
         return Int32(names.count)
@@ -233,7 +334,11 @@ public struct GenericOptionalAbiBox<Tag> {
     // consumer actually writes, not only on the private synthesized accessor
     // the property delegates to.
 
-    /// Two-word `Optional<String>` through a property getter. Must fail closed.
+    /// Two-word `Optional<String>` through a property getter — carried by the
+    /// two-word carrier, like the method-shaped `label()`. Present here because
+    /// a property is the most ordinary shape a Swift API has, and because the
+    /// decision has to surface on the public property a consumer actually
+    /// writes rather than only on the private synthesized accessor.
     public var boxedLabel: String? {
         if seed < 0 { return nil }
         return "prop-\(seed)"

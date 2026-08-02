@@ -15,6 +15,7 @@ public class OptionalProjection : ITypeProjection
     private readonly ITypeProjection _innerProjection;
     private readonly bool _isExistentialInner;
     private readonly bool _useDangerousGetHandle;
+    private readonly string? _carrierTypeName;
 
     /// <summary>
     /// Creates an optional projection.
@@ -22,11 +23,23 @@ public class OptionalProjection : ITypeProjection
     /// <param name="innerProjection">The projection for the wrapped type.</param>
     /// <param name="isExistentialInner">Whether the inner type is an existential (uses discriminant check instead of ToNullable).</param>
     /// <param name="useDangerousGetHandle">When true, uses DangerousGetHandle() instead of PayloadBuffer for large Optional params passed to Swift wrappers.</param>
-    public OptionalProjection(ITypeProjection innerProjection, bool isExistentialInner = false, bool useDangerousGetHandle = false)
+    /// <param name="carrierTypeName">
+    /// When set, the unmanaged carrier struct this Optional travels in on a direct CallConvSwift
+    /// P/Invoke, replacing the default single-word <c>PayloadBuffer&lt;IntPtr&gt;</c> load. Only
+    /// meaningful for Optionals wider than one machine word with no Swift-side wrapper; mutually
+    /// exclusive with <paramref name="useDangerousGetHandle"/>, which addresses the same problem
+    /// by passing a pointer to Swift code that dereferences it.
+    /// </param>
+    public OptionalProjection(
+        ITypeProjection innerProjection,
+        bool isExistentialInner = false,
+        bool useDangerousGetHandle = false,
+        string? carrierTypeName = null)
     {
         _innerProjection = innerProjection;
         _isExistentialInner = isExistentialInner;
         _useDangerousGetHandle = useDangerousGetHandle;
+        _carrierTypeName = carrierTypeName;
     }
 
     /// <summary>The inner projection for the wrapped type.</summary>
@@ -345,6 +358,17 @@ public class OptionalProjection : ITypeProjection
             // Large Optional passed to Swift wrapper — pass pointer to full Optional buffer
             setup.Add(new MarshalStatement.Line(
                 $"IntPtr {paramName}Buffer = {paramName}Swift.Payload.DangerousGetHandle();"));
+        }
+        else if (_carrierTypeName is { } carrier)
+        {
+            // Wider than one word on the direct path: load the whole Optional into its carrier so
+            // every register Swift reads is supplied. GetCarrierBuffer throws on a size mismatch
+            // rather than silently transferring a prefix of the value.
+            setup.Add(new MarshalStatement.Using(
+                $"PayloadBuffer<{carrier}>", $"{paramName}Disposable",
+                $"{paramName}Swift.GetCarrierBuffer<{carrier}>()"));
+            setup.Add(new MarshalStatement.Line(
+                $"{carrier} {paramName}Buffer = {paramName}Disposable.Buffer;"));
         }
         else
         {

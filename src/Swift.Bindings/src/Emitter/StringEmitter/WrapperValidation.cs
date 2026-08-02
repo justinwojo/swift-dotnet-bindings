@@ -2083,20 +2083,29 @@ public static class WrapperValidation
     /// garbage is a data-corruption incident that reaches production looking like it worked.</para>
     /// </summary>
     internal static bool HasTruncatedLargeOptionalDirectDispatch(MethodEnvironment env)
+        => AnyDirectAbiSlot(env, (spec, isInOut) =>
+               DirectOptionalAbi.HasNoSoundDirectCallPath(env.MethodDecl, spec, env.TypeDatabase, isInOut));
+
+    /// <summary>
+    /// Applies <paramref name="slotHasNoSoundPath"/> to every slot a direct CallConvSwift call
+    /// actually puts a value in — the return, then each parameter — and reports whether any of
+    /// them answers yes.
+    ///
+    /// <para>The walk is shared rather than copied because which slots are in play is a fact about
+    /// the calling convention, not about the question being asked of them. Two callers with their
+    /// own copies of the closure-payload, indirect-result and generic-payload exclusions would
+    /// drift, and the drift would be silent: a member excluded by one walk and not the other
+    /// tombstones with the other's explanation.</para>
+    /// </summary>
+    private static bool AnyDirectAbiSlot(MethodEnvironment env, Func<TypeSpec, bool, bool> slotHasNoSoundPath)
     {
         // Any Swift-side carrier — an @_cdecl wrapper, a native thunk, a @_silgen_name free
-        // function, or the Optional-pointer out-buffer wrapper built for exactly this problem —
-        // moves the value through memory rather than a register slot, so width stops mattering.
-        if (env.MethodDecl.UsesCdeclWrapper
-            || env.MethodDecl.UsesNativeThunk
-            || env.MethodDecl.UsesFreeFunctionWrapper
-            || env.MethodDecl.UsesWrapperLibrary
-            || env.MethodDecl.HasOptionalPointerWrapper)
-            return false;
-
-        // An async member delivers its result through a completion-handler buffer, never through
-        // the synchronous return slot this floor is about.
-        if (env.MethodDecl.IsAsync)
+        // function, the Optional-pointer out-buffer wrapper built for exactly this problem, or an
+        // async member's completion-handler buffer — moves the value through memory rather than a
+        // register slot, so width stops mattering. Asked of the shared oracle rather than restated
+        // here: this floor and the emitter have to agree on what "the direct path" even means, and
+        // a second copy of the list is the drift channel, not a convenience.
+        if (DirectOptionalAbi.UsesSwiftSideCarrier(env.MethodDecl))
             return false;
 
         var signature = env.MethodDecl.CSSignature.ToList();
@@ -2117,7 +2126,7 @@ public static class WrapperValidation
         // wide as the value is.
         if (!IsClosurePayloadOptional(signature[0].SwiftTypeSpec)
             && !MarshallingHelpers.MethodRequiresIndirectResult(env)
-            && DirectOptionalAbi.ExceedsDirectSlot(signature[0].SwiftTypeSpec, env.TypeDatabase))
+            && slotHasNoSoundPath(signature[0].SwiftTypeSpec, false))
             return true;
 
         // Parameter slots. Same reasoning in the other direction: Swift reads a wider-than-a-word
@@ -2134,12 +2143,27 @@ public static class WrapperValidation
         {
             if (!IsClosurePayloadOptional(arg.SwiftTypeSpec)
                 && !IsGenericPayloadOptional(arg.SwiftTypeSpec, visibleGenericNames)
-                && DirectOptionalAbi.ExceedsDirectSlot(arg.SwiftTypeSpec, env.TypeDatabase))
+                && slotHasNoSoundPath(arg.SwiftTypeSpec, arg.IsInOut))
                 return true;
         }
 
         return false;
     }
+
+    /// <summary>
+    /// True when the floor's verdict for <paramref name="env"/> is owed to a payload the direct
+    /// path can only render as a foreign object, rather than to a value too wide for its slot.
+    ///
+    /// <para>Both verdicts tombstone the member, so this changes nothing about what is emitted —
+    /// only what the tombstone says. That matters because the message is the whole explanation a
+    /// consumer gets: telling someone their <c>[URL]?</c> property is "wider than one machine
+    /// word" sends them looking for a truncation that is not there, when the payload is exactly
+    /// one word and the problem is that an <c>NSArray</c> crossed where Swift's own array storage
+    /// belonged. Asks the same slots the floor asks, through the same walk, so the two answers
+    /// cannot disagree about which slots are in play.</para>
+    /// </summary>
+    internal static bool HasForeignObjectRenderedDirectDispatch(MethodEnvironment env)
+        => AnyDirectAbiSlot(env, (spec, _) => DirectOptionalAbi.RendersAsForeignObject(spec, env.TypeDatabase));
 
     /// <summary>
     /// True when the Optional's payload is a function value. These are outside this floor's
@@ -2192,19 +2216,25 @@ public static class WrapperValidation
                || TypeSpecHelpers.IsGenericTypeParameter(inner.Name));
 
     /// <summary>
-    /// True when the ABI floor will replace this member's body with a throw, for either of the two
+    /// True when the ABI floor will replace this member's body with a throw, for any of the three
     /// independent reasons it recognises — no nameable call route
-    /// (<see cref="IsUncallableInternalDirectDispatch"/>) or a value too wide for the slot
-    /// (<see cref="HasTruncatedLargeOptionalDirectDispatch"/>).
+    /// (<see cref="IsUncallableInternalDirectDispatch"/>), a value too wide for the slot
+    /// (<see cref="HasTruncatedLargeOptionalDirectDispatch"/>), or a value the direct path can only
+    /// render in a foreign object form the callee does not read
+    /// (<see cref="HasForeignObjectRenderedDirectDispatch"/>).
     ///
     /// <para>Exists so that emission sites which must agree with the tombstone decision without
     /// caring which arm produced it — chiefly the failable-factory path, which decides separately
     /// whether to stamp the marker on the declaration — cannot fall out of step by consulting only
     /// one arm. A site checking a single arm silently emits an unmarked tombstone for members
-    /// caught by the other.</para>
+    /// caught by the other: the body throws but nothing on the declaration says so, so the first
+    /// notice a consumer gets is the exception. Every new floor arm belongs here as well as in
+    /// <see cref="GetNonBlittableCallConvSwiftIssue"/>.</para>
     /// </summary>
     internal static bool IsAbiFloorTombstoned(MethodEnvironment env)
-        => HasTruncatedLargeOptionalDirectDispatch(env) || IsUncallableInternalDirectDispatch(env);
+        => HasTruncatedLargeOptionalDirectDispatch(env)
+           || HasForeignObjectRenderedDirectDispatch(env)
+           || IsUncallableInternalDirectDispatch(env);
 
     /// <summary>
     /// Diagnostic id for a member left on the direct-CallConvSwift path with a predicted
@@ -2250,6 +2280,23 @@ public static class WrapperValidation
         // sibling risk markers below observe, which they get for free because
         // HasUnmitigatedNonBlittableCallConvSwift opens with its own !IsAccessor test — a shield
         // this arm sits in front of and therefore has to repeat.
+        // Asked BEFORE the width arm, in the same order the tombstone body picks its message, and
+        // for the same reason: the width predicate is a SUPERSET of this one — HasNoSoundDirectCall
+        // Path is (too wide ∧ no carrier) ∨ renders-as-foreign-object — so asking it first captures
+        // these members and stamps them with a sentence about reading past the first word. Their
+        // slot is exactly the right width; nothing is truncated. That marker would send a consumer
+        // hunting for a truncation that does not exist.
+        if (!env.MethodDecl.IsAccessor && HasForeignObjectRenderedDirectDispatch(env))
+        {
+            return (UncallableAbiDiagnosticId,
+                "This member carries a container whose elements bridge to Objective-C, and the "
+                + "direct P/Invoke can only render that as a Foundation collection object. Its slot "
+                + "is the right width — what would cross it is the wrong value, because there is no "
+                + "Swift wrapper here to unwrap the collection back into the native container the "
+                + "callee reads. It is declared for source and conformance compatibility only and "
+                + "throws NotSupportedException when called");
+        }
+
         if (!env.MethodDecl.IsAccessor && HasTruncatedLargeOptionalDirectDispatch(env))
         {
             return (UncallableAbiDiagnosticId,
@@ -2321,7 +2368,7 @@ public static class WrapperValidation
                 continue;
             if (env.ClosureHandler.IsClosure(arg))
                 continue;
-            if (IsParamPInvokeNonBlittable(arg.SwiftTypeSpec, env))
+            if (IsParamPInvokeNonBlittable(arg.SwiftTypeSpec, env, arg.IsInOut))
                 return true;
         }
 
@@ -2643,7 +2690,7 @@ public static class WrapperValidation
     ///   <item>Complex enum (non-Simple) → EnumSafeHandle marker → <c>IntPtr</c> in P/Invoke.</item>
     /// </list>
     /// </summary>
-    internal static bool IsParamPInvokeNonBlittable(TypeSpec typeSpec, MethodEnvironment env)
+    internal static bool IsParamPInvokeNonBlittable(TypeSpec typeSpec, MethodEnvironment env, bool isInOut = false)
     {
         // Primitives are always safe
         if (CdeclParamMapper.IsCdeclPrimitive(typeSpec))
@@ -2652,6 +2699,35 @@ public static class WrapperValidation
         // ValueTuple → StructLayout.Auto → non-blittable in P/Invoke
         if (typeSpec is TupleTypeSpec tts && !tts.IsEmptyTuple)
             return true;
+
+        // An Optional whose direct-path lowering DirectOptionalAbi can positively prove is passed
+        // in a blittable slot, and the emitter gives it one: a single-word Optional travels as its
+        // own value in an IntPtr, and the wider proven shapes travel in an integer carrier struct.
+        // Neither is the SafeHandle marshalling the generic-container rule below assumes on their
+        // behalf. Asked here, before that rule, so the answer comes from the slot the P/Invoke
+        // emitter actually emits rather than from the type's outward shape.
+        //
+        // Only the *proven* widths are carved out. An Optional the oracle cannot prove keeps
+        // falling through to the generic-container rule, and so keeps its existing verdict — this
+        // widens nothing beyond the lowerings that have been established.
+        //
+        // Getting this wrong does more than mis-mark a diagnostic. A non-blittable verdict on a
+        // member whose parent is internal makes it "uncallable direct dispatch" and replaces its
+        // body with a throw, so a stale answer here silently tombstones members whose P/Invoke is
+        // well-formed — which is exactly what it did to a one-word `[Element]?` argument.
+        //
+        // Neither slot is what an `inout` argument needs, at any width. Swift passes `inout` as the
+        // address of the caller's storage and writes back through it, so the P/Invoke would have to
+        // declare a `ref` — and the direct path emits a by-value slot instead, whatever the value's
+        // size. Carving a one-word `inout` Optional out as "blittable" therefore keeps a member
+        // callable whose call hands Swift an array's storage pointer where it expects the address of
+        // a variable to overwrite. The carrier oracle already withdraws itself for `inout`; this
+        // width test has to do the same or it answers first and the withdrawal never runs.
+        var optionalWidth = DirectOptionalAbi.Classify(typeSpec, env.TypeDatabase);
+        if (!isInOut &&
+            (optionalWidth == DirectOptionalAbiWidth.SingleWord ||
+             DirectOptionalAbi.TryGetDirectCarrier(env.MethodDecl, typeSpec, env.TypeDatabase, isInOut) is not null))
+            return false;
 
         // Generic containers (Optional, Array, Dictionary, Set, Result) — direct-CallConvSwift
         // path goes through SafeHandle / opaque-pointer marshalling that's not blittable. The

@@ -44,19 +44,24 @@ public class DirectOptionalAbiTests
     [InlineData("Swift.Double")]
     [InlineData("Swift.Int")]
     [InlineData("Swift.Int64")]
-    [InlineData("Swift.CGFloat")]
-    public void Classify_OptionalWordSizedPayload_IsUnprovable(string innerName)
+    [InlineData("Swift.UInt64")]
+    [InlineData("CoreGraphics.CGFloat")]
+    public void Classify_OptionalWordSizedPayload_IsWordAndTagByte(string innerName)
     {
-        // A payload that already fills a word has no spare bits, so the Optional appends a tag
-        // byte and spills past the slot. Deliberately Unprovable rather than "two words": the
-        // payload's register class differs between these (Double lands in a floating-point
-        // register, Int in an integer one), so a single two-integer-word carrier would not be
-        // correct for all of them and the classifier must not imply that it would.
+        // A payload that already fills a word has no spare bits, so the Optional appends a tag byte
+        // and spills past the slot: nine bytes, arriving in x0 + w1.
+        //
+        // All of these share ONE carrier even though Double is floating-point and Int is not,
+        // because Swift lowers an enum payload as opaque INTEGER storage. Optional<Double> travels
+        // in x0, not d0 — the callee opens with `fmov d0, x0` to move the payload out of the
+        // integer register. An earlier version of this classifier called these Unprovable on the
+        // stated reasoning that "the payload's register class differs between them", which is the
+        // misconception this test now pins the correction to.
         var typeDb = CreateTypeDatabase();
 
         var result = DirectOptionalAbi.Classify(Optional(new NamedTypeSpec(innerName)), typeDb);
 
-        Assert.Equal(DirectOptionalAbiWidth.Unprovable, result);
+        Assert.Equal(DirectOptionalAbiWidth.WordAndTagByte, result);
     }
 
     [Fact]
@@ -201,15 +206,22 @@ public class DirectOptionalAbiTests
     #region ABI floor — return side
 
     [Fact]
-    public void Floor_UnwrappedOptionalStringReturn_Fires()
+    public void Floor_UnwrappedOptionalStringReturn_DoesNotFire_BecauseACarrierExists()
     {
-        // The defect as the generator sees it: no wrapper of any kind assigned, so the emitted
-        // call is the truncating one.
+        // The originally reported shape: no wrapper of any kind assigned, so the emitted call is
+        // the direct one. It is still WIDER than the single slot — that has not changed — but the
+        // floor no longer refuses it, because a two-word carrier now transports it intact.
+        //
+        // The two assertions are deliberately separate. Width and refusal used to be the same
+        // question, and collapsing them again is how a future width added to the enum would
+        // silently fall through into a truncated direct call instead of being refused.
         var (moduleDecl, typeDb) = CreateEnvironment();
         var parent = CreateClass("Host", moduleDecl);
         var method = MethodReturning("label", Optional(new NamedTypeSpec("Swift.String")), parent, moduleDecl);
 
-        Assert.True(WrapperValidation.HasTruncatedLargeOptionalDirectDispatch(
+        Assert.True(DirectOptionalAbi.ExceedsDirectSlot(
+            Optional(new NamedTypeSpec("Swift.String")), typeDb));
+        Assert.False(WrapperValidation.HasTruncatedLargeOptionalDirectDispatch(
             new MethodEnvironment(method, typeDb)));
     }
 
@@ -262,16 +274,16 @@ public class DirectOptionalAbiTests
     #region ABI floor — parameter side
 
     [Fact]
-    public void Floor_UnwrappedOptionalStringParam_Fires()
+    public void Floor_UnwrappedOptionalStringParam_DoesNotFire_BecauseACarrierExists()
     {
-        // Swift reads a two-word Optional argument out of two integer registers; supplying only
-        // the first leaves the callee's own nil check reading whatever the second held. The
-        // parameter side is a distinct emission path from the return side and needs its own gate.
+        // Swift reads a two-word Optional argument out of two integer registers, and the parameter
+        // side is a distinct emission path from the return side — so it needs its own carrier and
+        // its own assertion that the floor has stood down for it.
         var (moduleDecl, typeDb) = CreateEnvironment();
         var parent = CreateClass("Host", moduleDecl);
         var method = MethodTaking("width", Optional(new NamedTypeSpec("Swift.String")), parent, moduleDecl);
 
-        Assert.True(WrapperValidation.HasTruncatedLargeOptionalDirectDispatch(
+        Assert.False(WrapperValidation.HasTruncatedLargeOptionalDirectDispatch(
             new MethodEnvironment(method, typeDb)));
     }
 
@@ -286,6 +298,168 @@ public class DirectOptionalAbiTests
             Optional(Generic("Swift.Array", new NamedTypeSpec("Swift.String"))),
             parent,
             moduleDecl);
+
+        Assert.False(WrapperValidation.HasTruncatedLargeOptionalDirectDispatch(
+            new MethodEnvironment(method, typeDb)));
+    }
+
+    [Theory]
+    [InlineData("Swift.Array")]
+    [InlineData("Swift.Set")]
+    public void Floor_OptionalObjCBridgeableContainerParam_Fires(string containerName)
+    {
+        // The width is genuinely fine — one refcounted storage pointer, exactly what the slot
+        // holds — so the truncation arm above cannot reach this. What goes wrong is the value: the
+        // setter conversion for a container whose elements bridge builds an NSArray/NSSet and
+        // passes its handle, because it asks what the payload bridges TO without asking whether
+        // there is a boundary to bridge AT. A direct CallConvSwift accessor is Swift's own, so
+        // there is none, and Swift reads a Foundation object where its native storage belongs.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var spec = Optional(Generic(containerName, new NamedTypeSpec("TestModule.BridgeableElement")));
+        var env = new MethodEnvironment(MethodTaking("store", spec, parent, moduleDecl), typeDb);
+
+        Assert.True(WrapperValidation.HasTruncatedLargeOptionalDirectDispatch(env));
+
+        // And the width oracle keeps telling the truth about it, so the refusal is recorded as the
+        // representation problem it is rather than as a truncation the consumer would go hunting for.
+        Assert.Equal(DirectOptionalAbiWidth.SingleWord, DirectOptionalAbi.Classify(spec, typeDb));
+        Assert.True(WrapperValidation.HasForeignObjectRenderedDirectDispatch(env));
+    }
+
+    [Fact]
+    public void Floor_OptionalObjCBridgeableContainerReturn_Fires()
+    {
+        // Return side of the same shape, and the worse half: the getter reads Swift's own array
+        // storage back through ArrayFromHandleFunc as if it were an NSArray, taking ownership of
+        // an object that never existed.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var method = MethodReturning(
+            "fetch",
+            Optional(Generic("Swift.Array", new NamedTypeSpec("TestModule.BridgeableElement"))),
+            parent,
+            moduleDecl);
+
+        Assert.True(WrapperValidation.HasTruncatedLargeOptionalDirectDispatch(
+            new MethodEnvironment(method, typeDb)));
+    }
+
+    [Fact]
+    public void Marker_OptionalObjCBridgeableContainerMethod_ExplainsRepresentationNotWidth()
+    {
+        // The declaration marker and the throw body are chosen by two different functions, so they
+        // can disagree about WHY a member is refused even when they agree THAT it is. The width
+        // predicate is a superset of this one, so a marker path that asks only the width question
+        // stamps a member whose slot is exactly the right size with a sentence about reading past
+        // the first word — sending a consumer to look for a truncation that isn't there.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var env = new MethodEnvironment(
+            MethodTaking(
+                "store",
+                Optional(Generic("Swift.Array", new NamedTypeSpec("TestModule.BridgeableElement"))),
+                parent,
+                moduleDecl),
+            typeDb);
+
+        var issue = WrapperValidation.GetNonBlittableCallConvSwiftIssue(env);
+
+        Assert.NotNull(issue);
+        Assert.Equal(WrapperValidation.UncallableAbiDiagnosticId, issue!.Value.DiagnosticId);
+        Assert.Contains("bridge to Objective-C", issue.Value.Message);
+        Assert.DoesNotContain("wider than the single machine word", issue.Value.Message);
+    }
+
+    [Fact]
+    public void Marker_TrulyWideOptionalMethod_StillExplainsWidth()
+    {
+        // The negative half of the pair: adding the representation arm ahead of the width arm must
+        // not capture the shapes the width arm owns. Optional<OpaquePointer> has no established
+        // lowering to build a carrier from, so it stays refused for width and must keep the
+        // truncation sentence. Optional<String> would be the wrong control here — it is carried
+        // now, so it is not refused at all and has no marker to compare.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var env = new MethodEnvironment(
+            MethodTaking("store", Optional(new NamedTypeSpec("Swift.OpaquePointer")), parent, moduleDecl),
+            typeDb);
+
+        var issue = WrapperValidation.GetNonBlittableCallConvSwiftIssue(env);
+
+        Assert.NotNull(issue);
+        Assert.Equal(WrapperValidation.UncallableAbiDiagnosticId, issue!.Value.DiagnosticId);
+        Assert.Contains("wider than the single machine word", issue.Value.Message);
+    }
+
+    [Fact]
+    public void Tombstone_ForeignObjectRenderedMember_IsRecognisedByTheSharedOracle()
+    {
+        // Sites that must agree a member's body is a throw without caring which arm decided it —
+        // chiefly the failable-factory path, which stamps the declaration separately — read
+        // IsAbiFloorTombstoned. An arm missing from it emits an unmarked tombstone.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var env = new MethodEnvironment(
+            MethodTaking(
+                "store",
+                Optional(Generic("Swift.Array", new NamedTypeSpec("TestModule.BridgeableElement"))),
+                parent,
+                moduleDecl),
+            typeDb);
+
+        Assert.True(WrapperValidation.IsAbiFloorTombstoned(env));
+    }
+
+    [Fact]
+    public void ForeignObjectQuestion_TrulyWideOptional_AnswersNo()
+    {
+        // The two tombstone messages are chosen by asking these questions in order, so a wide
+        // Optional answering yes here would explain a String? truncation as a bridging problem.
+        // Optional<String> is refused for width and must stay owned by the width arm.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var env = new MethodEnvironment(
+            MethodTaking("store", Optional(new NamedTypeSpec("Swift.String")), parent, moduleDecl), typeDb);
+
+        Assert.False(WrapperValidation.HasForeignObjectRenderedDirectDispatch(env));
+    }
+
+    [Fact]
+    public void Floor_OptionalNativeElementContainerParam_DoesNotFire()
+    {
+        // The negative control that keeps the new refusal narrow. A container is refused for the
+        // Foundation object its elements bridge to, not for being a container — [String]? renders
+        // as a native SwiftArray and must keep binding.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var env = new MethodEnvironment(
+            MethodTaking(
+                "store",
+                Optional(Generic("Swift.Array", new NamedTypeSpec("Swift.String"))),
+                parent,
+                moduleDecl),
+            typeDb);
+
+        Assert.False(WrapperValidation.HasForeignObjectRenderedDirectDispatch(env));
+        Assert.False(WrapperValidation.HasTruncatedLargeOptionalDirectDispatch(env));
+    }
+
+    [Fact]
+    public void Floor_OptionalObjCBridgeableContainerWithCdeclWrapper_DoesNotFire()
+    {
+        // A @_cdecl wrapper is the boundary the rendering assumes: it takes the collection as a
+        // nullable object pointer and unwraps it back to the native container on entry. The
+        // refusal is about the absence of that wrapper, so its presence must clear it — otherwise
+        // every ObjC-bridgeable container property in the corpus tombstones.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var method = MethodTaking(
+            "store",
+            Optional(Generic("Swift.Array", new NamedTypeSpec("TestModule.BridgeableElement"))),
+            parent,
+            moduleDecl);
+        method.UsesCdeclMethodWrapper = true;
 
         Assert.False(WrapperValidation.HasTruncatedLargeOptionalDirectDispatch(
             new MethodEnvironment(method, typeDb)));
@@ -402,18 +576,274 @@ public class DirectOptionalAbiTests
     [Fact]
     public void Floor_AccessorWithOptionalStringReturn_Fires()
     {
-        // The sibling internal-visibility floor excludes accessors, because the advisory marker it
+// The sibling internal-visibility floor excludes accessors, because the advisory marker it
         // drives is never rendered on that path. That exclusion must NOT be inherited here: a
-        // `public var name: String?` getter truncates exactly like the equivalent method, and it is
-        // the most ordinary shape a Swift API has. Inheriting the exclusion would leave the defect
-        // reachable through properties while the method form was fixed.
+        // `public var url: URL?` getter is unprovable exactly like the equivalent method, and a
+        // property is the most ordinary shape a Swift API has. Inheriting the exclusion would leave
+        // the defect reachable through properties while the method form was covered.
+        //
+        // Uses a shape with no carrier on purpose. A carried shape would answer false here for a
+        // reason that has nothing to do with accessors, so it could not detect the exclusion
+        // leaking back in.
         var (moduleDecl, typeDb) = CreateEnvironment();
         var parent = CreateClass("Host", moduleDecl);
-        var method = MethodReturning("get_label", Optional(new NamedTypeSpec("Swift.String")), parent, moduleDecl);
+        var method = MethodReturning("get_url", Optional(new NamedTypeSpec("TestModule.BridgedValue")), parent, moduleDecl);
         method.IsAccessor = true;
 
         Assert.True(WrapperValidation.HasTruncatedLargeOptionalDirectDispatch(
             new MethodEnvironment(method, typeDb)));
+    }
+
+    #endregion
+
+    #region Carrier selection
+
+    [Fact]
+    public void Carrier_OptionalString_IsTheTwoWordCarrier()
+    {
+        var typeDb = CreateTypeDatabase();
+
+        Assert.Equal(
+            "global::Swift.Runtime.SwiftOptionalCarrier16",
+            DirectOptionalAbi.TryGetCarrierTypeName(Optional(new NamedTypeSpec("Swift.String")), typeDb));
+    }
+
+    [Theory]
+    [InlineData("Swift.Double")]
+    [InlineData("Swift.Int")]
+    public void Carrier_OptionalWordSizedPayload_IsTheNineByteCarrier(string innerName)
+    {
+        // Double and Int select the SAME carrier, and that carrier's fields are integer-typed.
+        // This is the assertion a future "Double needs a floating-point carrier" change fails on:
+        // Swift lowers the payload as opaque integer storage, so the value arrives in x0 whatever
+        // the payload's own type is.
+        var typeDb = CreateTypeDatabase();
+
+        Assert.Equal(
+            "global::Swift.Runtime.SwiftOptionalCarrier9",
+            DirectOptionalAbi.TryGetCarrierTypeName(Optional(new NamedTypeSpec(innerName)), typeDb));
+    }
+
+    [Fact]
+    public void Carrier_SingleWordOptional_IsNull()
+    {
+        // A one-word Optional already fits the slot the direct path gives it, so it takes no
+        // carrier and its existing emission must be left exactly as it was.
+        var typeDb = CreateTypeDatabase();
+        var spec = Optional(Generic("Swift.Array", new NamedTypeSpec("Swift.String")));
+
+        Assert.Null(DirectOptionalAbi.TryGetCarrierTypeName(spec, typeDb));
+    }
+
+    [Theory]
+    [InlineData("TestModule.BridgedValue")]
+    [InlineData("Swift.OpaquePointer")]
+    [InlineData("TestModule.MyProtocol")]
+    public void Carrier_UnprovableOptional_IsNullAndHasNoSoundCallPath(string innerName)
+    {
+        // No carrier can be built for a lowering that has not been established, so these keep
+        // failing closed. The pairing is the point: "no carrier" and "refused" have to stay the
+        // same answer, or a shape with no carrier would fall through into a truncated direct call.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var spec = Optional(new NamedTypeSpec(innerName));
+        var method = MethodTaking("accept", spec, parent, moduleDecl);
+
+        Assert.Null(DirectOptionalAbi.TryGetCarrierTypeName(spec, typeDb));
+        Assert.True(DirectOptionalAbi.HasNoSoundDirectCallPath(method, spec, typeDb));
+    }
+
+    #endregion
+
+    #region Carrier oracle — members that carry their values some other way
+
+    [Fact]
+    public void DirectCarrier_MemberWithSwiftSideWrapper_TakesNoCarrier()
+    {
+        // A member whose values already move through memory on the Swift side must keep its
+        // existing slot types. Handing it a carrier as well would change a signature that was
+        // already correct, and the two sides would disagree about the same parameter.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var spec = Optional(new NamedTypeSpec("Swift.String"));
+
+        foreach (var configure in new Action<MethodDecl>[]
+        {
+            m => m.UsesCdeclMethodWrapper = true,
+            m => m.WrapperStrategy = WrapperStrategy.NativeThunk,
+            m => m.UsesFreeFunctionWrapper = true,
+            m => m.UsesWrapperLibrary = true,
+            m => m.HasOptionalPointerWrapper = true,
+            m => m.IsAsync = true,
+        })
+        {
+            var method = MethodTaking("width", spec, parent, moduleDecl);
+            configure(method);
+
+            Assert.Null(DirectOptionalAbi.TryGetDirectCarrier(method, spec, typeDb));
+        }
+    }
+
+    [Fact]
+    public void DirectCarrier_UnwrappedMember_TakesTheCarrier()
+    {
+        // The control for the test above: with none of those flags set, the member is on the
+        // direct path and does take the carrier. Without this, that test would still pass if
+        // TryGetDirectCarrier returned null unconditionally.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var spec = Optional(new NamedTypeSpec("Swift.String"));
+        var method = MethodTaking("width", spec, parent, moduleDecl);
+
+        Assert.Equal(
+            "global::Swift.Runtime.SwiftOptionalCarrier16",
+            DirectOptionalAbi.TryGetDirectCarrier(method, spec, typeDb));
+    }
+
+    [Fact]
+    public void DirectCarrier_InOutParam_TakesNoCarrier()
+    {
+        // A carrier transports the value; `inout` needs the address of the caller's storage.
+        // Handing Swift a register pair holding a copy means its write-back lands nowhere and
+        // its read of that "address" is really payload data. The same member takes the carrier
+        // by value (asserted above), so what is being pinned here is the inout axis alone.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var spec = Optional(new NamedTypeSpec("Swift.String"));
+        var method = MethodTaking("swap", spec, parent, moduleDecl);
+
+        Assert.Null(DirectOptionalAbi.TryGetDirectCarrier(method, spec, typeDb, isInOut: true));
+    }
+
+    [Fact]
+    public void Floor_InOutWideOptionalParam_Fires()
+    {
+        // Withdrawing the carrier has to land the member back on the refusal path rather than
+        // merely change its slot type: with no carrier and a width past the direct slot, there is
+        // no sound lowering left, and emitting one anyway is the crash the floor exists to stop.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var spec = Optional(new NamedTypeSpec("Swift.String"));
+        var method = MethodTaking("swap", spec, parent, moduleDecl);
+
+        Assert.True(DirectOptionalAbi.HasNoSoundDirectCallPath(method, spec, typeDb, isInOut: true));
+        Assert.False(DirectOptionalAbi.HasNoSoundDirectCallPath(method, spec, typeDb));
+    }
+
+    [Fact]
+    public void Blittability_InOutWideOptionalParam_StaysNonBlittable()
+    {
+        // The blittability carve-out is keyed on the carrier existing. Once inout withdraws it,
+        // the carve-out must withdraw too — otherwise the two floors disagree and the member is
+        // declared callable by one while the other has already refused it.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var spec = Optional(new NamedTypeSpec("Swift.String"));
+        var method = MethodTaking("swap", spec, parent, moduleDecl);
+
+        Assert.True(WrapperValidation.IsParamPInvokeNonBlittable(
+            spec, new MethodEnvironment(method, typeDb), isInOut: true));
+    }
+
+    [Fact]
+    public void Floor_InOutSingleWordOptionalParam_DoesNotFire()
+    {
+        // This floor answers the WIDTH question only, and a one-word `[Element]?` never exceeded the
+        // direct slot at any ownership. Its inout form is refused one layer over, by the blittability
+        // predictor — see Blittability_InOutSingleWordOptionalParam_StaysNonBlittable. Keeping the
+        // two separate is what lets the width floor stay a statement about bytes.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var spec = Optional(Generic("Swift.Array", new NamedTypeSpec("Swift.String")));
+        var method = MethodTaking("count", spec, parent, moduleDecl);
+
+        Assert.False(DirectOptionalAbi.HasNoSoundDirectCallPath(method, spec, typeDb, isInOut: true));
+    }
+
+    #endregion
+
+    #region Blittability predictor agrees with the emitted slot
+
+    [Fact]
+    public void Blittability_CarriedOptionalParam_IsBlittable()
+    {
+        // The predictor and the P/Invoke emitter have to reach the same verdict about the same
+        // parameter. The emitter gives a carried Optional a plain struct of integer fields; a
+        // predictor still answering "Optional argument, therefore SafeHandle-marshalled" makes the
+        // member "uncallable direct dispatch" on an internal parent and replaces its body with a
+        // throw — a member whose P/Invoke was by then perfectly well-formed.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var spec = Optional(new NamedTypeSpec("Swift.String"));
+        var method = MethodTaking("width", spec, parent, moduleDecl);
+
+        Assert.False(WrapperValidation.IsParamPInvokeNonBlittable(
+            spec, new MethodEnvironment(method, typeDb)));
+    }
+
+    [Fact]
+    public void Blittability_SingleWordOptionalParam_IsBlittable()
+    {
+        // The regression that this predicate actually shipped. A one-word `[Element]?` argument is
+        // passed as its own value in an IntPtr — blittable — but the generic-container rule
+        // answered for it on the strength of its outward shape and tombstoned it.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var spec = Optional(Generic("Swift.Array", new NamedTypeSpec("Swift.String")));
+        var method = MethodTaking("count", spec, parent, moduleDecl);
+
+        Assert.False(WrapperValidation.IsParamPInvokeNonBlittable(
+            spec, new MethodEnvironment(method, typeDb)));
+    }
+
+    [Fact]
+    public void Blittability_InOutSingleWordOptionalParam_StaysNonBlittable()
+    {
+        // Width is the wrong axis for an inout argument, and this is the case that proves it. A
+        // one-word `[Element]?` fits the direct slot perfectly by value — which is exactly why the
+        // carve-out above declares it blittable — but inout does not want the value there. Swift
+        // wants the address of the caller's variable so it can write back through it, and the direct
+        // path has no `ref` slot to offer. Answering "blittable" on width alone kept the member
+        // callable and shipped a call that handed Swift the array's own storage pointer to overwrite.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var spec = Optional(Generic("Swift.Array", new NamedTypeSpec("Swift.String")));
+        var method = MethodTaking("swap", spec, parent, moduleDecl);
+
+        Assert.True(WrapperValidation.IsParamPInvokeNonBlittable(
+            spec, new MethodEnvironment(method, typeDb), isInOut: true));
+        Assert.False(WrapperValidation.IsParamPInvokeNonBlittable(
+            spec, new MethodEnvironment(method, typeDb)));
+    }
+
+    [Fact]
+    public void Blittability_UnprovableOptionalParam_StaysNonBlittable()
+    {
+        // The carve-out covers only the widths that have been established. An Optional the
+        // classifier cannot prove keeps its previous verdict, so nothing was widened past the
+        // shapes actually measured.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var spec = Optional(new NamedTypeSpec("TestModule.BridgedValue"));
+        var method = MethodTaking("accept", spec, parent, moduleDecl);
+
+        Assert.True(WrapperValidation.IsParamPInvokeNonBlittable(
+            spec, new MethodEnvironment(method, typeDb)));
+    }
+
+    [Fact]
+    public void Blittability_NonOptionalContainerParam_StaysNonBlittable()
+    {
+        // A bare (non-Optional) generic container is outside the carve-out entirely — the
+        // classifier answers NotOptional for it — so the container rule still decides it. This is
+        // what pins the carve-out to Optionals rather than to generic containers at large.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var spec = Generic("Swift.Array", new NamedTypeSpec("Swift.String"));
+        var method = MethodTaking("accept", spec, parent, moduleDecl);
+
+        Assert.True(WrapperValidation.IsParamPInvokeNonBlittable(
+            spec, new MethodEnvironment(method, typeDb)));
     }
 
     #endregion
@@ -492,6 +922,21 @@ public class DirectOptionalAbiTests
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.BridgedValue"),
                 MetadataAccessor = "$s10TestModule12BridgedValueVMa",
                 Flags = TypeRecordFlags.Frozen | TypeRecordFlags.ObjCBridged,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 16
+            });
+
+        // The element type that makes a container render as a Foundation collection. Distinct flag
+        // from BridgedValue above: ObjCBridged is what the *width* exclusion keys on, ObjCBridgeable
+        // is what the container conversion keys on, and the two questions have different answers.
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.BridgeableElement"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "BridgeableElement"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.BridgeableElement"),
+                MetadataAccessor = "$s10TestModule17BridgeableElementVMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.ObjCBridgeable,
                 Kind = TypeRecordKind.Struct,
                 InlineSize = 16
             });

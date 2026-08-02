@@ -381,46 +381,58 @@ public class OptionalMarshallingTests : TestBase
     // ones deciding nil. It produced no error on either runtime — just a nil that decoded as a
     // garbage value, and differently under Mono JIT than under NativeAOT.
     //
-    // These members are now refused at emission rather than emitted as a call that cannot work,
-    // so the assertions below are that the refusal is real and reaches the caller as an
-    // exception. A member that throws is a bug report; a member that answers with stack garbage
-    // is a data-corruption incident that reaches production looking like it worked.
+    // These members now declare a slot as wide as the value Swift actually passes — a blittable
+    // carrier struct collecting every register involved — so the assertions below are that the
+    // values arrive INTACT, in both directions and for both Some and None.
     //
-    // The nil-seed argument on each is deliberate: nil is the case the truncation decided
-    // incorrectly, so it is the case worth naming even though the call no longer reaches Swift.
+    // Asserting the value rather than mere absence of a crash is the whole point: the defect
+    // never crashed. It produced a plausible answer built partly from adjacent stack memory, so
+    // "it returned something" and "it returned the right thing" are exactly the two outcomes that
+    // have to be told apart. None is the load-bearing case for Optional<String>, which carries no
+    // tag byte: nil-ness is decided by bytes that a single-slot call never transferred.
 
-#pragma warning disable SB0009 // Tombstoned by the ABI floor — throwing is the behavior under test.
-
-    public void TestDirectPathOptionalStringReturnIsRefused()
+    public void TestDirectPathOptionalStringReturnRoundTrips()
     {
-        using var box = new GenericOptionalAbiBox<Animal>(-1);
-        AssertThrows<NotSupportedException>(
-            () => box.GetLabel(),
-            "Optional<String> return on the direct path throws instead of truncating");
-        TestLogger.Info("GenericOptionalAbiBox<Animal>(-1).GetLabel() threw NotSupportedException");
+        using var some = new GenericOptionalAbiBox<Animal>(7);
+        AssertEqual("boxed-7", some.GetLabel(), "Optional<String> Some return arrives intact");
+
+        using var none = new GenericOptionalAbiBox<Animal>(-1);
+        AssertNull(none.GetLabel(), "Optional<String> None return reads as null, not as garbage");
+        TestLogger.Info("GenericOptionalAbiBox<Animal>.GetLabel round-trips Some and None");
     }
 
-    public void TestDirectPathOptionalStringParamIsRefused()
+    public void TestDirectPathOptionalStringParamRoundTrips()
     {
         using var box = new GenericOptionalAbiBox<Animal>(1);
-        AssertThrows<NotSupportedException>(
-            () => box.Width(null),
-            "Optional<String> parameter on the direct path throws instead of truncating");
-        TestLogger.Info("GenericOptionalAbiBox<Animal>(1).Width(null) threw NotSupportedException");
+        AssertEqual(3, box.Width("abc"),
+            "Optional<String> Some parameter reaches Swift with both of its words");
+        AssertEqual(-1, box.Width(null),
+            "Optional<String> None parameter is seen as nil by Swift");
+        TestLogger.Info("GenericOptionalAbiBox<Animal>.Width round-trips Some and None");
     }
 
-    public void TestDirectPathOptionalDoubleReturnIsRefused()
+    public void TestDirectPathOptionalDoubleReturnRoundTrips()
     {
-        // Optional<Double> is 9 bytes — an 8-byte payload plus a tag byte, because Double has no
-        // spare bits to steal. A single-word return captured the payload and dropped the tag.
-        using var box = new GenericOptionalAbiBox<Animal>(-1);
-        AssertThrows<NotSupportedException>(
-            () => box.GetTimestamp(),
-            "Optional<Double> return on the direct path throws instead of truncating");
-        TestLogger.Info("GenericOptionalAbiBox<Animal>(-1).GetTimestamp() threw NotSupportedException");
-    }
+        // Optional<Double> is 9 bytes — an 8-byte payload plus a separate tag byte, because Double
+        // has no spare bits to steal. A single-word return captured the payload and dropped the
+        // tag, so None was indistinguishable from Some(0)-shaped garbage.
+        //
+        // Both words are INTEGER registers even though the payload is floating-point: Swift lowers
+        // an enum payload as opaque integer storage, so the value travels in x0 and the callee
+        // moves it out with `fmov d0, x0`. The carrier's fields are integer-typed for exactly this
+        // reason, and a Some assertion on a value with a fraction is what would catch a carrier
+        // that had been "helpfully" redeclared with a double field.
+        using var some = new GenericOptionalAbiBox<Animal>(7);
+        var timestamp = some.GetTimestamp();
+        AssertTrue(timestamp.HasValue, "Optional<Double> Some return is not null");
+        AssertApproxEqual(7.25, timestamp!.Value, 0.0001,
+            "Optional<Double> Some return arrives with its payload intact");
 
-#pragma warning restore SB0009
+        using var none = new GenericOptionalAbiBox<Animal>(-1);
+        AssertFalse(none.GetTimestamp().HasValue,
+            "Optional<Double> None return reads as null, not as a dropped tag byte");
+        TestLogger.Info("GenericOptionalAbiBox<Animal>.GetTimestamp round-trips Some and None");
+    }
 
     // The controls. Optional<[String]> is ONE machine word — Array is a single refcounted
     // pointer and nil is its null extra inhabitant — so the single-slot direct call was always
@@ -501,18 +513,20 @@ public class OptionalMarshallingTests : TestBase
 
 #pragma warning restore SB0009
 
-    public void TestDirectPathOptionalStringPropertyIsRefused()
+    public void TestDirectPathOptionalStringPropertyRoundTrips()
     {
         // A `public var x: String?` truncates exactly like the equivalent method — same direct
-        // call, same 16-byte return — so the floor covers accessors too. It is also the most
-        // ordinary shape a Swift API has, which makes it the likeliest way a consumer meets this
-        // defect. The refusal has to reach the caller THROUGH the public property: the throwing
-        // body lives on the private synthesized accessor, and a property that swallowed it or
-        // never delegated would leave the truncation reachable behind an innocent-looking read.
-        using var box = new GenericOptionalAbiBox<Animal>(-1);
-        AssertThrows<NotSupportedException>(
-            () => { _ = box.BoxedLabel; },
-            "Optional<String> property getter on the direct path throws instead of truncating");
+        // call, same 16-byte return — so the carrier has to reach accessors too. It is also the
+        // most ordinary shape a Swift API has, which makes it the likeliest way a consumer meets
+        // this defect. The value has to arrive THROUGH the public property: the call lives on the
+        // private synthesized accessor, so a property that failed to delegate correctly would
+        // still read a truncated value behind an innocent-looking read.
+        using var some = new GenericOptionalAbiBox<Animal>(7);
+        AssertEqual("prop-7", some.BoxedLabel, "Optional<String> property Some arrives intact");
+
+        using var none = new GenericOptionalAbiBox<Animal>(-1);
+        AssertNull(none.BoxedLabel, "Optional<String> property None reads as null");
+        TestLogger.Info("GenericOptionalAbiBox<Animal>.BoxedLabel round-trips Some and None");
     }
 
     public void TestDirectPathSingleWordOptionalPropertyStillWorks()
@@ -551,6 +565,337 @@ public class OptionalMarshallingTests : TestBase
     }
 
 #pragma warning restore SB0009
+
+    // The internal-parent half of the same story. GenericOptionalAbiBox is wrapper-INELIGIBLE
+    // because its parent is generic; InternalOptionalAbiHost is wrapper-IMPOSSIBLE because its
+    // parent is `@usableFromInline internal` and a wrapper body could not name it. Both land on
+    // the direct call, but only the second has no other route it could ever fall back to, which
+    // is what makes it worth exercising separately rather than assuming the first covers it.
+
+    public void TestInternalParentOptionalStringReturnRoundTrips()
+    {
+        AssertEqual("label-7", InternalOptionalAbiHost.Label(7),
+            "Optional<String> Some return arrives intact from an internal parent");
+        AssertNull(InternalOptionalAbiHost.Label(-1),
+            "Optional<String> None return reads as null from an internal parent");
+        TestLogger.Info("InternalOptionalAbiHost.Label round-trips Some and None");
+    }
+
+    public void TestInternalParentOptionalStringReturnCoversBothStorageForms()
+    {
+        // A Swift String stores short contents inline across both words and long contents as a
+        // pointer to a heap buffer in one of them. The two forms exercise different halves of the
+        // 16 bytes, so a carrier that transferred only one word could still look correct on one
+        // form. The empty string is the sharpest case of all: it is a Some that a truncating read
+        // reported as nil on one runtime and as "" on the other.
+        AssertEqual("", InternalOptionalAbiHost.GetEmptyLabel(),
+            "empty-string Some is distinguishable from None");
+
+        var expectedLong = string.Concat(Enumerable.Repeat("swift-optional-abi-", 8));
+        AssertEqual(expectedLong, InternalOptionalAbiHost.GetLongLabel(),
+            "heap-allocated (non-small-form) String Some arrives intact");
+        TestLogger.Info("InternalOptionalAbiHost covers both String storage forms");
+    }
+
+    public void TestInternalParentOptionalDoubleReturnRoundTrips()
+    {
+        var some = InternalOptionalAbiHost.Timestamp(7);
+        AssertTrue(some.HasValue, "Optional<Double> Some return from an internal parent is not null");
+        AssertApproxEqual(7.5, some!.Value, 0.0001,
+            "Optional<Double> Some return carries its payload past the tag byte");
+
+        AssertFalse(InternalOptionalAbiHost.Timestamp(-1).HasValue,
+            "Optional<Double> None return reads as null from an internal parent");
+        TestLogger.Info("InternalOptionalAbiHost.Timestamp round-trips Some and None");
+    }
+
+    public void TestInternalParentOptionalStringParamRoundTrips()
+    {
+        AssertEqual(5, InternalOptionalAbiHost.LabelWidth("hello"),
+            "Optional<String> Some parameter reaches Swift with both of its words");
+        AssertEqual(-1, InternalOptionalAbiHost.LabelWidth(null),
+            "Optional<String> None parameter is seen as nil by Swift");
+        TestLogger.Info("InternalOptionalAbiHost.LabelWidth round-trips Some and None");
+    }
+
+    public void TestInternalParentOptionalStringEchoRoundTrips()
+    {
+        // Both directions in a single call, so a parameter-side and a return-side carrier cannot
+        // pass independently while disagreeing with each other.
+        AssertEqual("hello!", InternalOptionalAbiHost.EchoLabel("hello"),
+            "Optional<String> survives a round trip through both directions at once");
+        AssertNull(InternalOptionalAbiHost.EchoLabel(null),
+            "Optional<String> None round-trips as None through both directions");
+        TestLogger.Info("InternalOptionalAbiHost.EchoLabel round-trips Some and None");
+    }
+
+    public void TestInternalParentOptionalDoubleParamRoundTrips()
+    {
+        AssertEqual(7, InternalOptionalAbiHost.TimestampWhole(7.5),
+            "Optional<Double> Some parameter reaches Swift with payload and tag");
+        AssertEqual(-1, InternalOptionalAbiHost.TimestampWhole(null),
+            "Optional<Double> None parameter is seen as nil by Swift");
+        TestLogger.Info("InternalOptionalAbiHost.TimestampWhole round-trips Some and None");
+    }
+
+    public void TestInternalParentSingleWordOptionalStillBinds()
+    {
+        // The over-breadth controls on the internal-parent path, both directions. One machine word
+        // fits the slot a direct call already gives it, so neither of the two floors guarding this
+        // path may refuse them. The parameter side is the one that regressed: the blittability
+        // test behind the second floor counted any Optional argument as a SafeHandle-marshalled
+        // container regardless of width, and tombstoned a call that was already well-formed.
+        var names = InternalOptionalAbiHost.Names(7);
+        AssertNotNull(names, "Optional<[String]> Some return still binds on an internal parent");
+        AssertEqual(2, names!.Count, "Optional<[String]> Some return carries its elements");
+        AssertEqual("a-7", names[0], "Optional<[String]> element round-trips intact");
+        AssertNull(InternalOptionalAbiHost.Names(-1), "Optional<[String]> None return reads as null");
+
+        AssertEqual(2, InternalOptionalAbiHost.NameCount(new List<string> { "a", "b" }),
+            "Optional<[String]> Some parameter still binds and carries its element count");
+        AssertEqual(-1, InternalOptionalAbiHost.NameCount(null),
+            "Optional<[String]> None parameter is seen as nil by Swift");
+        TestLogger.Info("InternalOptionalAbiHost single-word Optionals bind in both directions");
+    }
+
+    public void TestInternalParentOptionalStringPropertySetterRoundTrips()
+    {
+        // The setter side of the carrier, which is a separate emission path from everything above:
+        // accessor bodies are built without the parameter rewrite method bodies get, so a setter
+        // can end up handing Swift a buffer address where the P/Invoke declares two payload words.
+        // The property is stored on the Swift side, so reading it back asserts what Swift actually
+        // received rather than something the accessor could have reconstructed.
+        InternalOptionalAbiHost.StoredLabel = "stored-label";
+        AssertEqual("stored-label", InternalOptionalAbiHost.StoredLabel,
+            "Optional<String> Some survives a setter/getter round trip on an internal parent");
+
+        InternalOptionalAbiHost.StoredLabel = null;
+        AssertNull(InternalOptionalAbiHost.StoredLabel,
+            "Optional<String> None survives a setter/getter round trip");
+
+        // Empty-string Some is the discriminating case: with no tag byte, nil-ness is decided by
+        // reading all sixteen bytes, so a setter that wrote only one word could leave "" and nil
+        // indistinguishable.
+        InternalOptionalAbiHost.StoredLabel = "";
+        AssertEqual("", InternalOptionalAbiHost.StoredLabel,
+            "empty-string Some stays distinct from None through the setter");
+
+        // Every value above is a small-form Swift String — 15 or fewer UTF-8 bytes live inline in
+        // the two words and are never heap-allocated, so they exercise no refcounting at all and
+        // cannot observe an ownership error. Swift lowers a property setter as
+        // `(@owned Optional<String>, ...) -> ()`: the callee takes over a +1. A payload wide enough
+        // to be heap-allocated is what makes that observable — if the setter handed Swift a value
+        // the C# side still owns and later value-witness-destroys, the stored string would be
+        // released twice and the read-back below would see freed memory. Repeating it re-enters the
+        // setter against a *previously stored* value, so the assign's release of the old string is
+        // exercised too, and draining finalizers forces any pending destroy to run while Swift's
+        // global still holds the string.
+        const string heapPayload = "stored-label-long-enough-to-be-heap-allocated";
+        for (int i = 0; i < 200; i++)
+        {
+            InternalOptionalAbiHost.StoredLabel = heapPayload + i;
+            AssertEqual(heapPayload + i, InternalOptionalAbiHost.StoredLabel,
+                "heap-allocated Optional<String> Some survives the setter round trip");
+        }
+
+        DrainFinalizers();
+        AssertEqual(heapPayload + "199", InternalOptionalAbiHost.StoredLabel,
+            "the last stored heap payload is still readable after finalizers run");
+
+        InternalOptionalAbiHost.StoredLabel = null;
+        TestLogger.Info("InternalOptionalAbiHost.StoredLabel round-trips through the setter");
+    }
+
+    private static void DrainFinalizers()
+    {
+        for (int i = 0; i < 4; i++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
+        GC.Collect();
+    }
+
+#pragma warning disable SB0009 // Tombstoned by the ABI floor — throwing is the behavior under test.
+
+    public void TestInternalParentInOutOptionalIsRefused()
+    {
+        // `inout` is passed as the address of the caller's storage and written back through, which
+        // is the opposite shape from a carrier holding a copy in registers. Emitting the carrier
+        // anyway would send Swift payload bytes to dereference as a pointer and drop its write-back
+        // on the floor, so this member has to stay refused even though the very same Optional is
+        // callable by value. That distinction is the whole assertion: a future change that decides
+        // "a wide Optional has a carrier, therefore the member is callable" fails here rather than
+        // shipping a corrupting write.
+        string? label = "seed";
+        AssertThrows<NotSupportedException>(
+            () => InternalOptionalAbiHost.SwapLabel(ref label),
+            "inout Optional<String> on the direct path throws instead of passing a copy by value");
+        TestLogger.Info("InternalOptionalAbiHost.SwapLabel threw NotSupportedException");
+    }
+
+    public void TestInternalParentInOutSingleWordOptionalIsRefused()
+    {
+        // The one-word sibling of the test above, and the more interesting of the two. A `[String]?`
+        // needs no carrier at all — it fits the direct slot by value, and as a by-value argument it
+        // is genuinely callable — so a refusal keyed on width alone lets this one through and emits
+        // a by-value call for a parameter Swift reads as an address. What arrives is the array's own
+        // storage pointer, offered to Swift as the variable to overwrite.
+        IReadOnlyList<string>? names = new[] { "seed" };
+        AssertThrows<NotSupportedException>(
+            () => InternalOptionalAbiHost.SwapNames(ref names),
+            "inout Optional<Array> on the direct path throws rather than passing storage by value");
+        TestLogger.Info("InternalOptionalAbiHost.SwapNames threw NotSupportedException");
+    }
+
+    public void TestDirectPathBridgedElementContainerIsRefused()
+    {
+        // The refusal that is NOT about width. `[URL]?` is one refcounted storage pointer, so the
+        // direct slot is exactly the right size — and that is what makes it dangerous. The C# side
+        // renders a container whose elements bridge as an NSArray, because the conversion asks what
+        // the payload bridges TO without asking whether there is a boundary to bridge AT; on this
+        // path there is none, so Swift would read a Foundation object where its own array storage
+        // belongs. The getter is the worse half: it reads Swift's storage pointer back through
+        // ArrayFromHandleFunc as an NSArray and takes ownership of an object that never existed.
+        //
+        // Both accessors are asserted because they fail independently — a floor that reached only
+        // the setter would leave a property that reads garbage and releases it.
+        using var box = new GenericOptionalAbiBox<Animal>(1);
+        AssertThrows<NotSupportedException>(
+            () => { var _ = box.BridgedUrls; },
+            "Optional<Array<URL>> getter on the direct path throws instead of reading a Foundation object");
+        AssertThrows<NotSupportedException>(
+            () => box.BridgedUrls = null,
+            "Optional<Array<URL>> setter on the direct path throws instead of handing over an NSArray");
+        TestLogger.Info("GenericOptionalAbiBox<Animal>.BridgedUrls threw NotSupportedException on both accessors");
+    }
+
+    public void TestInternalParentBridgedElementContainerIsRefused()
+    {
+        // The same refusal on the internal-parent twin. The two parents reach a wrapper-ineligible
+        // direct path by different routes — the box because its shape declines the wrapper, the host
+        // because an internal parent cannot have one named — so a regression confined to either
+        // route would leave the other passing. Static because the host's members are static.
+        AssertThrows<NotSupportedException>(
+            () => { var _ = InternalOptionalAbiHost.StoredBridgedUrls; },
+            "Optional<Array<URL>> getter on an internal parent throws rather than reading a Foundation object");
+        AssertThrows<NotSupportedException>(
+            () => InternalOptionalAbiHost.StoredBridgedUrls = null,
+            "Optional<Array<URL>> setter on an internal parent throws rather than handing over an NSArray");
+        TestLogger.Info("InternalOptionalAbiHost.StoredBridgedUrls threw NotSupportedException on both accessors");
+    }
+
+#pragma warning restore SB0009
+
+    public void TestInternalParentOptionalObjCClassSetterBalancesOwnership()
+    {
+        // The internal-parent twin of the ownership fix below. Same reasoning, different emission
+        // route into the direct path; asserting only the public-parent shape would let the internal
+        // one regress silently back to handing over a borrowed pointer.
+        var kept = new Foundation.NSObject();
+        for (int i = 0; i < 200; i++)
+        {
+            InternalOptionalAbiHost.StoredBridgedObject = kept;
+        }
+
+        DrainFinalizers();
+        AssertFalse(kept.Handle == IntPtr.Zero, "the assigned object is still alive after 200 setter calls");
+        AssertNotNull(kept.Description, "the surviving object is still usable, not a freed allocation");
+
+        InternalOptionalAbiHost.StoredBridgedObject = null;
+        kept.Dispose();
+        TestLogger.Info("InternalOptionalAbiHost.StoredBridgedObject survived 200 setter round-trips");
+    }
+
+    public void TestDirectPathOptionalObjCClassSetterBalancesOwnership()
+    {
+        // The sibling shape that stays callable, and the reason it needed a fix rather than a
+        // refusal. For a class reference the object pointer IS Swift's representation, so nothing
+        // is mis-read — but the pointer the property conversion produces is borrowed off a managed
+        // wrapper that goes on owning the object, while Swift lowers a setter's new value as
+        // @owned and releases it. One release too many, from a callee that was never handed the
+        // retain its convention says it receives.
+        //
+        // The imbalance is invisible to a value assertion: nothing reads wrong, the object simply
+        // dies early and the fault lands on whoever touches it next — usually a finalizer, in some
+        // other test. Holding a reference across the assignments and using it afterwards is what
+        // turns that into a local, deterministic failure. NSObject is refcounted for real, so every
+        // iteration is an actual ARC operation rather than an inline no-op.
+        using var box = new GenericOptionalAbiBox<Animal>(1);
+        var kept = new Foundation.NSObject();
+
+        for (int i = 0; i < 200; i++)
+            box.BridgedObject = kept;
+
+        DrainFinalizers();
+
+        AssertFalse(kept.Handle == IntPtr.Zero, "the assigned object is still alive after 200 setter calls");
+        AssertNotNull(kept.Description, "the surviving object is still usable, not a freed allocation");
+
+        box.BridgedObject = null;
+        kept.Dispose();
+        TestLogger.Info("GenericOptionalAbiBox<Animal>.BridgedObject balanced ARC across 200 assignments");
+    }
+
+    public void TestInternalParentSingleWordOptionalPropertyRoundTrips()
+    {
+        // A settable one-word Optional takes no carrier, so it reaches the accessor's residual
+        // marshalling arm, which passes the Optional's own value. Handing over the address of the
+        // C# payload buffer instead is right only where a Swift shim dereferences it. The nil leg
+        // is what makes the difference observable: a buffer address is never zero, so a nil written
+        // through a pointer-passing setter comes back as a present array whose contents are
+        // whatever the buffer happened to hold.
+        InternalOptionalAbiHost.StoredNames = null;
+        AssertNull(InternalOptionalAbiHost.StoredNames,
+            "nil survives the setter instead of arriving as a present value");
+
+        InternalOptionalAbiHost.StoredNames = new[] { "alpha", "beta" };
+        var stored = InternalOptionalAbiHost.StoredNames;
+        AssertNotNull(stored, "a present Optional<Array> survives the setter");
+        AssertEqual(2, stored!.Count, "the stored array keeps its element count");
+        AssertEqual("alpha", stored[0], "the stored array keeps its first element");
+        AssertEqual("beta", stored[1], "the stored array keeps its second element");
+
+        // Round-trip back to nil so the None case is exercised in both directions, and so the
+        // fixture's static storage does not leak its payload into whatever test runs next.
+        InternalOptionalAbiHost.StoredNames = null;
+        AssertNull(InternalOptionalAbiHost.StoredNames,
+            "the property returns to nil after holding a value");
+        TestLogger.Info("InternalOptionalAbiHost.StoredNames round-trips through the setter");
+    }
+
+    /// <summary>
+    /// The ownership half of the residual single-word setter arm. Swift lowers this setter as
+    /// <c>(@owned Value, @guaranteed self) -&gt; ()</c>, so the callee releases the array it is
+    /// handed; leaving the .NET payload's Destroy in place as well releases the same storage twice.
+    /// <para>
+    /// The value legs above cannot observe that — a correct read happens before either release, and
+    /// the second release lands later on the finalizer thread, so the damage surfaces as a SIGSEGV
+    /// inside an unrelated test that happens to drain finalizers next. Repeating the assignment
+    /// builds a queue of payloads and draining it here forces the fault into this test instead.
+    /// An array's storage is always heap-allocated and refcounted, so unlike a small-form String
+    /// every iteration is a real ARC operation.
+    /// </para>
+    /// </summary>
+    public void TestInternalParentSingleWordOptionalSetterBalancesOwnership()
+    {
+        DrainFinalizers();
+
+        for (int i = 0; i < 200; i++)
+        {
+            InternalOptionalAbiHost.StoredNames = new[] { "owner-" + i, "second-" + i };
+            var round = InternalOptionalAbiHost.StoredNames;
+            AssertNotNull(round, "the assigned array survives iteration " + i);
+            AssertEqual("owner-" + i, round![0], "the stored array keeps its first element");
+        }
+
+        DrainFinalizers();
+        AssertEqual("owner-199", InternalOptionalAbiHost.StoredNames![0],
+            "the last assignment is still readable after the payloads finalize");
+
+        InternalOptionalAbiHost.StoredNames = null;
+        TestLogger.Info("InternalOptionalAbiHost.StoredNames balanced ARC across 200 heap-backed assignments");
+    }
 
     #endregion
 }

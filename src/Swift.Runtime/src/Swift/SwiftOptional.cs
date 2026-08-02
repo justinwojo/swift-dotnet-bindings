@@ -99,6 +99,65 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     }
 
     /// <summary>
+    /// Gets a PayloadBuffer typed as <typeparamref name="TCarrier"/>, for Optionals wider than one
+    /// machine word crossing a direct CallConvSwift P/Invoke. The carrier collects every byte Swift
+    /// passes; <see cref="PayloadBuffer"/>'s single-word load would drop the rest.
+    /// </summary>
+    /// <remarks>
+    /// The size check throws rather than asserting. Its <see cref="PayloadBuffer"/> counterpart is a
+    /// <c>Debug.Assert</c>, which compiles out of Release — so the truncation it describes shipped
+    /// silently, returning nil for present values instead of failing. A mis-sized carrier here is
+    /// the same class of defect and must not be able to reach a release build quietly.
+    /// </remarks>
+    public unsafe PayloadBuffer<TCarrier> GetCarrierBuffer<TCarrier>() where TCarrier : unmanaged
+    {
+        ThrowIfDisposed();
+        var carrierSize = (nuint)sizeof(TCarrier);
+
+        // Lower bound: a carrier smaller than the payload truncates, which is the bug being fixed.
+        // Upper bound: the allocation is only _bufferAllocSize, so a larger carrier reads off the
+        // end of the heap block. Because _bufferAllocSize is max(_payloadSize, IntPtr.Size), the
+        // two bounds together pin the carrier to exactly the payload size for every Optional this
+        // path serves (all of which are wider than a word).
+        if (carrierSize < _payloadSize || carrierSize > _bufferAllocSize)
+        {
+            throw new InvalidOperationException(
+                $"Carrier {typeof(TCarrier).Name} is {carrierSize} bytes, which cannot represent " +
+                $"SwiftOptional<{typeof(T).Name}> (payload {_payloadSize} bytes, buffer {_bufferAllocSize} bytes). " +
+                "The carrier must match the Optional's Swift layout exactly.");
+        }
+
+        return new PayloadBuffer<TCarrier>(_payload);
+    }
+
+    /// <summary>
+    /// The <see cref="GetCarrierBuffer{TCarrier}"/> of an argument the callee takes at +1, i.e. one
+    /// Swift lowers as <c>@owned</c> and destroys itself. Identical bytes; the difference is who is
+    /// left owning the value afterwards.
+    /// </summary>
+    /// <remarks>
+    /// <para>A carrier transports a bitwise copy of the payload while this <c>SwiftOptional</c> goes
+    /// on owning the original, so for an ordinary <c>@guaranteed</c> (+0) argument the plain
+    /// <see cref="GetCarrierBuffer{TCarrier}"/> is right: the callee borrows, and .NET still runs the
+    /// value-witness Destroy at the end of the scope. A stored-property setter is not that shape.
+    /// Swift lowers <c>foo.setter</c> as <c>(@owned Value, @guaranteed self) -&gt; ()</c> — the callee
+    /// takes over a reference count and releases it — so leaving the Destroy in place releases the
+    /// same payload twice. With a heap-backed payload (a <c>String</c> over fifteen UTF-8 bytes, an
+    /// array's storage) the second release lands on a freed refcount object and crashes inside
+    /// <c>swift_release</c>; a small-form String stores its bytes inline and does no refcounting at
+    /// all, which is why the shape can look healthy under casual testing.</para>
+    /// <para>Marking before the call rather than after is deliberate. If the call never happens the
+    /// +1 is simply lost — a leak — whereas marking afterwards would leave an exception between the
+    /// copy and the mark holding a payload both sides believe they own.</para>
+    /// </remarks>
+    public unsafe PayloadBuffer<TCarrier> GetCarrierBufferTransferring<TCarrier>() where TCarrier : unmanaged
+    {
+        var buffer = GetCarrierBuffer<TCarrier>();
+        _payload.MarkConsumed();
+        return buffer;
+    }
+
+    /// <summary>
     /// Constructs a new empty SwiftOptional with allocated native memory
     /// </summary>
     unsafe SwiftOptional()

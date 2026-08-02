@@ -716,7 +716,18 @@ namespace BindingsGeneration
                     // VWT InitializeWithCopy. The VWT path can produce corrupted results on
                     // some runtimes (e.g., string data corruption when reading properties off
                     // the extracted class). The direct construction avoids VWT entirely.
-                    if (projection is OptionalProjection optProj &&
+                    // A carried Optional is wider than one word, so the nullable-pointer shape this
+                    // arm assumes does not hold: the result local is a carrier struct, and the
+                    // `result == IntPtr.Zero` test below would not even compile against it. The
+                    // reference predicate answers a *bridging* question and says yes for Swift value
+                    // types that bridge to ObjC objects (String among them), so it reaches shapes
+                    // that keep their native multi-word layout on this path. Fall through to the
+                    // general arm, which reads the whole value through the Optional's own metadata.
+                    var returnCarrier = DirectOptionalAbi.TryGetDirectCarrier(
+                        _env.MethodDecl, returnArg.SwiftTypeSpec, _env.TypeDatabase);
+
+                    if (returnCarrier is null &&
+                        projection is OptionalProjection optProj &&
                         CdeclParamMapper.IsOptionalWithReferenceInner(returnArg.SwiftTypeSpec, _env.TypeDatabase) &&
                         !MarshallingHelpers.IsOptionalObjCBridged(returnArg.SwiftTypeSpec, _env.TypeDatabase))
                     {
@@ -740,6 +751,25 @@ namespace BindingsGeneration
                         {
                             csWriter.WriteLines($$"""
                                 return SwiftMarshal.MarshalFromSwift<{{marshalType}}>({{rln}});
+                                """);
+                        }
+                        else if (projection is OptionalProjection)
+                        {
+                            // By-value Optional return: the callee handed back a +1 value sitting in
+                            // the result local. Constructing the SwiftOptional takes its own copy
+                            // through InitializeWithCopy, so the local's reference has to be
+                            // value-witness-destroyed or every Some read leaks it. Methods get that
+                            // from the projection's own Direct return plan; accessors never reach
+                            // that plan (the projection rewrite early-outs for them), so the same
+                            // consuming marshal is spelled out here rather than left to drift.
+                            // Applied to every by-value Optional, not just the carried ones — the
+                            // Direct plans make the same uniform choice, and a POD payload's witness
+                            // Destroy is a no-op, so narrowing it by width would only reintroduce
+                            // the leak for single-word containers like `[Element]?`.
+                            csWriter.WriteLines($$"""
+                                unsafe {
+                                    return SwiftMarshal.MarshalFromSwiftObjectConsuming<{{marshalType}}>(&{{rln}});
+                                }
                                 """);
                         }
                         else
