@@ -273,7 +273,7 @@ namespace BindingsGeneration
                     // Bug #9: Skip duplicate property names (static + instance with same C# name)
                     // Use post-rename name for consistency with the propertyNames collision set below.
                     var csPropertyName = NameProvider.GetFinalMemberName(
-                        NameProvider.GetPropertyName(propertyDecl.Name, classDecl.Name), propertyRenames);
+                        NameProvider.GetPropertyName(propertyDecl, classDecl.Name), propertyRenames);
                     if (!emittedPropertyNames.Add(csPropertyName))
                     {
                         _logger.LogInformation($"Skipping duplicate property '{classDecl.Name}.{csPropertyName}' (static/instance collision).");
@@ -396,7 +396,7 @@ namespace BindingsGeneration
                 // Collect property and nested type names for method/member collision detection
                 var propertyNames = new HashSet<string>(classDecl.Properties.Select(p =>
                     NameProvider.GetFinalMemberName(
-                        NameProvider.GetPropertyName(p.Name, classDecl.Name), propertyRenames)));
+                        NameProvider.GetPropertyName(p, classDecl.Name), propertyRenames)));
                 // Nested type names collide with method names in C# (CS0102) — reserve the EMITTED
                 // leaf so a renamed nested type (e.g. Entry → EntryInfo) forces a method projecting
                 // to the renamed name to disambiguate, not one projecting to the pre-rename name.

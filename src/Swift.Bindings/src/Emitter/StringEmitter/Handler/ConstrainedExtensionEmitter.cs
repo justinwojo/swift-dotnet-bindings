@@ -502,7 +502,7 @@ public static class ConstrainedExtensionEmitter
         }
         var (shape, csharpReturnType) = classification.Value;
 
-        var propertyName = NameProvider.ToPascalCase(property.Name);
+        var propertyName = NameProvider.GetPropertyBaseName(property);
 
         // Build @_cdecl symbol name. Both the parent slot and the concretization
         // slot use the injective `SanitizeForSymbol(ModuleQualifiedName)` encoding

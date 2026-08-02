@@ -337,6 +337,21 @@ public record TypeRecord
     public IReadOnlyList<EmittedClassMethod>? EmittedClassMethods { get; init; }
 
     /// <summary>
+    /// Property renames the producing module applied to this type — the ledger that closes the
+    /// naming schemes' persistence gap. Type-side renames already persist as the record's own
+    /// <c>managedTypeName</c> and class instance methods as <see cref="EmittedClassMethods"/>;
+    /// property renames had no persisted form at all, and are not re-derivable on load because
+    /// the decision needs the whole sibling set (which members are emittable, which nested types
+    /// exist, which siblings were themselves renamed) rather than the declaration alone.
+    ///
+    /// <para>Empty list means "this type was processed and renamed no property"; null means a
+    /// legacy database that predates the element and carries no information either way. Consumers
+    /// must keep those distinct — treating null as empty would assert an absence the database
+    /// never recorded.</para>
+    /// </summary>
+    public IReadOnlyList<RenamedMember>? RenamedMembers { get; init; }
+
+    /// <summary>
     /// For <see cref="TypeRecordKind.Class"/> records: whether the producing module's
     /// emitter wrote an instance-level <c>PInvoke_getMetadata</c> on this class's body.
     /// False when the metadata accessor was hosted by a generic helper class instead.
@@ -412,6 +427,13 @@ public readonly record struct TypeEmissionResult
     public bool? EmittedMetadataPInvoke { get; init; }
 
     /// <summary>
+    /// Property renames discovered during emission (see <see cref="TypeRecord.RenamedMembers"/>).
+    /// An empty list is a meaningful value here — "processed, renamed nothing" — and unset (null)
+    /// still means unchanged, so a type the collector never visits keeps whatever the record had.
+    /// </summary>
+    public IReadOnlyList<RenamedMember>? RenamedMembers { get; init; }
+
+    /// <summary>
     /// The refined C# type name when NameProvider's emission pre-pass renames a nested type to
     /// dodge a member/sibling collision. Unset for the other emission facts. This is the one
     /// emission-time mutation of an otherwise-structural field, kept in the sanctioned channel so
@@ -429,5 +451,6 @@ public readonly record struct TypeEmissionResult
         EmittedClassMethods = EmittedClassMethods ?? existing.EmittedClassMethods,
         EmittedMetadataPInvoke = EmittedMetadataPInvoke ?? existing.EmittedMetadataPInvoke,
         CSharpTypeName = CSharpTypeName ?? existing.CSharpTypeName,
+        RenamedMembers = RenamedMembers ?? existing.RenamedMembers,
     };
 }

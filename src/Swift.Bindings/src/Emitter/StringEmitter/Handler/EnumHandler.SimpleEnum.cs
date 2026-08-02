@@ -839,7 +839,7 @@ namespace BindingsGeneration
             ITypeDatabase typeDatabase, string csUnderlyingType, string swiftScalarType)
         {
             var moduleName = moduleDecl.Name;
-            var propertyPascalName = NameProvider.ToPascalCase(propertyDecl.Name);
+            var propertyPascalName = NameProvider.GetPropertyBaseName(propertyDecl);
 
             // Record setter as skipped if present
             if (propertyDecl.Accessors.Any(a => a is SetAccessorDecl))
@@ -1058,7 +1058,7 @@ namespace BindingsGeneration
             ITypeDatabase typeDatabase, string csUnderlyingType, string swiftScalarType)
         {
             var moduleName = moduleDecl.Name;
-            var propertyPascalName = NameProvider.ToPascalCase(propertyDecl.Name);
+            var propertyPascalName = NameProvider.GetPropertyBaseName(propertyDecl);
 
             // Record setter as skipped if present
             if (propertyDecl.Accessors.Any(a => a is SetAccessorDecl))

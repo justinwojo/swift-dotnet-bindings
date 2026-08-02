@@ -1170,6 +1170,31 @@ public static class NameProvider
     /// <param name="containingTypeName">Optional name of the containing type, used for collision detection (CS0542).</param>
     /// <returns>The appropriate C# property name in PascalCase.</returns>
     public static string GetPropertyName(string swiftPropertyName, string? containingTypeName = null)
+        => ApplyEnclosingTypeCollisionRule(GetPropertyBaseName(swiftPropertyName), containingTypeName);
+
+    /// <summary>
+    /// The C# property name for a property DECLARATION. Prefer this overload at every emission and
+    /// name-prediction site: it is the only one that sees a case-only sibling collision
+    /// (<see cref="NameCollisionScheme.CaseOnlyMemberCollision"/>), whose decision is stamped on the
+    /// declaration by <see cref="CaseOnlyCollisionPass"/>. The string overload cannot — two Swift
+    /// names differing only by case are indistinguishable once collapsed to a single C# identifier,
+    /// so a site that passes <c>decl.Name</c> instead of <c>decl</c> silently reverts to the
+    /// pre-disambiguation name and disagrees with what the property was actually emitted as.
+    /// Reserve the string overload for SYNTHESIZED property names with no declaration behind them.
+    /// </summary>
+    public static string GetPropertyName(PropertyDecl propertyDecl, string? containingTypeName = null)
+        => ApplyEnclosingTypeCollisionRule(GetPropertyBaseName(propertyDecl), containingTypeName);
+
+    /// <summary>
+    /// The property's PascalCase base name — explicit mapping, property-wrapper sanitization and
+    /// case-only disambiguation applied, but NOT the enclosing-type (CS0542) rule. Sites that
+    /// deliberately want the bare projected name (extension getters, async accessor method names)
+    /// call this rather than <see cref="ToPascalCase"/> so they still honour a case-only rename.
+    /// </summary>
+    public static string GetPropertyBaseName(PropertyDecl propertyDecl)
+        => propertyDecl.CaseDisambiguatedName ?? GetPropertyBaseName(propertyDecl.Name);
+
+    internal static string GetPropertyBaseName(string swiftPropertyName)
     {
         // Check for explicit mappings first
         if (PropertyNameMappings.TryGetValue(swiftPropertyName, out var mappedName))
@@ -1178,15 +1203,15 @@ public static class NameProvider
         // Sanitize property wrapper projected values (e.g., $volume -> ProjectedVolume)
         var sanitizedName = SanitizePropertyWrapperName(swiftPropertyName);
 
-        var pascalName = ToPascalCase(sanitizedName);
-
-        // Check for collision with containing type name (CS0542: member names cannot be same as enclosing type)
-        // Example: class Foo { var Foo: Foo? } -> property Foo collides with class name (CS0542)
-        if (!string.IsNullOrEmpty(containingTypeName) && pascalName == containingTypeName)
-            return $"{pascalName}Value";
-
-        return pascalName;
+        return ToPascalCase(sanitizedName);
     }
+
+    // Check for collision with containing type name (CS0542: member names cannot be same as enclosing type)
+    // Example: class Foo { var Foo: Foo? } -> property Foo collides with class name (CS0542)
+    private static string ApplyEnclosingTypeCollisionRule(string pascalName, string? containingTypeName)
+        => !string.IsNullOrEmpty(containingTypeName) && pascalName == containingTypeName
+            ? NameCollisionPolicy.ResolveMemberValueName(pascalName, static _ => false)
+            : pascalName;
 
     /// <summary>
     /// Applies a property rename if one exists, otherwise returns the original name.
@@ -1233,13 +1258,8 @@ public static class NameProvider
             else
             {
                 // Collision: append numeric suffix
-                int suffix = 2;
-                string candidate;
-                do
-                {
-                    candidate = $"{pascalName}{suffix}";
-                    suffix++;
-                } while (!usedNames.Add(candidate));
+                var candidate = NameCollisionPolicy.ResolveCaseOnlyMemberName(pascalName, usedNames.Contains);
+                usedNames.Add(candidate);
                 map[caseDecl.Name] = candidate;
             }
         }
@@ -1280,14 +1300,8 @@ public static class NameProvider
                 if (typeRenameNames?.Contains(memberName) == true)
                     continue;
 
-                var candidate = $"{memberName}Value";
-                var suffix = 2;
-                while (memberNameSet.Contains(candidate) || typeNameSet.Contains(candidate) || renames.ContainsValue(candidate))
-                {
-                    candidate = $"{memberName}Value{suffix}";
-                    suffix++;
-                }
-                renames[memberName] = candidate;
+                renames[memberName] = NameCollisionPolicy.ResolveMemberValueName(memberName,
+                    c => memberNameSet.Contains(c) || typeNameSet.Contains(c) || renames.ContainsValue(c));
             }
         }
         return renames;
@@ -1315,7 +1329,7 @@ public static class NameProvider
             .Where(p => !MemberEmissionValidator.HasUnsupportedPropertyType(p, typeDatabase))
             .ToList();
         var memberNames = emittableProperties
-            .Select(p => GetPropertyName(p.Name, typeDecl.Name));
+            .Select(p => GetPropertyName(p, typeDecl.Name));
 
         // Also include AsyncStream properties that will be emitted as IAsyncEnumerable<T>.
         // HasUnsupportedPropertyType excludes these (AsyncStream is from _Concurrency module),
@@ -1323,7 +1337,7 @@ public static class NameProvider
         var asyncStreamHandler = new AsyncStreamHandler(typeDatabase);
         var asyncStreamPropertyNames = typeDecl.Properties
             .Where(p => asyncStreamHandler.IsAsyncStream(p.SwiftTypeSpec) && asyncStreamHandler.IsSupportedAsyncStream(p.SwiftTypeSpec))
-            .Select(p => GetPropertyName(p.Name, typeDecl.Name));
+            .Select(p => GetPropertyName(p, typeDecl.Name));
         memberNames = memberNames.Concat(asyncStreamPropertyNames);
 
         // For enums, include collision-safe case names in the collision set.
@@ -1409,11 +1423,11 @@ public static class NameProvider
         // earlier rename's chosen name.
         var takenNames = new HashSet<string>(typeDecl.Types.Select(t => ToPascalCaseForTypeName(t.Name)));
         foreach (var prop in emittableProperties)
-            takenNames.Add(GetPropertyName(prop.Name, typeDecl.Name));
+            takenNames.Add(GetPropertyName(prop, typeDecl.Name));
 
         foreach (var p in emittableProperties)
         {
-            var csPropertyName = GetPropertyName(p.Name, typeDecl.Name);
+            var csPropertyName = GetPropertyName(p, typeDecl.Name);
             if (!nestedTypeNameSet.Contains(csPropertyName))
                 continue;
 
@@ -1452,31 +1466,15 @@ public static class NameProvider
                     // `Offer` struct → OfferInfo and `OfferType` enum → OfferTypeKind are obviously
                     // distinct, where the old numeric scheme produced the misleading, family-looking
                     // OfferType2/OfferType3.
-                    var suffix = nestedType switch
-                    {
-                        EnumDecl => "Kind",
-                        _ => "Info",
-                    };
-                    // Anti-stutter: if the Swift leaf already ends in the chosen suffix (an enum
-                    // `TokenKind`, a struct `PayloadInfo`), don't double it into KindKind/InfoInfo —
-                    // use the leaf as-is and let the numeric fallback below disambiguate. This is the
-                    // b6d1ba50 anti-stutter guard generalized from the single "Type" suffix to the two
-                    // kind-based suffixes.
-                    var baseLeafName = csPropertyName.EndsWith(suffix, StringComparison.Ordinal)
-                        ? csPropertyName
-                        : csPropertyName + suffix;
-                    // Numeric fallback — now fires only when the semantic name is itself already taken
-                    // by a sibling, an earlier rename in this loop, or the renamed type's own child
-                    // (the CS0542 ownChildNames guard). Matches the generator's other dedup paths.
-                    var newLeafName = baseLeafName;
-                    for (int dedupSuffix = 2;
-                         newLeafName == csPropertyName
-                             || takenNames.Contains(newLeafName)
-                             || ownChildNames.Contains(newLeafName);
-                         dedupSuffix++)
-                    {
-                        newLeafName = $"{baseLeafName}{dedupSuffix}";
-                    }
+                    // Anti-stutter and the numeric fallback (fires only when the semantic name is
+                    // itself already taken by a sibling, an earlier rename in this loop, or the
+                    // renamed type's own child — the CS0542 ownChildNames guard) both live in the
+                    // shared type-side resolver, so this scheme and the case-only namespace scheme
+                    // cannot drift apart on either.
+                    var newLeafName = NameCollisionPolicy.ResolveTypeSideName(
+                        csPropertyName,
+                        NameCollisionPolicy.TypeSuffixFor(nestedType),
+                        n => takenNames.Contains(n) || ownChildNames.Contains(n));
 
                     var oldCSharpName = nestedRecord.CSharpTypeName.Name;
                     var @namespace = nestedRecord.CSharpTypeName.Namespace;
@@ -1551,7 +1549,7 @@ public static class NameProvider
     /// When a parent type is renamed (e.g., "Module.Cache" → "Module.CacheInfo"),
     /// all nested types must also be updated (e.g., "Module.Cache.Caches" → "Module.CacheInfo.Caches").
     /// </summary>
-    private static void CascadeTypeRename(TypeDecl parentType, string oldPrefix, string newPrefix,
+    internal static void CascadeTypeRename(TypeDecl parentType, string oldPrefix, string newPrefix,
         string @namespace, ITypeDatabase typeDatabase)
     {
         foreach (var childType in parentType.Types)
@@ -1677,7 +1675,7 @@ public static class NameProvider
         if (propertyNames != null && propertyNames.Contains(pascalName))
         {
             // Append "Method" suffix to disambiguate from property
-            return $"{pascalName}Method";
+            return NameCollisionPolicy.ResolveMethodCollisionName(pascalName, isSelfReturning: false);
         }
         return pascalName;
     }
@@ -1802,28 +1800,23 @@ public static class NameProvider
         //    `next() async -> Element?` (AsyncIteratorProtocol) stays NextAsync, not GetNextAsync —
         //    the async-sequence bridge dispatches the iterator's advance through that fixed name.
         if (ctx.HasReturnValue && !StartsWithVerb(name) && !ctx.IsSelfReturning && ctx.ParameterCount == 0 && !ctx.IsMutating)
-            name = $"Get{name}";
+            name = NameCollisionPolicy.ResolveGetPrefixedName(name);
 
         // 4. Property collision resolution (only if still colliding after verb prefix)
         if (ctx.PropertyNames != null && ctx.PropertyNames.Contains(name))
-        {
-            if (ctx.IsSelfReturning)
-                name = $"With{name}";  // Builder pattern: WithAccessibility()
-            else
-                name = $"{name}Method";
-        }
+            name = NameCollisionPolicy.ResolveMethodCollisionName(name, ctx.IsSelfReturning);
 
         // 4b. Inherited method collision: generated C# classes inherit Dispose() from
         // IDisposable/SafeHandle. A Swift method named "dispose" PascalCase's to "Dispose",
         // colliding with the inherited method (CS0111). Suffix with "Swift" to disambiguate.
         if (_inheritedMethodCollisions.Contains(name))
-            name = $"{name}Swift";
+            name = NameCollisionPolicy.ResolveInheritedCollisionName(name);
 
         // 4c. Type name collision: C# forbids member names identical to the enclosing type (CS0542).
         // This can happen when a Swift type has a method whose PascalCase name matches the type name
         // (e.g., `DatabaseRegion.databaseRegion(_:)` → `DatabaseRegion.DatabaseRegion(Database)`).
         if (ctx.ParentTypeName != null && name == ctx.ParentTypeName)
-            name = $"Get{name}";
+            name = NameCollisionPolicy.ResolveGetPrefixedName(name);
 
         // 5. Append "Async" suffix for async methods (per .NET convention)
         if (ctx.IsAsync && !name.EndsWith("Async"))
@@ -1837,12 +1830,7 @@ public static class NameProvider
         // parameter literally named `TAsync` collides only with the suffixed form — checking the
         // pre-suffix name would miss it (CS0102) and rename the already-unique one.
         if (ctx.ParentGenericParameterNames != null && ctx.ParentGenericParameterNames.Contains(name))
-        {
-            if (ctx.IsSelfReturning)
-                name = $"With{name}";
-            else
-                name = $"{name}Method";
-        }
+            name = NameCollisionPolicy.ResolveMethodCollisionName(name, ctx.IsSelfReturning);
 
         return name;
     }

@@ -189,7 +189,7 @@ internal sealed class DeclEmissionStateSnapshot
             return;
         }
 
-        properties.Add(new PropertyState(property, property.WasEmitted));
+        properties.Add(new PropertyState(property, property.WasEmitted, property.EmittedCSharpName));
 
         if (property.Accessors is not null)
         {
@@ -463,16 +463,22 @@ internal sealed class DeclEmissionStateSnapshot
     {
         private readonly PropertyDecl _target;
         private readonly bool _wasEmitted;
+        private readonly string? _emittedCSharpName;
 
-        public PropertyState(PropertyDecl target, bool wasEmitted)
+        public PropertyState(PropertyDecl target, bool wasEmitted, string? emittedCSharpName)
         {
             _target = target;
             _wasEmitted = wasEmitted;
+            _emittedCSharpName = emittedCSharpName;
         }
 
         public void Restore()
         {
             _target.WasEmitted = _wasEmitted;
+            // Rolled back alongside the emission flag, mirroring MethodState: the name stamp feeds
+            // the module database's rename ledger, so a stamp left over from a discarded render
+            // would advertise a member the retry never emitted.
+            _target.RestoreEmittedCSharpName(_emittedCSharpName);
         }
     }
 

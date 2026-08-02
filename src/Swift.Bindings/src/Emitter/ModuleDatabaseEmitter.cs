@@ -312,6 +312,29 @@ namespace BindingsGeneration
                 writer.WriteEndElement();
             }
 
+            // Property renames applied by the producing module. Written whenever the collector
+            // visited the type, empty element included: an empty <renamedMembers/> means "processed,
+            // renamed nothing", which a consumer may rely on, while omitting the element round-trips
+            // to null and means only "this database predates the ledger". Same authoritative-empty
+            // rule as <emittedMethods> above, and for the same reason.
+            if (record.RenamedMembers != null)
+            {
+                writer.WriteStartElement("renamedMembers");
+                foreach (var member in record.RenamedMembers)
+                {
+                    writer.WriteStartElement("member");
+                    writer.WriteAttributeString("kind", member.Kind);
+                    writer.WriteAttributeString("swiftName", member.SwiftName);
+                    // Staticness disambiguates a Swift static/instance pair sharing one identifier.
+                    if (member.IsStatic)
+                        writer.WriteAttributeString("static", "true");
+                    writer.WriteAttributeString("csharpName", member.CSharpName);
+                    writer.WriteAttributeString("scheme", member.Scheme);
+                    writer.WriteEndElement();
+                }
+                writer.WriteEndElement();
+            }
+
             // Per-type availability annotations — persisted across the cross-module XML
             // round-trip so a downstream module can inherit a dependency type's `@available`
             // floor on a generated wrapper (e.g. `Wrapper<OtherModule.AvailableLaterType>`).

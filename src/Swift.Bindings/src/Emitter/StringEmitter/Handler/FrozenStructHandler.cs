@@ -290,7 +290,7 @@ namespace BindingsGeneration
                         continue;
                     // Use post-rename name for consistency with the propertyNames collision set below.
                     var csPropertyName = NameProvider.GetFinalMemberName(
-                        NameProvider.GetPropertyName(propertyDecl.Name, structDecl.Name), propertyRenames);
+                        NameProvider.GetPropertyName(propertyDecl, structDecl.Name), propertyRenames);
                     if (!emittedPropertyNames.Add(csPropertyName))
                     {
                         _logger.LogInformation($"Skipping duplicate property '{structDecl.Name}.{csPropertyName}'.");
@@ -398,7 +398,7 @@ namespace BindingsGeneration
                 // Collect property names (post-rename) for method/property collision detection
                 var propertyNames = new HashSet<string>(structDecl.Properties.Select(p =>
                     NameProvider.GetFinalMemberName(
-                        NameProvider.GetPropertyName(p.Name, structDecl.Name), propertyRenames)));
+                        NameProvider.GetPropertyName(p, structDecl.Name), propertyRenames)));
                 // Nested type names collide with method names in C# (CS0102) — reserve the EMITTED
                 // leaf so a renamed nested type (e.g. Entry → EntryInfo) forces a method projecting
                 // to the renamed name to disambiguate, not one projecting to the pre-rename name.

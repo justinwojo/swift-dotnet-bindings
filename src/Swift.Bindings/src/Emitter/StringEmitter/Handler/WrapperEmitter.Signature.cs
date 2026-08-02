@@ -654,12 +654,12 @@ namespace BindingsGeneration
             var propertyRenames = typeDatabase != null
                 ? NameProvider.ComputePropertyRenames(classDecl, typeDatabase)
                 : NameProvider.ComputePropertyRenamesForNestedTypeCollisions(
-                    classDecl.Properties.Select(p => NameProvider.GetPropertyName(p.Name, classDecl.Name)),
+                    classDecl.Properties.Select(p => NameProvider.GetPropertyName(p, classDecl.Name)),
                     classDecl.Types.Select(t => t.Name));
             var props = new HashSet<string>(
                 classDecl.Properties
                     .Select(p => NameProvider.GetFinalMemberName(
-                        NameProvider.GetPropertyName(p.Name, classDecl.Name), propertyRenames)),
+                        NameProvider.GetPropertyName(p, classDecl.Name), propertyRenames)),
                 StringComparer.Ordinal);
             // Nested type names collide with method names in C# (CS0102) — reserve the EMITTED
             // leaf so a renamed nested type (e.g. Entry → EntryInfo) forces a method projecting

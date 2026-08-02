@@ -110,11 +110,11 @@ public partial class ProtocolProxyEmitter
                 if (property.IsStatic)
                 {
                     if (_staticAbstractPropertyNames.Contains(property.Name))
-                        emittedCSharpPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
+                        emittedCSharpPropertyNames.Add(NameProvider.GetPropertyName(property));
                 }
                 else if (!_skippedPropertyNames.Contains(property.Name) || _closureSkippedPropertyNames.Contains(property.Name))
                 {
-                    emittedCSharpPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
+                    emittedCSharpPropertyNames.Add(NameProvider.GetPropertyName(property));
                 }
             }
         }
@@ -298,7 +298,7 @@ public partial class ProtocolProxyEmitter
                 continue;
 
             var csharpTypeName = GetInterfaceCompatiblePropertyTypeName(property);
-            var propertyName = NameProvider.GetPropertyName(property.Name);
+            var propertyName = NameProvider.GetPropertyName(property);
             var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
             var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
 
@@ -354,13 +354,13 @@ public partial class ProtocolProxyEmitter
             foreach (var property in protocolDecl.Properties)
             {
                 if (property.IsStatic && _staticAbstractPropertyNames.Contains(property.Name))
-                    staticPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
+                    staticPropertyNames.Add(NameProvider.GetPropertyName(property));
             }
             foreach (var property in protocolDecl.Properties)
             {
                 if (!property.IsStatic &&
                     (!_skippedPropertyNames.Contains(property.Name) || _closureSkippedPropertyNames.Contains(property.Name)))
-                    staticPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
+                    staticPropertyNames.Add(NameProvider.GetPropertyName(property));
             }
         }
 
@@ -551,7 +551,7 @@ public partial class ProtocolProxyEmitter
                 EmitInheritedPropertyStub(writer, property);
                 // Track inherited property names so inherited methods with the same name
                 // get renamed (e.g., RichText property + RichText(range) method collision).
-                emittedCSharpPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
+                emittedCSharpPropertyNames.Add(NameProvider.GetPropertyName(property));
             }
 
             // Resolve the inherited protocol's own emitted property-name set (cache hit
@@ -568,7 +568,7 @@ public partial class ProtocolProxyEmitter
             var inheritedOwnPropertyNames = _emissionContext.GetInterfacePropertyNames(inheritedProtoQualifiedName)
                 ?? new HashSet<string>(inheritedProto.Properties
                     .Where(p => !inheritedGateEvaluator.EvaluateProperty(p, inheritedProto.ModuleDecl, inheritedProto).IsSkipped)
-                    .Select(p => NameProvider.GetPropertyName(p.Name)));
+                    .Select(p => NameProvider.GetPropertyName(p)));
 
             // Emit inherited method stubs
             foreach (var method in inheritedProto.Methods)
@@ -627,7 +627,7 @@ public partial class ProtocolProxyEmitter
     private void EmitInheritedPropertyStub(CSharpWriter writer, PropertyDecl property)
     {
         var csharpTypeName = GetInterfaceCompatiblePropertyTypeName(property);
-        var propertyName = NameProvider.GetPropertyName(property.Name);
+        var propertyName = NameProvider.GetPropertyName(property);
         var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
 
@@ -795,7 +795,7 @@ public partial class ProtocolProxyEmitter
         var inheritedProtoQualifiedName = inheritedProto.SwiftTypeName?.ModuleQualifiedName
                                        ?? $"{inheritedProto.ModuleDecl?.Name ?? "Unknown"}.{inheritedProto.Name}";
         var inheritedInterfacePropertyNames = _emissionContext.GetInterfacePropertyNames(inheritedProtoQualifiedName)
-            ?? new HashSet<string>(inheritedProto.Properties.Select(p => NameProvider.GetPropertyName(p.Name)));
+            ?? new HashSet<string>(inheritedProto.Properties.Select(p => NameProvider.GetPropertyName(p)));
         var inheritedMethodName = NameProvider.GetPublicMethodName(
             ProtocolMethodDisambiguator.EffectiveNameInput(inheritedMethod, inheritedProto, _typeDatabase), inheritedMethod.IsAsync, inheritedHasReturn,
             propertyNames: inheritedInterfacePropertyNames,
@@ -909,7 +909,7 @@ public partial class ProtocolProxyEmitter
         var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
         var csharpTypeName = GetInterfaceCompatiblePropertyTypeName(property);
-        var propertyName = NameProvider.GetPropertyName(property.Name);
+        var propertyName = NameProvider.GetPropertyName(property);
         var isGetterDispatchable = hasGetter && dispatchEmitter.IsPropertyGetterDispatchable(property);
         var isSetterDispatchable = hasSetter && dispatchEmitter.IsPropertySetterDispatchable(property);
         var isStringProperty = WitnessDispatchEmitter.IsStringDispatchType(property.SwiftTypeSpec);
@@ -2911,7 +2911,7 @@ public partial class ProtocolProxyEmitter
     private void EmitNotSupportedPropertyStub(CSharpWriter writer, PropertyDecl property)
     {
         var csharpTypeName = GetInterfaceCompatiblePropertyTypeName(property);
-        var propertyName = NameProvider.GetPropertyName(property.Name);
+        var propertyName = NameProvider.GetPropertyName(property);
         var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
 

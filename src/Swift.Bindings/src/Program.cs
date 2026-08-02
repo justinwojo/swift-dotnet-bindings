@@ -487,6 +487,11 @@ namespace BindingsGeneration
                             // managedTypeName is already in the XML; the ABI re-parse branch is the
                             // gap (BindingTests path uses --framework-dependency without --module-database).
                             NameProvider.PrecomputeNestedTypeRenames(depParseResult.ModuleDecl, typeDatabase);
+                            // Same gap for the case-only collision decisions: the dep's own
+                            // published XML already carries them, but on this ABI re-parse branch
+                            // the dep TypeRecords and PropertyDecls have to be re-derived or the
+                            // consumer references a name the dependency never emitted.
+                            CaseOnlyCollisionPass.Precompute(depParseResult.ModuleDecl, typeDatabase);
 
                             // Retain the dependency's parsed ModuleDecl so consumer-side emitters can
                             // walk constructor shapes the TypeRecord projection discards (e.g. the
@@ -1303,6 +1308,10 @@ namespace BindingsGeneration
                 // downstream module can verify cross-module `override` modifiers. Must run after
                 // EmitModule (WasEmitted bits set) and before database serialization.
                 ClassHandler.PopulateEmittedClassMethods(decl, typeDatabase);
+
+                // Stamp each type's property renames onto its TypeRecord. Same timing constraint
+                // and the same reason: the emitted names are only settled once EmitModule has run.
+                PropertyRenameLedger.Populate(decl, typeDatabase);
 
                 // Emit module database XML for cross-module resolution by downstream modules.
                 // Pass the local emission's suppressed proxy class names so downstream modules

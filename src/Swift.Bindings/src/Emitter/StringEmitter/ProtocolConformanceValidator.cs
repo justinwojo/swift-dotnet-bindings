@@ -589,7 +589,7 @@ public class ProtocolConformanceValidator
                 _ => Enumerable.Empty<PropertyDecl>()
             };
             var concretePropertyNames = new HashSet<string>(
-                concreteProperties.Select(p => NameProvider.GetPropertyName(p.Name)));
+                concreteProperties.Select(p => NameProvider.GetPropertyName(p)));
             // The emitter shapes this method's name against the NSObject properties an ObjC-rooted
             // class inherits, not just the type's own declared ones. Predicting the name from the
             // declared properties alone reads `handle(url:)` as `Handle`, matches the interface
@@ -684,7 +684,7 @@ public class ProtocolConformanceValidator
                 _ => Enumerable.Empty<PropertyDecl>()
             };
             var concretePropertyNames = new HashSet<string>(
-                concreteProperties.Select(p => NameProvider.GetPropertyName(p.Name)));
+                concreteProperties.Select(p => NameProvider.GetPropertyName(p)));
             // The emitter shapes this method's name against the NSObject properties an ObjC-rooted
             // class inherits, not just the type's own declared ones. Predicting the name from the
             // declared properties alone reads `handle(url:)` as `Handle`, matches the interface

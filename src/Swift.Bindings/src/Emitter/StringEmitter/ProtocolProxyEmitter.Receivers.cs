@@ -284,7 +284,7 @@ public partial class ProtocolProxyEmitter
         // not the idiomatic type used for signatures.
         var abiTypeName = GetCSharpTypeName(property.SwiftTypeSpec, forAbiMarshalling: true);
 
-        var pascalPropertyName = NameProvider.GetPropertyName(property.Name);
+        var pascalPropertyName = NameProvider.GetPropertyName(property);
 
         // Sibling-property fallback: when this property is part of a sibling group (two or
         // more class-bound protocols declaring the same property name+type with differing
@@ -504,7 +504,7 @@ public partial class ProtocolProxyEmitter
 
         var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
-        var pascalPropertyName = NameProvider.GetPropertyName(property.Name);
+        var pascalPropertyName = NameProvider.GetPropertyName(property);
         var delegateType = closureHandler.GetCSharpDelegateType(closure);
         var nullableDelegateType = isOptional ? $"{delegateType}?" : delegateType;
 
@@ -1699,11 +1699,11 @@ public partial class ProtocolProxyEmitter
                 if (property.IsStatic)
                 {
                     if (_staticAbstractPropertyNames.Contains(property.Name))
-                        receiverPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
+                        receiverPropertyNames.Add(NameProvider.GetPropertyName(property));
                 }
                 else if (!_skippedPropertyNames.Contains(property.Name) || _closureSkippedPropertyNames.Contains(property.Name))
                 {
-                    receiverPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
+                    receiverPropertyNames.Add(NameProvider.GetPropertyName(property));
                 }
             }
         }

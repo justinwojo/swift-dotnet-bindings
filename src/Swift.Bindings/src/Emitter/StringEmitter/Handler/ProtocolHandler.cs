@@ -308,21 +308,34 @@ namespace BindingsGeneration
             // Collect actually-emitted C# property names for method/property collision detection.
             // Only include properties that passed all gates and were emitted in the interface
             // (not properties that were seen for dedup but gate-skipped).
+            // Every key in these three sets is a raw Swift property name, so resolve each back to
+            // its declaration and take the decl-aware overload. The string overload cannot see a
+            // case-only sibling rename (two Swift names differing only by case collapse to one C#
+            // identifier the moment the decl is dropped), which would both under-count this set and
+            // overwrite the correct precomputed cache below with the collapsed one.
+            var propertyDeclsBySwiftName = new Dictionary<string, PropertyDecl>(StringComparer.Ordinal);
+            foreach (var propertyDecl in protocolDecl.Properties)
+                propertyDeclsBySwiftName.TryAdd(propertyDecl.Name, propertyDecl);
+            string ResolvePropertyName(string swiftName)
+                => propertyDeclsBySwiftName.TryGetValue(swiftName, out var decl)
+                    ? NameProvider.GetPropertyName(decl)
+                    : NameProvider.GetPropertyName(swiftName);
+
             var emittedCSharpPropertyNames = new HashSet<string>();
             foreach (var propKey in emittedProperties)
             {
                 if (!skippedPropertyNames.Contains(propKey))
-                    emittedCSharpPropertyNames.Add(NameProvider.GetPropertyName(propKey));
+                    emittedCSharpPropertyNames.Add(ResolvePropertyName(propKey));
             }
             // Also include closure properties that ARE emitted in the interface
             // (they're in skippedPropertyNames for proxy tracking, but they're still
             // interface members that can collide with method names).
             foreach (var closurePropName in closureSkippedPropertyNames)
-                emittedCSharpPropertyNames.Add(NameProvider.GetPropertyName(closurePropName));
+                emittedCSharpPropertyNames.Add(ResolvePropertyName(closurePropName));
             // Same for `@objc optional` properties: the DIM is in the interface, so its
             // C# name participates in method/property collision detection.
             foreach (var optionalPropName in optionalDimPropertyNames)
-                emittedCSharpPropertyNames.Add(NameProvider.GetPropertyName(optionalPropName));
+                emittedCSharpPropertyNames.Add(ResolvePropertyName(optionalPropName));
 
             // Publish the actually-emitted property-name set so downstream emitters that
             // need to compute this protocol's exact C# member names (proxy explicit-interface
@@ -945,7 +958,12 @@ namespace BindingsGeneration
                 accessors = "{ get; }";
             }
 
-            var propertyName = NameProvider.GetPropertyName(propertyDecl.Name);
+            var propertyName = NameProvider.GetPropertyName(propertyDecl);
+            // A protocol requirement is a real emitted member, so record its settled name for the
+            // rename ledger. Without this the ledger writes an empty list for every protocol, which
+            // its own contract reads as "processed, renamed nothing" — and a conforming type in a
+            // downstream module would then re-choose the requirement's name for itself.
+            propertyDecl.MarkEmittedCSharpName(propertyName);
 
             // Emit [UnsupportedSwiftType] if the property type falls back to AnyType
             if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(typeDatabase, closureHandler, propertyDecl.SwiftTypeSpec, out var fallbackInfo))
@@ -1397,7 +1415,7 @@ namespace BindingsGeneration
                 if (cached != null)
                     return cached;
             }
-            return new HashSet<string>(protocolDecl.Properties.Select(p => NameProvider.GetPropertyName(p.Name)));
+            return new HashSet<string>(protocolDecl.Properties.Select(p => NameProvider.GetPropertyName(p)));
         }
 
         /// <summary>

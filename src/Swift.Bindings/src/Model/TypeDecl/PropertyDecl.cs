@@ -57,6 +57,52 @@ namespace BindingsGeneration
         public void MarkEmitted() => WasEmitted = true;
 
         /// <summary>
+        /// The disambiguated C# base name chosen for this property when a sibling declares a
+        /// Swift name differing from this one only by case, so both project onto one C# identifier
+        /// (Swift <c>url</c> + <c>URL</c> → <c>Url</c>, CS0102). Null when no such collision exists,
+        /// which is the overwhelmingly common case.
+        ///
+        /// <para>The decision is stamped on the DECLARATION rather than carried in a name-keyed
+        /// rename dictionary because the collapse destroys the key: by the time two properties are
+        /// both called <c>Url</c>, no C#-name-keyed map can tell them apart. Every name-prediction
+        /// site therefore has to reach the decision through the decl — see
+        /// <c>NameProvider.GetPropertyName(PropertyDecl, string?)</c>.</para>
+        /// </summary>
+        public string? CaseDisambiguatedName { get; private set; }
+
+        /// <summary>
+        /// Records the case-only disambiguation decision for this property. The single mutation
+        /// entry point for <see cref="CaseDisambiguatedName"/>; called only from the pre-emission
+        /// case-only collision pass.
+        /// </summary>
+        public void MarkCaseDisambiguated(string csharpName) => CaseDisambiguatedName = csharpName;
+
+        /// <summary>
+        /// The C# name this property was actually emitted under, stamped at emission time. Mirrors
+        /// <see cref="MethodDecl.EmittedCSharpName"/>: it is the only value that has seen every
+        /// naming scheme (enclosing-type <c>Value</c> rule, nested-type rename channel, enum-case
+        /// channel, case-only disambiguation), so the rename ledger written into the module
+        /// database reads it rather than re-deriving a name from inputs it can no longer see.
+        /// Null for a property that was never emitted.
+        /// </summary>
+        public string? EmittedCSharpName { get; private set; }
+
+        /// <summary>
+        /// Records the C# name this property was emitted under. The emission-time mutation entry
+        /// point for <see cref="EmittedCSharpName"/>.
+        /// </summary>
+        public void MarkEmittedCSharpName(string csharpName) => EmittedCSharpName = csharpName;
+
+        /// <summary>
+        /// Puts <see cref="EmittedCSharpName"/> back to a previously captured value, null included.
+        /// Exists for the verify-recover rollback, which has to return the declaration to exactly
+        /// the state it held before a render that was then thrown away: a stamp surviving from a
+        /// discarded attempt would be published in the module database's rename ledger as a member
+        /// the final output never wrote.
+        /// </summary>
+        public void RestoreEmittedCSharpName(string? csharpName) => EmittedCSharpName = csharpName;
+
+        /// <summary>
         /// Whether this property is marked @_spi (System Programming Interface).
         /// @_spi members on public types are only visible to SPI consumers and should not
         /// appear in generated bindings.

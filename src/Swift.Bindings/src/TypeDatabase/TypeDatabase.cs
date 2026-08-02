@@ -492,6 +492,31 @@ namespace BindingsGeneration
                     emittedClassMethods = list;
                 }
 
+                // Property renames applied by the producing module. Optional element — null on a
+                // legacy database that predates the ledger, which is NOT the same as an empty list
+                // ("processed, renamed nothing"); the write side preserves that distinction too.
+                IReadOnlyList<RenamedMember>? renamedMembers = null;
+                XmlNode? renamedMembersNode = typeDeclarationNode?.SelectSingleNode("renamedMembers");
+                if (renamedMembersNode != null)
+                {
+                    var list = new List<RenamedMember>();
+                    foreach (XmlNode? memberNode in renamedMembersNode.ChildNodes)
+                    {
+                        if (memberNode?.NodeType != XmlNodeType.Element) continue;
+                        if (memberNode.Name != "member") continue;
+                        var swiftName = memberNode.Attributes?["swiftName"]?.Value;
+                        var csharpName = memberNode.Attributes?["csharpName"]?.Value;
+                        if (string.IsNullOrEmpty(swiftName) || string.IsNullOrEmpty(csharpName)) continue;
+                        var kind = memberNode.Attributes?["kind"]?.Value ?? RenamedMemberKind.Property;
+                        var isStatic = string.Equals(
+                            memberNode.Attributes?["static"]?.Value, "true",
+                            StringComparison.OrdinalIgnoreCase);
+                        var scheme = memberNode.Attributes?["scheme"]?.Value ?? string.Empty;
+                        list.Add(new RenamedMember(kind, swiftName, isStatic, csharpName, scheme));
+                    }
+                    renamedMembers = list;
+                }
+
                 // Per-type @available annotations. Optional element — null on legacy databases
                 // that predate this field, in which case the cross-module availability merge
                 // falls back to parent-only behavior (the dependency type is treated as
@@ -585,6 +610,7 @@ namespace BindingsGeneration
                     ProtocolDescriptorSymbol = protocolDescriptorSymbol,
                     ProtocolConformances = protocolConformances,
                     EmittedClassMethods = emittedClassMethods,
+                    RenamedMembers = renamedMembers,
                     EmittedMetadataPInvoke = emittedMetadataPInvoke,
                     AvailabilityAnnotations = availabilityAnnotations,
                 };

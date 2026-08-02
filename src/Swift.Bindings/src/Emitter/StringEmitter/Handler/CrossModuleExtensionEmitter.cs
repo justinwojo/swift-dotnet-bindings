@@ -630,7 +630,7 @@ public static partial class CrossModuleExtensionEmitter
             TryGetSimpleEnumLowering(property.SwiftTypeSpec, typeDatabase, out _, out _, out _))
             return false;
 
-        var propertyName = NameProvider.ToPascalCase(property.Name);
+        var propertyName = NameProvider.GetPropertyBaseName(property);
         if (!emittedSignatures.Add($"Get{propertyName}"))
             return false;
 

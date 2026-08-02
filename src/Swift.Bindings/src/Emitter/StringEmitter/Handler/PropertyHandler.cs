@@ -423,12 +423,16 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // Property/nested-type collisions are resolved by renaming the property (not the type),
         // computed by ComputePropertyRenames in the parent type handler.
         string? containingTypeName = (propertyDecl.ParentDecl as TypeDecl)?.Name;
-        var baseName = NameProvider.GetPropertyName(propertyDecl.Name, containingTypeName);
+        var baseName = NameProvider.GetPropertyName(propertyDecl, containingTypeName);
         var propertyName = NameProvider.GetFinalMemberName(baseName, context.PropertyRenames);
         // Apply the enum property-only rename channel (Image -> ImageValue) for an enum computed
         // property that collides with a same-named case constructor. Keyed on the post-PropertyRenames
         // name; null (and thus a no-op) for every non-enum-collision property.
         propertyName = NameProvider.GetFinalMemberName(propertyName, context.EnumPropertyRenames);
+        // Record the settled name. This is the only point that has seen every property-side naming
+        // scheme, so the module database's rename ledger reads it rather than re-deriving a name
+        // from a sibling set it no longer has.
+        propertyDecl.MarkEmittedCSharpName(propertyName);
 
         // For setter-only closures, filter out getter accessors — the callback (setter) path works
         // but the getter (invocation) path can't marshal the closure's non-primitive parameters.
@@ -942,7 +946,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // CS0535 fix: When a property was CS0542-renamed (e.g., DatabaseValue → DatabaseValueValue),
         // any conformance interface that declares the original name (DatabaseValue) won't be satisfied.
         // Emit explicit interface implementations to bridge the gap.
-        var originalName = NameProvider.GetPropertyName(propertyDecl.Name);
+        var originalName = NameProvider.GetPropertyName(propertyDecl);
         if (propertyName != originalName && !propertyDecl.IsStatic)
         {
             EmitExplicitInterfaceImplementations(csWriter, propertyDecl, originalName, propertyName, csTypeName, propertyEnv.TypeDatabase, context);
@@ -1552,7 +1556,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             // - Name becomes "get{PropertyName}" → PascalCase → "GetPropertyName" in C#
             // - IsAccessor = false so WrapperEmitter emits a public method (not private accessor)
             // - IsSynthesizedAccessor = false so it emits public (not a private synthesized accessor)
-            var propertyPascalName = NameProvider.ToPascalCase(propertyDecl.Name);
+            var propertyPascalName = NameProvider.GetPropertyBaseName(propertyDecl);
             accessor.Method.AsyncPropertyName = propertyDecl.Name;
             accessor.Method.Name = $"get{propertyPascalName}";
             accessor.Method.IsAccessor = false;

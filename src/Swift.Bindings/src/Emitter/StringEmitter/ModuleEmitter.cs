@@ -68,6 +68,11 @@ namespace BindingsGeneration
                     // any emission. This ensures all type references (including protocol interfaces
                     // that may be emitted before their parent types) use the correct renamed names.
                     NameProvider.PrecomputeNestedTypeRenames(moduleDecl, _typeDatabase);
+                    // Pre-pass: resolve case-only collisions — a type whose emitted leaf matches a
+                    // sibling namespace facade's only by case, and sibling properties whose Swift
+                    // names differ only by case and so collapse onto one C# identifier. Runs after
+                    // the nested-type renames above so it compares final type leaves.
+                    CaseOnlyCollisionPass.Precompute(moduleDecl, _typeDatabase);
                     // Pre-pass: register silent tombstones (types emitted with opaqueEmittable == 0
                     // && opaqueSkipped > 0) BEFORE any method wrappers so SB0002 diagnostics fire on
                     // call sites regardless of declaration order. See SilentTombstoneRegistrar.

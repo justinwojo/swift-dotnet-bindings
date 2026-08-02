@@ -1090,6 +1090,120 @@ namespace BindingsGeneration.Tests
             finally { Directory.Delete(dir, true); }
         }
 
+        [Fact]
+        public async Task Emit_RenamedMembers_RoundTripIsLossless()
+        {
+            // A member rename is a function of the whole sibling set, which a downstream module
+            // cannot see — so the producing module's decision has to survive the XML verbatim
+            // rather than be recomputed on load.
+            var dir = CreateTempDir();
+            try
+            {
+                var module = new ModuleTypeDatabase("RenameModule", "/fake/RenameModule.dylib");
+                var swiftName = SwiftTypeName.FromModuleQualifiedName("RenameModule.Endpoint");
+                module.RegisterType(swiftName, new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("RenameModule", "Endpoint"),
+                    SwiftTypeName = swiftName,
+                    MetadataAccessor = "$s12RenameModule8EndpointV",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct,
+                    RenamedMembers = new[]
+                    {
+                        new RenamedMember(RenamedMemberKind.Property, "URL", false, "Url2",
+                            NameCollisionScheme.CaseOnlyMemberCollision.ToString()),
+                        new RenamedMember(RenamedMemberKind.Property, "endpoint", true, "EndpointValue",
+                            NameCollisionScheme.PropertyValueSuffix.ToString()),
+                    },
+                });
+
+                var path = ModuleDatabaseEmitter.Emit(module, dir, NullLogger.Instance);
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path!);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                var renames = loaded!.RenamedMembers;
+                Assert.NotNull(renames);
+                Assert.Equal(2, renames!.Count);
+
+                var caseOnly = renames.Single(r => r.SwiftName == "URL");
+                Assert.Equal(RenamedMemberKind.Property, caseOnly.Kind);
+                Assert.Equal("Url2", caseOnly.CSharpName);
+                Assert.False(caseOnly.IsStatic);
+                Assert.Equal(NameCollisionScheme.CaseOnlyMemberCollision.ToString(), caseOnly.Scheme);
+
+                // Staticness is part of the identity: Swift allows a static and an instance member
+                // to share an identifier, so dropping it would make the entry ambiguous.
+                var valueSuffixed = renames.Single(r => r.SwiftName == "endpoint");
+                Assert.True(valueSuffixed.IsStatic);
+                Assert.Equal("EndpointValue", valueSuffixed.CSharpName);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public async Task Emit_NoRenamedMembers_RoundTripsAsEmptyNotNull()
+        {
+            // Empty and null carry different claims: empty means "this type was processed and
+            // renamed nothing", null means "written by a generator that predates the ledger".
+            // Collapsing them would let a downstream module read silence as a fact.
+            var dir = CreateTempDir();
+            try
+            {
+                var module = new ModuleTypeDatabase("QuietModule", "/fake/QuietModule.dylib");
+                var swiftName = SwiftTypeName.FromModuleQualifiedName("QuietModule.Plain");
+                module.RegisterType(swiftName, new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("QuietModule", "Plain"),
+                    SwiftTypeName = swiftName,
+                    MetadataAccessor = "$s11QuietModule5PlainV",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct,
+                    RenamedMembers = Array.Empty<RenamedMember>(),
+                });
+
+                var path = ModuleDatabaseEmitter.Emit(module, dir, NullLogger.Instance);
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path!);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                Assert.NotNull(loaded!.RenamedMembers);
+                Assert.Empty(loaded.RenamedMembers!);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public async Task Load_DatabaseWithoutRenamedMembersElement_YieldsNull()
+        {
+            // The legacy shape: a database emitted before the ledger existed. It must load as
+            // "unknown", not as the positive claim "nothing was renamed".
+            var dir = CreateTempDir();
+            try
+            {
+                var module = new ModuleTypeDatabase("LegacyModule", "/fake/LegacyModule.dylib");
+                var swiftName = SwiftTypeName.FromModuleQualifiedName("LegacyModule.Old");
+                module.RegisterType(swiftName, new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("LegacyModule", "Old"),
+                    SwiftTypeName = swiftName,
+                    MetadataAccessor = "$s12LegacyModule3OldV",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct,
+                });
+
+                var path = ModuleDatabaseEmitter.Emit(module, dir, NullLogger.Instance);
+                Assert.DoesNotContain("renamedMembers", await File.ReadAllTextAsync(path!));
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path!);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                Assert.Null(loaded!.RenamedMembers);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
         private static string CreateTempDir()
         {
             var dir = Path.Combine(Path.GetTempPath(), $"mdb_emit_{Guid.NewGuid():N}");

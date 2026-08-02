@@ -55,7 +55,7 @@ internal static class InterfacePropertyNamePrecomputer
 
                 if (propertyDecl.IsStatic)
                 {
-                    emittedPropertyNames.Add(NameProvider.GetPropertyName(propertyDecl.Name));
+                    emittedPropertyNames.Add(NameProvider.GetPropertyName(propertyDecl));
                     continue;
                 }
 
@@ -65,7 +65,7 @@ internal static class InterfacePropertyNamePrecomputer
                 if (gate.IsInterfaceOnly && !gate.SoftFlags.HasFlag(SoftGateFlags.HasClosureProperty))
                     continue;
 
-                emittedPropertyNames.Add(NameProvider.GetPropertyName(propertyDecl.Name));
+                emittedPropertyNames.Add(NameProvider.GetPropertyName(propertyDecl));
             }
 
             emissionContext.RecordInterfacePropertyNames(protoQualifiedName, emittedPropertyNames);

@@ -142,6 +142,15 @@ public class EmissionStateSnapshotCoverageTests
             method.UsesWrapperLibrary = !method.UsesWrapperLibrary;
         }
 
+        // Properties carry the same pair of stamps, and the name stamp is what the module database's
+        // rename ledger reads — a stamp surviving a discarded render would advertise a member the
+        // retry never wrote.
+        foreach (var property in AllProperties(module))
+        {
+            property.MarkEmitted();
+            property.MarkEmittedCSharpName("Dirtied");
+        }
+
         Assert.NotEqual(before, DescribeDeclState(module));
 
         snapshot.Restore();
@@ -298,8 +307,14 @@ public class EmissionStateSnapshotCoverageTests
     private static IEnumerable<MethodDecl> AllMethods(ModuleDecl module) =>
         module.Methods.Concat(module.Types.SelectMany(t => t.Methods));
 
+    private static IEnumerable<PropertyDecl> AllProperties(ModuleDecl module) =>
+        module.Properties.Concat(module.Types.SelectMany(t => t.Properties));
+
     private static string DescribeDeclState(ModuleDecl module) =>
         string.Join(Environment.NewLine, AllMethods(module).Select(m =>
             $"{m.Name}|emitted={m.WasEmitted}|csharp={m.EmittedCSharpName ?? "<null>"}" +
-            $"|wrapperLib={m.UsesWrapperLibrary}|args={string.Join(",", m.CSSignature.Select(a => a.Name))}"));
+            $"|wrapperLib={m.UsesWrapperLibrary}|args={string.Join(",", m.CSSignature.Select(a => a.Name))}")
+        + Environment.NewLine
+        + string.Join(Environment.NewLine, AllProperties(module).Select(p =>
+            $"{p.Name}|emitted={p.WasEmitted}|csharp={p.EmittedCSharpName ?? "<null>"}")));
 }

@@ -446,7 +446,7 @@ public static partial class CrossModuleExtensionEmitter
             return false;
         }
 
-        var propertyName = NameProvider.ToPascalCase(property.Name);
+        var propertyName = NameProvider.GetPropertyBaseName(property);
         if (!emittedSignatures.Add($"Get{propertyName}"))
             return false;
 

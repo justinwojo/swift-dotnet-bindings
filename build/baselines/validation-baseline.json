@@ -1,5 +1,5 @@
 {
-  "git_sha": "cf88cc1f",
+  "git_sha": "8b65164c",
   "compile_gate": {
     "libraries": {
       "AppIntents": {
@@ -939,6 +939,8 @@
       "SynthesizedCodable": 971,
       "NetUnavailableType": 780,
       "UnsupportedClosure": 609,
+      "ProtocolWitnessNotDispatchable": 558,
+      "ConformanceNotFullyImplementable": 496,
       "DuplicateSignature": 420,
       "AnyTypeFallback": 418,
       "GenericProtocolConstraint": 394,
@@ -1021,6 +1023,6 @@
     }
   },
   "unit_tests": {
-    "swift_bindings_unit_pass_floor": 16653
+    "swift_bindings_unit_pass_floor": 16714
   }
 }

@@ -2460,7 +2460,7 @@ namespace BindingsGeneration
                         continue;
 
                     var csharpType = ResolvePropertyType(property, typeDatabase, moduleDecl.Name);
-                    var propertyName = NameProvider.GetPropertyName(property.Name);
+                    var propertyName = NameProvider.GetPropertyName(property);
                     var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
                     var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
 

@@ -378,7 +378,7 @@ internal static class KeyPathSingletonEmitter
         foreach (var (prop, symbol, csValueType, swiftValueType, isWritable, mergedAvailability) in emittable)
         {
             var pascalName = NameProvider.GetFinalMemberName(
-                NameProvider.GetPropertyName(prop.Name, bagDecl.Name), propRenames);
+                NameProvider.GetPropertyName(prop, bagDecl.Name), propRenames);
             var keyPathFlavor = isWritable ? "WritableKeyPath" : "KeyPath";
             var fieldType = $"global::Swift.{keyPathFlavor}<{bagCSharpFullName}, {csValueType}>";
 

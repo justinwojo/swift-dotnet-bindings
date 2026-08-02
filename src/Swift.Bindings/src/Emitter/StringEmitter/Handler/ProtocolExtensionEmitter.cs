@@ -2373,7 +2373,7 @@ public static class ProtocolExtensionEmitter
         var propertyRenames = NameProvider.ComputePropertyRenames(conformingType, typeDatabase);
         var set = new HashSet<string>(conformingType.Properties.Select(p =>
             NameProvider.GetFinalMemberName(
-                NameProvider.GetPropertyName(p.Name, conformingType.Name), propertyRenames)));
+                NameProvider.GetPropertyName(p, conformingType.Name), propertyRenames)));
         // Nested type names collide with method names in C# (CS0102) — reserve the EMITTED
         // leaf so a renamed nested type (e.g. Entry → EntryInfo) forces a method projecting
         // to the renamed name to disambiguate, not one projecting to the pre-rename name.

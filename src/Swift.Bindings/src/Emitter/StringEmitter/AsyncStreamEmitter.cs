@@ -322,8 +322,12 @@ public static class AsyncStreamEmitter
         var asyncEnumerableType = $"IAsyncEnumerable<{publicElementType}>";
         var isStatic = propertyDecl.IsStatic;
         var staticModifier = isStatic ? "static " : "";
-        var baseName = NameProvider.GetPropertyName(propertyDecl.Name, containingTypeName);
+        var baseName = NameProvider.GetPropertyName(propertyDecl, containingTypeName);
         var propertyName = NameProvider.GetFinalMemberName(baseName, propertyRenames);
+        // An AsyncStream property stays a property on the C# surface, so its settled name belongs
+        // in the rename ledger like any other. Stamped here rather than at the caller because this
+        // is where the name is decided.
+        propertyDecl.MarkEmittedCSharpName(propertyName);
         var classParent = propertyDecl.ParentDecl as ClassDecl;
         var selfExpr = classParent != null
             ? (classParent.IsObjCRooted ? "Handle" : "_handle.DangerousGetHandle()")

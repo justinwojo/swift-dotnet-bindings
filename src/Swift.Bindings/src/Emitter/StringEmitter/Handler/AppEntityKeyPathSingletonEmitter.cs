@@ -240,7 +240,7 @@ internal static class AppEntityKeyPathSingletonEmitter
         foreach (var (prop, symbol, csValueType, _, isWritable, mergedAvailability) in emittable)
         {
             var pascalName = NameProvider.GetFinalMemberName(
-                NameProvider.GetPropertyName(prop.Name, conformerDecl.Name), propRenames);
+                NameProvider.GetPropertyName(prop, conformerDecl.Name), propRenames);
             var keyPathFlavor = isWritable ? "WritableKeyPath" : "KeyPath";
             var fieldType = $"global::Swift.{keyPathFlavor}<{rootCSharpFullName}, {csValueType}>";
             var pinvokeName = $"PInvoke_{symbol}";
