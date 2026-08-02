@@ -98,6 +98,10 @@ public static class WorkaroundRecommendations
             "The ObjC declaration has no matching exported native symbol in any linked binary (header-only / static-inline / unexported global); binding it would fail to link.",
         SkipReason.ObjCDuplicateSelector =>
             "Duplicate selectors across the ObjC type hierarchy are flattened to a single member by design; no action needed.",
+        SkipReason.ConformanceNotFullyImplementable =>
+            "The type still emits, but without this conformance: at least one protocol requirement has no representable C# member on it, so the `: I{Protocol}` entry was dropped rather than emitted with a hole. Details names the first unmet requirement — make that one requirement bindable (a supported signature, a satisfiable constraint, or an unconstrained extension default the validator can see) and regenerate to reveal the next blocker, or expose the protocol-typed usage through a Swift wrapper that takes the concrete type.",
+        SkipReason.ProtocolWitnessNotDispatchable =>
+            "The member IS declared and still callable on a concrete instance — only calls through a protocol-typed value throw (SB0003). The requirement's shape has no witness-table lowering: a non-blittable parameter or return, a closure parameter, a subscript, or a requirement set that mixes generic and non-generic members. Call it on the concrete type, or add a Swift wrapper requirement whose signature is blittable so the protocol-typed path becomes dispatchable.",
         SkipReason.Unknown =>
             "Investigate the specific member in the generator output.",
         _ => null,
@@ -189,6 +193,10 @@ public static class WorkaroundRecommendations
             "ObjC declaration has no exported native symbol",
         SkipReason.ObjCDuplicateSelector =>
             "ObjC duplicate selector flattened by design",
+        SkipReason.ConformanceNotFullyImplementable =>
+            "conformance dropped — a protocol requirement has no representable C# member on the conforming type",
+        SkipReason.ProtocolWitnessNotDispatchable =>
+            "member declared but not dispatchable through a protocol-typed value (witness stub throws)",
         SkipReason.Unknown =>
             "unclassified skip reason",
         _ => null,

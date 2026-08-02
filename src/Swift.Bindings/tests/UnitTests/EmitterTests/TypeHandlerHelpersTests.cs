@@ -97,6 +97,79 @@ public class TypeHandlerHelpersTests
     }
 
     [Fact]
+    public void GetImplementedInterfaces_GenericTypeConditionalEquatable_ReportsTheDroppedConformance()
+    {
+        // The omission above is correct but invisible: the consumer sees a type that is Equatable in
+        // Swift and not IEquatable in C#, with nothing in the binding explaining why. Report it.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("MusicKit");
+        var structDecl = CreateStructDeclWithConformances("MusicItemCollection", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("MusicKit.MusicItemCollection"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$sMc"));
+        structDecl.GenericParameters.Add(new GenericArgumentDecl(
+            "τ_0_0",
+            "MusicItemType",
+            new List<GenericParameterConformance>
+            {
+                new(
+                    new[] { "τ_0_0" },
+                    SwiftTypeName.FromModuleQualifiedName("MusicKit.MusicItem"),
+                    ConformanceKind.Protocol)
+            },
+            new List<GenericParameterConformance>()));
+
+        BindingReport report;
+        ReportCollector.Start(moduleDecl);
+        try
+        {
+            ProtocolConformanceHelper.GetImplementedInterfaces(
+                structDecl, "MusicItemCollection<TMusicItemType>", "MusicKit", typeDatabase);
+            report = ReportCollector.Complete()!;
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+
+        var row = Assert.Single(
+            report.SkippedItems, i => i.Reason == SkipReason.ConformanceNotFullyImplementable);
+        Assert.Equal("Swift.Equatable", row.Name);
+        Assert.Equal("MusicKit.MusicItemCollection", row.ContainingType);
+        Assert.Contains("conditional", row.Details);
+    }
+
+    [Fact]
+    public void GetImplementedInterfaces_UnconditionalEquatable_ReportsNoDroppedConformance()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDeclWithConformances("Point", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$s10TestModule5PointVSQAAMc"));
+
+        BindingReport report;
+        ReportCollector.Start(moduleDecl);
+        try
+        {
+            var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+                structDecl, "Point", "TestModule", typeDatabase);
+            Assert.Contains("IEquatable<Point>", interfaces);
+            report = ReportCollector.Complete()!;
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+
+        Assert.DoesNotContain(
+            report.SkippedItems, i => i.Reason == SkipReason.ConformanceNotFullyImplementable);
+    }
+
+    [Fact]
     public void GetImplementedInterfaces_GenericTypeWithEquatableConstraint_IncludesIEquatable()
     {
         // The complement: a generic type whose generic parameter IS constrained to Equatable

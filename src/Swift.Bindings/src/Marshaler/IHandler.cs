@@ -512,7 +512,12 @@ namespace BindingsGeneration
                                 }
                                 else
                                 {
-                                    ReportCollector.RecordMemberSkipped(methodDecl, validationResult.Reason ?? SkipReason.Unknown, validationResult.Details ?? "");
+                                    // Report-only enrichment; the comment emitter below writes the
+                                    // unenriched string into generated source, which is compared.
+                                    ReportCollector.RecordMemberSkipped(
+                                        methodDecl, validationResult.Reason ?? SkipReason.Unknown,
+                                        (validationResult.Details ?? "") + UnresolvedAppleTypes.DescribeSuffix(
+                                            methodDecl, typeDatabase, methodDecl.ModuleDecl?.Name));
                                     UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, validationResult.Reason ?? SkipReason.Unknown, validationResult.Details, containingDecl: methodDecl.ParentDecl);
                                 }
                             }

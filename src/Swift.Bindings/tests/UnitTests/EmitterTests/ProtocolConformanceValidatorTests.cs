@@ -268,6 +268,144 @@ public class ProtocolConformanceValidatorTests
         Assert.False(result);
     }
 
+    #region Dropped-conformance reporting
+
+    [Fact]
+    public void CanFullyImplementProtocol_Gap_NamesTheFirstUnmetMethodRequirement()
+    {
+        // Same shape as CanFullyImplementProtocol_ProtocolHasAnyTypeMethod_ReturnsFalse: the drop is
+        // real, and the gap is what makes it explainable — which requirement, of which kind.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = CreateProtocolWithMethod("Parser", "parse", "UnknownModule.Foo", moduleDecl);
+        moduleDecl.Protocols.Add(protocolDecl);
+        var concreteType = CreateStructDecl("MyParser", moduleDecl);
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var satisfied = validator.CanFullyImplementProtocol(concreteType, protocolDecl, out var gap);
+
+        Assert.False(satisfied);
+        Assert.NotNull(gap);
+        Assert.Equal(BindingItemKind.Method, gap!.Value.Kind);
+        Assert.Equal("parse", gap.Value.RequirementName);
+        Assert.False(string.IsNullOrWhiteSpace(gap.Value.Explanation));
+        // The rendered form is what reaches the report, so it has to carry both facts.
+        Assert.Contains("parse", gap.Value.ToString(), StringComparison.Ordinal);
+        Assert.Contains("method", gap.Value.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CanFullyImplementProtocol_Gap_NamesTheUnmetPropertyRequirementWithPropertyKind()
+    {
+        // The kind travels with the name: "data" alone doesn't say whether to look for a property or
+        // a method on the conforming type.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "DataSource",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.DataSource"),
+            MangledName = "$s10TestModule10DataSourceP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>
+            {
+                CreatePropertyDecl("data", new NamedTypeSpec("UnknownModule.Data"), moduleDecl, hasGetter: true, hasSetter: false)
+            },
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+        var concreteType = CreateStructDecl("MyDataSource", moduleDecl);
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var satisfied = validator.CanFullyImplementProtocol(concreteType, protocolDecl, out var gap);
+
+        Assert.False(satisfied);
+        Assert.NotNull(gap);
+        Assert.Equal(BindingItemKind.Property, gap!.Value.Kind);
+        Assert.Equal("data", gap.Value.RequirementName);
+    }
+
+    [Fact]
+    public void CanFullyImplementProtocol_Gap_SatisfiedConformanceReportsNoGap()
+    {
+        // The negative control the reporting sites depend on: a conformance that IS emitted must not
+        // hand back a gap, or every bound type would grow a phantom dropped-conformance row.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Counter",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Counter"),
+            MangledName = "$s10TestModule7CounterP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl> { CreateVoidMethod("increment", moduleDecl) },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var concreteType = CreateStructDecl("BasicCounter", moduleDecl);
+        var concreteMethod = CreateVoidMethod("increment", moduleDecl);
+        concreteMethod.ParentDecl = concreteType;
+        concreteType.Methods.Add(concreteMethod);
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var satisfied = validator.CanFullyImplementProtocol(concreteType, protocolDecl, out var gap);
+
+        Assert.True(satisfied);
+        Assert.Null(gap);
+    }
+
+    [Fact]
+    public void CanFullyImplementProtocol_Gap_RecordsNothingInAnActiveReportSession()
+    {
+        // The overload is consulted speculatively (the closed-PAT projection loop asks about
+        // conformances the main loop already handled). Recording from inside the validator would make
+        // those speculative asks visible as drops; the recording decision belongs to the call site.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = CreateProtocolWithMethod("Parser", "parse", "UnknownModule.Foo", moduleDecl);
+        moduleDecl.Protocols.Add(protocolDecl);
+        var concreteType = CreateStructDecl("MyParser", moduleDecl);
+
+        ReportCollector.Start(moduleDecl);
+        try
+        {
+            var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+            Assert.False(validator.CanFullyImplementProtocol(concreteType, protocolDecl, out _));
+
+            var report = ReportCollector.Complete();
+            Assert.NotNull(report);
+            Assert.DoesNotContain(
+                report!.SkippedItems,
+                i => i.Reason == SkipReason.ConformanceNotFullyImplementable);
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+    }
+
+    #endregion
+
     [Fact]
     public void CanFullyImplementProtocol_ProtocolHasGenericParam_ReturnsFalse()
     {

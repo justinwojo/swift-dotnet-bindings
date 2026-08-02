@@ -91,7 +91,17 @@ public static class ReportEmitter
             }
             LogTriage(report.SkipTriage, logger);
             LogAttribution(report.SkippedItems, logger);
-            logger.LogInformation("Skipped items are excluded from C# output but don't affect the rest of the generated API.");
+            var declaredButDegraded = report.SkippedItems.Count(i => SkipDispositionClassifier.IsDeclaredButDegraded(i.Reason));
+            if (declaredButDegraded > 0)
+            {
+                logger.LogInformation(
+                    "Skipped items are excluded from C# output but don't affect the rest of the generated API — except {Count} listed above that ARE declared and only degraded on one call path.",
+                    declaredButDegraded);
+            }
+            else
+            {
+                logger.LogInformation("Skipped items are excluded from C# output but don't affect the rest of the generated API.");
+            }
             logger.LogInformation("See binding-report.json for per-item skip reasons and workaround suggestions.");
         }
 

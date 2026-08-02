@@ -70,6 +70,43 @@ public sealed class BindingReport
     public List<string> ObjCPrefixBridges { get; } = new();
 
     /// <summary>
+    /// How many emitted types are "orphan shells": named by the signature of at least one
+    /// closure-tombstoned member (the SB0005 shape — the member exists but every call throws) and
+    /// carrying no callable member of their own. A type in this set is reachable in the binding only
+    /// as the parameter or return type of something a consumer cannot actually call, so it is surface
+    /// that costs a name and delivers nothing.
+    /// </summary>
+    /// <remarks>
+    /// This is an approximation of "emitted only because a tombstoned member referenced it", and
+    /// deliberately so: emission records no type-to-type provenance, so nothing can prove a type
+    /// would have been dropped had the tombstone not existed. What IS provable is the pair of facts
+    /// above — referenced-by-a-tombstone and zero-callable-surface — and their intersection is the
+    /// population the widening decision cares about. It over-counts a type that is genuinely useful
+    /// with no members of its own (a marker/tag type) and under-counts a type stranded by a member
+    /// that was skipped outright rather than tombstoned, since a skip records no signature.
+    /// <para>
+    /// Computed once emission has settled, and therefore BEFORE the wrapper-strip co-gating that
+    /// <c>BindingReportProjection</c> applies when rebuilding the report from the artifact manifest.
+    /// A member whose wrapper symbol is stripped after the fact still counts as callable surface
+    /// here, so a type stranded by that late removal is not in the set. The metric is deliberately
+    /// pre-co-gating: recomputing it there would need the per-session reference data the manifest
+    /// does not carry, and an approximation with a stated boundary beats one with a hidden one.
+    /// </para>
+    /// <para>
+    /// The resolved set rides the manifest (<c>GenerationSection.ClosureOrphanShellTypes</c>) and is
+    /// restored by the projection, so the number in a written <c>binding-report.json</c> is the one
+    /// the live session computed rather than a zero left behind by the rederivation.
+    /// </para>
+    /// </remarks>
+    public int ClosureOrphanShellTypeCount { get; set; }
+
+    /// <summary>
+    /// The module-qualified names behind <see cref="ClosureOrphanShellTypeCount"/>, sorted, so the
+    /// count is auditable rather than a bare number to be taken on faith.
+    /// </summary>
+    public List<string> ClosureOrphanShellTypes { get; } = new();
+
+    /// <summary>
     /// Summary of SwiftUI bridge coverage for this module.
     /// Null when the module has no SwiftUI views.
     /// </summary>
@@ -307,6 +344,39 @@ public enum SkipReason
     ParentTypeSuppressed,
 
     Unknown,
+
+    /// <summary>
+    /// A protocol conformance declared by a type was dropped from the emitted C# because the
+    /// conformance validator could not fully implement it: at least one requirement has no
+    /// representable C# member on the conforming type (unsupported signature, unsatisfied
+    /// constraint, missing extension default, …). The type itself still emits — only the
+    /// <c>: I{Protocol}</c> base-list entry and the members it would have forced are absent, so
+    /// consumers silently lose the ability to pass the type where the protocol is expected.
+    /// <para>
+    /// The row names the protocol, and <see cref="SkippedItem.Details"/> carries the FIRST unmet
+    /// requirement (member kind + printed name + why) — the validator short-circuits on the first
+    /// failure, so that one requirement is the whole actionable payload. Fixing it does not
+    /// guarantee the conformance emits; it guarantees the next blocker becomes visible.
+    /// </para>
+    /// </summary>
+    ConformanceNotFullyImplementable,
+
+    /// <summary>
+    /// A protocol requirement that IS declared on the emitted <c>I{Protocol}</c> interface, but whose
+    /// <c>{Protocol}Proxy</c> implementation cannot reach the Swift witness — the shape has no
+    /// dispatchable witness-table lowering (non-blittable parameter/return, closure parameter,
+    /// mixed generic/non-generic requirement set, subscripts generally). The proxy emits a stub that
+    /// throws, carrying the SB0003 <c>[Obsolete]</c> diagnostic.
+    /// <para>
+    /// This is a DEGRADATION, not an absence: the member is still declared and still callable on a
+    /// concrete Swift-backed instance — only calls through a protocol-typed value fail. The rows are
+    /// therefore appended to <see cref="BindingReport.SkippedItems"/> for countability WITHOUT being
+    /// counted in <see cref="BindingReport.SkippedMembers"/>, which continues to mean "no C#
+    /// declaration was written". <see cref="SkippedItem.Details"/> carries the per-site
+    /// non-dispatchability reason the emitter already computed for the diagnostic text.
+    /// </para>
+    /// </summary>
+    ProtocolWitnessNotDispatchable,
 }
 
 /// <summary>

@@ -173,7 +173,17 @@ public partial class ProtocolProxyEmitter
                 {
                     var mixedGenericKey = ProtocolMethodDisambiguator.EffectiveProjectedKey(method, protocolDecl, _typeDatabase, emittedCSharpPropertyNames);
                     if (emittedCSharpKeys.TryAdd(mixedGenericKey, method))
-                        EmitNotSupportedMethodStub(writer, method, protocolDecl, "this protocol mixes generic and non-generic requirements and cannot be dispatched through a protocol proxy", emittedCSharpPropertyNames);
+                    {
+                        const string mixedGenericReason =
+                            "this protocol mixes generic and non-generic requirements and cannot be dispatched through a protocol proxy";
+                        EmitNotSupportedMethodStub(writer, method, protocolDecl, mixedGenericReason, emittedCSharpPropertyNames);
+                        // Same degradation as the non-dispatchable path below: declared on the
+                        // interface, unusable through the proxy. Recorded here rather than inside
+                        // the stub emitter because the other caller's degradation is already
+                        // recorded upstream, where the closure-specific reason is in scope.
+                        ReportCollector.RecordMemberDegraded(
+                            method, protocolDecl, SkipReason.ProtocolWitnessNotDispatchable, mixedGenericReason);
+                    }
                 }
                 continue;
             }
@@ -1017,6 +1027,11 @@ public partial class ProtocolProxyEmitter
         if (isAnyAccessorNonDispatchable)
         {
             var propReason = dispatchEmitter.GetPropertyNonDispatchReason(property);
+            // The property is declared and still usable on a concrete instance — only the
+            // protocol-typed path is gone — so this is a degradation row, not a skip.
+            ReportCollector.RecordMemberDegraded(
+                property, protocolDecl, SkipReason.ProtocolWitnessNotDispatchable,
+                propReason ?? "property accessor is not dispatchable via witness table");
             var reasonSuffix = propReason != null
                 ? $": {propReason}. Use"
                 : ". Use";
@@ -1375,6 +1390,12 @@ public partial class ProtocolProxyEmitter
             NameProvider.GetCSharpParameterName(p)).ToList();
         var argsString = string.Join(", ", argNames);
 
+        // Unconditional: no subscript reverse-dispatches today, so every proxy subscript is a
+        // declared-but-degraded member.
+        ReportCollector.RecordMemberDegraded(
+            subscript, protocolDecl, SkipReason.ProtocolWitnessNotDispatchable,
+            "subscript dispatch through a witness table is not yet supported");
+
         writer.WriteLine("[Obsolete(\"This member cannot be called on protocol-typed values: subscript dispatch is not yet supported. Use a concrete type instead (SB0003).\",");
         writer.WriteLine("    DiagnosticId = \"SB0003\",");
         writer.WriteLine("    UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\")]");
@@ -1603,6 +1624,9 @@ public partial class ProtocolProxyEmitter
 
         if (!isDispatchable)
         {
+            ReportCollector.RecordMemberDegraded(
+                method, protocolDecl, SkipReason.ProtocolWitnessNotDispatchable,
+                dispatchReason ?? "method is not dispatchable via witness table");
             var reasonSuffix = dispatchReason != null
                 ? $": {dispatchReason}. Use"
                 : ". Use";

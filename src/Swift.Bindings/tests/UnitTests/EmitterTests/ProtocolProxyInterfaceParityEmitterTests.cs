@@ -4,6 +4,7 @@
 #nullable enable
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -51,6 +52,53 @@ public class ProtocolProxyInterfaceParityEmitterTests
         // Discrimination: `ping` DID survive into the interface, so the proxy still owes it a stub.
         // Without this a regression that suppressed EVERY stub would satisfy the assertions above.
         Assert.Contains("_csharpImpl.Ping(", csOutput);
+    }
+
+    [Fact]
+    public void MixedGenericProtocol_StubbedRequirement_IsReportedAsADegradedWitness()
+    {
+        // The stub carries an SB0003 [Obsolete] — the member is declared but every protocol-typed
+        // call throws. That is the same degradation the non-dispatchable path records, so it must
+        // produce the same report row; otherwise binding-report.json under-counts the exact surface
+        // the SB0003 diagnostic is warning about.
+        var protocolDecl = BuildMixedGenericProtocol("Resolver");
+
+        BindingReport report;
+        ReportCollector.Start(new ModuleDecl
+        {
+            Name = "TestModule",
+            Dependencies = new List<string>(),
+            Types = new List<TypeDecl>(),
+            Methods = new List<MethodDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        try
+        {
+            EmitModule("TestModule", protocolDecl);
+            var completed = ReportCollector.Complete();
+            Assert.NotNull(completed);
+            report = completed!;
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+
+        Assert.True(EveryProtocolEmitter.IsMixedGenericProtocol(protocolDecl),
+            "Test setup invalid: the protocol is not mixed-generic, so no member reaches the stub path.");
+
+        var degraded = report.SkippedItems
+            .Where(i => i.Reason == SkipReason.ProtocolWitnessNotDispatchable)
+            .ToList();
+
+        // `ping` survived into the interface and got a stub, so it owes a row.
+        Assert.Contains(degraded, i => i.Name == "ping");
+        // `probe` never reached the interface, so it got no stub and must not be reported as a
+        // degraded witness — it is a plain drop, already covered by its own gate.
+        Assert.DoesNotContain(degraded, i => i.Name == "probe");
     }
 
     // A proxy-eligible, non-class, non-Self protocol that is mixed-generic:

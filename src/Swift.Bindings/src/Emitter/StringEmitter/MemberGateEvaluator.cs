@@ -44,14 +44,26 @@ public sealed class GateResult
     public string? Details { get; init; }
     public SoftGateFlags SoftFlags { get; init; }
 
+    /// <summary>
+    /// Extra explanation for the report only, appended to <see cref="Details"/> by
+    /// <see cref="DetailsForReport"/>. Kept off <see cref="Details"/> because that string also feeds
+    /// the <c>// Unsupported:</c> comment in the generated C# on some paths — a diagnostics-only
+    /// enrichment must not move generated source.
+    /// </summary>
+    public string? ReportDetails { get; init; }
+
+    /// <summary>The explanation as <c>binding-report.json</c> should carry it.</summary>
+    public string? DetailsForReport =>
+        string.IsNullOrEmpty(ReportDetails) ? Details : Details + ReportDetails;
+
     public bool IsSkipped => Disposition == GateDisposition.Skip;
     public bool IsEmittable => Disposition != GateDisposition.Skip;
     public bool IsInterfaceOnly => Disposition == GateDisposition.InterfaceOnly;
 
     public static readonly GateResult Pass = new() { Disposition = GateDisposition.Emit };
 
-    public static GateResult Skipped(SkipReason reason, string details) =>
-        new() { Disposition = GateDisposition.Skip, Reason = reason, Details = details };
+    public static GateResult Skipped(SkipReason reason, string details, string? reportDetails = null) =>
+        new() { Disposition = GateDisposition.Skip, Reason = reason, Details = details, ReportDetails = reportDetails };
 
     public static GateResult SoftSkip(SoftGateFlags flags) =>
         new() { Disposition = GateDisposition.InterfaceOnly, SoftFlags = flags };
@@ -99,7 +111,10 @@ public class MemberGateEvaluator
             var projected = ProtocolSignatureHelper.ProjectTypeToCSharp(property.SwiftTypeSpec, _typeDatabase, protocolContext);
             if (ContainsAnyTypeGenericArg(projected) ||
                 TypeDatabaseExtensions.IsBareGenericTypeName(projected))
-                return GateResult.Skipped(SkipReason.AnyTypeFallback, "Property type contains AnyType as a generic type argument, which violates generic constraints.");
+                return GateResult.Skipped(SkipReason.AnyTypeFallback,
+                    "Property type contains AnyType as a generic type argument, which violates generic constraints.",
+                    UnresolvedAppleTypes.DescribeSuffix(
+                        new[] { property.SwiftTypeSpec }, _typeDatabase, (property.ModuleDecl ?? moduleDecl)?.Name));
         }
 
         // P5: Unsupported module references (types registered in type database are allowed through).
@@ -144,7 +159,9 @@ public class MemberGateEvaluator
                 existentialHandler.GetPublicExistentialType(innerProtocolList) == "object")
             {
                 return GateResult.Skipped(SkipReason.AnyTypeFallback,
-                    "Optional existential inner protocol not in TypeDatabase — falls back to object.");
+                    "Optional existential inner protocol not in TypeDatabase — falls back to object.",
+                    UnresolvedAppleTypes.DescribeSuffix(
+                        new[] { property.SwiftTypeSpec }, _typeDatabase, (property.ModuleDecl ?? moduleDecl)?.Name));
             }
         }
 
@@ -255,7 +272,10 @@ public class MemberGateEvaluator
 
         // AnyType as generic type argument (uses projection for TSelf-awareness)
         if (protocolContext != null && HasAnyTypeGenericArgInMethodSignature(method, protocolContext))
-            return GateResult.Skipped(SkipReason.AnyTypeFallback, "Method return type or parameter contains AnyType as a generic type argument.");
+            return GateResult.Skipped(SkipReason.AnyTypeFallback,
+                "Method return type or parameter contains AnyType as a generic type argument.",
+                UnresolvedAppleTypes.DescribeSuffix(
+                    method, _typeDatabase, (method.ModuleDecl ?? moduleDecl)?.Name));
 
         // Unsupported module references (types registered in type database are allowed through).
         // No scalar carve-out in protocol context — a projected requirement still dispatches
@@ -334,14 +354,20 @@ public class MemberGateEvaluator
             var returnTypeName = ProtocolSignatureHelper.ProjectTypeToCSharp(subscript.ReturnTypeSpec, _typeDatabase, protocolContext, isParameter: false);
             if (ContainsAnyTypeGenericArg(returnTypeName) ||
                 TypeDatabaseExtensions.IsBareGenericTypeName(returnTypeName))
-                return GateResult.Skipped(SkipReason.AnyTypeFallback, "Subscript type contains AnyType as a generic type argument, which violates generic constraints.");
+                return GateResult.Skipped(SkipReason.AnyTypeFallback,
+                    "Subscript type contains AnyType as a generic type argument, which violates generic constraints.",
+                    UnresolvedAppleTypes.DescribeSuffix(
+                        new[] { subscript.ReturnTypeSpec }, _typeDatabase, (subscript.ModuleDecl ?? moduleDecl)?.Name));
 
             foreach (var param in subscript.IndexParameters)
             {
                 var paramTypeName = ProtocolSignatureHelper.ProjectTypeToCSharp(param.SwiftTypeSpec, _typeDatabase, protocolContext, isParameter: true);
                 if (ContainsAnyTypeGenericArg(paramTypeName) ||
                     TypeDatabaseExtensions.IsBareGenericTypeName(paramTypeName))
-                    return GateResult.Skipped(SkipReason.AnyTypeFallback, "Subscript type contains AnyType as a generic type argument, which violates generic constraints.");
+                    return GateResult.Skipped(SkipReason.AnyTypeFallback,
+                        "Subscript type contains AnyType as a generic type argument, which violates generic constraints.",
+                        UnresolvedAppleTypes.DescribeSuffix(
+                            new[] { param.SwiftTypeSpec }, _typeDatabase, (subscript.ModuleDecl ?? moduleDecl)?.Name));
             }
         }
 

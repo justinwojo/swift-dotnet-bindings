@@ -1088,8 +1088,12 @@ internal static class ProtocolConformanceHelper
                 if (!canEmitEquatable)
                     continue;
 
-                if (!ShouldEmitConformanceInterface(conformance, moduleName, typeDatabase))
+                if (!ShouldEmitConformanceInterface(conformance, moduleName, typeDatabase, out var equatableGateDrop))
+                {
+                    if (equatableGateDrop != null)
+                        ReportCollector.RecordConformanceDropped(typeDecl, conformance.Protocol.ModuleQualifiedName, equatableGateDrop);
                     continue;
+                }
 
                 // Drop IEquatable<T> on generic types whose Equatable conformance can't be proven
                 // unconditional via the type's generic-parameter constraints. Swift expresses these
@@ -1099,7 +1103,15 @@ internal static class ProtocolConformanceHelper
                 // non-Equatable T. See EquatableConformanceHelper for the refinement-walk rule.
                 if (!EquatableConformanceHelper.IsConformanceUnconditionalForCSharp(
                         typeDecl, typeDatabase, "Swift.Equatable"))
+                {
+                    ReportCollector.RecordConformanceDropped(
+                        typeDecl, conformance.Protocol.ModuleQualifiedName,
+                        "the Swift conformance is conditional on a generic parameter being Equatable, "
+                        + "which the ABI JSON does not carry — emitting IEquatable<T> unconditionally "
+                        + "would bind a witness that traps when the consumer instantiates with a "
+                        + "non-Equatable argument");
                     continue;
+                }
 
                 var iface = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeNameWithGenerics, conformance.Protocol.Module, moduleName);
                 if (emitted.Add(iface))
@@ -1120,8 +1132,12 @@ internal static class ProtocolConformanceHelper
 
                 // All other protocol conformances: emit interface only when the stricter
                 // gate accepts it (CS0535 protection for cross-module member stubs).
-                if (!ShouldEmitConformanceInterface(conformance, moduleName, typeDatabase))
+                if (!ShouldEmitConformanceInterface(conformance, moduleName, typeDatabase, out var interfaceGateDrop))
+                {
+                    if (interfaceGateDrop != null)
+                        ReportCollector.RecordConformanceDropped(typeDecl, conformance.Protocol.ModuleQualifiedName, interfaceGateDrop);
                     continue;
+                }
 
                 // Validate protocol can be fully implemented if validator is provided
                 if (conformanceValidator != null)
@@ -1138,11 +1154,21 @@ internal static class ProtocolConformanceHelper
                         // If ALL non-static members reference unsupported modules (e.g., UIKit),
                         // the protocol handler won't emit the interface → CS0246.
                         if (!conformanceValidator.HasEmittableInterfaceMembers(protocolDecl))
+                        {
+                            ReportCollector.RecordConformanceDropped(
+                                typeDecl, conformance.Protocol.ModuleQualifiedName,
+                                "no interface is emitted for this protocol — none of its instance requirements " +
+                                "could be projected to C#, so declaring the conformance would not compile");
                             continue;
+                        }
 
                         // Same-module protocol - validate concrete type members
-                        if (!conformanceValidator.CanFullyImplementProtocol(typeDecl, protocolDecl))
+                        if (!conformanceValidator.CanFullyImplementProtocol(typeDecl, protocolDecl, out var conformanceGap))
+                        {
+                            ReportCollector.RecordConformanceDropped(
+                                typeDecl, conformance.Protocol.ModuleQualifiedName, DescribeConformanceGap(conformanceGap));
                             continue;  // Skip interface if we can't fully implement it
+                        }
 
                         // Self-requirement protocols produce generic interfaces (IFoo<TSelf>)
                         // The concrete type provides itself as the type argument
@@ -1217,9 +1243,19 @@ internal static class ProtocolConformanceHelper
                 // Don't double-emit if Self-requirement path already covered this conformance,
                 // or if HasEmittableInterfaceMembers/CanFullyImplementProtocol would reject it.
                 if (!conformanceValidator.HasEmittableInterfaceMembers(protocolDecl))
+                {
+                    ReportCollector.RecordConformanceDropped(
+                        typeDecl, conformance.Protocol.ModuleQualifiedName,
+                        "no interface is emitted for this protocol — none of its instance requirements " +
+                        "could be projected to C#, so declaring the conformance would not compile");
                     continue;
-                if (!conformanceValidator.CanFullyImplementProtocol(typeDecl, protocolDecl))
+                }
+                if (!conformanceValidator.CanFullyImplementProtocol(typeDecl, protocolDecl, out var conformanceGap))
+                {
+                    ReportCollector.RecordConformanceDropped(
+                        typeDecl, conformance.Protocol.ModuleQualifiedName, DescribeConformanceGap(conformanceGap));
                     continue;
+                }
 
                 if (!conformanceValidator.TryResolveClosedPatBindings(typeDecl, protocolDecl, out var bindings))
                     continue;
@@ -1594,8 +1630,17 @@ internal static class ProtocolConformanceHelper
     /// can land in <c>_protocolConformanceSymbols</c> without surfacing as a direct interface.
     /// Same-module protocols are validated by <c>CanFullyImplementProtocol</c> in the caller.
     /// </summary>
-    internal static bool ShouldEmitConformanceInterface(TypeConformance conformance, string moduleName, ITypeDatabase typeDatabase)
+    /// <param name="dropReason">
+    /// Set when the conformance is dropped for a reason worth reporting to a consumer, null otherwise
+    /// (including when the method returns true). Only the cross-module-with-members gate fills it: the
+    /// dictionary gate below rejects the marker protocols every type carries (Sendable, Copyable, …),
+    /// where "the interface was not emitted" is the design rather than a loss.
+    /// </param>
+    internal static bool ShouldEmitConformanceInterface(
+        TypeConformance conformance, string moduleName, ITypeDatabase typeDatabase, out string? dropReason)
     {
+        dropReason = null;
+
         if (!ShouldEmitConformanceDictionary(conformance, typeDatabase))
             return false;
 
@@ -1621,11 +1666,29 @@ internal static class ProtocolConformanceHelper
             // EmittedMemberCount == null means an older database without this field.
             // Conservatively skip to avoid potential CS0535.
             if (record.EmittedMemberCount == null || record.EmittedMemberCount > 0)
+            {
+                dropReason = record.EmittedMemberCount == null
+                    ? $"the protocol is declared in another module ({resolvedProtocolModule}) and this type " +
+                      "database does not record how many members it emits, so the conformance is dropped conservatively"
+                    : $"the protocol is declared in another module ({resolvedProtocolModule}) and has " +
+                      $"{record.EmittedMemberCount} emitted requirement(s) — the generator cannot produce the " +
+                      "cross-module member stubs the C# interface would demand";
                 return false;
+            }
         }
 
         return true;
     }
+
+    /// <summary>
+    /// Renders a conformance drop's cause for the report, naming the first unmet requirement when the
+    /// validator identified one. The fallback covers validator paths that reject without pinning a
+    /// single requirement (a cycle guard, or an inherited protocol that failed without a gap).
+    /// </summary>
+    private static string DescribeConformanceGap(ConformanceGap? gap) =>
+        gap is { } unmet
+            ? $"first unmet requirement: {unmet}"
+            : "the conforming type cannot fully implement this protocol's requirements in C#";
 }
 
     /// <summary>

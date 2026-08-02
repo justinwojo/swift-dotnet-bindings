@@ -58,6 +58,16 @@ public sealed class SkipTriageSummary
     /// <see cref="BindingReport.SkippedItems"/>.
     /// </summary>
     public List<SkipTriageItem> DegradedConsumeItems { get; } = new();
+
+    /// <summary>
+    /// Count of rows that describe a member the generator DID emit, degraded on one call path rather
+    /// than absent (see <see cref="SkipDispositionClassifier.IsDeclaredButDegraded"/>). They are part
+    /// of <see cref="Total"/> and <see cref="ByReason"/> — that is the point, they are meant to be
+    /// countable — but deliberately excluded from <see cref="PublicSurfaceLost"/>, because the
+    /// declaration a consumer sees is still there. This count is what makes that subtraction visible
+    /// instead of an unexplained gap between the two figures.
+    /// </summary>
+    public int DeclaredButDegradedCount { get; set; }
 }
 
 /// <summary>
@@ -87,12 +97,21 @@ public static class SkipTriageBuilder
         var byDisposition = new Dictionary<SkipDisposition, int>();
         var byReason = new Dictionary<SkipReason, int>();
         var summary = new SkipTriageSummary { Total = items.Count };
+        var declaredButDegraded = 0;
 
         foreach (var item in items)
         {
             var disposition = SkipDispositionClassifier.Classify(item);
             byDisposition[disposition] = byDisposition.GetValueOrDefault(disposition) + 1;
             byReason[item.Reason] = byReason.GetValueOrDefault(item.Reason) + 1;
+
+            // Counted only when no other exclusion already covers this row, so the three subtractions
+            // from PublicSurfaceLost below stay disjoint and cannot drive the figure negative.
+            if (SkipDispositionClassifier.IsDeclaredButDegraded(item.Reason) &&
+                disposition is not (SkipDisposition.ExpectedNonPublic or SkipDisposition.Recovered))
+            {
+                declaredButDegraded++;
+            }
 
             if (disposition == SkipDisposition.Review)
             {
@@ -139,12 +158,15 @@ public static class SkipTriageBuilder
 
         summary.ReviewCount = byDisposition.GetValueOrDefault(SkipDisposition.Review);
         summary.DegradedConsumeCount = summary.DegradedConsumeItems.Count;
+        summary.DeclaredButDegradedCount = declaredButDegraded;
         // Public surface a consumer could theoretically have seen but didn't get: everything except
-        // never-public members AND CSM-recovered rows (whose typed surface IS callable — the skip is
-        // only the open-generic base member being accounted for).
+        // never-public members, CSM-recovered rows (whose typed surface IS callable — the skip is
+        // only the open-generic base member being accounted for), and declared-but-degraded rows
+        // (whose C# declaration was written — only one call path through it is limited).
         summary.PublicSurfaceLost = summary.Total
             - byDisposition.GetValueOrDefault(SkipDisposition.ExpectedNonPublic)
-            - byDisposition.GetValueOrDefault(SkipDisposition.Recovered);
+            - byDisposition.GetValueOrDefault(SkipDisposition.Recovered)
+            - declaredButDegraded;
         return summary;
     }
 }

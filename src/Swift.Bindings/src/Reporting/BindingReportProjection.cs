@@ -51,6 +51,12 @@ public static class BindingReportProjection
             // F10 Stage 20: round-trip the ObjC-prefix bridge guesses so binding-report.json carries
             // the heuristic observability channel (same projection contract as the two lists above).
             report.ObjCPrefixBridges.AddRange(g.ObjCPrefixBridges);
+            // The orphan-shell set is computed once emission has settled and cannot be rederived
+            // from the manifest's other sections, so it has to be carried across verbatim. The count
+            // is derived from the restored list rather than round-tripped separately, which keeps
+            // the two from drifting apart on a partial manifest.
+            report.ClosureOrphanShellTypes.AddRange(g.ClosureOrphanShellTypes);
+            report.ClosureOrphanShellTypeCount = report.ClosureOrphanShellTypes.Count;
         }
 
         // Proxy-suppression and wrapper-symbol-contract co-gating are no longer post-pass

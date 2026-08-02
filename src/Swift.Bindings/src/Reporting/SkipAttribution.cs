@@ -261,6 +261,15 @@ public static class SkipCauseClassifier
         Add(SkipReason.EveryProtocolConformanceSkipped, CauseOwner.Generator, RecoveryStage.Plan, AttributionConfidence.Low);
         Add(SkipReason.SuppressedProxyMemberDegraded, CauseOwner.Generator, RecoveryStage.Emit, AttributionConfidence.Low);
 
+        // The conformance validator decides at planning time, and the row names the exact requirement
+        // that failed, so both the owner and the stage are known rather than inferred. Whether that
+        // requirement is in turn the library's fault is a second question the requirement's own skip
+        // row answers — this row only says "the generator declined the conformance here".
+        Add(SkipReason.ConformanceNotFullyImplementable, CauseOwner.Generator, RecoveryStage.Plan, AttributionConfidence.High);
+
+        // Decided while emitting the proxy, from a dispatch classification the emitter computed itself.
+        Add(SkipReason.ProtocolWitnessNotDispatchable, CauseOwner.Generator, RecoveryStage.Emit, AttributionConfidence.High);
+
         // ── Library API surface — the author could change this, we cannot ────────────────────────
         Add(SkipReason.UnderscorePrefixInternal, CauseOwner.LibraryAuthor, RecoveryStage.Parse, AttributionConfidence.High);
         Add(SkipReason.ModuleInternal, CauseOwner.LibraryAuthor, RecoveryStage.Parse, AttributionConfidence.High);

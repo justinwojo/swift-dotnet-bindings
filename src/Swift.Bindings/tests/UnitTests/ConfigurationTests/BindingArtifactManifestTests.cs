@@ -382,6 +382,43 @@ public class BindingArtifactManifestTests
     }
 
     [Fact]
+    public void GenerationSection_And_Projection_RoundTripClosureOrphanShellTypes()
+    {
+        // The orphan-shell set is computed at the end of the live session and cannot be rederived
+        // from the manifest's other sections, so it rides the same report -> manifest -> projected
+        // report path as the lists above. Without the round-trip the metric is always zero in the
+        // written binding-report.json no matter what the run actually found.
+        var report = NewReport();
+        report.ClosureOrphanShellTypes.Add("Demo.OnlyInATombstonedSignature");
+        report.ClosureOrphanShellTypes.Add("Demo.AlsoOrphaned");
+        report.ClosureOrphanShellTypeCount = report.ClosureOrphanShellTypes.Count;
+
+        var section = GenerationSection.From(report);
+        Assert.Equal(report.ClosureOrphanShellTypes, section.ClosureOrphanShellTypes);
+
+        var manifest = new BindingArtifactManifest { Module = "Demo", Generation = section };
+        var settings = new JsonSerializerSettings
+        {
+            Converters = new List<JsonConverter> { new StringEnumConverter() },
+        };
+        var json = JsonConvert.SerializeObject(manifest, settings);
+        var parsed = JsonConvert.DeserializeObject<BindingArtifactManifest>(json, settings)!;
+
+        var projected = BindingReportProjection.Project(parsed);
+        Assert.Equal(
+            new[] { "Demo.OnlyInATombstonedSignature", "Demo.AlsoOrphaned" },
+            projected.ClosureOrphanShellTypes);
+        Assert.Equal(2, projected.ClosureOrphanShellTypeCount);
+
+        // Legacy: a manifest written before the field existed projects to an empty list and zero,
+        // not a null list or a stale count.
+        var emptyProjected = BindingReportProjection.Project(
+            new BindingArtifactManifest { Module = "Demo", Generation = GenerationSection.From(NewReport()) });
+        Assert.Empty(emptyProjected.ClosureOrphanShellTypes);
+        Assert.Equal(0, emptyProjected.ClosureOrphanShellTypeCount);
+    }
+
+    [Fact]
     public void ObjCSection_And_Projection_FoldMixedObjCSkipsIntoSkipTriage()
     {
         // A1: a mixed (ObjC+Swift) binding writes the Swift surface through Generation and attaches the

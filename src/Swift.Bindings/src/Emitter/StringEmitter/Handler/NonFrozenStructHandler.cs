@@ -216,7 +216,13 @@ namespace BindingsGeneration
                     var skipReason = MemberEmissionValidator.CanEmitProperty(propertyDecl, env.TypeDatabase, out var skipDetails, out _);
                     if (skipReason != null)
                     {
-                        ReportCollector.RecordMemberSkipped(propertyDecl, skipReason.Value, skipDetails ?? "");
+                        // The suffix goes to the report only: the `// Unsupported:` comment below
+                        // carries the same string into generated source, which is a compared
+                        // artifact, so enriching it there would move the emitted C#.
+                        ReportCollector.RecordMemberSkipped(
+                            propertyDecl, skipReason.Value,
+                            (skipDetails ?? "") + UnresolvedAppleTypes.DescribeSuffix(
+                                new[] { propertyDecl.SwiftTypeSpec }, env.TypeDatabase, propertyDecl.ModuleDecl?.Name));
                         // Emit a `// Unsupported:` tombstone so consumers can grep the generated file
                         // and see *why* the property is missing. Mirrors the SkipProperty pattern in
                         // PropertyHandler.Emit — the outer gate here pre-empts that path, so without

@@ -143,6 +143,14 @@ public sealed class GenerationSection
     /// </summary>
     public List<string> ObjCPrefixBridges { get; init; } = new();
 
+    /// <summary>
+    /// Types the binding emits with no callable member of their own, present only because a
+    /// closure-tombstoned member names them. Round-tripped for the same reason as the lists above:
+    /// <c>binding-report.json</c> is rederived from this manifest, so a count computed only in the
+    /// live session reads as zero in the artifact anyone actually opens.
+    /// </summary>
+    public List<string> ClosureOrphanShellTypes { get; init; } = new();
+
     public static GenerationSection From(BindingReport report, ParseReconciliation? parseReconciliation = null)
     {
         ArgumentNullException.ThrowIfNull(report);
@@ -170,6 +178,7 @@ public sealed class GenerationSection
         section.UnsupportedCommentDropDetails.AddRange(report.UnsupportedCommentDropDetails);
         section.ObjectDegradations.AddRange(report.ObjectDegradations);
         section.ObjCPrefixBridges.AddRange(report.ObjCPrefixBridges);
+        section.ClosureOrphanShellTypes.AddRange(report.ClosureOrphanShellTypes);
         return section;
     }
 }

@@ -83,17 +83,19 @@ public static class SkipAttributionLinker
     /// Whether a row represents an actual loss of surface.
     /// </summary>
     /// <remarks>
-    /// Two shapes are recorded as skips without anything being lost. A row whose
-    /// <see cref="SkippedItem.RecoveredBy"/> is populated was closed by another mechanism, and an
+    /// Three shapes are recorded as skips without anything being lost. A row whose
+    /// <see cref="SkippedItem.RecoveredBy"/> is populated was closed by another mechanism; an
     /// <see cref="SkipReason.OwnedByAppleSupplement"/> row is deliberately left to the Apple supplement
-    /// package — the surface exists either way, so counting them as degradations would report
-    /// already-provided API as missing.
+    /// package; and a declared-but-degraded row describes a member the generator DID emit, limited on
+    /// one call path — the surface exists in all three cases, so counting them as degradations would
+    /// report already-provided API as missing.
     /// </remarks>
     public static bool IsLoss(SkippedItem item)
     {
         ArgumentNullException.ThrowIfNull(item);
         return item.RecoveredBy is not { Count: > 0 }
-            && item.Reason != SkipReason.OwnedByAppleSupplement;
+            && item.Reason != SkipReason.OwnedByAppleSupplement
+            && !SkipDispositionClassifier.IsDeclaredButDegraded(item.Reason);
     }
 
     private static Row? ResolveCascadeParent(SkippedItem item, Dictionary<string, Row> byDecl)

@@ -89,14 +89,17 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // otherwise be unregistered → stripped → CS0103. See SwiftErrorMintEmitter.EmitForPropertyIfNeeded.
         SwiftErrorMintEmitter.EmitForPropertyIfNeeded(swiftWriter, propertyDecl, context.GetEmissionContext());
 
-        void SkipProperty(SkipReason reason, string details)
+        // reportDetailSuffix is appended to the report row ONLY. The same details string feeds the
+        // `// Unsupported:` comment in the generated C#, and that comment's text is a compared
+        // artifact — enriching it there would move generated source for a diagnostics-only change.
+        void SkipProperty(SkipReason reason, string details, string reportDetailSuffix = "")
         {
             // Record for binding-report.json AND emit an `// Unsupported:` tombstone in the
             // generated C# so consumers can `grep` to see *why* the property is missing.
             // Mirrors MethodHandler's skip pattern (UnsupportedCommentEmitter.EmitMemberSkipped).
             // Does NOT touch propertyDecl.WasEmitted — that flag is only set after successful
             // accessor emission downstream (line ~808 sync, ~1308 async).
-            ReportCollector.RecordMemberSkipped(propertyDecl, reason, details);
+            ReportCollector.RecordMemberSkipped(propertyDecl, reason, details + reportDetailSuffix);
             UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, propertyDecl.Name, BindingItemKind.Property, reason, details, containingDecl: propertyDecl.ParentDecl);
         }
 
@@ -400,7 +403,11 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         if (csTypeName.Contains("AnyType"))
         {
             _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} with unsupported AnyType in type {csTypeName}.");
-            SkipProperty(SkipReason.AnyTypeFallback, $"Property type resolved to AnyType ({csTypeName}).");
+            SkipProperty(
+                SkipReason.AnyTypeFallback,
+                $"Property type resolved to AnyType ({csTypeName}).",
+                UnresolvedAppleTypes.DescribeSuffix(
+                    new[] { propertyDecl.SwiftTypeSpec }, propertyEnv.TypeDatabase, propertyDecl.ModuleDecl?.Name));
             return;
         }
 

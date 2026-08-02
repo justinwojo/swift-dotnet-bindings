@@ -213,14 +213,49 @@ public class ProtocolConformanceValidator
     public bool CanFullyImplementProtocol(
         TypeDecl concreteType,
         ProtocolDecl protocolDecl,
+        HashSet<string>? visited = null) =>
+        Validate(concreteType, protocolDecl, visited).Satisfied;
+
+    /// <summary>
+    /// Same decision as <see cref="CanFullyImplementProtocol(TypeDecl, ProtocolDecl, HashSet{string})"/>,
+    /// additionally reporting WHICH requirement blocked it. The validator short-circuits on the first
+    /// unsatisfiable requirement, so <paramref name="gap"/> names that one — fixing it reveals the next
+    /// blocker rather than guaranteeing the conformance emits.
+    /// </summary>
+    /// <remarks>
+    /// Kept as a separate entry point, and kept side-effect-free, on purpose: callers that ask the
+    /// question speculatively (name precomputation, lockstep re-checks) must not be able to put a row
+    /// in the report. Recording belongs to the one caller that acts on the answer by actually dropping
+    /// the conformance from the emitted base list.
+    /// </remarks>
+    public bool CanFullyImplementProtocol(
+        TypeDecl concreteType,
+        ProtocolDecl protocolDecl,
+        out ConformanceGap? gap,
         HashSet<string>? visited = null)
     {
+        var result = Validate(concreteType, protocolDecl, visited);
+        gap = result.Gap;
+        return result.Satisfied;
+    }
+
+    private ConformanceValidation Validate(
+        TypeDecl concreteType,
+        ProtocolDecl protocolDecl,
+        HashSet<string>? visited)
+    {
+        // Records the requirement that blocked the conformance as the validator bails out of it. Every
+        // `return false` in this method goes through here so a drop can never become silent again by
+        // someone adding one more early exit.
+        static ConformanceValidation Fail(BindingItemKind kind, string requirementName, string explanation) =>
+            new(false, new ConformanceGap(kind, requirementName, explanation));
+
         // Cycle protection with module-qualified name
         visited ??= new HashSet<string>();
         var qualifiedName = protocolDecl.SwiftTypeName?.ModuleQualifiedName
                          ?? $"{protocolDecl.ModuleDecl?.Name ?? "Unknown"}.{protocolDecl.Name}";
         if (!visited.Add(qualifiedName))
-            return true;
+            return ConformanceValidation.Ok;
 
         // Resolve the concrete type's C# name for Self-typed position matching.
         // Always resolve — protocols may use Self (τ_0_0) in method signatures without
@@ -296,7 +331,7 @@ public class ProtocolConformanceValidator
                         conformanceNames, protoRequiresSetter))
                         continue; // Satisfied by extension default
                 }
-                return false;  // CS0535: member not found
+                return Fail(BindingItemKind.Property, protoProperty.Name, "no matching property on the conforming type and no protocol-extension default provides one");
             }
 
             // Validate accessor contract: protocol { get set } requires concrete { get set }
@@ -305,11 +340,11 @@ public class ProtocolConformanceValidator
             var concreteHasGetter = concreteProperty.Accessors.OfType<GetAccessorDecl>().Any();
             var concreteHasSetter = concreteProperty.Accessors.OfType<SetAccessorDecl>().Any();
             if ((protoHasGetter && !concreteHasGetter) || (protoHasSetter && !concreteHasSetter))
-                return false;  // CS0535: missing accessor
+                return Fail(BindingItemKind.Property, protoProperty.Name, "the conforming type's property is missing a required accessor");
             // Setter-only closure: PropertyHandler strips getter from closure properties where
             // CanInvokeFromCSharp fails. If protocol requires getter, conformance can't be satisfied.
             if (protoHasGetter && MemberEmissionValidator.IsSetterOnlyClosureProperty(concreteProperty, _typeDatabase))
-                return false;  // CS0535: getter stripped by setter-only closure logic
+                return Fail(BindingItemKind.Property, protoProperty.Name, "the conforming type's property is closure-typed and emits setter-only, so the required getter is absent");
 
             // Validate CONCRETE property can be emitted
             var skipReason = MemberEmissionValidator.CanEmitProperty(
@@ -328,7 +363,7 @@ public class ProtocolConformanceValidator
                         requiresSetter: protoRequiresSetter))
                         continue; // Satisfied by DIM in interface
                 }
-                return false;  // CS0535: member will be skipped
+                return Fail(BindingItemKind.Property, protoProperty.Name, $"the conforming type's property cannot be emitted ({skipReason}) and no default interface member covers it");
             }
 
             // Agreement gate: ValidatePropertyEmission carries constrained-extension and dependent-
@@ -346,13 +381,13 @@ public class ProtocolConformanceValidator
                         requiresSetter: protoRequiresSetter))
                         continue; // Satisfied by DIM in interface
                 }
-                return false;  // CS0535: accessor will be skipped at emission
+                return Fail(BindingItemKind.Property, protoProperty.Name, "the conforming type's property accessor is skipped at emission and no default interface member covers it");
             }
 
             // Check type compatibility (CS0738)
             var interfaceType = GetInterfacePropertyType(protoProperty, protocolDecl, boundGenericsHandler);
             if (!AreTypesCompatible(interfaceType, concreteTypeProjected, conformingTypeName))
-                return false;  // CS0738: types don't match
+                return Fail(BindingItemKind.Property, protoProperty.Name, $"property type mismatch: the interface declares '{interfaceType}', the conforming type emits '{concreteTypeProjected}'");
         }
 
         // Static properties: lenient validation. If the concrete type HAS the static member,
@@ -379,23 +414,23 @@ public class ProtocolConformanceValidator
             var concreteHasGetter = concreteProperty.Accessors.OfType<GetAccessorDecl>().Any();
             var concreteHasSetter = concreteProperty.Accessors.OfType<SetAccessorDecl>().Any();
             if ((protoHasGetter && !concreteHasGetter) || (protoHasSetter && !concreteHasSetter))
-                return false;  // CS0535: missing accessor
+                return Fail(BindingItemKind.Property, protoProperty.Name, "the conforming type's static property is missing a required accessor");
             // Setter-only closure: PropertyHandler strips getter from closure properties where
             // CanInvokeFromCSharp fails. If protocol requires getter, conformance can't be satisfied.
             if (protoHasGetter && MemberEmissionValidator.IsSetterOnlyClosureProperty(concreteProperty, _typeDatabase))
-                return false;  // CS0535: getter stripped by setter-only closure logic
+                return Fail(BindingItemKind.Property, protoProperty.Name, "the conforming type's static property is closure-typed and emits setter-only, so the required getter is absent");
 
             // Validate CONCRETE property can be emitted
             var skipReason = MemberEmissionValidator.CanEmitProperty(
                 concreteProperty, _typeDatabase, out _, out var concreteTypeProjected);
             if (skipReason != null)
-                return false; // CS0535: member present but can't be emitted
+                return Fail(BindingItemKind.Property, protoProperty.Name, $"the conforming type's static property cannot be emitted ({skipReason})");
 
             // Agreement gate (same rationale as the instance-property path). Static members have no
             // DIM fallback here, mirroring the CanEmitProperty branch directly above.
             var staticPropertyEmission = emissionPipeline.ValidatePropertyEmission(concreteProperty, emissionValidationCtx);
             if (!staticPropertyEmission.ShouldEmit && !staticPropertyEmission.IsSynthesized)
-                return false; // CS0535: accessor will be skipped at emission
+                return Fail(BindingItemKind.Property, protoProperty.Name, "the conforming type's static property accessor is skipped at emission");
 
             // Check type compatibility (CS0738)
             var staticInterfaceType = GetInterfacePropertyType(protoProperty, protocolDecl, boundGenericsHandler);
@@ -412,7 +447,7 @@ public class ProtocolConformanceValidator
                 var mismatchIsUnspellableSelf = !protocolDecl.HasSelfRequirement
                     && EveryProtocolEmitter.ContainsSelfTypeParam(protoProperty.SwiftTypeSpec);
                 if (!mismatchIsUnspellableSelf)
-                    return false; // CS0738: types don't match
+                    return Fail(BindingItemKind.Property, protoProperty.Name, $"static property type mismatch: the interface declares '{staticInterfaceType}', the conforming type emits '{concreteTypeProjected}'");
             }
         }
 
@@ -431,7 +466,7 @@ public class ProtocolConformanceValidator
             // Find matching subscript in CONCRETE TYPE
             var concreteSubscript = FindMatchingSubscript(concreteType, protoSubscript, protocolDecl);
             if (concreteSubscript == null)
-                return false;
+                return Fail(BindingItemKind.Subscript, subscriptKey, "no matching subscript on the conforming type");
 
             // Validate accessor contract for subscript
             var protoHasGetter = protoSubscript.HasGetter;
@@ -439,17 +474,17 @@ public class ProtocolConformanceValidator
             var concreteHasGetter = concreteSubscript.HasGetter;
             var concreteHasSetter = concreteSubscript.HasSetter;
             if ((protoHasGetter && !concreteHasGetter) || (protoHasSetter && !concreteHasSetter))
-                return false;
+                return Fail(BindingItemKind.Subscript, subscriptKey, "the conforming type's subscript is missing a required accessor");
 
             var skipReason = MemberEmissionValidator.CanEmitSubscript(
                 concreteSubscript, _typeDatabase, out _, out var concreteReturnType);
             if (skipReason != null)
-                return false;
+                return Fail(BindingItemKind.Subscript, subscriptKey, $"the conforming type's subscript cannot be emitted ({skipReason})");
 
             // Check return type compatibility (CS0738)
             var interfaceReturnType = GetInterfaceSubscriptReturnType(protoSubscript, protocolDecl, boundGenericsHandler);
             if (!AreTypesCompatible(interfaceReturnType, concreteReturnType, conformingTypeName))
-                return false;
+                return Fail(BindingItemKind.Subscript, subscriptKey, $"subscript return type mismatch: the interface declares '{interfaceReturnType}', the conforming type emits '{concreteReturnType}'");
         }
 
         // For each INTERFACE METHOD requirement (instance only):
@@ -488,7 +523,7 @@ public class ProtocolConformanceValidator
                     if (_extensionDefaultsIndex.HasMethodDefault(qualifiedName, extMethodKey, conformanceNames))
                         continue; // Satisfied by extension default
                 }
-                return false;
+                return Fail(BindingItemKind.Method, protoMethod.Name, "no matching method on the conforming type and no protocol-extension default provides one");
             }
 
             var skipReason = MemberEmissionValidator.CanEmitMethod(
@@ -503,7 +538,7 @@ public class ProtocolConformanceValidator
                 if (_extensionDefaultsIndex != null &&
                     _extensionDefaultsIndex.HasMethodDefault(qualifiedName, ProtocolExtensionEmitter.BuildMethodKey(protoMethod)))
                     continue; // Satisfied by DIM in interface
-                return false;
+                return Fail(BindingItemKind.Method, protoMethod.Name, $"the conforming type's method cannot be emitted ({skipReason}) and no default interface member covers it");
             }
 
             // Agreement gate: the witness passes the lightweight CanEmitMethod, but the real emitter
@@ -523,7 +558,7 @@ public class ProtocolConformanceValidator
                 if (_extensionDefaultsIndex != null &&
                     _extensionDefaultsIndex.HasMethodDefault(qualifiedName, ProtocolExtensionEmitter.BuildMethodKey(protoMethod)))
                     continue; // Satisfied by DIM in interface
-                return false;
+                return Fail(BindingItemKind.Method, protoMethod.Name, "the conforming type's method is skipped or routed to a sibling extension class at emission, and no default interface member covers it");
             }
 
             // Handler-layer agreement: the async closure bridge gate deliberately does NOT live in
@@ -538,7 +573,7 @@ public class ProtocolConformanceValidator
                 if (_extensionDefaultsIndex != null &&
                     _extensionDefaultsIndex.HasMethodDefault(qualifiedName, ProtocolExtensionEmitter.BuildMethodKey(protoMethod)))
                     continue; // Satisfied by DIM in interface
-                return false;
+                return Fail(BindingItemKind.Method, protoMethod.Name, "the conforming type's method takes an async closure with no Swift bridge adapter, and no default interface member covers it");
             }
 
             // Check C# name parity: the concrete type's method is emitted via GetPublicMethodName
@@ -583,19 +618,19 @@ public class ProtocolConformanceValidator
                 isMutating: protoMethod.IsMutating);
 
             if (concreteEmittedName != interfaceMethodName)
-                return false;  // CS0535: method names diverge due to collision resolution
+                return Fail(BindingItemKind.Method, protoMethod.Name, $"emitted-name divergence: the interface declares '{interfaceMethodName}' but the conforming type emits '{concreteEmittedName}'");
 
             // Check return type compatibility (CS0738)
             var interfaceReturnType = GetInterfaceMethodReturnType(protoMethod, protocolDecl, boundGenericsHandler);
             if (!AreTypesCompatible(interfaceReturnType, concreteReturnType, conformingTypeName))
-                return false;
+                return Fail(BindingItemKind.Method, protoMethod.Name, $"return type mismatch: the interface declares '{interfaceReturnType}', the conforming type emits '{concreteReturnType}'");
 
             // Check parameter type compatibility (CS0535/CS0738)
             // The interface emits projected types for protocol params (e.g., τ_0_0 → AnyType),
             // but the concrete type uses its actual types (e.g., AnyDifferentiable).
             // If these don't match, C# will reject the conformance.
             if (!AreMethodParamsCompatible(protoMethod, concreteMethod, protocolDecl, conformingTypeName))
-                return false;
+                return Fail(BindingItemKind.Method, protoMethod.Name, "parameter type mismatch between the interface requirement and the conforming type's method");
         }
 
         // Static methods: lenient validation. If the concrete type HAS a matching static method,
@@ -617,13 +652,13 @@ public class ProtocolConformanceValidator
             var skipReason = MemberEmissionValidator.CanEmitMethod(
                 concreteMethod, _typeDatabase, out _, out var concreteReturnType);
             if (skipReason != null)
-                return false;
+                return Fail(BindingItemKind.Method, protoMethod.Name, $"the conforming type's static method cannot be emitted ({skipReason})");
 
             // Agreement gate (same rationale as the instance-method path): drop the conformance if
             // the emitter would Skip or route the witness elsewhere.
             var staticMethodEmission = emissionPipeline.ValidateMethodEmission(concreteMethod, emissionValidationCtx);
             if (!staticMethodEmission.ShouldEmit && !staticMethodEmission.IsSynthesized)
-                return false;
+                return Fail(BindingItemKind.Method, protoMethod.Name, "the conforming type's static method is skipped or routed to a sibling extension class at emission");
 
             // Handler-layer agreement — see the instance-method path for the rationale, including
             // its DIM rescue: a requirement the interface satisfies with a default interface member
@@ -637,7 +672,7 @@ public class ProtocolConformanceValidator
                 if (_extensionDefaultsIndex != null &&
                     _extensionDefaultsIndex.HasMethodDefault(qualifiedName, ProtocolExtensionEmitter.BuildMethodKey(protoMethod)))
                     continue; // Satisfied by DIM in interface
-                return false;
+                return Fail(BindingItemKind.Method, protoMethod.Name, "the conforming type's static method takes an async closure with no Swift bridge adapter, and no default interface member covers it");
             }
 
             // Check C# name parity (same logic as instance methods)
@@ -692,12 +727,12 @@ public class ProtocolConformanceValidator
             var interfaceReturnType = GetInterfaceMethodReturnType(protoMethod, protocolDecl, boundGenericsHandler);
             if (!AreTypesCompatible(interfaceReturnType, concreteReturnType, conformingTypeName)
                 && !staticMismatchIsUnspellableSelf)
-                return false;
+                return Fail(BindingItemKind.Method, protoMethod.Name, $"static return type mismatch: the interface declares '{interfaceReturnType}', the conforming type emits '{concreteReturnType}'");
 
             // Check parameter type compatibility (CS0535/CS0738)
             if (!AreMethodParamsCompatible(protoMethod, concreteMethod, protocolDecl, conformingTypeName)
                 && !staticMismatchIsUnspellableSelf)
-                return false;
+                return Fail(BindingItemKind.Method, protoMethod.Name, "static parameter type mismatch between the interface requirement and the conforming type's method");
         }
 
         // Recursively validate inherited protocol requirements.
@@ -738,11 +773,29 @@ public class ProtocolConformanceValidator
                 _emissionContext.IsUnderscoreSuppressed(swiftTypeName.ToString()))
                 continue;
 
-            if (!CanFullyImplementProtocol(concreteType, inheritedDecl, visited))
-                return false;
+            var inherited = Validate(concreteType, inheritedDecl, visited);
+            if (!inherited.Satisfied)
+            {
+                // Carry the inherited protocol's own gap up rather than restating it as "an inherited
+                // protocol failed" — the actionable requirement is the one deep in the chain, and the
+                // recorded row already names the protocol the conformance was declared on.
+                return inherited.Gap is { } inheritedGap
+                    ? new ConformanceValidation(false, inheritedGap)
+                    : Fail(BindingItemKind.Type, inheritedDecl.Name, "inherited protocol requirements are not fully implementable");
+            }
         }
 
-        return true;
+        return ConformanceValidation.Ok;
+    }
+
+    /// <summary>
+    /// The outcome of a conformance check: whether the type can fully implement the protocol and, when
+    /// it cannot, the first requirement that blocked it.
+    /// </summary>
+    private readonly record struct ConformanceValidation(bool Satisfied, ConformanceGap? Gap)
+    {
+        /// <summary>The conformance is fully implementable — no gap.</summary>
+        public static ConformanceValidation Ok => new(true, null);
     }
 
     /// <summary>
@@ -1240,4 +1293,24 @@ public class ProtocolConformanceValidator
         var result = evaluator.EvaluateSubscript(subscript, _moduleDecl, protocolDecl);
         return result.IsSkipped;
     }
+}
+
+/// <summary>
+/// The single protocol requirement that blocked a conformance, as reported by
+/// <see cref="ProtocolConformanceValidator.CanFullyImplementProtocol(TypeDecl, ProtocolDecl, out ConformanceGap?, HashSet{string})"/>.
+/// The validator stops at the first unsatisfiable requirement, so this is the first blocker, not
+/// necessarily the only one.
+/// </summary>
+/// <param name="Kind">Whether the blocking requirement is a property, subscript, method, or (for an
+/// inherited protocol that could not be resolved at all) the protocol type itself.</param>
+/// <param name="RequirementName">The requirement's Swift name — for subscripts, the signature key,
+/// since every subscript shares the name <c>subscript</c>.</param>
+/// <param name="Explanation">Why the conforming type cannot satisfy it, in consumer terms.</param>
+public readonly record struct ConformanceGap(BindingItemKind Kind, string RequirementName, string Explanation)
+{
+    /// <summary>
+    /// One-line rendering for a report detail string: kind, requirement name, and cause.
+    /// </summary>
+    public override string ToString() =>
+        $"{Kind.ToString().ToLowerInvariant()} '{RequirementName}' — {Explanation}";
 }

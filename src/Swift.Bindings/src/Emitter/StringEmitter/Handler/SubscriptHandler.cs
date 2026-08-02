@@ -101,11 +101,17 @@ namespace BindingsGeneration
                 if (returnTypeName.Contains("AnyType"))
                 {
                     ReportCollector.RecordMemberSkipped(subscriptDecl,
-                        SkipReason.AnyTypeFallback, "Subscript return type resolved to AnyType.");
+                        SkipReason.AnyTypeFallback,
+                        "Subscript return type resolved to AnyType."
+                            + UnresolvedAppleTypes.DescribeSuffix(
+                                new[] { subscriptDecl.ReturnTypeSpec }, typeDatabase, currentModuleName));
                     continue;
                 }
 
                 bool hasAnyTypeParam = false;
+                // The spec of the parameter that forced the AnyType skip — kept because the loop
+                // breaks on the first offender and the report detail names that specific type.
+                TypeSpec? anyTypeParamSpec = null;
                 bool hasComplexIndexParam = false;
                 var paramInfos = new List<(string typeName, string paramName, ITypeProjection? projection)>();
                 NameProvider.DeduplicateParameterNamesForParameterList(subscriptDecl.IndexParameters);
@@ -115,6 +121,7 @@ namespace BindingsGeneration
                     if (paramTypeName.Contains("AnyType"))
                     {
                         hasAnyTypeParam = true;
+                        anyTypeParamSpec = param.SwiftTypeSpec;
                         break;
                     }
                     // Skip subscripts with index parameters that have projections requiring
@@ -135,7 +142,10 @@ namespace BindingsGeneration
                 if (hasAnyTypeParam)
                 {
                     ReportCollector.RecordMemberSkipped(subscriptDecl,
-                        SkipReason.AnyTypeFallback, "Subscript index parameter resolved to AnyType.");
+                        SkipReason.AnyTypeFallback,
+                        "Subscript index parameter resolved to AnyType."
+                            + UnresolvedAppleTypes.DescribeSuffix(
+                                new[] { anyTypeParamSpec }, typeDatabase, currentModuleName));
                     continue;
                 }
                 if (hasComplexIndexParam)

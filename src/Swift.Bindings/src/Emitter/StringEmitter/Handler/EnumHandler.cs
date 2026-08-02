@@ -503,7 +503,13 @@ namespace BindingsGeneration
                 var skipReason = MemberEmissionValidator.CanEmitProperty(propertyDecl, env.TypeDatabase, out var skipDetails, out _);
                 if (skipReason != null)
                 {
-                    ReportCollector.RecordMemberSkipped(propertyDecl, skipReason.Value, skipDetails ?? "");
+                    // The suffix goes to the report only: the `// Unsupported:` comment below
+                    // carries the same string into generated source, which is a compared
+                    // artifact, so enriching it there would move the emitted C#.
+                    ReportCollector.RecordMemberSkipped(
+                        propertyDecl, skipReason.Value,
+                        (skipDetails ?? "") + UnresolvedAppleTypes.DescribeSuffix(
+                            new[] { propertyDecl.SwiftTypeSpec }, env.TypeDatabase, propertyDecl.ModuleDecl?.Name));
                     // Mirror PropertyHandler's SkipProperty: leave a `// Unsupported:` tombstone
                     // so consumers can grep the file. The outer gate skips PropertyHandler.Emit
                     // entirely, so this is the only place the omission can be made visible.
@@ -728,7 +734,13 @@ namespace BindingsGeneration
                 var skipReason = MemberEmissionValidator.CanEmitProperty(propertyDecl, typeDatabase, out var skipDetails, out _);
                 if (skipReason != null)
                 {
-                    ReportCollector.RecordMemberSkipped(propertyDecl, skipReason.Value, skipDetails ?? "");
+                    // The suffix goes to the report only: the `// Unsupported:` comment below
+                    // carries the same string into generated source, which is a compared
+                    // artifact, so enriching it there would move the emitted C#.
+                    ReportCollector.RecordMemberSkipped(
+                        propertyDecl, skipReason.Value,
+                        (skipDetails ?? "") + UnresolvedAppleTypes.DescribeSuffix(
+                            new[] { propertyDecl.SwiftTypeSpec }, typeDatabase, propertyDecl.ModuleDecl?.Name));
                     // Mirror PropertyHandler's SkipProperty: leave a `// Unsupported:` tombstone
                     // so consumers can grep the file. The outer gate skips PropertyHandler.Emit
                     // entirely, so this is the only place the omission can be made visible.

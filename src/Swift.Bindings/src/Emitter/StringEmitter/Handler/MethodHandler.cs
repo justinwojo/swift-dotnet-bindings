@@ -114,6 +114,7 @@ namespace BindingsGeneration
                     methodEnv.MethodDecl.MangledName, methodEnv.MethodDecl.ParentDecl,
                     "ClosureParamTombstone",
                     "Unsupported closure parameter; emitted as tombstoned-but-reachable surface (SB0005).");
+                ReportCollector.RecordClosureTombstoneTypeReferences(methodEnv.MethodDecl);
                 return;
             }
 
@@ -491,7 +492,10 @@ namespace BindingsGeneration
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
             {
                 _logger.LogWarning($"Constructor {methodEnv.MethodDecl.Name} has unsupported signature: ({signatureHandler.GetWrapperSignature().ParametersString()}) -> {signatureHandler.GetWrapperSignature().ReturnType}");
-                ReportCollector.RecordMemberSkipped(methodEnv.MethodDecl, SkipReason.UnsupportedSignature, "Constructor signature contains unsupported placeholder type.");
+                ReportCollector.RecordMemberSkipped(methodEnv.MethodDecl, SkipReason.UnsupportedSignature,
+                    "Constructor signature contains unsupported placeholder type."
+                        + UnresolvedAppleTypes.DescribeSuffix(
+                            methodEnv.MethodDecl, methodEnv.TypeDatabase, methodEnv.MethodDecl.ModuleDecl?.Name));
                 // The full signature is unbindable, but if the placeholder is confined to a trailing
                 // defaulted parameter, a truncated overload that omits the unbindable tail still binds
                 // (Swift supplies the default). Attempt those recovery overloads before giving up; only
@@ -1055,6 +1059,7 @@ namespace BindingsGeneration
                     methodEnv.MethodDecl.MangledName, methodEnv.MethodDecl.ParentDecl,
                     "ClosureParamTombstone",
                     "Unsupported closure parameter; emitted as tombstoned-but-reachable surface (SB0005).");
+                ReportCollector.RecordClosureTombstoneTypeReferences(methodEnv.MethodDecl);
                 return;
             }
 
@@ -1514,7 +1519,10 @@ namespace BindingsGeneration
                 _logger.LogWarning($"Method {methodEnv.MethodDecl.Name} has unsupported signature: ({signatureHandler.GetWrapperSignature().ParametersString()}) -> {signatureHandler.GetWrapperSignature().ReturnType} [params: {string.Join(", ", signatureHandler.GetWrapperSignature().Parameters.Select(p => $"{p.Type}:{p.Name}"))}]");
                 if (!isAccessor)
                 {
-                    ReportCollector.RecordMemberSkipped(methodEnv.MethodDecl, SkipReason.UnsupportedSignature, "Method signature contains unsupported placeholder type.");
+                    ReportCollector.RecordMemberSkipped(methodEnv.MethodDecl, SkipReason.UnsupportedSignature,
+                        "Method signature contains unsupported placeholder type."
+                            + UnresolvedAppleTypes.DescribeSuffix(
+                                methodEnv.MethodDecl, methodEnv.TypeDatabase, methodEnv.MethodDecl.ModuleDecl?.Name));
                     // A placeholder confined to a trailing defaulted parameter is recoverable: a
                     // truncated overload that omits the unbindable tail still binds (Swift supplies
                     // the default). Only emit the loud "unsupported" drop comment when nothing

@@ -140,6 +140,251 @@ public class ReportCollectorTests
         ReportCollector.Reset();
     }
 
+    // ==================== Dropped conformances ====================
+
+    [Fact]
+    public void RecordConformanceDropped_AddsARowNamingTheProtocolAndTheConformingType()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordTypeEmitted(classDecl);
+        ReportCollector.RecordConformanceDropped(classDecl, "IThing", "first unmet requirement: method 'DoWork' — no matching method");
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+
+        var row = Assert.Single(
+            report!.SkippedItems, i => i.Reason == SkipReason.ConformanceNotFullyImplementable);
+        Assert.Equal("IThing", row.Name);
+        Assert.Equal("TestModule.Loader", row.ContainingType);
+        Assert.Contains("DoWork", row.Details);
+        Assert.NotNull(row.RecommendedWorkaround);
+        // The type is emitted, so the row must not make it look skipped.
+        Assert.Equal(0, report.SkippedTypes);
+        Assert.Equal(1, report.EmittedTypes);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void RecordConformanceDropped_SameConformanceTwice_RecordsOneRow()
+    {
+        // The same conformance is evaluated from several emission paths; each is entitled to report.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordConformanceDropped(classDecl, "IThing", "first path");
+        ReportCollector.RecordConformanceDropped(classDecl, "IThing", "second path");
+        ReportCollector.RecordConformanceDropped(classDecl, "IOther", "a different protocol");
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+
+        var rows = report!.SkippedItems
+            .Where(i => i.Reason == SkipReason.ConformanceNotFullyImplementable)
+            .ToList();
+        Assert.Equal(2, rows.Count);
+        Assert.Equal("first path", rows.Single(r => r.Name == "IThing").Details);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void RecordConformanceDropped_TriagesAsAKnownLimitationRatherThanForReview()
+    {
+        // A dropped conformance is explained, so it must not land in the "the tool cannot explain
+        // this" review list — that list is asserted empty by the partial-success product gate.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordConformanceDropped(classDecl, "IThing", "first unmet requirement: method 'DoWork'");
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+
+        var triage = SkipTriageBuilder.Build(report!.SkippedItems);
+        Assert.Equal(0, triage.ReviewCount);
+        Assert.Equal(1, triage.ByReason[nameof(SkipReason.ConformanceNotFullyImplementable)]);
+
+        ReportCollector.Reset();
+    }
+
+    // ==================== Degraded (declared-but-limited) members ====================
+
+    [Fact]
+    public void RecordMemberDegraded_RecordsARowWithoutMovingTheEmittedOrSkippedCounts()
+    {
+        // The member IS emitted — the row exists so the degradation is countable, not to claim the
+        // declaration is missing. Emitted/skipped member counts must stay exactly as emission left them.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var method = classDecl.Methods[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberEmitted(method, classDecl);
+        ReportCollector.RecordMemberDegraded(
+            method, classDecl, SkipReason.ProtocolWitnessNotDispatchable, "method is not dispatchable via witness table");
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+
+        Assert.Equal(1, report!.EmittedMembers);
+        Assert.Equal(0, report.SkippedMembers);
+        var row = Assert.Single(
+            report.SkippedItems, i => i.Reason == SkipReason.ProtocolWitnessNotDispatchable);
+        Assert.Equal("Fetch", row.Name);
+        Assert.Equal(BindingItemKind.Method, row.Kind);
+        Assert.Contains("witness table", row.Details);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void RecordMemberDegraded_IsExcludedFromPublicSurfaceLost()
+    {
+        // The C# declaration was written; counting it as lost surface would report provided API as
+        // missing. DeclaredButDegradedCount is what makes that subtraction visible.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var method = classDecl.Methods[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberEmitted(method, classDecl);
+        ReportCollector.RecordMemberDegraded(
+            method, classDecl, SkipReason.ProtocolWitnessNotDispatchable, "not dispatchable");
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+
+        var triage = SkipTriageBuilder.Build(report!.SkippedItems);
+        Assert.Equal(1, triage.DeclaredButDegradedCount);
+        Assert.Equal(triage.Total - 1, triage.PublicSurfaceLost);
+        Assert.DoesNotContain(report.SkippedItems, SkipAttributionLinker.IsLoss);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void RecordMemberDegraded_SameMemberAndReasonTwice_RecordsOneRow()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var method = classDecl.Methods[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberDegraded(method, classDecl, SkipReason.ProtocolWitnessNotDispatchable, "once");
+        ReportCollector.RecordMemberDegraded(method, classDecl, SkipReason.ProtocolWitnessNotDispatchable, "twice");
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+
+        Assert.Single(report!.SkippedItems, i => i.Reason == SkipReason.ProtocolWitnessNotDispatchable);
+
+        ReportCollector.Reset();
+    }
+
+    // ==================== Orphan closure shells ====================
+
+    [Fact]
+    public void ClosureOrphanShells_TypeWhoseOnlyMemberIsTombstoned_IsReported()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var method = classDecl.Methods[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordTypeEmitted(classDecl);
+        ReportCollector.RecordMemberEmitted(method, classDecl);
+        ReportCollector.RecordMemberWrapped(
+            BindingItemKind.Method, method.Name, method.MangledName, classDecl,
+            ReportCollector.ClosureParamTombstoneWrapperKind, "tombstoned");
+        ReportCollector.RecordClosureTombstoneTypeReferences(new[] { "TestModule.Loader" });
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+
+        Assert.Equal(1, report!.ClosureOrphanShellTypeCount);
+        Assert.Equal(new[] { "TestModule.Loader" }, report.ClosureOrphanShellTypes);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void ClosureOrphanShells_TypeWithAnUntombstonedMember_IsNotReported()
+    {
+        // One callable member is enough: the type is reachable surface, not a shell.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var tombstoned = classDecl.Methods[0];
+        var callable = classDecl.Properties[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordTypeEmitted(classDecl);
+        ReportCollector.RecordMemberEmitted(tombstoned, classDecl);
+        ReportCollector.RecordMemberEmitted(callable, AccessorKind.None, classDecl);
+        ReportCollector.RecordMemberWrapped(
+            BindingItemKind.Method, tombstoned.Name, tombstoned.MangledName, classDecl,
+            ReportCollector.ClosureParamTombstoneWrapperKind, "tombstoned");
+        ReportCollector.RecordClosureTombstoneTypeReferences(new[] { "TestModule.Loader" });
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+
+        Assert.Equal(0, report!.ClosureOrphanShellTypeCount);
+        Assert.Empty(report.ClosureOrphanShellTypes);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void ClosureOrphanShells_TypeThatWasNeverEmitted_IsNotReported()
+    {
+        // Referenced-but-absent is an ordinary unresolved type, not an orphan shell.
+        var moduleDecl = CreateModuleDecl();
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordClosureTombstoneTypeReferences(new[] { "OtherModule.NeverEmitted" });
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+
+        Assert.Equal(0, report!.ClosureOrphanShellTypeCount);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void RecordClosureTombstoneTypeReferences_FromAMethod_WalksTheWholeSignature()
+    {
+        // The decl-aware overload is what the tombstone sites call; it has to reach nested positions,
+        // not just the top-level parameter types.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var method = CreateMethod("Configure", classDecl);
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            SwiftTypeSpec = new NamedTypeSpec(
+                "Swift.Optional", new NamedTypeSpec("TestModule.Loader")),
+            Name = "loader",
+            PrivateName = "loader",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl
+        });
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordTypeEmitted(classDecl);
+        ReportCollector.RecordClosureTombstoneTypeReferences(method);
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+
+        // Loader has no recorded members at all, so the generic argument is picked up and lands as a shell.
+        Assert.Contains("TestModule.Loader", report!.ClosureOrphanShellTypes);
+
+        ReportCollector.Reset();
+    }
+
     [Fact]
     public void ReportEmitter_WritesJsonReportFile()
     {

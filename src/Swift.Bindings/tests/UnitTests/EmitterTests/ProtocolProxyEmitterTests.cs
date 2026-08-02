@@ -3478,6 +3478,142 @@ public class ProtocolProxyEmitterTests
     #region SB0003 Diagnostic Tests
 
     [Fact]
+    public void EmitProxyClass_NonDispatchableMethod_ReportsTheWitnessAsUndispatchable()
+    {
+        // The member IS emitted (with an [Obsolete] SB0003 on it), so the plain skip path would
+        // record nothing for it — the report must still name it as a degraded requirement.
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "getValue",
+            MangledName = "$sgetValue",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false,
+            IsSynthesizedAccessor = false
+        });
+
+        var output = EmitProxyClassCapturingReport(protocolDecl, out var report);
+
+        Assert.Contains("SB0003", output);
+        var row = Assert.Single(
+            report.SkippedItems, i => i.Reason == SkipReason.ProtocolWitnessNotDispatchable);
+        Assert.Equal("getValue", row.Name);
+        Assert.Equal(BindingItemKind.Method, row.Kind);
+        Assert.False(string.IsNullOrWhiteSpace(row.Details));
+    }
+
+    [Fact]
+    public void EmitProxyClass_DispatchableMethod_ReportsNoUndispatchableWitness()
+    {
+        RegisterSwiftInt32();
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "getValue",
+            MangledName = "$sgetValue",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false,
+            IsSynthesizedAccessor = false
+        });
+
+        EmitProxyClassCapturingReport(protocolDecl, out var report);
+
+        Assert.DoesNotContain(
+            report.SkippedItems, i => i.Reason == SkipReason.ProtocolWitnessNotDispatchable);
+    }
+
+    [Fact]
+    public void EmitProxyClass_NonDispatchableProperty_ReportsTheWitnessAsUndispatchable()
+    {
+        var typeSpec = new NamedTypeSpec("SomeModule.UnsupportedType");
+        var protocolDecl = CreateProtocolWithProperty(
+            "TestProtocol", "weird", hasGetter: true, hasSetter: false, typeSpec);
+
+        var output = EmitProxyClassCapturingReport(protocolDecl, out var report);
+
+        Assert.Contains("SB0003", output);
+        var row = Assert.Single(
+            report.SkippedItems, i => i.Reason == SkipReason.ProtocolWitnessNotDispatchable);
+        Assert.Equal("weird", row.Name);
+        Assert.Equal(BindingItemKind.Property, row.Kind);
+    }
+
+    [Fact]
+    public void EmitProxyClass_NonDispatchableSubscript_ReportsTheWitnessAsUndispatchable()
+    {
+        RegisterSwiftInt32();
+        var protocol = CreateSimpleProtocol("IndexableProto");
+        protocol.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            ReturnTypeSpec = new NamedTypeSpec("Swift.Int32"),
+            IsStatic = false,
+            MangledName = "$ssubscript",
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("subscript_get") }
+            },
+            IndexParameters = new List<ArgumentDecl>
+            {
+                new() { Name = "index", PrivateName = "index",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var output = EmitProxyClassCapturingReport(protocol, out var report);
+
+        Assert.Contains("SB0003", output);
+        var row = Assert.Single(
+            report.SkippedItems, i => i.Reason == SkipReason.ProtocolWitnessNotDispatchable);
+        Assert.Equal(BindingItemKind.Subscript, row.Kind);
+    }
+
+    [Fact]
+    public void EmitProxyClass_UndispatchableWitness_DoesNotCountAgainstSkippedMembers()
+    {
+        // A degraded member is emitted; folding it into SkippedMembers would make the emitted /
+        // skipped split stop meaning "a C# declaration was / was not written".
+        var typeSpec = new NamedTypeSpec("SomeModule.UnsupportedType");
+        var protocolDecl = CreateProtocolWithProperty(
+            "TestProtocol", "weird", hasGetter: true, hasSetter: false, typeSpec);
+
+        EmitProxyClassCapturingReport(protocolDecl, out var report);
+
+        Assert.Contains(
+            report.SkippedItems, i => i.Reason == SkipReason.ProtocolWitnessNotDispatchable);
+        Assert.Equal(0, report.SkippedMembers);
+    }
+
+    [Fact]
     public void EmitProxyClass_NonDispatchableMethod_EmitsSB0003()
     {
         // Without TypeDB registration, Swift.Int returns AnyType → non-dispatchable
@@ -5942,6 +6078,36 @@ public class ProtocolProxyEmitterTests
         var writer = new CSharpWriter(stringWriter);
         _emitter.EmitProxyClass(writer, protocolDecl);
         return stringWriter.ToString();
+    }
+
+    // Emits under an ambient report session so the SB0003 sites' degraded-member rows are
+    // observable. The session is always torn down, otherwise a failing assertion would leak
+    // the AsyncLocal into whichever test the runner schedules next on this thread.
+    private string EmitProxyClassCapturingReport(ProtocolDecl protocolDecl, out BindingReport report)
+    {
+        ReportCollector.Start(new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        try
+        {
+            var output = EmitProxyClass(protocolDecl);
+            var completed = ReportCollector.Complete();
+            Assert.NotNull(completed);
+            report = completed!;
+            return output;
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
     }
 
     // Returns the brace-matched body of the method whose signature begins with

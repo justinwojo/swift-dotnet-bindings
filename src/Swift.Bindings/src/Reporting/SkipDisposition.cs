@@ -122,6 +122,16 @@ public static class SkipDispositionClassifier
             // synthesized, so C#-authored conformance to that protocol isn't possible. Consumer-visible
             // but attributed, so KnownLimitation, not Review. The per-site cause lives in Details.
             [SkipReason.SuppressedProxyMemberDegraded] = SkipDisposition.KnownLimitation,
+            // A conformance the validator could not fully implement is a real consumer-visible loss
+            // (the type can no longer be passed where the protocol is expected), but never an
+            // unexplained one: the row carries the first unmet requirement by name, which is exactly
+            // what a triage pass would otherwise have to re-derive. Attributed, so KnownLimitation.
+            [SkipReason.ConformanceNotFullyImplementable] = SkipDisposition.KnownLimitation,
+            // A non-dispatchable witness is a documented lowering gap, and the least severe kind of
+            // loss in this tier: the member is still declared and still callable on a concrete
+            // instance, so only the protocol-typed call path is gone. The per-site shape reason is
+            // in Details.
+            [SkipReason.ProtocolWitnessNotDispatchable] = SkipDisposition.KnownLimitation,
 
             // An emitter fault is the one skip that is never defensible: the generator threw on a
             // shape it was supposed to lower. Containment keeps the rest of the module shippable, but
@@ -172,6 +182,16 @@ public static class SkipDispositionClassifier
     /// so an unmapped reason is never silently treated as "expected".
     /// </summary>
     public static IReadOnlyCollection<SkipReason> ExplicitlyClassifiedReasons { get; } = Dispositions.Keys.ToHashSet();
+
+    /// <summary>
+    /// Whether a row of this reason describes a member whose C# declaration WAS written and is only
+    /// degraded on some call path — as opposed to a member that is absent from the output. Rows like
+    /// these are recorded through <see cref="ReportCollector.RecordMemberDegraded"/> so they stay
+    /// countable by reason, but the surface they describe still exists, so anything that measures
+    /// LOST surface has to exclude them or it reports shipped API as missing.
+    /// </summary>
+    public static bool IsDeclaredButDegraded(SkipReason reason) =>
+        reason == SkipReason.ProtocolWitnessNotDispatchable;
 
     /// <summary>
     /// Classifies a skip reason in isolation. For <see cref="SkipReason.EveryProtocolConformanceSkipped"/>

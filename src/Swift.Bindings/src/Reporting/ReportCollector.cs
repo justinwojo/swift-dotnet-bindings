@@ -100,6 +100,32 @@ public static class ReportCollector
         // a RecoveredBy annotation genuinely is unreachable.
         internal readonly Dictionary<(string? ContainingType, string Name), List<string>> RecoveredMembers = new();
 
+        /// <summary>
+        /// Dedup key set for degradation rows — members that WERE emitted but whose surface is
+        /// limited in a way worth counting (see <see cref="RecordMemberDegraded"/>). Deliberately
+        /// separate from <see cref="EmittedMemberIdentities"/> / <see cref="SkippedMemberIdentities"/>:
+        /// a degraded member is emitted, so it must stay in the emitted set, and the emitted/skipped
+        /// sets are mutually exclusive by design. Keyed by reason as well as identity so one member
+        /// hitting two distinct degradations records both, and hitting the same one twice records once.
+        /// </summary>
+        internal readonly HashSet<(MemberDiagnosticIdentity Identity, SkipReason Reason)> DegradedMemberEntries = new();
+
+        /// <summary>
+        /// Module-qualified names of types that appear in the signature of at least one
+        /// closure-tombstoned member. Accumulated at the tombstone sites because that is the only
+        /// place the member's parameter/return specs are in scope; consumed at completion to compute
+        /// <see cref="BindingReport.ClosureOrphanShellTypeCount"/>.
+        /// </summary>
+        internal readonly HashSet<string> ClosureTombstoneReferencedTypeKeys = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Dedup key set for dropped-conformance rows, keyed by (conforming type, protocol). The
+        /// same conformance is evaluated from several emission paths (the direct-interface loop, the
+        /// closed-PAT projection loop, the cross-module interface gate), so without this the identical
+        /// drop would be reported once per path.
+        /// </summary>
+        internal readonly HashSet<(string TypeKey, string Protocol)> DroppedConformanceEntries = new();
+
         internal ReportSession(BindingReport report, ModuleDecl module)
         {
             Report = report;
@@ -207,6 +233,11 @@ public static class ReportCollector
 
             // Per-kind breakdown: read directly from each identity's Kind field.
             ComputePerKindCounts(session, report);
+
+            // Types that exist in the binding only as the signature of something uncallable. Like the
+            // reconciliation above this is derived state computed once emission has settled — it needs
+            // the final emitted-member set, and computing it here keeps it unable to influence output.
+            ComputeClosureOrphanShellTypes(session, report);
 
             // Compute BridgeSummary if there are bridged views
             if (report.BridgedViews.Count > 0)
@@ -469,6 +500,164 @@ public static class ReportCollector
                 WrapperKind = wrapperKind,
                 Details = details,
             });
+        }
+    }
+
+    /// <summary>
+    /// Records a member that WAS emitted but whose surface is degraded — the C# declaration exists,
+    /// yet some call path through it cannot work (today: a protocol requirement whose proxy witness
+    /// is not dispatchable, SB0003). The row lands in <see cref="BindingReport.SkippedItems"/> so it
+    /// is countable by <see cref="SkipReason"/> alongside every other loss, and shows up in the skip
+    /// triage roll-up with a disposition of its own.
+    /// </summary>
+    /// <remarks>
+    /// This is deliberately NOT <see cref="RecordMemberSkipped(MethodDecl, SkipReason, string?, SourcePosition?)"/>.
+    /// That path is mutually exclusive with emission — it returns without recording anything for a
+    /// member already in the emitted set — which is correct for a true skip and exactly wrong here,
+    /// where the member is emitted first and degraded later. So this method touches neither identity
+    /// set: <see cref="BindingReport.EmittedMembers"/> and <see cref="BindingReport.SkippedMembers"/>
+    /// keep their meanings ("a C# declaration was / was not written"), and the consequence to own is
+    /// that <c>SkippedItems.Count</c> can now exceed <c>SkippedMembers</c>.
+    /// </remarks>
+    public static void RecordMemberDegraded(
+        MethodDecl methodDecl, BaseDecl? containingDecl, SkipReason reason, string? details = null)
+    {
+        ArgumentNullException.ThrowIfNull(methodDecl);
+        RecordMemberDegradedInternal(
+            MemberDiagnosticIdentity.FromMethod(methodDecl, containingDecl),
+            methodDecl.Name, containingDecl, reason, details, methodDecl.Position);
+    }
+
+    /// <inheritdoc cref="RecordMemberDegraded(MethodDecl, BaseDecl?, SkipReason, string?)"/>
+    public static void RecordMemberDegraded(
+        PropertyDecl propertyDecl, BaseDecl? containingDecl, SkipReason reason, string? details = null)
+    {
+        ArgumentNullException.ThrowIfNull(propertyDecl);
+        RecordMemberDegradedInternal(
+            MemberDiagnosticIdentity.FromProperty(propertyDecl, AccessorKind.None, containingDecl),
+            propertyDecl.Name, containingDecl, reason, details, propertyDecl.Position);
+    }
+
+    /// <inheritdoc cref="RecordMemberDegraded(MethodDecl, BaseDecl?, SkipReason, string?)"/>
+    public static void RecordMemberDegraded(
+        SubscriptDecl subscriptDecl, BaseDecl? containingDecl, SkipReason reason, string? details = null)
+    {
+        ArgumentNullException.ThrowIfNull(subscriptDecl);
+        RecordMemberDegradedInternal(
+            MemberDiagnosticIdentity.FromSubscript(subscriptDecl, AccessorKind.None, containingDecl),
+            subscriptDecl.Name, containingDecl, reason, details, subscriptDecl.Position);
+    }
+
+    private static void RecordMemberDegradedInternal(
+        MemberDiagnosticIdentity identity, string displayName, BaseDecl? containingDecl,
+        SkipReason reason, string? details, SourcePosition? position)
+    {
+        var session = Current;
+        if (session == null)
+            return;
+
+        lock (session.Sync)
+        {
+            if (!session.DegradedMemberEntries.Add((identity, reason)))
+                return;
+
+            session.Report.SkippedItems.Add(new SkippedItem
+            {
+                Kind = identity.Kind,
+                Name = displayName,
+                ContainingType = GetContainingTypeName(containingDecl),
+                Reason = reason,
+                Details = details,
+                RecommendedWorkaround = WorkaroundRecommendations.GetRecommendation(reason),
+                Position = position,
+                DeclId = identity.ToDeclId().Canonical,
+            });
+        }
+    }
+
+    /// <summary>
+    /// Records a protocol conformance the Swift type declares but the emitted C# type does not carry:
+    /// the type is bound, the interface is silently absent from its implements list. Every drop site
+    /// answers "can this conformance be fully implemented in C#" with a plain false, so without this
+    /// the conformance simply disappears — nothing in the generated source or the report names it.
+    /// </summary>
+    /// <param name="conformingType">The type whose conformance was dropped; the type itself is emitted.</param>
+    /// <param name="protocolName">Printed name of the dropped protocol, as a consumer would look for it.</param>
+    /// <param name="details">
+    /// Why it was dropped — for the requirement-validation sites, the first unmet requirement
+    /// (see <c>ConformanceGap</c>), which is the one fact that turns "not implementable" into
+    /// something actionable.
+    /// </param>
+    public static void RecordConformanceDropped(TypeDecl conformingType, string protocolName, string details)
+    {
+        ArgumentNullException.ThrowIfNull(conformingType);
+        ArgumentException.ThrowIfNullOrWhiteSpace(protocolName);
+
+        var session = Current;
+        if (session == null)
+            return;
+
+        lock (session.Sync)
+        {
+            if (!session.DroppedConformanceEntries.Add((GetTypeKey(conformingType), protocolName)))
+                return;
+
+            session.Report.SkippedItems.Add(new SkippedItem
+            {
+                Kind = BindingItemKind.Type,
+                Name = protocolName,
+                ContainingType = conformingType.SwiftTypeName.ModuleQualifiedName,
+                Reason = SkipReason.ConformanceNotFullyImplementable,
+                Details = details,
+                RecommendedWorkaround = WorkaroundRecommendations.GetRecommendation(
+                    SkipReason.ConformanceNotFullyImplementable),
+                Position = conformingType.Position,
+                // Intentionally id-less. A dropped conformance is a relationship, not a declaration:
+                // stamping the conforming type's id would enter this row into the attribution linker's
+                // enclosing-type index, where it could be named as the ancestor cause of an unrelated
+                // member row inside that same (emitted) type. The type name lives in ContainingType.
+                DeclId = null,
+            });
+        }
+    }
+
+    /// <summary>
+    /// Records every nominal type named in a closure-tombstoned member's signature — the return slot
+    /// and every parameter, walking generic arguments and closure argument/return positions. The
+    /// tombstone site is the only place those specs are in scope.
+    /// Accumulated for the orphan-shell metric computed at completion; see
+    /// <see cref="BindingReport.ClosureOrphanShellTypeCount"/>. Recording a type here says nothing
+    /// about it on its own — only its intersection with "emitted and has no callable member" is
+    /// reported.
+    /// </summary>
+    public static void RecordClosureTombstoneTypeReferences(MethodDecl methodDecl)
+    {
+        ArgumentNullException.ThrowIfNull(methodDecl);
+        if (Current == null)
+            return;
+
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var argument in methodDecl.CSSignature)
+            TypeSpecHelpers.CollectNominalTypeNames(argument.SwiftTypeSpec, names);
+
+        RecordClosureTombstoneTypeReferences(names);
+    }
+
+    /// <inheritdoc cref="RecordClosureTombstoneTypeReferences(MethodDecl)"/>
+    public static void RecordClosureTombstoneTypeReferences(IEnumerable<string> moduleQualifiedTypeNames)
+    {
+        ArgumentNullException.ThrowIfNull(moduleQualifiedTypeNames);
+        var session = Current;
+        if (session == null)
+            return;
+
+        lock (session.Sync)
+        {
+            foreach (var name in moduleQualifiedTypeNames)
+            {
+                if (!string.IsNullOrEmpty(name))
+                    session.ClosureTombstoneReferencedTypeKeys.Add(name);
+            }
         }
     }
 
@@ -913,6 +1102,61 @@ public static class ReportCollector
 
     private static string GetTypeKey(TypeDecl typeDecl) =>
         typeDecl.SwiftTypeName.ModuleQualifiedName;
+
+    /// <summary>
+    /// Computes <see cref="BindingReport.ClosureOrphanShellTypeCount"/>: emitted types that a
+    /// closure-tombstoned member's signature named and that have no callable member of their own.
+    /// </summary>
+    /// <remarks>
+    /// "Callable" is every emitted member of the type EXCEPT those matching a
+    /// <c>ClosureParamTombstone</c> wrap row on the same type — a tombstone is a declaration that
+    /// throws on every call, so counting it as surface would hide exactly the shells this is looking
+    /// for. The match is by (kind, name) rather than full identity because a tombstoned member is
+    /// recorded twice under two identity grains (coarse from the wrap, parameter-aware from the
+    /// emit), and (kind, name) is the only key both share. The cost of that grain: a type where one
+    /// overload is tombstoned and a same-named sibling is not reads as having no callable surface
+    /// from that name — visible in <see cref="BindingReport.ClosureOrphanShellTypes"/>, which is why
+    /// the names ship alongside the count.
+    /// </remarks>
+    private static void ComputeClosureOrphanShellTypes(ReportSession session, BindingReport report)
+    {
+        if (session.ClosureTombstoneReferencedTypeKeys.Count == 0)
+            return;
+
+        var tombstonedMembers = new HashSet<(string ContainingType, BindingItemKind Kind, string Name)>();
+        foreach (var wrapped in report.WrappedItems)
+        {
+            if (wrapped.WrapperKind == ClosureParamTombstoneWrapperKind && wrapped.ContainingType is { } owner)
+                tombstonedMembers.Add((owner, wrapped.Kind, wrapped.Name));
+        }
+
+        var typesWithCallableMembers = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var identity in session.EmittedMemberIdentities)
+        {
+            if (string.IsNullOrEmpty(identity.DeclPath))
+                continue;
+            // Rebuilt the same way SwiftTypeName.ModuleQualifiedName composes it, which is what both
+            // EmittedTypeKeys and the referenced-type set are keyed by.
+            var typeKey = $"{identity.Module}.{identity.DeclPath}";
+            if (tombstonedMembers.Contains((typeKey, identity.Kind, identity.BaseName)))
+                continue;
+            typesWithCallableMembers.Add(typeKey);
+        }
+
+        var orphans = session.ClosureTombstoneReferencedTypeKeys
+            .Where(key => session.EmittedTypeKeys.Contains(key) && !typesWithCallableMembers.Contains(key))
+            .OrderBy(key => key, StringComparer.Ordinal)
+            .ToList();
+
+        report.ClosureOrphanShellTypes.AddRange(orphans);
+        report.ClosureOrphanShellTypeCount = orphans.Count;
+    }
+
+    /// <summary>
+    /// The <see cref="WrappedItem.WrapperKind"/> the closure-parameter tombstone path records (SB0005).
+    /// Shared with the emitter side so the orphan-shell join can't drift from the producer.
+    /// </summary>
+    public const string ClosureParamTombstoneWrapperKind = "ClosureParamTombstone";
 
     private static void ComputePerKindCounts(ReportSession session, BindingReport report)
     {

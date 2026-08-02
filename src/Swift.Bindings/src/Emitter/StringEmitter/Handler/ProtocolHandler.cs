@@ -153,7 +153,7 @@ namespace BindingsGeneration
                     if (staticPropertyGate.IsSkipped)
                     {
                         _logger.LogDebug($"Skipping static property '{propertyDecl.Name}' in interface {protocolDecl.Name} - {staticPropertyGate.Details}");
-                        ReportCollector.RecordMemberSkipped(propertyDecl, staticPropertyGate.Reason!.Value, staticPropertyGate.Details!);
+                        ReportCollector.RecordMemberSkipped(propertyDecl, staticPropertyGate.Reason!.Value, staticPropertyGate.DetailsForReport!);
                         continue;
                     }
 
@@ -204,7 +204,7 @@ namespace BindingsGeneration
                 {
                     skippedPropertyNames.Add(propertyDecl.Name);
                     _logger.LogDebug($"Skipping property '{propertyDecl.Name}' in interface {protocolDecl.Name} - {propertyGate.Details}");
-                    ReportCollector.RecordMemberSkipped(propertyDecl, propertyGate.Reason!.Value, propertyGate.Details!);
+                    ReportCollector.RecordMemberSkipped(propertyDecl, propertyGate.Reason!.Value, propertyGate.DetailsForReport!);
                     continue;
                 }
                 if (propertyGate.IsInterfaceOnly)
@@ -220,6 +220,13 @@ namespace BindingsGeneration
                         if (hasClosure)
                             closureSkippedPropertyNames.Add(propertyDecl.Name);
                         _logger.LogDebug($"Property '{propertyDecl.Name}' in interface {protocolDecl.Name} has closure type - proxy will use NotSupportedException stub.");
+                        // The requirement still emits on the interface; only the proxy's
+                        // implementation degrades to a throwing SB0003 stub.
+                        ReportCollector.RecordMemberDegraded(
+                            propertyDecl, protocolDecl, SkipReason.ProtocolWitnessNotDispatchable,
+                            hasClosure
+                                ? "closure-typed property cannot be marshalled through a witness table"
+                                : $"interface-only property shape is not dispatchable via witness table ({propertyGate.SoftFlags})");
                     }
                     else
                     {
@@ -371,7 +378,7 @@ namespace BindingsGeneration
                 {
                     skippedSubscriptIndices.Add(subscriptIndex);
                     _logger.LogDebug($"Skipping subscript in interface {protocolDecl.Name} - {subscriptGate.Details}");
-                    ReportCollector.RecordMemberSkipped(subscriptDecl, subscriptGate.Reason!.Value, subscriptGate.Details!);
+                    ReportCollector.RecordMemberSkipped(subscriptDecl, subscriptGate.Reason!.Value, subscriptGate.DetailsForReport!);
                     subscriptIndex++;
                     continue;
                 }
@@ -466,7 +473,7 @@ namespace BindingsGeneration
                     if (staticMethodGate.IsSkipped)
                     {
                         _logger.LogDebug($"Skipping static method '{methodDecl.Name}' in interface {protocolDecl.Name} - {staticMethodGate.Details}");
-                        ReportCollector.RecordMemberSkipped(methodDecl, staticMethodGate.Reason!.Value, staticMethodGate.Details!);
+                        ReportCollector.RecordMemberSkipped(methodDecl, staticMethodGate.Reason!.Value, staticMethodGate.DetailsForReport!);
                         continue;
                     }
 
@@ -539,7 +546,7 @@ namespace BindingsGeneration
                 {
                     skippedMethodKeys.Add(methodKey);
                     _logger.LogDebug($"Skipping method '{methodDecl.Name}' in interface {protocolDecl.Name} - {methodGate.Details}");
-                    ReportCollector.RecordMemberSkipped(methodDecl, methodGate.Reason!.Value, methodGate.Details!);
+                    ReportCollector.RecordMemberSkipped(methodDecl, methodGate.Reason!.Value, methodGate.DetailsForReport!);
                     continue;
                 }
 
@@ -572,6 +579,11 @@ namespace BindingsGeneration
                     {
                         skippedMethodKeys.Add(methodKey);
                         closureSkippedMethodKeys.Add(methodKey);
+                        // The requirement still emits on the interface; only the proxy's
+                        // implementation degrades to a throwing SB0003 stub.
+                        ReportCollector.RecordMemberDegraded(
+                            methodDecl, protocolDecl, SkipReason.ProtocolWitnessNotDispatchable,
+                            "closure parameters cannot be marshalled through a witness table");
                     }
                 }
 

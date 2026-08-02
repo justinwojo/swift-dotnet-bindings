@@ -125,4 +125,64 @@ public static class TypeSpecHelpers
             _ => false
         };
     }
+
+    /// <summary>
+    /// Collects the module-qualified name of every nominal type named anywhere in a TypeSpec tree:
+    /// the spec itself, its generic arguments, tuple elements, closure argument and return positions,
+    /// protocol-composition members, and nested inner types.
+    /// </summary>
+    /// <remarks>
+    /// Names come out composed the way <c>SwiftTypeName.ModuleQualifiedName</c> composes them
+    /// (<c>Module.Type</c>, or <c>Module.Outer.Inner</c> for a nested type), so the result can be
+    /// joined directly against type keys. Unqualified names (generic parameters, and any spec the
+    /// parser could not attribute to a module) are dropped — they never denote a nominal type key.
+    /// </remarks>
+    public static void CollectNominalTypeNames(TypeSpec? typeSpec, ICollection<string> into)
+    {
+        ArgumentNullException.ThrowIfNull(into);
+
+        switch (typeSpec)
+        {
+            case null:
+                return;
+            case NamedTypeSpec named:
+                if (named.HasModule() && !IsGenericTypeParameter(named))
+                    into.Add(ComposeNominalName(named));
+                foreach (var generic in named.GenericParameters)
+                    CollectNominalTypeNames(generic, into);
+                // The inner chain is folded into the composed name above, but each link can carry
+                // generic arguments of its own that name further types.
+                for (var inner = named.InnerType; inner is not null; inner = inner.InnerType)
+                {
+                    foreach (var generic in inner.GenericParameters)
+                        CollectNominalTypeNames(generic, into);
+                }
+                return;
+            case TupleTypeSpec tuple:
+                foreach (var element in tuple.Elements)
+                    CollectNominalTypeNames(element, into);
+                return;
+            case ClosureTypeSpec closure:
+                CollectNominalTypeNames(closure.Arguments, into);
+                CollectNominalTypeNames(closure.ReturnType, into);
+                return;
+            case ProtocolListTypeSpec protocols:
+                foreach (var protocol in protocols.Protocols.Keys)
+                    CollectNominalTypeNames(protocol, into);
+                return;
+            default:
+                return;
+        }
+    }
+
+    private static string ComposeNominalName(NamedTypeSpec named)
+    {
+        if (named.InnerType is null)
+            return named.Name;
+
+        var builder = new System.Text.StringBuilder(named.Name);
+        for (var inner = named.InnerType; inner is not null; inner = inner.InnerType)
+            builder.Append('.').Append(inner.NameWithoutModule);
+        return builder.ToString();
+    }
 }
