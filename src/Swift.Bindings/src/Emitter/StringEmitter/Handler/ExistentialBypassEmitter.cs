@@ -907,7 +907,7 @@ public static class ExistentialBypassEmitter
 
         // Emit under the authoritative C# name. env.CSharpMethodName (IEnvironment.cs) is the single
         // source of truth — it folds in the sibling-property rename (Foo->FooMethod), the parent-type
-        // collision guard (CS0542), the B15 collision-suffix (CollisionIndex), AND an adopted ancestor-
+        // collision guard (CS0542), the overload disambiguation (DisambiguatedNameInput), AND an adopted ancestor-
         // slot name for collision-suffix overrides. Recomputing here via GetPublicMethodName dropped all
         // of those axes, so the bypass could emit `Foo`/`Process` while IHandler stamped
         // EmittedCSharpName = `FooMethod`/`Process2` and reserved the matching dedup key

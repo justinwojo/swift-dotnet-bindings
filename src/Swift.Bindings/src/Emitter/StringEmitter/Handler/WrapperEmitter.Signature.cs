@@ -618,7 +618,7 @@ namespace BindingsGeneration
         /// </summary>
         private static bool AncestorCSharpNameMatches(MethodDecl ancestorMethod, ClassDecl ancestorClass, string derivedCSharpName, ITypeDatabase? typeDatabase)
             // Prefer the ground-truth emitted name. It carries the collision-disambiguation
-            // suffix (`Handle`/`Handle2`, assigned per-class-body at emission via CollisionIndex)
+            // name (`Handle`/`HandleWithInt`, assigned per-class-body at emission via DisambiguatedNameInput)
             // that ComputeMethodCSharpName recomputes WITHOUT — a fresh NameProvider pass cannot see
             // a suffix that only exists because a sibling already claimed the base name. The ancestor
             // is emitted before the derived class whose override we verify, so its EmittedCSharpName

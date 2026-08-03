@@ -148,12 +148,12 @@ public static class DefaultParameterOverloadEmitter
                 env.SiblingPropertyNames,
                 env.PInvokeHelperContext,
                 env.CompositionCollector);
-            overloadEnv.CollisionIndex = env.CollisionIndex;
-            // When the primary method adopted a collision-suffixed ancestor slot
-            // name (e.g. `override Process2`), every generated trimmed/default-arg overload must emit
-            // under the SAME adopted name. CollisionIndex alone does not carry it — CSharpMethodName
-            // recomputes from the bare NameProvider name + suffix, which would yield `Process` and
-            // silently bind the trimmed overload to the wrong base slot. Propagate the adopted name.
+            overloadEnv.DisambiguatedNameInput = env.DisambiguatedNameInput;
+            // When the primary method adopted a disambiguated ancestor slot name (e.g. `override
+            // ProcessSecond`), every generated trimmed/default-arg overload must emit under the SAME
+            // adopted name. DisambiguatedNameInput alone does not carry it — CSharpMethodName recomputes
+            // from the bare NameProvider name, which would yield `Process` and silently bind the trimmed
+            // overload to the wrong base slot. Propagate the adopted name.
             overloadEnv.AdoptedOverrideCSharpName = env.AdoptedOverrideCSharpName;
             // FB-1b: a recovered colliding failable init emits under a label-disambiguated factory name
             // (e.g. TryCreateWithMessengerPageId); its default-arg trimmed overloads must share that name.
@@ -278,20 +278,19 @@ public static class DefaultParameterOverloadEmitter
             string? recordedProjectedKey = null;
             if (env.EmittedProjectedSignatures != null)
             {
-                var projectedKey = GetProjectedOverloadKey(overloadDecl, env.TypeDatabase, env.SiblingPropertyNames);
-                // Apply collision suffix so disambiguated methods use their suffixed name in the key
-                if (env.CollisionIndex > 0)
-                    projectedKey = BaseHandler.ApplyCollisionSuffixToKey(projectedKey, env.CollisionIndex);
-                // When the primary method adopted a collision-suffixed ancestor slot
+                // Rebuild the key under the primary's disambiguated base name, so a trimmed overload of
+                // `ConfigureZebra` reserves `ConfigureZebra(...)` rather than the bare `Configure(...)`.
+                var projectedKey = GetProjectedOverloadKey(overloadDecl, env.TypeDatabase, env.SiblingPropertyNames, env.DisambiguatedNameInput);
+                // When the primary method adopted a disambiguated ancestor slot
                 // name, this trimmed overload emits under that SAME adopted name (propagated to
                 // overloadEnv.AdoptedOverrideCSharpName at construction above), so CSharpMethodName reads
-                // `Process2` not the recomputed bare `Process`. GetProjectedOverloadKey rebuilds the key
+                // `ProcessSecond` not the recomputed bare `Process`. GetProjectedOverloadKey rebuilds the key
                 // from the local NameProvider name, so substitute the adopted name into the key's name
                 // component — otherwise the reserved key (`Process()`) diverges from the emitted name
-                // (`Process2()`): a sibling naturally projecting to `Process2()` would not collide (→
-                // duplicate CS0111) and a real `Process()` sibling would be wrongly blocked. Adoption is
-                // mutually exclusive with a non-zero CollisionIndex (a self-suffixing override resolves
-                // adoption to null), so this never double-applies a suffix.
+                // (`ProcessSecond()`): a sibling naturally projecting to `ProcessSecond()` would not collide
+                // (→ duplicate CS0111) and a real `Process()` sibling would be wrongly blocked. Adoption is
+                // mutually exclusive with a non-null DisambiguatedNameInput (a self-disambiguating override
+                // resolves adoption to null), so the two never compound.
                 if (overloadEnv.AdoptedOverrideCSharpName != null)
                 {
                     int keyParen = projectedKey.IndexOf('(');
@@ -905,7 +904,7 @@ public static class DefaultParameterOverloadEmitter
     /// The :228 caller passes env.SiblingPropertyNames; the CSM-seed callers pass null, consistent with
     /// their trimEnv (which carries no sibling set).
     /// </summary>
-    internal static string GetProjectedOverloadKey(MethodDecl overloadDecl, ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingPropertyNames = null)
+    internal static string GetProjectedOverloadKey(MethodDecl overloadDecl, ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingPropertyNames = null, string? nameOverride = null)
         => ProtocolSignatureHelper.BuildProjectedMethodKey(overloadDecl, typeDatabase, new ProtocolSignatureHelper.ProjectedKeyOptions
         {
             PropertyNames = siblingPropertyNames,
@@ -914,6 +913,7 @@ public static class DefaultParameterOverloadEmitter
             // (no logger in scope) — matches this builder's prior behavior exactly.
             TreatAsClosureTombstone = false,
             Logger = null,
+            NameOverride = nameOverride,
         });
 
     /// <summary>

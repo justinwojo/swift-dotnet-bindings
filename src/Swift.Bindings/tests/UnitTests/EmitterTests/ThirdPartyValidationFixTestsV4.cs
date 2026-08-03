@@ -1076,8 +1076,8 @@ public class ThirdPartyValidationFixTestsV4
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
         if (methodInfo == null)
             throw new InvalidOperationException("Could not find GetProjectedCSharpMethodKey method");
-        // Args: method, typeDatabase, logger, siblingPropertyNames, treatAsClosureTombstone.
-        return (string)methodInfo.Invoke(null, new object?[] { method, typeDatabase, null, null, false })!;
+        // Args: method, typeDatabase, logger, siblingPropertyNames, treatAsClosureTombstone, nameOverride.
+        return (string)methodInfo.Invoke(null, new object?[] { method, typeDatabase, null, null, false, null })!;
     }
 
     private static string GetOverloadProjectedKeyViaReflection(MethodDecl method, ITypeDatabase typeDatabase)
@@ -1087,8 +1087,8 @@ public class ThirdPartyValidationFixTestsV4
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
         if (methodInfo == null)
             throw new InvalidOperationException("Could not find GetProjectedOverloadKey method");
-        // Args: method, typeDatabase, siblingPropertyNames (null = base behavior, no property rename).
-        return (string)methodInfo.Invoke(null, new object?[] { method, typeDatabase, null })!;
+        // Args: method, typeDatabase, siblingPropertyNames (null = base behavior, no property rename), nameOverride.
+        return (string)methodInfo.Invoke(null, new object?[] { method, typeDatabase, null, null })!;
     }
 
     #endregion

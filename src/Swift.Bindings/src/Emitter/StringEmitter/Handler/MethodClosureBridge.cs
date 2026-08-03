@@ -1264,7 +1264,7 @@ public static class MethodClosureBridge
         }
 
         // Use env.CSharpMethodName so that the projected-signature collision suffix
-        // assigned by IHandler.HandleBaseDecl (CollisionIndex) actually reaches the
+        // assigned by IHandler.HandleBaseDecl (DisambiguatedNameInput) actually reaches the
         // emitted public method. Recomputing via NameProvider.GetPublicMethodName here
         // would drop the suffix and produce CS0111 duplicates when two Swift overloads
         // (e.g. Auth.signIn(email:password:) vs signIn(email:link:)) project to the

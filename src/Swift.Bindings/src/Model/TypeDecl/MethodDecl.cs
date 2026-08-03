@@ -157,16 +157,32 @@ namespace BindingsGeneration
         /// <summary>
         /// The actual emitted public C# method name as it appears in the generated source —
         /// post-NameProvider renames (property/nested-type collisions, "Get" prefix, "Async"
-        /// suffix, builder rules) AND post-collision-disambiguation suffix (when two Swift
-        /// overloads project to the same C# signature, IHandler.HandleBaseDecl assigns a
-        /// numeric suffix via <c>MethodEnvironment.CollisionIndex</c>; the second overload
-        /// emits as <c>Foo2</c>, third as <c>Foo3</c>, etc.). Stamped by the conductor right
-        /// after <c>handler.Emit</c> returns, when <see cref="WasEmitted"/> is true. Null
+        /// suffix, builder rules) AND post-collision-disambiguation (when two Swift overloads
+        /// project to the same C# signature, the overload-name resolver hands the losers a
+        /// label- or type-derived base name via <c>MethodEnvironment.DisambiguatedNameInput</c>,
+        /// so <c>configure(zebra:)</c> emits as <c>ConfigureZebra</c>). Stamped by the conductor
+        /// right after <c>handler.Emit</c> returns, when <see cref="WasEmitted"/> is true. Null
         /// until emission. Cross-module override verification reads this directly so the
         /// downstream module's verifier sees the truth, not a recomputation that lacks the
-        /// runtime-assigned collision suffix.
+        /// emission-time disambiguation.
         /// </summary>
         public string? EmittedCSharpName { get; set; }
+
+        /// <summary>
+        /// The disambiguated Swift-level base name the overload resolver assigned this method at
+        /// emission time, or null when it emitted under its natural name. Stamped alongside
+        /// <see cref="EmittedCSharpName"/>.
+        ///
+        /// Exists so a derived class can tell WHY an ancestor slot carries the C# name it does. An
+        /// override must adopt the ancestor's emitted name when that name came from overload
+        /// disambiguation (the override's own body has only one member, so recomputing gives the bare
+        /// name and the vtable slot is missed), but must NOT adopt when the ancestor was merely renamed
+        /// for a property collision the derived class does not have. The old scheme could read that
+        /// distinction off the name itself — a trailing digit meant disambiguation — which stops working
+        /// once disambiguated names are ordinary words; this flag carries the fact explicitly instead of
+        /// re-deriving it from the spelling.
+        /// </summary>
+        public string? EmittedOverloadNameInput { get; set; }
 
         /// <summary>
         /// Indicates the method is @usableFromInline internal — visible in the ABI but not

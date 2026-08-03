@@ -2,15 +2,15 @@
 // Licensed under the MIT License.
 
 using System.Runtime.CompilerServices;
-using System.Text;
 
 namespace BindingsGeneration;
 
 /// <summary>
-/// Disambiguates protocol-method C# names when two or more Swift requirements share a base name AND
-/// project to the same C# parameter types but differ only by their argument LABELS — the delegate-callback
-/// shape, e.g. <c>conversationManager(_:didActivate:)</c> / <c>conversationManager(_:didDeactivate:)</c>
-/// or RoomPlan's <c>captureSession(_:didAdd:)</c> / <c>(_:didChange:)</c> / <c>(_:didUpdate:)</c>.
+/// Disambiguates protocol-method C# names when two or more Swift requirements share a base name AND project
+/// to the same C# parameter types — whether they differ by their argument LABELS (the delegate-callback
+/// shape, e.g. <c>conversationManager(_:didActivate:)</c> / <c>(_:didDeactivate:)</c>, or RoomPlan's
+/// <c>captureSession(_:didAdd:)</c> / <c>(_:didChange:)</c> / <c>(_:didUpdate:)</c>) or only by their Swift
+/// parameter TYPES, which the C# projection erases (<c>add(any Expression)</c> / <c>add(any Sendable)</c>).
 ///
 /// Without disambiguation those overloads collide once labels are erased (the projected/fillability axis
 /// keys off <see cref="ProtocolSignatureHelper.GetMethodSignatureKey"/>, which drops labels), so all but
@@ -18,15 +18,18 @@ namespace BindingsGeneration;
 /// one fired. The reverse-dispatch vtable already gives such siblings DISTINCT slots (slot identity is the
 /// label-inclusive <see cref="EveryProtocolEmitter.GetMethodKey"/>); only the interface / proxy / validator
 /// axes collapsed them. This helper supplies a single deterministic per-protocol map from the label-inclusive
-/// slot key to a label-derived base name (built ObjC-selector style by appending the capitalized argument
-/// labels). Every emission and dedup site reads it through the <c>Effective*</c> helpers, so they all agree
-/// on which methods emit and under what name.
+/// slot key to a derived base name — ObjC-selector style from the capitalized argument labels, or from the
+/// Swift parameter types when the labels do not separate the family. Every emission and dedup site reads it
+/// through the <c>Effective*</c> helpers, so they all agree on which methods emit and under what name.
 ///
-/// SCOPE — only LABEL collisions are touched. A group is disambiguated only when its members yield DISTINCT
-/// label-derived names; a pure type-erasure collision (same labels, different Swift types that project to the
-/// same C# type, e.g. <c>add(any Expression)</c> / <c>add(any Sendable)</c>) yields identical label-derived
-/// names and is left to collapse exactly as before — byte-identical output. Grouping is on the PROJECTED key,
-/// so type-erasure overloads whose projected keys already differ never group here in the first place.
+/// SCOPE — the same two-rung ladder the class lane walks, in the same per-family order. A group is
+/// disambiguated on the LABEL rung when its members yield distinct label-derived names; a pure type-erasure
+/// collision (same labels, different Swift types that project to the same C# type, e.g.
+/// <c>add(any Expression)</c> / <c>add(any Sendable)</c>) yields identical label-derived names and drops to
+/// the TYPE rung, exactly as a conforming class body would — the lanes have to agree here or the conformance
+/// is dropped as unsatisfiable. When neither rung separates the family it is left to collapse through the
+/// ordinary duplicate-signature dedup. Grouping is on the PROJECTED key, so type-erasure overloads whose
+/// projected keys already differ never group here in the first place.
 ///
 /// FORWARD (SBW witness) dispatch keys its slot index off the label-blind <see cref="WitnessDispatchEmitter.GetMethodKey"/>,
 /// which collapses a label-only pair to one slot. That is correct ONLY while the pair also collapses to one
@@ -151,12 +154,15 @@ internal static class ProtocolMethodDisambiguator
             list.Add(m);
         }
 
-        // A group needs disambiguation only when (a) it holds ≥2 DISTINCT slot keys (genuinely different
-        // requirements, not a true duplicate) AND (b) those slot keys yield DISTINCT label-derived names
-        // (i.e. the difference is in the LABELS). A type-only difference produces identical label-derived
-        // names; we skip it so today's collapse is preserved byte-for-byte.
+        // A group needs disambiguation only when it holds ≥2 DISTINCT slot keys — genuinely different
+        // requirements rather than a true duplicate. Which rung names them is decided per family below:
+        // the labels when they separate every sibling, otherwise the Swift parameter types.
         var disambiguatedSlotKeys = new HashSet<string>(StringComparer.Ordinal);
-        var pending = new List<(string slotKey, string nameInput)>();
+        // The rung travels WITH each entry rather than being re-inferred later from string equality: once a
+        // family drops to the type rung its type-derived input IS the base name the assignment loop tries
+        // first, so comparing the accepted name against it would book every type-rung assignment as
+        // LabelDerived and quietly lie to the ship-gate ledger.
+        var pending = new List<(string slotKey, string nameInput, bool fromTypeRung)>();
         foreach (var group in groups.Values)
         {
             if (group.Count < 2)
@@ -173,15 +179,72 @@ internal static class ProtocolMethodDisambiguator
             if (reps.Count < 2)
                 continue; // all members are true duplicates → collapse as before
 
-            var named = reps.Select(m => (slotKey: EveryProtocolEmitter.GetMethodKey(m), name: BuildLabelDerivedNameInput(m))).ToList();
-            var distinctNames = named.Select(x => x.name).Distinct(StringComparer.Ordinal).Count();
-            if (distinctNames < named.Count)
-                continue; // labels don't distinguish all siblings (pure type-only difference) → leave collapsed
+            var named = reps
+                .Select(m => (slotKey: EveryProtocolEmitter.GetMethodKey(m), name: OverloadNameDisambiguator.BuildLabelDerivedNameInput(m), bare: m.Name, decl: m))
+                .ToList();
+            // BARE-NAME OWNERSHIP — the same content rule the class lane applies, in the same ORDER. A
+            // requirement whose labels add nothing to its name has nothing to be discriminated BY, so it is
+            // the one that keeps the family's natural C# name; leaving it out of the map is exactly what
+            // "keeps its own name" means here, since every Effective* helper then falls through to its
+            // natural key. The rule fires only for a SOLE claimant, so the outcome is a fact about that
+            // member rather than a pick among equals.
+            //
+            // Ownership is settled on the LABEL inputs and BEFORE a rung is chosen, because that is the
+            // order the class lane walks: it awards the owner, drops it from the discriminands, and only
+            // then picks a rung for what is left. Deciding the rung first instead lets a THIRD sibling's
+            // duplicate label drag the label-less member down to the type rung — the class lane would still
+            // hand that member the bare name, so the interface would require `TransformWithRefBox` while the
+            // conforming class declares `Transform`, and the whole conformance is dropped as unsatisfiable.
+            // The owner is a fact about one member; a rung is a fact about the rest of the family.
+            var claimants = named.Where(x => string.Equals(x.name, x.bare, StringComparison.Ordinal)).ToList();
+            var bareNameOwner = claimants.Count == 1 ? claimants[0].slotKey : null;
+            var discriminands = named
+                .Where(x => !string.Equals(x.slotKey, bareNameOwner, StringComparison.Ordinal))
+                .ToList();
+            if (discriminands.Count == 0)
+                continue;
 
-            foreach (var (slotKey, nameInput) in named)
+            var usedTypeRung = false;
+            if (discriminands.Select(x => x.name).Distinct(StringComparer.Ordinal).Count() < discriminands.Count)
+            {
+                // TYPE RUNG — the labels do not separate every sibling (a pure type-erasure family:
+                // identical labels, different Swift types, one projected C# key). The class lane resolves
+                // exactly this shape on its type rung, so this lane has to as well.
+                //
+                // Leaving the family collapsed here while the class lane splits it is the one lane
+                // divergence the conformance validator cannot repair. A conforming Swift class names these
+                // members from its own type rung (`TransformWithRefBox` / `TransformWithOptionalRefBox`)
+                // while the interface would still require a bare `Transform` that nobody declares, so the
+                // whole conformance is dropped as unsatisfiable — losing an entire `: IFoo` the binding
+                // used to carry. The retired numeric scheme papered over this by accident: its first
+                // member kept the bare name, which happened to match the collapsed interface member.
+                //
+                // Slot identity is untouched. These siblings differ in their RAW Swift parameter types, so
+                // EveryProtocolEmitter.GetMethodKey already allocates each one its own vtable slot; the
+                // collapse only ever dropped the C# interface MEMBER. Naming them apart fills a slot the
+                // collapse used to leave empty — it does not move, add, or remove one.
+                //
+                // Rung selection is per-FAMILY, mirroring the class lane: every discriminand moves down
+                // together, so which rung a member lands on is a fact about the family rather than about
+                // which one the walk reached first. The base input is each member's own label-derived input,
+                // the same composition the class lane feeds BuildTypeDerivedNameInput, so both lanes land on
+                // the identical string by construction rather than by agreement of two hand-kept ladders.
+                //
+                // Two label-less siblings never leave an owner behind: their identical label inputs make the
+                // claimant count 2, so no one owns the bare name and both land here — matching the class
+                // lane, which likewise leaves a pure type-erasure family ownerless.
+                discriminands = discriminands
+                    .Select(x => (x.slotKey, name: OverloadNameDisambiguator.BuildTypeDerivedNameInput(x.decl, x.name), x.bare, x.decl))
+                    .ToList();
+                if (discriminands.Select(x => x.name).Distinct(StringComparer.Ordinal).Count() < discriminands.Count)
+                    continue; // neither rung separates the family → collapse through the emitted-signature dedup
+                usedTypeRung = true;
+            }
+
+            foreach (var (slotKey, nameInput, _, _) in discriminands)
             {
                 disambiguatedSlotKeys.Add(slotKey);
-                pending.Add((slotKey, nameInput));
+                pending.Add((slotKey, nameInput, usedTypeRung));
             }
         }
 
@@ -219,11 +282,11 @@ internal static class ProtocolMethodDisambiguator
                 continue; // already label-derived by the projected-key pass
             if (!disambiguatedBaseNames.Contains(m.Name))
                 continue; // not part of a mixed renamed/bare family
-            var nameInput = BuildLabelDerivedNameInput(m);
+            var nameInput = OverloadNameDisambiguator.BuildLabelDerivedNameInput(m);
             if (string.Equals(nameInput, m.Name, StringComparison.Ordinal))
                 continue; // no label to fold — honest bare name, leave it
             if (disambiguatedSlotKeys.Add(slotKey))
-                pending.Add((slotKey, nameInput));
+                pending.Add((slotKey, nameInput, fromTypeRung: false)); // the fold composes labels, never types
         }
 
         // Reserve the natural projected keys of every candidate that is NOT being disambiguated, so a derived
@@ -249,55 +312,52 @@ internal static class ProtocolMethodDisambiguator
         }
 
         var result = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var (slotKey, baseName) in pending)
+        foreach (var (slotKey, baseName, fromTypeRung) in pending)
         {
             if (result.ContainsKey(slotKey))
                 continue;
             // Representative method for this slot key (any member with that key — they share projected shape).
             var rep = candidates.First(m => EveryProtocolEmitter.GetMethodKey(m) == slotKey);
-            var nameInput = baseName;
-            int suffix = 2;
-            while (true)
+
+            // Same ladder the class lane walks, and deliberately NOT a numeric last resort. A protocol
+            // requirement's C# name is the interface member every conformer must declare and every proxy
+            // must forward, so an opaque `FooBar2` propagates the meaningless name across the whole
+            // conformance surface. When neither the labels nor the parameter types free a name, leave the
+            // slot out of the map entirely: the member then keeps its natural key and collapses through the
+            // ordinary emitted-signature dedup as a DuplicateSignature — the same graceful degradation this
+            // helper already applies to a pure type-erasure pair.
+            // A family that already took the type rung has no rung left: its stored input IS the type-derived
+            // name, so re-composing from it would append the parameter types a SECOND time
+            // (`TransformWithRefBox` → `TransformWithRefBoxWithRefBox`) — an invented spelling no lane and no
+            // conforming class would ever produce. The class lane refuses the member at that point instead;
+            // here the equivalent is to leave the slot out of the map and let it collapse.
+            var ladder = fromTypeRung
+                ? new[] { baseName }
+                : new[] { baseName, OverloadNameDisambiguator.BuildTypeDerivedNameInput(rep, baseName) };
+            string? accepted = null;
+            foreach (var candidateInput in ladder)
             {
-                var projected = BuildProjectedKeyWithOverride(rep, typeDatabase, protocolDecl, propertyNames: null, nameInput);
-                if (reserved.Add(projected))
+                if (string.Equals(candidateInput, rep.Name, StringComparison.Ordinal))
+                    continue;
+                if (reserved.Add(BuildProjectedKeyWithOverride(rep, typeDatabase, protocolDecl, propertyNames: null, candidateInput)))
+                {
+                    accepted = candidateInput;
                     break;
-                nameInput = baseName + suffix;
-                suffix++;
+                }
             }
-            result[slotKey] = nameInput;
+            if (accepted != null)
+            {
+                result[slotKey] = accepted;
+                // Same ship-gate ledger the class and free-function lanes feed: an interface requirement is
+                // public surface too, so its disambiguation has to be auditable by the same records.
+                OverloadNameDisambiguator.RecordProtocolAssignment(
+                    rep,
+                    !string.Equals(accepted, baseName, StringComparison.Ordinal) || fromTypeRung
+                        ? OverloadNameOutcome.TypeDerived
+                        : OverloadNameOutcome.LabelDerived,
+                    accepted);
+            }
         }
         return result;
-    }
-
-    /// <summary>
-    /// Builds the ObjC-selector-style base name: the method's bare name followed by the capitalized external
-    /// label of each non-empty, non-underscore, non-auto-generated argument. For
-    /// <c>conversationManager(_:didActivate:)</c> this yields <c>conversationManagerDidActivate</c>; the
-    /// downstream <c>GetPublicMethodName</c> pass PascalCases the first character to
-    /// <c>ConversationManagerDidActivate</c>.
-    ///
-    /// Argument labels are Swift identifiers and flow into the C# name unsanitized — the same assumption the
-    /// generator already makes for <c>method.Name</c> and every other Swift-identifier-derived C# name. A label
-    /// that is not a legal C# identifier (e.g. an emoji) would emit uncompilable C#, but that fails closed at the
-    /// compile gate and is the identical exposure as a method name in the same shape; it is not sanitized here in
-    /// isolation (that would be a codebase-wide identifier-sanitization concern, not a label-path patch).
-    /// </summary>
-    private static string BuildLabelDerivedNameInput(MethodDecl method)
-    {
-        var sb = new StringBuilder(method.Name);
-        for (int i = 1; i < method.CSSignature.Count; i++)
-        {
-            var arg = method.CSSignature[i];
-            if (arg.SwiftTypeSpec == null || arg.SwiftTypeSpec.IsEmptyTuple)
-                continue;
-            var label = arg.GetSwiftName();
-            if (string.IsNullOrEmpty(label) || label == "_" || SwiftBuilder.IsAutoGeneratedArgName(label))
-                continue;
-            sb.Append(char.ToUpperInvariant(label[0]));
-            if (label.Length > 1)
-                sb.Append(label.Substring(1));
-        }
-        return sb.ToString();
     }
 }

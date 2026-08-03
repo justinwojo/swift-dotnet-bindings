@@ -80,17 +80,17 @@ public class GenericExtensionOptionalReturnTests : TestBase
     {
         using var mapper = Functions.MakeGenericExtensionOptionalReturnMapper(tag: "zeta");
 
-        // Optional-return overload — Lookup(bool) maps to lookup(byOptional:).
-        var optResult = mapper.Lookup(true);
-        AssertNotNull(optResult, "Lookup(true) returns Some");
+        // Optional-return overload — LookupByOptional(bool) maps to lookup(byOptional:).
+        var optResult = mapper.LookupByOptional(true);
+        AssertNotNull(optResult, "LookupByOptional(true) returns Some");
         AssertEqual("zeta", optResult!.Tag, "byOptional payload preserved");
 
-        var optNil = mapper.Lookup(false);
-        AssertNull(optNil, "Lookup(false) returns nil");
+        var optNil = mapper.LookupByOptional(false);
+        AssertNull(optNil, "LookupByOptional(false) returns nil");
 
-        // Non-optional sibling — Lookup2(bool) maps to lookup(byRequired:).
-        var reqResult = mapper.Lookup2(true);
-        AssertNotNull(reqResult, "Lookup2(true) returns non-null");
+        // Non-optional sibling — LookupByRequired(bool) maps to lookup(byRequired:).
+        var reqResult = mapper.LookupByRequired(true);
+        AssertNotNull(reqResult, "LookupByRequired(true) returns non-null");
         AssertEqual("zeta", reqResult.Tag, "byRequired payload preserved");
     }
 }

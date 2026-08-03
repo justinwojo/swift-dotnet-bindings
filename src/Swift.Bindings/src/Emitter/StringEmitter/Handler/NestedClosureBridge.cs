@@ -1225,7 +1225,7 @@ public static class NestedClosureBridge
         }
 
         // Use env.CSharpMethodName so the projected-signature collision suffix from
-        // IHandler.HandleBaseDecl (CollisionIndex) reaches the emitted public method.
+        // IHandler.HandleBaseDecl (DisambiguatedNameInput) reaches the emitted public method.
         // Mirror of MethodClosureBridge.EmitPublicMethod.
         var methodName = env.CSharpMethodName;
 

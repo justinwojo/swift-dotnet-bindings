@@ -256,12 +256,12 @@ namespace BindingsGeneration
             string? reducedMethodKey = null;
             if (reducedMethodDecl != null && context.MethodEnv.EmittedProjectedSignatures != null)
             {
+                // Key under the primary's disambiguated base name so a disambiguated method checks the
+                // key it will actually occupy, not the bare one.
                 reducedMethodKey = BaseHandler.GetProjectedCSharpMethodKey(
                     reducedMethodDecl, context.MethodEnv.TypeDatabase, context.Logger,
-                    context.MethodEnv.SiblingPropertyNames);
-                // Apply collision suffix so disambiguated methods check the correct key
-                if (context.MethodEnv.CollisionIndex > 0)
-                    reducedMethodKey = BaseHandler.ApplyCollisionSuffixToKey(reducedMethodKey, context.MethodEnv.CollisionIndex);
+                    context.MethodEnv.SiblingPropertyNames,
+                    nameOverride: context.MethodEnv.DisambiguatedNameInput);
                 if (context.MethodEnv.EmittedProjectedSignatures.Contains(reducedMethodKey))
                 {
                     context.Logger.LogDebug(

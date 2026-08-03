@@ -16,6 +16,13 @@ namespace RuntimeTestsApp.Generics;
 ///     skips wrapper emission for methods whose conformances narrow the
 ///     parent's. The constrained sibling is correctly absent here; the
 ///     unconstrained body sibling on the class survives and round-trips.
+///     Both siblings label their parameter <c>JSONObject</c> and erase to one
+///     projected key, so the overload group is named from each member's own
+///     labels + types — the survivor emits as
+///     <c>MapJSONObjectWithOptionalAny</c>. It keeps that name even though its
+///     collision partner is dropped later: making the name depend on which
+///     siblings ultimately survive is exactly the instability the label/type
+///     scheme exists to remove.
 ///
 /// (2) Optional&lt;Any&gt; @_cdecl boundary: the body method's `JSONObject: Any?`
 ///     parameter exercises the path that previously read the buffer as a
@@ -36,15 +43,15 @@ public class GenericConstrainedExtensionOverloadTests : TestBase
         using var mapper = Functions.MakeGenericConstrainedExtensionMapper(label: "alpha");
         // String boxes through bare-Any projection as a Swift String value-type payload
         // (inline in the ExistentialContainer), exercising the case the old wrapper crashed on.
-        var result = mapper.Map(JSONObject: "anything");
-        AssertNotNull(result, "Map(JSONObject: non-nil value-type Any) returns stored");
+        var result = mapper.MapJSONObjectWithOptionalAny(JSONObject: "anything");
+        AssertNotNull(result, "MapJSONObjectWithOptionalAny(non-nil value-type Any) returns stored");
         AssertEqual("alpha", result!.Label, "stored label round-trips with value-type Any payload");
     }
 
     public void TestUnconstrainedMap_NilAny_ReturnsNone()
     {
         using var mapper = Functions.MakeGenericConstrainedExtensionMapper(label: "beta");
-        var result = mapper.Map(JSONObject: null);
-        AssertNull(result, "Map(JSONObject: nil) returns nil per source semantics");
+        var result = mapper.MapJSONObjectWithOptionalAny(JSONObject: null);
+        AssertNull(result, "MapJSONObjectWithOptionalAny(nil) returns nil per source semantics");
     }
 }

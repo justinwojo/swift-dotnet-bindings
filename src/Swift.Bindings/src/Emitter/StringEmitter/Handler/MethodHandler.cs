@@ -1831,6 +1831,36 @@ namespace BindingsGeneration
         /// Emits a Task-returning overload for methods with completion handler closures.
         /// The overload calls the original method with a TCS-based lambda and returns the Task.
         /// </summary>
+        /// <summary>
+        /// Projected-C# key for the Task-returning completion-handler overload: the primary method's
+        /// parameter list minus the trailing completion closure, plus the trailing CancellationToken
+        /// every async member carries. The PARAMETER portion comes from the single projected-key core
+        /// (via <see cref="BaseHandler.GetProjectedCSharpMethodKey"/> on a reduced clone) so it cannot
+        /// drift from the keys the dedup set already holds — this lane used to re-implement that
+        /// projection inline. The NAME is taken from the authoritative emitted name
+        /// (<c>MethodEnvironment.CSharpMethodName</c> + "Async") rather than re-derived from the clone:
+        /// the clone has one fewer parameter and name shaping is parameter-count sensitive, so a
+        /// re-derived name could disagree with the member this method actually declares. Dropping the
+        /// core key's name portion also drops its method-generic arity marker, which is correct here —
+        /// the emitted overload declares no generic parameter list of its own.
+        /// </summary>
+        private static string BuildCompletionOverloadProjectedKey(MethodEnvironment methodEnv, string asyncMethodName)
+        {
+            var methodDecl = methodEnv.MethodDecl;
+            var reducedDecl = methodDecl with
+            {
+                CSSignature = methodDecl.CSSignature.Take(methodDecl.CSSignature.Count - 1).ToList(),
+                IsAsync = true,
+            };
+            var coreKey = BaseHandler.GetProjectedCSharpMethodKey(
+                reducedDecl, methodEnv.TypeDatabase, logger: null, methodEnv.SiblingPropertyNames);
+            int open = coreKey.IndexOf('(');
+            int close = coreKey.LastIndexOf(')');
+            return open >= 0 && close > open
+                ? asyncMethodName + coreKey.Substring(open, close - open + 1)
+                : $"{asyncMethodName}(System.Threading.CancellationToken)";
+        }
+
         internal static void TryEmitCompletionHandlerOverload(CSharpWriter csWriter, MethodEnvironment methodEnv)
         {
             var methodDecl = methodEnv.MethodDecl;
@@ -1854,46 +1884,6 @@ namespace BindingsGeneration
             // Build the async method name
             var baseMethodName = methodEnv.CSharpMethodName;
             var asyncMethodName = baseMethodName + "Async";
-
-            // Check for name collision with existing methods
-            if (methodEnv.EmittedProjectedSignatures != null)
-            {
-                // Build projected key for the overload (same params minus closure, plus CancellationToken).
-                // Must match the key format from IHandler.GetProjectedCSharpMethodKey so that
-                // completion handler wrappers collide with native async methods of the same name.
-                var overloadParamTypes = new List<string>();
-                var asyncWrapperGenericNames = BaseHandler.CollectVisibleGenericParamNames(methodDecl);
-                foreach (var p in parameters.Take(parameters.Count - 1))
-                {
-                    var typeSpecForKey = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(
-                        p.SwiftTypeSpec, methodEnv.TypeDatabase, asyncWrapperGenericNames);
-                    string paramType;
-                    try
-                    {
-                        var factory = new TypeProjectionFactory();
-                        var projection = factory.Project(typeSpecForKey, new ProjectionContext
-                        {
-                            TypeDatabase = methodEnv.TypeDatabase,
-                            IsParameter = true
-                        });
-                        if (projection != null)
-                            paramType = projection.PublicType;
-                        else
-                            paramType = BaseHandler.NormalizeContainerForOverloadKey(typeSpecForKey, methodEnv.TypeDatabase);
-                    }
-                    catch
-                    {
-                        paramType = typeSpecForKey?.ToString() ?? "unknown";
-                    }
-                    paramType = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(
-                        paramType, p.SwiftTypeSpec, methodEnv.TypeDatabase);
-                    overloadParamTypes.Add(paramType);
-                }
-                overloadParamTypes.Add("System.Threading.CancellationToken");
-                var overloadKey = $"{asyncMethodName}({string.Join(",", overloadParamTypes)})";
-                if (!methodEnv.EmittedProjectedSignatures.Add(overloadKey))
-                    return; // Collision — skip
-            }
 
             // Resolve the result type for the Task
             var resultTypeName = CompletionHandlerDetector.GetResultTypeName(
@@ -1995,6 +1985,23 @@ namespace BindingsGeneration
                 default:
                     return;
             }
+
+            // Reserve the overload's projected signature LAST — every eligibility guard above has now
+            // had its chance to bail. Reserving it up front (as this lane used to) let a method that
+            // never emits an async overload — unresolvable result type, incompatible callback result,
+            // unhandled shape — still claim the `{Name}Async(...)` slot, which then silently suppressed
+            // a genuine sibling that could have emitted under it.
+            var overloadKey = BuildCompletionOverloadProjectedKey(methodEnv, asyncMethodName);
+            if (methodEnv.EmittedProjectedSignatures?.Add(overloadKey) == false)
+                return; // Another member already owns this projected signature.
+
+            // The Task-returning convenience overload is a public member like any other, so it belongs
+            // in the API manifest; without this entry the ABI-contract gate cannot see it change or
+            // disappear. It forwards to the primary method, so it carries the primary's entry symbol.
+            methodEnv.EmissionContext?.RecordApiManifestEntry(
+                ModuleEmissionContext.BuildApiManifestKey(
+                    methodDecl.ParentDecl, asyncMethodName, overloadKey, methodEnv.TypeDatabase),
+                methodEnv.EmissionSymbol);
 
             callArgs.Add(lambdaBody);
             var callArgsString = string.Join(", ", callArgs);

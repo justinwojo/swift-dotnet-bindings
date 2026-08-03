@@ -191,15 +191,15 @@ public class NestedClosureBridgeTests
     }
 
     [Theory]
-    [InlineData(0, "OnEvent(")]
-    [InlineData(1, "OnEvent2(")]
-    [InlineData(2, "OnEvent3(")]
-    public void TryEmit_AppliesCollisionIndexToPublicMethodName(int collisionIndex, string expectedSignaturePrefix)
+    [InlineData(null, "OnEvent(")]
+    [InlineData("onEventWithHandler", "OnEventWithHandler(")]
+    [InlineData("onEventWithObserver", "OnEventWithObserver(")]
+    public void TryEmit_AppliesDisambiguatedNameToPublicMethodName(string? disambiguatedNameInput, string expectedSignaturePrefix)
     {
-        // Mirror of MethodClosureBridgeTests — when IHandler.HandleBaseDecl assigns
-        // CollisionIndex to disambiguate two Swift overloads that project to the same
+        // Mirror of MethodClosureBridgeTests — when IHandler.HandleBaseDecl hands a
+        // label-derived name input to one of two Swift overloads that project to the same
         // C# parameter list, the nested-closure-bridge path must read env.CSharpMethodName
-        // (which applies the suffix), not recompute the bare name.
+        // (which applies that input), not recompute the bare name.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("DataRequest", moduleDecl);
@@ -215,7 +215,7 @@ public class NestedClosureBridgeTests
         var method = CreateMethodDecl("onEvent", parentDecl, moduleDecl,
             TupleTypeSpec.Empty, outerClosureType, "_perform");
 
-        var env = new MethodEnvironment(method, typeDatabase) { CollisionIndex = collisionIndex };
+        var env = new MethodEnvironment(method, typeDatabase) { DisambiguatedNameInput = disambiguatedNameInput };
         var csOutput = new StringWriter();
         var csWriter = new CSharpWriter(csOutput);
         var swiftWriter = new SwiftWriter(new StringWriter());

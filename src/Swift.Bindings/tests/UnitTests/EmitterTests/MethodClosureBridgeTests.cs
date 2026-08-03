@@ -415,18 +415,18 @@ public class MethodClosureBridgeTests
     }
 
     [Theory]
-    [InlineData(0, "OnResponse(")]
-    [InlineData(1, "OnResponse2(")]
-    [InlineData(2, "OnResponse3(")]
-    public void TryEmit_AppliesCollisionIndexToPublicMethodName(int collisionIndex, string expectedSignaturePrefix)
+    [InlineData(null, "OnResponse(")]
+    [InlineData("onResponseWithEmail", "OnResponseWithEmail(")]
+    [InlineData("onResponseWithLink", "OnResponseWithLink(")]
+    public void TryEmit_AppliesDisambiguatedNameToPublicMethodName(string? disambiguatedNameInput, string expectedSignaturePrefix)
     {
         // Two Swift overloads that project to the same C# parameter list (e.g.
-        // signIn(withEmail:password:) vs signIn(withEmail:link:)) collide on the projected key. IHandler.HandleBaseDecl assigns CollisionIndex
-        // to the second overload — the closure-bridge path must read env.CSharpMethodName
-        // (which applies the suffix) instead of recomputing the bare name, otherwise
-        // both overloads emit as `public void DoWork(...)` and produce CS0111.
+        // signIn(withEmail:password:) vs signIn(withEmail:link:)) collide on the projected key, and
+        // IHandler.HandleBaseDecl hands the loser a label-derived name input. The closure-bridge path
+        // must read env.CSharpMethodName (which applies that input) instead of recomputing the bare
+        // name, otherwise both overloads emit as `public void DoWork(...)` and produce CS0111.
         var (method, typeDatabase) = CreateMethodWithBoundGenericClosure();
-        var env = new MethodEnvironment(method, typeDatabase) { CollisionIndex = collisionIndex };
+        var env = new MethodEnvironment(method, typeDatabase) { DisambiguatedNameInput = disambiguatedNameInput };
         var csOutput = new StringWriter();
         var csWriter = new CSharpWriter(csOutput);
         var swiftWriter = new SwiftWriter(new StringWriter());

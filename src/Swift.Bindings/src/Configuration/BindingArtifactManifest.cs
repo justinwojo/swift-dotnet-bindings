@@ -102,6 +102,15 @@ public sealed class GenerationSection
     public List<WrappedItem> WrappedItems { get; init; } = new();
     public List<BridgedViewItem> BridgedViews { get; init; } = new();
     public List<ThemeBridgedItem> ThemeBridgedProperties { get; init; } = new();
+
+    /// <summary>
+    /// Every overload-disambiguation decision this run made. Carried here for the same reason the
+    /// comment-drop lists are: the report is REDERIVED from this manifest, so a channel that only
+    /// exists on the in-memory report never reaches <c>binding-report.json</c> — and the ship gate
+    /// that asserts no public member carries a resolver-assigned numeric suffix reads it from there.
+    /// </summary>
+    public List<OverloadRenameItem> OverloadRenames { get; init; } = new();
+
     public BridgeSummary? BridgeSummary { get; init; }
 
     /// <summary>
@@ -174,6 +183,7 @@ public sealed class GenerationSection
         section.WrappedItems.AddRange(report.WrappedItems);
         section.BridgedViews.AddRange(report.BridgedViews);
         section.ThemeBridgedProperties.AddRange(report.ThemeBridgedProperties);
+        section.OverloadRenames.AddRange(report.OverloadRenames);
         section.UnsupportedCommentDrops.AddRange(report.UnsupportedCommentDrops);
         section.UnsupportedCommentDropDetails.AddRange(report.UnsupportedCommentDropDetails);
         section.ObjectDegradations.AddRange(report.ObjectDegradations);

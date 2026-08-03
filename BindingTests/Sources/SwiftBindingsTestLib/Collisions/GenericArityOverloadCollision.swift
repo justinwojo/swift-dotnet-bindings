@@ -8,10 +8,10 @@ import Foundation
 // A method-generic overload and a non-generic one whose parameters project to the SAME C# parameter
 // key are still legal, distinct C# overloads — method-level generic arity is part of overload
 // identity. The projected-overload key the secondary dedup uses must encode that arity. An arity-blind
-// key collision-groups the two; under declaration order the FIRST-declared sibling keeps the bare name
-// and the other is suffixed (`Transform2`). When the non-generic shape is also a protocol requirement
-// declared under the bare name and the GENERIC is declared first, the renamed non-generic concrete
-// member no longer satisfies the interface → CS0535 at binding-compile time. A real event-monitor type
+// key collision-groups the two, and the group is then renamed off the bare name — neither sibling
+// carries a label, so both escalate to the type rung (`TransformWithRefBox` / `TransformWithOptionalRefBox`).
+// When the non-generic shape is also a protocol requirement declared under the bare name, the renamed
+// non-generic concrete member no longer satisfies the interface → CS0535 at binding-compile time. A real event-monitor type
 // broke this way: a non-generic `request(_:didParseResponse:)` taking a concrete `Response<Data?>`
 // alongside a generic `request<Value>(_:didParseResponse:)` over `Response<Value>`.
 //
@@ -27,11 +27,11 @@ import Foundation
 //   - The generic `transform<Tag>(_ box: RefBox?)` has raw key `transform(RefBox?)`, which does NOT match
 //     the requirement's `transform(RefBox)` — the validator skips it and matches the non-generic witness,
 //     which IS emittable, so the conformance is accepted and `: IRefBoxArityTransform` is emitted.
-//   - Both project to the bare `Transform(RefBox)` overload key, so the generic (declared first) and the
-//     non-generic STILL contend for the same slot. Without the arity marker the generic claims the bare
-//     name and the non-generic requirement-satisfier is pushed to `Transform2` — and because the validator's
-//     name-parity check does not model the collision suffix, the class is still declared `: IRefBoxArityTransform`
-//     while its only bare-named member is the generic → the interface's `Transform(RefBox)` is unimplemented → CS0535.
+//   - Both project to the bare `Transform(RefBox)` overload key, so without the arity marker the generic and the
+//     non-generic STILL contend for the same slot. The group is then disambiguated and the non-generic
+//     requirement-satisfier is renamed off `Transform` — and because the validator's name-parity check does not
+//     model that rename, the class is still declared `: IRefBoxArityTransform` while no member is named
+//     `Transform` → the interface's `Transform(RefBox)` is unimplemented → CS0535.
 //   - The arity marker (`` `1``) on the generic's projected key keeps the two apart so the non-generic
 //     keeps the bare slot and the conformance compiles.
 // The generic parameter `Tag` appears ONLY in the return position, which neither requirement matching nor

@@ -256,24 +256,31 @@ namespace BindingsGeneration
         public IReadOnlySet<string>? SiblingPropertyNames { get; } = siblingPropertyNames;
 
         /// <summary>
-        /// Collision disambiguation index for methods with projected C# signature collisions.
-        /// 0 = no collision (first occurrence). Positive values append a numeric suffix (2, 3, ...)
-        /// so that multiple Swift overloads that project to the same C# signature remain accessible.
+        /// The Swift-level base name this method emits under when two overloads project to the same
+        /// C# signature, or null when nothing contested its natural name. Assigned by
+        /// <see cref="OverloadNameDisambiguator"/> from the method's own argument labels or parameter
+        /// types (<c>configure(zebra:)</c> → <c>configureZebra</c>), so a call site reads which
+        /// overload it is and inserting a new sibling upstream cannot renumber an existing one.
+        ///
+        /// It is a name INPUT, not a finished C# name: it replaces <c>MethodDecl.Name</c> going INTO
+        /// <see cref="NameProvider.GetPublicMethodName"/>, so the property-collision rename, the
+        /// <c>Get</c> prefix, the CS0542/CS0102 renames and the <c>Async</c> suffix all still apply on
+        /// top of it. Appending to the shaped name instead would produce <c>ConfigureAsyncZebra</c>.
         /// </summary>
-        public int CollisionIndex { get; set; }
+        public string? DisambiguatedNameInput { get; set; }
 
         /// <summary>
         /// When non-null, this override method adopted its same-module ancestor slot's emitted C#
         /// name (resolved by full Swift selector — method name + external argument labels + parameter
         /// Swift types) instead of recomputing one from its own class body. A C# <c>override</c> MUST
         /// reuse the EXACT ancestor name; when a base disambiguated two same-name/same-type overloads
-        /// that differ only by Swift argument label with a B15 collision suffix (e.g. <c>Process</c> /
-        /// <c>Process2</c>), a derived class overriding only the suffixed slot has a single method in
-        /// its own body, so its local <see cref="CollisionIndex"/> is 0 and it would otherwise emit the
-        /// suffix-free name — binding to the WRONG base slot and silently mis-dispatching. Set once in
-        /// the <c>IHandler</c> dedup pass (the single locus that owns <see cref="CollisionIndex"/>) so
-        /// every <see cref="CSharpMethodName"/> reader — the public signature, the override modifier,
-        /// and the forwarding native-int/closure/default-parameter overloads — stays in lockstep.
+        /// that differ only by Swift argument label (e.g. <c>Process</c> / <c>ProcessSecond</c>), a
+        /// derived class overriding only the discriminated slot has a single method in its own body, so
+        /// nothing contests its name locally and it would otherwise emit the bare one — binding to the
+        /// WRONG base slot and silently mis-dispatching. Set once in the <c>IHandler</c> dedup pass (the
+        /// single locus that owns <see cref="DisambiguatedNameInput"/>) so every
+        /// <see cref="CSharpMethodName"/> reader — the public signature, the override modifier, and the
+        /// forwarding native-int/closure/default-parameter overloads — stays in lockstep.
         /// </summary>
         public string? AdoptedOverrideCSharpName { get; set; }
 
@@ -288,19 +295,21 @@ namespace BindingsGeneration
         public string? FailableFactoryName { get; set; }
 
         /// <summary>
-        /// Gets the C# method name, resolving any collisions with property names
-        /// and applying collision disambiguation suffix when needed.
+        /// Gets the C# method name, resolving any collisions with property names and applying the
+        /// overload resolver's disambiguated base name when one was assigned.
         /// </summary>
         public string CSharpMethodName
         {
             get
             {
                 // An override that adopted its ancestor slot's emitted name uses it verbatim — the
-                // ancestor name already carries whatever B15 suffix that ancestor's class body assigned.
+                // ancestor name already carries whatever discrimination that ancestor's body assigned.
                 if (AdoptedOverrideCSharpName != null)
                     return AdoptedOverrideCSharpName;
-                var name = NameProvider.GetPublicMethodName(PublicMethodNameContext.ForMethod(MethodDecl, SiblingPropertyNames));
-                return CollisionIndex > 0 ? $"{name}{CollisionIndex + 1}" : name;
+                var ctx = PublicMethodNameContext.ForMethod(MethodDecl, SiblingPropertyNames);
+                if (DisambiguatedNameInput != null)
+                    ctx = ctx with { MethodName = DisambiguatedNameInput };
+                return NameProvider.GetPublicMethodName(ctx);
             }
         }
 

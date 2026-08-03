@@ -546,8 +546,8 @@ public class CompletionHandlerDetectorTests
         var method = typeof(BaseHandler).GetMethod(
             "GetProjectedCSharpMethodKey",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-        // Args: methodDecl, typeDatabase, logger, siblingPropertyNames, treatAsClosureTombstone.
-        return (string)method!.Invoke(null, new object[] { methodDecl, typeDatabase, null!, null!, false })!;
+        // Args: methodDecl, typeDatabase, logger, siblingPropertyNames, treatAsClosureTombstone, nameOverride.
+        return (string)method!.Invoke(null, new object[] { methodDecl, typeDatabase, null!, null!, false, null! })!;
     }
 
     private static ModuleDecl CreateModuleDecl() => new ModuleDecl

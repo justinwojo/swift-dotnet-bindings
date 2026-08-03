@@ -220,17 +220,11 @@ namespace BindingsGeneration
                 typeDatabase, context.PInvokeHelperContext, emissionCtx,
                 parentType: null, moduleDecl: null, siblingPropertyNames, conductor);
 
-            // Reserve collision-suffix overrides' adopted ancestor names up front so the
-            // disambiguation in the main loop is declaration-order independent (see method doc).
+            // Reserve disambiguating overrides' adopted ancestor names up front so the resolution in
+            // the main loop is declaration-order independent (see method doc).
             PreReserveAdoptedOverrideNames(
                 sortedDecl, pipeline, validationCtx, typeDatabase, siblingPropertyNames,
                 context, emittedProjectedSignatures);
-
-            // Maps each member of a same-projected-key overload group to a rank (0..n-1) in declaration order,
-            // so the first-declared overload keeps the bare name and later siblings take ascending suffixes.
-            // Members outside any group are absent → read as rank 0 (natural name).
-            var collisionRankMap = BuildClassBodyCollisionRankMap(
-                sortedDecl, pipeline, validationCtx, typeDatabase, siblingPropertyNames);
 
             foreach (var baseDecl in sortedDecl)
             {
@@ -559,17 +553,26 @@ namespace BindingsGeneration
                         continue;
                     }
 
-                    // B15: Secondary dedup based on projected C# public method signature.
-                    // For non-constructor methods, collisions are disambiguated with numeric suffix
-                    // (e.g., HandleNextAction, HandleNextAction2). Constructors can't be renamed in C#,
-                    // so constructor collisions are still skipped.
+                    // Secondary dedup based on projected C# public method signature. For non-constructor
+                    // methods, colliding overloads are disambiguated by their own Swift argument labels or
+                    // parameter types (HandleNextAction / HandleNextActionForUser). Constructors can't be
+                    // renamed in C#, so constructor collisions are still skipped.
                     var projectedKey = GetProjectedCSharpMethodKey(methodDecl, typeDatabase, _logger, siblingPropertyNames);
-                    // The disambiguation suffix follows the member's rank within its same-projected-key overload
-                    // group (BuildCollisionRankMap, in declaration order). Rank 0 (also the default for members
-                    // in no collision group) keeps the natural name; the first-declared overload owns it and
-                    // later siblings take the suffixed slot — matching the C# surface earlier releases shipped.
-                    int collisionIndex = collisionRankMap.GetValueOrDefault(methodDecl, 0);
-                    var reservedKey = ApplyCollisionSuffixToKey(projectedKey, collisionIndex);
+                    // The disambiguated base name comes from the member's own signature, so it is stable
+                    // against a sibling being inserted upstream — see OverloadNameDisambiguator. Members in
+                    // no collision family are absent from the map and read as Natural (null input).
+                    var overloadName = OverloadNameDisambiguator.ForMethod(methodDecl, typeDatabase);
+                    if (overloadName.IsRefused)
+                    {
+                        _logger.LogDebug($"Skipping method '{methodDecl.Name}' — no argument label or parameter type distinguishes it from an already-emitted overload: {projectedKey}");
+                        ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.DuplicateSignature, overloadName.Detail);
+                        UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.DuplicateSignature, overloadName.Detail, containingDecl: methodDecl.ParentDecl);
+                        continue;
+                    }
+                    var disambiguatedNameInput = overloadName.NameInput;
+                    var reservedKey = disambiguatedNameInput == null
+                        ? projectedKey
+                        : GetProjectedCSharpMethodKey(methodDecl, typeDatabase, _logger, siblingPropertyNames, nameOverride: disambiguatedNameInput);
                     // FB-1b: recovered static-factory name for a colliding failable init; null keeps the
                     // default "TryCreate" (winner / no-collision).
                     string? failableFactoryName = null;
@@ -639,33 +642,29 @@ namespace BindingsGeneration
                         }
                         else
                         {
-                            // Occupancy escalation: the rank-derived slot is already taken by an UNRELATED natural
-                            // name (a method literally named to match the suffixed form). Walk to the next free
-                            // suffix. Seed from the rank so an in-group member never collapses onto a lower-ranked
-                            // sibling's already-reserved slot.
-                            var count = Math.Max(collisionIndex,
-                                projectedKeyCollisionCounts.TryGetValue(projectedKey, out var seeded) ? seeded : 0);
-                            string disambiguatedKey;
-                            do
+                            // Occupancy escalation. The map that assigned this method's name is a pure function
+                            // of the type's Swift members, so it does not see two things the loop does: a
+                            // property-collision rename that lands an otherwise-uncontested method on a
+                            // sibling's name, and an override's adopted ancestor name reserved before the loop.
+                            // Walk the same ladder — labels, then parameter types — against live occupancy.
+                            var escalated = OverloadNameDisambiguator.Escalate(
+                                methodDecl,
+                                input => GetProjectedCSharpMethodKey(methodDecl, typeDatabase, _logger, siblingPropertyNames, nameOverride: input),
+                                emittedProjectedSignatures.Add);
+                            if (escalated == null)
                             {
-                                collisionIndex = ++count;
-                                disambiguatedKey = ApplyCollisionSuffixToKey(projectedKey, collisionIndex);
-                            } while (!emittedProjectedSignatures.Add(disambiguatedKey));
-                            projectedKeyCollisionCounts[projectedKey] = collisionIndex;
-
-                            _logger.LogDebug($"Disambiguating method '{methodDecl.Name}' — collision #{collisionIndex + 1} for projected key: {projectedKey} → {disambiguatedKey}");
+                                _logger.LogDebug($"Skipping method '{methodDecl.Name}' — projected C# signature is already taken and no argument label or parameter type frees it: {projectedKey}");
+                                ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.DuplicateSignature,
+                                    $"Projects to an already-emitted C# signature ({projectedKey}) and no argument label or parameter type distinguishes it.");
+                                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.DuplicateSignature, containingDecl: methodDecl.ParentDecl);
+                                continue;
+                            }
+                            disambiguatedNameInput = escalated;
+                            _logger.LogDebug($"Disambiguating method '{methodDecl.Name}' — projected key {projectedKey} was taken → base name '{escalated}'");
                         }
                     }
                     else
                     {
-                        if (collisionIndex > 0)
-                        {
-                            // In-group member that claimed its rank-derived suffixed slot directly (no occupancy
-                            // clash). Record the high-water mark so a later unrelated natural-name collision on the
-                            // same projected key escalates ABOVE this slot rather than re-issuing it.
-                            if (!projectedKeyCollisionCounts.TryGetValue(projectedKey, out var seeded) || seeded < collisionIndex)
-                                projectedKeyCollisionCounts[projectedKey] = collisionIndex;
-                        }
                         // FB-1b: the first failable init to claim a projected key is the winner — it keeps the
                         // plain `TryCreate` name and later same-key failable siblings disambiguate against it.
                         if (methodDecl.IsConstructor && methodDecl.IsFailable)
@@ -676,7 +675,7 @@ namespace BindingsGeneration
                     {
                         // Pass property names and P/Invoke helper context to the method environment
                         var env = new MethodEnvironment(methodDecl, typeDatabase, siblingPropertyNames, context.PInvokeHelperContext, context.CompositionCollector);
-                        env.CollisionIndex = collisionIndex;
+                        env.DisambiguatedNameInput = disambiguatedNameInput;
                         // FB-1b: a recovered colliding failable init emits under a label-disambiguated
                         // static-factory name; null leaves the emitter's default "TryCreate".
                         env.FailableFactoryName = failableFactoryName;
@@ -691,17 +690,17 @@ namespace BindingsGeneration
 
                         // Scenario C (dedup parity — in-loop fallback): the override added only
                         // its LOCALLY computed key (`Process`) to emittedProjectedSignatures at the Add()
-                        // above, but it EMITS under the adopted name (`Process2`). A sibling that projects
-                        // to the adopted name (e.g. `process2(_:)` → `Process2`) must disambiguate to the
-                        // next free suffix (`Process22`) rather than emit a duplicate `Process2` (CS0111).
+                        // above, but it EMITS under the adopted name (`ProcessSecond`). A sibling that
+                        // projects to the adopted name (e.g. `processSecond(_:)` → `ProcessSecond`) must
+                        // escalate to a discriminated name of its own rather than emit a duplicate (CS0111).
                         // PreReserveAdoptedOverrideNames already reserved this key BEFORE the loop, so the
-                        // outcome is declaration-order independent (a `process2(_:)` declared ahead of the
-                        // override still loses the race). This in-loop Add is the fallback for the cases
+                        // outcome is declaration-order independent (a `processSecond(_:)` declared ahead of
+                        // the override still loses the race). This in-loop Add is the fallback for the cases
                         // the pre-pass conservatively skips — the override's local key was non-unique
                         // because a validation-SKIPPED sibling shared it, so the pre-pass could not
-                        // distinguish it from a self-suffixing override — and is a harmless no-op when the
-                        // pre-pass already reserved the key. Uses the real CollisionIndex, so a self-
-                        // suffixing override (whose own body already yields the suffixed name) resolves
+                        // distinguish it from a self-disambiguating override — and is a harmless no-op when
+                        // the pre-pass already reserved the key. Uses the real DisambiguatedNameInput, so an
+                        // override whose own body already yields the discriminated name resolves
                         // AdoptedOverrideCSharpName to null and reserves nothing.
                         if (env.AdoptedOverrideCSharpName != null)
                         {
@@ -723,14 +722,17 @@ namespace BindingsGeneration
                             methodDecl.ParentDecl,
                             () => handler.Emit(csWriter, swiftWriter, env, conductor, context));
                         // Stamp the actual emitted C# name on the decl while the env is still
-                        // alive (CollisionIndex is set here and nowhere else). This is the only
-                        // single source of truth for the post-disambiguation name — recomputing
-                        // later via NameProvider misses the collision suffix. Read by
+                        // alive (DisambiguatedNameInput is set here and nowhere else). This is the
+                        // only single source of truth for the post-disambiguation name — recomputing
+                        // later via NameProvider misses it. Read by
                         // ClassHandler.PopulateEmittedClassMethods for the cross-module override
-                        // verifier so a parent emitted as `Foo2` is recorded as `Foo2`, not `Foo`.
+                        // verifier so a parent emitted as `FooWithInt` is recorded as `FooWithInt`,
+                        // not `Foo`. The name INPUT is stamped alongside so a derived override can
+                        // tell an overload disambiguation apart from an ordinary rename.
                         if (methodDecl.WasEmitted)
                         {
                             methodDecl.EmittedCSharpName = env.CSharpMethodName;
+                            methodDecl.EmittedOverloadNameInput = env.DisambiguatedNameInput;
                             // Record the consumer-visible contract for this emitted member —
                             // its post-collision C# signature → the entry symbol the P/Invoke binds.
                             // Recorded here (not in a later model walk) because env.CSharpMethodName's
@@ -868,13 +870,14 @@ namespace BindingsGeneration
         /// tombstone HERE (not in the core) keeps the default-overload path — which never consults the
         /// flag — byte-identical.
         /// </summary>
-        internal static string GetProjectedCSharpMethodKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ILogger? logger = null, IReadOnlySet<string>? siblingPropertyNames = null, bool treatAsClosureTombstone = false)
+        internal static string GetProjectedCSharpMethodKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ILogger? logger = null, IReadOnlySet<string>? siblingPropertyNames = null, bool treatAsClosureTombstone = false, string? nameOverride = null)
             => ProtocolSignatureHelper.BuildProjectedMethodKey(methodDecl, typeDatabase, new ProtocolSignatureHelper.ProjectedKeyOptions
             {
                 PropertyNames = siblingPropertyNames,
                 TreatAsClosureTombstone = methodDecl.IsClosureParamTombstone || treatAsClosureTombstone,
                 IncludeParentTypeName = true,
                 Logger = logger,
+                NameOverride = nameOverride,
             });
 
         /// <summary>
@@ -919,18 +922,19 @@ namespace BindingsGeneration
         /// natural name. (Reserving for skipped methods was the defect that retired the earlier
         /// whole-body pre-pass; here the reservation, not just the count, is validation-gated.)</item>
         /// <item>Uniqueness gate — only an override whose LOCAL projected key is unique among the body's
-        /// EMITTING methods reserves. A self-suffixing override (one that overrides BOTH label-overloads, so
-        /// two emitting methods share the local key) takes its suffix from the main loop's collision counter,
-        /// not adoption; pre-reserving its "adopted" name would push the real suffixed slot to the next index
-        /// (<c>Process3</c>) and mis-bind. The count mirrors the main loop's emitting partition
+        /// EMITTING methods reserves. A self-disambiguating override (one that overrides BOTH
+        /// label-overloads, so two emitting methods share the local key) gets its discriminated name from the
+        /// resolver in its own body, not adoption; pre-reserving its "adopted" name would take the slot the
+        /// real member needs and mis-bind. The count mirrors the main loop's emitting partition
         /// (<see cref="ClassifyOverridePrePassEmission"/>): a validation-skipped non-tombstone sibling that
         /// happens to share the key is EXCLUDED from the count, so it cannot suppress an otherwise-valid
         /// pre-reservation — the defect that let an earlier-declared natural sibling steal the adopted slot
         /// (CS0111). The projected key carries name + param types only (no return type), so a sibling skipped
         /// solely for an unsupported RETURN still shares the key and was exactly such a suppressor.</item>
         /// </list>
-        /// A unique local key guarantees the main loop assigns <c>CollisionIndex 0</c>, so the adopted
-        /// name resolved here with a <c>CollisionIndex 0</c> environment matches what the loop computes.
+        /// The pre-adoption name is computed from the SAME resolver the main loop reads
+        /// (<see cref="OverloadNameDisambiguator.ForMethod"/>), so the two agree on what the override
+        /// would have been called without adoption.
         /// The throwaway <see cref="MethodEnvironment"/> is side-effect-free (it only constructs helper
         /// instances and reads the decl); <see cref="MemberValidationPipeline.ValidateMethodEmission"/> is
         /// a pure predicate (the loop records skips separately), so both are safe to evaluate twice.
@@ -981,9 +985,12 @@ namespace BindingsGeneration
                 // skipped-sibling collision (in-loop reservation owns it). Either way, do not pre-reserve.
                 if (!localKeyCounts.TryGetValue(key, out var count) || count != 1) continue;
 
-                // Unique local key ⇒ CollisionIndex 0 in the main loop ⇒ adoption resolves identically.
+                // Seed the name input from the same resolver the main loop reads, so the pre-pass's
+                // pre-adoption name is the one the loop will compute. It is normally null here (a
+                // locally-unique key means nothing contested the name), but the resolver's view is
+                // key-based rather than emitting-partition-based, so the two can legitimately differ.
                 var env = new MethodEnvironment(method, typeDatabase, siblingPropertyNames, context.PInvokeHelperContext, context.CompositionCollector);
-                env.CollisionIndex = 0;
+                env.DisambiguatedNameInput = OverloadNameDisambiguator.ForMethod(method, typeDatabase).NameInput;
                 var adopted = TryResolveAdoptedOverrideName(env);
                 if (adopted == null) continue;
 
@@ -991,41 +998,6 @@ namespace BindingsGeneration
                 if (paren > 0)
                     emittedProjectedSignatures.Add(adopted + key.Substring(paren));
             }
-        }
-
-        /// <summary>
-        /// Builds the declaration-order collision-rank map for one type body. Walks <paramref name="sortedDecl"/>
-        /// in the SAME order and through the SAME filter chain the main emission loop uses — validation
-        /// (<see cref="ClassifyOverridePrePassEmission"/>), primary-signature dedup (first-wins on
-        /// <see cref="GetMethodSignatureKey"/>), and constructor exclusion (constructors skip on collision and
-        /// never take a suffix) — so each rank lines up with a method that actually reaches the dedup block.
-        /// Non-constructor survivors are tagged with their tombstone-view projected key (the flag is set by the
-        /// loop AFTER this runs, so the view is predicted here, matching <see cref="PreReserveAdoptedOverrideNames"/>)
-        /// and handed to <see cref="BuildCollisionRankMap"/>.
-        /// </summary>
-        private Dictionary<MethodDecl, int> BuildClassBodyCollisionRankMap(
-            IEnumerable<BaseDecl> sortedDecl, MemberValidationPipeline pipeline, ValidationContext validationCtx,
-            ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingPropertyNames)
-        {
-            var primarySeen = new HashSet<string>(StringComparer.Ordinal);
-            var emitting = new List<(MethodDecl, string)>();
-            foreach (var d in sortedDecl)
-            {
-                if (d is not MethodDecl m) continue;
-                var (willEmit, isTombstone) = ClassifyOverridePrePassEmission(m, pipeline, validationCtx, typeDatabase);
-                if (!willEmit) continue;
-                // Primary-signature dedup (first-wins) mirrors HandleBaseDecl's emittedMethodSignatures gate —
-                // a primary-duplicate sibling never reaches the projected-collision block, so it must not pad a
-                // collision group with a method that does not emit.
-                var signatureKey = GetMethodSignatureKey(m, typeDatabase, _logger);
-                if (!primarySeen.Add(signatureKey)) continue;
-                // Constructors are skipped on a projected collision (they can't be renamed) — never ranked.
-                if (m.IsConstructor) continue;
-                var projectedKey = GetProjectedCSharpMethodKey(m, typeDatabase, _logger, siblingPropertyNames,
-                    treatAsClosureTombstone: isTombstone);
-                emitting.Add((m, projectedKey));
-            }
-            return BuildCollisionRankMap(emitting);
         }
 
         /// <summary>
@@ -1043,12 +1015,16 @@ namespace BindingsGeneration
         ///
         /// Returns null — leaving the derived's own computed name in place — when the method is not an
         /// override, its parent is not a class, no same-module ancestor slot matches, the matched
-        /// ancestor was not emitted, or the ancestor name is NOT a pure collision-suffix variant of the
-        /// derived's own computed name. The last guard keeps adoption surgical: it never rewrites a
-        /// property-collision rename (e.g. base <c>Foo</c> vs derived <c>FooMethod</c>), which could
-        /// introduce a CS0102 clash in the derived. The cross-module variant of this bug is a tracked
-        /// residual — <see cref="TypeRecord.EmittedClassMethods"/> persists no argument labels, so a
-        /// cross-module ancestor's two same-type slots are indistinguishable.
+        /// ancestor was not emitted, or the ancestor's name did NOT come from overload disambiguation.
+        /// That last guard keeps adoption surgical: it never rewrites a property-collision rename (e.g.
+        /// base <c>Foo</c> vs derived <c>FooMethod</c>), which could introduce a CS0102 clash in the
+        /// derived. It reads the ancestor's <see cref="MethodDecl.EmittedOverloadNameInput"/> stamp
+        /// rather than inspecting the spelling: disambiguated names are ordinary words now, so
+        /// "ancestor name is the derived name plus digits" no longer identifies them, and a
+        /// spelling-based test would silently stop adopting and mis-dispatch every such override. The
+        /// cross-module variant of this bug is a tracked residual —
+        /// <see cref="TypeRecord.EmittedClassMethods"/> persists no argument labels, so a cross-module
+        /// ancestor's two same-type slots are indistinguishable.
         /// </summary>
         private static string? TryResolveAdoptedOverrideName(MethodEnvironment env)
         {
@@ -1073,9 +1049,10 @@ namespace BindingsGeneration
 
                     var ancestorName = candidate.EmittedCSharpName;
                     if (string.IsNullOrEmpty(ancestorName) || ancestorName == derivedName) return null;
-                    // Adopt only a pure collision-suffix variant (derivedName + digits, e.g. "Process2"
-                    // for "Process") — never a different rename, which could collide in the derived.
-                    return IsCollisionSuffixVariant(derivedName, ancestorName) ? ancestorName : null;
+                    // Adopt only when the ancestor's name came from OVERLOAD disambiguation — never a
+                    // different rename (property collision, CS0542/CS0102), which could collide in the
+                    // derived body.
+                    return candidate.EmittedOverloadNameInput != null ? ancestorName : null;
                 }
             }
             return null;
@@ -1097,20 +1074,6 @@ namespace BindingsGeneration
                 if (a.SwiftTypeSpec.ToString() != d.SwiftTypeSpec.ToString()) return false;
                 if (a.GetSwiftName() != d.GetSwiftName()) return false;
             }
-            return true;
-        }
-
-        /// <summary>
-        /// True when <paramref name="candidate"/> is <paramref name="baseName"/> followed by one or
-        /// more digits — the exact shape of a B15 collision suffix (<c>Process</c> → <c>Process2</c>).
-        /// Confines override-name adoption to the collision-suffix case and excludes any other rename.
-        /// </summary>
-        private static bool IsCollisionSuffixVariant(string baseName, string candidate)
-        {
-            if (candidate.Length <= baseName.Length) return false;
-            if (!candidate.StartsWith(baseName, StringComparison.Ordinal)) return false;
-            for (int i = baseName.Length; i < candidate.Length; i++)
-                if (!char.IsDigit(candidate[i])) return false;
             return true;
         }
 
@@ -1162,22 +1125,6 @@ namespace BindingsGeneration
             if (visibleGenericNames.Contains(named.Name))
                 return true;
             return TypeSpecHelpers.IsGenericTypeParameter(named.Name);
-        }
-
-        /// <summary>
-        /// Applies a collision disambiguation suffix to a projected C# method key.
-        /// The key format is "MethodName(type1,type2,...)" — the suffix is inserted
-        /// before the opening parenthesis (e.g., "Foo(int)" → "Foo2(int)").
-        /// </summary>
-        /// <param name="projectedKey">The base projected key without suffix.</param>
-        /// <param name="collisionIndex">The collision index (1-based: 1 → suffix "2", 2 → suffix "3", etc.).</param>
-        /// <returns>The disambiguated key, or the original key if collisionIndex is 0.</returns>
-        internal static string ApplyCollisionSuffixToKey(string projectedKey, int collisionIndex)
-        {
-            if (collisionIndex <= 0) return projectedKey;
-            var parenIndex = projectedKey.IndexOf('(');
-            if (parenIndex < 0) return $"{projectedKey}{collisionIndex + 1}";
-            return $"{projectedKey[..parenIndex]}{collisionIndex + 1}{projectedKey[parenIndex..]}";
         }
 
         /// <summary>
@@ -1233,53 +1180,6 @@ namespace BindingsGeneration
             return $"TryCreate{next + 1}";
         }
 
-        /// <summary>
-        /// Assigns the numeric disambiguation suffix for same-projected-C#-key overload collision groups in
-        /// SOURCE/DECLARATION order: within a group, the first overload the emission walk reaches keeps the
-        /// natural (unsuffixed) name and later siblings take ascending suffixes (rank 1 → <c>…2</c>, etc.).
-        /// Each caller passes the methods that will actually emit (its own emitting partition:
-        /// validation-passed, primary-signature-deduped, constructors excluded), tagged with the projected
-        /// C# key they dedup on, IN the order the caller's topo-sorted emission loop visits them — so a
-        /// group list's index IS that declaration order.
-        ///
-        /// Why declaration order and not a content-derived rule (e.g. alphabetical by Swift signature): the
-        /// binding's emitted C# surface is its consumer contract, and the first-declared overload is the
-        /// least-surprising owner of the bare name. A content-derived rank was prototyped and rejected — it
-        /// renamed overloads already shipped in a prior release (a consumer's named-argument call against the
-        /// bare name silently retargeted to a different parameter set, e.g. <c>GeneratePlane(width:height:)</c>
-        /// → <c>(width:depth:)</c>) to buy invariance under source reordering. That trades a break to the
-        /// published surface for protection against a reorder the generator itself controls. Genuine
-        /// name↔symbol retargets are caught instead by the api-manifest ratchet, which fires precisely when a
-        /// stable C# signature rebinds to a different native symbol — the consumer-visible event worth
-        /// surfacing.
-        ///
-        /// Methods NOT in any multi-member group are absent from the returned map; the caller reads them as
-        /// rank 0 and they keep the natural-name-first behavior. The returned map is keyed by reference
-        /// identity (<see cref="MethodDecl"/> is a record, so value equality would conflate distinct
-        /// same-signature siblings).
-        /// </summary>
-        internal static Dictionary<MethodDecl, int> BuildCollisionRankMap(
-            IReadOnlyList<(MethodDecl Method, string ProjectedKey)> emittingMethods)
-        {
-            var groups = new Dictionary<string, List<MethodDecl>>(StringComparer.Ordinal);
-            foreach (var (method, projectedKey) in emittingMethods)
-            {
-                if (!groups.TryGetValue(projectedKey, out var list))
-                    groups[projectedKey] = list = new List<MethodDecl>();
-                list.Add(method);
-            }
-
-            var rankMap = new Dictionary<MethodDecl, int>(ReferenceEqualityComparer.Instance);
-            foreach (var list in groups.Values)
-            {
-                if (list.Count < 2) continue; // no collision → natural name, absent from the map (rank 0)
-                // `list` is populated in the caller's declaration/topo-sort walk order, so its index IS that
-                // source order: the first-declared overload takes rank 0 (bare name), later siblings ascend.
-                for (int rank = 0; rank < list.Count; rank++)
-                    rankMap[list[rank]] = rank;
-            }
-            return rankMap;
-        }
 
         /// <summary>
         /// Normalizes container type specs for overload key generation.
@@ -1363,7 +1263,7 @@ namespace BindingsGeneration
         /// stays label-free — it doubles as the witness-matching key on the protocol side
         /// and matching is positional, not by label.
         /// </summary>
-        protected static string GetMethodSignatureKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ILogger? logger = null)
+        protected internal static string GetMethodSignatureKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ILogger? logger = null)
         {
             var paramEntries = new List<string>();
             // Skip first element (return type) in CSSignature

@@ -1903,9 +1903,9 @@ public class ProtocolHandlerOutputTests
         // projected key, gave the duplicate no slot, and put cleanup at 1 — which UNDER-counted the
         // Swift struct and shifted every later reverse-dispatch read (the Finding 8 / WitnessIndexProto
         // corruption, where the trailing method landed at 1 instead of Swift's 2 → EntryPointNotFound /
-        // mis-dispatch). The duplicate slot (func_handle_1) is left null by the cctor — C# cannot
-        // reverse-dispatch the SECOND collapsed overload — a documented fillability limitation, not a
-        // layout defect: the struct is correctly Swift-sized and the interface exposes one Handle.
+        // mis-dispatch). Layout has always been raw-keyed; what changed is fillability — the two
+        // overloads now earn distinct C# names on the resolver's type rung, so BOTH slots are filled
+        // rather than the second being left null.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
 
@@ -1944,10 +1944,19 @@ public class ProtocolHandlerOutputTests
         Assert.Contains("func_cleanup_2", csOutput);
         // cleanup must NOT collapse back to the projected-key index 1 (the stale, struct-shrinking model).
         Assert.DoesNotContain("func_cleanup_1", csOutput);
-        // Interface still collapses the two overloads to ONE Handle (C# cannot represent two
-        // Handle(AnyType) overloads) — only the vtable carries both raw slots.
+        // C# still cannot carry two `Handle(object)` overloads, so the resolver separates them on its
+        // type rung and the interface declares one member per raw slot. The bare `Handle(` is gone
+        // precisely because neither overload can claim it — which is what lets a conforming Swift class,
+        // whose own body resolves this shape on the same rung, keep satisfying the interface.
+        // What matters here is that both raw slots earn a member and neither claims the bare name; the
+        // exact token composition is the disambiguator's own contract, pinned by its unit tests.
         var interfacePart = csOutput.Substring(0, csOutput.IndexOf("class HandlerProxy"));
-        Assert.Equal(1, EmitterTestHelpers.CountOccurrences(interfacePart, "Handle("));
+        var handleMembers = System.Text.RegularExpressions.Regex.Matches(interfacePart, @"\bHandle\w*\(")
+            .Select(m => m.Value)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        Assert.Equal(2, handleMembers.Count);
+        Assert.DoesNotContain("Handle(", handleMembers);
     }
 
     #endregion

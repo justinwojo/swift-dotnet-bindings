@@ -107,8 +107,8 @@ public class RoomActivityHarness {
 // The identical label-only-collision shape on a PLAIN class must NOT hit the protocol
 // label-blindness. A class method's primary dedup key is label-INCLUSIVE (the class path
 // keeps `label:type` per parameter), so both siblings survive primary dedup; their
-// label-erased projected keys still collide, so the second takes the class path's numeric
-// suffix (`Configure` / `Configure2`) rather than being dropped. This forward-call fixture
+// label-erased projected keys still collide, so the class path renames BOTH from their own
+// labels (`ConfigureWithMode` / `ConfigureWithPriority`) rather than dropping the second. This forward-call fixture
 // proves the class-side seam keeps both overloads live — a regression to a label-blind
 // class primary key would silently drop the second and fail this test at runtime.
 public class OverloadForwardHost {

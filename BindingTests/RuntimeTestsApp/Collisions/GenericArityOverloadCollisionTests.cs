@@ -14,11 +14,12 @@ namespace RuntimeTestsApp.Collisions;
 /// <c>RefBox</c>), so the conformance validator matches the non-generic witness (the generic is skipped)
 /// and the class is emitted as a DIRECT <c>: IRefBoxArityTransform</c>. They are legal, distinct C#
 /// overloads (<c>int Transform(RefBox)</c> vs <c>TTag? Transform&lt;TTag&gt;(RefBox?)</c>): method-level
-/// generic arity is part of overload identity, so the secondary-dedup projected key must encode it. The
-/// generic is declared first, so an arity-blind key lets it reserve the bare slot and suffixes the
-/// non-generic to <c>Transform2</c>; because the class is declared <c>: IRefBoxArityTransform</c> (whose
-/// requirement is the bare non-generic shape), that leaves the interface requirement unimplemented →
-/// CS0535 at binding-compile time. A real event-monitor type broke this way.
+/// generic arity is part of overload identity, so the secondary-dedup projected key must encode it. An
+/// arity-blind key groups the two as colliding overloads and renames BOTH off the bare slot (neither
+/// carries a label, so both escalate to the type rung); because the class is declared
+/// <c>: IRefBoxArityTransform</c> (whose requirement is the bare non-generic shape), that leaves the
+/// interface requirement unimplemented → CS0535 at binding-compile time. A real event-monitor type
+/// broke this way.
 ///
 /// This is primarily a generation-time guard — a regression fails the binding COMPILE (CS0535). The
 /// runtime assertions additionally confirm the non-generic body keeps the bare slot, on the concrete

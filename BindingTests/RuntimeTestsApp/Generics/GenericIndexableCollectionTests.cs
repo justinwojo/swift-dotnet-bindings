@@ -45,22 +45,22 @@ public class GenericIndexableCollectionTests : TestBase
     public void TestGenericIndexable_IndexAfter_Increments()
     {
         // index(after:) — selector `index(after:)`. Sibling to index(before:)
-        // and index(_:offsetBy:); pre-fix all three were dropped. Post-fix,
-        // at least one of them maps to single-arg `Index(int)` in C# (with
-        // numeric suffixes disambiguating against the other single-arg
-        // overload), and the round-trip succeeds.
+        // and index(_:offsetBy:); pre-fix all three were dropped. Post-fix each
+        // single-arg sibling emits under its own label-derived name
+        // (`IndexAfter` / `IndexBefore`) and the round-trip succeeds.
         using var coll = Functions.MakeGenericIndexableCollection(
             firstTag: "a", secondTag: "b", thirdTag: "c");
 
-        AssertEqual((nint)1, coll.Index(0), "index(after: 0)");
-        AssertEqual((nint)3, coll.Index(2), "index(after: 2)");
+        AssertEqual((nint)1, coll.IndexAfter(0), "index(after: 0)");
+        AssertEqual((nint)3, coll.IndexAfter(2), "index(after: 2)");
     }
 
     public void TestGenericIndexable_IndexOffsetBy_TwoArgs_RoundTrip()
     {
         // index(_:offsetBy:) — selector `index(_:offsetBy:)`. Sibling to the
-        // two single-arg `index` overloads with different selectors. Maps to
-        // C# `Index(int, int)`.
+        // two single-arg `index` overloads with different selectors. Its arity
+        // already separates it, so it never joins their collision group and
+        // keeps the bare C# `Index(int, int)`.
         using var coll = Functions.MakeGenericIndexableCollection(
             firstTag: "a", secondTag: "b", thirdTag: "c");
 
@@ -74,8 +74,8 @@ public class GenericIndexableCollectionTests : TestBase
         // the base name `index` but differing in argument label survive
         // wrapper-emit. Pre-fix: only the natural-C#-selector `Index(int)`
         // would have emitted (and only if no sibling existed); the rest fell
-        // through to tombstoned comments. Post-fix: BOTH emit, and one carries
-        // a numeric collision suffix (e.g. `Index` + `Index2`).
+        // through to tombstoned comments. Post-fix: BOTH emit, each under its
+        // own label-derived name (`IndexAfter` + `IndexBefore`).
         var t = typeof(GenericIndexableCollection<IndexableCoin>);
         var singleArgIndex = t.GetMethods()
             .Where(m => (m.Name == "Index" || m.Name.StartsWith("Index"))
@@ -100,12 +100,12 @@ public class GenericIndexableCollectionTests : TestBase
         // extension-block shape (where the pre-fix selector-collision gate had been deleting
         // the wrapper) on both Mono JIT and NativeAOT.
         nint i = 1;
-        coll.FormIndex(ref i);
+        coll.FormIndexAfter(ref i);
         AssertEqual(2, (int)i, "formIndex(after:) must advance the inout index 1 → 2");
         i = 2;
-        coll.FormIndex(ref i);
+        coll.FormIndexAfter(ref i);
         AssertEqual(3, (int)i, "formIndex(after:) must advance the inout index 2 → 3");
-        TestLogger.Info($"FormIndex(after: ref inout Int) round-trip → i={i}");
+        TestLogger.Info($"FormIndexAfter(ref inout Int) round-trip → i={i}");
     }
 
     public void TestGenericIndexable_BothSingleArgFormIndexOverloads_Emitted()
@@ -114,10 +114,10 @@ public class GenericIndexableCollectionTests : TestBase
         // formIndex overloads (`formIndex(after: inout Int)` and
         // `formIndex(before: inout Int)`) survive wrapper-emit despite sharing
         // the base name `formIndex`. Pre-fix only the lexically-first sibling
-        // (if any) would have emitted; post-fix both emit, with a numeric
-        // collision suffix disambiguating the C# names.
+        // (if any) would have emitted; post-fix both emit, each under its own
+        // label-derived C# name.
         //
-        // Count by DISTINCT C# method name (e.g. `FormIndex` + `FormIndex2`)
+        // Count by DISTINCT C# method name (`FormIndexAfter` + `FormIndexBefore`)
         // rather than overload count, so a single Swift sibling that gets
         // emitted both as `FormIndex(int)` and `FormIndex(nint)` (the int/nint
         // convenience pairing) can't false-pass this check.

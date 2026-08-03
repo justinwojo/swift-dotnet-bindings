@@ -679,6 +679,32 @@ public static class ReportCollector
         }
     }
 
+    /// <summary>
+    /// Records one overload-disambiguation decision. Duplicate records for the same member are
+    /// harmless — the disambiguation maps are memoized per declaring type, but a member reachable
+    /// from more than one emission walk can report twice, and the gate that reads these is a
+    /// per-record invariant, not a count.
+    /// </summary>
+    public static void RecordOverloadRenamed(
+        string declaringName, string swiftSignature, string naturalName, string emittedName, string scheme)
+    {
+        var session = Current;
+        if (session == null)
+            return;
+
+        lock (session.Sync)
+        {
+            session.Report.OverloadRenames.Add(new OverloadRenameItem
+            {
+                DeclaringName = declaringName,
+                SwiftSignature = swiftSignature,
+                NaturalName = naturalName,
+                EmittedName = emittedName,
+                Scheme = scheme,
+            });
+        }
+    }
+
     public static void RecordThemeBridged(string className, string propertyName, string propertyType)
     {
         var session = Current;

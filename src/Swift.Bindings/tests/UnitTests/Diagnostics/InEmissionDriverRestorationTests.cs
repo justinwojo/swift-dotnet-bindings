@@ -297,7 +297,10 @@ public class InEmissionDriverRestorationTests : IDisposable
         Assert.True(csharp.Length > 4000, $"C# output is too small to be meaningful ({csharp.Length} chars)");
         Assert.Contains("interface IShapeSink", csharp, StringComparison.Ordinal);
         Assert.Contains("LibraryImport", csharp, StringComparison.Ordinal);
-        Assert.Contains("Register2", csharp, StringComparison.Ordinal);
+        // The fixture's colliding `register` overloads are named from their own argument labels, so
+        // seeing both proves the overload-collision resolver actually ran on this render.
+        Assert.Contains("RegisterFirst", csharp, StringComparison.Ordinal);
+        Assert.Contains("RegisterSecond", csharp, StringComparison.Ordinal);
     }
 
     // ── harness: the real driver, one instance, rendered repeatedly ─────────────────────────────

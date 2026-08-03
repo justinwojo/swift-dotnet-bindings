@@ -662,9 +662,10 @@ public class BaseHandlerDedupTests
         var method = typeof(BaseHandler).GetMethod(
             "GetProjectedCSharpMethodKey",
             BindingFlags.NonPublic | BindingFlags.Static);
-        // Args: methodDecl, typeDatabase, logger, siblingPropertyNames, treatAsClosureTombstone.
-        // (null sibling set = base behavior, no property rename; false = read IsClosureParamTombstone as-is.)
-        return (string)method!.Invoke(null, new object?[] { methodDecl, typeDatabase, null, siblingPropertyNames, false })!;
+        // Args: methodDecl, typeDatabase, logger, siblingPropertyNames, treatAsClosureTombstone, nameOverride.
+        // (null sibling set = base behavior, no property rename; false = read IsClosureParamTombstone as-is;
+        //  null override = the method's own name, i.e. no collision-resolver assignment in play.)
+        return (string)method!.Invoke(null, new object?[] { methodDecl, typeDatabase, null, siblingPropertyNames, false, null })!;
     }
 
     [Fact]

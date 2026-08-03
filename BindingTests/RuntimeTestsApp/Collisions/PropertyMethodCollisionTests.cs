@@ -12,13 +12,13 @@ namespace RuntimeTestsApp.Collisions;
 /// <c>PropertyMethodCollider</c> has a stored property <c>conflict</c> AND a method
 /// <c>conflict(_:)</c>, so the method is renamed away from <c>Conflict</c> to <c>ConflictMethod</c>.
 /// A sibling already spelled <c>conflictMethod(_:)</c> then numerically collides with that rename, so
-/// the dedup disambiguates it as <c>ConflictMethod2</c>. The root cause is that the dedup keys
+/// the dedup disambiguates it as <c>ConflictMethodWithInt32</c>. The root cause is that the dedup keys
 /// must observe BOTH the property rename and the numeric suffix, or the two methods emit under the
 /// same C# name (CS0111) and bind to the wrong Swift body.
 ///
 /// Mapping verified against the generated P/Invoke entry points:
 ///   - <c>ConflictMethod(x)</c>  -> Swift <c>conflict(_:)</c>       -> conflict + x
-///   - <c>ConflictMethod2(x)</c> -> Swift <c>conflictMethod(_:)</c> -> conflict * 10 + x
+///   - <c>ConflictMethodWithInt32(x)</c> -> Swift <c>conflictMethod(_:)</c> -> conflict * 10 + x
 /// Distinct return shapes (a + x vs a*10 + x) make a wrong-slot binding observable.
 ///
 /// <c>PropertyMethodControl</c> is the control: same two method names, NO colliding property. Without
@@ -48,8 +48,8 @@ public class PropertyMethodCollisionTests : TestBase
     public void TestSuffixedMethodBindsToConflictMethodBody()
     {
         using var c = new PropertyMethodCollider(5);
-        // ConflictMethod2 is the numeric-suffixed `conflictMethod(_:)` (conflict*10 + x).
-        AssertEqual(53, c.ConflictMethod2(3), "ConflictMethod2(3) -> Swift conflictMethod(_:) = 5*10 + 3");
+        // ConflictMethodWithInt32 is the numeric-suffixed `conflictMethod(_:)` (conflict*10 + x).
+        AssertEqual(53, c.ConflictMethodWithInt32(3), "ConflictMethodWithInt32(3) -> Swift conflictMethod(_:) = 5*10 + 3");
     }
 
     public void TestBothOverloadsReachDistinctBodies()
@@ -57,9 +57,9 @@ public class PropertyMethodCollisionTests : TestBase
         using var c = new PropertyMethodCollider(2);
         // No wrong-slot aliasing: the two renamed overloads return their own distinct bodies.
         int a = c.ConflictMethod(4);    // conflict + x  = 2 + 4  = 6
-        int b = c.ConflictMethod2(4);   // conflict*10+x = 20 + 4 = 24
+        int b = c.ConflictMethodWithInt32(4);   // conflict*10+x = 20 + 4 = 24
         AssertEqual(6, a, "ConflictMethod -> conflict(_:)");
-        AssertEqual(24, b, "ConflictMethod2 -> conflictMethod(_:)");
+        AssertEqual(24, b, "ConflictMethodWithInt32 -> conflictMethod(_:)");
         AssertTrue(a != b, "the two renamed overloads bind to DIFFERENT Swift bodies, not the same slot");
     }
 
@@ -89,8 +89,8 @@ public class PropertyMethodCollisionTests : TestBase
             "Collider exposes the Conflict property");
         AssertNotNull(typeof(PropertyMethodCollider).GetMethod("ConflictMethod", new[] { typeof(int) }),
             "Collider exposes ConflictMethod(int) (renamed conflict(_:))");
-        AssertNotNull(typeof(PropertyMethodCollider).GetMethod("ConflictMethod2", new[] { typeof(int) }),
-            "Collider exposes ConflictMethod2(int) (suffixed conflictMethod(_:))");
+        AssertNotNull(typeof(PropertyMethodCollider).GetMethod("ConflictMethodWithInt32", new[] { typeof(int) }),
+            "Collider exposes ConflictMethodWithInt32(int) (suffixed conflictMethod(_:))");
         AssertNull(typeof(PropertyMethodCollider).GetMethod("Conflict", new[] { typeof(int) }),
             "Collider has NO method named Conflict — it was renamed to avoid the property (CS0102)");
 
@@ -99,8 +99,8 @@ public class PropertyMethodCollisionTests : TestBase
             "Control keeps the natural Conflict(int) method (no property to collide with)");
         AssertNotNull(typeof(PropertyMethodControl).GetMethod("ConflictMethod", new[] { typeof(int) }),
             "Control keeps the natural ConflictMethod(int) method (no numeric suffix)");
-        AssertNull(typeof(PropertyMethodControl).GetMethod("ConflictMethod2", new[] { typeof(int) }),
-            "Control has NO ConflictMethod2 — without the rename there is no numeric collision");
+        AssertNull(typeof(PropertyMethodControl).GetMethod("ConflictMethodWithInt32", new[] { typeof(int) }),
+            "Control has NO ConflictMethodWithInt32 — without the rename there is no numeric collision");
     }
 
     #endregion

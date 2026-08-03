@@ -603,8 +603,19 @@ public class ProtocolConformanceValidator
             // `t(duration:)` on a generic `Container<T>` emits as `TMethod`; a hand-rolled
             // positional call here would predict `T`, keep the conformance, and strand the
             // interface member unimplemented — CS0535).
-            var concreteEmittedName = NameProvider.GetPublicMethodName(
-                PublicMethodNameContext.ForMethod(concreteMethod, concretePropertyNames));
+            var concreteNameCtx = PublicMethodNameContext.ForMethod(concreteMethod, concretePropertyNames);
+            // …and fold in the overload disambiguation the class body will apply. This validator runs
+            // BEFORE HandleBaseDecl emits the same body, so it cannot read the emitted name off the decl;
+            // it resolves the SAME memoized per-type map the emission loop will read, which is why that
+            // map is a pure function of the type's members rather than loop-local state. A witness that
+            // shares a projected key with a sibling emits as e.g. `ConfigureZebra`, and predicting the
+            // bare `Configure` here would keep a conformance the class never satisfies (CS0535).
+            var concreteOverloadName = OverloadNameDisambiguator.ForMethod(concreteMethod, _typeDatabase);
+            if (concreteOverloadName.IsRefused)
+                return Fail(BindingItemKind.Method, protoMethod.Name, "the conforming type's method is dropped as a duplicate C# signature at emission");
+            if (concreteOverloadName.NameInput != null)
+                concreteNameCtx = concreteNameCtx with { MethodName = concreteOverloadName.NameInput };
+            var concreteEmittedName = NameProvider.GetPublicMethodName(concreteNameCtx);
 
             // Compare with the interface method name (computed without property collision context)
             var protoReturnTypeSpec = protoMethod.CSSignature.FirstOrDefault()?.SwiftTypeSpec;

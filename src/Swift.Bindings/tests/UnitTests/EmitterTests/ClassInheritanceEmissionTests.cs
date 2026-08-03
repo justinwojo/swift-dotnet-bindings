@@ -1154,15 +1154,14 @@ public class ClassInheritanceEmissionTests
     }
 
     [Fact]
-    public void Populator_PreservesEmittedCSharpName_WithCollisionSuffix()
+    public void Populator_PreservesEmittedCSharpName_WhenDisambiguated()
     {
         // When two Swift overloads project to the same C# signature, IHandler.HandleBaseDecl
-        // assigns a numeric suffix at emission time via MethodEnvironment.CollisionIndex —
-        // first emission stays `Process`, second becomes `Process2`. The conductor stamps the
-        // disambiguated name on MethodDecl.EmittedCSharpName. The populator must read THAT
-        // value, not recompute via NameProvider (which doesn't see the runtime collision
-        // index and would produce `Process` for both, corrupting the cross-module override
-        // contract).
+        // resolves each one's name from its own labels/types — a bare `process()` and a
+        // `process(value:)` become `Process` and `ProcessValue`. The conductor stamps the
+        // resolved name on MethodDecl.EmittedCSharpName. The populator must read THAT value,
+        // not recompute via NameProvider (which sees only one method at a time and would
+        // produce `Process` for both, corrupting the cross-module override contract).
         var classDecl = CreateClassDecl("Worker", moduleName: "TestModule");
         var first = CreateVoidMethodDecl("process");
         first.WasEmitted = true;
@@ -1170,7 +1169,7 @@ public class ClassInheritanceEmissionTests
         first.ParentDecl = classDecl;
         var second = CreateMethodDeclWithParam("process", "Swift.Int", "value");
         second.WasEmitted = true;
-        second.EmittedCSharpName = "Process2"; // Collision suffix from emission
+        second.EmittedCSharpName = "ProcessValue"; // Disambiguated name from emission
         second.ParentDecl = classDecl;
         classDecl.Methods.Add(first);
         classDecl.Methods.Add(second);
@@ -1200,9 +1199,9 @@ public class ClassInheritanceEmissionTests
         var firstEntry = record.EmittedClassMethods!.Single(m => m.ParameterSwiftTypes.Count == 0);
         Assert.Equal("Process", firstEntry.CSharpName);
 
-        // Second overload: collision suffix preserved as "Process2", NOT recomputed to "Process".
+        // Second overload: disambiguated name preserved as "ProcessValue", NOT recomputed to "Process".
         var secondEntry = record.EmittedClassMethods!.Single(m => m.ParameterSwiftTypes.Count == 1);
-        Assert.Equal("Process2", secondEntry.CSharpName);
+        Assert.Equal("ProcessValue", secondEntry.CSharpName);
     }
 
     [Fact]

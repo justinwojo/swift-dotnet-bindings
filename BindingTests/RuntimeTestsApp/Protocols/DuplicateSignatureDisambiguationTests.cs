@@ -107,18 +107,22 @@ public class DuplicateSignatureDisambiguationTests : TestBase
     /// Shared-seam contrast: the SAME label-only-collision shape on a PLAIN (non-protocol)
     /// class must NOT collapse. A class method's primary dedup key is label-INCLUSIVE, so both
     /// overloads survive primary dedup; their label-erased projected keys still collide, so the
-    /// second takes the class path's numeric-suffix name (<c>Configure2</c>) rather than being
-    /// dropped. Both call distinct native entry points and return distinct per-overload values —
-    /// so a regression to a label-blind class primary key would silently drop the second overload
-    /// and fail this test at runtime, not just at the compile gate.
+    /// class path renames BOTH from their own labels (<c>ConfigureWithMode</c> /
+    /// <c>ConfigureWithPriority</c>) rather than dropping the second — the same label-derived scheme
+    /// the protocol lane above uses. Both call distinct native entry points and return distinct
+    /// per-overload values — so a regression to a label-blind class primary key would silently drop
+    /// the second overload and fail this test at runtime, not just at the compile gate.
     /// </summary>
     public void TestNonProtocolLabelOnlyOverloadsBothSurvive()
     {
         var host = new OverloadForwardHost();
 
-        // configure(_:withMode:) -> Configure (value * 2); configure(_:withPriority:) -> Configure2 (value * 3).
-        AssertEqual(10, host.Configure(1, 5), "configure(_:withMode:) survived as Configure and returned value * 2");
-        AssertEqual(15, host.Configure2(1, 5), "configure(_:withPriority:) survived as Configure2 and returned value * 3");
+        // configure(_:withMode:) -> ConfigureWithMode (value * 2);
+        // configure(_:withPriority:) -> ConfigureWithPriority (value * 3).
+        AssertEqual(10, host.ConfigureWithMode(1, 5),
+            "configure(_:withMode:) survived as ConfigureWithMode and returned value * 2");
+        AssertEqual(15, host.ConfigureWithPriority(1, 5),
+            "configure(_:withPriority:) survived as ConfigureWithPriority and returned value * 3");
     }
 }
 

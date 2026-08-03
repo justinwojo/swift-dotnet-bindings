@@ -202,20 +202,43 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
-    public void EmitProtocolExtension_CollapsedExistentialOverload_SecondWitnessTrapsInsteadOfNilForceUnwrap()
+    public void EmitProtocolExtension_TypeSeparableExistentialOverload_DispatchesBothSlots()
     {
         // Two raw-DISTINCT existential overloads of the same method name whose raw signature keys both
-        // erase to Swift.AnyType (the FirebaseFirestore add(any Expression)/add(any Sendable) shape)
-        // collapse onto ONE C# interface method. The reverse-dispatch layout still gives each its own
-        // vtable slot (GetMethodKey keys off the raw Swift type), but the C# fillability walk fills only
-        // the FIRST overload's slot — the second's is left null. The second's Swift witness must trap
-        // rather than force-unwrap the nil slot at the point of dispatch (the G8 crash). The first
-        // overload's real reverse-dispatch body must be untouched.
+        // erase to Swift.AnyType (the FirebaseFirestore add(any Expression)/add(any Sendable) shape).
+        // The reverse-dispatch layout has always given each its own vtable slot (GetMethodKey keys off
+        // the raw Swift type); what used to collapse was only the C# INTERFACE member, which left the
+        // second slot null and forced its Swift witness to trap.
+        //
+        // The overload resolver now separates this family on its type rung — identical labels, distinct
+        // Swift types — so both requirements survive as distinct C# members, the fillability walk fills
+        // BOTH slots, and each witness force-unwraps a slot that is really there. No trap stub is needed
+        // because there is no longer a member with nowhere to dispatch.
         var protocolDecl = CreateSimpleProtocol("OverloadCollapse");
-        // Unregistered existential-ish params: their raw signature key erases to Swift.AnyType and
-        // collapses, while GetMethodKey (raw type string) keeps them in distinct slots.
         protocolDecl.Methods.Add(CreateMethodDeclWithParam("record", "value", "TestModule.CollapsePrimary"));
         protocolDecl.Methods.Add(CreateMethodDeclWithParam("record", "value", "TestModule.CollapseSecondary"));
+
+        var output = EmitProtocolExtension(protocolDecl);
+
+        Assert.Contains("func_record_0!", output);
+        Assert.Contains("func_record_1!", output);
+        Assert.DoesNotContain("[SwiftBindings] EveryProtocol: collapsed existential overload 'record'", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_UnseparableExistentialOverload_SecondWitnessTrapsInsteadOfNilForceUnwrap()
+    {
+        // The residual collapse, and the reason the trap stub must stay. Here the two overloads' Swift
+        // types share a simple name and differ only by module, so they erase to the same C# projection
+        // AND to the same type token — neither the label rung nor the type rung can separate them. The
+        // family collapses onto ONE C# interface method exactly as before: the fillability walk fills only
+        // the FIRST overload's slot and leaves the second's null.
+        //
+        // The second's Swift witness must therefore trap rather than force-unwrap that nil slot (the G8
+        // crash). The first overload's real reverse-dispatch body must be untouched.
+        var protocolDecl = CreateSimpleProtocol("OverloadCollapse");
+        protocolDecl.Methods.Add(CreateMethodDeclWithParam("record", "value", "TestModule.Collapse"));
+        protocolDecl.Methods.Add(CreateMethodDeclWithParam("record", "value", "OtherModule.Collapse"));
 
         var output = EmitProtocolExtension(protocolDecl);
 

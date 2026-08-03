@@ -36,6 +36,13 @@ public sealed class BindingReport
     public List<ThemeBridgedItem> ThemeBridgedProperties { get; } = new();
 
     /// <summary>
+    /// Every overload-disambiguation decision this run made — see <see cref="OverloadRenameItem"/>.
+    /// Written to <c>binding-report.json</c> so the ship gate can assert the invariant against the
+    /// resolver's decisions instead of guessing at emitted identifiers.
+    /// </summary>
+    public List<OverloadRenameItem> OverloadRenames { get; } = new();
+
+    /// <summary>
     /// Distinct <c>// Unsupported:</c> comment-drops emitted this run (Finding 53) — a type or
     /// member the generator could not bind and left as a comment in the generated C#. Each is
     /// surfaced as a loud <c>SWIFTBIND025</c> diagnostic at report time so a dropped declaration is
@@ -506,6 +513,35 @@ public sealed class ThemeBridgedItem
     public required string ClassName { get; init; }
     public required string PropertyName { get; init; }
     public required string PropertyType { get; init; }
+}
+
+/// <summary>
+/// One overload-disambiguation decision: a member whose C# name was moved off its natural
+/// projection because a sibling overload projects onto the same C# signature.
+///
+/// <para>This is the resolver's own assignment record, and it exists so the "no bare numeric
+/// suffix on the public surface" invariant can be checked against DECISIONS rather than against
+/// emitted identifiers. A name-shaped check cannot tell a resolver-assigned <c>Configure2</c>
+/// from a Swift author's own <c>vector3</c>; a record carrying both the natural name and the
+/// assigned one can — the assignment is numeric exactly when the assigned name is the natural
+/// name plus digits.</para>
+/// </summary>
+public sealed class OverloadRenameItem
+{
+    /// <summary>Declaring type's C#-visible name, or the module name for a free function.</summary>
+    public required string DeclaringName { get; init; }
+
+    /// <summary>The member's Swift signature, labels included — the call site a consumer would read.</summary>
+    public required string SwiftSignature { get; init; }
+
+    /// <summary>The C# name this member would carry if no sibling overload contested it.</summary>
+    public required string NaturalName { get; init; }
+
+    /// <summary>The C# name actually emitted.</summary>
+    public required string EmittedName { get; init; }
+
+    /// <summary>Which rung of the disambiguation ladder produced <see cref="EmittedName"/>.</summary>
+    public required string Scheme { get; init; }
 }
 
 /// <summary>

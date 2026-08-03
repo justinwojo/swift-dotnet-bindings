@@ -206,15 +206,14 @@ namespace BindingsGeneration
                     // (e.g., Swift count(_:) vs count(distinct:) which both project to GetCount<T0>(T0))
                     var emittedMethodSignatures = new HashSet<string>();
                     var emittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal);
-                    var projectedKeyCollisionCounts = new Dictionary<string, int>(StringComparer.Ordinal);
                     var pipeline = new MemberValidationPipeline(env.TypeDatabase);
 
-                    // Declaration-order collision ranks for free functions (mirrors HandleBaseDecl).
-                    // Build over the same emitting partition the loop below uses — validation-passed then
-                    // primary-signature-deduped (free functions are never constructors) — so the suffix a
-                    // colliding overload receives follows the order the overloads are declared: first-declared
-                    // keeps the bare name. Members in no collision group are absent → read as rank 0.
-                    var freeFunctionRanks = BuildFreeFunctionCollisionRankMap(moduleDecl.Methods, pipeline, env.TypeDatabase);
+                    // Overload names for free functions (mirrors HandleBaseDecl). Built over the same
+                    // emitting partition the loop below uses — validation-passed then primary-signature-
+                    // deduped (free functions are never constructors) — so a colliding overload's name comes
+                    // from its own labels/types rather than its position in the file. Members in no collision
+                    // family are absent → read as Natural.
+                    var freeFunctionOverloadNames = BuildFreeFunctionOverloadNames(moduleDecl.Methods, pipeline, env.TypeDatabase);
 
                     foreach (MethodDecl methodDecl in moduleDecl.Methods)
                     {
@@ -273,44 +272,48 @@ namespace BindingsGeneration
                         }
                         emittedMethodSignatures.Add(signatureKey);
 
-                        // Secondary dedup: projected C# public signature.
-                        // Non-constructor collisions are disambiguated with numeric suffix.
+                        // Secondary dedup: projected C# public signature. Colliding overloads are
+                        // disambiguated by their own Swift argument labels or parameter types.
                         var projectedKey = GetProjectedCSharpMethodKey(methodDecl, env.TypeDatabase, _logger);
-                        // Declaration-order suffix — the member's rank within its same-projected-key overload
-                        // group (first-declared owns the bare name). Rank 0 (also the default outside any
-                        // collision group) keeps the natural name.
-                        int collisionIndex = freeFunctionRanks.GetValueOrDefault(methodDecl, 0);
-                        var reservedKey = ApplyCollisionSuffixToKey(projectedKey, collisionIndex);
+                        var overloadName = freeFunctionOverloadNames.GetValueOrDefault(methodDecl, OverloadNameAssignment.Natural);
+                        if (overloadName.IsRefused)
+                        {
+                            _logger.LogDebug($"Skipping free function '{methodDecl.Name}' — no argument label or parameter type distinguishes it from an already-emitted overload: {projectedKey}");
+                            ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.DuplicateSignature, overloadName.Detail);
+                            UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.DuplicateSignature, overloadName.Detail, containingDecl: methodDecl.ParentDecl);
+                            csWriter.WriteLine();
+                            continue;
+                        }
+                        var disambiguatedNameInput = overloadName.NameInput;
+                        var reservedKey = disambiguatedNameInput == null
+                            ? projectedKey
+                            : GetProjectedCSharpMethodKey(methodDecl, env.TypeDatabase, _logger, siblingPropertyNames: null, nameOverride: disambiguatedNameInput);
                         if (!emittedProjectedSignatures.Add(reservedKey))
                         {
-                            // Occupancy escalation: the rank-derived slot is already taken by an unrelated
-                            // natural name (a free function literally named to match the suffixed form). Walk to
-                            // the next free suffix, seeded from the rank so an in-group member never collapses
-                            // onto a lower-ranked sibling's reserved slot.
-                            var count = Math.Max(collisionIndex,
-                                projectedKeyCollisionCounts.TryGetValue(projectedKey, out var seeded) ? seeded : 0);
-                            string disambiguatedKey;
-                            do
+                            // Occupancy escalation: the resolver's slot is already taken by something it did
+                            // not see (a post-processor-emitted overload, an earlier module partition). Walk
+                            // the same ladder — labels, then parameter types — against live occupancy.
+                            var escalated = OverloadNameDisambiguator.Escalate(
+                                methodDecl,
+                                input => GetProjectedCSharpMethodKey(methodDecl, env.TypeDatabase, _logger, siblingPropertyNames: null, nameOverride: input),
+                                emittedProjectedSignatures.Add);
+                            if (escalated == null)
                             {
-                                collisionIndex = ++count;
-                                disambiguatedKey = ApplyCollisionSuffixToKey(projectedKey, collisionIndex);
-                            } while (!emittedProjectedSignatures.Add(disambiguatedKey));
-                            projectedKeyCollisionCounts[projectedKey] = collisionIndex;
-
-                            _logger.LogDebug($"Disambiguating free function '{methodDecl.Name}' — collision #{collisionIndex + 1} for projected key: {projectedKey} → {disambiguatedKey}");
-                        }
-                        else if (collisionIndex > 0
-                            && (!projectedKeyCollisionCounts.TryGetValue(projectedKey, out var seeded) || seeded < collisionIndex))
-                        {
-                            // In-group member that claimed its rank slot directly — raise the high-water mark so a
-                            // later unrelated natural-name collision escalates above it.
-                            projectedKeyCollisionCounts[projectedKey] = collisionIndex;
+                                _logger.LogDebug($"Skipping free function '{methodDecl.Name}' — projected C# signature is already taken and no argument label or parameter type frees it: {projectedKey}");
+                                ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.DuplicateSignature,
+                                    $"Projects to an already-emitted C# signature ({projectedKey}) and no argument label or parameter type distinguishes it.");
+                                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.DuplicateSignature, containingDecl: methodDecl.ParentDecl);
+                                csWriter.WriteLine();
+                                continue;
+                            }
+                            disambiguatedNameInput = escalated;
+                            _logger.LogDebug($"Disambiguating free function '{methodDecl.Name}' — projected key {projectedKey} was taken → base name '{escalated}'");
                         }
 
                         if (conductor.TryGetMethodHandler(methodDecl, out var methodHandler))
                         {
                             var methodEnv = new MethodEnvironment(methodDecl, env.TypeDatabase, compositionCollector: context.CompositionCollector);
-                            methodEnv.CollisionIndex = collisionIndex;
+                            methodEnv.DisambiguatedNameInput = disambiguatedNameInput;
                             methodEnv.EmittedProjectedSignatures = emittedProjectedSignatures;
                             // Containment seam for a free function. No escalation rung: a free
                             // function's enclosing unit is the module, and denying the module is the
@@ -437,30 +440,44 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Builds the declaration-order collision-rank map for top-level free functions. Walks
-        /// <paramref name="methods"/> in source order through the same filter chain the emission loop uses —
-        /// validation (<see cref="BaseHandler.ClassifyOverridePrePassEmission"/> with the loop's null
+        /// Resolves overload names for top-level free functions. Walks <paramref name="methods"/> in source
+        /// order through the same filter chain the emission loop uses — validation
+        /// (<see cref="BaseHandler.ClassifyOverridePrePassEmission"/> with the loop's null
         /// <c>ValidationContext</c>) then primary-signature dedup (first-wins on
         /// <see cref="BaseHandler.GetMethodSignatureKey"/>) — and hands the survivors, tagged with their
-        /// tombstone-view projected key, to <see cref="BaseHandler.BuildCollisionRankMap"/>. Free functions are
-        /// never constructors, so none are excluded on that axis.
+        /// tombstone-view projected key, to <see cref="OverloadNameDisambiguator.Resolve"/>. Free functions
+        /// are never constructors, so none are excluded on that axis.
+        ///
+        /// Unlike the type-body lane this is NOT memoized: a module's free functions have no second
+        /// consumer that has to predict their emitted names (there is no conformance to satisfy), so the
+        /// map is built once per emission walk over the exact emitting partition.
         /// </summary>
-        private Dictionary<MethodDecl, int> BuildFreeFunctionCollisionRankMap(
+        private Dictionary<MethodDecl, OverloadNameAssignment> BuildFreeFunctionOverloadNames(
             IEnumerable<MethodDecl> methods, MemberValidationPipeline pipeline, ITypeDatabase typeDatabase)
         {
             var primarySeen = new HashSet<string>(StringComparer.Ordinal);
             var emitting = new List<(MethodDecl, string)>();
+            var tombstoneView = new Dictionary<MethodDecl, bool>(ReferenceEqualityComparer.Instance);
             foreach (var m in methods)
             {
                 var (willEmit, isTombstone) = ClassifyOverridePrePassEmission(m, pipeline, validationCtx: null, typeDatabase);
                 if (!willEmit) continue;
                 var signatureKey = GetMethodSignatureKey(m, typeDatabase, _logger);
                 if (!primarySeen.Add(signatureKey)) continue;
+                tombstoneView[m] = isTombstone;
                 var projectedKey = GetProjectedCSharpMethodKey(m, typeDatabase, _logger,
                     siblingPropertyNames: null, treatAsClosureTombstone: isTombstone);
                 emitting.Add((m, projectedKey));
             }
-            return BuildCollisionRankMap(emitting);
+            return OverloadNameDisambiguator.Resolve(
+                emitting,
+                (decl, nameOverride) => GetProjectedCSharpMethodKey(decl, typeDatabase, _logger,
+                    siblingPropertyNames: null,
+                    treatAsClosureTombstone: tombstoneView.GetValueOrDefault(decl),
+                    nameOverride: nameOverride),
+                // A free function has no sibling properties and no enclosing type, so nothing can rename it
+                // off its natural name; the un-renamed name IS the shaped name.
+                decl => NameProvider.GetPublicMethodName(PublicMethodNameContext.ForMethod(decl, siblingPropertyNames: null)));
         }
 
         /// <summary>

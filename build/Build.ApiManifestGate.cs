@@ -8,10 +8,10 @@
 // post-collision C# signature to the native entry symbol its P/Invoke binds. This gate scans
 // those manifests and diffs them against the committed baseline
 // (`build/baselines/api-manifest-baseline.json`), FAILING when a stable `(module, signature)`
-// now binds a DIFFERENT symbol — a silent ABI retarget. Collision suffixes are assigned in
-// declaration order, so the bare-name owner (and the symbol a stable signature binds) can shift
-// when upstream reorders its overloads; the manifest + gate are the durable detector that catches
-// any such retarget here before it ships.
+// now binds a DIFFERENT symbol — a silent ABI retarget. Overload names are derived from each
+// member's own Swift labels/types rather than its declaration rank, so a reorder no longer moves
+// names by itself; the manifest + gate remain the durable detector for any retarget that does reach
+// a stable signature.
 //
 // The ratchet is TWO-SIDED. A baselined signature that is no longer emitted also fails: a generator
 // change that withdraws a type takes every symbol-bearing member of that type with it, and nothing

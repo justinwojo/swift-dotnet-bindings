@@ -88,7 +88,7 @@ public class ApiManifestBaselineTests
     [Fact]
     public void Compare_TwoOverloadsSwapSymbols_BothRetarget()
     {
-        // A source reorder retargets Process and Process2 onto each other's symbol while both
+        // A retarget swaps two stable signatures onto each other's symbol while both
         // signatures stay present. Suffixes are assigned in declaration order, so such a reorder can
         // happen on a binding regen — and the gate is the safety net that catches the retarget.
         var baseline = Seeded(E("C.Process(int)", "SBW_P0"), E("C.Process2(int)", "SBW_P1"));

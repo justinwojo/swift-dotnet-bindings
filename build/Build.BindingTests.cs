@@ -1091,6 +1091,12 @@ partial class Build
                 // module's import graph is closed before ABI parsing. Fail-closed on every assertion.
                 RunIngestionKitchenGate();
 
+                // Overload-naming policy gate: read the resolver's own disambiguation records out of
+                // the generated binding reports and assert none assigned a bare numeric suffix. Runs
+                // unconditionally and fail-closed — it encodes a policy rather than a baseline, so
+                // there is nothing to reseed and no state in which `Configure2` is acceptable.
+                RunOverloadNameGate();
+
                 // Layer B trend gate: parse skip markers from generated `.cs`
                 // and diff against `build/baselines/skip-surface-baseline.json`. Gated on
                 // --skip-surface so it runs only when explicitly requested

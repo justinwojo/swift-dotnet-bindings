@@ -1426,9 +1426,11 @@ public class ModuleHandlerTests
     {
         // Two free functions with same Swift name + same parameter type but different
         // argument labels (e.g., describe(forItem:) vs describe(fromValue:)) must both be
-        // emitted: primary dedup uses the labelled signature, secondary dedup detects
-        // the projected C# collision and disambiguates the second with a numeric suffix.
-        // Wires the actual ModuleHandler.Emit pipeline (not just the dedup helpers).
+        // emitted: primary dedup uses the labelled signature, secondary dedup detects the
+        // projected C# collision and names each from its OWN argument label. Neither keeps the
+        // bare `Describe` — handing it to one of them would be a pick between equals that a
+        // later upstream free function could revisit, which is the instability the label scheme
+        // removes. Wires the actual ModuleHandler.Emit pipeline (not just the dedup helpers).
         var moduleDecl = new ModuleDecl
         {
             Name = "LabelDedup",
@@ -1479,11 +1481,16 @@ public class ModuleHandlerTests
         // Both methods kept — neither bumped to "DuplicateSignature" skip.
         Assert.DoesNotContain("DuplicateSignature", csOutput);
 
-        // Projected name appears twice: once unsuffixed, once suffixed via secondary dedup.
-        var bareCount = System.Text.RegularExpressions.Regex.Matches(csOutput, @"\bDescribe\s*\(").Count;
-        var suffixedCount = System.Text.RegularExpressions.Regex.Matches(csOutput, @"\bDescribe2\s*\(").Count;
-        Assert.True(bareCount >= 1, $"Expected at least one 'Describe(' call site in output:\n{csOutput}");
-        Assert.True(suffixedCount >= 1, $"Expected at least one 'Describe2(' call site in output:\n{csOutput}");
+        // Each survives under a name built from its own label, so a consumer reading the binding
+        // can tell which Swift function it is calling.
+        var forItemCount = System.Text.RegularExpressions.Regex.Matches(csOutput, @"\bDescribeForItem\s*\(").Count;
+        var fromValueCount = System.Text.RegularExpressions.Regex.Matches(csOutput, @"\bDescribeFromValue\s*\(").Count;
+        Assert.True(forItemCount >= 1, $"Expected at least one 'DescribeForItem(' call site in output:\n{csOutput}");
+        Assert.True(fromValueCount >= 1, $"Expected at least one 'DescribeFromValue(' call site in output:\n{csOutput}");
+
+        // Neither the contested bare name nor a positional suffix reaches the surface.
+        Assert.DoesNotMatch(@"\bDescribe\s*\(", csOutput);
+        Assert.DoesNotMatch(@"\bDescribe2\s*\(", csOutput);
     }
 
     private static MethodDecl BuildLabelledMethod(string name, string argLabel, string mangledName, ModuleDecl moduleDecl)

@@ -90,9 +90,14 @@ public class EmissionDeterminismTests : IDisposable
         Assert.Contains("Task<", combinedCSharp, StringComparison.Ordinal);                     // async bridge
         Assert.Contains("@_cdecl", wrapper, StringComparison.Ordinal);                          // Swift wrapper blocks
 
-        // The collision-suffix allocator is the name-allocation machinery most likely to be
+        // The overload-collision resolver is the name-allocation machinery most likely to be
         // order-sensitive, so the gate is only meaningful if the fixture actually forced a rename.
-        Assert.Contains("Register2", combinedCSharp, StringComparison.Ordinal);
+        // The fixture's `register(first:)` / `register(second:)` share a projected C# overload and
+        // are named from their own labels; `register(third:)` projects differently, never collides,
+        // and keeps the bare name.
+        Assert.Contains("RegisterFirst", combinedCSharp, StringComparison.Ordinal);
+        Assert.Contains("RegisterSecond", combinedCSharp, StringComparison.Ordinal);
+        Assert.DoesNotContain("Register2", combinedCSharp, StringComparison.Ordinal);
     }
 
     // ── harness ────────────────────────────────────────────────────────────────────────────

@@ -3,13 +3,15 @@
 
 import Foundation
 
-// MARK: - Method Overload Collision Disambiguation
-// Pattern: Multiple Swift overloads that project to the same C# signature.
-// Instead of skipping all but the first, the generator disambiguates with
-// numeric suffixes (e.g., Process, Process2).
+// MARK: - Collection-overload projection
+// Pattern: Swift overloads whose Swift parameter types differ but which a naive projection
+// would erase to one C# signature. Distinct projections keep them as ordinary C# overloads
+// with no disambiguation at all; where a projection genuinely collides, the overload group is
+// renamed from each member's own labels/types (see Collisions/OverloadDeclarationOrderBareName.swift).
 
-/// Class with Array/Set overloads that collide in C# (both project to IEnumerable<string>).
-/// The generator must disambiguate the second overload with a numeric suffix.
+/// Class with Array/Set overloads. Both are `process`, but `[String]` projects to
+/// `IEnumerable<string>` and `Set<String>` to `IReadOnlySet<string>`, so the projected parameter
+/// signatures differ and both keep the natural `Process` name as plain C# overloads.
 public class CollectionProcessor {
     public init() {}
 
@@ -18,8 +20,8 @@ public class CollectionProcessor {
         return "array:\(items.joined(separator: ","))"
     }
 
-    /// Process a set of items. Also projects to IEnumerable<string> in C#.
-    /// The generator should disambiguate this as Process2.
+    /// Process a set of items. Projects to IReadOnlySet<string> — a DIFFERENT C# parameter
+    /// signature, so no disambiguation is needed and this stays `Process`.
     public func process(unique items: Set<String>) -> String {
         return "set:\(items.sorted().joined(separator: ","))"
     }
