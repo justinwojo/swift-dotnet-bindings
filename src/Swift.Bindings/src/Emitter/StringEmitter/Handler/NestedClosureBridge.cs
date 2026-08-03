@@ -37,10 +37,11 @@ public static class NestedClosureBridge
     /// </summary>
     public static bool IsEligible(MethodDecl method, ClosureHandler closureHandler, ITypeDatabase typeDatabase)
     {
-        // Not for protocol extensions, async, constructors, accessors, or throwing
+        // Not for protocol extensions, async, accessors, or throwing. Constructors are admitted
+        // only for the narrow shape the bridge can construct correctly (see IsBridgeableConstructor).
         if (method.IsProtocolExtensionMethod) return false;
         if (method.IsAsync) return false;
-        if (method.IsConstructor) return false;
+        if (method.IsConstructor && !IsBridgeableConstructor(method)) return false;
         if (method.IsAccessor) return false;
         if (method.Throws) return false;
 
@@ -73,7 +74,7 @@ public static class NestedClosureBridge
                 {
                     hasInnerClosure = true;
 
-                    // Inner closure: void or primitive return only; not async
+                    // Inner closure: void or primitive return only; not async; not throwing.
                     if (!innerCts.ReturnType.IsEmptyTuple)
                     {
                         if (innerCts.ReturnType is not NamedTypeSpec innerRetNamed)
@@ -82,6 +83,13 @@ public static class NestedClosureBridge
                             return false;
                     }
                     if (innerCts.IsAsync) return false;
+
+                    // The inner trampoline reconstructs the boxed Swift closure with a
+                    // force-cast to a NON-throwing function type. A throwing inner closure
+                    // has a different Swift function type, so that cast compiles and then
+                    // traps the first time the callback fires — nothing the C# or Swift
+                    // compiler can see. Refuse the shape instead of emitting the trap.
+                    if (innerCts.Throws) return false;
 
                     // Inner closure args must all be cdecl-compatible
                     foreach (var innerArg in innerCts.EachArgument())
@@ -130,6 +138,54 @@ public static class NestedClosureBridge
                     return false;
             }
         }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Which initializers the bridge will take. A callback-bearing closure in an initializer is
+    /// the same ABI problem as in a method — one @_cdecl wrapper, one funcPtr/context pair per
+    /// outer closure — but the C# side differs: the wrapper hands back a +1 instance pointer that
+    /// has to land in the object's own handle field rather than in a freshly marshalled wrapper.
+    /// Only the shape where that single ownership story is correct is admitted:
+    ///
+    /// <list type="bullet">
+    /// <item>A non-failable init — a failable one returns Optional&lt;Self&gt;, which the raw
+    /// pointer return has no way to distinguish from a live instance.</item>
+    /// <item>A class parent — struct/enum initializers construct in place, not through a
+    /// retained pointer.</item>
+    /// <item>A root Swift class — an ObjC-rooted class constructs through a static native-handle
+    /// helper feeding <c>: base(handle)</c>, and a derived Swift class chains an inheritance
+    /// token and stores into the ROOT base's handle field. The bridge emits neither shape.</item>
+    /// <item>A non-generic parent — callbacks in a generic type route through
+    /// PInvokeHelperContext, which the constructor branch of the validation pipeline refuses
+    /// outright, and the Swift call <c>Type(...)</c> cannot infer a parent generic argument that
+    /// appears in no parameter.</item>
+    /// <item>No actor isolation — the wrapper is a bare non-isolated free function, so an
+    /// initializer that must be entered on an actor's executor has no correct call site here.</item>
+    /// </list>
+    ///
+    /// Everything outside this shape keeps the historical refusal and falls to the visible
+    /// closure-parameter tombstone, which is honest about being unconstructible.
+    /// </summary>
+    internal static bool IsBridgeableConstructor(MethodDecl method)
+    {
+        if (!method.IsConstructor) return false;
+        if (method.IsFailable) return false;
+        if (method.ParentDecl is not ClassDecl cls) return false;
+        if (cls.IsObjCRooted) return false;
+        if (cls.DirectSuperclassName != null) return false;
+        if (cls.IsGeneric) return false;
+        if (method.IsActorIsolated) return false;
+        if (WrapperValidation.NeedsMainActorAnnotation(cls, method.IsMainActorIsolated, method.IsNonisolated))
+            return false;
+
+        // The bridge drops defaulted params from both the wrapper call and the public signature.
+        // On a method that reduced signature still carries the method name; on an initializer the
+        // parameter list IS the identity, so two inits differing only in defaulted params would
+        // reduce to the same C# constructor. The ordinary constructor path reserves its reduced
+        // signature explicitly — the bridge does not, so refuse the shape instead.
+        if (method.CSSignature.Skip(1).Any(a => a.HasDefaultArg)) return false;
 
         return true;
     }
@@ -357,7 +413,11 @@ public static class NestedClosureBridge
             EmitInnerBoxReleaseHelperIfNeeded(swiftWriter, moduleName, ctx);
         }
 
-        bool isInstance = method.MethodType != MethodType.Static && parentDecl != null;
+        // Constructors parse as MethodType.Instance, but there is no `self` before the call —
+        // the wrapper builds the instance rather than receiving it, so it takes no self pointer
+        // and reconstructs nothing.
+        bool isCtor = method.IsConstructor;
+        bool isInstance = !isCtor && method.MethodType != MethodType.Static && parentDecl != null;
         var typeName = parentDecl?.SwiftTypeName?.ModuleQualifiedName ?? parentDecl?.Name ?? "";
         bool multiOuter = nestedClosures.Count > 1;
         bool parentIsClass = parentDecl is ClassDecl;
@@ -473,18 +533,25 @@ public static class NestedClosureBridge
             ? (returnsReference ? "return Unmanaged.passRetained(" : "return ")
             : "";
         var returnSuffix = returnsReference ? ").toOpaque()" : "";
-        var callTarget = isInstance ? synth.SelfLocal : typeName;
-        var methodSwiftName = NameProvider.ParserNameToSwift(method);
+        // An initializer is called on the type itself with no member name — `Type(label: arg)`.
+        var calleeExpr = isCtor
+            ? typeName
+            : $"{(isInstance ? synth.SelfLocal : typeName)}.{NameProvider.ParserNameToSwift(method)}";
 
-        if (!multiOuter)
+        // The single-outer path emits every non-closure argument ahead of the closure. Swift
+        // argument order follows the declaration, so that shape is only correct when the closure
+        // is the last argument actually passed; otherwise fall to the declaration-order emitter,
+        // which interleaves them as declared. Closure-last members — the overwhelming majority,
+        // and every pre-existing one — keep the byte-identical single-outer output.
+        if (!multiOuter && IsSingleClosureLastPassedArg(method, nestedClosures[0], passableNonClosureParams))
         {
             EmitSingleOuterMethodCall(swiftWriter, nestedClosures[0], passableNonClosureParams,
-                returnPrefix, returnSuffix, callTarget, methodSwiftName, multiOuter: false, env: env, synth: synth);
+                returnPrefix, returnSuffix, calleeExpr, multiOuter: false, env: env, synth: synth);
         }
         else
         {
             EmitMultiOuterMethodCall(swiftWriter, method, nestedClosures, passableNonClosureParams,
-                returnPrefix, returnSuffix, callTarget, methodSwiftName, env, synth);
+                returnPrefix, returnSuffix, calleeExpr, env, synth);
         }
 
         swiftWriter.WriteLine("}");
@@ -603,6 +670,22 @@ public static class NestedClosureBridge
     }
 
     /// <summary>
+    /// Whether the single outer closure is the last argument the wrapper actually passes — the
+    /// precondition for <see cref="EmitSingleOuterMethodCall"/>'s non-closure-args-first layout to
+    /// match Swift's declaration-ordered argument list. Params carrying a default value are not
+    /// passed, so they don't count toward "last".
+    /// </summary>
+    private static bool IsSingleClosureLastPassedArg(
+        MethodDecl method,
+        NestedClosureInfo nc,
+        List<(ArgumentDecl arg, string csName, string csType, MethodClosureBridge.ParamAbiCategory category)> passableNonClosureParams)
+    {
+        var passed = new HashSet<ArgumentDecl>(passableNonClosureParams.Select(p => p.arg)) { nc.Arg };
+        var lastPassed = method.CSSignature.Skip(1).LastOrDefault(passed.Contains);
+        return ReferenceEquals(lastPassed, nc.Arg);
+    }
+
+    /// <summary>
     /// Single-outer emission path — preserves the pre-multi-outer byte-identical Swift output.
     /// Non-closure passable args are emitted first, then the single outer closure as a labeled
     /// inline closure argument.
@@ -613,8 +696,7 @@ public static class NestedClosureBridge
         List<(ArgumentDecl arg, string csName, string csType, MethodClosureBridge.ParamAbiCategory category)> passableNonClosureParams,
         string returnPrefix,
         string returnSuffix,
-        string callTarget,
-        string methodSwiftName,
+        string calleeExpr,
         bool multiOuter,
         MethodEnvironment env,
         ClosureBridgeSyntheticNames synth)
@@ -644,7 +726,7 @@ public static class NestedClosureBridge
         // the box into the stored closure so Swift ARC tracks its lifetime — when Swift releases
         // the closure, the box's deinit upcalls the C# free callback.
         var captureList = nc.IsEffectivelyEscaping ? $"[{synth.Box[nc.Index]}] " : "";
-        swiftWriter.WriteLine($"    {returnPrefix}{callTarget}.{methodSwiftName}({prefixStr}{callLabel}{{ {captureList}{outerParamStr} in");
+        swiftWriter.WriteLine($"    {returnPrefix}{calleeExpr}({prefixStr}{callLabel}{{ {captureList}{outerParamStr} in");
         EmitOuterAdapterBody(swiftWriter, nc, multiOuter, indent: "        ", env, synth);
         swiftWriter.WriteLine($"    }}){returnSuffix}");
     }
@@ -660,8 +742,7 @@ public static class NestedClosureBridge
         List<(ArgumentDecl arg, string csName, string csType, MethodClosureBridge.ParamAbiCategory category)> passableNonClosureParams,
         string returnPrefix,
         string returnSuffix,
-        string callTarget,
-        string methodSwiftName,
+        string calleeExpr,
         MethodEnvironment env,
         ClosureBridgeSyntheticNames synth)
     {
@@ -676,7 +757,7 @@ public static class NestedClosureBridge
                 emitOrder.Add(arg);
         }
 
-        swiftWriter.WriteLine($"    {returnPrefix}{callTarget}.{methodSwiftName}(");
+        swiftWriter.WriteLine($"    {returnPrefix}{calleeExpr}(");
 
         for (int k = 0; k < emitOrder.Count; k++)
         {
@@ -1122,8 +1203,8 @@ public static class NestedClosureBridge
             pinvokeParams.Add($"IntPtr {csName}Context");
         }
 
-        // SwiftSelf last — instance methods only
-        bool isInstance = method.MethodType != MethodType.Static;
+        // SwiftSelf last — instance methods only. A constructor has no receiver to pass.
+        bool isInstance = !method.IsConstructor && method.MethodType != MethodType.Static;
         if (isInstance)
         {
             // The trailing self param hardcodes `self_`; a user non-closure param
@@ -1229,12 +1310,20 @@ public static class NestedClosureBridge
         // Mirror of MethodClosureBridge.EmitPublicMethod.
         var methodName = env.CSharpMethodName;
 
-        var isStatic = method.MethodType == MethodType.Static;
+        // A constructor's C# surface is `public Type(...)` — no return type and no method name,
+        // and it never carries the `static` keyword or a receiver.
+        bool isCtor = method.IsConstructor;
+        var ctorTypeName = isCtor ? GetUnqualifiedCSharpTypeName(parentDecl, env) : "";
+
+        var isStatic = !isCtor && method.MethodType == MethodType.Static;
         var staticKeyword = isStatic ? "static " : "";
 
         XmlDocCommentEmitter.EmitMethodDocComment(csWriter, method);
 
-        csWriter.WriteLine($"public {staticKeyword}unsafe {returnType} {methodName}({string.Join(", ", publicParams)})");
+        var declarator = isCtor
+            ? $"public unsafe {ctorTypeName}"
+            : $"public {staticKeyword}unsafe {returnType} {methodName}";
+        csWriter.WriteLine($"{declarator}({string.Join(", ", publicParams)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
@@ -1305,8 +1394,8 @@ public static class NestedClosureBridge
             callArgs.Add($"GCHandle.ToIntPtr(__gcHandle_{nc.Index})");
         }
 
-        // SwiftSelf — instance methods only
-        if (!isStatic)
+        // SwiftSelf — instance methods only; a constructor has no receiver yet.
+        if (!isStatic && !isCtor)
         {
             bool isObjCRooted = method.ParentDecl is ClassDecl cd && cd.IsObjCRooted;
             var selfExpr = isObjCRooted
@@ -1315,7 +1404,16 @@ public static class NestedClosureBridge
             callArgs.Add(selfExpr);
         }
 
-        if (returnsClass)
+        if (isCtor)
+        {
+            csWriter.WriteLine($"var __result = {helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
+            EmitClosureOwnershipTransferred(csWriter, nestedClosures);
+            // The wrapper returns Unmanaged.passRetained(...).toOpaque() — the +1 reference the
+            // handle adopts. Marshalling it instead would build a SECOND wrapper object around the
+            // instance this constructor is supposed to BE.
+            csWriter.WriteLine($"_handle = new SwiftClassHandle<{ctorTypeName}>(__result);");
+        }
+        else if (returnsClass)
         {
             csWriter.WriteLine($"var __result = {helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
             EmitClosureOwnershipTransferred(csWriter, nestedClosures);
@@ -1353,9 +1451,33 @@ public static class NestedClosureBridge
             csWriter.WriteLine("}");
         }
 
+        // Deterministic lifetime for the freshly-constructed instance, matching the ordinary
+        // constructor path. Placed after the finally so a failed P/Invoke never registers a
+        // half-built object.
+        if (isCtor)
+        {
+            csWriter.WriteLine("Swift.Runtime.SwiftDisposeScope.TryRegister(this);");
+        }
+
         csWriter.Indent--;
         csWriter.WriteLine("}");
         csWriter.WriteLine();
+    }
+
+    /// <summary>
+    /// The emitted (unqualified) C# name of the containing type — the constructor's declarator and
+    /// the type argument of its <c>SwiftClassHandle</c>. Mirrors WrapperEmitter's resolution so a
+    /// remapped or nested type name reaches both sites identically.
+    /// </summary>
+    private static string GetUnqualifiedCSharpTypeName(TypeDecl? parentDecl, MethodEnvironment env)
+    {
+        if (parentDecl != null && env.TypeDatabase.TryGetTypeRecord(parentDecl.SwiftTypeName, out var record))
+        {
+            var name = record.CSharpTypeName.Name;
+            var lastDot = name.LastIndexOf('.');
+            return lastDot >= 0 ? name.Substring(lastDot + 1) : name;
+        }
+        return parentDecl?.Name ?? "";
     }
 
     /// <summary>

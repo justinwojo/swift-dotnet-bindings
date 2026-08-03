@@ -67,10 +67,121 @@ public class NestedClosureBridgeTests
     }
 
     [Fact]
-    public void IsEligible_Constructor_ReturnsFalse()
+    public void IsEligible_ConstructorOnRootSwiftClass_ReturnsTrue()
+    {
+        // An initializer carrying a callback-bearing closure is the same ABI problem as the
+        // equivalent method; on a plain root Swift class the bridge can construct it.
+        var (method, typeDatabase) = CreateMethodWithNestedClosure();
+        method.IsConstructor = true;
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.True(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_FailableConstructor_ReturnsFalse()
+    {
+        // Optional<Self> cannot be carried by the wrapper's raw-pointer return.
+        var (method, typeDatabase) = CreateMethodWithNestedClosure();
+        method.IsConstructor = true;
+        method.IsFailable = true;
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.False(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_ObjCRootedConstructor_ReturnsFalse()
+    {
+        // ObjC-rooted classes construct through a static native-handle helper feeding
+        // `: base(handle)` — a shape the bridge does not emit.
+        var (method, typeDatabase) = CreateMethodWithNestedClosure();
+        method.IsConstructor = true;
+        ((ClassDecl)method.ParentDecl!).IsObjCRooted = true;
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.False(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_DerivedClassConstructor_ReturnsFalse()
+    {
+        // A derived class chains an inheritance token and stores into the ROOT base's handle
+        // field; the bridge writes neither.
+        var (method, typeDatabase) = CreateMethodWithNestedClosure();
+        method.IsConstructor = true;
+        ((ClassDecl)method.ParentDecl!).SuperclassNames.Add("TestModule.BaseRequest");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.False(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_GenericClassConstructor_ReturnsFalse()
     {
         var (method, typeDatabase) = CreateMethodWithNestedClosure();
         method.IsConstructor = true;
+        ((ClassDecl)method.ParentDecl!).GenericParameters.Add(
+            new GenericArgumentDecl("T", "T", new(), new()));
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.False(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_MainActorConstructor_ReturnsFalse()
+    {
+        // The wrapper is a bare non-isolated free function, so an init that must be entered on
+        // the main actor's executor has no correct call site here.
+        var (method, typeDatabase) = CreateMethodWithNestedClosure();
+        method.IsConstructor = true;
+        method.IsActorIsolated = true;
+        method.IsMainActorIsolated = true;
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.False(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_ConstructorWithDefaultedParam_ReturnsFalse()
+    {
+        // The bridge drops defaulted params; on an initializer the parameter list IS the
+        // identity, so a reduced signature could collide with a sibling init.
+        var (method, typeDatabase) = CreateMethodWithNestedClosure();
+        method.IsConstructor = true;
+        var defaulted = CreateArgument("retries", new NamedTypeSpec("Swift.Int32"), method.ModuleDecl!);
+        defaulted.HasDefaultArg = true;
+        method.CSSignature.Add(defaulted);
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.False(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_StructConstructor_ReturnsFalse()
+    {
+        // A struct initializer constructs in place, not through a retained pointer.
+        var (method, typeDatabase) = CreateMethodWithNestedClosure();
+        method.IsConstructor = true;
+
+        var moduleDecl = method.ModuleDecl!;
+        method.ParentDecl = new StructDecl
+        {
+            Name = "DataRequestValue",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.DataRequestValue"),
+            MangledName = "$s10TestModule16DataRequestValueVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            IsFrozen = false,
+            MetadataAccessor = "$s10TestModule16DataRequestValueVMa",
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
         var closureHandler = new ClosureHandler(typeDatabase);
 
         Assert.False(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
@@ -143,6 +254,84 @@ public class NestedClosureBridgeTests
         var closureHandler = new ClosureHandler(typeDatabase);
 
         Assert.True(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void TryEmit_Constructor_EmitsConstructorShapeWithNoSelf()
+    {
+        // A constructor builds the instance rather than receiving one: the @_cdecl wrapper takes
+        // no self pointer and reconstructs nothing, the P/Invoke carries no SwiftSelf, and the C#
+        // surface is a real constructor adopting the returned +1 reference into its own handle.
+        var typeDatabase = CreateTypeDatabaseWithEnumTypes();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("DataRequest", moduleDecl);
+
+        var innerClosure = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("TestModule.ResponseDisposition") }),
+            TupleTypeSpec.Empty);
+        var outerClosureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] { new NamedTypeSpec("Foundation.NSObject"), innerClosure }),
+            TupleTypeSpec.Empty);
+        outerClosureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("init", parentDecl, moduleDecl,
+            new NamedTypeSpec("TestModule.DataRequest"), outerClosureType, "confirmHandler");
+        method.IsConstructor = true;
+
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+
+        Assert.True(NestedClosureBridge.TryEmit(
+            new CSharpWriter(csOutput), new SwiftWriter(swiftOutput), env, parentDecl));
+
+        var cs = csOutput.ToString();
+        var swift = swiftOutput.ToString();
+
+        // C#: a real constructor, not a named method returning a marshalled wrapper object.
+        Assert.Contains("public unsafe DataRequest(", cs);
+        Assert.Contains("_handle = new SwiftClassHandle<DataRequest>(__result);", cs);
+        Assert.Contains("Swift.Runtime.SwiftDisposeScope.TryRegister(this);", cs);
+        // Marshalling the returned pointer would build a SECOND wrapper object around the
+        // instance this constructor is supposed to BE. (MarshalFromSwift still appears for the
+        // closure's own arguments, so pin the receiver type rather than the bare call.)
+        Assert.DoesNotContain("MarshalFromSwift<DataRequest", cs);
+        Assert.DoesNotContain("SwiftSelf", cs);
+
+        // Swift: constructs the type directly, with no self param or reconstruction.
+        // (takeUnretainedValue still appears for the closure's own context box, so pin the self
+        // reconstruction by its receiver type rather than the bare call.)
+        Assert.Contains("TestModule.DataRequest(", swift);
+        Assert.DoesNotContain("self_", swift);
+        Assert.DoesNotContain("__self", swift);
+        Assert.DoesNotContain("Unmanaged<TestModule.DataRequest>.fromOpaque", swift);
+    }
+
+    [Fact]
+    public void TryEmit_ClosureNotLastParam_EmitsArgumentsInDeclarationOrder()
+    {
+        // Swift argument order follows the declaration. The single-outer layout emits every
+        // non-closure argument first, so a closure declared BEFORE another parameter must fall to
+        // the declaration-order emitter or the wrapper call fails to compile.
+        var (method, typeDatabase) = CreateMethodWithNestedClosure();
+        var trailing = CreateArgument("value", new NamedTypeSpec("Swift.Int32"), method.ModuleDecl!);
+        method.CSSignature.Add(trailing);
+
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+
+        Assert.True(NestedClosureBridge.TryEmit(
+            new CSharpWriter(csOutput), new SwiftWriter(swiftOutput), env, method.ParentDecl as TypeDecl));
+
+        var swift = swiftOutput.ToString();
+        var callIndex = swift.IndexOf(".onHTTPResponse(", System.StringComparison.Ordinal);
+        Assert.True(callIndex >= 0, "expected the wrapper to call the bridged method");
+        var call = swift.Substring(callIndex);
+        Assert.True(
+            call.IndexOf("_perform:", System.StringComparison.Ordinal) <
+            call.IndexOf("value:", System.StringComparison.Ordinal),
+            "closure argument must precede the parameter declared after it");
     }
 
     [Fact]
@@ -527,6 +716,36 @@ public class NestedClosureBridgeTests
             new TupleTypeSpec(new[] { new NamedTypeSpec("TestModule.ResponseDisposition") }),
             TupleTypeSpec.Empty);
         innerClosure.IsAsync = true;
+
+        var outerClosureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] {
+                new NamedTypeSpec("Foundation.NSObject"),
+                innerClosure
+            }),
+            TupleTypeSpec.Empty);
+        outerClosureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("doWork", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, outerClosureType, "handler");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.False(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_ThrowingInnerClosure_ReturnsFalse()
+    {
+        // The inner trampoline force-casts the boxed Swift closure to a non-throwing
+        // function type, so a throwing inner closure would compile and then trap when the
+        // callback fires. The bridge must refuse the shape rather than emit the trap.
+        var typeDatabase = CreateTypeDatabaseWithEnumTypes();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var innerClosure = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("TestModule.ResponseDisposition") }),
+            TupleTypeSpec.Empty);
+        innerClosure.Throws = true;
 
         var outerClosureType = new ClosureTypeSpec(
             new TupleTypeSpec(new TypeSpec[] {

@@ -342,6 +342,49 @@ namespace BindingsGeneration
                 return;
             }
 
+            // A callback-bearing closure parameter has no ordinary constructor marshalling path —
+            // it needs the nested-closure bridge's two-level trampoline, and the bridge table
+            // above only runs on the method path. Without this the initializer falls to the
+            // visible-but-throwing closure tombstone, and a type whose ONLY initializer carries
+            // such a closure binds as a shell nothing can construct. Runs after the constructor
+            // policy gates above (tombstone short-circuit, actor isolation, @convention(c)) so the
+            // bridge only ever sees shapes those gates already cleared, and before SignatureHandler
+            // because the bridge owns the whole emission including its wrapper routing flags.
+            // Checkpointed like the method-path bridge dispatch: the bridge derives its own SBW_
+            // symbol inside TryEmit, so an eager wrapper-contract throw rolls its partial output
+            // back out of both buffers and routes the member through the standard skip path.
+            if (NestedClosureBridge.IsEligible(methodEnv.MethodDecl, methodEnv.ClosureHandler, methodEnv.TypeDatabase))
+            {
+                methodEnv.EmissionContext = context.GetEmissionContext();
+                var ctorBridgeTransaction = MemberEmissionTransaction.Begin(
+                    csWriter, swiftWriter, context.GetEmissionContext(), methodEnv);
+                bool ctorBridged;
+                try
+                {
+                    ctorBridged = NestedClosureBridge.TryEmit(
+                        csWriter, swiftWriter, methodEnv,
+                        methodEnv.ParentDecl as TypeDecl, context.GetEmissionContext());
+                }
+                catch (WrapperSymbolContractException ex)
+                {
+                    WrapperSymbolContractGate.ReportKeptWrapperBlock(ctorBridgeTransaction.Rollback(), methodEnv, ex.EntryPoint, _logger);
+                    WrapperSymbolContractGate.HandleSkip(methodEnv, ex.EntryPoint, csWriter, _logger);
+                    return;
+                }
+
+                if (ctorBridged)
+                {
+                    ReportCollector.RecordMemberWrapped(
+                        BindingItemKind.Method,
+                        methodEnv.MethodDecl.Name,
+                        methodEnv.MethodDecl.MangledName,
+                        methodEnv.MethodDecl.ParentDecl,
+                        "NestedClosureBridge",
+                        "Constructor with a callback-bearing closure parameter bridged via two-level trampoline.");
+                    return;
+                }
+            }
+
             // Emit Swift wrapper for constructors with debug params (#file, #line, etc.)
             if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
                 DefaultParameterOverloadEmitter.HasDebugParameters(methodEnv.MethodDecl))

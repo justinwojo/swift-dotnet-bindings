@@ -6,9 +6,14 @@
 // Each member here has an unsupported closure parameter shape (closure-taking
 // closure, which falls through `ClosureHandler.IsSupportedClosureParameterType`).
 // We deliberately gate every member so `NestedClosureBridge.IsEligible` rejects:
-//   - constructors          (rejected at IsConstructor check)
+//   - the constructor       (outer closure returns a value, not Void)
 //   - throwing methods      (rejected at Throws check)
 //   - throwing free function (rejected at Throws check)
+//
+// The constructor gate is NOT "constructors are never bridged" — an initializer whose
+// callback-bearing closure the bridge CAN carry now emits as a real C# constructor. A
+// non-Void outer closure return is outside that supported subset, so this init stays on
+// the tombstone path.
 //
 // Without the Layer A tombstone, every member here would be dropped wholesale
 // from the generated C# surface. With Layer A, each member is emitted as
@@ -21,9 +26,11 @@
 
 import Foundation
 
-/// Class with an init taking an unsupported closure-of-closure parameter.
+/// Class with an init taking an unsupported closure-of-closure parameter. The outer closure
+/// returns `Int32` rather than `Void`, which the nested-closure bridge cannot carry (its
+/// `@_cdecl` trampoline is `-> Void`), so this init stays on the tombstone path.
 public final class TombstoneDataLoader {
-    public init(transform: @escaping (@escaping () -> Void) -> Void) {
+    public init(transform: @escaping (@escaping () -> Void) -> Int32) {
         // body unused — generator never calls this from C#.
         _ = transform
     }

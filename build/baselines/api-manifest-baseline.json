@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "git_sha": "90d8089d",
+  "git_sha": "504c464a",
   "entries": [
     {
       "module": "SwiftBindingsTestLib",
@@ -1541,6 +1541,26 @@
       "module": "SwiftBindingsTestLib",
       "signature": "BoxableColliderList.Init(IEnumerable\u003CIBoxable\u003E)",
       "symbol": "SBW_SwiftBindingsTestLib_BoxableColliderList_init_F6E1A904"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "BoxableConsumerParity.Combined(IBoxable)",
+      "symbol": "SBW_SwiftBindingsTestLib_BoxableConsumerParity_combined_DB0EEAF5"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "BoxableConsumerParity.GetStoredValue()",
+      "symbol": "thunk_SwiftBindingsTestLib_f0990738"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "BoxableConsumerParity.Init(IBoxable)",
+      "symbol": "$s20SwiftBindingsTestLib21BoxableConsumerParityV8optionalACSgAA0E0_p_tcfC"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "BoxableConsumerParity.Make(IBoxable)",
+      "symbol": "SBW_SwiftBindingsTestLib_BoxableConsumerParity_make_82AA3DB3"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -4449,6 +4469,36 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "DeferredIntentConfiguration.Confirm(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_3de59d1f"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DeferredIntentConfiguration.ConfirmTwice(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_24186d6b"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DeferredIntentConfiguration.Init(int,global::System.Action\u003Cint, global::System.Action\u003Cint\u003E\u003E)",
+      "symbol": "$s20SwiftBindingsTestLib27DeferredIntentConfigurationC4mode14confirmHandlerACs5Int32V_yAG_yAGctctcfC"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DeferredIntentController.GetConfiguredMode()",
+      "symbol": "thunk_SwiftBindingsTestLib_4058866d"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DeferredIntentController.Init(SwiftBindingsTestLib.DeferredIntentConfiguration)",
+      "symbol": "SBW_SwiftBindingsTestLib_DeferredIntentController_init_C46837E8"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DeferredIntentController.Run(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_5a70ee93"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "DeinitTracker.Init(System.IntPtr)",
       "symbol": "thunk_SwiftBindingsTestLib_9cd2c1e3"
     },
@@ -5209,6 +5259,31 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "EnumCarrierClosureBridge.Combine(SwiftBindingsTestLib.FetchScope,SwiftBindingsTestLib.WriteMode,int,global::System.Action\u003CSwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
+      "symbol": "$s20SwiftBindingsTestLib24EnumCarrierClosureBridgeC7combine5scope4mode10multiplier10completionyAA10FetchScopeO_AA9WriteModeOs5Int32Vys6ResultOyANs5Error_pGXEtF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "EnumCarrierClosureBridge.Fetch(SwiftBindingsTestLib.FetchScope,global::System.Action\u003CSwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
+      "symbol": "$s20SwiftBindingsTestLib24EnumCarrierClosureBridgeC5fetch5scope10completionyAA10FetchScopeO_ys6ResultOys5Int32Vs5Error_pGXEtF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "EnumCarrierClosureBridge.GetInit()",
+      "symbol": "thunk_SwiftBindingsTestLib_287686c5"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "EnumCarrierClosureBridge.RetryResult(SwiftBindingsTestLib.FetchScope,SwiftBindingsTestLib.WriteMode,global::System.Action\u003CSwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
+      "symbol": "$s20SwiftBindingsTestLib24EnumCarrierClosureBridgeC11retryResult3for5dueTo10completionyAA10FetchScopeO_AA9WriteModeOys0J0Oys5Int32Vs5Error_pGXEtF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "EnumCarrierClosureBridge.Write(SwiftBindingsTestLib.WriteMode,global::System.Action\u003CSwift.Foundation.AnyError?\u003E)",
+      "symbol": "$s20SwiftBindingsTestLib24EnumCarrierClosureBridgeC5write4mode10completionyAA9WriteModeO_ys5Error_pSgXEtF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "EnumPropertyHolder.GetShape()",
       "symbol": "SBW_SwiftBindingsTestLib_EnumPropertyHolder_getShape_AAD4466C"
     },
@@ -5466,6 +5541,11 @@
       "module": "SwiftBindingsTestLib",
       "signature": "FetchTrackedRefStructArrayAsync(int,System.Threading.CancellationToken)",
       "symbol": "SBW_SwiftBindingsTestLib_Free_fetchTrackedRefStructArray_77BF2B8B"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "FetchWithScope(SwiftBindingsTestLib.FetchScope,global::System.Action\u003CSwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
+      "symbol": "$s20SwiftBindingsTestLib14fetchWithScope_10completionyAA05FetchG0O_ys6ResultOys5Int32Vs5Error_pGXEtF"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -6559,6 +6639,21 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "HollowUploadDelegateImpl.BeginUpload(global::System.Action\u003Cdouble\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_HollowUploadDelegateImpl_beginUpload_DC57CFC2"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "HollowUploadDelegateImpl.FinishUpload(global::System.Action,global::System.Action)",
+      "symbol": "SBW_SwiftBindingsTestLib_HollowUploadDelegateImpl_finishUpload_C0D83E6E"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "HollowUploadDelegateImpl.GetInit()",
+      "symbol": "SBW_SwiftBindingsTestLib_HollowUploadDelegateImpl_init_FA2410F8"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "HostWrapper.Init(Swift.AnyType)\u00601",
       "symbol": "SBW_SwiftBindingsTestLib_HostWrapper_init_D91D391B"
     },
@@ -6641,6 +6736,11 @@
       "module": "SwiftBindingsTestLib",
       "signature": "ImageTransitionTest.Init(SwiftBindingsTestLib.ImageTransitionTest.AnimatorInfo)",
       "symbol": "SBW_SwiftBindingsTestLib_ImageTransitionTest_init_3244E776"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ImmediateConfirmationConfiguration.Init(int,global::System.Action\u003Cint, global::System.Action\u003Cint\u003E\u003E)",
+      "symbol": "$s20SwiftBindingsTestLib34ImmediateConfirmationConfigurationC4seed7resolveACs5Int32V_yAG_yAGctXEtcfC"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -13235,7 +13335,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "TombstoneDataLoader.Init(object?)",
-      "symbol": "$s20SwiftBindingsTestLib19TombstoneDataLoaderC9transformACyyycc_tcfC"
+      "symbol": "$s20SwiftBindingsTestLib19TombstoneDataLoaderC9transformACs5Int32Vyycc_tcfC"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -13916,6 +14016,26 @@
       "module": "SwiftBindingsTestLib",
       "signature": "UpgradeDependencyConfig(SwiftBindingsTestLibDependency.DependencyConfig)",
       "symbol": "SBW_SwiftBindingsTestLib_Free_upgradeDependencyConfig_2DE82A68"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "UploadCoordinator.GetInit()",
+      "symbol": "thunk_SwiftBindingsTestLib_16d3172f"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "UploadCoordinator.GetPartialIdentifier()",
+      "symbol": "SBW_SwiftBindingsTestLib_UploadCoordinator_partialIdentifier_A3540927"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "UploadCoordinator.GetVendHollowDelegate()",
+      "symbol": "SBW_SwiftBindingsTestLib_UploadCoordinator_vendHollowDelegate_223EBB42"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "UploadCoordinator.ProbeHollowDelegate(IHollowUploadDelegate)",
+      "symbol": "SBW_SwiftBindingsTestLib_UploadCoordinator_probeHollowDelegate_2463D1F2"
     },
     {
       "module": "SwiftBindingsTestLib",
