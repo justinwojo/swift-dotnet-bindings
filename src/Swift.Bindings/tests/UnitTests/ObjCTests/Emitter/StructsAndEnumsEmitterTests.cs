@@ -344,72 +344,6 @@ public class StructsAndEnumsEmitterTests
     }
 
     [Fact]
-    public void EmitConstant_NSString_AsField()
-    {
-        var module = new ObjCModule
-        {
-            ModuleName = "TestLib",
-            Constants =
-            [
-                new ObjCConstantDecl
-                {
-                    Name = "TLErrorDomain",
-                    Type = SimpleType("NSString", isPointer: true),
-                    IsExtern = true
-                }
-            ]
-        };
-
-        var output = EmitAndRead(module);
-        Assert.Contains("[Field(\"TLErrorDomain\", \"__Internal\")]", output);
-        Assert.Contains("public static NSString TLErrorDomain { get; }", output);
-    }
-
-    [Fact]
-    public void EmitConstant_Int_AsField()
-    {
-        var module = new ObjCModule
-        {
-            ModuleName = "TestLib",
-            Constants =
-            [
-                new ObjCConstantDecl
-                {
-                    Name = "maxRetries",
-                    Type = SimpleType("int"),
-                    IsExtern = true
-                }
-            ]
-        };
-
-        var output = EmitAndRead(module);
-        Assert.Contains("[Field(\"maxRetries\", \"__Internal\")]", output);
-        Assert.Contains("public static int MaxRetries { get; }", output);
-    }
-
-    [Fact]
-    public void EmitConstant_UnsupportedType_EmitsTodoComment()
-    {
-        var module = new ObjCModule
-        {
-            ModuleName = "TestLib",
-            Constants =
-            [
-                new ObjCConstantDecl
-                {
-                    Name = "someStruct",
-                    Type = SimpleType("TLCustomStruct"),
-                    IsExtern = true
-                }
-            ]
-        };
-
-        var output = EmitAndRead(module);
-        Assert.Contains("// TODO: someStruct (TLCustomStruct)", output);
-        Assert.Contains("[Field] not supported for this type", output);
-    }
-
-    [Fact]
     public void EmitFunction_AsDllImport()
     {
         var module = new ObjCModule
@@ -449,6 +383,79 @@ public class StructsAndEnumsEmitterTests
         {
             var result = StructsAndEnumsEmitter.Emit(module, tempDir, "TestLib.Binding", Logger);
             Assert.Null(result);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void ReturnsNull_WhenModuleHasOnlyExternConstants()
+    {
+        // Constants moved to ApiDefinition.cs, so they no longer keep this file alive.
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "TLErrorDomain",
+                    Type = SimpleType("NSString", isPointer: true),
+                    IsExtern = true,
+                }
+            ],
+        };
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"structs_enums_test_{Guid.NewGuid():N}");
+        try
+        {
+            var result = StructsAndEnumsEmitter.Emit(module, tempDir, "TestLib.Binding", Logger);
+            Assert.Null(result);
+            Assert.False(File.Exists(Path.Combine(tempDir, "StructsAndEnums.cs")));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void RemovesStaleFile_WhenModuleNoLongerEmitsAnything()
+    {
+        // Regenerating into a populated output directory: the csproj includes StructsAndEnums.cs
+        // on Exists(), so a leftover from an earlier generation would still reach bgen — and a
+        // pre-move file declares `public static class {Module}Constants`, which collides with the
+        // interface the ApiDefinition now declares under that name.
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "TLErrorDomain",
+                    Type = SimpleType("NSString", isPointer: true),
+                    IsExtern = true,
+                }
+            ],
+        };
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"structs_enums_test_{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var stale = Path.Combine(tempDir, "StructsAndEnums.cs");
+            var staleDelegates = Path.Combine(tempDir, "BgenDelegates.cs");
+            File.WriteAllText(stale, "// left over from a previous generation");
+            File.WriteAllText(staleDelegates, "// left over from a previous generation");
+
+            Assert.Null(StructsAndEnumsEmitter.Emit(module, tempDir, "TestLib.Binding", Logger));
+            Assert.False(File.Exists(stale));
+            Assert.False(File.Exists(staleDelegates));
         }
         finally
         {
@@ -510,9 +517,9 @@ public class StructsAndEnumsEmitterTests
         Assert.Contains("public struct TLSize", output);
         Assert.Contains("public nfloat Width;", output);
 
-        // Constants class
-        Assert.Contains("public static class TestLibConstants", output);
-        Assert.Contains("[Field(\"TLVersion\", \"__Internal\")]", output);
+        // Functions class (extern constants are emitted into ApiDefinition.cs, not here)
+        Assert.Contains("public static class TestLibFunctions", output);
+        Assert.DoesNotContain("[Field(", output);
 
         // Function
         Assert.Contains("[global::System.Runtime.InteropServices.DllImport(\"__Internal\")]", output);
@@ -570,58 +577,6 @@ public class StructsAndEnumsEmitterTests
         // MyFloat should resolve to CGFloat → nfloat via typedefMap
         Assert.Contains("public nfloat Width;", output);
         Assert.DoesNotContain("MyFloat", output);
-    }
-
-    [Fact]
-    public void EmitConstant_WithTypedefAlias_Resolved()
-    {
-        var module = new ObjCModule
-        {
-            ModuleName = "TestLib",
-            Typedefs =
-            [
-                new ObjCTypedefDecl
-                {
-                    Name = "MyInt",
-                    UnderlyingType = SimpleType("NSInteger")
-                }
-            ],
-            Constants =
-            [
-                new ObjCConstantDecl
-                {
-                    Name = "maxCount",
-                    Type = SimpleType("MyInt"),
-                    IsExtern = true
-                }
-            ]
-        };
-
-        var output = EmitAndRead(module);
-        // MyInt should resolve to NSInteger → nint via typedefMap
-        Assert.Contains("public static nint MaxCount { get; }", output);
-        Assert.DoesNotContain("MyInt", output);
-    }
-
-    [Fact]
-    public void ConstantsClassName_MatchesModuleName()
-    {
-        var module = new ObjCModule
-        {
-            ModuleName = "MyFramework",
-            Constants =
-            [
-                new ObjCConstantDecl
-                {
-                    Name = "version",
-                    Type = SimpleType("NSInteger"),
-                    IsExtern = true
-                }
-            ]
-        };
-
-        var output = EmitAndRead(module);
-        Assert.Contains("public static class MyFrameworkConstants", output);
     }
 
     [Fact]
@@ -876,57 +831,6 @@ public class StructsAndEnumsEmitterTests
         Assert.Contains("[Native]", output);
     }
 
-    [Fact]
-    public void EmitConstant_Nfloat_AsField()
-    {
-        var module = new ObjCModule
-        {
-            ModuleName = "TestLib",
-            Constants =
-            [
-                new ObjCConstantDecl
-                {
-                    Name = "defaultScale",
-                    Type = SimpleType("CGFloat"),
-                    IsExtern = true
-                }
-            ]
-        };
-
-        var output = EmitAndRead(module);
-        Assert.Contains("[Field(\"defaultScale\", \"__Internal\")]", output);
-        Assert.Contains("public static nfloat DefaultScale { get; }", output);
-    }
-
-    [Fact]
-    public void EmitConstant_NonExtern_Skipped()
-    {
-        var module = new ObjCModule
-        {
-            ModuleName = "TestLib",
-            Constants =
-            [
-                new ObjCConstantDecl
-                {
-                    Name = "kLocalConst",
-                    Type = SimpleType("int"),
-                    IsExtern = false
-                }
-            ]
-        };
-
-        var tempDir = Path.Combine(Path.GetTempPath(), $"structs_enums_test_{Guid.NewGuid():N}");
-        try
-        {
-            var result = StructsAndEnumsEmitter.Emit(module, tempDir, "TestLib.Binding", Logger);
-            Assert.Null(result);
-        }
-        finally
-        {
-            if (Directory.Exists(tempDir))
-                Directory.Delete(tempDir, true);
-        }
-    }
 
     [Fact]
     public void Emit_EnumCaseDigitPrefix_PrependedWithUnderscore()
@@ -1155,30 +1059,6 @@ public class StructsAndEnumsEmitterTests
         Assert.Contains("public delegate void CompletionHandler();", output);
         // Delegate referencing module-local type is skipped
         Assert.DoesNotContain("ResponseHandler", output);
-    }
-
-    [Fact]
-    public void EmitConstantsClass_NotPartial_NoStaticAttribute()
-    {
-        var module = new ObjCModule
-        {
-            ModuleName = "TestLib",
-            Constants =
-            [
-                new ObjCConstantDecl
-                {
-                    Name = "kVersion",
-                    Type = SimpleType("int"),
-                    IsExtern = true
-                }
-            ]
-        };
-
-        var output = EmitAndRead(module);
-        // Constants class should be "public static class" (not partial, no [Static] attribute)
-        Assert.Contains("public static class TestLibConstants", output);
-        Assert.DoesNotContain("partial class TestLibConstants", output);
-        Assert.DoesNotContain("[Static]", output);
     }
 
     // --- StructsAndEnums.cs must include using UIKit and CoreAnimation when the
@@ -2167,167 +2047,6 @@ public class StructsAndEnumsEmitterTests
         Assert.Contains("A,", output);
         Assert.Contains("B,", output);
         Assert.DoesNotContain("= ", output.Substring(output.IndexOf("public enum")));
-    }
-
-    // ──────────────────────────────────────────────
-    // Typedef'd NSString constant [Field] emission
-    // ──────────────────────────────────────────────
-
-    [Fact]
-    public void EmitConstant_TypedefNSString_EmitsFieldProperty()
-    {
-        // e.g., typedef NSString *MOSNotification; extern MOSNotification const MOSStoreDidChange;
-        var module = new ObjCModule
-        {
-            ModuleName = "TestLib",
-            Typedefs =
-            [
-                new ObjCTypedefDecl
-                {
-                    Name = "MOSNotification",
-                    UnderlyingType = SimpleType("NSString", isPointer: true)
-                }
-            ],
-            Constants =
-            [
-                new ObjCConstantDecl
-                {
-                    Name = "MOSStoreDidChange",
-                    Type = SimpleType("MOSNotification"),
-                    IsExtern = true
-                }
-            ]
-        };
-
-        var output = EmitAndRead(module);
-        Assert.Contains("[Field(\"MOSStoreDidChange\", \"__Internal\")]", output);
-        Assert.Contains("public static NSString MOSStoreDidChange { get; }", output);
-        Assert.DoesNotContain("TODO", output);
-    }
-
-    [Fact]
-    public void EmitConstant_TypedefNSStringPointerUsage_EmitsFieldProperty()
-    {
-        // typedef NSString MOSNotification; usage: MOSNotification *
-        // (typedef drops pointer, usage adds it)
-        var module = new ObjCModule
-        {
-            ModuleName = "TestLib",
-            Typedefs =
-            [
-                new ObjCTypedefDecl
-                {
-                    Name = "TLNotification",
-                    UnderlyingType = SimpleType("NSString")
-                }
-            ],
-            Constants =
-            [
-                new ObjCConstantDecl
-                {
-                    Name = "TLDidComplete",
-                    Type = SimpleType("TLNotification", isPointer: true),
-                    IsExtern = true
-                }
-            ]
-        };
-
-        var output = EmitAndRead(module);
-        Assert.Contains("[Field(\"TLDidComplete\", \"__Internal\")]", output);
-        Assert.Contains("public static NSString TLDidComplete { get; }", output);
-        Assert.DoesNotContain("TODO", output);
-    }
-
-    [Fact]
-    public void EmitConstant_ChainedTypedefNSString_EmitsFieldProperty()
-    {
-        // typedef NSString *BaseNotification; typedef BaseNotification DerivedNotification;
-        // Chain: DerivedNotification → BaseNotification → NSString*
-        var module = new ObjCModule
-        {
-            ModuleName = "TestLib",
-            Typedefs =
-            [
-                new ObjCTypedefDecl
-                {
-                    Name = "BaseNotification",
-                    UnderlyingType = SimpleType("NSString", isPointer: true)
-                },
-                new ObjCTypedefDecl
-                {
-                    Name = "DerivedNotification",
-                    UnderlyingType = SimpleType("BaseNotification")
-                }
-            ],
-            Constants =
-            [
-                new ObjCConstantDecl
-                {
-                    Name = "TLSomeEvent",
-                    Type = SimpleType("DerivedNotification"),
-                    IsExtern = true
-                }
-            ]
-        };
-
-        var output = EmitAndRead(module);
-        // The typedef chain resolves DerivedNotification → NSString*
-        Assert.Contains("[Field(\"TLSomeEvent\", \"__Internal\")]", output);
-        Assert.Contains("public static NSString TLSomeEvent { get; }", output);
-        Assert.DoesNotContain("TODO", output);
-    }
-
-    [Fact]
-    public void EmitConstant_DirectNSString_StillWorks()
-    {
-        // Verify that the existing direct NSString* path still works after the typedef fix
-        var module = new ObjCModule
-        {
-            ModuleName = "TestLib",
-            Constants =
-            [
-                new ObjCConstantDecl
-                {
-                    Name = "TLDirectString",
-                    Type = SimpleType("NSString", isPointer: true),
-                    IsExtern = true
-                }
-            ]
-        };
-
-        var output = EmitAndRead(module);
-        Assert.Contains("[Field(\"TLDirectString\", \"__Internal\")]", output);
-        Assert.Contains("public static NSString TLDirectString { get; }", output);
-    }
-
-    [Fact]
-    public void EmitConstant_NonNSStringTypedef_StillEmitsTodo()
-    {
-        // Typedef to a non-NSString type should still emit TODO
-        var module = new ObjCModule
-        {
-            ModuleName = "TestLib",
-            Typedefs =
-            [
-                new ObjCTypedefDecl
-                {
-                    Name = "CustomType",
-                    UnderlyingType = SimpleType("SomeStruct")
-                }
-            ],
-            Constants =
-            [
-                new ObjCConstantDecl
-                {
-                    Name = "TLCustomConst",
-                    Type = SimpleType("CustomType"),
-                    IsExtern = true
-                }
-            ]
-        };
-
-        var output = EmitAndRead(module);
-        Assert.Contains("TODO", output);
     }
 
     [Fact]

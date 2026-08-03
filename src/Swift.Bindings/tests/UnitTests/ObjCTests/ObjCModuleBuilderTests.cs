@@ -76,7 +76,9 @@ public class ObjCModuleBuilderTests
             .WithConstant("kMaxRetries", "int")
             .Build();
 
-        var result = EmitStructsAndEnums(module);
+        // Extern constants land in ApiDefinition.cs — it is the only input bgen generates the
+        // Dlfcn reader backing a [Field] from.
+        var result = EmitApiDefinition(module);
         Assert.Contains("int KMaxRetries", result);
     }
 

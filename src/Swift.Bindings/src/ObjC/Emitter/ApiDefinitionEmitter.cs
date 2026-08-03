@@ -140,6 +140,10 @@ public static class ApiDefinitionEmitter
         foreach (var cat in module.Categories)
             EmitCategory(sb, cat, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, enumNames, droppedClassNames, localProtocolNames, classProtocolClashNames, logger, diagnostics);
 
+        // Constants belong in this file specifically: bgen only generates the Dlfcn reader backing a
+        // [Field] needs when it parses the declaration out of an ObjcBindingApiDefinition input.
+        ObjCConstantsEmitter.Emit(sb, module, typedefMap, diagnostics);
+
         sb.AppendLine("}");
 
         // Protocols declared in this binding are referenced by their bare name; SDK protocols keep

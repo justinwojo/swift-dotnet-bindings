@@ -61,7 +61,50 @@ public class ObjCUmbrellaFixtureTests : TestBase
     /// </summary>
     public void TestExportedCFunctionBinds()
     {
-        AssertEqual(12, ObjCUmbrellaConstants.OUExportedTriple(4), "exported C function round-trips");
+        AssertEqual(12, ObjCUmbrellaFunctions.OUExportedTriple(4), "exported C function round-trips");
+    }
+
+    /// <summary>
+    /// Shape 13 — <c>extern</c> constants read their real native values.
+    ///
+    /// This is the one defect in the family a compiler cannot catch. A <c>[Field]</c> property
+    /// declared in a bgen CORE SOURCE compiles to a get-only auto-property with no initializer:
+    /// it binds, it IntelliSenses, and it returns null/zero forever. Only a declaration bgen reads
+    /// out of <c>ApiDefinition.cs</c> gets the generated <c>Dlfcn</c> reader behind it. So the
+    /// assertions below are value assertions, not null checks — every fixture value is unrelated to
+    /// its symbol name, which also rules out a lookup that echoes the name back.
+    /// </summary>
+    public void TestExternConstantsReadNativeValues()
+    {
+        AssertEqual("ou.channel.default", ObjCUmbrellaConstants.DefaultChannelName?.ToString() ?? "<null>",
+            "extern NSString constant reads its native value");
+        AssertEqual(7, (int)ObjCUmbrellaConstants.MaxRetryCount, "extern NSInteger constant reads its native value");
+        AssertEqual(2.5, ObjCUmbrellaConstants.ScaleFactor, "extern double constant reads its native value");
+    }
+
+    /// <summary>
+    /// Shape 13b — a constant typed by a <c>typedef</c> OF <c>NSString *</c> (the
+    /// NS_TYPED_EXTENSIBLE_ENUM idiom) binds as an <c>NSString</c> field. Resolving the typedef
+    /// chain is what makes this reachable; treating <c>OUEventName</c> as an unknown type drops the
+    /// constant entirely, so the member existing to be read is half the proof and the value is the
+    /// other half.
+    /// </summary>
+    public void TestTypedefdNSStringConstantBinds()
+    {
+        AssertEqual("ou.event.launch", ObjCUmbrellaConstants.EventNameLaunch?.ToString() ?? "<null>",
+            "typedef'd NSString constant reads its native value");
+    }
+
+    /// <summary>
+    /// Shape 13d — a C <c>long</c> constant. <c>Dlfcn</c> reads word-sized integers only at native
+    /// width, so the constant path promotes <c>long</c> to <c>nint</c>; without the promotion the
+    /// constant has no reader and disappears from the binding. Its fixed-width sibling
+    /// (<c>OUFixedWidthTicks</c>, an <c>int64_t</c>) is deliberately absent here — it must NOT be
+    /// promoted, and drops with a recorded skip instead.
+    /// </summary>
+    public void TestNativeWidthLongConstantBinds()
+    {
+        AssertEqual(4096, (int)ObjCUmbrellaConstants.NativeWidthTicks, "extern long constant reads its native value");
     }
 
     /// <summary>

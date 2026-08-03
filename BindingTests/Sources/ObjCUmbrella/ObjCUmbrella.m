@@ -9,6 +9,16 @@
 // Shape 2 — the genuinely-exported C function (the inline sibling is header-only).
 int32_t OUExportedTriple(int32_t x) { return x * 3; }
 
+// Shape 13 — the constant definitions that give each `extern` declaration a real exported
+// symbol. Values are deliberately unrelated to the symbol names so a null read cannot pass.
+NSString * const OUDefaultChannelName = @"ou.channel.default";
+OUEventName const OUEventNameLaunch = @"ou.event.launch";
+NSInteger const OUMaxRetryCount = 7;
+long const OUNativeWidthTicks = 4096;
+int64_t const OUFixedWidthTicks = 8192;
+double const OUScaleFactor = 2.5;
+CGSize const OUDefaultTileSize = { 256, 512 };
+
 // Shape 1 — the single `tally` implementation backing both the property and the method.
 @implementation OUCounter
 - (NSInteger)tally { return 7; }

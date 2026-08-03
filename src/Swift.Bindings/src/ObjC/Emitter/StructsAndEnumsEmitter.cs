@@ -10,17 +10,22 @@ public record StructsAndEnumsResult(string FilePath, string? BgenDelegatesFilePa
 
 public static class StructsAndEnumsEmitter
 {
-    static readonly HashSet<string> FieldSupportedTypes = ["NSString", "nint", "nuint", "nfloat", "int", "float", "double"];
-
     // Structs already defined by .NET MAUI's framework bindings are skipped via
     // AppleFrameworkRegistry.IsObjCSystemStruct (objc-type-mappings.json: systemStructs).
 
     public static StructsAndEnumsResult? Emit(ObjCModule module, string outputDir, string resolvedNamespace, ILogger logger, ObjCBindingDiagnostics? diagnostics = null, PlatformInfo? platformInfo = null, HashSet<string>? excludeTypeNames = null)
     {
         var blockTypedefs = module.Typedefs.Where(t => t.UnderlyingType.IsBlock).ToList();
-        if (module.Enums.Count == 0 && module.Structs.Count == 0 && !module.Constants.Any(c => c.IsExtern) && module.Functions.Count == 0 && blockTypedefs.Count == 0)
+        if (module.Enums.Count == 0 && module.Structs.Count == 0 && module.Functions.Count == 0 && blockTypedefs.Count == 0)
         {
-            logger.LogDebug("No enums, structs, constants, functions, or block typedefs to emit for module {ModuleName}", module.ModuleName);
+            logger.LogDebug("No enums, structs, functions, or block typedefs to emit for module {ModuleName}", module.ModuleName);
+            // Regenerating into a populated output directory has to remove what it no longer
+            // writes: the csproj picks both files up on Exists(), so a leftover from an earlier
+            // generation would still reach bgen. A constants-only module reaches this return, and
+            // its stale file holds the pre-move `public static class {Module}Constants` — which
+            // collides with the interface the ApiDefinition now declares under that name.
+            DeleteIfPresent(Path.Combine(outputDir, "StructsAndEnums.cs"), logger);
+            DeleteIfPresent(Path.Combine(outputDir, "BgenDelegates.cs"), logger);
             return null;
         }
 
@@ -171,8 +176,10 @@ public static class StructsAndEnumsEmitter
             functionKnownTypes.Add($"I{proto.Name}");
         }
 
-        if (module.Constants.Any(c => c.IsExtern) || module.Functions.Count > 0)
-            EmitConstantsClass(sb, module, typedefMap, moduleLocalTypes, functionKnownTypes, enumNames, droppedDelegateNames, excludeTypeNames, logger, diagnostics);
+        // Extern constants are NOT emitted here — they go to ApiDefinition.cs via
+        // ObjCConstantsEmitter, the only input bgen generates [Field] backing from.
+        if (module.Functions.Count > 0)
+            EmitFunctionsClass(sb, module, typedefMap, moduleLocalTypes, functionKnownTypes, enumNames, droppedDelegateNames, excludeTypeNames, logger, diagnostics);
 
         sb.AppendLine("}");
 
@@ -204,8 +211,20 @@ public static class StructsAndEnumsEmitter
             File.WriteAllText(bgenDelegatesPath, bgenSb.ToString());
             logger.LogInformation("Wrote bgen delegate hints to {FilePath}", bgenDelegatesPath);
         }
+        else
+        {
+            DeleteIfPresent(Path.Combine(outputDir, "BgenDelegates.cs"), logger);
+        }
 
         return new StructsAndEnumsResult(filePath, bgenDelegatesPath);
+    }
+
+    static void DeleteIfPresent(string filePath, ILogger logger)
+    {
+        if (!File.Exists(filePath))
+            return;
+        File.Delete(filePath);
+        logger.LogInformation("Removed stale {FilePath} — this generation emits nothing into it", filePath);
     }
 
     static void EmitEnum(StringBuilder sb, ObjCEnumDecl enumDecl, Dictionary<string, ObjCTypeRef>? typedefMap = null, ObjCBindingDiagnostics? diagnostics = null)
@@ -636,68 +655,26 @@ public static class StructsAndEnumsEmitter
         sb.AppendLine();
     }
 
-    static void EmitConstantsClass(StringBuilder sb, ObjCModule module, Dictionary<string, ObjCTypeRef> typedefMap, HashSet<string> moduleLocalTypes, HashSet<string> knownTypes, HashSet<string> enumNames, HashSet<string> droppedDelegateNames, HashSet<string>? excludeTypeNames, ILogger logger, ObjCBindingDiagnostics? diagnostics)
+    /// <summary>
+    /// Emits the module's free C functions as a plain <c>DllImport</c> holder.
+    /// <para/>
+    /// Named <c>{Module}Functions</c>, not <c>{Module}Constants</c>: the module's extern constants
+    /// now live in an <c>ApiDefinition.cs</c> <c>[Static] partial interface {Module}Constants</c>
+    /// (the only input bgen synthesizes <c>[Field]</c> backing from), and bgen compiles its
+    /// api-definition contract from <c>ApiDefinition.cs</c> plus every <c>ObjcBindingCoreSource</c>
+    /// together — so a class here sharing that name is a CS0261 partial-kind conflict, not two
+    /// separate types.
+    /// </summary>
+    static void EmitFunctionsClass(StringBuilder sb, ObjCModule module, Dictionary<string, ObjCTypeRef> typedefMap, HashSet<string> moduleLocalTypes, HashSet<string> knownTypes, HashSet<string> enumNames, HashSet<string> droppedDelegateNames, HashSet<string>? excludeTypeNames, ILogger logger, ObjCBindingDiagnostics? diagnostics)
     {
-        sb.AppendLine($"    public static class {module.ModuleName}Constants");
+        sb.AppendLine($"    public static class {module.ModuleName}Functions");
         sb.AppendLine("    {");
-
-        foreach (var constant in module.Constants.Where(c => c.IsExtern))
-            EmitConstant(sb, constant, typedefMap, diagnostics);
 
         foreach (var function in module.Functions)
             EmitFunction(sb, function, typedefMap, moduleLocalTypes, knownTypes, enumNames, droppedDelegateNames, excludeTypeNames, logger, diagnostics);
 
         sb.AppendLine("    }");
         sb.AppendLine();
-    }
-
-    static void EmitConstant(StringBuilder sb, ObjCConstantDecl constant, Dictionary<string, ObjCTypeRef> typedefMap, ObjCBindingDiagnostics? diagnostics)
-    {
-        var pascalName = ToPascalCase(constant.Name);
-
-        // NSString* constants use NSString as the [Field] property type (MAUI convention),
-        // not the mapped "string" type that ObjCTypeMapper returns.
-        // Also resolve typedef'd NSString types (e.g., MOSNotification → NSString*).
-        var isNSString = IsNSStringType(constant.Type, typedefMap);
-        var fieldType = isNSString ? "NSString" : ObjCTypeMapper.MapType(constant.Type, typedefMap: typedefMap);
-
-        if (FieldSupportedTypes.Contains(fieldType))
-        {
-            ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, constant.Availability, "        ");
-            sb.AppendLine($"        [Field(\"{constant.Name}\", \"__Internal\")]");
-            sb.AppendLine($"        public static {fieldType} {pascalName} {{ get; }}");
-            sb.AppendLine();
-        }
-        else
-        {
-            sb.AppendLine($"        // TODO: {constant.Name} ({fieldType}) — [Field] not supported for this type");
-            sb.AppendLine();
-        }
-    }
-
-    /// <summary>
-    /// Checks if a type is NSString* directly or through typedef chain resolution.
-    /// e.g., MOSNotification (typedef for NSString*) → true.
-    /// </summary>
-    static bool IsNSStringType(ObjCTypeRef type, Dictionary<string, ObjCTypeRef> typedefMap)
-    {
-        // Direct NSString* check
-        if (type is { Name: "NSString", IsPointer: true })
-            return true;
-
-        // Resolve through typedef chain: the constant's type name may be a typedef
-        // for NSString* (e.g., typedef NSString *MOSNotification).
-        // The typedefMap resolves chains, so we just need a single lookup.
-        if (typedefMap.TryGetValue(type.Name, out var resolved))
-        {
-            if (resolved is { Name: "NSString", IsPointer: true })
-                return true;
-            // Also handle when the typedef drops the pointer but the usage adds it
-            if (resolved.Name == "NSString" && type.IsPointer)
-                return true;
-        }
-
-        return false;
     }
 
     static void EmitFunction(StringBuilder sb, ObjCFunctionDecl function, Dictionary<string, ObjCTypeRef> typedefMap, HashSet<string> moduleLocalTypes, HashSet<string> knownTypes, HashSet<string> enumNames, HashSet<string> droppedDelegateNames, HashSet<string>? excludeTypeNames, ILogger logger, ObjCBindingDiagnostics? diagnostics)

@@ -317,4 +317,42 @@ typedef id<OUElement> _Nonnull (^OUElementFactory)(NSInteger index);
 
 @end
 
+// MARK: - Shape 13 — exported `extern` constants of every width class.
+//
+// A constant only binds if its `[Field]` lands in `ApiDefinition.cs`: bgen synthesizes the
+// `Dlfcn.Get*` reader ONLY for api-definition inputs, so the same declaration in a core source
+// compiles to a get-only auto-property that returns null/zero forever — no compile error, no
+// warning. Every value below is deliberately unequal to its symbol name so a null read or an
+// echoed-name read cannot fake a pass.
+
+// 13a — the plain `NSString * const` case, the shape third-party ObjC libraries use for
+// notification names and dictionary keys.
+extern NSString * const OUDefaultChannelName;
+
+// 13b — the NS_TYPED_EXTENSIBLE_ENUM shape: a constant typed by a typedef OF `NSString *`
+// rather than by `NSString *` directly. Binding it requires resolving the typedef chain before
+// deciding the field type; treating the typedef as an unknown type drops the constant.
+typedef NSString *OUEventName NS_TYPED_EXTENSIBLE_ENUM;
+extern OUEventName const OUEventNameLaunch;
+
+// 13c — `NSInteger`, which is already pointer-width in the mapping table.
+extern NSInteger const OUMaxRetryCount;
+
+// 13d — C `long`. Pointer-width on every Apple target, and `Dlfcn` has no fixed-width 64-bit
+// reader, so the constant path must promote it to `nint` or lose the constant entirely.
+extern long const OUNativeWidthTicks;
+
+// 13e — the negative control for 13d: `int64_t` is fixed-width by definition, so it must NOT be
+// promoted to `nint`. There is no `Dlfcn` reader for it, so it drops with a recorded skip — the
+// honest outcome, and proof the promotion is keyed on the source spelling rather than on the
+// mapped C# type (both spellings map to C# `long`).
+extern int64_t const OUFixedWidthTicks;
+
+// 13f — a floating-point constant.
+extern double const OUScaleFactor;
+
+// 13g — a struct-typed constant. `Dlfcn` has no reader for an arbitrary struct, so this drops
+// with a recorded skip rather than emitting a field that cannot be backed.
+extern CGSize const OUDefaultTileSize;
+
 NS_ASSUME_NONNULL_END

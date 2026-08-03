@@ -6670,6 +6670,542 @@ public class ApiDefinitionEmitterTests
         Assert.Equal("", InterfaceBody(result, "DerivedShape").Trim());
     }
 
+    // ──────────────────────────────────────────────
+    // Extern constants → [Static] partial interface {Module}Constants
+    // (ObjCConstantsEmitter; formerly in StructsAndEnumsEmitter)
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void EmitConstant_NSString_AsField()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "TLErrorDomain",
+                    Type = SimpleType("NSString", isPointer: true),
+                    IsExtern = true
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("[Field(\"TLErrorDomain\", \"__Internal\")]", output);
+        // Module tag "TL" is stripped; interface member has no public/static modifiers.
+        Assert.Contains("NSString ErrorDomain { get; }", output);
+        Assert.DoesNotContain("public static NSString", output);
+    }
+
+    [Fact]
+    public void EmitConstant_Int_AsField()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "maxRetries",
+                    Type = SimpleType("int"),
+                    IsExtern = true
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("[Field(\"maxRetries\", \"__Internal\")]", output);
+        Assert.Contains("int MaxRetries { get; }", output);
+    }
+
+    [Fact]
+    public void EmitConstant_UnsupportedType_RecordsSkip()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "someStruct",
+                    Type = SimpleType("TLCustomStruct"),
+                    IsExtern = true
+                }
+            ]
+        };
+
+        var (output, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+        Assert.DoesNotContain("[Field(", output);
+        Assert.DoesNotContain("partial interface TestLibConstants", output);
+        Assert.DoesNotContain("TODO", output);
+        var skip = Assert.Single(diagnostics.SkippedSymbols, s => s.SymbolName == "someStruct");
+        Assert.Equal("constant", skip.SymbolKind);
+        Assert.Equal(ObjCSkipReason.UnsupportedConstruct, skip.Reason);
+    }
+
+    [Fact]
+    public void EmitConstant_WithTypedefAlias_Resolved()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Typedefs =
+            [
+                new ObjCTypedefDecl
+                {
+                    Name = "MyInt",
+                    UnderlyingType = SimpleType("NSInteger")
+                }
+            ],
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "maxCount",
+                    Type = SimpleType("MyInt"),
+                    IsExtern = true
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        // MyInt → NSInteger → nint via typedefMap
+        Assert.Contains("nint MaxCount { get; }", output);
+        Assert.DoesNotContain("MyInt", output);
+    }
+
+    [Fact]
+    public void ConstantsClassName_MatchesModuleName()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "MyFramework",
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "version",
+                    Type = SimpleType("NSInteger"),
+                    IsExtern = true
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("partial interface MyFrameworkConstants", output);
+    }
+
+    [Fact]
+    public void EmitConstant_Nfloat_AsField()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "defaultScale",
+                    Type = SimpleType("CGFloat"),
+                    IsExtern = true
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("[Field(\"defaultScale\", \"__Internal\")]", output);
+        Assert.Contains("nfloat DefaultScale { get; }", output);
+    }
+
+    [Fact]
+    public void EmitConstant_NonExtern_Skipped()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "kLocalConst",
+                    Type = SimpleType("int"),
+                    IsExtern = false
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.DoesNotContain("[Field(", output);
+        Assert.DoesNotContain("partial interface TestLibConstants", output);
+        Assert.DoesNotContain("KLocalConst", output);
+    }
+
+    [Fact]
+    public void EmitConstantsInterface_IsPartialWithStaticAttribute()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "kVersion",
+                    Type = SimpleType("int"),
+                    IsExtern = true
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("[Static]", output);
+        Assert.Contains("partial interface TestLibConstants", output);
+        Assert.DoesNotContain("public static class TestLibConstants", output);
+    }
+
+    [Fact]
+    public void EmitConstant_TypedefNSString_EmitsFieldProperty()
+    {
+        // e.g., typedef NSString *MOSNotification; extern MOSNotification const MOSStoreDidChange;
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Typedefs =
+            [
+                new ObjCTypedefDecl
+                {
+                    Name = "MOSNotification",
+                    UnderlyingType = SimpleType("NSString", isPointer: true)
+                }
+            ],
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "MOSStoreDidChange",
+                    Type = SimpleType("MOSNotification"),
+                    IsExtern = true
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("[Field(\"MOSStoreDidChange\", \"__Internal\")]", output);
+        // Tag "MOS" stripped → StoreDidChange
+        Assert.Contains("NSString StoreDidChange { get; }", output);
+        Assert.DoesNotContain("TODO", output);
+    }
+
+    [Fact]
+    public void EmitConstant_TypedefNSStringPointerUsage_EmitsFieldProperty()
+    {
+        // typedef NSString TLNotification; usage: TLNotification *
+        // (typedef drops pointer, usage adds it)
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Typedefs =
+            [
+                new ObjCTypedefDecl
+                {
+                    Name = "TLNotification",
+                    UnderlyingType = SimpleType("NSString")
+                }
+            ],
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "TLDidComplete",
+                    Type = SimpleType("TLNotification", isPointer: true),
+                    IsExtern = true
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("[Field(\"TLDidComplete\", \"__Internal\")]", output);
+        // Tag "TL" stripped → DidComplete
+        Assert.Contains("NSString DidComplete { get; }", output);
+        Assert.DoesNotContain("TODO", output);
+    }
+
+    [Fact]
+    public void EmitConstant_ChainedTypedefNSString_EmitsFieldProperty()
+    {
+        // typedef NSString *BaseNotification; typedef BaseNotification DerivedNotification;
+        // Chain: DerivedNotification → BaseNotification → NSString*
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Typedefs =
+            [
+                new ObjCTypedefDecl
+                {
+                    Name = "BaseNotification",
+                    UnderlyingType = SimpleType("NSString", isPointer: true)
+                },
+                new ObjCTypedefDecl
+                {
+                    Name = "DerivedNotification",
+                    UnderlyingType = SimpleType("BaseNotification")
+                }
+            ],
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "TLSomeEvent",
+                    Type = SimpleType("DerivedNotification"),
+                    IsExtern = true
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("[Field(\"TLSomeEvent\", \"__Internal\")]", output);
+        // Tag "TL" stripped → SomeEvent
+        Assert.Contains("NSString SomeEvent { get; }", output);
+        Assert.DoesNotContain("TODO", output);
+    }
+
+    [Fact]
+    public void EmitConstant_DirectNSString_StillWorks()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "TLDirectString",
+                    Type = SimpleType("NSString", isPointer: true),
+                    IsExtern = true
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("[Field(\"TLDirectString\", \"__Internal\")]", output);
+        // Tag "TL" stripped → DirectString
+        Assert.Contains("NSString DirectString { get; }", output);
+    }
+
+    [Fact]
+    public void EmitConstant_NonNSStringTypedef_RecordsSkip()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Typedefs =
+            [
+                new ObjCTypedefDecl
+                {
+                    Name = "CustomType",
+                    UnderlyingType = SimpleType("SomeStruct")
+                }
+            ],
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "TLCustomConst",
+                    Type = SimpleType("CustomType"),
+                    IsExtern = true
+                }
+            ]
+        };
+
+        var (output, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+        Assert.DoesNotContain("[Field(", output);
+        Assert.DoesNotContain("partial interface TestLibConstants", output);
+        Assert.DoesNotContain("TODO", output);
+        var skip = Assert.Single(diagnostics.SkippedSymbols, s => s.SymbolName == "TLCustomConst");
+        Assert.Equal("constant", skip.SymbolKind);
+        Assert.Equal(ObjCSkipReason.UnsupportedConstruct, skip.Reason);
+    }
+
+    [Fact]
+    public void EmitConstant_ModuleTagStrip_WhenAllShareUppercaseTag()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Mapbox",
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "MLNShapeSourceOptionClustered",
+                    Type = SimpleType("NSString", isPointer: true),
+                    IsExtern = true
+                },
+                new ObjCConstantDecl
+                {
+                    Name = "MLNOfflinePackError",
+                    Type = SimpleType("NSString", isPointer: true),
+                    IsExtern = true
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("partial interface MapboxConstants", output);
+        Assert.Contains("NSString ShapeSourceOptionClustered { get; }", output);
+        Assert.Contains("NSString OfflinePackError { get; }", output);
+        Assert.DoesNotContain("MLNShapeSourceOptionClustered { get;", output);
+        Assert.DoesNotContain("MLNOfflinePackError { get;", output);
+    }
+
+    [Fact]
+    public void EmitConstant_ModuleTagStrip_DoesNotFireWhenOneLacksTag()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Mapbox",
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "MLNShapeSourceOptionClustered",
+                    Type = SimpleType("NSString", isPointer: true),
+                    IsExtern = true
+                },
+                new ObjCConstantDecl
+                {
+                    Name = "OtherConstant",
+                    Type = SimpleType("NSString", isPointer: true),
+                    IsExtern = true
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        // No shared tag → first-letter PascalCase only (already PascalCase names unchanged)
+        Assert.Contains("NSString MLNShapeSourceOptionClustered { get; }", output);
+        Assert.Contains("NSString OtherConstant { get; }", output);
+        Assert.DoesNotContain("NSString ShapeSourceOptionClustered { get; }", output);
+    }
+
+    [Fact]
+    public void EmitConstant_Long_EmitsNint_Int64t_RecordsSkip()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "nativeWidthCount",
+                    Type = SimpleType("long"),
+                    IsExtern = true
+                },
+                new ObjCConstantDecl
+                {
+                    Name = "fixedWidthCount",
+                    Type = SimpleType("int64_t"),
+                    IsExtern = true
+                }
+            ]
+        };
+
+        var (output, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+        Assert.Contains("[Field(\"nativeWidthCount\", \"__Internal\")]", output);
+        Assert.Contains("nint NativeWidthCount { get; }", output);
+        Assert.DoesNotContain("fixedWidthCount", output);
+        Assert.DoesNotContain("FixedWidthCount", output);
+        var skip = Assert.Single(diagnostics.SkippedSymbols, s => s.SymbolName == "fixedWidthCount");
+        Assert.Equal("constant", skip.SymbolKind);
+        Assert.Equal(ObjCSkipReason.UnsupportedConstruct, skip.Reason);
+    }
+
+    [Fact]
+    public void EmitConstant_UnsignedLong_EmitsNuint_Uint64t_RecordsSkip()
+    {
+        // The unsigned half of the native-width promotion: `unsigned long` and `uint64_t` both map
+        // to C# `ulong`, so only the source spelling distinguishes pointer-width from fixed 64-bit.
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "nativeWidthMask",
+                    Type = SimpleType("unsigned long"),
+                    IsExtern = true
+                },
+                new ObjCConstantDecl
+                {
+                    Name = "fixedWidthMask",
+                    Type = SimpleType("uint64_t"),
+                    IsExtern = true
+                }
+            ]
+        };
+
+        var (output, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+        Assert.Contains("[Field(\"nativeWidthMask\", \"__Internal\")]", output);
+        Assert.Contains("nuint NativeWidthMask { get; }", output);
+        Assert.DoesNotContain("fixedWidthMask", output);
+        Assert.DoesNotContain("FixedWidthMask", output);
+        var skip = Assert.Single(diagnostics.SkippedSymbols, s => s.SymbolName == "fixedWidthMask");
+        Assert.Equal("constant", skip.SymbolKind);
+        Assert.Equal(ObjCSkipReason.UnsupportedConstruct, skip.Reason);
+    }
+
+    [Fact]
+    public void EmitConstant_AllUnsupported_OmitsConstantsInterface()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Constants =
+            [
+                new ObjCConstantDecl
+                {
+                    Name = "alpha",
+                    Type = SimpleType("TLCustomStruct"),
+                    IsExtern = true
+                },
+                new ObjCConstantDecl
+                {
+                    Name = "beta",
+                    Type = SimpleType("int64_t"),
+                    IsExtern = true
+                }
+            ]
+        };
+
+        var (output, diagnostics) = EmitApiDefinitionWithDiagnostics(module);
+        Assert.DoesNotContain("[Static]", output);
+        Assert.DoesNotContain("partial interface TestLibConstants", output);
+        Assert.DoesNotContain("[Field(", output);
+        Assert.Equal(2, diagnostics.SkippedSymbols.Count(s => s.SymbolKind == "constant"));
+    }
+
+    [Fact]
+    public void EmitConstant_ZeroExternConstants_OmitsConstantsInterface()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Classes = [new ObjCClassDecl { Name = "Widget" }],
+            Constants = []
+        };
+
+        var output = EmitAndRead(module);
+        Assert.DoesNotContain("partial interface TestLibConstants", output);
+        Assert.DoesNotContain("[Field(", output);
+        // Class still emitted; [Static] may appear for other reasons — only assert constants surface.
+        Assert.Contains("partial interface Widget", output);
+    }
+
     /// <summary>
     /// A base class owning a read-write <c>title</c>, a protocol restating that selector, and a
     /// subclass conforming to the protocol — the geometry in which bgen's protocol inlining can

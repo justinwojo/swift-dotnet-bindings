@@ -987,7 +987,7 @@
       "crash": 0
     },
     "device": {
-      "pass": 3405,
+      "pass": 3416,
       "fail": 0,
       "skip": 27,
       "crash": 0
@@ -1024,6 +1024,6 @@
     }
   },
   "unit_tests": {
-    "swift_bindings_unit_pass_floor": 16879
+    "swift_bindings_unit_pass_floor": 16887
   }
 }
