@@ -3184,12 +3184,12 @@ done; true"
 
     <!-- Swift/Mixed: include generated C# files, excluding ObjC binding definitions
          which belong to the separate ObjC binding project (.csproj with IsBindingProject).
-         ObjCArrayOverloads.cs is excluded for the same reason: it extends the partial classes bgen
-         generates in the ObjC companion, so compiling it into the Swift assembly would reference
-         types that are not there. -->
+         ObjCArrayOverloads.cs and ObjCCategoryStatics.cs are excluded for the same reason: they
+         extend the partial classes bgen generates in the ObjC companion, so compiling them into the
+         Swift assembly would reference types that are not there. -->
     <ItemGroup Condition="'$(SwiftFrameworkType)' != 'ObjC'">
       <Compile Include="$(_SwiftBindingIntermediateDir)*.cs"
-               Exclude="$(_SwiftBindingIntermediateDir)ApiDefinition.cs;$(_SwiftBindingIntermediateDir)StructsAndEnums.cs;$(_SwiftBindingIntermediateDir)ObjCArrayOverloads.cs" />
+               Exclude="$(_SwiftBindingIntermediateDir)ApiDefinition.cs;$(_SwiftBindingIntermediateDir)StructsAndEnums.cs;$(_SwiftBindingIntermediateDir)ObjCArrayOverloads.cs;$(_SwiftBindingIntermediateDir)ObjCCategoryStatics.cs" />
     </ItemGroup>
 
     <!-- ObjC-only: include as binding items instead of Compile -->
@@ -3205,6 +3205,11 @@ done; true"
            ApiDefinition, which do not exist during bgen's own api-definition contract compile. -->
       <Compile Include="$(_SwiftBindingIntermediateDir)ObjCArrayOverloads.cs"
                Condition="Exists('$(_SwiftBindingIntermediateDir)ObjCArrayOverloads.cs')" />
+      <!-- Receiver-free overloads of a category's class members. A plain Compile item for the same
+           reason: it adds partial parts to the static classes bgen generates from the ApiDefinition,
+           which do not exist during bgen's own api-definition contract compile. -->
+      <Compile Include="$(_SwiftBindingIntermediateDir)ObjCCategoryStatics.cs"
+               Condition="Exists('$(_SwiftBindingIntermediateDir)ObjCCategoryStatics.cs')" />
     </ItemGroup>
 
     <!-- Embed the generator-emitted trimmer descriptor as a linker descriptor so the IL trimmer

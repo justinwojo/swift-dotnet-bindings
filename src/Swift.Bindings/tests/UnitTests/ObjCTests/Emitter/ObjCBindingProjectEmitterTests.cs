@@ -219,6 +219,32 @@ public class ObjCBindingProjectEmitterTests
         }
     }
 
+    /// <summary>
+    /// The category-statics file is a plain <c>Compile</c> item for the same reason: it adds parts to
+    /// the static classes bgen generates FROM the ApiDefinition, so it cannot be present during the
+    /// contract compile bgen runs over its own inputs.
+    /// </summary>
+    [Fact]
+    public void CategoryStaticsFile_IsAPlainConditionalCompileItem()
+    {
+        var tmpDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            ObjCBindingProjectEmitter.Emit(CreateOptions(tmpDir), Logger);
+            var content = File.ReadAllText(Path.Combine(tmpDir, "TestModule.ObjC.iOS.csproj"));
+
+            var itemLine = content.Split('\n').Single(l => l.Contains($"Include=\"{ObjCCategoryStaticsEmitter.FileName}\""));
+            Assert.Contains("<Compile", itemLine);
+            Assert.DoesNotContain("ObjcBindingCoreSource", itemLine);
+            Assert.DoesNotContain("ObjcBindingApiDefinition", itemLine);
+            Assert.Contains($"Exists('{ObjCCategoryStaticsEmitter.FileName}')", content);
+        }
+        finally
+        {
+            if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, true);
+        }
+    }
+
     [Fact]
     public void DoesNotContain_DisableRuntimeMarshalling()
     {

@@ -1746,6 +1746,328 @@ public class ApiDefinitionEmitterTests
         Assert.DoesNotContain(diagnostics.SkippedSymbols, s => s.Reason == ObjCSkipReason.EmptyCategory);
     }
 
+    [Theory]
+    [InlineData(ObjCMemorySemantic.Copy, "ArgumentSemantic.Copy")]
+    [InlineData(ObjCMemorySemantic.Assign, "ArgumentSemantic.Assign")]
+    [InlineData(ObjCMemorySemantic.UnsafeUnretained, "ArgumentSemantic.Assign")]
+    [InlineData(ObjCMemorySemantic.Weak, "ArgumentSemantic.Weak")]
+    [InlineData(ObjCMemorySemantic.Strong, "ArgumentSemantic.Retain")]
+    [InlineData(ObjCMemorySemantic.Retain, "ArgumentSemantic.Retain")]
+    public void Emit_Category_InstancePropertyAccessors_CarryDeclaredArgumentSemantic(ObjCMemorySemantic semantic, string expected)
+    {
+        // The accessor pair IS the property, so it has to state the property's declared memory
+        // semantic. Projecting it away leaves the two halves of one property describing a weaker
+        // contract than the property they replace.
+        var module = CategoryWithInstanceProperty(semantic, isReadonly: false);
+
+        var result = EmitAndRead(module);
+
+        Assert.Contains($"[Export(\"tint\", {expected})]", result);
+        Assert.Contains($"[Export(\"setTint:\", {expected})]", result);
+    }
+
+    [Fact]
+    public void Emit_Category_InstancePropertyAccessors_NoSemanticDeclared_ExportStaysBare()
+    {
+        var module = CategoryWithInstanceProperty(ObjCMemorySemantic.None, isReadonly: false);
+
+        var result = EmitAndRead(module);
+
+        Assert.Contains("[Export(\"tint\")]", result);
+        Assert.Contains("[Export(\"setTint:\")]", result);
+        Assert.DoesNotContain("ArgumentSemantic", result);
+    }
+
+    [Fact]
+    public void Emit_Category_ReadonlyInstanceProperty_GetterAloneCarriesSemantic()
+    {
+        var module = CategoryWithInstanceProperty(ObjCMemorySemantic.Copy, isReadonly: true);
+
+        var result = EmitAndRead(module);
+
+        Assert.Contains("[Export(\"tint\", ArgumentSemantic.Copy)]", result);
+        Assert.DoesNotContain("setTint:", result);
+    }
+
+    static ObjCModule CategoryWithInstanceProperty(ObjCMemorySemantic semantic, bool isReadonly) => new()
+    {
+        ModuleName = "Test",
+        Categories =
+        [
+            new ObjCCategoryDecl
+            {
+                CategoryName = "Paint",
+                ClassName = "Widget",
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "tint",
+                    Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                    IsReadonly = isReadonly,
+                    MemorySemantic = semantic
+                }]
+            }
+        ]
+    };
+
+    // ──────────────────────────────────────────────
+    // Receiver-free overloads for category class members
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void Emit_CategoryClassMethod_GetsReceiverFreeForwarder()
+    {
+        // bgen prepends a receiver to EVERY member of the static extension class it compiles a
+        // [Category] into, [Static] included — so without this the only way to call a category's
+        // class method is to hand it an instance it never sends to.
+        var (apiDefinition, statics, _) = EmitApiDefinitionWithCategoryStatics(CategoryWithClassFactory());
+
+        Assert.Contains("[Static]", apiDefinition);
+        Assert.NotNull(statics);
+        Assert.Contains("public static partial class Widget_Boxing", statics);
+        // The forwarder takes the declared parameters and nothing else: a `this` receiver here
+        // would just be the extension method bgen already generated.
+        Assert.Contains("public static string BoxSpan(double span)", statics);
+        Assert.DoesNotContain("this Widget", statics);
+        // It reaches the generated member by supplying the receiver the caller no longer has to.
+        Assert.Contains("BoxSpan((Widget)null!, span)", statics);
+        // Managed sugar only — a second [Export] of the same selector is a duplicate registration.
+        Assert.DoesNotContain("[Export", statics);
+    }
+
+    [Fact]
+    public void Emit_CategoryClassMethod_ForwarderIsNotABgenInput()
+    {
+        // The forwarder calls a member bgen has not generated yet when it compiles its own inputs,
+        // so it must land in the companion file rather than the ApiDefinition.
+        var (apiDefinition, statics, _) = EmitApiDefinitionWithCategoryStatics(CategoryWithClassFactory());
+
+        Assert.DoesNotContain("public static partial class", apiDefinition);
+        Assert.Contains("namespace TestNamespace", statics);
+    }
+
+    [Fact]
+    public void Emit_CategoryInstanceMethodsOnly_NoStaticsFileWritten()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "Extras",
+                    ClassName = "Widget",
+                    Methods = [new ObjCMethodDecl
+                    {
+                        Selector = "doExtra",
+                        ReturnType = new ObjCTypeRef { Name = "void" },
+                        IsInstanceMethod = true
+                    }]
+                }
+            ]
+        };
+
+        var (_, statics, _) = EmitApiDefinitionWithCategoryStatics(module);
+
+        Assert.Null(statics);
+    }
+
+    [Fact]
+    public void Emit_NoForwarders_ClearsStaleStaticsFile()
+    {
+        // The SDK generates into an incremental intermediate directory, so a file left behind by a
+        // previous generate would keep compiling against members this one no longer declares.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl { Name = "Widget" }]
+        };
+
+        var (_, statics, _) = EmitApiDefinitionWithCategoryStatics(module, seedStaleCategoryStatics: true);
+
+        Assert.Null(statics);
+    }
+
+    [Fact]
+    public void Emit_CategoryVariadicClassMethod_GetsNoForwarder()
+    {
+        // A variadic member is rendered [Internal] on purpose: it is the raw half of the binding,
+        // not the surface consumers call. A public forwarder would republish it.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "Logging",
+                    ClassName = "Widget",
+                    Methods = [new ObjCMethodDecl
+                    {
+                        Selector = "logFormat:",
+                        ReturnType = new ObjCTypeRef { Name = "void" },
+                        IsInstanceMethod = false,
+                        IsVariadic = true,
+                        Parameters = [new ObjCParameterDecl
+                        {
+                            Name = "format",
+                            Type = new ObjCTypeRef { Name = "NSString", IsPointer = true }
+                        }]
+                    }]
+                }
+            ]
+        };
+
+        var (apiDefinition, statics, _) = EmitApiDefinitionWithCategoryStatics(module);
+
+        Assert.Contains("[Internal]", apiDefinition);
+        Assert.Null(statics);
+    }
+
+    [Fact]
+    public void Emit_CategoryClassMethod_ColludingWithGeneratedInstanceSignature_SkippedWithDiagnostic()
+    {
+        // The receiver an instance member is generated WITH is the parameter the class member's
+        // forwarder declares, so the two can land on one signature. Emitting both is CS0111 in the
+        // consumer's build, and the class member is still reachable through its own overload.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Classes = [new ObjCClassDecl { Name = "Widget" }],
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "Pairing",
+                    ClassName = "Widget",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "poke",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true
+                        },
+                        new ObjCMethodDecl
+                        {
+                            Selector = "poke:",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = false,
+                            Parameters = [new ObjCParameterDecl
+                            {
+                                Name = "other",
+                                Type = new ObjCTypeRef { Name = "Widget", IsPointer = true }
+                            }]
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var (apiDefinition, statics, diagnostics) = EmitApiDefinitionWithCategoryStatics(module);
+
+        // Both members still bind — only the extra overload is withheld.
+        Assert.Contains("void Poke();", apiDefinition);
+        Assert.Contains("void Poke(Widget other);", apiDefinition);
+        Assert.Null(statics);
+        Assert.Contains(diagnostics.SkippedSymbols, s => s.Reason == ObjCSkipReason.DuplicateSignature && s.SymbolName == "poke:");
+    }
+
+    [Fact]
+    public void Emit_CategoryClassMethod_OutParameterIsNotConfusedWithAValueParameter()
+    {
+        // `out NSError` and `NSError` are different C# signatures, so a class method taking the
+        // former does NOT collide with an instance method whose generated receiver is the latter.
+        // A collision check keyed on the bare mapped type calls them the same and withholds a
+        // forwarder that was free all along.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Categories =
+            [
+                new ObjCCategoryDecl
+                {
+                    CategoryName = "Loading",
+                    ClassName = "NSError",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "reload",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true
+                        },
+                        new ObjCMethodDecl
+                        {
+                            Selector = "reload:",
+                            ReturnType = new ObjCTypeRef { Name = "BOOL" },
+                            IsInstanceMethod = false,
+                            Parameters = [new ObjCParameterDecl
+                            {
+                                Name = "error",
+                                Type = new ObjCTypeRef
+                                {
+                                    Name = "NSError",
+                                    IsPointer = true,
+                                    PointeeType = new ObjCTypeRef { Name = "NSError", IsPointer = true }
+                                }
+                            }]
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var (_, statics, diagnostics) = EmitApiDefinitionWithCategoryStatics(module);
+
+        Assert.NotNull(statics);
+        // The modifier has to survive into both the declaration and the forwarded call.
+        Assert.Contains("out NSError error", statics);
+        Assert.Contains("out error)", statics);
+        Assert.DoesNotContain(diagnostics.SkippedSymbols, s => s.Reason == ObjCSkipReason.DuplicateSignature);
+    }
+
+    [Fact]
+    public void Emit_CategoryClassMethod_ForwarderRepeatsMemberAvailability()
+    {
+        // Attributes do not transfer between overloads: without re-stating them the platform
+        // analyzer sees an unconditionally-available API and stops warning about calling a newer
+        // selector from an older deployment target.
+        var module = CategoryWithClassFactory(
+            [new ObjCAvailability { Platform = "ios", IntroducedVersion = "17.0" }]);
+
+        var (_, statics, _) = EmitApiDefinitionWithCategoryStatics(module);
+
+        Assert.NotNull(statics);
+        Assert.Contains("SupportedOSPlatform", statics);
+        Assert.Contains("17.0", statics);
+    }
+
+    static ObjCModule CategoryWithClassFactory(List<ObjCAvailability> availability = null!) => new()
+    {
+        ModuleName = "Test",
+        Categories =
+        [
+            new ObjCCategoryDecl
+            {
+                CategoryName = "Boxing",
+                ClassName = "Widget",
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "boxSpan:",
+                    ReturnType = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                    IsInstanceMethod = false,
+                    Parameters = [new ObjCParameterDecl
+                    {
+                        Name = "span",
+                        Type = new ObjCTypeRef { Name = "double" }
+                    }],
+                    Availability = availability ?? []
+                }]
+            }
+        ]
+    };
+
     [Fact]
     public void Emit_Category_ClassPropertyEmitted()
     {

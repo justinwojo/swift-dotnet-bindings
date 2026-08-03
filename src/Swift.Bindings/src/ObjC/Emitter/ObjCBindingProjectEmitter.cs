@@ -162,6 +162,11 @@ public static class ObjCBindingProjectEmitter
                      during the api-definition contract compile that bgen runs over its own inputs. -->
                 <Compile Include="{ObjCArrayOverloadsEmitter.FileName}"
                          Condition="Exists('{ObjCArrayOverloadsEmitter.FileName}')" />
+                <!-- Receiver-free overloads of a category's class members: a plain Compile item for
+                     the same reason. It adds partial parts to the static classes bgen generates
+                     FROM the ApiDefinition, which do not exist yet during that contract compile. -->
+                <Compile Include="{ObjCCategoryStaticsEmitter.FileName}"
+                         Condition="Exists('{ObjCCategoryStaticsEmitter.FileName}')" />
               </ItemGroup>
 
               <!-- Remove bgen-only delegate hints from C# compilation.

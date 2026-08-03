@@ -89,7 +89,7 @@ public static class ObjCArrayOverloadsEmitter
         }
 
         var sb = new StringBuilder();
-        ObjCUsingsEmitter.EmitArrayOverloadsHeader(sb, platformInfo, referencedAppleNamespaces);
+        ObjCUsingsEmitter.EmitCompanionPartialClassHeader(sb, platformInfo, referencedAppleNamespaces);
         sb.AppendLine();
         sb.AppendLine($"namespace {resolvedNamespace}");
         sb.AppendLine("{");

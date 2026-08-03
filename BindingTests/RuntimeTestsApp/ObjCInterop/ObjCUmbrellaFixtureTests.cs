@@ -465,6 +465,42 @@ public class ObjCUmbrellaFixtureTests : TestBase
     }
 
     /// <summary>
+    /// Shape 10 — a category on a FOREIGN class. <c>NSValue</c> belongs to Foundation, so the
+    /// members cannot be folded into the base type's own binding; they land in the static extension
+    /// class bgen compiles a <c>[Category]</c> interface into. bgen prepends a receiver to EVERY
+    /// member of that class, <c>[Static]</c> included, so the class method's generated overload asks
+    /// for an <c>NSValue</c> that a class method never sends to. Reaching it through the
+    /// receiver-free overload is the assertion — the factory is callable without first conjuring an
+    /// instance of the very type it exists to produce — and the round-trip proves the overload
+    /// dispatches to the same selector rather than merely compiling.
+    /// </summary>
+    public void TestCategoryClassMethodCallableWithoutReceiver()
+    {
+        using var boxed = NSValue_OUBoxing.Ou_valueWithSpan(12.5);
+
+        AssertApproxEqual(12.5, boxed.GetOu_spanValue(), 0.001, "the receiver-free factory produced a value carrying the span it was given");
+    }
+
+    /// <summary>
+    /// Shape 10 — the instance half of the same category. A static extension class cannot hold an
+    /// instance property (CS0708), so both properties are projected to accessor METHODS on the
+    /// property's own selectors. The read-write one carries the load: the projection's accessor
+    /// exports now also state the property's declared memory semantic, and a write that still lands
+    /// on <c>setOu_spanRank:</c> is what shows that declaring it left dispatch alone.
+    /// </summary>
+    public void TestCategoryInstancePropertyAccessorsRoundTrip()
+    {
+        using var boxed = NSValue_OUBoxing.Ou_valueWithSpan(3.25);
+
+        AssertEqual(0, (int)boxed.GetOu_spanRank(), "the read-write accessor reports the unset default");
+
+        boxed.SetOu_spanRank(7);
+
+        AssertEqual(7, (int)boxed.GetOu_spanRank(), "the projected setter stored through the property's own selector");
+        AssertApproxEqual(3.25, boxed.GetOu_spanValue(), 0.001, "writing the read-write property left the readonly one alone");
+    }
+
+    /// <summary>
     /// Managed adopter of the optional-callback protocol. Conforming to <see cref="IOUListener"/> plus
     /// the <c>[Export("didReceiveValue:")]</c> selector makes <c>respondsToSelector:</c> return true,
     /// so the notifier invokes it.

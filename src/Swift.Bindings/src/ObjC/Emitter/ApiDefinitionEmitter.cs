@@ -137,8 +137,11 @@ public static class ApiDefinitionEmitter
         foreach (var cls in module.Classes)
             EmitClass(sb, cls, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, localProtocolNames, classProtocolClashNames, delegateProtocolNames, enumNames, droppedClassReasons, protocolsByName, classesByName, arrayOverloads, logger, diagnostics);
 
+        // Collected while categories emit; written out below as the receiver-free overloads that
+        // pair with the [Static] members emitted here.
+        var categoryStaticForwarders = new List<ObjCCategoryStaticForwarder>();
         foreach (var cat in module.Categories)
-            EmitCategory(sb, cat, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, enumNames, droppedClassNames, localProtocolNames, classProtocolClashNames, logger, diagnostics);
+            EmitCategory(sb, cat, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, enumNames, droppedClassNames, localProtocolNames, classProtocolClashNames, categoryStaticForwarders, logger, diagnostics);
 
         // Constants belong in this file specifically: bgen only generates the Dlfcn reader backing a
         // [Field] needs when it parses the declaration out of an ObjcBindingApiDefinition input.
@@ -162,6 +165,7 @@ public static class ApiDefinitionEmitter
         // Always called, including with an empty list: it clears a stale file from a previous
         // generate, which would otherwise reference internal members this run no longer declares.
         ObjCArrayOverloadsEmitter.Emit(arrayOverloads, outputDir, resolvedNamespace, platformInfo, referencedAppleNamespaces, logger);
+        ObjCCategoryStaticsEmitter.Emit(categoryStaticForwarders, outputDir, resolvedNamespace, platformInfo, referencedAppleNamespaces, logger);
 
         return filePath;
     }
@@ -611,7 +615,7 @@ public static class ApiDefinitionEmitter
         sb.AppendLine();
     }
 
-    static void EmitCategory(StringBuilder sb, ObjCCategoryDecl cat, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? enumNames, HashSet<string>? droppedClassNames, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, ILogger logger, ObjCBindingDiagnostics? diagnostics)
+    static void EmitCategory(StringBuilder sb, ObjCCategoryDecl cat, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? enumNames, HashSet<string>? droppedClassNames, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, List<ObjCCategoryStaticForwarder> categoryStaticForwarders, ILogger logger, ObjCBindingDiagnostics? diagnostics)
     {
         // Skip categories whose base class was dropped for an unresolvable base type — a
         // [Category][BaseType(typeof(X))] on a removed class X would dangle (CS0246).
@@ -664,6 +668,11 @@ public static class ApiDefinitionEmitter
         sb.AppendLine($"    partial interface {interfaceName}");
         sb.AppendLine("    {");
 
+        // Every member emitted below is recorded here under the signature bgen will GENERATE for it
+        // — which carries a receiver this declaration does not — so the receiver-free overloads
+        // planned for the class members can be checked against it once the category is complete.
+        var statics = new CategoryStaticsCollector(interfaceName, categoryClassName);
+
         var emittedMethodSignatures = new HashSet<string>();
         var emittedMemberNames = new HashSet<string>();
         var emittedPropertyNames = new HashSet<string>();
@@ -698,7 +707,7 @@ public static class ApiDefinitionEmitter
                 diagnostics?.RecordSkip("Method", method.Selector, ObjCSkipReason.DuplicateSelector, $"selector also exported by a property accessor on category '{cat.ClassName}.{cat.CategoryName}' (kept the property)");
                 continue;
             }
-            var emittedName = EmitMethod(sb, method, declaringClassName: categoryClassName, isProtocol: false, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, enumNames: enumNames, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics);
+            var emittedName = EmitMethod(sb, method, declaringClassName: categoryClassName, isProtocol: false, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, enumNames: enumNames, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, categoryStatics: statics, logger: logger, diagnostics: diagnostics);
             if (emittedName != null) emittedMemberNames.Add(emittedName);
         }
 
@@ -716,10 +725,63 @@ public static class ApiDefinitionEmitter
         // so the projection is the recovery and any accessor that cannot be projected soundly is
         // recorded as a skip rather than dropped in silence.
         foreach (var plan in instanceAccessorPlans)
-            EmitCategoryInstancePropertyAccessors(sb, plan, categoryClassName, categoryGenericParams, typedefMap, blockTypedefMap, emittedMethodSignatures, emittedMemberNames, emittedPropertyNames, knownTypes, appleSdkTypes, enumNames, localProtocolNames, classProtocolClashNames, logger, diagnostics);
+            EmitCategoryInstancePropertyAccessors(sb, plan, categoryClassName, categoryGenericParams, typedefMap, blockTypedefMap, emittedMethodSignatures, emittedMemberNames, emittedPropertyNames, knownTypes, appleSdkTypes, enumNames, localProtocolNames, classProtocolClashNames, statics, logger, diagnostics);
 
         sb.AppendLine("    }");
         sb.AppendLine();
+
+        statics.CollectInto(categoryStaticForwarders, cat, logger, diagnostics);
+    }
+
+    /// <summary>
+    /// Per-category collection point for the receiver-free overloads of its class (<c>+</c>) members.
+    ///
+    /// bgen compiles a <c>[Category]</c> interface into a static extension class and prepends a
+    /// receiver parameter to EVERY member it generates, <c>[Static]</c> included — so the class
+    /// bgen produces holds <c>Name(X This, …)</c> where the declaration says <c>Name(…)</c>. The
+    /// overloads planned here restore the declared shape by dropping the receiver, which means a
+    /// planned overload can land on the signature of some OTHER member of the same class once that
+    /// member's receiver is counted (an instance <c>-foo</c> generates <c>Foo(X)</c>; a class
+    /// <c>+foo:</c> taking an <c>X</c> would want <c>Foo(X)</c> too). Recording each emitted
+    /// member's GENERATED signature is what lets that be detected before it becomes a duplicate
+    /// member in the consumer's build.
+    /// </summary>
+    sealed class CategoryStaticsCollector(string generatedClassName, string receiverType)
+    {
+        readonly HashSet<string> _generatedSignatures = new(StringComparer.Ordinal);
+        readonly List<(string Key, string Selector, ObjCCategoryStaticForwarder Forwarder)> _candidates = [];
+
+        public string GeneratedClassName { get; } = generatedClassName;
+        public string ReceiverType { get; } = receiverType;
+
+        /// <summary>Records the signature bgen will generate for an emitted member of this category.</summary>
+        public void RecordGeneratedMember(string methodName, string paramTypes) =>
+            _generatedSignatures.Add(BuildKey(methodName, paramTypes.Length == 0 ? ReceiverType : $"{ReceiverType},{paramTypes}"));
+
+        public void AddCandidate(string methodName, string paramTypes, string selector, ObjCCategoryStaticForwarder forwarder) =>
+            _candidates.Add((BuildKey(methodName, paramTypes), selector, forwarder));
+
+        /// <summary>
+        /// Moves every planned overload whose signature is free into <paramref name="forwarders"/>,
+        /// recording a skip for one that is not. Runs once the category is fully emitted so the
+        /// check sees every member, including the instance-property accessors emitted last.
+        /// </summary>
+        public void CollectInto(List<ObjCCategoryStaticForwarder> forwarders, ObjCCategoryDecl cat, ILogger logger, ObjCBindingDiagnostics? diagnostics)
+        {
+            foreach (var (key, selector, forwarder) in _candidates)
+            {
+                if (_generatedSignatures.Contains(key))
+                {
+                    logger.LogDebug("Skipping receiver-free overload {Key} on {Class}: another member of the generated category class already has that signature", key, GeneratedClassName);
+                    diagnostics?.RecordSkip("Method", selector, ObjCSkipReason.DuplicateSignature,
+                        $"receiver-free overload '{key}' on '{cat.ClassName}.{cat.CategoryName}' would duplicate another generated member's signature (the class method is still reachable through the receiver-carrying overload)");
+                    continue;
+                }
+                forwarders.Add(forwarder);
+            }
+        }
+
+        static string BuildKey(string methodName, string paramTypes) => $"{methodName}({paramTypes})";
     }
 
     /// <summary>
@@ -790,10 +852,17 @@ public static class ApiDefinitionEmitter
     /// setter <c>Set{Name}(value)</c> exporting its setter selector. Both are ordinary instance
     /// methods, which a bgen static extension class accepts; the property form would not compile
     /// (CS0708).
+    ///
+    /// Both exports carry the property's declared memory semantic. The projection changes the C#
+    /// SHAPE the accessors take, and nothing about the ObjC declaration behind them: the setter
+    /// still hands its argument to a selector the header declared <c>copy</c> (or <c>weak</c>, or
+    /// <c>assign</c>), so the attribute that states which of those it is belongs on the emitted
+    /// export exactly as it would on the property this projection replaces.
     /// </summary>
-    static void EmitCategoryInstancePropertyAccessors(StringBuilder sb, CategoryAccessorPlan plan, string categoryClassName, HashSet<string>? categoryGenericParams, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> emittedMethodSignatures, HashSet<string> emittedMemberNames, HashSet<string> emittedPropertyNames, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? enumNames, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, ILogger logger, ObjCBindingDiagnostics? diagnostics)
+    static void EmitCategoryInstancePropertyAccessors(StringBuilder sb, CategoryAccessorPlan plan, string categoryClassName, HashSet<string>? categoryGenericParams, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> emittedMethodSignatures, HashSet<string> emittedMemberNames, HashSet<string> emittedPropertyNames, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? enumNames, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, CategoryStaticsCollector statics, ILogger logger, ObjCBindingDiagnostics? diagnostics)
     {
         var prop = plan.Property;
+        var argSemantic = FormatArgumentSemantic(prop.MemorySemantic);
 
         var getter = new ObjCMethodDecl
         {
@@ -803,7 +872,7 @@ public static class ApiDefinitionEmitter
             DocComment = prop.DocComment,
             Availability = prop.Availability,
         };
-        var getterName = EmitMethod(sb, getter, declaringClassName: categoryClassName, isProtocol: false, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, enumNames: enumNames, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics, nameOverride: $"Get{plan.PropName}");
+        var getterName = EmitMethod(sb, getter, declaringClassName: categoryClassName, isProtocol: false, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, enumNames: enumNames, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, categoryStatics: statics, logger: logger, diagnostics: diagnostics, nameOverride: $"Get{plan.PropName}", exportArgumentSemantic: argSemantic);
         if (getterName != null)
             emittedMemberNames.Add(getterName);
 
@@ -818,7 +887,7 @@ public static class ApiDefinitionEmitter
             Parameters = [new ObjCParameterDecl { Name = "value", Type = prop.Type }],
             Availability = prop.Availability,
         };
-        var setterName = EmitMethod(sb, setter, declaringClassName: categoryClassName, isProtocol: false, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, enumNames: enumNames, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics, nameOverride: $"Set{plan.PropName}");
+        var setterName = EmitMethod(sb, setter, declaringClassName: categoryClassName, isProtocol: false, genericTypeParams: categoryGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, enumNames: enumNames, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, categoryStatics: statics, logger: logger, diagnostics: diagnostics, nameOverride: $"Set{plan.PropName}", exportArgumentSemantic: argSemantic);
         if (setterName != null)
             emittedMemberNames.Add(setterName);
     }
@@ -836,8 +905,13 @@ public static class ApiDefinitionEmitter
     /// <paramref name="nameOverride"/> replaces the selector-derived starting name (used by the
     /// category instance-property projection, whose members are named after the property rather
     /// than the accessor selector); dedup still applies on top of it.
+    /// <paramref name="exportArgumentSemantic"/> is appended inside the <c>[Export]</c> — a
+    /// pre-formatted <see cref="FormatArgumentSemantic"/> result, used by that same projection to
+    /// keep the property's declared memory semantic on the accessors that replace it.
+    /// <paramref name="categoryStatics"/> collects the receiver-free overloads planned for a
+    /// category's class members, and every emitted member's generated signature alongside them.
     /// </summary>
-    static string? EmitMethod(StringBuilder sb, ObjCMethodDecl method, string? declaringClassName, bool isProtocol, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? emittedConstructorSignatures = null, HashSet<string>? emittedMethodSignatures = null, HashSet<string>? emittedPropertyNames = null, HashSet<string>? knownTypes = null, HashSet<string>? appleSdkTypes = null, HashSet<string>? enumNames = null, bool isDelegateProtocol = false, HashSet<string>? localProtocolNames = null, HashSet<string>? classProtocolClashNames = null, List<ObjCArrayOverload>? arrayOverloads = null, ILogger? logger = null, ObjCBindingDiagnostics? diagnostics = null, string? nameOverride = null)
+    static string? EmitMethod(StringBuilder sb, ObjCMethodDecl method, string? declaringClassName, bool isProtocol, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? emittedConstructorSignatures = null, HashSet<string>? emittedMethodSignatures = null, HashSet<string>? emittedPropertyNames = null, HashSet<string>? knownTypes = null, HashSet<string>? appleSdkTypes = null, HashSet<string>? enumNames = null, bool isDelegateProtocol = false, HashSet<string>? localProtocolNames = null, HashSet<string>? classProtocolClashNames = null, List<ObjCArrayOverload>? arrayOverloads = null, CategoryStaticsCollector? categoryStatics = null, ILogger? logger = null, ObjCBindingDiagnostics? diagnostics = null, string? nameOverride = null, string exportArgumentSemantic = "")
     {
         // Pre-check: skip methods with types not resolvable in ApiDefinition context.
         //
@@ -947,9 +1021,9 @@ public static class ApiDefinitionEmitter
             sb.AppendLine("        [DesignatedInitializer]");
 
         if (method.IsVariadic)
-            sb.AppendLine($"        [Export(\"{method.Selector}\", IsVariadic = true)]");
+            sb.AppendLine($"        [Export(\"{method.Selector}\"{exportArgumentSemantic}, IsVariadic = true)]");
         else
-            sb.AppendLine($"        [Export(\"{method.Selector}\")]");
+            sb.AppendLine($"        [Export(\"{method.Selector}\"{exportArgumentSemantic})]");
 
         var returnType = isConstructor
             ? "NativeHandle"
@@ -1003,8 +1077,81 @@ public static class ApiDefinitionEmitter
         if (arrayPlan != null)
             arrayOverloads!.Add(BuildArrayOverload(method, arrayPlan, declaringClassName!, methodName, declaredName, returnType));
 
+        if (categoryStatics != null && !isConstructor)
+            RecordCategoryStaticForwarder(categoryStatics, method, declaredName, methodName, returnType, isInternalMember: method.IsVariadic || arrayPlan != null, genericTypeParams, typedefMap, blockTypedefMap, enumNames, localProtocolNames, classProtocolClashNames, arrayPlan);
+
         return isConstructor ? null : methodName;
     }
+
+    /// <summary>
+    /// Records an emitted category member with the collector, and — when it is a class
+    /// (<c>+</c>) member consumers are meant to call — plans the receiver-free overload for it.
+    ///
+    /// A member declared <c>[Internal]</c> is deliberately passed over: bgen renders it
+    /// non-public precisely because it is not the surface consumers call, and an overload of it
+    /// would publish it.
+    /// </summary>
+    static void RecordCategoryStaticForwarder(CategoryStaticsCollector statics, ObjCMethodDecl method, string declaredName, string methodName, string returnType, bool isInternalMember, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap, HashSet<string>? enumNames, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, ObjCArrayParameterPlan? arrayPlan)
+    {
+        var paramTypes = BuildCategorySignatureKeyTypes(method, genericTypeParams, typedefMap, blockTypedefMap, enumNames, localProtocolNames, classProtocolClashNames, arrayPlan);
+        statics.RecordGeneratedMember(declaredName, paramTypes);
+
+        if (method.IsInstanceMethod || isInternalMember)
+            return;
+
+        var signatureParts = new List<string>();
+        var callArguments = new List<string>();
+        foreach (var param in method.Parameters)
+        {
+            // The bgen attributes EmitParameters writes ([NullAllowed]) belong to the api-definition
+            // contract, not to a plain C# member — the nullable annotation carries the same
+            // statement here, and matches the signature bgen generated for what this forwards to.
+            if (ObjCTypeMapper.IsNSErrorOutParameter(param.Type))
+            {
+                signatureParts.Add("out NSError error");
+                callArguments.Add("out error");
+            }
+            else if (ObjCTypeMapper.IsValueTypePointerParameter(param.Type, typedefMap, enumNames))
+            {
+                var pointeeType = ObjCTypeMapper.MapValueTypePointerParameterType(param.Type, typedefMap);
+                var safeName = EscapeCSharpKeyword(param.Name);
+                signatureParts.Add($"out {pointeeType} {safeName}");
+                callArguments.Add($"out {safeName}");
+            }
+            else
+            {
+                var mappedType = ObjCTypeMapper.MapType(param.Type, genericTypeParams: genericTypeParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames);
+                var safeName = EscapeCSharpKeyword(param.Name);
+                signatureParts.Add($"{mappedType}{NullableSuffix(param.Type, mappedType)} {safeName}");
+                callArguments.Add(safeName);
+            }
+        }
+
+        statics.AddCandidate(methodName, paramTypes, method.Selector, new ObjCCategoryStaticForwarder
+        {
+            DeclaringClassName = statics.GeneratedClassName,
+            MethodName = methodName,
+            ReturnType = $"{returnType}{NullableSuffix(method.ReturnType, returnType)}",
+            ReceiverType = statics.ReceiverType,
+            SignatureParts = signatureParts,
+            CallArguments = callArguments,
+            Selector = method.Selector,
+            // The overload is the member consumers actually call, so it has to carry the same
+            // platform-availability annotations as the member it forwards to — without them the
+            // platform analyzer sees an unconditionally-available API and stops warning about
+            // calling a newer selector from an older deployment target.
+            Availability = method.Availability,
+        });
+    }
+
+    /// <summary>
+    /// The <c>?</c> a nullable ObjC pointer needs in a plain C# signature. bgen renders the
+    /// api-definition's <c>[NullAllowed]</c> as exactly this on the member being forwarded to, so
+    /// stating it keeps the two signatures agreeing instead of trading a nullability warning at
+    /// every call site.
+    /// </summary>
+    static string NullableSuffix(ObjCTypeRef typeRef, string mappedType) =>
+        ObjCTypeMapper.IsNullableAttribute(typeRef) && !mappedType.EndsWith('?') ? "?" : "";
 
     /// <summary>
     /// The recorded-skip detail for a value-type pointer parameter that has no sound projection —
@@ -1623,6 +1770,43 @@ public static class ApiDefinitionEmitter
         => localProtocolNames != null && localProtocolNames.Contains(protocolName)
             ? ObjCTypeMapper.MapProtocolName(protocolName, classProtocolClashNames)
             : $"I{ObjCTypeMapper.MapProtocolName(protocolName, classProtocolClashNames)}";
+
+    /// <summary>
+    /// The parameter-type list that decides C# SIGNATURE IDENTITY for a member of a generated
+    /// category class. It makes the same shaping decisions <see cref="EmitParameters"/> does — the
+    /// array pair's pointer half as a raw address, an NSError out parameter, a value-type pointer's
+    /// <c>out T</c>, a variadic member's trailing argument list — and drops the parts C# does not
+    /// count: parameter names, the <c>[NullAllowed]</c> attribute, and the nullable annotation.
+    ///
+    /// The receiver-free overload's signature is checked against this, so keying on the bare mapped
+    /// type instead would answer that question with the wrong signatures in both directions: it
+    /// calls <c>out NSError</c> and <c>NSError</c> the same parameter (over-skipping an overload
+    /// that is actually free) while spelling a protocol-typed parameter differently from the member
+    /// bgen generates (missing a collision that then fails the consumer's build as CS0111).
+    /// </summary>
+    static string BuildCategorySignatureKeyTypes(ObjCMethodDecl method, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap, HashSet<string>? enumNames, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, ObjCArrayParameterPlan? arrayPlan)
+    {
+        var types = new List<string>();
+        for (var index = 0; index < method.Parameters.Count; index++)
+        {
+            var param = method.Parameters[index];
+            if (arrayPlan != null && index == arrayPlan.PointerParameterIndex)
+                types.Add("IntPtr");
+            else if (ObjCTypeMapper.IsNSErrorOutParameter(param.Type))
+                types.Add("out NSError");
+            else if (ObjCTypeMapper.IsValueTypePointerParameter(param.Type, typedefMap, enumNames))
+                types.Add($"out {ObjCTypeMapper.MapValueTypePointerParameterType(param.Type, typedefMap)}");
+            else
+                types.Add(ObjCTypeMapper.MapType(param.Type, genericTypeParams: genericTypeParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames));
+        }
+
+        // EmitMethod appends the variadic argument list after EmitParameters returns, so it is part
+        // of the signature without ever having been an ObjC parameter.
+        if (method.IsVariadic)
+            types.Add("IntPtr");
+
+        return string.Join(",", types);
+    }
 
     static string EmitParameters(List<ObjCParameterDecl> parameters, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? enumNames = null, HashSet<string>? localProtocolNames = null, HashSet<string>? classProtocolClashNames = null, ObjCArrayParameterPlan? arrayPlan = null)
     {

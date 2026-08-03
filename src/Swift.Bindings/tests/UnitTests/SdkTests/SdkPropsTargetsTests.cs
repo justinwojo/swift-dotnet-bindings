@@ -1425,6 +1425,26 @@ namespace BindingsGeneration.Tests
             Assert.Contains("<ItemGroup Condition=\"'$(SwiftFrameworkType)' != 'ObjC'\">", block);
         }
 
+        [Theory]
+        [InlineData("ObjCArrayOverloads.cs")]
+        [InlineData("ObjCCategoryStatics.cs")]
+        public void Targets_IncludeGeneratedBindings_CompanionPartialFilesAreObjCOnlyPlainCompile(string fileName)
+        {
+            // Both companion files add parts to the partial classes bgen generates in the ObjC
+            // companion assembly, so each has to land on BOTH sides of the same fork: a plain
+            // Compile item for the ObjC branch (never a bgen input — the members they extend do not
+            // exist during bgen's own api-definition contract compile), and an exclusion from the
+            // Swift/Mixed branch's wildcard (where those classes are in a different assembly).
+            var block = ExtractTargetBlock("_IncludeGeneratedSwiftBindings");
+
+            Assert.Contains($"<Compile Include=\"$(_SwiftBindingIntermediateDir){fileName}\"", block);
+            Assert.DoesNotContain($"<ObjcBindingCoreSource Include=\"$(_SwiftBindingIntermediateDir){fileName}\"", block);
+            Assert.DoesNotContain($"<ObjcBindingApiDefinition Include=\"$(_SwiftBindingIntermediateDir){fileName}\"", block);
+
+            var swiftWildcard = block.Split("<ItemGroup Condition=\"'$(SwiftFrameworkType)' != 'ObjC'\">")[1];
+            Assert.Contains($"$(_SwiftBindingIntermediateDir){fileName}", swiftWildcard.Split("</ItemGroup>")[0]);
+        }
+
         [Fact]
         public void Targets_IncludeGeneratedBindings_RunsBeforeBgenResolution()
         {

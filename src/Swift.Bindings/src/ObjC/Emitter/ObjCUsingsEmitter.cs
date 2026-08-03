@@ -278,12 +278,13 @@ internal static class ObjCUsingsEmitter
     }
 
     /// <summary>
-    /// Emits the ObjCArrayOverloads.cs <c>using</c> header. It reuses the ApiDefinition baseline
-    /// because the overloads restate types the ApiDefinition already names — the same element,
-    /// count, return and pass-through parameter types, produced by the same mapper — so anything
-    /// that resolves there must resolve here.
+    /// Emits the <c>using</c> header shared by the companion files that add partial parts to the
+    /// classes bgen generates — ObjCArrayOverloads.cs and ObjCCategoryStatics.cs. Both reuse the
+    /// ApiDefinition baseline because they restate types the ApiDefinition already names — the same
+    /// element, count, receiver, return and pass-through parameter types, produced by the same
+    /// mapper — so anything that resolves there must resolve here.
     /// </summary>
-    public static void EmitArrayOverloadsHeader(
+    public static void EmitCompanionPartialClassHeader(
         StringBuilder sb, PlatformInfo? platformInfo, IReadOnlySet<string> referencedAppleNamespaces)
     {
         EmitFiltered(sb, ApiDefinitionUsings, platformInfo);

@@ -98,6 +98,41 @@ public static class ObjCTestHelpers
     }
 
     /// <summary>
+    /// Emit an ObjCModule through ApiDefinitionEmitter and return the ApiDefinition content, the
+    /// companion category-statics file (null when none was written), and the diagnostics collector.
+    /// Like the array-overloads pair, the two files only make sense together — the receiver-free
+    /// overload calls a member the ApiDefinition declared — so a test asserting on one usually has
+    /// something to assert on the other.
+    /// </summary>
+    /// <param name="seedStaleCategoryStatics">
+    /// Writes a placeholder statics file before emitting, so a test can observe that a run producing
+    /// no forwarders clears a leftover from a previous generate.
+    /// </param>
+    public static (string ApiDefinition, string? CategoryStatics, ObjCBindingDiagnostics Diagnostics) EmitApiDefinitionWithCategoryStatics(
+        ObjCModule module, string ns = "TestNamespace", PlatformInfo? platformInfo = null, bool seedStaleCategoryStatics = false)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"apidefinition_test_{Guid.NewGuid():N}");
+        var diagnostics = new ObjCBindingDiagnostics();
+        try
+        {
+            Directory.CreateDirectory(dir);
+            var staticsPath = Path.Combine(dir, ObjCCategoryStaticsEmitter.FileName);
+            if (seedStaleCategoryStatics)
+                File.WriteAllText(staticsPath, "// stale content from a previous generate\n");
+
+            var path = ApiDefinitionEmitter.Emit(module, dir, ns, Logger, diagnostics: diagnostics, platformInfo: platformInfo);
+            return (File.ReadAllText(path),
+                    File.Exists(staticsPath) ? File.ReadAllText(staticsPath) : null,
+                    diagnostics);
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+                Directory.Delete(dir, true);
+        }
+    }
+
+    /// <summary>
     /// Emit an ObjCModule through StructsAndEnumsEmitter and return the main file content.
     /// Handles temp directory creation and cleanup.
     /// </summary>
