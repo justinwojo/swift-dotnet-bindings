@@ -205,6 +205,11 @@ namespace BindingsGeneration
             var emittedMethodSignatures = new HashSet<string>();
             // B15: Secondary dedup based on projected C# public signature
             var emittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal);
+            // Companion shape table for the set above: reserved key → how many of its parameters a
+            // caller MUST supply. The key alone cannot answer that (it carries types, not
+            // defaultedness), and without it a synthesized overload cannot tell whether a consumer
+            // call site would bind it and an already-emitted member equally well (CS0121).
+            var reservedOverloadShapes = new Dictionary<string, int>(StringComparer.Ordinal);
             // Track collision counts per projected key for disambiguation suffix generation
             var projectedKeyCollisionCounts = new Dictionary<string, int>(StringComparer.Ordinal);
             // FB-1b: the first-declared failable init (init?/init!) to own each projected C# key. Later
@@ -576,6 +581,9 @@ namespace BindingsGeneration
                     // FB-1b: recovered static-factory name for a colliding failable init; null keeps the
                     // default "TryCreate" (winner / no-collision).
                     string? failableFactoryName = null;
+                    // The factory-namespace key this member claims, if it takes the recovery path —
+                    // carried out to the shape recording below so the guard can read its optional tail.
+                    string? reservedFactoryKey = null;
                     if (!emittedProjectedSignatures.Add(reservedKey))
                     {
                         if (methodDecl.IsConstructor)
@@ -619,6 +627,7 @@ namespace BindingsGeneration
                                         } while (!emittedProjectedSignatures.Add(factoryNamespace + escalatedName + factoryParams));
                                         failableFactoryName = escalatedName;
                                     }
+                                    reservedFactoryKey = factoryNamespace + failableFactoryName + factoryParams;
                                 }
                                 _logger.LogDebug($"Recovering failable init '{methodDecl.Name}' — projected C# signature collides: {projectedKey} → {failableFactoryName}");
                                 // fall through: emit the factory under the disambiguated name
@@ -671,6 +680,27 @@ namespace BindingsGeneration
                             firstFailableInitByProjectedKey.TryAdd(projectedKey, methodDecl);
                     }
 
+                    // Record what this member reserved, in resolution terms. The required-parameter
+                    // count is a property of the parameter list, so every name variant this member
+                    // reserved (claimed, factory, adopted below) shares the one value. ONLY keys this
+                    // member actually claimed may be recorded: when the natural key was already taken
+                    // and this one escalated to a different name, that key belongs to an EARLIER
+                    // member, and writing this member's parameter list under it would answer a later
+                    // ambiguity question about the wrong signature — fail-open if the count comes out
+                    // higher, fail-closed (a valid overload declined) if lower.
+                    int reservedRequiredCount = OverloadAmbiguityGuard.RequiredCountFor(methodDecl, typeDatabase, projectedKey);
+                    var claimedKey = disambiguatedNameInput == null
+                        ? projectedKey
+                        : GetProjectedCSharpMethodKey(methodDecl, typeDatabase, _logger, siblingPropertyNames, nameOverride: disambiguatedNameInput);
+                    OverloadAmbiguityGuard.RecordReservation(reservedOverloadShapes, claimedKey, reservedRequiredCount);
+                    // A recovered failable init claims a SECOND key, in the factory namespace, and the
+                    // overload producer re-keys its trims into that same namespace. Leaving it unshaped
+                    // reads back as fully-required, which silently switches the ambiguity check off for
+                    // exactly the members — async factories with a trailing CancellationToken — it was
+                    // built to catch.
+                    if (reservedFactoryKey != null)
+                        OverloadAmbiguityGuard.RecordReservation(reservedOverloadShapes, reservedFactoryKey, reservedRequiredCount);
+
                     if (conductor.TryGetMethodHandler(methodDecl, out var handler))
                     {
                         // Pass property names and P/Invoke helper context to the method environment
@@ -706,12 +736,16 @@ namespace BindingsGeneration
                         {
                             int adoptedParen = projectedKey.IndexOf('(');
                             if (adoptedParen > 0)
-                                emittedProjectedSignatures.Add(
-                                    env.AdoptedOverrideCSharpName + projectedKey.Substring(adoptedParen));
+                            {
+                                var adoptedKey = env.AdoptedOverrideCSharpName + projectedKey.Substring(adoptedParen);
+                                emittedProjectedSignatures.Add(adoptedKey);
+                                OverloadAmbiguityGuard.RecordReservation(reservedOverloadShapes, adoptedKey, reservedRequiredCount);
+                            }
                         }
                         // C6/C7: Share projected signature set so DefaultParameterOverloadEmitter
                         // can dedup against methods already emitted from the main pass
                         env.EmittedProjectedSignatures = emittedProjectedSignatures;
+                        env.ReservedOverloadShapes = reservedOverloadShapes;
                         // Containment seam for a type-body member. Escalates to the enclosing type:
                         // if denying the member alone still faults, the defect is in shared type
                         // infrastructure the member merely triggered, and only withdrawing the type

@@ -1481,6 +1481,476 @@ public class DefaultParameterOverloadEmitterTests
 
     #endregion
 
+    #region All-defaults form (interior defaults)
+
+    [Fact]
+    public void BuildOverloadDeclDropping_KeepsParametersOutsideTheDropSet()
+    {
+        // (a, b = _, c, d = _) with b and d dropped — the two required parameters survive in order.
+        var method = CreateMethodWithArgs(
+            CreateArg("a", hasDefault: false),
+            CreateArg("b", hasDefault: true),
+            CreateArg("c", hasDefault: false),
+            CreateArg("d", hasDefault: true));
+
+        var overload = DefaultParameterOverloadEmitter.BuildOverloadDeclDropping(
+            method.MangledName, method, new[] { 1, 3 });
+
+        var kept = overload.CSSignature.Skip(1).Select(a => a.Name).ToList();
+        Assert.Equal(new[] { "a", "c" }, kept);
+    }
+
+    [Fact]
+    public void BuildOverloadDeclDropping_RoutesThroughTheWrapperLibrary()
+    {
+        var method = CreateMethodWithArgs(
+            CreateArg("a", hasDefault: true),
+            CreateArg("b", hasDefault: false));
+        method.UsesWrapperLibrary = false;
+
+        var overload = DefaultParameterOverloadEmitter.BuildOverloadDeclDropping(
+            method.MangledName, method, new[] { 0 });
+
+        Assert.True(overload.UsesWrapperLibrary);
+        Assert.NotEqual(method.MangledName, overload.MangledName);
+    }
+
+    [Fact]
+    public void BuildOverloadDeclDropping_TrailingDropSet_MatchesTheTrailingTrimBuilder()
+    {
+        // The two builders must agree wherever their inputs describe the same omission, or a method
+        // whose defaults happen to all be trailing would get a second shim under a different symbol.
+        var method = CreateMethodWithArgs(
+            CreateArg("a", hasDefault: false),
+            CreateArg("b", hasDefault: true),
+            CreateArg("c", hasDefault: true));
+
+        var trimmed = DefaultParameterOverloadEmitter.BuildOverloadDecl(method.MangledName, method, 2);
+        var dropped = DefaultParameterOverloadEmitter.BuildOverloadDeclDropping(
+            method.MangledName, method, new[] { 1, 2 });
+
+        Assert.Equal(trimmed.MangledName, dropped.MangledName);
+        Assert.Equal(
+            trimmed.CSSignature.Skip(1).Select(a => a.Name),
+            dropped.CSSignature.Skip(1).Select(a => a.Name));
+    }
+
+    [Fact]
+    public void BuildOverloadDeclDropping_PreservesOwnershipAndInOutOnKeptParameters()
+    {
+        // Ownership is an intrinsic property of the parameter: losing `consuming` on a surviving
+        // parameter routes it off the move/MarkConsumed path and double-frees.
+        var owned = CreateArg("owned", hasDefault: false);
+        owned.Ownership = ParameterOwnership.Owned;
+        var byRef = CreateArg("byRef", hasDefault: false);
+        byRef.IsInOut = true;
+
+        var method = CreateMethodWithArgs(
+            CreateArg("skipped", hasDefault: true), owned, byRef);
+
+        var overload = DefaultParameterOverloadEmitter.BuildOverloadDeclDropping(
+            method.MangledName, method, new[] { 0 });
+
+        var kept = overload.CSSignature.Skip(1).ToList();
+        Assert.Equal(2, kept.Count);
+        Assert.Equal(ParameterOwnership.Owned, kept[0].Ownership);
+        Assert.True(kept[1].IsInOut);
+    }
+
+    [Fact]
+    public void RequiredCountFor_TrailingMappableDefaultsBecomeOptional()
+    {
+        // (query, limit = 10, offset = 0) projects to three C# parameters, two of them optional.
+        var (_, typeDb) = CreateTestEnvironment("Config");
+        var method = CreateMethodWithArgs(
+            CreateArg("query", hasDefault: false),
+            CreateArgWithDefault("limit", "10"),
+            CreateArgWithDefault("offset", "0"));
+
+        Assert.Equal(1, OverloadAmbiguityGuard.RequiredCountFor(method, typeDb, "Search(string,int,int)"));
+    }
+
+    [Fact]
+    public void RequiredCountFor_InteriorDefaultIsNotOptional()
+    {
+        // (a = 1, b) — a C# optional must be trailing, so the interior default stays required.
+        var (_, typeDb) = CreateTestEnvironment("Config");
+        var method = CreateMethodWithArgs(
+            CreateArgWithDefault("a", "1"),
+            CreateArg("b", hasDefault: false));
+
+        Assert.Equal(2, OverloadAmbiguityGuard.RequiredCountFor(method, typeDb, "Foo(int,int)"));
+    }
+
+    [Fact]
+    public void RequiredCountFor_UnmappableDefaultEndsTheOptionalRun()
+    {
+        // (a, b = Config(), c = 0): `c` maps but `b` does not, so only `c` is optional.
+        var (_, typeDb) = CreateTestEnvironment("Config");
+        var method = CreateMethodWithArgs(
+            CreateArg("a", hasDefault: false),
+            CreateArgWithDefault("b", "Config()"),
+            CreateArgWithDefault("c", "0"));
+
+        Assert.Equal(2, OverloadAmbiguityGuard.RequiredCountFor(method, typeDb, "Foo(int,int,int)"));
+    }
+
+    [Fact]
+    public void RequiredCountFor_AsyncAppendsTheCancellationTokenOptional()
+    {
+        // An async method's emitted signature ends with `CancellationToken cancellationToken = default`,
+        // which is one more optional than the Swift parameter list shows.
+        var (_, typeDb) = CreateTestEnvironment("Config");
+        var method = CreateMethodWithArgs(CreateArg("a", hasDefault: false));
+        method.IsAsync = true;
+
+        Assert.Equal(
+            1,
+            OverloadAmbiguityGuard.RequiredCountFor(
+                method, typeDb, "FooAsync(int,System.Threading.CancellationToken)"));
+    }
+
+    [Fact]
+    public void AllDefaultsOverload_RecordsItsOwnApiManifestEntry()
+    {
+        // describe(a:b:c:) with `b` interior-defaulted: the primary keeps all three parameters (a C#
+        // optional must be trailing), so the two-parameter all-defaults form is a member the main
+        // dedup loop never sees and never records. An emitted-but-undocumented member is exactly the
+        // api-surface drift the manifest gate exists to catch, so this producer records it itself.
+        var (method, env) = CreateClassMethodEnvironment(
+            "Formatter", "describe",
+            CreateArg("a", hasDefault: false),
+            CreateArg("b", hasDefault: true),
+            CreateArg("c", hasDefault: false));
+
+        var emissionContext = RunOverloads(env);
+
+        var entry = Assert.Single(
+            emissionContext.ApiManifestEntries,
+            e => e.Key.StartsWith("Formatter.Describe(", StringComparison.Ordinal));
+        Assert.Equal(2, OverloadAmbiguityGuard.ParseKey(entry.Key, 0).ParameterTypes.Count);
+        // The manifest maps a signature to the native symbol it dispatches through. The all-defaults
+        // form calls its OWN Swift shim, not the original declaration — recording the original's
+        // symbol would document two distinct C# members as sharing one entry point.
+        Assert.NotEqual(method.MangledName, entry.Value);
+    }
+
+    [Fact]
+    public void DeclinedOverload_LeavesNoApiManifestEntry()
+    {
+        // find(a:b:c:) yields candidates taking (a) and (a, b). Another producer has already claimed
+        // the one-parameter signature, so that candidate is declined. Every decline path — the
+        // exact-signature dedup and the CS0121 set-validity guard — shares one `continue` ahead of
+        // the manifest record, so a declined candidate must leave the documented surface untouched:
+        // a manifest entry for a member that was never written is the same api-surface drift as an
+        // emitted member with no entry.
+        var (method, env) = CreateClassMethodEnvironment(
+            "Search", "find",
+            CreateArg("a", hasDefault: false),
+            CreateArgWithDefault("b", "0"),
+            CreateArgWithDefault("c", "Config()"));
+
+        var trimmedToOne = DefaultParameterOverloadEmitter.BuildOverloadDecl(
+            method.MangledName, method, trimCount: 2);
+        var claimedKey = DefaultParameterOverloadEmitter.GetProjectedOverloadKey(
+            trimmedToOne, env.TypeDatabase, env.SiblingPropertyNames, env.DisambiguatedNameInput);
+        env.EmittedProjectedSignatures!.Add(claimedKey);
+        OverloadAmbiguityGuard.RecordReservation(
+            env.ReservedOverloadShapes, claimedKey,
+            OverloadAmbiguityGuard.RequiredCountFor(trimmedToOne, env.TypeDatabase, claimedKey));
+
+        var emissionContext = RunOverloads(env);
+
+        var survivor = Assert.Single(
+            emissionContext.ApiManifestEntries.Keys,
+            k => k.StartsWith("Search.Find(", StringComparison.Ordinal));
+        Assert.Equal(2, OverloadAmbiguityGuard.ParseKey(survivor, 0).ParameterTypes.Count);
+    }
+
+    [Fact]
+    public void TrimmedOverload_CarriesNoCSharpOptionalTail()
+    {
+        // The trimmed clone deliberately does NOT carry the kept parameters' Swift default
+        // expressions forward, and this producer's whole overload ladder depends on that: emitting
+        // (a, b = 0) alongside (a) would make the one-argument call bind both equally well — CS0121
+        // in a set this producer built by itself. Copying the expression into the clone would put
+        // the set-validity guard in the position of silently declining one of its own rungs.
+        var (_, env) = CreateClassMethodEnvironment(
+            "Search", "find",
+            CreateArg("a", hasDefault: false),
+            CreateArgWithDefault("b", "0"),
+            CreateArgWithDefault("c", "Config()"));
+
+        var trimmed = DefaultParameterOverloadEmitter.BuildOverloadDecl(
+            env.MethodDecl.MangledName, env.MethodDecl, trimCount: 1);
+        var key = DefaultParameterOverloadEmitter.GetProjectedOverloadKey(
+            trimmed, env.TypeDatabase, env.SiblingPropertyNames, env.DisambiguatedNameInput);
+
+        Assert.Equal(
+            OverloadAmbiguityGuard.ParseKey(key, 0).ParameterTypes.Count,
+            OverloadAmbiguityGuard.RequiredCountFor(trimmed, env.TypeDatabase, key));
+    }
+
+    [Fact]
+    public void AmbiguousReservation_DeclinesTheCandidateAndRecordsTheSuppression()
+    {
+        // The CS0121 branch at the emitter layer, as distinct from the exact-key dedup: the reserved
+        // key is a DIFFERENT signature that one argument list binds just as well. Async is what makes
+        // this reachable at all — a trimmed clone carries no C# optional tail, so only the appended
+        // `CancellationToken = default` gives a candidate an optional parameter to tie on. The
+        // candidate `ResolveAsync(nint, CT = default)` and an already-emitted sibling
+        // `ResolveAsync(nint, nint = …, CT = default)` are both bound by a one-argument call with
+        // neither better. The candidate must be declined AND the suppression recorded — an unreported
+        // decline is a member that vanished from the surface with no audit trail.
+        var (method, env) = CreateClassMethodEnvironment(
+            "Lattice", "resolve",
+            CreateArg("id", hasDefault: false),
+            CreateArgWithDefault("tag", "Config()"));
+        method.IsAsync = true;
+
+        // Spliced from the candidate's own key rather than written out, so the test cannot drift from
+        // whatever namespace, name shaping and CancellationToken spelling the key builder produces.
+        var candidateDecl = DefaultParameterOverloadEmitter.BuildOverloadDecl(
+            method.MangledName, method, trimCount: 1);
+        var candidateKey = DefaultParameterOverloadEmitter.GetProjectedOverloadKey(
+            candidateDecl, env.TypeDatabase, env.SiblingPropertyNames, env.DisambiguatedNameInput);
+        var reserved = candidateKey.Replace("(", "(nint,", StringComparison.Ordinal);
+        env.EmittedProjectedSignatures!.Add(reserved);
+        OverloadAmbiguityGuard.RecordReservation(env.ReservedOverloadShapes, reserved, requiredCount: 1);
+
+        var emissionContext = RunOverloads(env);
+
+        Assert.DoesNotContain(
+            emissionContext.ApiManifestEntries.Keys,
+            k => k.StartsWith("Lattice.Resolve", StringComparison.Ordinal));
+        var suppressed = Assert.Single(emissionContext.SuppressedAmbiguousOverloads);
+        Assert.Contains(reserved, suppressed);
+    }
+
+    [Fact]
+    public void AllDefaultsOverload_DeclinedWhenASiblingAcceptsTheReducedCall()
+    {
+        // Two declarations of `describe` differing ONLY in the type of a defaulted parameter. The
+        // all-defaults form omits that parameter, and the call left behind — describe(a:c:) — fits
+        // both declarations exactly, which swiftc rejects as an ambiguous use. This is not one lost
+        // member: the wrapper library compiles as a unit, so the ambiguous shim takes every binding
+        // in the module down with it.
+        var (method, env) = CreateClassMethodEnvironment(
+            "Log", "describe",
+            CreateArg("a", hasDefault: false),
+            CreateArgWithDefault("b", "Config()"),
+            CreateArg("c", hasDefault: false));
+
+        AddSibling(
+            method,
+            CreateArg("a", hasDefault: false),
+            WithSwiftType(CreateArgWithDefault("b", "\"\""), "Swift.String"),
+            CreateArg("c", hasDefault: false));
+
+        var emissionContext = RunOverloads(env);
+
+        Assert.DoesNotContain(
+            emissionContext.ApiManifestEntries.Keys,
+            k => k.StartsWith("Log.Describe(", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AllDefaultsOverload_SurvivesWhenTheSiblingStillNeedsAnOmittedArgument()
+    {
+        // Same base name, but the sibling's second parameter is REQUIRED. The reduced call supplies
+        // nothing for it, so only one declaration accepts the call and Swift resolves it. Declining
+        // here would drop a member over a sibling that was never a candidate.
+        var (method, env) = CreateClassMethodEnvironment(
+            "Log", "describe",
+            CreateArg("a", hasDefault: false),
+            CreateArgWithDefault("b", "Config()"),
+            CreateArg("c", hasDefault: false));
+
+        AddSibling(
+            method,
+            CreateArg("a", hasDefault: false),
+            WithSwiftType(CreateArg("b", hasDefault: false), "Swift.String"),
+            CreateArg("c", hasDefault: false));
+
+        var emissionContext = RunOverloads(env);
+
+        var entry = Assert.Single(
+            emissionContext.ApiManifestEntries.Keys,
+            k => k.StartsWith("Log.Describe(", StringComparison.Ordinal));
+        Assert.Equal(2, OverloadAmbiguityGuard.ParseKey(entry, 0).ParameterTypes.Count);
+    }
+
+    [Fact]
+    public void AllDefaultsOverload_SurvivesWhenASiblingDiffersOnAKeptParameterType()
+    {
+        // The sibling defaults the same parameter, so it accepts a call of the same LENGTH — but the
+        // kept argument `a` has a different type in each declaration, and that is precisely what lets
+        // Swift tell them apart. Treating same-shape as ambiguous would decline on arity alone and
+        // lose the member for every overloaded family in a library.
+        var (method, env) = CreateClassMethodEnvironment(
+            "Log", "describe",
+            CreateArg("a", hasDefault: false),
+            CreateArgWithDefault("b", "Config()"),
+            CreateArg("c", hasDefault: false));
+
+        AddSibling(
+            method,
+            WithSwiftType(CreateArg("a", hasDefault: false), "Swift.String"),
+            CreateArgWithDefault("b", "Config()"),
+            CreateArg("c", hasDefault: false));
+
+        var emissionContext = RunOverloads(env);
+
+        var entry = Assert.Single(
+            emissionContext.ApiManifestEntries.Keys,
+            k => k.StartsWith("Log.Describe(", StringComparison.Ordinal));
+        Assert.Equal(2, OverloadAmbiguityGuard.ParseKey(entry, 0).ParameterTypes.Count);
+    }
+
+    /// <summary>
+    /// Adds a second declaration of <paramref name="primary"/>'s Swift name to the same parent, so
+    /// the emitter sees the overload family a real module would present.
+    /// </summary>
+    private static void AddSibling(MethodDecl primary, params ArgumentDecl[] args)
+    {
+        var csSignature = new List<ArgumentDecl> { CreateReturnArg(primary.ModuleDecl!) };
+        csSignature.AddRange(args);
+
+        var sibling = new MethodDecl
+        {
+            Name = primary.Name,
+            MangledName = primary.MangledName + "_sibling",
+            MethodType = primary.MethodType,
+            IsConstructor = primary.IsConstructor,
+            CSSignature = csSignature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = primary.ParentDecl,
+            ModuleDecl = primary.ModuleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false,
+        };
+
+        ((TypeDecl)primary.ParentDecl!).Methods.Add(sibling);
+    }
+
+    private static ArgumentDecl WithSwiftType(ArgumentDecl arg, string swiftTypeName)
+    {
+        arg.SwiftTypeSpec = new NamedTypeSpec(swiftTypeName);
+        return arg;
+    }
+
+    /// <summary>
+    /// Builds a final class <c>TestModule.{typeName}</c> carrying one instance method with
+    /// <paramref name="args"/>, and returns it alongside an environment wired with the dedup and
+    /// reservation tables the real emission loop threads through (without them the producer records
+    /// nothing, which would make an API-manifest assertion vacuously pass).
+    /// </summary>
+    private static (MethodDecl method, MethodEnvironment env) CreateClassMethodEnvironment(
+        string typeName, string methodName, params ArgumentDecl[] args)
+    {
+        var typeDb = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.NIntType,
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDb.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName($"TestModule.{typeName}"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", typeName),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{typeName}"),
+                MetadataAccessor = $"$s10TestModule{typeName.Length}{typeName}CMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class
+            });
+        typeDb.AddModuleDatabase(testModule);
+
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var parentDecl = new ClassDecl
+        {
+            Name = typeName,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{typeName}"),
+            MangledName = $"$s10TestModule{typeName.Length}{typeName}CN",
+            IsFinal = true,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(parentDecl);
+
+        var csSignature = new List<ArgumentDecl> { CreateReturnArg(moduleDecl) };
+        csSignature.AddRange(args);
+
+        var method = new MethodDecl
+        {
+            Name = methodName,
+            MangledName = $"$s10TestModule{typeName.Length}{typeName}C{methodName.Length}{methodName}yyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = csSignature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false,
+            UsesCdeclMethodWrapper = true,
+            UsesWrapperLibrary = true,
+        };
+        parentDecl.Methods.Add(method);
+
+        var env = new MethodEnvironment(method, typeDb)
+        {
+            EmittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal),
+            ReservedOverloadShapes = new Dictionary<string, int>(StringComparer.Ordinal),
+        };
+
+        return (method, env);
+    }
+
+    private static ModuleEmissionContext RunOverloads(MethodEnvironment env)
+    {
+        var emissionContext = new ModuleEmissionContext();
+        var csWriter = new CSharpWriter(new StringWriter());
+        var swiftWriter = new SwiftWriter(new StringWriter());
+
+        DefaultParameterOverloadEmitter.TryEmitOverloads(
+            csWriter, swiftWriter, env, NullLogger.Instance, emissionContext);
+
+        return emissionContext;
+    }
+
+    #endregion
+
     #region @_cdecl Method Wrapper Inheritance
 
     [Fact]

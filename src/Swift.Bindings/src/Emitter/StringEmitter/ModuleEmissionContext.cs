@@ -2063,6 +2063,32 @@ public sealed class ModuleEmissionContext
         return _degradedReverseDispatchReceivers.Add(memberDescriptor);
     }
 
+    // ============ Suppressed Ambiguous Overloads (CS0121 set validity) ============
+
+    private readonly SortedSet<string> _suppressedAmbiguousOverloads = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Synthesized overload candidates that were NOT written because a consumer call site would bind
+    /// them and an already-emitted member equally well (CS0121). Each entry names the declined
+    /// candidate's projected signature and the reserved signature it collided with. Emission is
+    /// immediate-write, so the already-written member is never retracted — when the declined
+    /// candidate is the fuller of the two, the entry says so, since suppressing the fuller form is
+    /// the inversion a reader would otherwise have to infer.
+    /// </summary>
+    public IReadOnlyCollection<string> SuppressedAmbiguousOverloads => _suppressedAmbiguousOverloads;
+
+    /// <summary>
+    /// Records one declined ambiguous overload candidate. Returns true on the first sighting of this
+    /// exact pair, false for a repeat or a blank value.
+    /// </summary>
+    public bool TryRecordSuppressedAmbiguousOverload(string candidateSignature, string conflictingSignature, bool candidateWasFuller)
+    {
+        if (string.IsNullOrEmpty(candidateSignature) || string.IsNullOrEmpty(conflictingSignature))
+            return false;
+        var inversion = candidateWasFuller ? " [declined candidate was the fuller signature]" : "";
+        return _suppressedAmbiguousOverloads.Add($"{candidateSignature} ~ {conflictingSignature}{inversion}");
+    }
+
     // ==================== Native Thunks ====================
 
     private readonly System.Text.StringBuilder _assemblyBuilder = new();

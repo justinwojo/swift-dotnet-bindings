@@ -497,6 +497,17 @@ namespace BindingsGeneration
         public HashSet<string>? EmittedProjectedSignatures { get; set; }
 
         /// <summary>
+        /// Companion to <see cref="EmittedProjectedSignatures"/>: for each reserved projected
+        /// signature, how many of its parameters a caller MUST supply (arity minus the trailing run
+        /// of C# optional parameters). The key set alone cannot answer that — it carries types, not
+        /// defaultedness — and without it two DIFFERENT signatures that one argument list satisfies
+        /// equally well (CS0121 at the consumer's call site) are undetectable. Shares the reservation
+        /// site and lifetime of the key set; a key with no entry here reads back as fully-required,
+        /// which only ever makes <see cref="OverloadAmbiguityGuard"/> more permissive.
+        /// </summary>
+        public Dictionary<string, int>? ReservedOverloadShapes { get; set; }
+
+        /// <summary>
         /// Per-module emission context, threaded by the handler so emitters that need
         /// authoritative wrapper-symbol-registration data (e.g. the wrapper-symbol
         /// contract check in <c>PInvokeEmitHelper</c>) can consult it without each call

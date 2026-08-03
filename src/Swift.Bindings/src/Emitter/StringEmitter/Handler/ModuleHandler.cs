@@ -214,6 +214,10 @@ namespace BindingsGeneration
                     // (e.g., Swift count(_:) vs count(distinct:) which both project to GetCount<T0>(T0))
                     var emittedMethodSignatures = new HashSet<string>();
                     var emittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal);
+                    // Companion shape table (see the type-body sibling in HandleBaseDecl): reserved
+                    // key → how many parameters a caller must supply, so a synthesized overload can
+                    // tell whether it would be CS0121-ambiguous with an already-emitted free function.
+                    var reservedOverloadShapes = new Dictionary<string, int>(StringComparer.Ordinal);
                     var pipeline = new MemberValidationPipeline(env.TypeDatabase);
 
                     // Overload names for free functions (mirrors HandleBaseDecl). Built over the same
@@ -318,11 +322,25 @@ namespace BindingsGeneration
                             _logger.LogDebug($"Disambiguating free function '{methodDecl.Name}' — projected key {projectedKey} was taken → base name '{escalated}'");
                         }
 
+                        // Record what this free function reserved, in resolution terms (mirrors the
+                        // type-body sibling). ONLY the key this member actually claimed: when the
+                        // natural key was already taken and this one escalated to a different name,
+                        // that key belongs to an EARLIER member, and writing this member's parameter
+                        // list under it would answer a later ambiguity question about the wrong
+                        // signature — fail-open if the count comes out higher, fail-closed (a valid
+                        // overload declined) if lower.
+                        int reservedRequiredCount = OverloadAmbiguityGuard.RequiredCountFor(methodDecl, env.TypeDatabase, projectedKey);
+                        var claimedKey = disambiguatedNameInput == null
+                            ? projectedKey
+                            : GetProjectedCSharpMethodKey(methodDecl, env.TypeDatabase, _logger, siblingPropertyNames: null, nameOverride: disambiguatedNameInput);
+                        OverloadAmbiguityGuard.RecordReservation(reservedOverloadShapes, claimedKey, reservedRequiredCount);
+
                         if (conductor.TryGetMethodHandler(methodDecl, out var methodHandler))
                         {
                             var methodEnv = new MethodEnvironment(methodDecl, env.TypeDatabase, compositionCollector: context.CompositionCollector);
                             methodEnv.DisambiguatedNameInput = disambiguatedNameInput;
                             methodEnv.EmittedProjectedSignatures = emittedProjectedSignatures;
+                            methodEnv.ReservedOverloadShapes = reservedOverloadShapes;
                             // Containment seam for a free function. No escalation rung: a free
                             // function's enclosing unit is the module, and denying the module is the
                             // failure this whole mechanism exists to avoid.

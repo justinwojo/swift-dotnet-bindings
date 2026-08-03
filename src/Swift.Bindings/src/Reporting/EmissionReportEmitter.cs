@@ -91,6 +91,17 @@ public class EmissionReport
     /// previously surfaced only as a transient SWIFTBIND112 log line; recording them here gives the
     /// settled disabled set an on-disk home. Sorted for deterministic output.
     /// </summary>
+    /// <summary>
+    /// Synthesized overload candidates declined because writing them would have made the emitted
+    /// overload set unusable from a caller: a consumer call site exists that binds the candidate and
+    /// an already-reserved signature equally well (CS0121). Each entry is
+    /// <c>"{declined} ~ {conflicting}"</c>, with an inversion note when the DECLINED side was the
+    /// fuller signature (emission is immediate-write, so an already-written member is never
+    /// retracted). Sorted for deterministic output.
+    /// </summary>
+    [JsonProperty("suppressedAmbiguousOverloads")]
+    public List<string> SuppressedAmbiguousOverloads { get; set; } = new();
+
     [JsonProperty("withdrawnUnits")]
     public List<string> WithdrawnUnits { get; set; } = new();
 
@@ -208,6 +219,14 @@ public static class EmissionReportEmitter
             logger.LogInformation(
                 "Emission: {Count} CSM conformer rejections (multi-constraint intersection filter)",
                 report.CsmConformerRejections.Count);
+        }
+
+        if (report.SuppressedAmbiguousOverloads.Count > 0)
+        {
+            logger.LogInformation(
+                "Emission: {Count} synthesized overload(s) declined — a consumer call site would bind them and an already-emitted member equally well (CS0121): {Pairs}",
+                report.SuppressedAmbiguousOverloads.Count,
+                string.Join("; ", report.SuppressedAmbiguousOverloads));
         }
 
         // Defect E: turn the previously-silent existential→object degradation into a loud
@@ -385,6 +404,10 @@ public static class EmissionReportEmitter
         // per-iteration emission state, so they do not live on the snapshot-restored emission context).
         // The withdrawn set is sorted for deterministic output; the ledger keeps its obligation-number
         // order. Empty/absent on the non-loop path.
+        report.SuppressedAmbiguousOverloads = emissionContext.SuppressedAmbiguousOverloads
+            .OrderBy(entry => entry, StringComparer.Ordinal)
+            .ToList();
+
         report.WithdrawnUnits = (withdrawnUnits ?? Array.Empty<string>())
             .OrderBy(unit => unit, StringComparer.Ordinal)
             .ToList();
