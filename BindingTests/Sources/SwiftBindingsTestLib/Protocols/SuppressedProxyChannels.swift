@@ -591,3 +591,42 @@ public struct BoxableColliderList: BoxableColliderListProtocol {
 public func makeBoxableColliderList(_ seed: Int32) -> BoxableColliderList {
     return BoxableColliderList([BoxableIntCell(value: seed), BoxableIntCell(value: seed + 1)])
 }
+
+// MARK: CONSUME (member-kind parity) — same suppressed-proxy parameter across four member kinds
+
+/// Every member here takes the identical `any Boxable` parameter, so every one of them CONSUME-degrades
+/// the same way: `BoxableProxy` is suppressed, the C#→Swift wrap fallback is dropped, and a C#-authored
+/// conformer handed to any of them silently never fires. Only a Swift-vended conformer round-trips.
+///
+/// The point of the fixture is that the four member kinds reach the emitter through four different
+/// paths — a static factory method, a plain constructor, a failable initializer (emitted as a static
+/// `TryCreate` factory) and an instance method — and the warning that tells a consumer about the
+/// degrade is injected after the member's body is written, once the marshalling has recorded it. A path
+/// that never reads that record back emits a member whose signature invites a C# conformer it will
+/// silently ignore, while an identically-typed sibling one line away carries the warning. All four must
+/// agree.
+public struct BoxableConsumerParity {
+    private let stored: Int32
+
+    public init(_ box: any Boxable) { self.stored = box.boxedValue() }
+
+    public init?(optional box: any Boxable) {
+        let v = box.boxedValue()
+        if v < 0 { return nil }
+        self.stored = v
+    }
+
+    private init(raw: Int32) { self.stored = raw }
+
+    public static func make(from box: any Boxable) -> BoxableConsumerParity {
+        return BoxableConsumerParity(raw: box.boxedValue())
+    }
+
+    public func combined(with box: any Boxable) -> Int32 {
+        return stored &+ box.boxedValue()
+    }
+
+    /// Non-existential read-back so the forward-dispatch construction is observable without touching
+    /// the suppressed-proxy reverse path.
+    public func storedValue() -> Int32 { stored }
+}

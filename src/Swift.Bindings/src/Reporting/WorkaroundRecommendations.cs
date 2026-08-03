@@ -102,6 +102,8 @@ public static class WorkaroundRecommendations
             "The type still emits, but without this conformance: at least one protocol requirement has no representable C# member on it, so the `: I{Protocol}` entry was dropped rather than emitted with a hole. Details names the first unmet requirement — make that one requirement bindable (a supported signature, a satisfiable constraint, or an unconstrained extension default the validator can see) and regenerate to reveal the next blocker, or expose the protocol-typed usage through a Swift wrapper that takes the concrete type.",
         SkipReason.ProtocolWitnessNotDispatchable =>
             "The member IS declared and still callable on a concrete instance — only calls through a protocol-typed value throw (SB0003). The requirement's shape has no witness-table lowering: a non-blittable parameter or return, a closure parameter, a subscript, or a requirement set that mixes generic and non-generic members. Call it on the concrete type, or add a Swift wrapper requirement whose signature is blittable so the protocol-typed path becomes dispatchable.",
+        SkipReason.ProtocolProxyVtableEmpty =>
+            "The interface still emits, but implementing it in C# has no effect: not one requirement is reverse-dispatchable, so no callback table is registered with Swift (SB0010). This is a statement about the reverse direction only — whether a Swift-vended value can be consumed through the interface is governed by each member's own markers, independently of this row. Details lists each requirement and why its slot could not be filled — make at least one of them dispatchable (most often by replacing a closure parameter with a protocol-typed delegate object, or a method-level generic with a concrete signature) and the interface becomes implementable for that member. Where the Swift API cannot change, take the callback through a concrete Swift class instead of a protocol conformance.",
         SkipReason.Unknown =>
             "Investigate the specific member in the generator output.",
         _ => null,
@@ -197,6 +199,8 @@ public static class WorkaroundRecommendations
             "conformance dropped — a protocol requirement has no representable C# member on the conforming type",
         SkipReason.ProtocolWitnessNotDispatchable =>
             "member declared but not dispatchable through a protocol-typed value (witness stub throws)",
+        SkipReason.ProtocolProxyVtableEmpty =>
+            "no protocol requirement is reverse-dispatchable — implementing the interface in C# has no effect",
         SkipReason.Unknown =>
             "unclassified skip reason",
         _ => null,

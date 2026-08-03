@@ -29,6 +29,16 @@ internal static class AvailabilityAttributeEmitter
     /// For method-level: set emitObsolete=false (merged into EmitSafetyObsolete to avoid conflict).
     /// For type/property/protocol-level: set emitObsolete=true.
     /// </summary>
+    /// <summary>
+    /// Whether <see cref="EmitAvailabilityAttributes"/> with <c>emitObsolete: true</c> will write a
+    /// bare <c>[Obsolete]</c> for this declaration. <c>[Obsolete]</c> is <c>AllowMultiple = false</c>,
+    /// so any site that emits its own diagnostic <c>[Obsolete]</c> onto a declaration that also
+    /// carries availability attributes must consult this first — two of them is CS0579, not a
+    /// warning.
+    /// </summary>
+    public static bool EmitsUnconditionalObsolete(BaseDecl decl) =>
+        decl.AvailabilityAnnotations?.Any(a => a.IsUnconditionallyDeprecated) == true;
+
     public static void EmitAvailabilityAttributes(
         CSharpWriter csWriter, BaseDecl decl, BaseDecl? parentDecl = null, bool emitObsolete = true)
     {

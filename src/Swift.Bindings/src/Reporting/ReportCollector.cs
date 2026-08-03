@@ -126,6 +126,13 @@ public static class ReportCollector
         /// </summary>
         internal readonly HashSet<(string TypeKey, string Protocol)> DroppedConformanceEntries = new();
 
+        /// <summary>
+        /// Module-qualified names of protocols already reported as having no reverse-dispatchable
+        /// requirement. The verdict is reached once per protocol at interface-emission time, but the
+        /// same protocol is emitted again for each fallback pass, so the row is deduped here.
+        /// </summary>
+        internal readonly HashSet<string> ReverseDispatchUnavailableProtocols = new(StringComparer.Ordinal);
+
         internal ReportSession(BindingReport report, ModuleDecl module)
         {
             Report = report;
@@ -616,6 +623,48 @@ public static class ReportCollector
                 // stamping the conforming type's id would enter this row into the attribution linker's
                 // enclosing-type index, where it could be named as the ancestor cause of an unrelated
                 // member row inside that same (emitted) type. The type name lives in ContainingType.
+                DeclId = null,
+            });
+        }
+    }
+
+    /// <summary>
+    /// Records a protocol whose emitted <c>I{Protocol}</c> interface cannot be implemented to any
+    /// effect: the proxy declares reverse-dispatch obligations but wires none of them, so no callback
+    /// table is registered with Swift. Nothing else in the report names this — every individual
+    /// requirement may have its own perfectly ordinary row (or none at all, when the requirement is
+    /// still declared on the interface), and only their intersection is the failure.
+    /// </summary>
+    /// <param name="protocolDecl">The protocol; both its interface and its proxy ARE emitted.</param>
+    /// <param name="details">Per-requirement dispositions — which shape kept each slot null.</param>
+    public static void RecordReverseDispatchUnavailable(ProtocolDecl protocolDecl, string details)
+    {
+        ArgumentNullException.ThrowIfNull(protocolDecl);
+
+        var session = Current;
+        if (session == null)
+            return;
+
+        var name = protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name;
+        lock (session.Sync)
+        {
+            if (!session.ReverseDispatchUnavailableProtocols.Add(name))
+                return;
+
+            session.Report.SkippedItems.Add(new SkippedItem
+            {
+                Kind = BindingItemKind.Type,
+                Name = protocolDecl.Name,
+                ContainingType = protocolDecl.ModuleDecl?.Name,
+                Reason = SkipReason.ProtocolProxyVtableEmpty,
+                Details = details,
+                RecommendedWorkaround = WorkaroundRecommendations.GetRecommendation(
+                    SkipReason.ProtocolProxyVtableEmpty),
+                Position = protocolDecl.Position,
+                // Intentionally id-less, for the same reason RecordConformanceDropped is: the protocol
+                // type itself IS emitted, and stamping its id would enter this row into the attribution
+                // linker's enclosing-type index as a candidate ancestor cause for unrelated member rows
+                // inside it.
                 DeclId = null,
             });
         }

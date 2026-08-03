@@ -270,6 +270,10 @@ public static class SkipCauseClassifier
         // Decided while emitting the proxy, from a dispatch classification the emitter computed itself.
         Add(SkipReason.ProtocolWitnessNotDispatchable, CauseOwner.Generator, RecoveryStage.Emit, AttributionConfidence.High);
 
+        // Decided while emitting the proxy, from the generator's own fill plan, and the row names
+        // every requirement that failed to wire — so both the owner and the stage are known outright.
+        Add(SkipReason.ProtocolProxyVtableEmpty, CauseOwner.Generator, RecoveryStage.Emit, AttributionConfidence.High);
+
         // ── Library API surface — the author could change this, we cannot ────────────────────────
         Add(SkipReason.UnderscorePrefixInternal, CauseOwner.LibraryAuthor, RecoveryStage.Parse, AttributionConfidence.High);
         Add(SkipReason.ModuleInternal, CauseOwner.LibraryAuthor, RecoveryStage.Parse, AttributionConfidence.High);

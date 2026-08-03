@@ -58,6 +58,10 @@ namespace BindingsGeneration
             }
 
             EmitFallbackAttribute(csWriter);
+            // Capture ahead of the attributes and signature so a CONSUME-degraded parameter — discovered
+            // only once the body's marshalling has been emitted — can still have its marker injected in
+            // front of them. Same contract as the method and constructor paths.
+            var preSignatureCheckpoint = csWriter.Checkpoint();
             // A factory that is about to become a throwing tombstone has to say so on the declaration,
             // not only in the exception text — otherwise the one compile-time notice a consumer gets
             // before calling something that cannot work is missing on this member kind alone. The marker
@@ -275,6 +279,7 @@ namespace BindingsGeneration
             EmitUnsafeBlockEnd(csWriter);
             EmitBodyEnd(csWriter);
             ApplyAbiFloorTombstone(csWriter, abiFloorBodyCheckpoint);
+            InjectConsumeDegradedMarker(csWriter, preSignatureCheckpoint);
         }
 
         /// <summary>

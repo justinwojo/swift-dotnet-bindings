@@ -683,11 +683,48 @@ namespace BindingsGeneration
             // so we know whether any members were emitted.
             XmlDocCommentEmitter.EmitDocComment(csWriter, protocolDecl);
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, protocolDecl, emitObsolete: true);
-            if (emittedInterfaceMemberCount == 0 && totalDeclaredMembers > 0 && inheritedInterfaces.Count == 0)
+            // [Obsolete] is AllowMultiple = false: a second one on the same declaration is CS0579, so
+            // an unconditionally-deprecated protocol keeps its availability deprecation and neither
+            // diagnostic marker below is added. The report row is recorded either way.
+            var carriesAvailabilityObsolete = AvailabilityAttributeEmitter.EmitsUnconditionalObsolete(protocolDecl);
+            // A protocol whose proxy will register a vtable holding nothing but null function pointers
+            // is the one shape where the emitted interface makes a claim the binding cannot keep: it
+            // looks implementable, it compiles, and Swift never calls the implementation. Computed
+            // here, from the same fill plan the proxy's static ctor consumes, because the interface
+            // declaration is committed to the writer before the proxy is emitted.
+            var reverseDispatchPlan = ReverseDispatchFillPlan(protocolDecl, env.TypeDatabase, context.EmissionContext,
+                skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices);
+            // A hollow OWN vtable is not the same fact as an inert interface. A child protocol whose own
+            // slots are all unfillable still reverse-dispatches everything it inherits, through its
+            // ancestor's proxy — so the inheritance carve-out belongs to the FACT, not to the marker's
+            // emission. Gating only the marker and not the report would have the report assert something
+            // the source contradicts.
+            var reverseDispatchIsInert = reverseDispatchPlan?.IsHollow == true && inheritedInterfaces.Count == 0;
+            if (reverseDispatchIsInert)
+            {
+                ReportCollector.RecordReverseDispatchUnavailable(protocolDecl,
+                    $"{reverseDispatchPlan!.ObligationCount} requirement(s) declared, 0 callback slots filled — "
+                    + reverseDispatchPlan.DescribeUnfilled());
+            }
+            if (emittedInterfaceMemberCount == 0 && totalDeclaredMembers > 0 && inheritedInterfaces.Count == 0
+                && !carriesAvailabilityObsolete)
             {
                 csWriter.WriteLine($"[Obsolete(\"All {totalDeclaredMembers} protocol member(s) were skipped during binding generation (SB0004). \" +");
                 csWriter.WriteLine("    \"This interface is empty because no members could be projected to C#.\",");
                 csWriter.WriteLine("    DiagnosticId = \"SB0004\",");
+                csWriter.WriteLine("    UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\")]");
+            }
+            // The availability check is the one condition that gates emission WITHOUT gating the fact:
+            // an unconditionally-deprecated protocol is still inert, and its report row above still says
+            // so — the second [Obsolete] simply cannot be written (CS0579).
+            else if (reverseDispatchIsInert && !carriesAvailabilityObsolete)
+            {
+                csWriter.WriteLine($"[Obsolete(\"No requirement of {protocolDecl.Name} is reverse-dispatchable, so a C# type that \" +");
+                csWriter.WriteLine("    \"implements this interface is never called back from Swift (SB0010). This says nothing \" +");
+                csWriter.WriteLine("    \"about the forward direction — consuming a Swift-vended value through this interface is \" +");
+                csWriter.WriteLine("    \"governed by that member's own markers. See the binding report for which requirement \" +");
+                csWriter.WriteLine("    \"shapes could not be wired.\",");
+                csWriter.WriteLine("    DiagnosticId = \"SB0010\",");
                 csWriter.WriteLine("    UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\")]");
             }
             if (protocolDecl.Name.StartsWith("_"))
@@ -783,6 +820,33 @@ namespace BindingsGeneration
                         closureSkippedMethodKeys, closureSkippedPropertyNames, staticAbstractPropertyNames, staticAbstractMethodKeys, context.EmissionContext);
                     break;
             }
+        }
+
+        /// <summary>
+        /// The reverse-dispatch fill plan for this protocol, or null when no registered vtable is in
+        /// play at all — the proxy is suppressed, the emitter bails out on it (Self requirement /
+        /// associated types), or EveryProtocolEmitter exported no <c>Set{Protocol}_vtable</c>
+        /// trampoline. A null plan means "not this session's question": those protocols already reach
+        /// the consumer through other markers, and reusing SB0010 for them would widen the warning
+        /// far past the shape it names.
+        /// </summary>
+        private static ProtocolVtableFillPlan? ReverseDispatchFillPlan(
+            ProtocolDecl protocolDecl,
+            ITypeDatabase typeDatabase,
+            ModuleEmissionContext? emissionContext,
+            HashSet<string> skippedMethodKeys,
+            HashSet<string> skippedPropertyNames,
+            HashSet<int> skippedSubscriptIndices)
+        {
+            if (protocolDecl.HasSelfRequirement || protocolDecl.AssociatedTypes.Count > 0)
+                return null;
+            if (ProtocolProxyEmissionPolicy.Decide(protocolDecl, typeDatabase, emissionContext) != ProxyEmissionDecision.Emit)
+                return null;
+            if (!ProtocolProxyEmitter.RegistersOwnVtable(protocolDecl, emissionContext))
+                return null;
+
+            return ProtocolVtableFillPlanBuilder.Build(
+                protocolDecl, typeDatabase, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices);
         }
 
         /// <summary>

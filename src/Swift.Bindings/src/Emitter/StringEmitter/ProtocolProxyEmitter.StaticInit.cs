@@ -168,8 +168,22 @@ public partial class ProtocolProxyEmitter
         // empty child that inherits a cross-module parent (e.g. `protocol Child:
         // OtherModule.Parent {}`) can still receive inherited dispatch through the
         // parent's `_p_vtable` global in the bound module's wrapper.
-        var emitChildVtablePopulation = _setVtableEmitted;
-        if (!emitChildVtablePopulation)
+        // A hollow vtable — every declared requirement present but not one of them reverse-dispatchable
+        // — is registered with Swift as an all-null table, and a C# type implementing the interface is
+        // then never called. Registering it advertises a readiness that does not exist and pins a
+        // GCHandle for a table nothing can dispatch through, so suppress the population and the
+        // registration together. Strictly gated on ZERO filled callbacks: one live slot means the
+        // interface IS honestly implementable for that member and the table must be registered.
+        var fillPlan = ProtocolVtableFillPlanBuilder.Build(
+            protocolDecl, _typeDatabase, _skippedMethodKeys, _skippedPropertyNames, _skippedSubscriptIndices);
+        var emitChildVtablePopulation = _setVtableEmitted && !fillPlan.IsHollow;
+        if (_setVtableEmitted && fillPlan.IsHollow)
+        {
+            writer.WriteLine($"// No requirement of {protocolDecl.Name} is reverse-dispatchable ({fillPlan.ObligationCount} declared,");
+            writer.WriteLine("// 0 callback slots filled), so no vtable is registered with Swift: a C# implementation of");
+            writer.WriteLine("// this interface has nothing to be called back through. The Swift→C# wrap path is unaffected.");
+        }
+        else if (!emitChildVtablePopulation)
         {
             writer.WriteLine("// No Set" + protocolDecl.Name + "_vtable Swift trampoline was emitted for this protocol;");
             writer.WriteLine("// the proxy is read-only for its own surface (Swift→C# wrap path only).");
@@ -185,7 +199,7 @@ public partial class ProtocolProxyEmitter
 
         if (emitChildVtablePopulation)
         {
-            EmitChildVtablePopulation(writer, protocolDecl, swiftVtableName, localVtableName, setVtableName);
+            EmitChildVtablePopulation(writer, fillPlan, swiftVtableName, localVtableName, setVtableName);
         }
 
         // After registering the child's own vtable, populate each cross-module
@@ -220,100 +234,27 @@ public partial class ProtocolProxyEmitter
     /// </summary>
     private void EmitChildVtablePopulation(
         CSharpWriter writer,
-        ProtocolDecl protocolDecl,
+        ProtocolVtableFillPlan fillPlan,
         string swiftVtableName,
         string localVtableName,
         string setVtableName)
     {
-        // Build local vtable with receiver function pointers
+        // Both tables render ONE sequence of filled slot suffixes, computed by
+        // ProtocolVtableFillPlanBuilder from the same two gates these loops used to apply inline:
+        //   1. LAYOUT — VtableLayoutBuilder.Classify*. Never assign into a slot the struct does not
+        //      declare (would reference a missing field), and take the slot INDEX from the shared
+        //      model so an assignment can never drift from its struct field (Bug #21).
+        //   2. FILLABILITY — the interface-emission skip sets plus the raw/projected-key dedup. A
+        //      slot Swift KEEPS but C# can't project (e.g. AnyType-unprojectable) has no Receive_
+        //      trampoline, so it is left null; the struct still carries the field.
+        // Driving both from one sequence is what makes the Swift-facing mirror unable to claim a
+        // pointer the local table left null — it previously omitted the raw-key dedup and would copy
+        // an unassigned local field, which reads as a wired slot right up until the null deref.
         writer.WriteLine($"_localVTable = new {localVtableName}");
         writer.WriteLine("{");
         writer.Indent++;
-
-        // Two distinct gates per member, mirroring the cross-module path (EmitCrossModuleParent
-        // VtableInit) and the struct definitions (EmitSwiftVtableStruct/EmitLocalVtableStruct):
-        //   1. LAYOUT — ProtocolVtableMembers.IncludesProperty/IncludesSubscript. Never assign into
-        //      a slot the struct does not declare (would reference a missing field).
-        //   2. FILLABILITY — _skippedPropertyNames / _skippedSubscriptIndices. A slot Swift KEEPS
-        //      but C# can't project (e.g. AnyType-unprojectable) has no Receive_ trampoline, so the
-        //      assignment is skipped and the slot is left null. The struct still carries the field.
-        var vtableClosureHandler = new ClosureHandler(_typeDatabase);
-
-        var emittedLocalAssignments = new HashSet<string>();
-
-        foreach (var property in protocolDecl.Properties)
-        {
-            if (property.IsStatic)
-                continue;
-            if (!ProtocolVtableMembers.IncludesProperty(property, protocolDecl, vtableClosureHandler))
-                continue;
-            if (_skippedPropertyNames.Contains(property.Name))
-                continue;
-            EmitLocalVtablePropertyAssignment(writer, property, emittedLocalAssignments);
-        }
-
-        int subscriptIndex = 0;
-        var emittedSubscripts = new HashSet<string>();
-        foreach (var subscript in protocolDecl.Subscripts)
-        {
-            if (subscript.IsStatic)
-                continue;
-            var subscriptKey = $"subscript_{subscriptIndex}";
-            if (emittedSubscripts.Add(subscriptKey))
-            {
-                // A non-static excluded subscript still consumes its index below so the numbering
-                // matches the struct layout; only the assignment is gated on layout + fillability.
-                if (ProtocolVtableMembers.IncludesSubscript(subscript, protocolDecl, vtableClosureHandler) &&
-                    !_skippedSubscriptIndices.Contains(subscriptIndex))
-                    EmitLocalVtableSubscriptAssignment(writer, subscript, subscriptIndex);
-            }
-            subscriptIndex++;
-        }
-
-        // Slot INDEX comes from the shared VtableLayout model (the SAME ordered list the struct in
-        // Vtables.cs renders), so an assignment's index can never drift from its struct field (Bug #21).
-        // The fillability skips below then leave Swift-kept-but-C#-unfillable slots null. Both the local
-        // and the swift-facing assignment loops reuse this one map (their indices are identical — same
-        // methods, same order, same pre-skip + raw-key dedup).
-        var methodSlotIndices = new VtableLayoutBuilder(_typeDatabase).Build(protocolDecl).MethodSlotIndexByKey;
-        var methodIndices = new Dictionary<string, int>();
-        var emittedRawKeys = new HashSet<string>();
-        var emittedCSharpKeys = new HashSet<string>();
-        foreach (var method in protocolDecl.Methods)
-        {
-            if (method.IsConstructor || method.MethodType == MethodType.Static)
-                continue;
-            // @objc optional methods get no vtable slot — the Swift producer skips them BEFORE
-            // the index increment, so this assignment loop must not consume the slot either, or
-            // the following required method's delegate lands in the wrong struct field.
-            if (method.IsObjCOptional)
-                continue;
-
-            var slotKey = EveryProtocolEmitter.GetMethodKey(method);
-            if (!methodIndices.ContainsKey(slotKey))
-            {
-                var idx = methodSlotIndices[slotKey];
-                methodIndices[slotKey] = idx;
-                // LAYOUT: a method with no Swift vtable slot has no struct field to assign into.
-                if (!ProtocolVtableMembers.IncludesMethod(method, protocolDecl, vtableClosureHandler))
-                    continue;
-                var collapsingKey = ProtocolMethodDisambiguator.EffectiveRawKey(method, protocolDecl, _typeDatabase);
-                if (_skippedMethodKeys.Contains(collapsingKey))
-                    continue;
-                // RAW-SIGNATURE DEDUP: mirror the interface's one-method-per-raw-key invariant and
-                // the receiver loop (ProtocolProxyEmitter.Receivers.cs). An overload pair that
-                // collapses to one raw key but projects to distinct C# methods must wire only the
-                // surviving (first) overload's trampoline; the orphan slot stays null rather than
-                // pointing at a receiver for a non-existent C# overload.
-                if (!emittedRawKeys.Add(collapsingKey))
-                    continue;
-                var projectedKey = ProtocolMethodDisambiguator.EffectiveProjectedKey(method, protocolDecl, _typeDatabase, propertyNames: null);
-                if (!emittedCSharpKeys.Add(projectedKey))
-                    continue;
-                EmitLocalVtableMethodAssignment(writer, method, idx);
-            }
-        }
-
+        foreach (var suffix in fillPlan.FilledSlotSuffixes)
+            writer.WriteLine($"Func_{suffix} = &Receive_{suffix},");
         writer.Indent--;
         writer.WriteLine("};");
         writer.WriteLine();
@@ -325,66 +266,8 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine("{");
         writer.Indent++;
         writer.WriteLine("csVTHandle = GCHandle.ToIntPtr(_localVTableHandle),");
-
-        var emittedSwiftAssignments = new HashSet<string>();
-
-        foreach (var property in protocolDecl.Properties)
-        {
-            if (property.IsStatic)
-                continue;
-            // Same layout-then-fillability gating as the local-vtable loop above.
-            if (!ProtocolVtableMembers.IncludesProperty(property, protocolDecl, vtableClosureHandler))
-                continue;
-            if (_skippedPropertyNames.Contains(property.Name))
-                continue;
-            EmitSwiftVtablePropertyAssignment(writer, property, emittedSwiftAssignments);
-        }
-
-        subscriptIndex = 0;
-        emittedSubscripts.Clear();
-        foreach (var subscript in protocolDecl.Subscripts)
-        {
-            if (subscript.IsStatic)
-                continue;
-            var subscriptKey = $"subscript_{subscriptIndex}";
-            if (emittedSubscripts.Add(subscriptKey))
-            {
-                if (ProtocolVtableMembers.IncludesSubscript(subscript, protocolDecl, vtableClosureHandler) &&
-                    !_skippedSubscriptIndices.Contains(subscriptIndex))
-                    EmitSwiftVtableSubscriptAssignment(writer, subscript, subscriptIndex);
-            }
-            subscriptIndex++;
-        }
-
-        methodIndices.Clear();
-        emittedCSharpKeys.Clear();
-        foreach (var method in protocolDecl.Methods)
-        {
-            if (method.IsConstructor || method.MethodType == MethodType.Static)
-                continue;
-            // @objc optional methods get no vtable slot — the Swift producer skips them BEFORE
-            // the index increment, so this assignment loop must not consume the slot either, or
-            // the following required method's delegate lands in the wrong struct field.
-            if (method.IsObjCOptional)
-                continue;
-
-            var slotKey = EveryProtocolEmitter.GetMethodKey(method);
-            if (!methodIndices.ContainsKey(slotKey))
-            {
-                var idx = methodSlotIndices[slotKey];
-                methodIndices[slotKey] = idx;
-                if (!ProtocolVtableMembers.IncludesMethod(method, protocolDecl, vtableClosureHandler))
-                    continue;
-                var collapsingKey = ProtocolMethodDisambiguator.EffectiveRawKey(method, protocolDecl, _typeDatabase);
-                if (_skippedMethodKeys.Contains(collapsingKey))
-                    continue;
-                var projectedKey = ProtocolMethodDisambiguator.EffectiveProjectedKey(method, protocolDecl, _typeDatabase, propertyNames: null);
-                if (!emittedCSharpKeys.Add(projectedKey))
-                    continue;
-                EmitSwiftVtableMethodAssignment(writer, method, idx);
-            }
-        }
-
+        foreach (var suffix in fillPlan.FilledSlotSuffixes)
+            writer.WriteLine($"func_{suffix} = (IntPtr)_localVTable.Func_{suffix},");
         writer.Indent--;
         writer.WriteLine("};");
         writer.WriteLine();

@@ -132,6 +132,11 @@ public static class SkipDispositionClassifier
             // instance, so only the protocol-typed call path is gone. The per-site shape reason is
             // in Details.
             [SkipReason.ProtocolWitnessNotDispatchable] = SkipDisposition.KnownLimitation,
+            // A hollow reverse-dispatch vtable is a real consumer-visible loss — the C#-implements-the-
+            // protocol direction is gone entirely — but a fully attributed one: the row enumerates each
+            // requirement and the shape that kept its slot null, and the emitted interface carries the
+            // matching SB0010 marker. Attributed, so KnownLimitation rather than Review.
+            [SkipReason.ProtocolProxyVtableEmpty] = SkipDisposition.KnownLimitation,
 
             // An emitter fault is the one skip that is never defensible: the generator threw on a
             // shape it was supposed to lower. Containment keeps the rest of the module shippable, but
@@ -191,7 +196,10 @@ public static class SkipDispositionClassifier
     /// LOST surface has to exclude them or it reports shipped API as missing.
     /// </summary>
     public static bool IsDeclaredButDegraded(SkipReason reason) =>
-        reason == SkipReason.ProtocolWitnessNotDispatchable;
+        reason == SkipReason.ProtocolWitnessNotDispatchable
+        // The interface AND the proxy are both emitted; only the reverse-dispatch direction is dead,
+        // so counting this row as lost surface would report shipped API as missing.
+        || reason == SkipReason.ProtocolProxyVtableEmpty;
 
     /// <summary>
     /// Classifies a skip reason in isolation. For <see cref="SkipReason.EveryProtocolConformanceSkipped"/>

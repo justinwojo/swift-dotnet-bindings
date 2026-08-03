@@ -135,6 +135,26 @@ public partial class ProtocolProxyEmitter
         ? "SBW_SetEveryEntityProtocolDeinitCallback"
         : (_useObjCBase ? "SBW_SetEveryObjCProtocolDeinitCallback" : "SBW_SetEveryProtocolDeinitCallback");
 
+    /// <summary>
+    /// Whether this protocol's proxy will call <c>Set{Protocol}_vtable</c> at all — i.e. whether
+    /// EveryProtocolEmitter emitted the Swift trampoline for it. False for marker / static-only /
+    /// noncopyable / read-only (Swift-vended-only) protocols, whose static ctor emits a no-op
+    /// <c>InitializeVtable</c> rather than calling a symbol the wrapper never exported.
+    ///
+    /// <para>
+    /// Shared with <see cref="Handler.ProtocolHandler"/>, which needs the same fact BEFORE the
+    /// interface declaration is written to decide whether the interface can claim reverse dispatch.
+    /// A null context is the unit-test path and keeps the legacy always-true behaviour, matching the
+    /// implicit fallback the constructor substitutes. Keyed on the module-qualified name (matching
+    /// EveryProtocolEmitter's Mark site) so a dependency protocol sharing a simple name with a local
+    /// one cannot mis-gate this proxy.
+    /// </para>
+    /// </summary>
+    internal static bool RegistersOwnVtable(ProtocolDecl protocolDecl, ModuleEmissionContext? ctx) =>
+        ctx is null
+        || ctx.IsImplicitFallback
+        || ctx.WasSetVtableEmitted(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name);
+
     public ProtocolProxyEmitter(ITypeDatabase typeDatabase, ILogger logger, string moduleName, ModuleEmissionContext? ctx = null)
     {
         _typeDatabase = typeDatabase;
@@ -228,8 +248,7 @@ public partial class ProtocolProxyEmitter
         // — _setVtableEmitted is treated as true so existing tests stay green.
         // Keyed on the module-qualified name (matching EveryProtocolEmitter's Mark site) so a
         // dependency protocol sharing a simple name with a local one cannot mis-gate this proxy.
-        _setVtableEmitted = _emissionContext.IsImplicitFallback
-            || _emissionContext.WasSetVtableEmitted(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name);
+        _setVtableEmitted = RegistersOwnVtable(protocolDecl, _emissionContext);
         // Keyed on the module-qualified name (matching EveryProtocolEmitter's Mark site) so a
         // dependency protocol sharing a simple name with a local one cannot mis-gate this proxy.
         _witnessGetterEmitted = _emissionContext.IsImplicitFallback

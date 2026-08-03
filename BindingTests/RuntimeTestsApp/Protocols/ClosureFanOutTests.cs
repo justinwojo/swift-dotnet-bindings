@@ -161,6 +161,13 @@ internal class ClosureRetFanOwnerOnlyImpl : IClosureRetFanOwner
     public Action MakeNotifier() => () => Recorded = _value;
 }
 
+// The two async impls below are the only conformers in this file that the binding marks as never
+// reverse-dispatched, and the marker is telling the truth: the tests driving them are [Skip]ped for
+// exactly that reason — the shared sync witness cannot route an async receiver thunk's Task through a
+// sync @convention(c) pointer, so no vtable slot is ever filled for these protocols. They stay as
+// compile-only coverage of the shape, so the warning is acknowledged here rather than heeded.
+#pragma warning disable SB0010 // protocol is never reverse-dispatched; compile-only coverage on purpose
+
 internal class AsyncClosureFanPeerOnlyImpl : IAsyncClosureFanPeer
 {
     public int LastFactoryValue = -1;
@@ -180,3 +187,5 @@ internal class AsyncClosureFanOwnerOnlyImpl : IAsyncClosureFanOwner
         return Task.CompletedTask;
     }
 }
+
+#pragma warning restore SB0010

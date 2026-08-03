@@ -384,6 +384,24 @@ public enum SkipReason
     /// </para>
     /// </summary>
     ProtocolWitnessNotDispatchable,
+
+    /// <summary>
+    /// The protocol's <c>{Protocol}Proxy</c> declares at least one reverse-dispatch obligation and
+    /// wires NONE of them: every requirement is either absent from the vtable layout (non-dispatchable
+    /// closure, method-level generic, Self-typed) or has no <c>Receive_*</c> trampoline, so the table
+    /// would have been registered with Swift holding nothing but null function pointers. A C# type
+    /// implementing <c>I{Protocol}</c> compiles, runs, and is never called back.
+    /// <para>
+    /// Like <see cref="ProtocolWitnessNotDispatchable"/> this is a DEGRADATION, not an absence — the
+    /// interface and the proxy are both emitted and Swift-vended values consumed through the
+    /// interface still work; only the C#-implements-the-protocol direction is dead. The row is
+    /// appended to <see cref="BindingReport.SkippedItems"/> for countability WITHOUT counting in
+    /// <see cref="BindingReport.SkippedMembers"/>. <see cref="SkippedItem.Details"/> carries the
+    /// per-requirement dispositions, which is what turns "this interface does nothing" into a list
+    /// of the specific shapes that would have to become dispatchable.
+    /// </para>
+    /// </summary>
+    ProtocolProxyVtableEmpty,
 }
 
 /// <summary>

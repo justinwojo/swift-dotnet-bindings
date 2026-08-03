@@ -480,6 +480,10 @@ namespace BindingsGeneration
             }
 
             EmitFallbackAttribute(csWriter);
+            // Capture ahead of the attributes and signature so a CONSUME-degraded parameter — discovered
+            // only once the body's marshalling has been emitted — can still have its marker injected in
+            // front of them. Same contract as the method path.
+            var preSignatureCheckpoint = csWriter.Checkpoint();
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, _env.MethodDecl, _env.ParentDecl, emitObsolete: false);
             EmitSafetyObsolete(csWriter);
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isConstructor: true);
@@ -549,6 +553,7 @@ namespace BindingsGeneration
             EmitBodyEnd(csWriter);
             AssertRawBufferFixedDepthZero();
             ApplyAbiFloorTombstone(csWriter, abiFloorBodyCheckpoint);
+            InjectConsumeDegradedMarker(csWriter, preSignatureCheckpoint);
         }
 
         /// <summary>
@@ -670,6 +675,10 @@ namespace BindingsGeneration
 
             // Now emit the public constructor that calls the helper
             EmitFallbackAttribute(csWriter);
+            // The marshalling that discovers a CONSUME degrade ran in the static helper above, but the
+            // member a consumer names is this public constructor — so the marker is captured around it,
+            // not the helper.
+            var preSignatureCheckpoint = csWriter.Checkpoint();
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, _env.MethodDecl, _env.ParentDecl, emitObsolete: false);
             EmitSafetyObsolete(csWriter);
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isConstructor: true);
@@ -681,6 +690,7 @@ namespace BindingsGeneration
             EmitReturnConstructor(csWriter); // Emits DangerousRelease()
             EmitBodyEnd(csWriter);
             AssertRawBufferFixedDepthZero();
+            InjectConsumeDegradedMarker(csWriter, preSignatureCheckpoint);
         }
 
         /// <summary>
@@ -774,25 +784,46 @@ namespace BindingsGeneration
                     csWriter.AppendCaptured(capturedMember);
                 }
             }
-            else if (!_env.MethodDecl.IsAccessor &&
-                     _emissionContext?.WasConsumeDegradedMember(_env.MethodDecl) == true)
+            else
             {
-                // A public method with a CONSUME-degraded parameter (an existential param whose
-                // {Protocol}Proxy was suppressed, so a C#-authored conformer silently no-fires) — but whose
-                // return did NOT produce-throw (that path took the SB0006 error branch above, which subsumes
-                // this warning). Inject the warning-level SB0008 marker ahead of the already-written
-                // signature + body via the same capture/re-append the SB0006 path uses. Warning-level does
-                // NOT need the RemoveObsoleteAttributeLines dance (a build warning cannot break generated
-                // delegation), but [Obsolete] is AllowMultiple=false: if EmitSafetyObsolete already wrote a
-                // warning-level marker (SB0001/SB0002/deprecation), leave it — adding a second [Obsolete]
-                // would not compile, and the existing one already forces consumer attention. The report row
-                // is recorded independently at each consume site, so skipping the marker here loses only the
-                // in-source signal, never the persisted diagnostic.
-                var capturedMember = csWriter.RollbackToAndCapture(preSignatureCheckpoint);
-                if (!ContainsObsoleteAttributeLine(capturedMember))
-                    EmitConsumeDegradedWarning(csWriter);
-                csWriter.AppendCaptured(capturedMember);
+                // The return did NOT produce-throw (that path took the SB0006 error branch above, which
+                // subsumes this warning), so a CONSUME-degraded parameter still deserves its own marker.
+                InjectConsumeDegradedMarker(csWriter, preSignatureCheckpoint);
             }
+        }
+
+        /// <summary>
+        /// Injects the warning-level SB0008 marker ahead of an already-written member when that member
+        /// marshalled a C#→Swift existential whose <c>{Protocol}Proxy</c> was suppressed — i.e. a
+        /// C#-authored conformer passed to it silently never fires. The degrade is only known after the
+        /// body has been emitted (the marshalling emitters record it as they go), by which point the
+        /// signature is already written, so the member text is captured, the marker emitted, and the text
+        /// restored verbatim ahead of it — the same capture/re-append the error-level SB0006 path uses.
+        ///
+        /// Shared by every member kind that can carry a consume-degraded parameter — plain methods,
+        /// constructors, ObjC-rooted constructors and failable factories — so the marker cannot be present
+        /// on one member kind and silently absent on another with the identical parameter list.
+        ///
+        /// Warning-level does NOT need the <see cref="RemoveObsoleteAttributeLines"/> dance (a build warning
+        /// cannot break generated delegation), but <c>[Obsolete]</c> is <c>AllowMultiple=false</c>: if an
+        /// earlier emitter already wrote a warning-level marker (SB0001/SB0002/deprecation), leave it —
+        /// adding a second <c>[Obsolete]</c> would not compile, and the existing one already forces consumer
+        /// attention. The report row is recorded independently at each consume site, so skipping the marker
+        /// here loses only the in-source signal, never the persisted diagnostic.
+        ///
+        /// Property/subscript accessors are excluded: their public surface is emitted by their own handler,
+        /// not here, so a marker on the synthesized accessor would land on a member no consumer names.
+        /// </summary>
+        private void InjectConsumeDegradedMarker(
+            CSharpWriter csWriter, BufferedSourceWriter.WriterCheckpoint preSignatureCheckpoint)
+        {
+            if (_env.MethodDecl.IsAccessor || _emissionContext?.WasConsumeDegradedMember(_env.MethodDecl) != true)
+                return;
+
+            var capturedMember = csWriter.RollbackToAndCapture(preSignatureCheckpoint);
+            if (!ContainsObsoleteAttributeLine(capturedMember))
+                EmitConsumeDegradedWarning(csWriter);
+            csWriter.AppendCaptured(capturedMember);
         }
 
         /// <summary>
