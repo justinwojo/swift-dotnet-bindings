@@ -30,16 +30,19 @@ public static partial class SwiftUIBridgeEmitter
             },
             FlattenedParams: new[]
             {
+                // Each Bool default mirrors the scanning-UX settings type this chain feeds:
+                // the three presentation toggles are on by default, and the camera preference
+                // is off — a document scan points at the rear camera.
                 new AsyncFlatParam("licenseKey", AsyncFlatParamKind.String, "String",
                     "IntPtr", null, null),
                 new AsyncFlatParam("showIntroductionAlert", AsyncFlatParamKind.Bool, "Int32",
-                    "int", "!= 0", "? 1 : 0"),
+                    "int", "!= 0", "? 1 : 0", DefaultValue: true),
                 new AsyncFlatParam("showHelpButton", AsyncFlatParamKind.Bool, "Int32",
-                    "int", "!= 0", "? 1 : 0"),
+                    "int", "!= 0", "? 1 : 0", DefaultValue: true),
                 new AsyncFlatParam("allowHapticFeedback", AsyncFlatParamKind.Bool, "Int32",
-                    "int", "!= 0", "? 1 : 0"),
+                    "int", "!= 0", "? 1 : 0", DefaultValue: true),
                 new AsyncFlatParam("preferFrontCamera", AsyncFlatParamKind.Bool, "Int32",
-                    "int", "!= 0", "? 1 : 0"),
+                    "int", "!= 0", "? 1 : 0", DefaultValue: false),
             },
             ConstructionChain: new List<AsyncConstructionStep>
             {
@@ -80,12 +83,12 @@ public static partial class SwiftUIBridgeEmitter
             ResultCallback: new AsyncResultCallbackConfig(
                 SourceFieldName: "analyzer",
                 AwaitMethodName: "result",
-                ResultCases: new (string, int)[]
+                ResultCases: new[]
                 {
-                    ("completed", 0),
-                    ("interrupted", 1),
-                    ("cancelled", 2),
-                    ("ended", 3),
+                    new AsyncResultCase("completed", 0),
+                    new AsyncResultCase("interrupted", 1),
+                    new AsyncResultCase("cancelled", 2),
+                    new AsyncResultCase("ended", 3),
                 }),
             ViewInitArgs: new[]
             {
@@ -103,13 +106,27 @@ public static partial class SwiftUIBridgeEmitter
     }
 
     /// <summary>
+    /// Resolves a View's async pattern from the patterns supplied on <paramref name="context"/>
+    /// first and the generator's own registry second, so a caller can bridge a View the registry
+    /// does not know about without their descriptors becoming part of the shipped set. With no
+    /// supplied patterns this is exactly <see cref="GetAsyncPattern(string, string)"/>.
+    /// </summary>
+    public static AsyncViewPattern? ResolveAsyncPattern(string viewName, string moduleName, BridgeContext? context)
+    {
+        var external = context?.ExternalAsyncPatterns?.GetValueOrDefault($"{moduleName}.{viewName}");
+        return external ?? GetAsyncPattern(viewName, moduleName);
+    }
+
+    /// <summary>
     /// Detects if a View has an async dependency in its init parameters.
     /// A parameter is an async dependency if it's a non-primitive module type
     /// (not a closure, not a standard library type) that matches a known pattern.
+    /// Resolves through the same order as emission, so a View described only by
+    /// <paramref name="context"/>'s supplied patterns answers the same way a registry View does.
     /// </summary>
-    public static bool HasAsyncDependency(ViewBridgeInfo info)
+    public static bool HasAsyncDependency(ViewBridgeInfo info, BridgeContext? context = null)
     {
-        return KnownAsyncPatterns.ContainsKey($"{info.ModuleName}.{info.ViewName}");
+        return ResolveAsyncPattern(info.ViewName, info.ModuleName, context) != null;
     }
 
     #region Constructor Ranking
@@ -460,8 +477,11 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"public typealias {prefix}_ErrorFn = @convention(c) (UnsafePointer<UInt8>, Int, UnsafeMutableRawPointer?) -> Void");
         if (pattern.ResultCallback != null)
         {
-            sb.AppendLine($"/// C function pointer: (resultCode, userData) → called when operation completes.");
-            sb.AppendLine($"public typealias {prefix}_ResultFn = @convention(c) (Int32, UnsafeMutableRawPointer?) -> Void");
+            // The payload slot is part of the ABI whether or not this pattern carries one:
+            // a payload-less pattern always passes nil there, so the shape of the Swift
+            // typedef and of the C# trampoline stay in lockstep across every pattern.
+            sb.AppendLine($"/// C function pointer: (resultCode, payload, userData) → called when operation completes.");
+            sb.AppendLine($"public typealias {prefix}_ResultFn = @convention(c) (Int32, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void");
         }
         sb.AppendLine();
 
@@ -653,15 +673,43 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"            let result = await monitorSourceRef.{config.AwaitMethodName}()");
         sb.AppendLine($"            guard !{SwiftConcurrencyNames.Task}.isCancelled else {{ return }}");
         sb.AppendLine($"            guard {handlesVar}.contains(sessionHandle) else {{ return }}");
+        // Bail out before producing a payload when nobody is listening: the carrier below is
+        // a transfer of ownership that only the managed side can balance, so building one for
+        // a nil callback would strand a retain or an allocation with no owner.
+        sb.AppendLine($"            guard let cb = cb else {{ return }}");
         sb.AppendLine($"            let code: Int32");
+        var payload = config.Payload;
+        if (payload != null)
+            sb.AppendLine($"            var payloadPtr: UnsafeMutableRawPointer? = nil");
         sb.AppendLine($"            switch result {{");
-        foreach (var (swiftCase, code) in config.ResultCases)
+        foreach (var resultCase in config.ResultCases)
         {
-            sb.AppendLine($"            case .{swiftCase}: code = {code}");
+            if (payload != null && resultCase.CarriesPayload)
+            {
+                sb.AppendLine($"            case .{resultCase.SwiftCase}(let payloadValue):");
+                sb.AppendLine($"                code = {resultCase.Code}");
+                EmitResultPayloadCarrier(sb, payload, "                ");
+            }
+            else
+            {
+                sb.AppendLine($"            case .{resultCase.SwiftCase}: code = {resultCase.Code}");
+            }
         }
         sb.AppendLine($"            @unknown default: code = -1");
         sb.AppendLine($"            }}");
-        sb.AppendLine($"            cb?(code, ud)");
+        sb.AppendLine(payload != null ? $"            cb(code, payloadPtr, ud)" : $"            cb(code, nil, ud)");
+        if (payload is { Kind: AsyncResultPayloadKind.Struct })
+        {
+            // The carrier is lent to the callback, not given: the managed side copies out of it
+            // while it is alive, and Swift takes its own allocation back down afterwards. Keeping
+            // both the allocation and its matching free on this side is what lets each runtime use
+            // its own allocator — handing this pointer to the managed wrapper would end up freeing
+            // Swift-allocated storage through .NET's allocator.
+            sb.AppendLine($"            if let payloadBuf = payloadPtr {{");
+            sb.AppendLine($"                payloadBuf.assumingMemoryBound(to: {payload.SwiftTypeName}.self).deinitialize(count: 1)");
+            sb.AppendLine($"                payloadBuf.deallocate()");
+            sb.AppendLine($"            }}");
+        }
         sb.AppendLine($"        }}");
         sb.AppendLine($"    }}");
         sb.AppendLine();
@@ -669,6 +717,34 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"        resultTask?.cancel()");
         sb.AppendLine($"        resultTask = nil");
         sb.AppendLine($"    }}");
+    }
+
+    /// <summary>
+    /// Emits the Swift side of the result-payload hand-off. A class is given away at +1 and the
+    /// managed wrapper adopts that reference; a struct is copied into raw storage that stays
+    /// Swift's, is only borrowed for the duration of the call, and is torn down once it returns.
+    /// </summary>
+    private static void EmitResultPayloadCarrier(
+        StringBuilder sb, AsyncResultPayload payload, string indent)
+    {
+        switch (payload.Kind)
+        {
+            case AsyncResultPayloadKind.Class:
+                sb.AppendLine($"{indent}payloadPtr = Unmanaged.passRetained(payloadValue).toOpaque()");
+                break;
+
+            case AsyncResultPayloadKind.Struct:
+                // A struct payload may be non-frozen, so its size and layout are only knowable
+                // through its metadata. initializeMemory performs the ARC-aware copy a bitwise
+                // store cannot (a raw store would also require BitwiseCopyable under Swift 6).
+                sb.AppendLine($"{indent}let payloadBuf = UnsafeMutableRawPointer.allocate(");
+                sb.AppendLine($"{indent}    byteCount: MemoryLayout<{payload.SwiftTypeName}>.size,");
+                sb.AppendLine($"{indent}    alignment: MemoryLayout<{payload.SwiftTypeName}>.alignment)");
+                sb.AppendLine($"{indent}payloadBuf.initializeMemory(");
+                sb.AppendLine($"{indent}    as: {payload.SwiftTypeName}.self, repeating: payloadValue, count: 1)");
+                sb.AppendLine($"{indent}payloadPtr = payloadBuf");
+                break;
+        }
     }
 
     /// <summary>
@@ -1043,7 +1119,16 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"        private sealed class CreateState");
         sb.AppendLine("        {");
         sb.AppendLine($"            public TaskCompletionSource<{info.ViewName}Session> Tcs {{ get; }}");
-        if (pattern.ResultCallback != null)
+        var resultPayload = pattern.ResultCallback?.Payload;
+        if (pattern.ResultCallback != null && resultPayload != null)
+        {
+            sb.AppendLine("            public Action<int>? OnResult { get; }");
+            sb.AppendLine($"            public Action<int, {resultPayload.CSharpTypeName}?>? OnResultPayload {{ get; }}");
+            sb.AppendLine($"            public CreateState(TaskCompletionSource<{info.ViewName}Session> tcs, Action<int>? onResult,");
+            sb.AppendLine($"                Action<int, {resultPayload.CSharpTypeName}?>? onResultPayload)");
+            sb.AppendLine("            { Tcs = tcs; OnResult = onResult; OnResultPayload = onResultPayload; }");
+        }
+        else if (pattern.ResultCallback != null)
         {
             sb.AppendLine("            public Action<int>? OnResult { get; }");
             sb.AppendLine($"            public CreateState(TaskCompletionSource<{info.ViewName}Session> tcs, Action<int>? onResult)");
@@ -1097,13 +1182,57 @@ public static partial class SwiftUIBridgeEmitter
         if (pattern.ResultCallback != null)
         {
             sb.AppendLine($"        [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
-            sb.AppendLine("        private static void OnResultTrampoline(int resultCode, IntPtr userData)");
+            sb.AppendLine($"        private static {(resultPayload is { Kind: AsyncResultPayloadKind.Struct } ? "unsafe " : "")}void OnResultTrampoline(int resultCode, IntPtr payload, IntPtr userData)");
             sb.AppendLine("        {");
             OpenUcoFailFastGuard(sb);
-            sb.AppendLine("            if (userData == IntPtr.Zero) return;");
-            sb.AppendLine("            var stateHandle = GCHandle.FromIntPtr(userData);");
-            sb.AppendLine("            if (stateHandle.IsAllocated && stateHandle.Target is CreateState state)");
-            sb.AppendLine("                state.OnResult?.Invoke(resultCode);");
+            if (resultPayload != null)
+            {
+                // Take ownership BEFORE any early return: bailing out first would strand the
+                // reference Swift handed over with nothing left to balance it.
+                sb.AppendLine($"            {resultPayload.CSharpTypeName}? resultPayload = null;");
+                sb.AppendLine("            if (payload != IntPtr.Zero)");
+                if (resultPayload.Kind == AsyncResultPayloadKind.Class)
+                {
+                    sb.AppendLine($"                resultPayload = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<{resultPayload.CSharpTypeName}>(payload);");
+                }
+                else
+                {
+                    // The struct arrives in storage Swift allocated and still owns, so the managed
+                    // wrapper must end up holding an INDEPENDENT copy that outlives the call. How
+                    // the temporary is cleaned up afterwards depends on the projected wrapper's
+                    // declared construction semantics — a wrapper that adopts the buffer keeps it,
+                    // one that copies out of it leaves it orphaned — so route through the runtime's
+                    // semantics-dispatching extraction rather than assuming one of those shapes.
+                    sb.AppendLine("            {");
+                    sb.AppendLine($"                var payloadMetadata = global::Swift.Runtime.SwiftObjectHelper<{resultPayload.CSharpTypeName}>.GetTypeMetadata();");
+                    sb.AppendLine($"                resultPayload = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalExtractedPayloadValue<{resultPayload.CSharpTypeName}>(");
+                    sb.AppendLine("                    (void*)payload, payloadMetadata.Size);");
+                    sb.AppendLine("            }");
+                }
+            }
+            sb.AppendLine("            if (userData != IntPtr.Zero)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                var stateHandle = GCHandle.FromIntPtr(userData);");
+            sb.AppendLine("                if (stateHandle.IsAllocated && stateHandle.Target is CreateState state)");
+            sb.AppendLine("                {");
+            sb.AppendLine("                    state.OnResult?.Invoke(resultCode);");
+            if (resultPayload != null)
+            {
+                // Handing the payload to a consumer hands over disposal with it.
+                sb.AppendLine("                    if (state.OnResultPayload != null)");
+                sb.AppendLine("                    {");
+                sb.AppendLine("                        state.OnResultPayload(resultCode, resultPayload);");
+                sb.AppendLine("                        resultPayload = null;");
+                sb.AppendLine("                    }");
+            }
+            sb.AppendLine("                }");
+            sb.AppendLine("            }");
+            if (resultPayload != null)
+            {
+                // Undelivered payload: release now rather than waiting on the finalizer, so a
+                // consumer that only wants the scalar code does not accumulate native memory.
+                sb.AppendLine("            (resultPayload as IDisposable)?.Dispose();");
+            }
             CloseUcoFailFastGuard(sb);
             sb.AppendLine("        }");
             sb.AppendLine();
@@ -1173,19 +1302,26 @@ public static partial class SwiftUIBridgeEmitter
                 AsyncFlatParamKind.BoundEnum => param.CSharpTypeName ?? param.CSharpPInvokeType,
                 _ => param.CSharpPInvokeType,
             };
-            var defaultVal = param.Kind switch
-            {
-                AsyncFlatParamKind.Bool => " = true",
-                _ => "",
-            };
+            // A default is only emitted when the pattern data supplies one. The generator has no
+            // way to read a Swift initializer's own default from the ABI, so inventing one (this
+            // used to hand every Bool `= true`) states a library default we never observed — and
+            // gets it wrong whenever the library disagrees.
+            var defaultVal = param.Kind == AsyncFlatParamKind.Bool && param.DefaultValue is { } boolDefault
+                ? (boolDefault ? " = true" : " = false")
+                : "";
             if (defaultVal.Length > 0)
                 optionalParams.Add($"{type} {param.CSharpName}{defaultVal}");
             else
                 requiredParams.Add($"{type} {param.CSharpName}");
         }
+        var resultPayload = pattern.ResultCallback?.Payload;
         if (pattern.ResultCallback != null)
         {
             optionalParams.Add("Action<int>? onResult = null");
+            // Additive: the scalar channel above is untouched, and a pattern whose result
+            // carries a value simply offers a second, typed channel next to it.
+            if (resultPayload != null)
+                optionalParams.Add($"Action<int, {resultPayload.CSharpTypeName}?>? onResultPayload = null");
         }
         requiredParams.AddRange(optionalParams);
 
@@ -1195,7 +1331,11 @@ public static partial class SwiftUIBridgeEmitter
         // a scope seeded with the factory's user-facing param identifiers. No collision → zero churn.
         var asyncFactoryUserNames = new List<string>(pattern.FlattenedParams.Select(p => p.Name));
         if (pattern.ResultCallback != null)
+        {
             asyncFactoryUserNames.Add("onResult");
+            if (resultPayload != null)
+                asyncFactoryUserNames.Add("onResultPayload");
+        }
         var asyncFactoryScope = new SyntheticNameScope(asyncFactoryUserNames);
         var tcsLocal = asyncFactoryScope.Reserve("tcs");
         var stateLocal = asyncFactoryScope.Reserve("state");
@@ -1219,7 +1359,11 @@ public static partial class SwiftUIBridgeEmitter
 
         sb.AppendLine($"            var {tcsLocal} = new TaskCompletionSource<{info.ViewName}Session>(");
         sb.AppendLine("                TaskCreationOptions.RunContinuationsAsynchronously);");
-        if (pattern.ResultCallback != null)
+        if (pattern.ResultCallback != null && resultPayload != null)
+        {
+            sb.AppendLine($"            var {stateLocal} = new CreateState({tcsLocal}, onResult, onResultPayload);");
+        }
+        else if (pattern.ResultCallback != null)
         {
             sb.AppendLine($"            var {stateLocal} = new CreateState({tcsLocal}, onResult);");
         }
@@ -1237,7 +1381,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"                    delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> {errorPtrLocal} = &OnErrorTrampoline;");
         if (pattern.ResultCallback != null)
         {
-            sb.AppendLine($"                    delegate* unmanaged[Cdecl]<int, IntPtr, void> {resultPtrLocal} = &OnResultTrampoline;");
+            sb.AppendLine($"                    delegate* unmanaged[Cdecl]<int, IntPtr, IntPtr, void> {resultPtrLocal} = &OnResultTrampoline;");
         }
         sb.AppendLine();
 
@@ -1345,10 +1489,69 @@ public record AsyncViewPattern(
 /// resultTask field, startResultMonitor / cancelResultMonitor helpers, plus the
 /// matching C# OnResultTrampoline, CreateState(Action&lt;int&gt;?), and resultPtr wiring.
 /// </summary>
+/// <param name="Payload">
+/// The value a result case carries, or null when the result is a bare code. When set, the
+/// generator additionally emits payload extraction on the Swift side and a typed
+/// <c>Action&lt;int, T?&gt;</c> callback on the C# side — <i>alongside</i> the scalar
+/// <c>Action&lt;int&gt;</c>, which keeps working unchanged.
+/// </param>
 public record AsyncResultCallbackConfig(
     string SourceFieldName,
     string AwaitMethodName,
-    IReadOnlyList<(string SwiftCase, int Code)> ResultCases);
+    IReadOnlyList<AsyncResultCase> ResultCases,
+    AsyncResultPayload? Payload = null);
+
+/// <summary>
+/// One case of the result enum a monitored source resolves to: the Swift case name, the
+/// integer code handed to the scalar result callback, and whether that case carries the
+/// pattern's payload as an associated value.
+/// </summary>
+/// <param name="CarriesPayload">
+/// True when the case binds the <see cref="AsyncResultCallbackConfig.Payload"/> value
+/// (<c>case .completed(let value)</c>). At most one case is expected to carry it; cases
+/// without a payload deliver a null pointer, so the managed callback sees a null result.
+/// </param>
+public record AsyncResultCase(string SwiftCase, int Code, bool CarriesPayload = false);
+
+/// <summary>
+/// The type a result case carries across the callback ABI, and how it is carried.
+/// The kind decides the ownership protocol on both sides — see
+/// <see cref="AsyncResultPayloadKind"/>.
+/// </summary>
+/// <param name="SwiftTypeName">Swift type of the associated value, as written in the Swift bridge.</param>
+/// <param name="CSharpTypeName">
+/// Projected C# wrapper type, emitted verbatim into the generated bridge. Qualify it when the
+/// wrapper lives outside the bridge's own namespace.
+/// </param>
+public record AsyncResultPayload(
+    AsyncResultPayloadKind Kind,
+    string SwiftTypeName,
+    string CSharpTypeName);
+
+/// <summary>
+/// How a result payload crosses the callback ABI. The two kinds use opposite carrier protocols —
+/// a class is <i>given</i>, a struct is <i>lent</i> — but both leave the managed side holding a
+/// reference it owns outright, and both balance every retain and allocation exactly once.
+/// </summary>
+public enum AsyncResultPayloadKind
+{
+    /// <summary>
+    /// A Swift class. Swift passes <c>Unmanaged.passRetained(...).toOpaque()</c> (+1) and the
+    /// managed wrapper adopts that reference.
+    /// </summary>
+    Class,
+
+    /// <summary>
+    /// A struct — including a non-frozen one, whose fields may not be read directly. Swift copies
+    /// the value into value-witness-sized raw storage via <c>initializeMemory(as:repeating:count:)</c>
+    /// (which performs the proper ARC-aware copy a bitwise store cannot) and <b>lends</b> that
+    /// buffer for the duration of the call, tearing it down once the callback returns. The managed
+    /// side therefore reads out an independent copy while the loan is live; the temporary it
+    /// allocates for that copy is reclaimed according to the projected wrapper's declared
+    /// construction semantics, which differ by wrapper shape (adopt the buffer vs. copy out of it).
+    /// </summary>
+    Struct,
+}
 
 /// <summary>
 /// A single step in an async construction chain.
@@ -1406,6 +1609,13 @@ public record AsyncSessionField(string Name, string SwiftType)
 /// <summary>
 /// A flattened parameter for the async Create function.
 /// </summary>
+/// <param name="DefaultValue">
+/// The C# default for this parameter on the generated <c>CreateAsync</c> factory, or null when the
+/// generator has no evidence of one. Only <see cref="AsyncFlatParamKind.Bool"/> honours it today,
+/// and it is deliberately typed rather than a raw literal string: a default the generator invents
+/// is a behavioural claim about the Swift library, so it may only come from pattern data that
+/// actually knows the library's own default.
+/// </param>
 public record AsyncFlatParam(
     string Name,
     AsyncFlatParamKind Kind,
@@ -1417,7 +1627,8 @@ public record AsyncFlatParam(
     string? CSharpTypeName = null,
     string? SourceModule = null,
     bool IsObjCBridgeable = false,
-    bool IsSimpleEnum = false)
+    bool IsSimpleEnum = false,
+    bool? DefaultValue = null)
 {
     /// <summary><see cref="Name"/> escaped as a BARE C# identifier (`@`-prefixed for a C# keyword).
     /// Use at bare C# identifier sites; compound names like {Name}Ptr stay raw.</summary>

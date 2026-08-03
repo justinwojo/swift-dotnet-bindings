@@ -43,6 +43,7 @@ partial class Build
     AbsolutePath BtSymbolgraphDir => BtBuildDir / "symbolgraph";
     AbsolutePath BtXcframeworkDir => BtBuildDir / $"{ModuleName}.xcframework";
     AbsolutePath BtDepXcframeworkDir => BtBuildDir / $"{DepModuleName}.xcframework";
+    AbsolutePath BtAsyncPatternManifest => BindingTestsDir / "async-pattern-manifest.json";
 
     // ============================================================
     // BuildXcframework target — ports build-xcframework.sh
@@ -447,6 +448,12 @@ partial class Build
             genArgs.Add($"--framework-dependency \"{BtDepXcframeworkDir}\"");
             Log.Information("Dependency xcframework: {Dir}", BtDepXcframeworkDir);
         }
+
+        // The fixture library's async-View bridge descriptors. They describe fixtures rather than
+        // a shipped library, so they reach the generator the same way a third party's would —
+        // across the process boundary — instead of being compiled into its own registry.
+        if (File.Exists(BtAsyncPatternManifest))
+            genArgs.Add($"--async-pattern-manifest \"{BtAsyncPatternManifest}\"");
 
         // Run generator (may exit non-zero for unsupported features)
         var genProcess = ProcessTasks.StartProcess(
@@ -931,6 +938,11 @@ partial class Build
             $"SBW_{ModuleName}_EnumParamView_Create",
             $"SBW_{ModuleName}_EnumParamView_GetViewController",
             $"SBW_{ModuleName}_EnumParamView_Free",
+            // These two only exist if the async-pattern manifest was read and applied — a
+            // silently-dropped manifest would demote both Views to the template shape, so the
+            // symbols double as the structural proof that the sidecar reached the generator.
+            $"SBW_{ModuleName}_AsyncClassPayloadResultView_Create",
+            $"SBW_{ModuleName}_AsyncStructPayloadResultView_Create",
         };
 
         foreach (var sym in expectedSymbols)

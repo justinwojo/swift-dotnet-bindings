@@ -42,6 +42,7 @@ public static class BindingsGeneratorCommand
         var symbolGraph = parseResult.GetValueForOption(options.SymbolGraph);
         var noDocs = parseResult.GetValueForOption(options.NoDocs);
         var bridgeHints = parseResult.GetValueForOption(options.BridgeHints);
+        var asyncPatternManifest = parseResult.GetValueForOption(options.AsyncPatternManifest);
         var namespacePattern = parseResult.GetValueForOption(options.NamespacePattern);
         var sdkMode = parseResult.GetValueForOption(options.SdkMode);
         var strictInputs = parseResult.GetValueForOption(options.StrictInputs);
@@ -1305,7 +1306,7 @@ public static class BindingsGeneratorCommand
                 logger: logger);
         }
 
-        var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, out var depModuleCollisions, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase, descriptorAssemblyNameOverride: assemblyNameOverride, swiftRuntimeVersion: swiftRuntimeVersion, objcBridgeRecords: mixedBridgeRecords, compileWrapper: verifyRecoverCompile, verifyRecoverCsharp: verifyRecoverCsharp, staticMergedModuleName: staticMergedModuleName);
+        var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, out var depModuleCollisions, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase, descriptorAssemblyNameOverride: assemblyNameOverride, swiftRuntimeVersion: swiftRuntimeVersion, objcBridgeRecords: mixedBridgeRecords, compileWrapper: verifyRecoverCompile, verifyRecoverCsharp: verifyRecoverCsharp, staticMergedModuleName: staticMergedModuleName, asyncPatternManifestPath: asyncPatternManifest);
         if (!success)
         {
             context.ExitCode = 1;
@@ -3017,6 +3018,7 @@ public static class BindingsGeneratorCommand
         Console.WriteLine("  --symbolgraph        Optional. Path to symbol graph JSON file or directory for doc comments.");
         Console.WriteLine("  --no-docs            Optional. Disable automatic symbol graph extraction. Does not affect explicit --symbolgraph.");
         Console.WriteLine("  --bridge-hints       Optional. Path to bridge hints JSON file for customizing SwiftUI bridge generation.");
+        Console.WriteLine("  --async-pattern-manifest  Optional. Path to a JSON file supplying additional async SwiftUI View bridge patterns.");
         Console.WriteLine($"  --namespace-pattern  Optional. Namespace pattern using {{Module}} and {{Framework}}. Default: {NamespacePatternResolver.DefaultPattern}");
         Console.WriteLine("  --sdk-mode           Optional. SDK mode: skips .csproj emission (used when the SDK IS the project system).");
         Console.WriteLine("  --package-id         Optional. Package ID for NuGet packaging. Default: '{Module}.Swift.{Platform}' (e.g. ImagePipeline.Swift.iOS, ImagePipeline.Swift.macOS).");

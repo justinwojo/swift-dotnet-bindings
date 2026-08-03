@@ -1,0 +1,113 @@
+{
+  "_comment": "Async SwiftUI View bridge patterns for the BindingTests fixture library, passed to the generator via --async-pattern-manifest. These live here rather than in the generator's own registry because they describe fixtures, not shipped libraries. The two entries cover the two ownership shapes a result payload can cross the callback ABI in: a class (retained object pointer) and a resilient struct (value-witness copy out of a Swift-owned carrier).",
+  "patterns": [
+    {
+      "moduleName": "SwiftBindingsTestLib",
+      "viewName": "AsyncClassPayloadResultView",
+      "sessionClassName": "SBW_SwiftBindingsTestLib_AsyncClassPayloadResultView_Session",
+      "sessionFields": [
+        { "name": "monitor", "swiftType": "AsyncClassPayloadMonitor" }
+      ],
+      "flattenedParams": [
+        {
+          "name": "label",
+          "kind": "String",
+          "swiftAbiType": "String",
+          "csharpPInvokeType": "IntPtr"
+        },
+        {
+          "name": "preferFastPath",
+          "kind": "Bool",
+          "swiftAbiType": "Int32",
+          "csharpPInvokeType": "int",
+          "swiftConversion": "!= 0",
+          "csharpConversion": "? 1 : 0",
+          "defaultValue": false
+        }
+      ],
+      "constructionChain": [
+        {
+          "variableName": "monitor",
+          "swiftTypeName": "AsyncClassPayloadMonitor",
+          "isAsync": true,
+          "throws": false,
+          "factoryMethod": "make",
+          "args": [
+            { "paramLabel": "label", "kind": "FlattenedParam", "value": "label" },
+            { "paramLabel": "preferFastPath", "kind": "FlattenedParam", "value": "preferFastPath" }
+          ]
+        }
+      ],
+      "resultCallback": {
+        "sourceFieldName": "monitor",
+        "awaitMethodName": "result",
+        "resultCases": [
+          { "swiftCase": "completed", "code": 0, "carriesPayload": true },
+          { "swiftCase": "cancelled", "code": 2 }
+        ],
+        "payload": {
+          "kind": "Class",
+          "swiftTypeName": "AsyncResultClassPayload",
+          "csharpTypeName": "global::SwiftBindingsTestLib.AsyncResultClassPayload"
+        }
+      },
+      "viewInitArgs": [
+        { "paramLabel": "monitor", "kind": "ChainReference", "value": "monitor" }
+      ]
+    },
+    {
+      "moduleName": "SwiftBindingsTestLib",
+      "viewName": "AsyncStructPayloadResultView",
+      "sessionClassName": "SBW_SwiftBindingsTestLib_AsyncStructPayloadResultView_Session",
+      "sessionFields": [
+        { "name": "monitor", "swiftType": "AsyncStructPayloadMonitor" }
+      ],
+      "flattenedParams": [
+        {
+          "name": "name",
+          "kind": "String",
+          "swiftAbiType": "String",
+          "csharpPInvokeType": "IntPtr"
+        },
+        {
+          "name": "preferFastPath",
+          "kind": "Bool",
+          "swiftAbiType": "Int32",
+          "csharpPInvokeType": "int",
+          "swiftConversion": "!= 0",
+          "csharpConversion": "? 1 : 0",
+          "defaultValue": false
+        }
+      ],
+      "constructionChain": [
+        {
+          "variableName": "monitor",
+          "swiftTypeName": "AsyncStructPayloadMonitor",
+          "isAsync": true,
+          "throws": false,
+          "factoryMethod": "make",
+          "args": [
+            { "paramLabel": "name", "kind": "FlattenedParam", "value": "name" },
+            { "paramLabel": "preferFastPath", "kind": "FlattenedParam", "value": "preferFastPath" }
+          ]
+        }
+      ],
+      "resultCallback": {
+        "sourceFieldName": "monitor",
+        "awaitMethodName": "result",
+        "resultCases": [
+          { "swiftCase": "completed", "code": 0, "carriesPayload": true },
+          { "swiftCase": "cancelled", "code": 2 }
+        ],
+        "payload": {
+          "kind": "Struct",
+          "swiftTypeName": "AsyncResultStructPayload",
+          "csharpTypeName": "global::SwiftBindingsTestLib.AsyncResultStructPayload"
+        }
+      },
+      "viewInitArgs": [
+        { "paramLabel": "monitor", "kind": "ChainReference", "value": "monitor" }
+      ]
+    }
+  ]
+}

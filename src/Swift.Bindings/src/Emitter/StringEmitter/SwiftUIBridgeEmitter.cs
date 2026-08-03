@@ -25,7 +25,8 @@ public static partial class SwiftUIBridgeEmitter
         ITypeDatabase? typeDatabase = null,
         ModuleDecl? moduleDecl = null,
         string? bridgeHintsPath = null,
-        ModuleEmissionContext? emissionContext = null)
+        ModuleEmissionContext? emissionContext = null,
+        string? asyncPatternManifestPath = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(@namespace);
@@ -37,7 +38,8 @@ public static partial class SwiftUIBridgeEmitter
             return;
 
         var hints = BridgeHintsLoader.Load(bridgeHintsPath, outputDirectory, moduleName, logger);
-        var context = new BridgeContext(typeDatabase, moduleDecl, hints, logger);
+        var externalAsyncPatterns = AsyncPatternManifestLoader.Load(asyncPatternManifestPath, logger);
+        var context = new BridgeContext(typeDatabase, moduleDecl, hints, logger, externalAsyncPatterns);
         var viewInfos = collectedViews.Select(v => AnalyzeView(v, moduleName, context)).ToList();
 
         // Record skipped views in report, then remove them. A hint-driven skip is
@@ -80,7 +82,7 @@ public static partial class SwiftUIBridgeEmitter
                     // Hints forced async classification — try ABI inference
                     asyncPattern = InferAsyncPattern(info, context);
                 }
-                asyncPattern ??= GetAsyncPattern(info.ViewName, info.ModuleName);
+                asyncPattern ??= ResolveAsyncPattern(info.ViewName, info.ModuleName, context);
                 isFunctional = asyncPattern != null;
             }
             else if (info.Classification == ViewInitClassification.Simple && info.Constructors.Count > 0)
@@ -300,7 +302,7 @@ public static partial class SwiftUIBridgeEmitter
         }
 
         // 5. Check for known async dependency patterns (takes precedence over inference).
-        if (KnownAsyncPatterns.ContainsKey($"{moduleName}.{viewType.Name}"))
+        if (ResolveAsyncPattern(viewType.Name, moduleName, context) != null)
         {
             return new ViewBridgeInfo(viewType.Name, moduleName, ViewInitClassification.AsyncDependency,
                 null, constructors);

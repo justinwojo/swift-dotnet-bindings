@@ -10763,4 +10763,229 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     #endregion
+
+    #region Async Result Payload Channel
+
+    // These drive the emitters straight off pattern data, so each assertion is about what the
+    // descriptor says rather than about whichever View the inference happened to produce.
+
+    [Fact]
+    public void AsyncResultTypedef_CarriesAPayloadSlot_EvenWhenThePatternHasNoPayload()
+    {
+        var swift = EmitAsyncPatternSwift("PlainResultView", payload: null);
+
+        // The payload slot is unconditional so the Swift typedef and the C# trampoline stay in
+        // lockstep across every pattern; a payload-less pattern simply passes nothing through it.
+        Assert.Equal(3, ConventionCParamCount(SingleLineContaining(swift, "_ResultFn = @convention(c)")));
+        Assert.Contains("cb(code, nil, ud)", swift);
+        Assert.DoesNotContain("passRetained(payloadValue)", swift);
+    }
+
+    [Fact]
+    public void AsyncResultClassPayload_SwiftHandsOverARetainedObject()
+    {
+        var swift = EmitAsyncPatternSwift("ClassResultView", ClassPayload);
+
+        // The carrying case binds its associated value, and the object crosses at +1.
+        Assert.Contains("case .completed(let payloadValue):", swift);
+        Assert.Contains("Unmanaged.passRetained(payloadValue).toOpaque()", swift);
+        // Ownership transferred: Swift must not also take the object back down after the call.
+        Assert.DoesNotContain("deallocate()", swift);
+        // A case that carries nothing still reports its code.
+        Assert.Contains("case .cancelled: code = 2", swift);
+    }
+
+    [Fact]
+    public void AsyncResultStructPayload_SwiftOwnsTheCarrierAcrossTheCall()
+    {
+        var swift = EmitAsyncPatternSwift("StructResultView", StructPayload);
+
+        // Sized from the type's own metadata — a resilient struct has no layout we may assume.
+        Assert.Contains("MemoryLayout<StructPayload>.size", swift);
+        Assert.Contains("MemoryLayout<StructPayload>.alignment", swift);
+        // initializeMemory, not storeBytes: the value is non-trivial and needs its retains taken.
+        Assert.Contains("initializeMemory(", swift);
+        Assert.DoesNotContain("storeBytes(", swift);
+        Assert.DoesNotContain("passRetained(payloadValue)", swift);
+
+        // The carrier is lent for the duration of the call and taken back down afterwards, so
+        // teardown must follow the callback rather than precede it.
+        var callIndex = swift.IndexOf("cb(code, payloadPtr, ud)", StringComparison.Ordinal);
+        var deinitIndex = swift.IndexOf("deinitialize(count: 1)", StringComparison.Ordinal);
+        var deallocIndex = swift.IndexOf("deallocate()", StringComparison.Ordinal);
+        Assert.True(callIndex >= 0 && deinitIndex > callIndex && deallocIndex > deinitIndex,
+            "Swift must deinitialize then deallocate its carrier strictly after the callback returns");
+    }
+
+    [Fact]
+    public void AsyncResultPayload_SwiftSkipsTheCarrierWhenNoCallbackIsListening()
+    {
+        var swift = EmitAsyncPatternSwift("StructResultView", StructPayload);
+
+        // Producing a carrier only the managed side can balance, for a nil callback, would
+        // strand the allocation — so the nil check has to come before the switch.
+        var guardIndex = swift.IndexOf("guard let cb = cb else { return }", StringComparison.Ordinal);
+        var switchIndex = swift.IndexOf("switch result {", StringComparison.Ordinal);
+        Assert.True(guardIndex >= 0 && switchIndex > guardIndex,
+            "the nil-callback bail-out must precede payload construction");
+    }
+
+    [Fact]
+    public void AsyncResultClassPayload_CSharpAdoptsTheRetainedObject()
+    {
+        var cs = EmitAsyncPatternCSharp("ClassResultView", ClassPayload);
+
+        Assert.Contains("MarshalFromSwiftObject<global::TestModule.ClassPayload>(payload)", cs);
+        // A class arrives as an object pointer, so there is nothing to copy out of a buffer.
+        Assert.DoesNotContain("InitializeWithCopy", cs);
+        // The typed channel is additive: the scalar Action<int> callback survives unchanged.
+        Assert.Contains("Action<int>? onResult = null", cs);
+        Assert.Contains("Action<int, global::TestModule.ClassPayload?>? onResultPayload = null", cs);
+    }
+
+    [Fact]
+    public void AsyncResultStructPayload_CSharpCopiesOutOfTheBorrowedCarrier()
+    {
+        var cs = EmitAsyncPatternCSharp("StructResultView", StructPayload);
+
+        // Whether the managed temporary is kept, destroyed or merely freed depends on the
+        // projected wrapper's declared construction semantics, which the emitter cannot see —
+        // so extraction goes through the runtime entry that dispatches on them, rather than
+        // being hand-rolled around one of those shapes.
+        Assert.Contains("MarshalExtractedPayloadValue<global::TestModule.StructPayload>", cs);
+        Assert.DoesNotContain("MarshalFromSwiftObject<", cs);
+        // No hand-rolled copy-then-guess-the-cleanup around the borrowed carrier.
+        Assert.DoesNotContain("InitializeWithCopy", cs);
+        Assert.DoesNotContain("payloadCopy", cs);
+
+        // Sized from the type's own value witness — a resilient struct has no size this side may assume.
+        Assert.Contains("payloadMetadata.Size", cs);
+        Assert.Contains("SwiftObjectHelper<global::TestModule.StructPayload>.GetTypeMetadata()", cs);
+    }
+
+    [Fact]
+    public void AsyncResultPayload_UndeliveredPayloadIsReleased()
+    {
+        var cs = EmitAsyncPatternCSharp("ClassResultView", ClassPayload);
+
+        // The payload is adopted before the state lookup, so a missing/collected state must not
+        // silently drop the +1 the trampoline already took.
+        Assert.Contains("(resultPayload as IDisposable)?.Dispose();", cs);
+    }
+
+    [Fact]
+    public void AsyncResultPayload_PayloadlessPatternKeepsOnlyTheScalarCallback()
+    {
+        var cs = EmitAsyncPatternCSharp("PlainResultView", payload: null);
+
+        Assert.Contains("Action<int>? onResult = null", cs);
+        Assert.DoesNotContain("onResultPayload", cs);
+    }
+
+    [Theory]
+    [InlineData(true, "bool flag = true")]
+    [InlineData(false, "bool flag = false")]
+    public void AsyncCreateAsync_BoolDefault_EmittedWhenThePatternSuppliesOne(
+        bool declaredDefault, string expectedSignatureFragment)
+    {
+        var cs = EmitAsyncPatternCSharp("ClassResultView", ClassPayload, boolDefault: declaredDefault);
+
+        Assert.Contains(expectedSignatureFragment, cs);
+    }
+
+    [Fact]
+    public void AsyncCreateAsync_BoolWithoutADeclaredDefault_StaysRequired()
+    {
+        // The generator cannot read a Swift initializer's own default out of the ABI, so with no
+        // declared default it must not invent one — the parameter stays required.
+        var cs = EmitAsyncPatternCSharp("ClassResultView", ClassPayload, boolDefault: null);
+
+        Assert.Contains("bool flag,", cs);
+        Assert.DoesNotContain("bool flag =", cs);
+    }
+
+    private static readonly AsyncResultPayload ClassPayload = new(
+        AsyncResultPayloadKind.Class, "ClassPayload", "global::TestModule.ClassPayload");
+
+    private static readonly AsyncResultPayload StructPayload = new(
+        AsyncResultPayloadKind.Struct, "StructPayload", "global::TestModule.StructPayload");
+
+    private static string EmitAsyncPatternSwift(
+        string viewName, AsyncResultPayload payload, bool? boolDefault = false)
+    {
+        var sb = new System.Text.StringBuilder();
+        SwiftUIBridgeEmitter.EmitAsyncSwiftBridge(sb, "TestModule", BuildPayloadViewInfo(viewName),
+            BuildPayloadPattern(viewName, payload, boolDefault), null);
+        return sb.ToString();
+    }
+
+    private static string EmitAsyncPatternCSharp(
+        string viewName, AsyncResultPayload payload, bool? boolDefault = false)
+    {
+        var sb = new System.Text.StringBuilder();
+        SwiftUIBridgeEmitter.EmitAsyncCSharpBridge(sb, "TestModule", BuildPayloadViewInfo(viewName),
+            BuildPayloadPattern(viewName, payload, boolDefault), null);
+        return sb.ToString();
+    }
+
+    private static ViewBridgeInfo BuildPayloadViewInfo(string viewName) =>
+        new(viewName, "TestModule", ViewInitClassification.AsyncDependency, null, new List<MethodDecl>());
+
+    private static AsyncViewPattern BuildPayloadPattern(
+        string viewName, AsyncResultPayload payload, bool? boolDefault)
+    {
+        return new AsyncViewPattern(
+            ViewName: viewName,
+            SessionClassName: $"SBW_TestModule_{viewName}_Session",
+            ExtraSwiftImports: Array.Empty<string>(),
+            SessionFields: new[] { new AsyncSessionField("monitor", "Monitor") },
+            FlattenedParams: new[]
+            {
+                new AsyncFlatParam("label", AsyncFlatParamKind.String, "String", "IntPtr", null, null),
+                new AsyncFlatParam("flag", AsyncFlatParamKind.Bool, "Int32", "int", "!= 0", "? 1 : 0",
+                    DefaultValue: boolDefault),
+            },
+            ConstructionChain: new List<AsyncConstructionStep>
+            {
+                new("monitor", "Monitor", IsAsync: true, Throws: false,
+                    new List<ConstructionArg>
+                    {
+                        new("label", ConstructionArgKind.FlattenedParam, "label"),
+                        new("flag", ConstructionArgKind.FlattenedParam, "flag"),
+                    },
+                    FactoryMethod: "make"),
+            },
+            ResultCallback: new AsyncResultCallbackConfig(
+                SourceFieldName: "monitor",
+                AwaitMethodName: "result",
+                ResultCases: new[]
+                {
+                    new AsyncResultCase("completed", 0, CarriesPayload: payload != null),
+                    new AsyncResultCase("cancelled", 2),
+                },
+                Payload: payload),
+            ViewInitArgs: new[] { new ConstructionArg("monitor", ConstructionArgKind.ChainReference, "monitor") });
+    }
+
+    private static string SingleLineContaining(string content, string needle)
+    {
+        var matches = content.Split('\n').Where(l => l.Contains(needle, StringComparison.Ordinal)).ToList();
+        Assert.Single(matches);
+        return matches[0];
+    }
+
+    // Counts the parameters of a `@convention(c) (A, B, C) -> R` function type, so an arity
+    // assertion does not depend on how the individual parameter types happen to be spelled.
+    private static int ConventionCParamCount(string typedefLine)
+    {
+        const string marker = "@convention(c) (";
+        int start = typedefLine.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"not a @convention(c) function type: {typedefLine}");
+        start += marker.Length;
+        int end = typedefLine.IndexOf(')', start);
+        Assert.True(end > start, $"unterminated parameter list: {typedefLine}");
+        return typedefLine.Substring(start, end - start).Split(',').Length;
+    }
+
+    #endregion
 }

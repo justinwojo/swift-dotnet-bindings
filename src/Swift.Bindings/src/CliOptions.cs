@@ -78,6 +78,11 @@ public class CliOptions
         aliases: new[] { "--bridge-hints" },
         description: "Path to bridge hints JSON file for customizing SwiftUI bridge generation.");
 
+    public Option<string> AsyncPatternManifest { get; } = new(
+        aliases: new[] { "--async-pattern-manifest" },
+        description: "Path to a JSON manifest of additional async SwiftUI View bridge patterns. " +
+                     "Patterns declared here are resolved ahead of the generator's built-in registry.");
+
     public Option<string> Config { get; } = new(
         aliases: new[] { "--config" },
         description: "Path to config JSON file. Default: .swiftbindings.json in current directory.");
@@ -460,6 +465,7 @@ public class CliOptions
             SymbolGraph,
             NoDocs,
             BridgeHints,
+            AsyncPatternManifest,
             NamespacePattern,
             SdkMode,
             PackageId,

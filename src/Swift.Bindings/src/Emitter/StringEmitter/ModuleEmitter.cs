@@ -21,6 +21,7 @@ namespace BindingsGeneration
         private readonly Conductor _conductor;
         private readonly NamespacePatternResolver _namespacePatternResolver;
         private readonly string? _bridgeHintsPath;
+        private readonly string? _asyncPatternManifestPath;
         private readonly Dictionary<string, List<string>>? _markerProtocolConformances;
 
         /// <summary>
@@ -32,7 +33,8 @@ namespace BindingsGeneration
             ILoggerFactory loggerFactory,
             NamespacePatternResolver? namespacePatternResolver = null,
             string? bridgeHintsPath = null,
-            Dictionary<string, List<string>>? markerProtocolConformances = null)
+            Dictionary<string, List<string>>? markerProtocolConformances = null,
+            string? asyncPatternManifestPath = null)
         {
             _outputDirectory = outputDirectory;
             _typeDatabase = typeDatabase;
@@ -40,6 +42,7 @@ namespace BindingsGeneration
             _namespacePatternResolver = namespacePatternResolver ?? new NamespacePatternResolver();
             _conductor = new Conductor(loggerFactory, _namespacePatternResolver);
             _bridgeHintsPath = bridgeHintsPath;
+            _asyncPatternManifestPath = asyncPatternManifestPath;
             _markerProtocolConformances = markerProtocolConformances;
         }
 
@@ -248,7 +251,7 @@ namespace BindingsGeneration
                 if (hasViews)
                 {
                     SwiftUIBridgeEmitter.EmitBridgeFiles(
-                        _outputDirectory, @namespace, moduleDecl.Name, collectedViews, _logger, _typeDatabase, moduleDecl, _bridgeHintsPath, emissionContext);
+                        _outputDirectory, @namespace, moduleDecl.Name, collectedViews, _logger, _typeDatabase, moduleDecl, _bridgeHintsPath, emissionContext, _asyncPatternManifestPath);
                 }
                 else if (!hasThemes)
                 {

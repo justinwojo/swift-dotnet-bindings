@@ -1012,7 +1012,7 @@ public enum StructProjectionKind
 /// <summary>
 /// Context for bridge parameter analysis. Holds shared services needed by the analyzer.
 /// </summary>
-public record BridgeContext(ITypeDatabase? TypeDatabase = null, ModuleDecl? ModuleDecl = null, BridgeHintsFile? Hints = null, ILogger? Logger = null);
+public record BridgeContext(ITypeDatabase? TypeDatabase = null, ModuleDecl? ModuleDecl = null, BridgeHintsFile? Hints = null, ILogger? Logger = null, IReadOnlyDictionary<string, AsyncViewPattern>? ExternalAsyncPatterns = null);
 
 /// <summary>
 /// A synthesized init argument that the bridge emitter injects into the Swift init call.
