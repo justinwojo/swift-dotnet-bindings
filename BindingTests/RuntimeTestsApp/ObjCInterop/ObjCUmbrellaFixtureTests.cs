@@ -256,6 +256,37 @@ public class ObjCUmbrellaFixtureTests : TestBase
     }
 
     /// <summary>
+    /// Shape 9c — the same system struct in settable-PROPERTY position, which is where the Swift lane
+    /// has its silent write-back trap: a Swift struct property hands back a wrapper CLASS over a copy,
+    /// so <c>owner.Prop.Field = x</c> compiles, runs, and is discarded. The ObjC bridge projects a C
+    /// struct onto the platform assembly's own value type instead, so the same spelling here —
+    /// <c>ranges.Span.Location = 1;</c> — is a compile error (CS1612, "cannot modify the return value
+    /// ... because it is not a variable"), never a silent no-op. The C# compiler is the guard, and
+    /// there is no analyzer work for this lane. The value-type assertion below is what pins that
+    /// difference: if the projection ever changed to a reference type, the trap would appear here too
+    /// and this test would go red.
+    /// </summary>
+    public void TestSystemStructPropertyProjectsAsAValueType()
+    {
+        using var ranges = new OURangeSugarTypes();
+
+        AssertTrue(typeof(NSRange).IsValueType,
+            "the bridged system struct projects as a C# value type, so a field write through the " +
+            "property getter cannot compile");
+
+        ranges.Span = new NSRange(2, 5);
+        AssertEqual(2, (int)ranges.Span.Location, "the struct property round-trips its location field");
+        AssertEqual(5, (int)ranges.Span.Length, "the struct property round-trips its length field");
+
+        // The write-back idiom — the fix SB1003 teaches for the Swift lane — is also the only
+        // spelling the compiler allows here, and it reaches the owner.
+        NSRange span = ranges.Span;
+        span.Location = 11;
+        ranges.Span = span;
+        AssertEqual(11, (int)ranges.Span.Location, "write-back through the struct property reaches the owner");
+    }
+
+    /// <summary>
     /// Shape 9b — members typed by Apple SDK enums the platform assembly already declares. An SDK enum
     /// is absent from the parser's class/protocol provenance, so without the system-enum vocabulary
     /// these members have nothing to resolve against and are dropped. <c>NSComparisonResult</c>

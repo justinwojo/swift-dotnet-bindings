@@ -196,6 +196,12 @@ typedef id<OUElement> _Nonnull (^OUElementFactory)(NSInteger index);
 - (NSRange)rangeWithLocation:(NSUInteger)location length:(NSUInteger)length;
 - (NSUInteger)endOfRange:(NSRange)range;
 - (NSUInteger)combinedLengthOfRange:(NSRange)first andRange:(NSRange)second;
+// A settable property of that same struct type, in property position rather than parameter or
+// return position. The ObjC bridge projects a C struct onto the platform assembly's own value
+// type, so the projected property is a real C# struct — writing a field through the getter is a
+// compile error, not the silent copy-mutation a Swift struct property allows. Pins that
+// difference between the two lanes.
+@property (nonatomic, assign) NSRange span;
 @end
 
 // MARK: - Shape 9b — members typed by Apple SDK enums the platform assembly already declares.

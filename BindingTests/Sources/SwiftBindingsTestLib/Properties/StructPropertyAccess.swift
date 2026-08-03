@@ -36,4 +36,13 @@ public class DataContainer {
         _cached = _data
         return _data
     }
+
+    /// Settable struct-typed property. Every read hands back a copy of the struct, so mutating
+    /// through the projected getter changes only that copy; only whole-value assignment through
+    /// the setter reaches the owner. The get-only properties above cannot show that difference.
+    /// Shape observed in a document-scanning SDK's nested session-settings types.
+    public var mutableData: InnerData {
+        get { _data }
+        set { _data = newValue }
+    }
 }

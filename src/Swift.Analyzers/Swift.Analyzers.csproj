@@ -21,6 +21,7 @@
     <Compile Include="SwiftObjectDisposeAnalyzer.cs" />
     <Compile Include="SwiftObjectDisposeCodeFixProvider.cs" />
     <Compile Include="SwiftRetainCycleAnalyzer.cs" />
+    <Compile Include="SwiftStructWriteBackAnalyzer.cs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.8.0" PrivateAssets="all" />
