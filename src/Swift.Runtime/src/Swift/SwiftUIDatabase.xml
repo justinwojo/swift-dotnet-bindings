@@ -2,10 +2,15 @@
 <swifttypedatabase version="1.0" moduleName="SwiftUI" modulePath="/System/Library/Frameworks/SwiftUI.framework/SwiftUI">
     <entities>
         <entity managedNameSpace="SwiftUI" managedTypeName="Color">
-            <typedeclaration kind="struct" name="Color" module="SwiftUI" frozen="false" requiresMemoryManagement="true" />
+            <!-- Color and Font are declared @frozen by SwiftUICore, each a single 8-byte
+                 refcounted box reference. Swift therefore passes them DIRECTLY in a register
+                 (SIL `@guaranteed`), not through a pointer, so describing them as non-frozen
+                 makes every binding that takes one as a parameter hand Swift the address of
+                 the payload buffer where it expects the box itself. -->
+            <typedeclaration kind="struct" name="Color" module="SwiftUI" frozen="true" requiresMemoryManagement="true" inlineSize="8" abiLayout="p8" />
         </entity>
         <entity managedNameSpace="SwiftUI" managedTypeName="Font">
-            <typedeclaration kind="struct" name="Font" module="SwiftUI" frozen="false" requiresMemoryManagement="true" />
+            <typedeclaration kind="struct" name="Font" module="SwiftUI" frozen="true" requiresMemoryManagement="true" inlineSize="8" abiLayout="p8" />
         </entity>
         <entity managedNameSpace="SwiftUI" managedTypeName="EdgeInsets">
             <typedeclaration kind="struct" name="EdgeInsets" module="SwiftUI" frozen="false" requiresMemoryManagement="true" />

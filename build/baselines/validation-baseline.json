@@ -1,5 +1,5 @@
 {
-  "git_sha": "485eb7ae",
+  "git_sha": "7079e816",
   "compile_gate": {
     "libraries": {
       "AppIntents": {
@@ -264,7 +264,7 @@
       "BlinkIDUX": {
         "compile": "ok",
         "errors": 0,
-        "lines": 16293,
+        "lines": 16251,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -320,7 +320,7 @@
       "MicroblinkPlatform": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5134,
+        "lines": 5098,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -565,7 +565,7 @@
       "Parchment": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21558,
+        "lines": 21559,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -642,7 +642,7 @@
       "SVGView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 15427,
+        "lines": 15417,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -908,14 +908,14 @@
       "RichTextKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 29405,
+        "lines": 29420,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "WhatsNewKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 9290,
+        "lines": 9320,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -987,7 +987,7 @@
       "crash": 0
     },
     "device": {
-      "pass": 3357,
+      "pass": 3405,
       "fail": 0,
       "skip": 27,
       "crash": 0
@@ -1005,7 +1005,7 @@
       "crash": 0
     },
     "maccatalyst": {
-      "pass": 2590,
+      "pass": 2673,
       "fail": 0,
       "skip": 37,
       "crash": 0
@@ -1024,6 +1024,6 @@
     }
   },
   "unit_tests": {
-    "swift_bindings_unit_pass_floor": 16877
+    "swift_bindings_unit_pass_floor": 16879
   }
 }

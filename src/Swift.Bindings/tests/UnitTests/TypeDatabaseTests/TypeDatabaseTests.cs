@@ -686,6 +686,33 @@ public class TypeDatabaseTests
             Assert.Equal(expectedInlineSize, record.InlineSize);
         }
 
+        /// <summary>
+        /// SwiftUICore declares <c>Color</c> and <c>Font</c> <c>@frozen</c>, each a single 8-byte
+        /// reference to a refcounted provider box. Swift therefore passes them DIRECTLY in a
+        /// register (SIL <c>@guaranteed</c>), and the marshaller keys that decision entirely off
+        /// this flag: describing either as non-frozen makes every binding that takes one as a
+        /// parameter hand Swift the address of the payload buffer where it expects the box
+        /// itself, which faults inside SwiftUI on first use.
+        /// </summary>
+        [Theory]
+        [InlineData("SwiftUI.Color")]
+        [InlineData("SwiftUI.Font")]
+        public async Task SwiftUIDatabase_ValueTypes_AreFrozenSingleWordWithRefField(string typeName)
+        {
+            var typeDatabase = new TypeDatabase();
+            var dbPath = Path.Combine(TestDbDirectory, "SwiftUIDatabase.xml");
+            await typeDatabase.LoadModuleDatabaseFromFile(dbPath);
+
+            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(typeName);
+            Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record),
+                $"Type {typeName} should be found in the SwiftUI database");
+            Assert.Equal(TypeRecordKind.Struct, record!.Kind);
+            Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
+            Assert.True(record.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement));
+            Assert.Equal(8, record.InlineSize);
+            Assert.Equal("p8", record.AbiFieldLayout);
+        }
+
         [Fact]
         public async Task SimdDatabase_BoundGenericSIMD3Float_ResolvesToSimdFloat3()
         {

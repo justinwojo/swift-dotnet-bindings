@@ -85,6 +85,12 @@
     <Compile Include="../RuntimeTestsApp/Spike/**/*.cs" />
     <!-- SwiftUIBridge tests are gated by #if SWIFTUI_BRIDGE — safe to include but inactive -->
     <Compile Include="../RuntimeTestsApp/SwiftUIBridge/**/*.cs" />
+    <!-- Types/ as a whole is iOS-shaped and deliberately not compiled here, but the SwiftUI
+         value-factory tests carry the Catalyst half of their own contract: the construction
+         shims are sliced out of macabi, so the factories must throw
+         PlatformNotSupportedException rather than fail in the loader. That assertion only
+         means something when it actually runs on Catalyst, hence the single-file include. -->
+    <Compile Include="../RuntimeTestsApp/Types/SwiftUIValueConstructionTests.cs" />
   </ItemGroup>
 
   <!-- Extract test manifest from source generator output into a host-visible file. -->

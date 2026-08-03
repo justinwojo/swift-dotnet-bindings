@@ -858,10 +858,14 @@ public func sbw_anyKeyPathHashValue(_ keyPath: UnsafeRawPointer) -> Int32 {
     return Int32(truncatingIfNeeded: kp.hashValue)
 }
 
-// MARK: - SwiftUI.Text Construction Bridge
+// MARK: - SwiftUI Value-Type Construction Bridge
 
 // SwiftUI.Text is not available in the Mac Catalyst SDK interface (macabi swiftinterface
 // omits the type). Guard with targetEnvironment to avoid compilation failures on Catalyst.
+// Color and Font construction rides the same guard so the whole SwiftUI bridge has one
+// availability story: every shim below is absent from the macabi slice, and each C#
+// factory throws PlatformNotSupportedException there rather than failing to resolve a
+// missing entry point.
 #if canImport(SwiftUI) && !targetEnvironment(macCatalyst)
 import SwiftUI
 
@@ -887,5 +891,104 @@ public func sbw_swiftUITextCreate(
 @_cdecl("SBW_SwiftUI_Text_Destroy")
 public func sbw_swiftUITextDestroy(_ bufferPtr: UnsafeMutableRawPointer) {
     bufferPtr.assumingMemoryBound(to: SwiftUI.Text.self).deinitialize(count: 1)
+}
+
+/// Creates a SwiftUI.Color from sRGB components and writes it into a pre-allocated buffer.
+/// The caller allocates the output buffer using Color's type metadata size.
+/// Color is a frozen single-word struct holding a refcounted color provider — the output
+/// buffer must be destroyed via VWT Destroy (SwiftSafeHandle does this on disposal).
+///
+/// Components use SwiftUI's `Color(red:green:blue:opacity:)` semantics: nominally the
+/// 0...1 sRGB range, but out-of-range values are passed through unclamped (SwiftUI treats
+/// them as extended-range sRGB) rather than rejected here.
+@available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+@_cdecl("SBW_SwiftUI_Color_Create")
+public func sbw_swiftUIColorCreate(
+    _ red: Double,
+    _ green: Double,
+    _ blue: Double,
+    _ opacity: Double,
+    _ outBufferPtr: UnsafeMutableRawPointer
+) {
+    let color = SwiftUI.Color(red: red, green: green, blue: blue, opacity: opacity)
+    outBufferPtr.assumingMemoryBound(to: SwiftUI.Color.self).initialize(to: color)
+}
+
+/// Destroys a SwiftUI.Color value in a buffer without freeing the buffer itself.
+@available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+@_cdecl("SBW_SwiftUI_Color_Destroy")
+public func sbw_swiftUIColorDestroy(_ bufferPtr: UnsafeMutableRawPointer) {
+    bufferPtr.assumingMemoryBound(to: SwiftUI.Color.self).deinitialize(count: 1)
+}
+
+/// Maps a stable integer weight code to `SwiftUI.Font.Weight`.
+///
+/// `Font.Weight` is an opaque struct with no public raw value, so the code below is the
+/// ABI contract between the C# `Font.Weight` enum and this shim — the ordering is
+/// lightest-to-heaviest and MUST stay in lockstep with the managed enum. Adding a weight
+/// means appending a new code, never renumbering an existing one.
+///
+///   0 ultraLight · 1 thin · 2 light · 3 regular · 4 medium
+///   5 semibold   · 6 bold · 7 heavy · 8 black
+///
+/// The managed side range-checks before calling, so `default` is unreachable from the
+/// supported surface; it resolves to `.regular` so an out-of-contract caller still gets a
+/// usable font instead of a trap.
+@available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+private func sbwFontWeight(_ code: Int32) -> SwiftUI.Font.Weight {
+    switch code {
+    case 0: return .ultraLight
+    case 1: return .thin
+    case 2: return .light
+    case 3: return .regular
+    case 4: return .medium
+    case 5: return .semibold
+    case 6: return .bold
+    case 7: return .heavy
+    case 8: return .black
+    default: return .regular
+    }
+}
+
+/// Maps a stable integer design code to `SwiftUI.Font.Design`.
+///
+/// Same contract as `sbwFontWeight`: `Font.Design` is a non-RawRepresentable enum, so the
+/// numbering below is the ABI and must match the managed `Font.Design` enum exactly.
+///
+///   0 default · 1 serif · 2 rounded · 3 monospaced
+@available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+private func sbwFontDesign(_ code: Int32) -> SwiftUI.Font.Design {
+    switch code {
+    case 1: return .serif
+    case 2: return .rounded
+    case 3: return .monospaced
+    default: return .default
+    }
+}
+
+/// Creates a system SwiftUI.Font and writes it into a pre-allocated buffer.
+/// The caller allocates the output buffer using Font's type metadata size.
+/// Font is a frozen single-word struct holding a refcounted font provider — the output
+/// buffer must be destroyed via VWT Destroy (SwiftSafeHandle does this on disposal).
+@available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+@_cdecl("SBW_SwiftUI_Font_System")
+public func sbw_swiftUIFontSystem(
+    _ size: Double,
+    _ weightCode: Int32,
+    _ designCode: Int32,
+    _ outBufferPtr: UnsafeMutableRawPointer
+) {
+    let font = SwiftUI.Font.system(
+        size: CGFloat(size),
+        weight: sbwFontWeight(weightCode),
+        design: sbwFontDesign(designCode))
+    outBufferPtr.assumingMemoryBound(to: SwiftUI.Font.self).initialize(to: font)
+}
+
+/// Destroys a SwiftUI.Font value in a buffer without freeing the buffer itself.
+@available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+@_cdecl("SBW_SwiftUI_Font_Destroy")
+public func sbw_swiftUIFontDestroy(_ bufferPtr: UnsafeMutableRawPointer) {
+    bufferPtr.assumingMemoryBound(to: SwiftUI.Font.self).deinitialize(count: 1)
 }
 #endif

@@ -191,6 +191,11 @@
   <ItemGroup Condition="Exists('../output/SwiftBindingsTestLib.SwiftUIBridge.cs')">
     <Compile Include="../output/SwiftBindingsTestLib.SwiftUIBridge.cs" />
   </ItemGroup>
+  <!-- SwiftUI value-type parameter probe (the Swift source is behind
+       `#if !targetEnvironment(macCatalyst)`, so the binding only exists off Catalyst). -->
+  <PropertyGroup Condition="Exists('../output/SwiftBindingsTestLib.Types.SwiftUIValueProbe.cs')">
+    <DefineConstants>$(DefineConstants);SWIFTUI_VALUE_PROBE</DefineConstants>
+  </PropertyGroup>
   <!-- UIKit-only fixtures (the Swift source is behind `#if canImport(UIKit)`, so the binding
        only exists on platforms that have UIKit — not macOS). -->
   <PropertyGroup Condition="Exists('../output/SwiftBindingsTestLib.Types.AppDelegateOptionRelay.cs')">
