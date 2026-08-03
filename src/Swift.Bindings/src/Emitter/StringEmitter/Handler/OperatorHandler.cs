@@ -225,7 +225,7 @@ namespace BindingsGeneration
             // below, and without a transaction that would leave a half-written operator plus an
             // orphan @_cdecl block behind. The constructor and ordinary-method paths already run
             // under this exact protection; the operator path is the same shape and gets it too.
-            var operatorTransaction = MemberEmissionTransaction.Begin(csWriter, swiftWriter, emissionContext);
+            var operatorTransaction = MemberEmissionTransaction.Begin(csWriter, swiftWriter, emissionContext, methodEnv);
 
             // Captured so a skip can undo the wrapper promotion, not just the buffered text. Every
             // exit AFTER the Swift wrapper may have been written goes through RollbackOperator: a

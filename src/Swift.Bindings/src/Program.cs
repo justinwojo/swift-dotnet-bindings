@@ -1275,6 +1275,13 @@ namespace BindingsGeneration
                     // the ambient collector populated during emission.
                     EmissionReportEmitter.EmitDegradationDiagnostics(report, logger);
 
+                    // Whether this module's surface actually depends on a wrapper. Answered from the
+                    // wrapper artifacts on disk rather than at report-completion time, because the
+                    // source files ARE the question the wrapper compile — and the SDK's own
+                    // missing-wrapper severity — is asking, and they exist only once emission has
+                    // written them out.
+                    WrapperRequirementEvaluator.Evaluate(report, outputDirectory);
+
                     var emissionReport = EmissionReportEmitter.BuildReport(
                         emissionContext, moduleName, settledWithdrawnUnits, publicationLedger);
                     var manifest = new BindingArtifactManifest

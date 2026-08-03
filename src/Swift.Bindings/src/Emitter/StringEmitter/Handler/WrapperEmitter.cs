@@ -780,6 +780,11 @@ namespace BindingsGeneration
                     // ahead of the already-written attributes + signature + body.
                     var capturedMember = csWriter.RollbackToAndCapture(preSignatureCheckpoint);
                     capturedMember = RemoveObsoleteAttributeLines(capturedMember);
+                    // The warning-level marker the signature emitter wrote is gone from the emitted
+                    // member, so its report row has to go too — otherwise the report names an
+                    // attribute nothing in the binding carries. The error-level path records its own.
+                    ReportCollector.WithdrawMemberSafetyMarked(
+                        _env.MethodDecl, _env.MethodDecl.ParentDecl, _env.CSharpMethodName);
                     EmitSuppressedProxyReadPoison(csWriter);
                     csWriter.AppendCaptured(capturedMember);
                 }

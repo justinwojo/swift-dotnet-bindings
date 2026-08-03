@@ -2844,6 +2844,67 @@ namespace BindingsGeneration.Tests
             Assert.DoesNotContain("SWIFTBIND056", output);
         }
 
+        [Fact]
+        public void ValidateWrapperCompilation_NoWrapperProduced_DefaultRequiredFailsClosedSWIFTBIND051()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // SwiftWrapperRequired defaults to true (Sdk.props), and the severity split it drives is
+            // the whole point of the property — yet nothing exercised either arm. The default arm:
+            // wrapper metadata says no usable wrapper, so the members that route through it would
+            // throw DllNotFoundException at runtime, and the build must stop rather than ship that.
+            var (output, exitCode) = RunValidateWrapperRequiredDump(wrapperRequired: null);
+
+            Assert.True(exitCode != 0, $"Expected SWIFTBIND051 to fail the build by default.\nOutput: {output}");
+            Assert.Contains("SWIFTBIND051", output);
+            Assert.Contains("MixedSwiftBindings", output);
+        }
+
+        [Theory]
+        [InlineData("true")]
+        [InlineData("TRUE")]
+        public void ValidateWrapperCompilation_NoWrapperProduced_ExplicitlyRequired_FailsClosed(string requested)
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // The comparison is case-insensitive on purpose — a hand-written csproj saying TRUE must
+            // not silently fall through to the warning arm.
+            var (output, exitCode) = RunValidateWrapperRequiredDump(requested);
+
+            Assert.True(exitCode != 0, $"Expected SWIFTBIND051 to fail the build.\nOutput: {output}");
+            Assert.Contains("SWIFTBIND051", output);
+        }
+
+        [Fact]
+        public void ValidateWrapperCompilation_NoWrapperProduced_NotRequired_WarnsAndBuildSucceeds()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // The opt-out arm. A module that needs no wrapper still has to SAY that a wrapper is
+            // missing — demoting to silence would leave a genuinely broken binding indistinguishable
+            // from one that never needed a wrapper at all.
+            var (output, exitCode) = RunValidateWrapperRequiredDump("false");
+
+            Assert.True(exitCode == 0, $"SwiftWrapperRequired=false must not fail the build.\nOutput: {output}");
+            Assert.Contains("SWIFTBIND051", output);
+            Assert.Contains("warning", output, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("error SWIFTBIND051", output);
+        }
+
+        [Fact]
+        public void ValidateWrapperCompilation_WrapperPresent_NeitherArmFires()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Negative control for both arms: with a usable wrapper recorded, the gate is silent
+            // regardless of what SwiftWrapperRequired says.
+            var (requiredOut, requiredExit) =
+                RunValidateWrapperRequiredDump("true", hasWrapperXcframework: "True");
+            Assert.True(requiredExit == 0, $"Expected success with a wrapper present.\nOutput: {requiredOut}");
+            Assert.DoesNotContain("SWIFTBIND051", requiredOut);
+
+            var (optOutOut, optOutExit) =
+                RunValidateWrapperRequiredDump("false", hasWrapperXcframework: "True");
+            Assert.True(optOutExit == 0, $"Expected success with a wrapper present.\nOutput: {optOutOut}");
+            Assert.DoesNotContain("SWIFTBIND051", optOutOut);
+        }
+
         // ── _BuildMixedObjCCompanion: when the source framework is Mixed, the SDK builds the
         //    emitted ObjC companion (Restore → Build → GetTargetPath) so its managed assembly
         //    can be EMBEDDED into the Swift binding's single nupkg (one xcframework → one
@@ -3334,6 +3395,82 @@ namespace BindingsGeneration.Tests
                   <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
                   <PropertyGroup>
                     <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                    <_SwiftBindingWrapperModuleName>MixedSwiftBindings</_SwiftBindingWrapperModuleName>
+                  </PropertyGroup>
+                  <Target Name="_ComputeSwiftFingerprint" />
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ValidateSwiftPackageItems" />
+                  <Target Name="_GenerateSwiftBindings" />
+                  <Target Name="_ImportSwiftBindingMetadata" />
+                  <Target Name="_CompileSwiftUIBridge" />
+                  <Target Name="TestDump" DependsOnTargets="_UpdateSwiftWrapperMetadata">
+                    <Message Importance="High" Text="VALIDATED" />
+                  </Target>
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(bindingDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(bindingDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
+            return (result.StdOut + "\n" + result.StdErr, result.ExitCode);
+        }
+
+        /// <summary>
+        /// Runs the REAL _UpdateSwiftWrapperMetadata + _ValidateSwiftWrapperCompilation pair over a
+        /// binding-metadata.props whose <c>_SwiftBindingHasWrapperXCFramework</c> element carries
+        /// <paramref name="hasWrapperXcframework"/>, with <c>SwiftWrapperRequired</c> set to
+        /// <paramref name="wrapperRequired"/> (left unset — i.e. taking the Sdk.props default — when
+        /// null). Sibling of <see cref="RunValidateWrapperContractDump"/>: same target pair, but it
+        /// drives the SWIFTBIND051 severity split rather than the arch contract, so the unmet-arch
+        /// element is always empty here.
+        /// </summary>
+        private (string Output, int ExitCode) RunValidateWrapperRequiredDump(
+            string? wrapperRequired,
+            string hasWrapperXcframework = "False")
+        {
+            var bindingDir = Path.Combine(_tempDir, $"RequiredValidate{wrapperRequired ?? "default"}{hasWrapperXcframework}.Swift.iOS");
+            Directory.CreateDirectory(bindingDir);
+            var intermediateDir = Path.Combine(bindingDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+
+            var metadataProps = $"""
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingHasWrapperXCFramework>{hasWrapperXcframework}</_SwiftBindingHasWrapperXCFramework>
+                    <_SwiftBindingWrapperModuleName>MixedSwiftBindings</_SwiftBindingWrapperModuleName>
+                    <_SwiftBindingWrapperSliceCount>1</_SwiftBindingWrapperSliceCount>
+                    <_SwiftBindingWrapperUnmetContractArchitectures></_SwiftBindingWrapperUnmetContractArchitectures>
+                  </PropertyGroup>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), metadataProps);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+            var sdkPropsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.props");
+
+            // Null means "say nothing" so the Sdk.props default is what the gate reads — writing an
+            // explicit true here would test the literal rather than the default.
+            var requiredProperty = wrapperRequired is null
+                ? string.Empty
+                : $"<SwiftWrapperRequired>{wrapperRequired}</SwiftWrapperRequired>";
+
+            // Imports the REAL Sdk.props (which itself pulls in Microsoft.NET.Sdk's) rather than
+            // Microsoft's alone: the default this helper exercises is declared there, so a harness
+            // that skipped it would report "unset" and take the warn arm no matter what ships.
+            var project = $"""
+                <Project>
+                  <Import Project="{sdkPropsPath}" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                    {requiredProperty}
                   </PropertyGroup>
                   <Import Project="{sdkTargetsPath}" />
                   <PropertyGroup>

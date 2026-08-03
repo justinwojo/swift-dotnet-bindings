@@ -160,6 +160,23 @@ public sealed class GenerationSection
     /// </summary>
     public List<string> ClosureOrphanShellTypes { get; init; } = new();
 
+    /// <summary>
+    /// Emitted members carrying a safety marker, with the wrapper-eligibility guard behind each.
+    /// Carried here for the same round-trip reason as the lists above — a section that only ever
+    /// existed on the live report reads as empty in the artifact a consumer opens.
+    /// </summary>
+    public List<DegradedMemberItem> DegradedMembers { get; init; } = new();
+
+    /// <summary>
+    /// Roll-up and ranking over <see cref="DegradedMembers"/>. Persisted rather than recomputed on
+    /// projection: the ranking's strongest signal is whether an unmarked sibling exists, which is
+    /// answerable from the live emitted-member set and not from the projected report.
+    /// </summary>
+    public DegradedSurfaceSummary? DegradedSurface { get; set; }
+
+    /// <summary>Whether the module's surface depends on a generated Swift wrapper.</summary>
+    public WrapperRequirementSummary? WrapperRequirement { get; set; }
+
     public static GenerationSection From(BindingReport report, ParseReconciliation? parseReconciliation = null)
     {
         ArgumentNullException.ThrowIfNull(report);
@@ -174,6 +191,8 @@ public sealed class GenerationSection
             SynthesizedMembers = report.SynthesizedMembers,
             BridgeSummary = report.BridgeSummary,
             ParseReconciliation = parseReconciliation,
+            DegradedSurface = report.DegradedSurface,
+            WrapperRequirement = report.WrapperRequirement,
         };
         foreach (var kv in report.EmittedMembersByKind)
             section.EmittedMembersByKind[kv.Key] = kv.Value;
@@ -189,6 +208,7 @@ public sealed class GenerationSection
         section.ObjectDegradations.AddRange(report.ObjectDegradations);
         section.ObjCPrefixBridges.AddRange(report.ObjCPrefixBridges);
         section.ClosureOrphanShellTypes.AddRange(report.ClosureOrphanShellTypes);
+        section.DegradedMembers.AddRange(report.DegradedMembers);
         return section;
     }
 }

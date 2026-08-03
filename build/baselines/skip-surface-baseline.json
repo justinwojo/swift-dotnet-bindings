@@ -1,11 +1,35 @@
 {
-  "git_sha": "90d8089d",
+  "git_sha": "a40f87c4",
   "entries": [
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "ObsoleteSB0001",
-      "reason": "No @_cdecl wrapper or native thunk available. P/Invoke calling convention may not match Swift ABI",
-      "count": 87
+      "reason": "No @_cdecl wrapper or native thunk available (a closure parameter shape the C wrapper bridge cannot marshal). P/Invoke calling convention may not match Swift ABI",
+      "count": 2
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "ObsoleteSB0001",
+      "reason": "No @_cdecl wrapper or native thunk available (a variadic parameter shape the wrapper bridge does not support). P/Invoke calling convention may not match Swift ABI",
+      "count": 9
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "ObsoleteSB0001",
+      "reason": "No @_cdecl wrapper or native thunk available (an inout parameter whose type does not fit the wrapper\u0027s pointer write-back). P/Invoke calling convention may not match Swift ABI",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "ObsoleteSB0001",
+      "reason": "No @_cdecl wrapper or native thunk available (the declaring type is generic in a way the wrapper cannot specialize). P/Invoke calling convention may not match Swift ABI",
+      "count": 12
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "ObsoleteSB0001",
+      "reason": "No @_cdecl wrapper or native thunk available (the method declares its own generic parameters, which have no C-callable ABI). P/Invoke calling convention may not match Swift ABI",
+      "count": 63
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -1306,7 +1330,7 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLibDependency.cs",
       "marker": "ObsoleteSB0001",
-      "reason": "No @_cdecl wrapper or native thunk available. P/Invoke calling convention may not match Swift ABI",
+      "reason": "No @_cdecl wrapper or native thunk available (the method declares its own generic parameters, which have no C-callable ABI). P/Invoke calling convention may not match Swift ABI",
       "count": 1
     },
     {

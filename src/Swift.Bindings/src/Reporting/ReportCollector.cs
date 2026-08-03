@@ -119,6 +119,20 @@ public static class ReportCollector
         internal readonly HashSet<string> ClosureTombstoneReferencedTypeKeys = new(StringComparer.Ordinal);
 
         /// <summary>
+        /// Members that had a safety marker written onto them, keyed so the row can be WITHDRAWN
+        /// again. Withdrawal is not hypothetical: a member whose produce path throws has its
+        /// already-written <c>[Obsolete]</c> line stripped and replaced by the error-level marker,
+        /// so a row recorded at marker-emission time would otherwise claim a marker that is not in
+        /// the emitted C#. A dictionary rather than a list because that removal must be exact.
+        ///
+        /// <para>Keyed by (DeclId, emitted C# name, diagnostic id): the DeclId separates overloads,
+        /// the emitted name separates a primary method from the Task-returning overload generated
+        /// from it — both carry the marker and a consumer meets them as two members.</para>
+        /// </summary>
+        internal readonly Dictionary<(string DeclId, string EmittedName, string DiagnosticId), SafetyMarkedRecord>
+            SafetyMarkedMembers = new();
+
+        /// <summary>
         /// Dedup key set for dropped-conformance rows, keyed by (conforming type, protocol). The
         /// same conformance is evaluated from several emission paths (the direct-interface loop, the
         /// closed-PAT projection loop, the cross-module interface gate), so without this the identical
@@ -139,6 +153,15 @@ public static class ReportCollector
             Module = module;
         }
     }
+
+    /// <summary>
+    /// A recorded safety marker plus the identity it was recorded under. The identity is kept
+    /// because prominence ranking asks a question the public row cannot answer — "does this type
+    /// expose another, unmarked member of the same name" — and that comparison has to be made
+    /// against the Swift declaration identities the emitted-member set is keyed by, not against
+    /// projected C# names.
+    /// </summary>
+    private sealed record SafetyMarkedRecord(MemberDiagnosticIdentity Identity, DegradedMemberItem Item);
 
     public static bool IsActive => Current != null;
 
@@ -245,6 +268,11 @@ public static class ReportCollector
             // reconciliation above this is derived state computed once emission has settled — it needs
             // the final emitted-member set, and computing it here keeps it unable to influence output.
             ComputeClosureOrphanShellTypes(session, report);
+
+            // Rank the safety-marked surface. Also derived-once-settled, and for a second reason
+            // beyond the usual one: ranking asks whether a marked member has an unmarked sibling,
+            // which is only answerable after every member of the type has been through emission.
+            ComputeDegradedSurface(session, report);
 
             // Compute BridgeSummary if there are bridged views
             if (report.BridgedViews.Count > 0)
@@ -579,6 +607,99 @@ public static class ReportCollector
                 Position = position,
                 DeclId = identity.ToDeclId().Canonical,
             });
+        }
+    }
+
+    /// <summary>
+    /// Records that a safety marker (SB0001 / SB0002 / SB0009) was written onto an emitted member.
+    /// Called from the marker-emission sites themselves rather than recomputed later, because the
+    /// question the row answers is "which attribute is in the generated C#", and only the emitter
+    /// knows that — a later walk that re-evaluates the predicate would agree with the emitter only
+    /// by luck, and would silently disagree wherever a downstream path rewrites the attribute.
+    /// </summary>
+    /// <param name="methodDecl">The Swift declaration the marker was written for.</param>
+    /// <param name="containingDecl">Its declaring type, or null at module scope.</param>
+    /// <param name="emittedName">
+    /// The C# name a consumer sees. Not the Swift name: a failable initializer surfaces as
+    /// <c>TryCreate…</c>, and an async method also produces a Task-returning overload — each is a
+    /// separate member on the public surface and each carries its own marker.
+    /// </param>
+    /// <param name="diagnosticId">The id actually stamped.</param>
+    /// <param name="wrapperReason">
+    /// The wrapper-eligibility guard token when the marker has a wrapper cause, else null. SB0002
+    /// (missing symbol / silent-tombstone return) has none — it is orthogonal to eligibility, and a
+    /// re-evaluated token there would be true-but-unrelated.
+    /// </param>
+    /// <param name="isDeprecated">Whether the library itself also deprecates the member.</param>
+    /// <param name="isStatic">Whether the member is reachable without an instance.</param>
+    public static void RecordMemberSafetyMarked(
+        MethodDecl methodDecl,
+        BaseDecl? containingDecl,
+        string emittedName,
+        string diagnosticId,
+        string? wrapperReason,
+        bool isDeprecated,
+        bool isStatic)
+    {
+        ArgumentNullException.ThrowIfNull(methodDecl);
+        ArgumentException.ThrowIfNullOrEmpty(diagnosticId);
+
+        var session = Current;
+        if (session == null)
+            return;
+
+        var identity = MemberDiagnosticIdentity.FromMethod(methodDecl, containingDecl);
+        var key = (identity.ToDeclId().Canonical, emittedName ?? methodDecl.Name, diagnosticId);
+
+        lock (session.Sync)
+        {
+            if (session.SafetyMarkedMembers.ContainsKey(key))
+                return;
+
+            session.SafetyMarkedMembers[key] = new SafetyMarkedRecord(
+                identity,
+                new DegradedMemberItem
+                {
+                    Kind = identity.Kind,
+                    Name = key.Item2,
+                    ContainingType = GetContainingTypeName(containingDecl),
+                    DiagnosticId = diagnosticId,
+                    WrapperReason = string.IsNullOrWhiteSpace(wrapperReason) ? null : wrapperReason,
+                    WrapperReasonDescription = string.IsNullOrWhiteSpace(wrapperReason)
+                        ? null
+                        : WrapperRejectionReasons.Describe(wrapperReason),
+                    IsDeprecated = isDeprecated,
+                    IsStatic = isStatic,
+                });
+        }
+    }
+
+    /// <summary>
+    /// Withdraws a row recorded by <see cref="RecordMemberSafetyMarked"/> because the marker it
+    /// described was removed from the emitted member. The error-level suppressed-proxy path strips
+    /// the warning-level marker and writes its own — the member is still degraded, but it is no
+    /// longer degraded for the reason recorded here, and that path records its own row.
+    /// </summary>
+    public static void WithdrawMemberSafetyMarked(
+        MethodDecl methodDecl, BaseDecl? containingDecl, string emittedName)
+    {
+        ArgumentNullException.ThrowIfNull(methodDecl);
+
+        var session = Current;
+        if (session == null)
+            return;
+
+        var declId = MemberDiagnosticIdentity.FromMethod(methodDecl, containingDecl).ToDeclId().Canonical;
+        var name = emittedName ?? methodDecl.Name;
+
+        lock (session.Sync)
+        {
+            foreach (var key in session.SafetyMarkedMembers.Keys
+                         .Where(k => k.DeclId == declId && k.EmittedName == name)
+                         .ToList())
+            {
+                session.SafetyMarkedMembers.Remove(key);
+            }
         }
     }
 
@@ -1232,6 +1353,134 @@ public static class ReportCollector
     /// Shared with the emitter side so the orphan-shell join can't drift from the producer.
     /// </summary>
     public const string ClosureParamTombstoneWrapperKind = "ClosureParamTombstone";
+
+    /// <summary>
+    /// Name stems that a library's own entry points overwhelmingly start with. Matched as a
+    /// case-insensitive prefix on the emitted C# name.
+    /// </summary>
+    private static readonly string[] EntryPointVerbs =
+    {
+        "Authenticate", "Begin", "Configure", "Connect", "Create", "Fetch", "Initialize", "Load",
+        "Login", "LogIn", "Open", "Present", "Request", "Run", "Setup", "Show", "Start",
+    };
+
+    /// <summary>
+    /// Suffixes that mark a type as a library's front door rather than one of its data shapes.
+    /// </summary>
+    private static readonly string[] EntryPointTypeSuffixes =
+    {
+        "Client", "Controller", "Kit", "Manager", "SDK", "Service", "Session", "View",
+    };
+
+    /// <summary>
+    /// Ranks the safety-marked surface so a reader can tell a footnote from a broken library.
+    ///
+    /// <para>A count of markers says nothing about severity: the same marker is trivia on a leaf
+    /// convenience overload and fatal on the one method a library is used through. The score below
+    /// approximates "is this a way in", using only facts already recorded during emission. It is
+    /// report-only — nothing consumes it to decide what to emit — and every contributing signal is
+    /// written out beside the number so a reader can disagree with it.</para>
+    /// </summary>
+    private static void ComputeDegradedSurface(ReportSession session, BindingReport report)
+    {
+        if (session.SafetyMarkedMembers.Count == 0)
+            return;
+
+        // Base names that are still reachable on each type through some OTHER member: an emitted
+        // member of the same Swift base name that is not itself marked. Keyed exactly as the
+        // emitted-identity set is, so this is a declaration match rather than a name-string guess.
+        var markedIdentities = session.SafetyMarkedMembers.Values.Select(r => r.Identity).ToHashSet();
+        var alternativesAvailable = new HashSet<(string DeclPath, string BaseName)>();
+        foreach (var identity in session.EmittedMemberIdentities)
+        {
+            if (!markedIdentities.Contains(identity))
+                alternativesAvailable.Add((identity.DeclPath, identity.BaseName));
+        }
+
+        var summary = new DegradedSurfaceSummary { Total = session.SafetyMarkedMembers.Count };
+
+        foreach (var record in session.SafetyMarkedMembers.Values)
+        {
+            var item = record.Item;
+            ScoreProminence(item, record.Identity, alternativesAvailable);
+
+            summary.ByDiagnosticId[item.DiagnosticId] =
+                summary.ByDiagnosticId.GetValueOrDefault(item.DiagnosticId) + 1;
+            if (item.WrapperReason is { } reason)
+                summary.ByWrapperReason[reason] = summary.ByWrapperReason.GetValueOrDefault(reason) + 1;
+        }
+
+        // The full list always ships; the ranking below orders it rather than trimming it, so a
+        // reader who distrusts the heuristic still has every row.
+        report.DegradedMembers.AddRange(session.SafetyMarkedMembers.Values
+            .Select(r => r.Item)
+            .OrderByDescending(m => m.ProminenceScore)
+            .ThenBy(m => m.ContainingType ?? string.Empty, StringComparer.Ordinal)
+            .ThenBy(m => m.Name, StringComparer.Ordinal));
+
+        // A member the library itself already tells consumers not to call is not a headline, however
+        // it scores, and a zero-or-below score means no signal fired at all.
+        summary.TopDegradedMembers.AddRange(report.DegradedMembers
+            .Where(m => !m.IsDeprecated && m.ProminenceScore > 0)
+            .Take(TopDegradedMemberCount));
+
+        report.DegradedSurface = summary;
+    }
+
+    /// <summary>
+    /// How many rows the ranked section highlights. The full list is always present. Shared with the
+    /// manifest projection, which rebuilds the same section after co-gating shrinks the list.
+    /// </summary>
+    internal const int TopDegradedMemberCount = 10;
+
+    private static void ScoreProminence(
+        DegradedMemberItem item,
+        MemberDiagnosticIdentity identity,
+        HashSet<(string DeclPath, string BaseName)> alternativesAvailable)
+    {
+        var score = 0;
+
+        // The strongest signal by design. A marker on one of several same-named overloads leaves a
+        // working call; a marker where nothing else answers to that name removes the capability.
+        if (!alternativesAvailable.Contains((identity.DeclPath, identity.BaseName)))
+        {
+            score += 3;
+            item.ProminenceFactors.Add("no unmarked member of the same name on this type");
+        }
+
+        if (EntryPointVerbs.Any(verb => item.Name.StartsWith(verb, StringComparison.OrdinalIgnoreCase)))
+        {
+            score += 2;
+            item.ProminenceFactors.Add("name reads as an entry point");
+        }
+
+        if (item.ContainingType is { } containingType && LooksLikeEntryPointType(containingType))
+        {
+            score += 2;
+            item.ProminenceFactors.Add("declared on a type that reads as a front door");
+        }
+
+        if (item.IsStatic)
+        {
+            score += 1;
+            item.ProminenceFactors.Add("static, so it is reachable without constructing anything");
+        }
+
+        if (item.IsDeprecated)
+        {
+            score -= 2;
+            item.ProminenceFactors.Add("already deprecated by the library");
+        }
+
+        item.ProminenceScore = score;
+    }
+
+    private static bool LooksLikeEntryPointType(string containingType)
+    {
+        var simpleName = containingType[(containingType.LastIndexOf('.') + 1)..];
+        return EntryPointTypeSuffixes.Any(suffix =>
+            simpleName.EndsWith(suffix, StringComparison.Ordinal) && simpleName.Length > suffix.Length);
+    }
 
     private static void ComputePerKindCounts(ReportSession session, BindingReport report)
     {

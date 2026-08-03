@@ -88,6 +88,141 @@ public class BindingArtifactManifestTests
     }
 
     [Fact]
+    public void Projection_CoGating_RestatesTheWrapperAndMarkedSurfaceFacts()
+    {
+        // Both summaries settle while the co-gated member is still emitted, so both describe it: the
+        // rationale counts it among the members that reach Swift, and its degraded row claims an
+        // [Obsolete] the binding carries. The same projection then lists it as skipped. Left alone
+        // that is a report contradicting itself in the two places a consumer reads to decide whether
+        // SwiftWrapperRequired=false is honest.
+        var report = new BindingReport { ModuleName = "Strip" };
+        report.EmittedMembers = 2;
+        report.EmittedMembersByKind[BindingItemKind.Method] = 2;
+        report.DegradedMembers.Add(new DegradedMemberItem
+        {
+            Kind = BindingItemKind.Method,
+            Name = "Stripped",
+            ContainingType = "Strip.Client",
+            DiagnosticId = "SB0001",
+            WrapperReason = "closure_params",
+            ProminenceScore = 5,
+        });
+        report.DegradedMembers.Add(new DegradedMemberItem
+        {
+            Kind = BindingItemKind.Method,
+            Name = "Survivor",
+            ContainingType = "Strip.Client",
+            DiagnosticId = "SB0009",
+            ProminenceScore = 3,
+        });
+        report.DegradedSurface = new DegradedSurfaceSummary { Total = 2 };
+        report.DegradedSurface.ByDiagnosticId["SB0001"] = 1;
+        report.DegradedSurface.ByDiagnosticId["SB0009"] = 1;
+        report.DegradedSurface.ByWrapperReason["closure_params"] = 1;
+        report.DegradedSurface.TopDegradedMembers.AddRange(report.DegradedMembers);
+        report.WrappedItems.Add(Wrapped("Stripped", "Strip.Client"));
+        report.WrappedItems.Add(Wrapped("Survivor", "Strip.Client"));
+        report.WrapperRequirement = new WrapperRequirementSummary
+        {
+            WrapperRequired = true,
+            WrapperEntryPointCount = 7,
+            WrappedMemberCount = 2,
+            UnwrappedMarkedMemberCount = 2,
+            Rationale = "The generated wrapper exports 7 entry points that generated P/Invokes "
+                + "target; without the wrapper those call routes do not exist at runtime. A further "
+                + "2 member(s) are already marked because no wrapper could be generated for them, "
+                + "which is a separate condition and is not fixed by building one.",
+        };
+
+        var wrapper = new WrapperSection { Status = PhaseStatus.Success };
+        ((List<CoGatedMember>)wrapper.CSharpCoGatedMembers).Add(
+            Heuristic("Stripped", "Strip.Client", 0));
+
+        var projected = BindingReportProjection.Project(new BindingArtifactManifest
+        {
+            Module = "Strip",
+            Generation = GenerationSection.From(report),
+            Wrapper = wrapper,
+        });
+
+        Assert.Equal(1, projected.WrapperRequirement!.WrappedMemberCount);
+        // The marked count is quoted in the same sentence, so a stale one leaves the report claiming
+        // a member is "already marked" on the very line that no longer lists it.
+        Assert.Equal(1, projected.WrapperRequirement.UnwrappedMarkedMemberCount);
+        Assert.Contains("1 member(s) are already marked", projected.WrapperRequirement.Rationale);
+        Assert.DoesNotContain("2 member(s)", projected.WrapperRequirement.Rationale);
+        var survivor = Assert.Single(projected.DegradedMembers);
+        Assert.Equal("Survivor", survivor.Name);
+        Assert.Equal(1, projected.DegradedSurface!.Total);
+        Assert.False(projected.DegradedSurface.ByDiagnosticId.ContainsKey("SB0001"));
+        Assert.Empty(projected.DegradedSurface.ByWrapperReason);
+        Assert.Equal("Survivor", Assert.Single(projected.DegradedSurface.TopDegradedMembers).Name);
+        Assert.Equal("Survivor", Assert.Single(projected.WrappedItems).Name);
+        // Whether the artifacts export anything at all — and how many symbols they carry — is not the
+        // question stripping one member row answers; both are measured from the files themselves.
+        Assert.True(projected.WrapperRequirement.WrapperRequired);
+        Assert.Equal(7, projected.WrapperRequirement.WrapperEntryPointCount);
+    }
+
+    [Fact]
+    public void Projection_CoGating_WithdrawsOnlyAsManyRowsAsWereStripped()
+    {
+        // A degraded row carries no ordinal, so two marked overloads of one name look alike here.
+        // Co-gating one of them must withdraw one row: matching every row with that name would
+        // delete the surviving overload's marker from a binding that still declares it.
+        var report = new BindingReport { ModuleName = "Strip" };
+        report.EmittedMembers = 2;
+        report.EmittedMembersByKind[BindingItemKind.Method] = 2;
+        for (var i = 0; i < 2; i++)
+        {
+            report.DegradedMembers.Add(new DegradedMemberItem
+            {
+                Kind = BindingItemKind.Method,
+                Name = "Load",
+                ContainingType = "Strip.Client",
+                DiagnosticId = "SB0001",
+                ProminenceScore = 4,
+            });
+            report.WrappedItems.Add(Wrapped("Load", "Strip.Client"));
+        }
+        report.DegradedSurface = new DegradedSurfaceSummary { Total = 2 };
+        report.DegradedSurface.ByDiagnosticId["SB0001"] = 2;
+        report.WrapperRequirement = new WrapperRequirementSummary
+        {
+            WrapperRequired = true,
+            WrapperEntryPointCount = 4,
+            WrappedMemberCount = 2,
+            UnwrappedMarkedMemberCount = 2,
+            Rationale = "seeded",
+        };
+
+        var wrapper = new WrapperSection { Status = PhaseStatus.Success };
+        ((List<CoGatedMember>)wrapper.CSharpCoGatedMembers).Add(
+            Heuristic("Load", "Strip.Client", 0));
+
+        var projected = BindingReportProjection.Project(new BindingArtifactManifest
+        {
+            Module = "Strip",
+            Generation = GenerationSection.From(report),
+            Wrapper = wrapper,
+        });
+
+        Assert.Equal("Load", Assert.Single(projected.DegradedMembers).Name);
+        Assert.Equal(1, projected.DegradedSurface!.ByDiagnosticId["SB0001"]);
+        Assert.Equal(1, projected.WrapperRequirement!.UnwrappedMarkedMemberCount);
+        Assert.Equal("Load", Assert.Single(projected.WrappedItems).Name);
+        Assert.Equal(1, projected.WrapperRequirement.WrappedMemberCount);
+    }
+
+    private static WrappedItem Wrapped(string name, string containingType) => new()
+    {
+        Kind = BindingItemKind.Method,
+        Name = name,
+        ContainingType = containingType,
+        WrapperKind = "CdeclWrapper",
+    };
+
+    [Fact]
     public void Projection_PreservesOverloadDuplicates()
     {
         // Two overloads with identical Name+Kind+ContainingType but distinct ordinals
@@ -416,6 +551,103 @@ public class BindingArtifactManifestTests
             new BindingArtifactManifest { Module = "Demo", Generation = GenerationSection.From(NewReport()) });
         Assert.Empty(emptyProjected.ClosureOrphanShellTypes);
         Assert.Equal(0, emptyProjected.ClosureOrphanShellTypeCount);
+    }
+
+    [Fact]
+    public void GenerationSection_And_Projection_RoundTripDegradedSurfaceAndWrapperRequirement()
+    {
+        // The degraded-member ranking and the wrapper-requirement verdict are both computed
+        // once at the end of the live session from state the manifest's other sections do not
+        // carry (the give-up reason behind each marker; whether wrapper source was emitted at
+        // all). binding-report.json is rederived from the manifest, so anything that does not
+        // ride this path reads as absent in the written report no matter what the run found.
+        var report = NewReport();
+        var top = new DegradedMemberItem
+        {
+            Kind = BindingItemKind.Method,
+            Name = "Start",
+            ContainingType = "Demo.Session",
+            DiagnosticId = "SB0001",
+            WrapperReason = "closure_params",
+            WrapperReasonDescription = "a closure parameter shape the C wrapper bridge cannot marshal",
+            IsStatic = true,
+            ProminenceScore = 6,
+        };
+        top.ProminenceFactors.Add("no unmarked sibling of the same name");
+        var lesser = new DegradedMemberItem
+        {
+            Kind = BindingItemKind.Method,
+            Name = "LegacyPing",
+            ContainingType = "Demo.Session",
+            DiagnosticId = "SB0009",
+            IsDeprecated = true,
+            ProminenceScore = -2,
+        };
+        report.DegradedMembers.Add(top);
+        report.DegradedMembers.Add(lesser);
+        report.DegradedSurface = new DegradedSurfaceSummary
+        {
+            Total = 2,
+            ByDiagnosticId = { ["SB0001"] = 1, ["SB0009"] = 1 },
+            ByWrapperReason = { ["closure_params"] = 1 },
+            TopDegradedMembers = { top },
+        };
+        report.WrapperRequirement = new WrapperRequirementSummary
+        {
+            WrapperRequired = true,
+            WrappedMemberCount = 17,
+            UnwrappedMarkedMemberCount = 2,
+            Rationale = "wrapper source was emitted for this module",
+        };
+
+        var section = GenerationSection.From(report);
+        Assert.Equal(2, section.DegradedMembers.Count);
+        Assert.NotNull(section.DegradedSurface);
+        Assert.NotNull(section.WrapperRequirement);
+
+        var manifest = new BindingArtifactManifest { Module = "Demo", Generation = section };
+        var settings = new JsonSerializerSettings
+        {
+            Converters = new List<JsonConverter> { new StringEnumConverter() },
+        };
+        var json = JsonConvert.SerializeObject(manifest, settings);
+        var parsed = JsonConvert.DeserializeObject<BindingArtifactManifest>(json, settings)!;
+
+        var projected = BindingReportProjection.Project(parsed);
+        Assert.Equal(new[] { "Start", "LegacyPing" }, projected.DegradedMembers.Select(m => m.Name));
+
+        var first = projected.DegradedMembers[0];
+        Assert.Equal("Demo.Session", first.ContainingType);
+        Assert.Equal("SB0001", first.DiagnosticId);
+        Assert.Equal("closure_params", first.WrapperReason);
+        Assert.Equal(
+            "a closure parameter shape the C wrapper bridge cannot marshal",
+            first.WrapperReasonDescription);
+        Assert.True(first.IsStatic);
+        Assert.False(first.IsDeprecated);
+        Assert.Equal(6, first.ProminenceScore);
+        Assert.Equal(new[] { "no unmarked sibling of the same name" }, first.ProminenceFactors);
+        Assert.True(projected.DegradedMembers[1].IsDeprecated);
+
+        Assert.Equal(2, projected.DegradedSurface!.Total);
+        Assert.Equal(1, projected.DegradedSurface.ByDiagnosticId["SB0001"]);
+        Assert.Equal(1, projected.DegradedSurface.ByDiagnosticId["SB0009"]);
+        Assert.Equal(1, projected.DegradedSurface.ByWrapperReason["closure_params"]);
+        Assert.Equal("Start", Assert.Single(projected.DegradedSurface.TopDegradedMembers).Name);
+
+        Assert.True(projected.WrapperRequirement!.WrapperRequired);
+        Assert.Equal(17, projected.WrapperRequirement.WrappedMemberCount);
+        Assert.Equal(2, projected.WrapperRequirement.UnwrappedMarkedMemberCount);
+        Assert.Equal("wrapper source was emitted for this module", projected.WrapperRequirement.Rationale);
+
+        // Legacy: a manifest written before these fields existed projects to an empty list and
+        // null summaries — absent, not a fabricated "no degradation / no wrapper needed" verdict,
+        // which a consumer would otherwise read as ground truth.
+        var emptyProjected = BindingReportProjection.Project(
+            new BindingArtifactManifest { Module = "Demo", Generation = GenerationSection.From(NewReport()) });
+        Assert.Empty(emptyProjected.DegradedMembers);
+        Assert.Null(emptyProjected.DegradedSurface);
+        Assert.Null(emptyProjected.WrapperRequirement);
     }
 
     [Fact]

@@ -69,7 +69,7 @@ namespace BindingsGeneration
             // marker, and turning it on for every failable factory would surface a new obsoletion warning
             // on members whose call route is unchanged.
             if (WrapperValidation.IsAbiFloorTombstoned(_env))
-                EmitSafetyObsolete(csWriter);
+                EmitSafetyObsolete(csWriter, _env.FailableFactoryName ?? "TryCreate");
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isFailableFactory: true);
             // Emit signature: public static bool TryCreate(params, out TypeName result)
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.IsSynthesizedAccessor);

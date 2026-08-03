@@ -1623,6 +1623,19 @@ public static class WrapperValidation
         => MethodWrapperEmitter.EvaluateWrapperEligibility(env).Reason;
 
     /// <summary>
+    /// Kind-routed twin of <see cref="GetRejectionReason"/>: asks the emitter that would actually
+    /// have produced this member's wrapper. Routing matters for initializers — the method
+    /// traversal rejects every constructor with the bare token <c>constructor</c>, which is a
+    /// true statement about the wrong emitter and tells a consumer nothing. Accessors keep the
+    /// method answer: the safety marker is a method-level attribute and property-level surfacing
+    /// is a separate wiring.
+    /// </summary>
+    internal static string? GetWrapperRejectionReason(MethodEnvironment env)
+        => env.MethodDecl.IsConstructor
+            ? ConstructorWrapperEmitter.EvaluateWrapperEligibility(env).Reason
+            : MethodWrapperEmitter.EvaluateWrapperEligibility(env).Reason;
+
+    /// <summary>
     /// Returns true if any parameter or return type in the method signature contains
     /// raw ABI generic type parameters (τ_0_0, τ_1_0, etc.) that would cause Swift
     /// compilation failures. Uses the same TypeSpec traversal as EveryProtocolEmitter.
@@ -2322,8 +2335,20 @@ public static class WrapperValidation
                 + "throws NotSupportedException when called");
         }
 
+        // Name the guard that turned the wrapper down. Without it the marker states an outcome with
+        // no cause: a consumer reading "no wrapper available" on a method they need has nothing to
+        // act on and no way to tell whether a different call shape would have worked. The cause is
+        // appended only here, on the advisory id — the two SB0009 sentences above describe a member
+        // that cannot be called at all and already say why, and the SB0002 conditions (missing
+        // exported symbol, unusable return type) are composed at the emission sites and are
+        // independent of wrapper eligibility, so a token there would be true but unrelated.
+        var wrapperCause = GetWrapperRejectionReason(env);
+        var causeClause = string.IsNullOrWhiteSpace(wrapperCause)
+            ? string.Empty
+            : $" ({WrapperRejectionReasons.Describe(wrapperCause)})";
+
         return (DirectCallConvSwiftDiagnosticId,
-            "No @_cdecl wrapper or native thunk available. "
+            "No @_cdecl wrapper or native thunk available" + causeClause + ". "
             + "P/Invoke calling convention may not match Swift ABI");
     }
 

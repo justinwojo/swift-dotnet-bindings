@@ -117,6 +117,16 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void Props_DefaultsWrapperRequiredToTrue()
+        {
+            // Fail-closed default: a binding whose wrapper did not compile stops the build unless
+            // the author opts out. The behavioural half of this pair — that the default actually
+            // reaches the SWIFTBIND051 gate as an error — lives in SdkTargetsBehaviorTests.
+            Assert.Contains("<SwiftWrapperRequired Condition=", PropsContent);
+            Assert.Contains(">true</SwiftWrapperRequired>", PropsContent);
+        }
+
+        [Fact]
         public void Props_DoesNotContainAutoDiscovery()
         {
             // Auto-discovery must be in .targets, not .props

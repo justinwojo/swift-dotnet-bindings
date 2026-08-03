@@ -59,7 +59,7 @@ namespace BindingsGeneration
             // (C# doesn't support async constructors)
             bool isAsyncConstructor = _env.MethodDecl.IsConstructor && _env.MethodDecl.IsAsync;
 
-            var staticKeyword = _env.MethodDecl.MethodType == MethodType.Static || _env.ParentDecl is ModuleDecl || isAsyncConstructor ? "static " : "";
+            var staticKeyword = EmitsStatic ? "static " : "";
 
             // Compute virtual/override/sealed override modifier for class instance methods.
             // Excludes: static methods, constructors, async constructors, accessor methods.
@@ -313,7 +313,12 @@ namespace BindingsGeneration
         /// Combined issues take the non-blittable id (broader scope). Skips accessors — property-level
         /// [Obsolete] requires separate PropertyHandler wiring.
         /// </summary>
-        private void EmitSafetyObsolete(CSharpWriter csWriter)
+        /// <param name="emittedName">
+        /// The name the member is being emitted under, when it is not the projected method name —
+        /// the failable-factory path writes a static factory whose name the report has to use to
+        /// name a member the binding actually has. Null everywhere else.
+        /// </param>
+        private void EmitSafetyObsolete(CSharpWriter csWriter, string? emittedName = null)
         {
             bool hasJitRisk = false;
             // Tracks whether an [EditorBrowsable(Never)] has already been written for this
@@ -377,6 +382,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine($"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\", " +
                         $"DiagnosticId = \"{diagnosticId}\", " +
                         $"UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\")]");
+                    RecordSafetyMarked(diagnosticId, deprecationMsg != null, emittedName);
                     // Such a member is either uncallable (its body throws) or reachable only through a
                     // direct P/Invoke whose ABI we cannot vouch for. Either way the declaration stays: a
                     // conformance that requires it must still compile (dropping it would be CS0535) and the
@@ -424,6 +430,51 @@ namespace BindingsGeneration
                 editorBrowsableNeverEmitted = true;
             }
         }
+
+        /// <summary>
+        /// Records the marker just written, so the report names the same members a consumer meets in
+        /// the binding. Recorded here rather than recomputed from the declarations afterwards: the
+        /// question is which attribute is in the emitted C#, and a later pass re-running the
+        /// predicates would answer a different question that merely usually agrees.
+        ///
+        /// <para>The wrapper cause rides along only for the advisory id. The uncallable id already
+        /// carries a specific sentence about why no call route exists, and the missing-symbol id is
+        /// about a symbol the library did not export — attaching an eligibility token to either
+        /// would put a true statement next to a diagnostic it did not cause.</para>
+        ///
+        /// <para>The name and the static-ness recorded are the ones this emitter is writing, not the
+        /// ones the Swift declaration implies. They diverge on two shapes: a failable init emits as a
+        /// static factory under <paramref name="emittedName"/>, and a free function or async
+        /// constructor emits <c>static</c> from its parent rather than its method type. Recording the
+        /// declaration's answer instead names a member the binding does not have, and drops the
+        /// static factor from the prominence score of one that it does.</para>
+        /// </summary>
+        private void RecordSafetyMarked(string diagnosticId, bool isDeprecated, string? emittedName)
+        {
+            var wrapperReason = diagnosticId == WrapperValidation.DirectCallConvSwiftDiagnosticId
+                ? WrapperValidation.GetWrapperRejectionReason(_env)
+                : null;
+
+            ReportCollector.RecordMemberSafetyMarked(
+                _env.MethodDecl,
+                _env.MethodDecl.ParentDecl,
+                emittedName ?? _env.CSharpMethodName,
+                diagnosticId,
+                wrapperReason,
+                isDeprecated,
+                EmitsStatic);
+        }
+
+        /// <summary>
+        /// Whether the member this emitter writes carries the <c>static</c> keyword. Single source
+        /// for the signature line and the report row, which have to agree: the two once answered it
+        /// from different expressions, and a free function emitted <c>static</c> while the report
+        /// called it an instance member.
+        /// </summary>
+        private bool EmitsStatic =>
+            _env.MethodDecl.MethodType == MethodType.Static
+            || _env.ParentDecl is ModuleDecl
+            || (_env.MethodDecl.IsConstructor && _env.MethodDecl.IsAsync);
 
         /// <summary>
         /// Returns true if this method's return type was recorded as a silent tombstone

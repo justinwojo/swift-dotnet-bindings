@@ -731,7 +731,7 @@ namespace BindingsGeneration
             // (covers both failable EmitFailableFactory and non-failable EmitConstructor paths)
             wrapperEmitter.EmitTypedErrorExtractor(swiftWriter);
 
-            var ctorTransaction = MemberEmissionTransaction.Begin(csWriter, swiftWriter, context.GetEmissionContext());
+            var ctorTransaction = MemberEmissionTransaction.Begin(csWriter, swiftWriter, context.GetEmissionContext(), methodEnv);
             try
             {
                 if (methodEnv.MethodDecl.IsFailable)
@@ -1151,7 +1151,7 @@ namespace BindingsGeneration
                     // Transactional rollback (bridge site): each bridge derives its own
                     // SBW_/SBSW_ symbol inside TryEmit, so checkpoint before the attempt and
                     // roll that bridge's partial output back out on the eager contract throw.
-                    var bridgeTransaction = MemberEmissionTransaction.Begin(csWriter, swiftWriter, context.GetEmissionContext());
+                    var bridgeTransaction = MemberEmissionTransaction.Begin(csWriter, swiftWriter, context.GetEmissionContext(), methodEnv);
                     try
                     {
                         result = bridge.TryEmit(bridgeContext);
@@ -1445,7 +1445,7 @@ namespace BindingsGeneration
                 !isAccessor &&
                 WrapperValidation.IsXCFrameworkMode(methodEnv.TypeDatabase))
             {
-                var reason = WrapperValidation.GetRejectionReason(methodEnv);
+                var reason = WrapperValidation.GetWrapperRejectionReason(methodEnv);
                 if (reason != null)
                 {
                     _logger.LogDebug("Method {MethodName} on {ParentName}: no wrapper/thunk available ({Reason})",
@@ -1678,7 +1678,7 @@ namespace BindingsGeneration
                 context.GetEmissionContext().IncrementWrapperStrategy(methodEnv.MethodDecl.WrapperStrategy.ToString());
                 if (!methodEnv.MethodDecl.UsesCdeclWrapper && !methodEnv.MethodDecl.UsesNativeThunk && WrapperValidation.IsXCFrameworkMode(methodEnv.TypeDatabase))
                 {
-                    var skipReason = WrapperValidation.GetRejectionReason(methodEnv);
+                    var skipReason = WrapperValidation.GetWrapperRejectionReason(methodEnv);
                     if (skipReason != null)
                         context.GetEmissionContext().IncrementWrapperSkipReason(skipReason);
                 }
@@ -1755,7 +1755,7 @@ namespace BindingsGeneration
             // predict-before-emit query cannot tell a valid async method from a silent bail.
             // Checkpoint the writer, emit, and on the eager contract throw roll the orphan
             // public member back out of the buffer before recording the skip.
-            var methodTransaction = MemberEmissionTransaction.Begin(csWriter, swiftWriter, context.GetEmissionContext());
+            var methodTransaction = MemberEmissionTransaction.Begin(csWriter, swiftWriter, context.GetEmissionContext(), methodEnv);
             try
             {
                 wrapperEmitter.EmitMethod(csWriter, swiftWriter);
@@ -2010,7 +2010,7 @@ namespace BindingsGeneration
             var awaitResult = resultTypeName != null ? "return await tcs.Task;" : "await tcs.Task;";
 
             // Propagate SB0001/SB0002 safety attributes from the underlying method
-            var safetyAttr = GetSafetyObsoleteAttribute(methodEnv);
+            var safetyAttr = GetSafetyObsoleteAttribute(methodEnv, asyncMethodName);
 
             // Inherit [SupportedOSPlatform] / [ObsoletedOSPlatform] from the primary method.
             // Without these, CA1416 flags the Task-returning forwarder as reachable on lower
@@ -2049,7 +2049,14 @@ namespace BindingsGeneration
         /// non-blittable ids only fire when there is no wrapper AND the P/Invoke signature contains
         /// non-blittable types.
         /// </summary>
-        internal static string? GetSafetyObsoleteAttribute(MethodEnvironment env)
+        /// <param name="env">The primary method the overload forwards to.</param>
+        /// <param name="recordAsEmittedName">
+        /// When set, the C# name the copied marker will land on, recorded as its own report row: the
+        /// Task-returning overload is a separate member on the public surface, so a report that
+        /// listed only the primary would under-count the members a consumer can actually reach and
+        /// see marked. Left null by callers that only want the attribute text.
+        /// </param>
+        internal static string? GetSafetyObsoleteAttribute(MethodEnvironment env, string? recordAsEmittedName = null)
         {
             var methodDecl = env.MethodDecl;
             string? nonBlittableDiagnosticId = null;
@@ -2078,6 +2085,21 @@ namespace BindingsGeneration
 
             var message = string.Join(". ", issues) + ".";
             var diagnosticId = nonBlittableDiagnosticId ?? "SB0002";
+
+            if (recordAsEmittedName != null)
+            {
+                ReportCollector.RecordMemberSafetyMarked(
+                    methodDecl,
+                    methodDecl.ParentDecl,
+                    recordAsEmittedName,
+                    diagnosticId,
+                    diagnosticId == WrapperValidation.DirectCallConvSwiftDiagnosticId
+                        ? WrapperValidation.GetWrapperRejectionReason(env)
+                        : null,
+                    AvailabilityAttributeEmitter.GetDeprecationMessage(methodDecl) != null,
+                    methodDecl.MethodType == MethodType.Static);
+            }
+
             return $"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\", " +
                 $"DiagnosticId = \"{diagnosticId}\", " +
                 $"UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\")]";

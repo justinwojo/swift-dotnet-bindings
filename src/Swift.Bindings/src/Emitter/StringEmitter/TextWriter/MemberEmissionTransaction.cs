@@ -30,6 +30,7 @@ namespace BindingsGeneration
         private readonly BufferedSourceWriter.WriterCheckpoint _swiftCheckpoint;
         private readonly ModuleEmissionContext? _context;
         private readonly int _epochAtBegin;
+        private readonly MethodEnvironment? _member;
 
         private MemberEmissionTransaction(
             CSharpWriter csWriter,
@@ -37,7 +38,8 @@ namespace BindingsGeneration
             SwiftWriter? swiftWriter,
             BufferedSourceWriter.WriterCheckpoint swiftCheckpoint,
             ModuleEmissionContext? context,
-            int epochAtBegin)
+            int epochAtBegin,
+            MethodEnvironment? member)
         {
             _csWriter = csWriter;
             _csCheckpoint = csCheckpoint;
@@ -45,6 +47,7 @@ namespace BindingsGeneration
             _swiftCheckpoint = swiftCheckpoint;
             _context = context;
             _epochAtBegin = epochAtBegin;
+            _member = member;
         }
 
         /// <summary>
@@ -58,11 +61,19 @@ namespace BindingsGeneration
         /// is reported safe while helpers committed through the real context get truncated. A
         /// <see langword="null"/> context is the fail-safe spelling for "no epoch available"; it
         /// keeps the Swift text.</para>
+        /// <para><paramref name="member"/> is the member being emitted speculatively. Emitting one
+        /// can also record a REPORT row describing an attribute written onto it — the safety marker
+        /// the signature emitter injects when no wrapper was available. Rolling the text back
+        /// without withdrawing that row leaves the report naming an attribute the binding does not
+        /// carry, on a member the same run went on to record as skipped. Supplying the member here
+        /// makes the withdrawal part of the rollback rather than something each catch arm has to
+        /// remember; passing <see langword="null"/> rolls back text only.</para>
         /// </summary>
         public static MemberEmissionTransaction Begin(
             CSharpWriter csWriter,
             SwiftWriter? swiftWriter,
-            ModuleEmissionContext? context)
+            ModuleEmissionContext? context,
+            MethodEnvironment? member = null)
         {
             ArgumentNullException.ThrowIfNull(csWriter);
 
@@ -72,7 +83,8 @@ namespace BindingsGeneration
                 swiftWriter,
                 swiftWriter is null ? default : swiftWriter.Checkpoint(),
                 context,
-                context?.SharedSwiftArtifactEpoch ?? 0);
+                context?.SharedSwiftArtifactEpoch ?? 0,
+                member);
         }
 
         /// <summary>
@@ -114,13 +126,20 @@ namespace BindingsGeneration
             : SwiftKeep.RolledBack;
 
         /// <summary>
-        /// Discards everything written since <see cref="Begin"/>: the C# span always, and the
-        /// Swift span when <see cref="SwiftRollbackIsSafe"/>. Returns why the Swift span was kept,
-        /// so a caller can report the member whose wrapper block had to be retained.
+        /// Discards everything written since <see cref="Begin"/>: the C# span always, the Swift
+        /// span when <see cref="SwiftRollbackIsSafe"/>, and the safety-marker report row for the
+        /// member when one was supplied to <see cref="Begin"/>. Returns why the Swift span was
+        /// kept, so a caller can report the member whose wrapper block had to be retained.
         /// </summary>
         public SwiftKeep Rollback()
         {
             _csWriter.RollbackTo(_csCheckpoint);
+
+            if (_member is { } member)
+            {
+                ReportCollector.WithdrawMemberSafetyMarked(
+                    member.MethodDecl, member.MethodDecl.ParentDecl, member.CSharpMethodName);
+            }
 
             var reason = SwiftKeepReason;
             if (reason == SwiftKeep.RolledBack)

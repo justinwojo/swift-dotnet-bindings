@@ -43,8 +43,13 @@ public class ClosureBridgeClassificationParityTests
 {
     private const string ObjCBridgedClass = "Foundation.NSError";
     private const string PureSwiftClass = "TestModule.PureSwiftClass";
+    private const string ComplexEnum = "TestModule.FetchScope";
+    private const string SimpleEnum = "TestModule.Level";
     // Deliberately never registered: exercises the no-TypeRecord fallback both bridges must agree on.
     private const string NoRecordType = "UnknownModule.Unresolvable";
+    // A complex-enum TypeRecord that TypeProjectionFactory routes by NAME before the record ever
+    // reaches CreateProjectionForTypeRecord — so its record kind does not predict its projection.
+    private const string SpeciallyProjectedGenericEnum = "Swift.Result";
 
     private static TypeDatabase CreateTypeDatabase()
     {
@@ -78,7 +83,45 @@ public class ClosureBridgeClassificationParityTests
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Class
             });
+        // Complex enum (associated values): projects to NonFrozenStructProjection, i.e. a C# class
+        // over an opaque payload — the same shape a non-frozen struct takes, so ClassifyParam admits
+        // it as PayloadHandle.
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName(ComplexEnum),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "FetchScope"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(ComplexEnum),
+                MetadataAccessor = "$s10TestModule10FetchScopeOMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Enum
+            });
+        // Simple enum: projects to a C# enum over an integer, with no payload to hand across.
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName(SimpleEnum),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Level"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(SimpleEnum),
+                MetadataAccessor = "$s10TestModule5LevelOMa",
+                Flags = TypeRecordFlags.SimpleEnum,
+                RawValueTypeName = "Swift.Int32",
+                Kind = TypeRecordKind.Enum
+            });
         typeDatabase.AddModuleDatabase(testModule);
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName(SpeciallyProjectedGenericEnum),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftResult"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(SpeciallyProjectedGenericEnum),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Enum
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
 
         return typeDatabase;
     }
@@ -130,6 +173,40 @@ public class ClosureBridgeClassificationParityTests
         Assert.Equal(
             MethodClosureBridge.ParamAbiCategory.Unsupported,
             MethodClosureBridge.ClassifyParam(CreateArgument("p", new NamedTypeSpec(NoRecordType), moduleDecl), typeDb));
+    }
+
+    [Fact]
+    public void ClassifyParam_EnumCarrier_AdmitsOnlyMonomorphicPayloadEnums()
+    {
+        var typeDb = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // A monomorphic complex enum carries its associated values behind a payload pointer, exactly
+        // as a non-frozen struct does, so the bridge can hand it across as a payload handle.
+        Assert.Equal(
+            MethodClosureBridge.ParamAbiCategory.PayloadHandle,
+            MethodClosureBridge.ClassifyParam(CreateArgument("p", new NamedTypeSpec(ComplexEnum), moduleDecl), typeDb));
+
+        // A simple enum is an integer on the C# side — there is no payload to point at.
+        Assert.Equal(
+            MethodClosureBridge.ParamAbiCategory.Unsupported,
+            MethodClosureBridge.ClassifyParam(CreateArgument("p", new NamedTypeSpec(SimpleEnum), moduleDecl), typeDb));
+
+        // Swift.Result has a complex-enum TypeRecord but never reaches the record-driven projection:
+        // TypeProjectionFactory routes it by name to ResultProjection, whose parameter direction has
+        // no native payload to produce. Admitting it on record kind alone would emit a payload-pointer
+        // argument the marshaller refuses to build.
+        Assert.Equal(
+            MethodClosureBridge.ParamAbiCategory.Unsupported,
+            MethodClosureBridge.ClassifyParam(
+                CreateArgument(
+                    "p",
+                    new NamedTypeSpec(
+                        SpeciallyProjectedGenericEnum,
+                        new NamedTypeSpec("Swift.Int32"),
+                        new NamedTypeSpec("Swift.Error")),
+                    moduleDecl),
+                typeDb));
     }
 
     // ─── Closure-arg predicates (shared ClosureHandler) ───

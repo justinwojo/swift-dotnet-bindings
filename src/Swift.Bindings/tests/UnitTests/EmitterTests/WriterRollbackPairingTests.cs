@@ -131,6 +131,67 @@ public class WriterRollbackPairingTests
         Assert.Throws<InvalidOperationException>(() => cs.RollbackTo(swiftCheckpoint));
         Assert.Contains("SBW_DoWork", swiftBuffer.ToString(), StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// Emitting a member speculatively can also record a REPORT row for the safety marker written
+    /// onto it. The buffer rollback is what every contract-failure arm calls, so the withdrawal
+    /// belongs there rather than in each arm — a report that keeps the row names an
+    /// <c>[Obsolete]</c> the binding does not carry, on a member the same run records as skipped.
+    /// </summary>
+    [Fact]
+    public void Rollback_WithdrawsTheSafetyMarkerRowForTheMemberItDiscards()
+    {
+        var (cs, _, swift, _) = MakeWriters();
+        var moduleDecl = TestModelFactory.CreateModuleDecl();
+        var method = TestModelFactory.CreateMethod("load", parent: moduleDecl);
+        var env = new MethodEnvironment(method, new TypeDatabase());
+
+        ReportCollector.Start(moduleDecl);
+        var transaction = MemberEmissionTransaction.Begin(cs, swift, new ModuleEmissionContext(), env);
+        cs.WriteLine("public void Load() { }");
+        ReportCollector.RecordMemberSafetyMarked(
+            method, method.ParentDecl, env.CSharpMethodName, "SB0001", "closure_params",
+            isDeprecated: false, isStatic: false);
+
+        transaction.Rollback();
+        var report = ReportCollector.Complete();
+
+        Assert.NotNull(report);
+        Assert.Empty(report!.DegradedMembers);
+    }
+
+    /// <summary>
+    /// The withdrawal is scoped to the member being rolled back — an unrelated member's row, which
+    /// describes an attribute still sitting in the buffer, has to survive.
+    /// </summary>
+    [Fact]
+    public void Rollback_LeavesAnotherMembersSafetyMarkerRowInPlace()
+    {
+        var (cs, _, swift, _) = MakeWriters();
+        var moduleDecl = TestModelFactory.CreateModuleDecl();
+        var rolledBack = TestModelFactory.CreateMethod("load", parent: moduleDecl);
+        var kept = TestModelFactory.CreateMethod("store", parent: moduleDecl);
+        var typeDatabase = new TypeDatabase();
+        var rolledBackEnv = new MethodEnvironment(rolledBack, typeDatabase);
+        var keptEnv = new MethodEnvironment(kept, typeDatabase);
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberSafetyMarked(
+            kept, kept.ParentDecl, keptEnv.CSharpMethodName, "SB0001", "closure_params",
+            isDeprecated: false, isStatic: false);
+        var transaction = MemberEmissionTransaction.Begin(
+            cs, swift, new ModuleEmissionContext(), rolledBackEnv);
+        ReportCollector.RecordMemberSafetyMarked(
+            rolledBack, rolledBack.ParentDecl, rolledBackEnv.CSharpMethodName, "SB0001", "async",
+            isDeprecated: false, isStatic: false);
+
+        transaction.Rollback();
+        var report = ReportCollector.Complete();
+
+        Assert.NotNull(report);
+        var survivor = Assert.Single(report!.DegradedMembers);
+        Assert.Equal(keptEnv.CSharpMethodName, survivor.Name);
+    }
 }
 
 /// <summary>

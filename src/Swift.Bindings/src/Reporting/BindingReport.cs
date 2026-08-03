@@ -126,6 +126,136 @@ public sealed class BindingReport
     /// was never projected (e.g. a mid-pipeline accumulator).
     /// </summary>
     public SkipTriageSummary? SkipTriage { get; set; }
+
+    /// <summary>
+    /// Every emitted member that carries a safety <c>[Obsolete]</c> marker (SB0001 / SB0002 /
+    /// SB0009), with the wrapper-eligibility guard that caused it. These members are NOT skips —
+    /// they are on the public surface and a consumer can call them — so they never appear in
+    /// <see cref="SkippedItems"/>. Ordered by descending prominence, then by name.
+    /// </summary>
+    public List<DegradedMemberItem> DegradedMembers { get; } = new();
+
+    /// <summary>
+    /// Roll-up of <see cref="DegradedMembers"/>: how many, by which diagnostic, by which guard,
+    /// and the short "these are the load-bearing ones" list. A count of markers is not a measure
+    /// of severity — a marker on a leaf convenience overload is a footnote, the same marker on a
+    /// library's only entry point makes the binding look broken.
+    /// </summary>
+    public DegradedSurfaceSummary? DegradedSurface { get; set; }
+
+    /// <summary>
+    /// Whether this module needed a Swift wrapper at all, and how much of its surface depends on
+    /// one. Ground truth for the SDK's <c>SwiftWrapperRequired</c> opt-out: a module whose wrapper
+    /// artifacts export nothing loses nothing when a wrapper cannot be built, while one that exports
+    /// hundreds of entry points silently loses that surface. Zero wrapped MEMBERS is not the same
+    /// question — see <see cref="WrapperRequirementSummary.WrapperRequired"/>.
+    /// </summary>
+    public WrapperRequirementSummary? WrapperRequirement { get; set; }
+}
+
+/// <summary>
+/// One emitted-but-safety-marked member. The marker text a consumer reads is built from the same
+/// <see cref="WrapperReasonDescription"/> recorded here, so the report and the binding agree.
+/// </summary>
+public sealed class DegradedMemberItem
+{
+    /// <summary>Declaration kind of the marked member.</summary>
+    public required BindingItemKind Kind { get; init; }
+
+    /// <summary>Emitted C# member name.</summary>
+    public required string Name { get; init; }
+
+    /// <summary>Module-qualified declaring type, or null for a free function.</summary>
+    public string? ContainingType { get; init; }
+
+    /// <summary>The marker actually written onto the member: <c>SB0001</c>, <c>SB0002</c> or <c>SB0009</c>.</summary>
+    public required string DiagnosticId { get; init; }
+
+    /// <summary>
+    /// The raw wrapper-eligibility guard token (for example <c>closure_params</c>), or null when
+    /// the marker has no wrapper cause — a missing exported symbol carries SB0002 on its own.
+    /// </summary>
+    public string? WrapperReason { get; init; }
+
+    /// <summary>Consumer-facing sentence for <see cref="WrapperReason"/>.</summary>
+    public string? WrapperReasonDescription { get; init; }
+
+    /// <summary>True when the member is also deprecated by the library itself.</summary>
+    public bool IsDeprecated { get; init; }
+
+    /// <summary>True when the member is static (reachable without an instance).</summary>
+    public bool IsStatic { get; init; }
+
+    /// <summary>
+    /// Prominence rank; higher means the marker is more likely to sit on a load-bearing entry
+    /// point. Report-only and heuristic — see <see cref="ProminenceFactors"/> for what it is made of.
+    /// </summary>
+    public int ProminenceScore { get; set; }
+
+    /// <summary>The named signals that produced <see cref="ProminenceScore"/>, so the number is auditable.</summary>
+    public List<string> ProminenceFactors { get; } = new();
+}
+
+/// <summary>Roll-up of the safety-marked surface for one module.</summary>
+public sealed class DegradedSurfaceSummary
+{
+    /// <summary>Total members carrying a safety marker.</summary>
+    public int Total { get; set; }
+
+    /// <summary>Marker counts keyed by diagnostic id.</summary>
+    public Dictionary<string, int> ByDiagnosticId { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Marker counts keyed by wrapper-eligibility guard token.</summary>
+    public Dictionary<string, int> ByWrapperReason { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The highest-prominence marked members, most prominent first. A subset of
+    /// <see cref="BindingReport.DegradedMembers"/> — the full list is always present, so this
+    /// list ranks rather than truncates.
+    /// </summary>
+    public List<DegradedMemberItem> TopDegradedMembers { get; } = new();
+}
+
+/// <summary>Whether a module's surface depends on a generated Swift wrapper.</summary>
+public sealed class WrapperRequirementSummary
+{
+    /// <summary>
+    /// True when the emitted wrapper artifacts export something the generated C# binds to — an
+    /// <c>@_cdecl</c>/<c>@_silgen_name</c> entry point in the wrapper source, or a native thunk
+    /// assembly. Not the same as <see cref="WrappedMemberCount"/> being non-zero: helper, metadata
+    /// and reverse-dispatch symbols are exported without belonging to any one member.
+    /// </summary>
+    public bool WrapperRequired { get; set; }
+
+    /// <summary>
+    /// How many <c>@_cdecl</c>/<c>@_silgen_name</c> entry points the emitted wrapper source declares
+    /// — the complete measure of how much a missing wrapper costs, and the number the rationale is
+    /// phrased from.
+    ///
+    /// <para>Counted from the wrapper source as emitted, before the wrapper compile runs; a symbol
+    /// that compile later strips is still counted here. Co-gating does not revise it, because one
+    /// stripped member does not correspond to one entry point — helper and metadata symbols are
+    /// shared across members, and a single member can export several.</para>
+    /// </summary>
+    public int WrapperEntryPointCount { get; set; }
+
+    /// <summary>
+    /// How many members the report records as wrapped through a bypass, bridge or tombstone path.
+    ///
+    /// <para>A member routed through an ordinary <c>@_cdecl</c> method wrapper is not recorded
+    /// per-member, so this is a floor on wrapper-dependent members rather than a total — read
+    /// <see cref="WrapperEntryPointCount"/> for the complete measure.</para>
+    /// </summary>
+    public int WrappedMemberCount { get; set; }
+
+    /// <summary>How many members carry a safety marker because no wrapper was available.</summary>
+    public int UnwrappedMarkedMemberCount { get; set; }
+
+    /// <summary>
+    /// One sentence stating what building this binding without a wrapper would cost, phrased for
+    /// whoever is deciding whether <c>SwiftWrapperRequired=false</c> is honest for this library.
+    /// </summary>
+    public string? Rationale { get; set; }
 }
 
 /// <summary>

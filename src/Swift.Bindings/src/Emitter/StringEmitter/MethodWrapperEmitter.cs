@@ -99,8 +99,12 @@ public static class MethodWrapperEmitter
         {
             if (!ClosureEmitter.NeedsClosureCdeclWrapper(env.MethodDecl, env.ClosureHandler))
                 return WrapperEligibility.Reject("closure_params");
+            // Distinct from the guard above: the closure shape itself is bridgeable, but it is
+            // `async` in a position the wrapper harness cannot start. Sharing one token here
+            // would collapse two different consumer-facing causes into one histogram bucket
+            // and one [Obsolete] sentence.
             if (HasUnsupportedAsyncClosure(env))
-                return WrapperEligibility.Reject("closure_params");
+                return WrapperEligibility.Reject("async_closure");
         }
 
         // 11b. Inout params with types that have C# ABI mismatch (String → 2 words, class → Unmanaged, etc.)

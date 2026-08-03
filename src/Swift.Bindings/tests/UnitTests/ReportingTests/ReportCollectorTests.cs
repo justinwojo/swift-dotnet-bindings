@@ -1034,6 +1034,225 @@ public class ReportCollectorTests
         ReportCollector.Reset();
     }
 
+    // ==================== Degraded surface ====================
+
+    [Fact]
+    public void RecordMemberSafetyMarked_CarriesTheGiveUpReasonAndItsSentence()
+    {
+        // The token alone is an internal name; the report has to carry the sentence too, or a
+        // consumer reading binding-report.json sees a reason they cannot act on.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var method = CreateMethod("Fetch", classDecl);
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberSafetyMarked(
+            method, classDecl, "Fetch", "SB0001", "closure_params", isDeprecated: false, isStatic: false);
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+        var item = Assert.Single(report!.DegradedMembers);
+        Assert.Equal("Fetch", item.Name);
+        Assert.Equal("TestModule.Loader", item.ContainingType);
+        Assert.Equal("SB0001", item.DiagnosticId);
+        Assert.Equal("closure_params", item.WrapperReason);
+        Assert.Equal(
+            WrapperRejectionReasons.Describe("closure_params"), item.WrapperReasonDescription);
+        Assert.Equal(1, report.DegradedSurface!.Total);
+        Assert.Equal(1, report.DegradedSurface.ByDiagnosticId["SB0001"]);
+        Assert.Equal(1, report.DegradedSurface.ByWrapperReason["closure_params"]);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void RecordMemberSafetyMarked_NoWrapperReason_LeavesBothReasonFieldsNull()
+    {
+        // SB0002 is orthogonal to wrapper eligibility. A token invented for it would be true of
+        // the member and unrelated to why it is marked, so both fields stay empty — and the
+        // by-reason histogram must not gain a bucket for it.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var method = CreateMethod("Fetch", classDecl);
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberSafetyMarked(
+            method, classDecl, "Fetch", "SB0002", wrapperReason: null, isDeprecated: false, isStatic: false);
+
+        var report = ReportCollector.Complete();
+        var item = Assert.Single(report!.DegradedMembers);
+        Assert.Null(item.WrapperReason);
+        Assert.Null(item.WrapperReasonDescription);
+        Assert.Empty(report.DegradedSurface!.ByWrapperReason);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void RecordMemberSafetyMarked_SameMemberTwoEmittedNames_AreSeparateRows()
+    {
+        // An async method surfaces as two public members — the sync name and the Task-returning
+        // overload — each carrying its own attribute. Collapsing them on the decl alone would
+        // undercount the degraded surface a consumer actually sees.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var method = CreateMethod("Load", classDecl);
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberSafetyMarked(
+            method, classDecl, "Load", "SB0001", "closure_params", isDeprecated: false, isStatic: false);
+        ReportCollector.RecordMemberSafetyMarked(
+            method, classDecl, "LoadAsync", "SB0001", "closure_params", isDeprecated: false, isStatic: false);
+        // Exact repeat of the first — same decl, same emitted name, same id — collapses.
+        ReportCollector.RecordMemberSafetyMarked(
+            method, classDecl, "Load", "SB0001", "closure_params", isDeprecated: false, isStatic: false);
+
+        var report = ReportCollector.Complete();
+        Assert.Equal(2, report!.DegradedSurface!.Total);
+        Assert.Equal(new[] { "Load", "LoadAsync" }, report.DegradedMembers.Select(m => m.Name).Order());
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void WithdrawMemberSafetyMarked_RemovesARowWhoseMarkerWasStripped()
+    {
+        // The suppressed-proxy path removes the advisory attribute and writes its own error-level
+        // one. Leaving the withdrawn row behind would report a marker that is not in the file.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var withdrawn = CreateMethod("Fetch", classDecl);
+        var kept = CreateMethod("Load", classDecl);
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberSafetyMarked(
+            withdrawn, classDecl, "Fetch", "SB0001", "closure_params", isDeprecated: false, isStatic: false);
+        ReportCollector.RecordMemberSafetyMarked(
+            kept, classDecl, "Load", "SB0001", "closure_params", isDeprecated: false, isStatic: false);
+        ReportCollector.WithdrawMemberSafetyMarked(withdrawn, classDecl, "Fetch");
+
+        var report = ReportCollector.Complete();
+        Assert.Equal("Load", Assert.Single(report!.DegradedMembers).Name);
+        Assert.Equal(1, report.DegradedSurface!.Total);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void DegradedSurface_RanksByProminenceAndExplainsEveryScore()
+    {
+        // Ordering is the whole point of the section: a consumer scanning it should meet the
+        // member whose loss actually removes a capability first. Each contributing signal has to
+        // be named on the row, so the ranking can be argued with rather than trusted blind.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var start = CreateMethod("start", classDecl);
+        var tweak = CreateMethod("tweak", classDecl);
+        var legacy = CreateMethod("legacy", classDecl);
+
+        ReportCollector.Start(moduleDecl);
+        // Front-door type ("Loader" does not end in a front-door suffix, so the type signal is
+        // off for all three) + entry-point verb + static + sole member of its name.
+        ReportCollector.RecordMemberSafetyMarked(
+            start, classDecl, "Start", "SB0001", "closure_params", isDeprecated: false, isStatic: true);
+        // Sole member of its name only.
+        ReportCollector.RecordMemberSafetyMarked(
+            tweak, classDecl, "Tweak", "SB0001", "closure_params", isDeprecated: false, isStatic: false);
+        // Sole member of its name, but deprecated — net below the others and excluded from the
+        // highlighted list however it ranks.
+        ReportCollector.RecordMemberSafetyMarked(
+            legacy, classDecl, "Legacy", "SB0001", "closure_params", isDeprecated: true, isStatic: false);
+
+        var report = ReportCollector.Complete();
+        Assert.Equal(
+            new[] { "Start", "Tweak", "Legacy" }, report!.DegradedMembers.Select(m => m.Name));
+
+        var ranked = report.DegradedMembers[0];
+        Assert.Equal(6, ranked.ProminenceScore);
+        Assert.Contains("no unmarked member of the same name on this type", ranked.ProminenceFactors);
+        Assert.Contains("name reads as an entry point", ranked.ProminenceFactors);
+        Assert.Contains("static, so it is reachable without constructing anything", ranked.ProminenceFactors);
+        Assert.Equal(3, report.DegradedMembers[1].ProminenceScore);
+        Assert.Equal(1, report.DegradedMembers[2].ProminenceScore);
+        Assert.Contains("already deprecated by the library", report.DegradedMembers[2].ProminenceFactors);
+
+        Assert.Equal(
+            new[] { "Start", "Tweak" },
+            report.DegradedSurface!.TopDegradedMembers.Select(m => m.Name));
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void DegradedSurface_UnmarkedSiblingOfTheSameName_SuppressesTheStrongestSignal()
+    {
+        // A marker on one of several same-named overloads still leaves the consumer a working
+        // call, so it must not rank alongside a marker that removes the name outright. The
+        // sibling is matched on the emitted-member identity, not on the name string. The name is
+        // deliberately not an entry-point verb, so the suppressed signal is the only one in play.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var marked = CreateMethod("Tweak", classDecl);
+        var sibling = CreateMethod("Tweak", classDecl) with
+        {
+            MangledName = "$s4Test5TweakyySiF",
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = classDecl,
+                    ModuleDecl = moduleDecl,
+                },
+                new()
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    Name = "count",
+                    PrivateName = "count",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = classDecl,
+                    ModuleDecl = moduleDecl,
+                },
+            },
+        };
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberEmitted(sibling, classDecl);
+        ReportCollector.RecordMemberSafetyMarked(
+            marked, classDecl, "Tweak", "SB0001", "closure_params", isDeprecated: false, isStatic: false);
+
+        var report = ReportCollector.Complete();
+        var item = Assert.Single(report!.DegradedMembers);
+        Assert.Equal(0, item.ProminenceScore);
+        Assert.DoesNotContain(
+            "no unmarked member of the same name on this type", item.ProminenceFactors);
+        // Score of zero means no signal fired — nothing to highlight, but the row still ships.
+        Assert.Empty(report.DegradedSurface!.TopDegradedMembers);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void DegradedSurface_NoMarkedMembers_LeavesTheSectionAbsent()
+    {
+        // Absent, not an empty summary: a zero-filled section reads as "measured and found none",
+        // which is the same thing a run predating the section would claim.
+        var moduleDecl = CreateModuleDecl();
+
+        ReportCollector.Start(moduleDecl);
+        var report = ReportCollector.Complete();
+
+        Assert.Empty(report!.DegradedMembers);
+        Assert.Null(report.DegradedSurface);
+
+        ReportCollector.Reset();
+    }
+
     private static ModuleDecl CreateModuleDecl()
     {
         var moduleDecl = new ModuleDecl

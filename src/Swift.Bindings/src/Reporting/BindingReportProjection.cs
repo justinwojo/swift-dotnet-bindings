@@ -58,6 +58,12 @@ public static class BindingReportProjection
             // the two from drifting apart on a partial manifest.
             report.ClosureOrphanShellTypes.AddRange(g.ClosureOrphanShellTypes);
             report.ClosureOrphanShellTypeCount = report.ClosureOrphanShellTypes.Count;
+            // Which emitted members carry a safety marker, and which of those are load-bearing.
+            // Both are settled-emission facts with no manifest-side inputs to rederive them from,
+            // so they cross verbatim rather than being recomputed here.
+            report.DegradedMembers.AddRange(g.DegradedMembers);
+            report.DegradedSurface = g.DegradedSurface;
+            report.WrapperRequirement = g.WrapperRequirement;
         }
 
         // Proxy-suppression and wrapper-symbol-contract co-gating are no longer post-pass
@@ -73,6 +79,8 @@ public static class BindingReportProjection
                     : "P/Invoke removed: corresponding wrapper symbol was stripped from compiled wrapper.";
                 ApplyCoGated(report, member, SkipReason.MissingWrapperSymbol, details);
             }
+
+            ReconcileMarkedSurfaceAfterCoGating(report, w.CSharpCoGatedMembers);
         }
 
         // A1: fold the ObjC binding surface's dropped symbols into the same skip list. For a mixed
@@ -110,6 +118,104 @@ public static class BindingReportProjection
         report.SkipTriage = SkipTriageBuilder.Build(report.SkippedItems);
 
         return report;
+    }
+
+    /// <summary>
+    /// Brings the safety-marker and wrapper-requirement facts back in line with a surface the
+    /// wrapper-compile strip has since shrunk.
+    ///
+    /// <para>Both were settled while the co-gated members were still emitted, so both describe them:
+    /// a degraded row says the member carries an <c>[Obsolete]</c> the binding no longer has, and the
+    /// wrapper rationale counts it among the members that reach Swift. The same projection then lists
+    /// it as skipped, so leaving these alone publishes a report that contradicts itself.</para>
+    ///
+    /// <para>Every count is rebuilt from the surviving rows rather than decremented, so no number
+    /// can drift from the list it summarizes — including the marked count the wrapper rationale
+    /// quotes, which is why the rationale is restated last, once both of its inputs have settled.
+    /// Prominence scores are not recomputed — they were stamped on each row during generation from
+    /// session state this projection does not have, and removing rows does not change what any
+    /// surviving row scored.</para>
+    ///
+    /// <para>Removal is bounded per identity rather than matching every row with the same name: a
+    /// degraded row carries no ordinal, so two marked overloads of one name are indistinguishable
+    /// here, and a blanket match would withdraw both when the strip took one. Removing exactly as
+    /// many rows as were co-gated under that name keeps the surviving overload in the report.</para>
+    /// </summary>
+    private static void ReconcileMarkedSurfaceAfterCoGating(
+        BindingReport report, List<CoGatedMember> coGated)
+    {
+        if (coGated.Count == 0)
+            return;
+
+        var budget = new Dictionary<(BindingItemKind, string, string), int>();
+        foreach (var member in coGated)
+        {
+            var key = (member.Kind, member.Name, member.ContainingType ?? string.Empty);
+            budget[key] = budget.GetValueOrDefault(key) + 1;
+        }
+
+        RemoveUpToBudget(
+            report.DegradedMembers,
+            m => (m.Kind, m.Name, m.ContainingType ?? string.Empty),
+            budget);
+        RemoveUpToBudget(
+            report.WrappedItems,
+            w => (w.Kind, w.Name, w.ContainingType ?? string.Empty),
+            budget);
+
+        var rebuilt = new DegradedSurfaceSummary { Total = report.DegradedMembers.Count };
+        foreach (var item in report.DegradedMembers)
+        {
+            rebuilt.ByDiagnosticId[item.DiagnosticId] =
+                rebuilt.ByDiagnosticId.GetValueOrDefault(item.DiagnosticId) + 1;
+            if (item.WrapperReason is { } wrapperReason)
+                rebuilt.ByWrapperReason[wrapperReason] =
+                    rebuilt.ByWrapperReason.GetValueOrDefault(wrapperReason) + 1;
+        }
+
+        rebuilt.TopDegradedMembers.AddRange(report.DegradedMembers
+            .Where(m => !m.IsDeprecated && m.ProminenceScore > 0)
+            .Take(ReportCollector.TopDegradedMemberCount));
+        report.DegradedSurface = rebuilt;
+
+        if (report.WrapperRequirement is not { } requirement)
+            return;
+
+        // Both inputs read off the lists this method just settled, so the restated sentence and the
+        // numbers beside it come from one source. The marked count is the same SB0001+SB0009 sum
+        // Evaluate took, re-taken over what survived.
+        WrapperRequirementEvaluator.Restate(
+            requirement,
+            wrappedMemberCount: report.WrappedItems
+                .Count(item => item.WrapperKind != ReportCollector.ClosureParamTombstoneWrapperKind),
+            unwrappedMarkedMemberCount: rebuilt.ByDiagnosticId.GetValueOrDefault("SB0001")
+                + rebuilt.ByDiagnosticId.GetValueOrDefault("SB0009"));
+    }
+
+    /// <summary>
+    /// Removes from <paramref name="rows"/> at most as many entries per identity as
+    /// <paramref name="budget"/> allows, consuming the budget as it goes. Each list gets the full
+    /// allowance: a co-gated member is expected to appear in several, and one list's removals must
+    /// not spend another's.
+    /// </summary>
+    private static void RemoveUpToBudget<T>(
+        List<T> rows,
+        Func<T, (BindingItemKind, string, string)> identity,
+        Dictionary<(BindingItemKind, string, string), int> budget)
+    {
+        if (rows.Count == 0)
+            return;
+
+        var remaining = new Dictionary<(BindingItemKind, string, string), int>(budget);
+        rows.RemoveAll(row =>
+        {
+            var key = identity(row);
+            if (remaining.GetValueOrDefault(key) <= 0)
+                return false;
+
+            remaining[key] -= 1;
+            return true;
+        });
     }
 
     private static void ApplyCoGated(BindingReport report, CoGatedMember member, SkipReason reason, string details)
