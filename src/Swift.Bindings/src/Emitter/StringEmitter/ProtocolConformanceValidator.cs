@@ -318,6 +318,11 @@ public class ProtocolConformanceValidator
             if (IsPropertySkippedFromInterface(protoProperty, boundGenericsHandler, protocolDecl))
                 continue;
 
+            // A static member cannot implement an instance interface requirement, so the whole
+            // conformance is unavailable before any witness question is even asked.
+            if (EmitsStaticPropertyUnderRequirementName(concreteType, protoProperty))
+                return Fail(BindingItemKind.Property, protoProperty.Name, "the conforming type emits this name as a static property, and a static member cannot implement an instance interface requirement");
+
             // Find matching property in CONCRETE TYPE
             var concreteProperty = FindMatchingProperty(concreteType, protoProperty);
             if (concreteProperty == null)
@@ -1006,6 +1011,33 @@ public class ProtocolConformanceValidator
                 return match;
         }
         return null;
+    }
+
+    /// <summary>
+    /// True when the member the conforming type actually emits under <paramref name="protoProperty"/>'s
+    /// name is STATIC. Swift lets one type declare `static let keySize` alongside `var keySize`; C#
+    /// does not, so the type emitters keep whichever is declared first and drop the other. When the
+    /// survivor is the static one, nothing can implement an instance interface requirement of that
+    /// name — not the dropped instance sibling, and not a default interface member either, because
+    /// the static member is still what C# finds while resolving the implementation (CS0736).
+    /// </summary>
+    private bool EmitsStaticPropertyUnderRequirementName(TypeDecl type, PropertyDecl protoProperty)
+    {
+        foreach (var ancestor in GetEmittableAncestors(type))
+        {
+            foreach (var candidate in ancestor.Properties)
+            {
+                if (candidate.Name != protoProperty.Name)
+                    continue;
+                // Mirrors the type emitters' first-claimant rule: declaration order decides which
+                // sibling keeps the C# name, and a property that cannot be emitted at all never
+                // claims it in the first place.
+                if (MemberEmissionValidator.CanEmitProperty(candidate, _typeDatabase, out _, out _) != null)
+                    continue;
+                return candidate.IsStatic;
+            }
+        }
+        return false;
     }
 
     /// <summary>

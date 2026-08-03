@@ -478,7 +478,117 @@ public class ProtocolExtensionDefaultsIndexTests
 
     #endregion
 
+    #region Unlabeled-parameter key form
+
+    // The index is keyed on the swiftinterface PrintedName, where a Swift wildcard label renders
+    // as `_`. A parsed MethodDecl carries the parser's synthesized `arg{i}` placeholder at that
+    // position — a C# identifier, never a Swift label — so the key builder has to render it back
+    // to `_`. Rendering it verbatim yields `apply(arg0:context:)`, which can never match the
+    // indexed `apply(_:context:)`, and every conformer relying on that default silently loses its
+    // whole conformance.
+    [Fact]
+    public void BuildMethodKey_SynthesizedUnlabeledParam_RendersSwiftWildcard()
+    {
+        var moduleDecl = CreateModuleDeclWithTypes("TestModule");
+        var method = CreateMethodWithArgs(moduleDecl, "apply", ("arg0", "TestModule.StageOutcome"), ("context", "TestModule.StageContext"));
+
+        Assert.Equal("apply(_:context:)", ProtocolExtensionEmitter.BuildMethodKey(method));
+    }
+
+    // Companion to the above: a parameter carrying a REAL external label must keep it, so the
+    // wildcard rendering cannot swallow ordinary labelled requirements.
+    [Fact]
+    public void BuildMethodKey_LabeledParams_KeepsLabels()
+    {
+        var moduleDecl = CreateModuleDeclWithTypes("TestModule");
+        var method = CreateMethodWithArgs(moduleDecl, "apply", ("outcome", "TestModule.StageOutcome"), ("context", "TestModule.StageContext"));
+
+        Assert.Equal("apply(outcome:context:)", ProtocolExtensionEmitter.BuildMethodKey(method));
+    }
+
+    // The overload-aware key feeds the extension-injection collision gate against the same
+    // extension-side keys, which render the wildcard as `_`. It must agree with BuildMethodKey on
+    // the label axis or the gate compares two different label vocabularies.
+    [Fact]
+    public void BuildOverloadAwareMethodKey_SynthesizedUnlabeledParam_RendersSwiftWildcard()
+    {
+        var moduleDecl = CreateModuleDeclWithTypes("TestModule");
+        var method = CreateMethodWithArgs(moduleDecl, "apply", ("arg0", "TestModule.StageOutcome"), ("context", "TestModule.StageContext"));
+
+        var key = ProtocolExtensionEmitter.BuildOverloadAwareMethodKey(method);
+        Assert.StartsWith("apply(_:", key);
+        Assert.Contains(",context:", key);
+    }
+
+    // End-to-end on the index itself: a swiftinterface-derived default for an unlabeled-first-param
+    // requirement must be found when queried with the key rebuilt from the parsed MethodDecl.
+    [Fact]
+    public void HasMethodDefault_UnlabeledFirstParam_FoundViaRebuiltKey()
+    {
+        var moduleDecl = CreateModuleDeclWithTypes("TestModule");
+        var method = CreateMethodWithArgs(moduleDecl, "apply", ("arg0", "TestModule.StageOutcome"), ("context", "TestModule.StageContext"));
+
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["TestModule.FrameStage"] = new()
+            {
+                CreateExtensionMethod("apply", "apply(_:context:)")
+            }
+        };
+        var index = new ProtocolExtensionDefaultsIndex(extensionMethods, new List<ProtocolDecl>());
+
+        Assert.True(index.HasMethodDefault("TestModule.FrameStage", ProtocolExtensionEmitter.BuildMethodKey(method)));
+    }
+
+    #endregion
+
     #region Helpers
+
+    private static MethodDecl CreateMethodWithArgs(ModuleDecl moduleDecl, string name, params (string Name, string TypeName)[] args)
+    {
+        var signature = new List<ArgumentDecl>
+        {
+            // CSSignature[0] is the return type.
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                Name = string.Empty,
+                PrivateName = string.Empty,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = null,
+                ModuleDecl = moduleDecl
+            }
+        };
+        foreach (var (argName, typeName) in args)
+        {
+            signature.Add(new ArgumentDecl
+            {
+                SwiftTypeSpec = new NamedTypeSpec(typeName),
+                Name = argName,
+                PrivateName = argName,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = null,
+                ModuleDecl = moduleDecl
+            });
+        }
+
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule{name}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = signature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+    }
 
     private static ProtocolExtensionMethodDecl CreateExtensionMethod(string methodName, string printedName,
         List<string>? whereConstraints = null)

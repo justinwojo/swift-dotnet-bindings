@@ -407,21 +407,11 @@ public class ProtocolExtensionDefaultsIndex
     }
 
     /// <summary>
-    /// Builds a method key from a MethodDecl for phantom default detection.
-    /// Matches the format used by ProtocolExtensionEmitter.BuildMethodKey().
+    /// Builds a method key from a MethodDecl for phantom default detection. Delegates to the
+    /// single key builder so the phantom-detection view and the lookup view cannot drift.
     /// </summary>
     private static string BuildMethodKey(MethodDecl method)
-    {
-        if (method.CSSignature.Count <= 1)
-            return $"{method.Name}()";
-
-        var labels = string.Join("", method.CSSignature.Skip(1).Select(arg =>
-        {
-            var label = string.IsNullOrEmpty(arg.Name) || arg.Name == "_" ? "_" : arg.Name;
-            return $"{label}:";
-        }));
-        return $"{method.Name}({labels})";
-    }
+        => ProtocolExtensionEmitter.BuildMethodKey(method);
 
     /// <summary>
     /// Builds the transitive inheritance graph from protocol declarations.

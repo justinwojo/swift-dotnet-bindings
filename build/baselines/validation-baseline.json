@@ -1,5 +1,5 @@
 {
-  "git_sha": "2ba3849b",
+  "git_sha": "34b2932f",
   "compile_gate": {
     "libraries": {
       "AppIntents": {
@@ -124,14 +124,14 @@
       "RealityFoundation": {
         "compile": "ok",
         "errors": 0,
-        "lines": 229652,
+        "lines": 229655,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "RoomPlan": {
         "compile": "ok",
         "errors": 0,
-        "lines": 14033,
+        "lines": 14040,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -250,7 +250,7 @@
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 62187,
+        "lines": 62224,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -278,14 +278,14 @@
       "CryptoSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 26471,
+        "lines": 26477,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 114743,
+        "lines": 114766,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -299,7 +299,7 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 63066,
+        "lines": 63068,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -334,35 +334,35 @@
       "Nuke": {
         "compile": "ok",
         "errors": 0,
-        "lines": 26899,
+        "lines": 26908,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 26899,
+        "lines": 26908,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 26899,
+        "lines": 26908,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 15319,
+        "lines": 15320,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "SkeletonView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8783,
+        "lines": 8789,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -418,7 +418,7 @@
       "StripeConnect": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8491,
+        "lines": 8493,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -509,14 +509,14 @@
       "Swinject": {
         "compile": "ok",
         "errors": 0,
-        "lines": 7421,
+        "lines": 7422,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "PhoneNumberKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 16995,
+        "lines": 16999,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -565,7 +565,7 @@
       "Parchment": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21554,
+        "lines": 21558,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -761,7 +761,7 @@
       "FirebaseFirestore": {
         "compile": "ok",
         "errors": 0,
-        "lines": 72621,
+        "lines": 72701,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -940,9 +940,9 @@
       "NetUnavailableType": 780,
       "UnsupportedClosure": 609,
       "ProtocolWitnessNotDispatchable": 559,
-      "ConformanceNotFullyImplementable": 496,
       "DuplicateSignature": 421,
       "AnyTypeFallback": 418,
+      "ConformanceNotFullyImplementable": 400,
       "GenericProtocolConstraint": 394,
       "EveryProtocolConformanceSkipped": 372,
       "UnsupportedType": 359,
@@ -1024,6 +1024,6 @@
     }
   },
   "unit_tests": {
-    "swift_bindings_unit_pass_floor": 16835
+    "swift_bindings_unit_pass_floor": 16842
   }
 }

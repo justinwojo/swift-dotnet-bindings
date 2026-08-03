@@ -1069,6 +1069,158 @@ public class ProtocolConformanceValidatorTests
         Assert.False(validator.CanFullyImplementProtocol(concreteType, protocolDecl));
     }
 
+    // The whole-conformance rescue has to survive an UNLABELED first parameter. The defaults index
+    // is keyed on the swiftinterface PrintedName (`apply(_:context:)`); the validator rebuilds that
+    // key from the parsed requirement, whose wildcard parameter carries the parser's synthesized
+    // `arg{i}` placeholder. Rendering the placeholder as a literal label produces a key that can
+    // never match, so a conformer relying purely on the default looked unsatisfiable and lost its
+    // ENTIRE `: IFrameStage` conformance — while a sibling that spelled the member out kept its own,
+    // which is the asymmetry that makes the defect read as type-specific rather than key-specific.
+    [Fact]
+    public void CanFullyImplementProtocol_UnlabeledParamRequirement_KeptWhenExtensionDefaultExists()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = CreateProtocolWithVoidMethod("FrameStage", "apply", moduleDecl);
+        // Replace the void requirement with an unlabeled-first-parameter one.
+        protocolDecl.Methods.Clear();
+        protocolDecl.Methods.Add(CreateUnlabeledFirstParamMethod(
+            "apply", "$s10TestModule10FrameStageP5applyyS2i_SitF", null, moduleDecl));
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        // Conformer provides NO implementation — it leans entirely on the extension default.
+        var concreteType = CreateClassDecl("DoublingStage", moduleDecl);
+
+        var qualifiedProtoName = protocolDecl.SwiftTypeName!.ModuleQualifiedName;
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            [qualifiedProtoName] = new()
+            {
+                new ProtocolExtensionMethodDecl
+                {
+                    ProtocolQualifiedName = qualifiedProtoName,
+                    MethodName = "apply",
+                    // Exactly what the swiftinterface prints for `func apply(_ value: Int, context: Int)`.
+                    PrintedName = "apply(_:context:)",
+                    RawSignature = "func apply(_ value: Int, context: Int) -> Int",
+                    ReturnsSelf = false,
+                    IsMainActorIsolated = false,
+                    IsStatic = false,
+                    IsProperty = false,
+                    HasSetter = false,
+                    IsDeprecated = false,
+                    IsMutating = false,
+                    WhereConstraints = new List<string>()
+                }
+            }
+        };
+        var extensionDefaultsIndex = new ProtocolExtensionDefaultsIndex(extensionMethods, moduleDecl.Protocols);
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase, extensionDefaultsIndex);
+
+        Assert.True(validator.CanFullyImplementProtocol(concreteType, protocolDecl));
+    }
+
+    // Swift lets one type declare `static let keySize` next to `let keySize`; C# has no such split,
+    // so the type emitters keep whichever came first and drop the other. When the static one wins,
+    // an instance interface requirement of that name has no possible implementation.
+    [Fact]
+    public void CanFullyImplementProtocol_StaticPropertyShadowsInstanceRequirement_ReturnsFalse()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = CreateProtocolWithInstanceProperty("KeyedCipher", "keySize", moduleDecl);
+
+        var concreteType = CreateClassDecl("DualKeySizeCipher", moduleDecl);
+        // Declaration order matters: the static sibling comes first, so it claims the C# name.
+        concreteType.Properties.Add(CreateStaticPropertyDecl(
+            "keySize", new NamedTypeSpec("Swift.Int"), moduleDecl, hasGetter: true, hasSetter: false, accessorParent: concreteType));
+        concreteType.Properties.Add(CreatePropertyDecl(
+            "keySize", new NamedTypeSpec("Swift.Int"), moduleDecl, hasGetter: true, hasSetter: false, accessorParent: concreteType));
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+
+        Assert.False(validator.CanFullyImplementProtocol(concreteType, protocolDecl));
+    }
+
+    // Companion: without the static sibling the very same instance witness satisfies the
+    // requirement, so the drop above is attributable to the name collision and nothing else.
+    [Fact]
+    public void CanFullyImplementProtocol_InstancePropertyOnly_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = CreateProtocolWithInstanceProperty("KeyedCipher", "keySize", moduleDecl);
+
+        var concreteType = CreateClassDecl("InstanceKeySizeCipher", moduleDecl);
+        concreteType.Properties.Add(CreatePropertyDecl(
+            "keySize", new NamedTypeSpec("Swift.Int"), moduleDecl, hasGetter: true, hasSetter: false, accessorParent: concreteType));
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+
+        Assert.True(validator.CanFullyImplementProtocol(concreteType, protocolDecl));
+    }
+
+    private static ProtocolDecl CreateProtocolWithInstanceProperty(string protocolName, string propertyName, ModuleDecl moduleDecl)
+    {
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = protocolName,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{protocolName}"),
+            MangledName = $"$s10TestModule{protocolName.Length}{protocolName}P",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = true,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        protocolDecl.Properties.Add(CreatePropertyDecl(
+            propertyName, new NamedTypeSpec("Swift.Int"), moduleDecl, hasGetter: true, hasSetter: false, accessorParent: protocolDecl));
+        moduleDecl.Protocols.Add(protocolDecl);
+        return protocolDecl;
+    }
+
+    /// <summary>
+    /// `func apply(_ value: Int, context: Int) -&gt; Int` as the parser produces it: the wildcard
+    /// label arrives as the synthesized `arg0` placeholder with no captured Swift label.
+    /// </summary>
+    private static MethodDecl CreateUnlabeledFirstParamMethod(
+        string name, string mangledName, TypeDecl? parent, ModuleDecl moduleDecl)
+    {
+        var unlabeled = CreateArgument("arg0", new NamedTypeSpec("Swift.Int"), moduleDecl);
+        unlabeled.OriginalSwiftName = null;
+
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = mangledName,
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl),
+                unlabeled,
+                CreateArgument("context", new NamedTypeSpec("Swift.Int"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parent,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+    }
+
     private static ProtocolDecl CreateStaticAsyncClosureProvider(ModuleDecl moduleDecl)
     {
         return new ProtocolDecl
