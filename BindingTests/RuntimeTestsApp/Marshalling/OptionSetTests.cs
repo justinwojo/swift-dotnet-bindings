@@ -195,4 +195,124 @@ public class OptionSetTests : TestBase
     }
 
     #endregion
+
+    #region Tier 3 — Synthesized OptionSet bitwise surface
+
+    // Swift's OptionSet operators come from stdlib protocol extensions and carry no ABI symbols,
+    // so they are synthesized in C# over RawValue/init(rawValue:). These tests prove the results
+    // are option sets Swift itself agrees with — each combination is handed back to a Swift
+    // function that reads it through `contains`, not merely compared bit-for-bit in C#.
+
+    public void TestTextStyleUnionOperatorRoundTripsThroughSwift()
+    {
+        var combined = TextStyle.Bold | TextStyle.Italic;
+        var desc = TestLibFunctions.DescribeTextStyle(combined);
+        AssertTrue(desc.Contains("bold"), "Union description contains 'bold'");
+        AssertTrue(desc.Contains("italic"), "Union description contains 'italic'");
+        AssertTrue(!desc.Contains("underline"), "Union description omits 'underline'");
+        TestLogger.Info($"DescribeTextStyle(Bold | Italic) = \"{desc}\"");
+    }
+
+    public void TestTextStyleIntersectionOperatorRoundTripsThroughSwift()
+    {
+        var left = TextStyle.Bold | TextStyle.Italic;
+        var right = TextStyle.Italic | TextStyle.Underline;
+        var desc = TestLibFunctions.DescribeTextStyle(left & right);
+        AssertEqual("italic", desc, "Intersection of {bold,italic} and {italic,underline} is {italic}");
+        TestLogger.Info($"DescribeTextStyle((Bold|Italic) & (Italic|Underline)) = \"{desc}\"");
+    }
+
+    public void TestTextStyleSymmetricDifferenceOperatorRoundTripsThroughSwift()
+    {
+        var left = TextStyle.Bold | TextStyle.Italic;
+        var right = TextStyle.Italic | TextStyle.Underline;
+        var desc = TestLibFunctions.DescribeTextStyle(left ^ right);
+        AssertTrue(desc.Contains("bold"), "Symmetric difference keeps 'bold'");
+        AssertTrue(desc.Contains("underline"), "Symmetric difference keeps 'underline'");
+        AssertTrue(!desc.Contains("italic"), "Symmetric difference drops the shared 'italic'");
+        TestLogger.Info($"DescribeTextStyle((Bold|Italic) ^ (Italic|Underline)) = \"{desc}\"");
+    }
+
+    public void TestTextStyleComplementOperatorRoundTripsThroughSwift()
+    {
+        // ~Bold clears bold and leaves every other declared option set.
+        var desc = TestLibFunctions.DescribeTextStyle(~TextStyle.Bold);
+        AssertTrue(!desc.Contains("bold"), "Complement of Bold drops 'bold'");
+        AssertTrue(desc.Contains("italic"), "Complement of Bold keeps 'italic'");
+        AssertTrue(desc.Contains("underline"), "Complement of Bold keeps 'underline'");
+        AssertTrue(desc.Contains("strikethrough"), "Complement of Bold keeps 'strikethrough'");
+        TestLogger.Info($"DescribeTextStyle(~Bold) = \"{desc}\"");
+    }
+
+    public void TestTextStyleContainsMembership()
+    {
+        var combined = TextStyle.Bold | TextStyle.Italic;
+        AssertTrue(combined.Contains(TextStyle.Bold), "Bold|Italic contains Bold");
+        AssertTrue(combined.Contains(TextStyle.Italic), "Bold|Italic contains Italic");
+        AssertTrue(!combined.Contains(TextStyle.Underline), "Bold|Italic does not contain Underline");
+        AssertTrue(combined.Contains(combined), "A set contains itself");
+        TestLogger.Info("TextStyle.Contains membership verified");
+    }
+
+    public void TestAccessFlagsUnionRoundTripsThroughSwift()
+    {
+        // AccessFlags is @frozen with a UInt8 raw value, so it projects as a C# value type —
+        // the other arm of the synthesis (no null guards, narrow raw type).
+        var desc = TestLibFunctions.DescribeAccessFlags(AccessFlags.Read | AccessFlags.Write);
+        AssertTrue(desc.Contains("read"), "Union description contains 'read'");
+        AssertTrue(desc.Contains("write"), "Union description contains 'write'");
+        AssertTrue(!desc.Contains("execute"), "Union description omits 'execute'");
+        TestLogger.Info($"DescribeAccessFlags(Read | Write) = \"{desc}\"");
+    }
+
+    public void TestAccessFlagsComplementWrapsWithinNarrowRawType()
+    {
+        // ~Read on a UInt8 raw value overflows int arithmetic back into a byte; the synthesized
+        // cast is unchecked, so this must produce a value rather than throw.
+        var complement = ~AccessFlags.Read;
+        AssertTrue(!complement.Contains(AccessFlags.Read), "Complement of Read drops Read");
+        AssertTrue(complement.Contains(AccessFlags.Write), "Complement of Read keeps Write");
+        var desc = TestLibFunctions.DescribeAccessFlags(complement);
+        AssertTrue(!desc.Contains("read"), "Swift agrees the complement excludes 'read'");
+        AssertTrue(desc.Contains("write"), "Swift agrees the complement includes 'write'");
+        TestLogger.Info($"DescribeAccessFlags(~Read) = \"{desc}\" (raw {complement.RawValue})");
+    }
+
+    public void TestAccessFlagsIntersectionAndContains()
+    {
+        var all = AccessFlags.Read | AccessFlags.Write | AccessFlags.Execute;
+        var readWrite = all & ~AccessFlags.Execute;
+        AssertTrue(readWrite.Contains(AccessFlags.Read), "Read remains after clearing Execute");
+        AssertTrue(readWrite.Contains(AccessFlags.Write), "Write remains after clearing Execute");
+        AssertTrue(!readWrite.Contains(AccessFlags.Execute), "Execute cleared");
+        AssertEqual("read, write", TestLibFunctions.DescribeAccessFlags(readWrite), "Swift reads back {read, write}");
+        TestLogger.Info("AccessFlags intersection + Contains verified");
+    }
+
+    public void TestPermissionMaskUnionOverPlatformWidthRawValue()
+    {
+        // PermissionMask's raw value is Swift `Int`, so the emitted property and the initializer
+        // parameter have different C# types. The combined mask has to survive the round trip into
+        // Swift as an option set, not merely as the right bits.
+        var mask = PermissionMask.ReadData | PermissionMask.Share;
+        AssertTrue(mask.Contains(PermissionMask.ReadData), "Union keeps ReadData");
+        AssertTrue(mask.Contains(PermissionMask.Share), "Union keeps Share");
+        AssertTrue(!mask.Contains(PermissionMask.WriteData), "Union omits WriteData");
+        var desc = TestLibFunctions.DescribePermissionMask(mask);
+        AssertEqual("readData, share", desc, "Swift reads back {readData, share}");
+        TestLogger.Info($"DescribePermissionMask(ReadData | Share) = \"{desc}\"");
+    }
+
+    public void TestPermissionMaskComplementAndIntersection()
+    {
+        var all = PermissionMask.ReadData | PermissionMask.WriteData | PermissionMask.Share;
+        var withoutShare = all & ~PermissionMask.Share;
+        AssertTrue(withoutShare.Contains(PermissionMask.ReadData), "ReadData remains after clearing Share");
+        AssertTrue(!withoutShare.Contains(PermissionMask.Share), "Share cleared");
+        AssertEqual("readData, writeData", TestLibFunctions.DescribePermissionMask(withoutShare),
+            "Swift reads back {readData, writeData}");
+        TestLogger.Info("PermissionMask complement + intersection verified");
+    }
+
+    #endregion
 }

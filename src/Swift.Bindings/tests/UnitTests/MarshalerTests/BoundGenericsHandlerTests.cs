@@ -1838,6 +1838,35 @@ public class BoundGenericsHandlerTests
     }
 
     [Fact]
+    public void HasNonSwiftObjectGenericArg_DictionaryWithAnyValue_ReturnsFalse()
+    {
+        // Swift.Dictionary<UIKit.UIView, Any> — an unconstrained `Any` parses as an EMPTY protocol
+        // composition, not a NamedTypeSpec, so the bypass's "every argument must be a named type"
+        // walk used to veto on the `Any` slot and take the whole member down with it. The container
+        // puts no ISwiftObject constraint on its parameters and the existential element marshals on
+        // its own, so an `Any` slot must not veto the bypass for its sibling.
+        var dict = new NamedTypeSpec("Swift.Dictionary");
+        dict.GenericParameters.Add(new NamedTypeSpec("UIKit.UIView"));
+        dict.GenericParameters.Add(new ProtocolListTypeSpec());
+
+        Assert.False(_handler.HasNonSwiftObjectGenericArg(dict));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_DictionaryWithConstrainedExistentialValue_StillBlocked()
+    {
+        // Swift.Dictionary<UIKit.UIView, any TestModule.Drawable> — a CONSTRAINED existential is a
+        // non-empty composition. Its element conversion goes through the proxy path, which the
+        // container fast path does not run, so it must keep vetoing the bypass.
+        var dict = new NamedTypeSpec("Swift.Dictionary");
+        dict.GenericParameters.Add(new NamedTypeSpec("UIKit.UIView"));
+        dict.GenericParameters.Add(new ProtocolListTypeSpec(
+            new[] { new NamedTypeSpec("TestModule.Drawable") }));
+
+        Assert.True(_handler.HasNonSwiftObjectGenericArg(dict));
+    }
+
+    [Fact]
     public void HasNonSwiftObjectGenericArg_MeasurementWithUnitTemperature_ReturnsFalse()
     {
         // Measurement<UnitTemperature> — dedicated bypass. The C# Measurement<T> type

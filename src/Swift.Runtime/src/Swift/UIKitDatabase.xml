@@ -260,5 +260,16 @@
         <entity managedNameSpace="UIKit" managedTypeName="UIViewAutoresizing">
             <typedeclaration kind="struct" name="UIView.AutoresizingMask" module="UIKit" frozen="true" requiresMemoryManagement="false" />
         </entity>
+        <!-- NS_TYPED_ENUM string keys: the Swift importer surfaces each as a nested struct
+             wrapping an NSString, so they bridge to NSString exactly like NSAttributedString.Key
+             and FileAttributeKey do in Foundation. Without a record here, every member whose
+             only unbindable ingredient is the key type is dropped — an app delegate's
+             launch-options / open-URL overload family disappears while its siblings bind. -->
+        <entity managedNameSpace="Foundation" managedTypeName="NSString" objcBridged="true">
+            <typedeclaration kind="class" name="UIApplication.LaunchOptionsKey" module="UIKit" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSString" objcBridged="true">
+            <typedeclaration kind="class" name="UIApplication.OpenURLOptionsKey" module="UIKit" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
     </entities>
 </swifttypedatabase>

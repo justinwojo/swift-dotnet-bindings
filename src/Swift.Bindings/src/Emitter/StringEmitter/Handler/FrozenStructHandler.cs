@@ -432,6 +432,15 @@ namespace BindingsGeneration
                 // IAsyncEnumerator<T>. Interface adoption is added by GetImplementedInterfaces.
                 AsyncSequenceEmitter.TryEmitAsyncEnumerableBridge(csWriter, structDecl, env.TypeDatabase);
 
+                // OptionSet's bitwise surface lives in Swift protocol extensions and carries no ABI
+                // symbols, so it is synthesized over the type's own RawValue/init(rawValue:). Runs
+                // here — after the property and method loops — because the gate reads what those
+                // loops actually emitted, not what the declaration promised.
+                OptionSetOperatorEmitter.EmitIfOptionSet(
+                    csWriter, structDecl, typeNameWithGenerics, env.TypeDatabase,
+                    isReferenceType: isProjectedAsClass,
+                    emittedOperatorSymbols, propertyNames, _logger);
+
                 // Codable JSON round-trip is intentionally NOT emitted here. FrozenStructHandler
                 // covers ClassWithBufferStruct projections, which expose `_payload` + `PayloadBuffer<Buffer>`
                 // but NOT the `_payloadSize`/`NewFromPayloadCore` primitives the JSON decoder factory

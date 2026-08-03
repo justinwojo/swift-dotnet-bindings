@@ -1709,6 +1709,15 @@ public class BoundGenericsHandler
 
         foreach (var param in target.GenericParameters)
         {
+            // Unconstrained `Any` — parsed as an empty protocol composition, not a NamedTypeSpec.
+            // SwiftDictionary/SwiftArray/SwiftSet put no ISwiftObject constraint on their type
+            // parameters and the existential element already marshals on its own (`[String: Any]`
+            // binds today), so an `Any` slot must not veto the bypass for its sibling element.
+            // Constrained existentials (`any Foo`) are deliberately NOT covered — their element
+            // conversion goes through the proxy path, which the container fast path does not run.
+            if (param is ProtocolListTypeSpec { IsOpaque: false } protocolList && protocolList.Protocols.Count == 0)
+                continue;
+
             if (param is not NamedTypeSpec namedParam)
                 return false;
 

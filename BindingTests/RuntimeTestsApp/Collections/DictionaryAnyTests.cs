@@ -192,4 +192,41 @@ public class DictionaryAnyTests : TestBase
     }
 
     #endregion
+
+    #region Tier 5 — Returned-vs-accepted dictionary asymmetry
+
+    // A dictionary RETURN projects to IReadOnlyDictionary<K, V> while a dictionary PARAMETER
+    // accepts IDictionary<K, V>, so a value handed back by one member cannot be handed straight
+    // to another: the runtime object behind the return is a read-only projection, not an
+    // IDictionary. These tests pin both halves — that the direct hand-off is genuinely
+    // unavailable (so nobody "fixes" the docs by claiming a cast works), and that the copy
+    // consumers are told to write does compose.
+
+    public void TestReturnedDictionaryIsNotAnIDictionary()
+    {
+        var store = new ConfigStore();
+        store.SetConfig(new Dictionary<string, object> { { "a", "alpha" }, { "b", 2L } });
+
+        IReadOnlyDictionary<string, object> returned = store.GetConfig();
+        AssertEqual(2, returned.Count, "the returned projection reads back both entries");
+
+        AssertFalse(
+            returned is IDictionary<string, object>,
+            "a returned dictionary is a read-only projection, so it cannot be passed to an IDictionary parameter");
+        TestLogger.Info($"GetConfig() returned {returned.GetType().Name}");
+    }
+
+    public void TestReturnedDictionaryCopyFeedsBackIntoSwift()
+    {
+        var store = new ConfigStore();
+        store.SetConfig(new Dictionary<string, object> { { "a", "alpha" }, { "b", 2L }, { "c", true } });
+
+        // The documented workaround: copy into a Dictionary, which the parameter slot accepts.
+        var copy = new Dictionary<string, object>(store.GetConfig());
+
+        AssertEqual(3, TestLibFunctions.CountAnyDictEntries(copy), "the copy is accepted by a dictionary parameter");
+        AssertEqual("alpha", (string)copy["a"], "copying preserves the projected values");
+    }
+
+    #endregion
 }

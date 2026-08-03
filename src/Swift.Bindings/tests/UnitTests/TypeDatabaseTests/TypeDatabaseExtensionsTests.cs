@@ -1734,6 +1734,30 @@ public class TypeDatabaseExtensionsTests
         Assert.False(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
     }
 
+    // --- UIKit NS_TYPED_ENUM string keys bridge to NSString ---
+
+    [Theory]
+    [InlineData("UIKit.UIApplication.LaunchOptionsKey")]
+    [InlineData("UIKit.UIApplication.OpenURLOptionsKey")]
+    public async Task TryGetTypeRecord_UIKitOptionKey_ResolvesToNSString(string swiftType)
+    {
+        // NS_TYPED_ENUM string keys: the importer surfaces each as a nested struct wrapping an
+        // NSString, the same shape as Foundation's NSAttributedString.Key / FileAttributeKey.
+        // Modeling them as value-type structs would leak a bogus wire type; unresolved, they cost
+        // every member they key (a dictionary parameter or return) its binding.
+        var typeDatabase = await CreateDbWithXmlAsync("UIKitDatabase.xml");
+
+        var found = typeDatabase.TryGetTypeRecord(new NamedTypeSpec(swiftType), out var record);
+
+        Assert.True(found, $"{swiftType} should resolve from UIKitDatabase.xml");
+        Assert.NotNull(record);
+        Assert.Equal("Foundation.NSString", record!.CSharpTypeName.FullyQualifiedName);
+        Assert.Equal(TypeRecordKind.Class, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement));
+        Assert.False(record.Flags.HasFlag(TypeRecordFlags.Frozen));
+    }
+
     // --- AVFoundation new entries resolve correctly ---
 
     [Theory]

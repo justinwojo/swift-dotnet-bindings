@@ -529,6 +529,10 @@ public class AppleFrameworkRegistryTests
     [InlineData("Foundation.NSAttributedString.Key", true)]
     [InlineData("UIKit.UIView.ContentMode", true)]
     [InlineData("UIKit.UIControl.State", true)]
+    // NS_TYPED_ENUM string keys are nested, so the ObjC-class element fallback (which excludes
+    // nested names) cannot reach them — their binding comes from a UIKitDatabase.xml record.
+    [InlineData("UIKit.UIApplication.LaunchOptionsKey", true)]
+    [InlineData("UIKit.UIApplication.OpenURLOptionsKey", true)]
     [InlineData("Foundation.NSObject", false)]   // One dot — not nested
     [InlineData("UIKit.UIView", false)]
     [InlineData("NoModule", false)]               // No dots

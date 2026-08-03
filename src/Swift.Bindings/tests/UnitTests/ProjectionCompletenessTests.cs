@@ -446,6 +446,32 @@ public class OptionalAppleFallbackTests
         Assert.Null(projection);
     }
 
+    [Theory]
+    [InlineData("UIKit.UIApplication.LaunchOptionsKey")]
+    [InlineData("UIKit.UIApplication.OpenURLOptionsKey")]
+    public async Task Project_DictionaryKeyedByRegisteredUIKitOptionKey_ReturnsDictionaryProjection(string keyType)
+    {
+        // The null-returning cases above run against a type database with no records, so what they
+        // pin is the heuristic element fallback — and that fallback excludes nested names by design
+        // (a nested name is as likely to be a value type as a class). A nested key type is therefore
+        // reachable only through an explicit record; this asserts the record path does reach it, so
+        // the sibling nulls stay a statement about the heuristic rather than about nestedness.
+        var typeDatabase = new TypeDatabase();
+        await typeDatabase.LoadModuleDatabaseFromFile(
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", "SwiftDatabase.xml"));
+        await typeDatabase.LoadModuleDatabaseFromFile(
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", "UIKitDatabase.xml"));
+
+        var dict = new NamedTypeSpec(
+            "Swift.Dictionary", new NamedTypeSpec(keyType), new NamedTypeSpec("Swift.String"));
+
+        var projection = _factory.Project(dict, CreateContext(typeDatabase));
+
+        Assert.NotNull(projection);
+        Assert.Contains("IReadOnlyDictionary", projection!.PublicType);
+        Assert.Contains("Foundation.NSString", projection.PublicType);
+    }
+
     #endregion
 }
 
