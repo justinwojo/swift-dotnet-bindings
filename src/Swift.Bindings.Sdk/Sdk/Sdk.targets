@@ -1325,7 +1325,9 @@ sed -i '' &quot;s|_SwiftBindingWrapperSliceCount&gt;[0-9]*|_SwiftBindingWrapperS
   <!-- both gate on the same _SwiftBindingUpToDate, so they run in lockstep with    -->
   <!-- the wrapper computing those first (declared earlier, same AfterTargets).     -->
   <!-- The '$(_AFW_OtherSdk)' != '' guard degrades the bridge to a primary-only      -->
-  <!-- slice (non-fatal, SWIFTBIND052 contract) if that ever fails to hold.          -->
+  <!-- slice if that ever fails to hold. The incomplete bridge is then dropped and   -->
+  <!-- reported as SWIFTBIND052 — an error by default, or a warning under            -->
+  <!-- SwiftBridgeRequired=false; see the diagnostic pair at the end of this target. -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_CompileAppleFrameworkSecondBridgeSlice"
           AfterTargets="_CompileAppleFrameworkSecondWrapperSlice"
@@ -1505,9 +1507,13 @@ sed -i '' &quot;s|_SwiftBindingBridgeSliceCount&gt;[0-9]*|_SwiftBindingBridgeSli
       <_AFB_FinalSliceCount>@(_AFB_FinalSliceDir->Count())</_AFB_FinalSliceCount>
       <_AFB_BridgeIncomplete Condition="$(_AFB_FinalSliceCount) &lt; 2">true</_AFB_BridgeIncomplete>
     </PropertyGroup>
-    <Warning Condition="'$(_AFB_BridgeIncomplete)' == 'true'"
-             Code="SWIFTBIND052"
-             Text="SwiftUI bridge '$(_AFW_BridgeModule)' produced only $(_AFB_FinalSliceCount) slice(s); both device and simulator are required to package it. Dropping the incomplete bridge — SwiftUI bridge views will throw DllNotFoundException at runtime, but the main bindings and wrapper are unaffected." />
+    <!-- Cleanup FIRST, diagnostic second. MSBuild abandons the remaining tasks in a target as
+         soon as one raises an error, so emitting the SwiftBridgeRequired error above the
+         RemoveDir/sed would leave the known-incomplete xcframework on disk with metadata still
+         claiming _SwiftBindingHasBridgeXCFramework=True — precisely the primary-only bridge this
+         target exists to remove, now preserved by the check meant to catch it. Dropping the
+         artifact first means a forced continue (or a consumer running with the error demoted)
+         still gets the safe degraded state rather than an unpackageable one. -->
     <RemoveDir Condition="'$(_AFB_BridgeIncomplete)' == 'true'"
                Directories="$(_AFW_BridgePath)" />
     <Exec Condition="'$(_AFB_BridgeIncomplete)' == 'true' AND Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')"
@@ -1516,6 +1522,25 @@ sed -i '' &quot;s|_SwiftBindingBridgeSliceCount&gt;[0-9]*|_SwiftBindingBridgeSli
 -e &quot;s|_SwiftBindingBridgeSliceCount&gt;[0-9]*|_SwiftBindingBridgeSliceCount&gt;0|&quot; \
 &quot;$(_SwiftBindingIntermediateDir)binding-metadata.props&quot;"
           StandardOutputImportance="low" />
+
+    <!-- Same severity policy as the bridge-compile-failure site: an incomplete bridge and a
+         failed bridge are one product outcome — the managed bridge session types are compiled
+         into the shipped assembly and the native they call is not there. Reporting one as an
+         error and the other as a warning would make SWIFTBIND052 mean two different contracts
+         depending on which pipeline produced the binding. This site carries the more specific
+         reason ("only N slices"), so when both would fire it is the one worth reading; the flag
+         below suppresses the generic duplicate downstream. -->
+    <PropertyGroup Condition="'$(_AFB_BridgeIncomplete)' == 'true'">
+      <_SwiftBridgeFailureReported>true</_SwiftBridgeFailureReported>
+    </PropertyGroup>
+    <Error Condition="'$(_AFB_BridgeIncomplete)' == 'true'
+                      AND $([System.String]::Equals('$(SwiftBridgeRequired)', 'true', StringComparison.OrdinalIgnoreCase))"
+           Code="SWIFTBIND052"
+           Text="SwiftUI bridge '$(_AFW_BridgeModule)' produced only $(_AFB_FinalSliceCount) slice(s); both device and simulator are required to package it. The incomplete bridge has been dropped, so the generated bridge session types would ship with no native behind them and throw DllNotFoundException at runtime. The main bindings and wrapper are unaffected. Check the build output above for the swiftc/lipo diagnostic. To ship without the bridge, set &lt;SwiftBridgeRequired&gt;false&lt;/SwiftBridgeRequired&gt; in your project file." />
+    <Warning Condition="'$(_AFB_BridgeIncomplete)' == 'true'
+                        AND !$([System.String]::Equals('$(SwiftBridgeRequired)', 'true', StringComparison.OrdinalIgnoreCase))"
+             Code="SWIFTBIND052"
+             Text="SwiftUI bridge '$(_AFW_BridgeModule)' produced only $(_AFB_FinalSliceCount) slice(s); both device and simulator are required to package it. Dropping the incomplete bridge — SwiftUI bridge views will throw DllNotFoundException at runtime, but the main bindings and wrapper are unaffected. Set &lt;SwiftBridgeRequired&gt;true&lt;/SwiftBridgeRequired&gt; to promote this to a build error." />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -2029,14 +2054,35 @@ done; true"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftBindingTotalMembers" />
     </Exec>
+    <!-- Emitted-member count. Every member that reaches the emitted counter has already
+         cleared the module-internal / @_spi visibility gate, so this number is the callable
+         public surface, not a raw member total. TotalMembers is NOT filtered that way (it
+         counts every declaration the parser produced), which is why the message below states
+         the emitted count on its own rather than as a fraction. -->
+    <Exec Command="awk '/&quot;EmittedMembers&quot;:/{print $2+0}' &quot;$(_SwiftBindingIntermediateDir)binding-report.json&quot; || echo 0"
+          ConsoleToMSBuild="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftBindingEmittedMembers" />
+    </Exec>
 
     <Warning Condition="'$(_SwiftBindingSkippedTypes)' != '0'"
              Code="SWIFTBIND060"
              Text="$(_SwiftBindingSkippedTypes) of $(_SwiftBindingTotalTypes) Swift types were skipped during binding generation. See $([System.IO.Path]::GetFullPath('$(_SwiftBindingIntermediateDir)binding-report.json', '$(MSBuildProjectDirectory)')) for details and workaround suggestions." />
 
+    <!-- SWIFTBIND066, not SWIFTBIND061: the generator already owns SWIFTBIND061 for a
+         completely different condition (a reverse-dispatch receiver degraded to a fail-fast
+         stub, one warning per member). One code meaning two unrelated things makes a
+         consumer's NoWarn suppress a defect they never saw. -->
     <Warning Condition="'$(_SwiftBindingSkippedMembers)' != '0'"
-             Code="SWIFTBIND061"
+             Code="SWIFTBIND066"
              Text="$(_SwiftBindingSkippedMembers) of $(_SwiftBindingTotalMembers) Swift members were skipped during binding generation. See $([System.IO.Path]::GetFullPath('$(_SwiftBindingIntermediateDir)binding-report.json', '$(MSBuildProjectDirectory)')) for per-item skip reasons." />
+
+    <!-- Emitted public surface, always reported. A module whose exports are almost entirely
+         @_spi- or internal-annotated compiles to a package with nothing callable in it, and
+         nothing in a green build says so today: skip counts describe what was dropped, not
+         what survived. High importance so the number lands in a default-verbosity pack log
+         and the ship/don't-ship call for a hollow module can be made deliberately. -->
+    <Message Importance="high"
+             Text="Swift bindings for '$(_SwiftBindingModuleName)': $(_SwiftBindingEmittedMembers) public member(s) emitted." />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -3082,7 +3128,9 @@ done; true"
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Compiles *.SwiftUIBridge.swift files into {Module}Bridge.xcframework.
        Bridge compilation is simpler than wrapper: no post-processing, no thunks.
-       Failure is non-fatal (SWIFTBIND052 warning) — main bindings still work. -->
+       The Exec itself is non-fatal (ContinueOnError) so the main bindings still build;
+       _ValidateSwiftBridgeCompilation decides the outcome afterwards, and by default
+       (SwiftBridgeRequired=true) a failed bridge is a SWIFTBIND052 error, not a warning. -->
   <Target Name="_CompileSwiftUIBridge"
           AfterTargets="_UpdateSwiftWrapperMetadata"
           DependsOnTargets="_ImportSwiftBindingMetadata">
@@ -3169,9 +3217,37 @@ done; true"
           AfterTargets="_UpdateSwiftBridgeMetadata"
           Condition="'$(_SwiftBindingHasBridgeSwift)' == 'True' AND '$(SwiftFrameworkType)' != 'ObjC'">
 
-    <Warning Condition="'$(_SwiftBindingHasBridgeXCFramework)' != 'True'"
+    <!-- The bridge Exec runs with ContinueOnError="WarnAndContinue" and swallows the
+         generator's exit code, so this metadata flag is the only signal that reaches the gate
+         — the same shape as SWIFTBIND051 for the wrapper. Promote to error when
+         SwiftBridgeRequired=true (the default).
+
+         Why an error and not a warning: the managed *.SwiftUIBridge.cs session types are
+         already in the Compile set and end up in the shipped assembly whether or not the
+         native compiled, so a failed bridge produces a package with public, IntelliSense-
+         visible constructors that throw DllNotFoundException on first use. Elsewhere the
+         binding pipeline sets its metadata flags to a "will be produced" signal and guards the
+         emitted <NativeReference> with Exists(), because under the two-pass flow the wrapper
+         and bridge xcframeworks do not exist yet at emission time and a later pass fulfills
+         them. That reasoning holds for a *reference* — a reference to something not yet built
+         is fine — but not for types compiled into the assembly: nothing later removes them, and
+         the Exists() guard means a permanently missing native no-ops silently at the
+         consumer's build instead of failing. A warning here already proved ignorable. -->
+    <Error Condition="$([System.String]::Equals('$(SwiftBridgeRequired)', 'true', StringComparison.OrdinalIgnoreCase))
+                      AND '$(_SwiftBindingHasBridgeXCFramework)' != 'True'"
+           Code="SWIFTBIND052"
+           Text="SwiftUI bridge compilation failed for '$(_SwiftBindingBridgeModuleName)'. The generated bridge session types are compiled into this assembly and will throw DllNotFoundException at runtime, so the package would ship a public API that cannot work. The main bindings are unaffected. Check the build output above for the generator's diagnostic. To ship without the bridge, set &lt;SwiftBridgeRequired&gt;false&lt;/SwiftBridgeRequired&gt; in your project file." />
+
+    <!-- When SwiftBridgeRequired=false, still warn so the failure is visible. Skipped when the
+         Apple-direct incomplete-slice site already reported: that path drops the bridge and
+         rewrites the metadata flag to False, so this target would otherwise re-report the same
+         failure under the same code with a vaguer reason ("compilation failed" for a bridge that
+         compiled but came out primary-only). -->
+    <Warning Condition="!$([System.String]::Equals('$(SwiftBridgeRequired)', 'true', StringComparison.OrdinalIgnoreCase))
+                        AND '$(_SwiftBindingHasBridgeXCFramework)' != 'True'
+                        AND '$(_SwiftBridgeFailureReported)' != 'true'"
              Code="SWIFTBIND052"
-             Text="SwiftUI bridge compilation failed for '$(_SwiftBindingBridgeModuleName)'. Bridge views will throw DllNotFoundException at runtime. The main bindings are unaffected." />
+             Text="SwiftUI bridge compilation failed for '$(_SwiftBindingBridgeModuleName)'. Bridge views will throw DllNotFoundException at runtime. The main bindings are unaffected. Set &lt;SwiftBridgeRequired&gt;true&lt;/SwiftBridgeRequired&gt; to promote this to a build error." />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->

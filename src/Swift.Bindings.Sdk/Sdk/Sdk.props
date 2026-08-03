@@ -66,6 +66,14 @@
          sets in its project body would not yet be visible at Sdk.props evaluation time. -->
     <!-- Require wrapper compilation to succeed (set to false for libraries with known internal type issues) -->
     <SwiftWrapperRequired Condition="'$(SwiftWrapperRequired)' == ''">true</SwiftWrapperRequired>
+    <!-- Require SwiftUI-bridge native compilation to succeed. Defaults to true because the
+         managed bridge session types are compiled into the shipped assembly regardless of
+         whether the native compiled: a failed bridge produces a package whose public,
+         IntelliSense-visible API throws DllNotFoundException on first use. The generated
+         consumer .targets guard the bridge <NativeReference> with Exists(), so nothing else
+         in the build notices. Set to false to ship a bridge-less binding knowingly — the
+         failure then reports as the SWIFTBIND052 warning instead of an error. -->
+    <SwiftBridgeRequired Condition="'$(SwiftBridgeRequired)' == ''">true</SwiftBridgeRequired>
     <!-- Auto-extract symbol graph for doc comments (set to false to disable) -->
     <SwiftGenerateDocComments Condition="'$(SwiftGenerateDocComments)' == ''">true</SwiftGenerateDocComments>
     <!-- Auto-detect framework dependencies from binary linkage (set to false to disable) -->

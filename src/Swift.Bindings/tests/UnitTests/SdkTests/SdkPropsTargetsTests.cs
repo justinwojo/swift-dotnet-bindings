@@ -127,6 +127,19 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void Props_DefaultsBridgeRequiredToTrue()
+        {
+            // Same fail-closed default as the wrapper, for the SwiftUI bridge: the managed session
+            // types ship whether or not the bridge native compiled, and the NativeReference that
+            // would carry it is Exists()-guarded, so a silently absent bridge produces a package
+            // that builds, packs and installs — then throws at first use. The behavioural half —
+            // that the default reaches the SWIFTBIND052 gate as an error — is in
+            // SdkTargetsBehaviorTests.
+            Assert.Contains("<SwiftBridgeRequired Condition=", PropsContent);
+            Assert.Contains(">true</SwiftBridgeRequired>", PropsContent);
+        }
+
+        [Fact]
         public void Props_DoesNotContainAutoDiscovery()
         {
             // Auto-discovery must be in .targets, not .props
@@ -357,10 +370,33 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Targets_HasSwiftBind061WarningCode()
+        public void Targets_HasSwiftBind066WarningCode()
         {
-            Assert.Contains("SWIFTBIND061", TargetsContent);
+            Assert.Contains("SWIFTBIND066", TargetsContent);
             Assert.Contains("members were skipped", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_DoesNotReuseSwiftBind061ForSkippedMembers()
+        {
+            // SWIFTBIND061 belongs to the generator's reverse-dispatch-degradation warning: one
+            // per member whose receiver degraded to a fail-fast stub. A build diagnostic sharing
+            // the code would make a consumer's NoWarn silence two unrelated conditions — they
+            // suppress the skipped-member noise and stop seeing degraded receivers.
+            //
+            // Matched on the Code attribute rather than the bare string: prose explaining WHY the
+            // skipped-member warning is not 061 legitimately names 061, and a substring assert
+            // would forbid the comment that documents the very rule it enforces.
+            Assert.DoesNotContain("Code=\"SWIFTBIND061\"", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_ReportsEmittedPublicMemberCount()
+        {
+            // A module hollowed out by @_spi/internal annotations still packs; the emitted
+            // count is the only signal in a green build that the package has nothing callable.
+            Assert.Contains("EmittedMembers", TargetsContent);
+            Assert.Contains("public member(s) emitted", TargetsContent);
         }
 
         [Fact]

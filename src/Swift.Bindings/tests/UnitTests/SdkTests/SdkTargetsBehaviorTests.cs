@@ -2905,6 +2905,141 @@ namespace BindingsGeneration.Tests
             Assert.DoesNotContain("SWIFTBIND051", optOutOut);
         }
 
+        // ── _ValidateSwiftBridgeCompilation: the bridge's severity split. The bridge Exec runs
+        //    under ContinueOnError, so a swiftc failure leaves the generated *.SwiftUIBridge.cs
+        //    session types in the assembly with no native behind them and the build otherwise
+        //    green — the shape that ships a public API throwing DllNotFoundException on first use.
+        //    These run the REAL targets over a simulated failed compile (metadata says no bridge
+        //    xcframework was produced) rather than asserting on target text.
+
+        [Fact]
+        public void ValidateBridgeCompilation_NoBridgeProduced_DefaultRequiredFailsClosedSWIFTBIND052()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // The default arm. Nothing else in a build notices a failed bridge: the emitted consumer
+            // targets wrap the bridge NativeReference in Exists(), so a permanently missing native
+            // silently no-ops at the consumer's build instead of failing it.
+            var (output, exitCode) = RunValidateBridgeRequiredDump(bridgeRequired: null);
+
+            Assert.True(exitCode != 0, $"Expected SWIFTBIND052 to fail the build by default.\nOutput: {output}");
+            Assert.Contains("SWIFTBIND052", output);
+            Assert.Contains("MixedBridge", output);
+        }
+
+        [Theory]
+        [InlineData("true")]
+        [InlineData("TRUE")]
+        public void ValidateBridgeCompilation_NoBridgeProduced_ExplicitlyRequired_FailsClosed(string requested)
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Case-insensitive on purpose, matching the wrapper gate: a hand-written csproj saying
+            // TRUE must not fall through to the warning arm.
+            var (output, exitCode) = RunValidateBridgeRequiredDump(requested);
+
+            Assert.True(exitCode != 0, $"Expected SWIFTBIND052 to fail the build.\nOutput: {output}");
+            Assert.Contains("SWIFTBIND052", output);
+        }
+
+        [Fact]
+        public void ValidateBridgeCompilation_NoBridgeProduced_NotRequired_WarnsAndBuildSucceeds()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // The documented escape hatch: ship a bridge-less binding knowingly. It must still say
+            // so — demoting to silence would make a broken bridge look like a module that never had
+            // one, which is exactly the state that shipped.
+            var (output, exitCode) = RunValidateBridgeRequiredDump("false");
+
+            Assert.True(exitCode == 0, $"SwiftBridgeRequired=false must not fail the build.\nOutput: {output}");
+            Assert.Contains("SWIFTBIND052", output);
+            Assert.Contains("warning", output, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("error SWIFTBIND052", output);
+        }
+
+        [Fact]
+        public void ValidateBridgeCompilation_BridgePresent_NeitherArmFires()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Negative control for both arms, and the guard on the generated-output-diff promise:
+            // a healthy bridge must be untouched by the severity change no matter how the property
+            // is set. A gate that fired here would fail every binding that builds correctly.
+            var (requiredOut, requiredExit) =
+                RunValidateBridgeRequiredDump("true", hasBridgeXcframework: "True");
+            Assert.True(requiredExit == 0, $"Expected success with a bridge present.\nOutput: {requiredOut}");
+            Assert.DoesNotContain("SWIFTBIND052", requiredOut);
+
+            var (optOutOut, optOutExit) =
+                RunValidateBridgeRequiredDump("false", hasBridgeXcframework: "True");
+            Assert.True(optOutExit == 0, $"Expected success with a bridge present.\nOutput: {optOutOut}");
+            Assert.DoesNotContain("SWIFTBIND052", optOutOut);
+        }
+
+        [Fact]
+        public void ValidateBridgeCompilation_NoBridgeSwiftGenerated_GateIsInert()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Blast-radius boundary. The overwhelming majority of bindings generate no SwiftUI
+            // bridge at all, and for them _SwiftBindingHasBridgeSwift is never True — so promoting
+            // the severity must not reach them. Without this, "defaults to error" would read as a
+            // risk to every consumer rather than to the narrow set with a broken bridge.
+            var (output, exitCode) =
+                RunValidateBridgeRequiredDump("true", hasBridgeXcframework: "False", hasBridgeSwift: "False");
+
+            Assert.True(exitCode == 0, $"A binding with no bridge must build.\nOutput: {output}");
+            Assert.DoesNotContain("SWIFTBIND052", output);
+        }
+
+        // ── _CompileAppleFrameworkSecondBridgeSlice: the OTHER SWIFTBIND052 site. The Apple-direct
+        //    pipeline can leave a bridge with only its primary slice, which is worse than no bridge
+        //    (a device consumer gets a build-time "no matching framework slice" instead of the
+        //    intended runtime degradation), so the target drops it. These assert the severity split
+        //    AND the ordering it depends on: MSBuild abandons a target's remaining tasks once a task
+        //    errors, so the cleanup has to precede the diagnostic or the error would preserve the
+        //    very artifact it fires about.
+
+        [Fact]
+        public void SecondBridgeSlice_IncompleteBridge_DefaultRequired_ErrorsAfterDroppingArtifact()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            var (output, exitCode, bridgeStillExists, metadata) = RunSecondBridgeSliceDump(bridgeRequired: null, sliceCount: 1);
+
+            Assert.True(exitCode != 0, $"An incomplete bridge must fail the build by default.\nOutput: {output}");
+            Assert.Contains("SWIFTBIND052", output);
+            // The ordering proof. If the Error were raised above the RemoveDir/sed, the build would
+            // still stop here — but it would stop with the primary-only xcframework on disk and
+            // metadata claiming the bridge is usable, so a forced continue would pack it.
+            Assert.False(bridgeStillExists,
+                $"The incomplete bridge must be deleted even though the build errors.\nOutput: {output}");
+            Assert.Contains("<_SwiftBindingHasBridgeXCFramework>False<", metadata);
+            Assert.Contains("<_SwiftBindingBridgeSliceCount>0<", metadata);
+        }
+
+        [Fact]
+        public void SecondBridgeSlice_IncompleteBridge_NotRequired_WarnsAndDropsArtifact()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            var (output, exitCode, bridgeStillExists, metadata) = RunSecondBridgeSliceDump("false", sliceCount: 1);
+
+            Assert.True(exitCode == 0, $"SwiftBridgeRequired=false must not fail the build.\nOutput: {output}");
+            Assert.Contains("SWIFTBIND052", output);
+            Assert.DoesNotContain("error SWIFTBIND052", output);
+            Assert.False(bridgeStillExists, $"The incomplete bridge must be dropped either way.\nOutput: {output}");
+            Assert.Contains("<_SwiftBindingHasBridgeXCFramework>False<", metadata);
+        }
+
+        [Fact]
+        public void SecondBridgeSlice_CompleteBridge_NeitherArmFiresAndArtifactSurvives()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Negative control. A device+simulator bridge is complete and must be left alone — a
+            // gate that fired here would delete every healthy Apple-direct bridge.
+            var (output, exitCode, bridgeStillExists, metadata) = RunSecondBridgeSliceDump("true", sliceCount: 2);
+
+            Assert.True(exitCode == 0, $"A complete bridge must build.\nOutput: {output}");
+            Assert.DoesNotContain("SWIFTBIND052", output);
+            Assert.True(bridgeStillExists, "A complete bridge must not be deleted.");
+            Assert.Contains("<_SwiftBindingHasBridgeXCFramework>True<", metadata);
+        }
+
         // ── _BuildMixedObjCCompanion: when the source framework is Mixed, the SDK builds the
         //    emitted ObjC companion (Restore → Build → GetTargetPath) so its managed assembly
         //    can be EMBEDDED into the Swift binding's single nupkg (one xcframework → one
@@ -3495,6 +3630,175 @@ namespace BindingsGeneration.Tests
 
             var result = RunDotnet($"msbuild \"{Path.Combine(bindingDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
             return (result.StdOut + "\n" + result.StdErr, result.ExitCode);
+        }
+
+        /// <summary>
+        /// Runs the REAL _UpdateSwiftBridgeMetadata + _ValidateSwiftBridgeCompilation pair over a
+        /// binding-metadata.props whose <c>_SwiftBindingHasBridgeXCFramework</c> element carries
+        /// <paramref name="hasBridgeXcframework"/>, with <c>SwiftBridgeRequired</c> set to
+        /// <paramref name="bridgeRequired"/> (left unset — i.e. taking the Sdk.props default — when
+        /// null). <paramref name="hasBridgeSwift"/> drives the target's own Condition, which is what
+        /// keeps the gate inert for bindings that generate no bridge at all.
+        ///
+        /// <c>_CompileSwiftUIBridge</c> is stubbed to an empty target that KEEPS its
+        /// <c>AfterTargets</c> — replacing it outright would also drop the hook, and then
+        /// _UpdateSwiftBridgeMetadata (anchored on it) would never run, leaving the gate unreached
+        /// and every assertion here vacuously green. The stub stands in for the real Exec, whose
+        /// ContinueOnError is precisely why the metadata flag is the only signal that survives.
+        /// </summary>
+        private (string Output, int ExitCode) RunValidateBridgeRequiredDump(
+            string? bridgeRequired,
+            string hasBridgeXcframework = "False",
+            string hasBridgeSwift = "True")
+        {
+            var bindingDir = Path.Combine(_tempDir,
+                $"BridgeValidate{bridgeRequired ?? "default"}{hasBridgeXcframework}{hasBridgeSwift}.Swift.iOS");
+            Directory.CreateDirectory(bindingDir);
+            var intermediateDir = Path.Combine(bindingDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+
+            // The wrapper flag is True so the sibling SWIFTBIND051 gate stays silent — this helper
+            // must observe the bridge arm alone, not a wrapper failure wearing a bridge's name.
+            var metadataProps = $"""
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingHasWrapperXCFramework>True</_SwiftBindingHasWrapperXCFramework>
+                    <_SwiftBindingWrapperModuleName>MixedSwiftBindings</_SwiftBindingWrapperModuleName>
+                    <_SwiftBindingWrapperSliceCount>1</_SwiftBindingWrapperSliceCount>
+                    <_SwiftBindingWrapperUnmetContractArchitectures></_SwiftBindingWrapperUnmetContractArchitectures>
+                    <_SwiftBindingHasBridgeXCFramework>{hasBridgeXcframework}</_SwiftBindingHasBridgeXCFramework>
+                    <_SwiftBindingBridgeSliceCount>0</_SwiftBindingBridgeSliceCount>
+                  </PropertyGroup>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), metadataProps);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+            var sdkPropsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.props");
+
+            var requiredProperty = bridgeRequired is null
+                ? string.Empty
+                : $"<SwiftBridgeRequired>{bridgeRequired}</SwiftBridgeRequired>";
+
+            var project = $"""
+                <Project>
+                  <Import Project="{sdkPropsPath}" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                    {requiredProperty}
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                    <_SwiftBindingHasBridgeSwift>{hasBridgeSwift}</_SwiftBindingHasBridgeSwift>
+                    <_SwiftBindingBridgeModuleName>MixedBridge</_SwiftBindingBridgeModuleName>
+                  </PropertyGroup>
+                  <Target Name="_ComputeSwiftFingerprint" />
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ValidateSwiftPackageItems" />
+                  <Target Name="_GenerateSwiftBindings" />
+                  <Target Name="_ImportSwiftBindingMetadata" />
+                  <Target Name="_CompileSwiftUIBridge" AfterTargets="_UpdateSwiftWrapperMetadata" />
+                  <Target Name="TestDump" DependsOnTargets="_UpdateSwiftWrapperMetadata">
+                    <Message Importance="High" Text="VALIDATED" />
+                  </Target>
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(bindingDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(bindingDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
+            return (result.StdOut + "\n" + result.StdErr, result.ExitCode);
+        }
+
+        /// <summary>
+        /// Runs the REAL _CompileAppleFrameworkSecondBridgeSlice over a synthesized bridge
+        /// xcframework carrying <paramref name="sliceCount"/> slice directories, and reports what
+        /// survived: build output, exit code, whether the bridge directory still exists, and the
+        /// post-run binding-metadata.props text.
+        ///
+        /// The target's compile/merge Execs all gate on <c>_AFB_NeedsSecondSlice</c>, which stays
+        /// false while <c>_AFW_OtherSdk</c> is empty — so nothing invokes swiftc and only the
+        /// incomplete-bridge tail block runs. That tail block is what the tests are about, and it
+        /// deliberately runs regardless of whether a second-slice attempt happened this build (it
+        /// also repairs a bridge left primary-only by an interrupted earlier build).
+        /// </summary>
+        private (string Output, int ExitCode, bool BridgeExists, string Metadata) RunSecondBridgeSliceDump(
+            string? bridgeRequired,
+            int sliceCount)
+        {
+            var bindingDir = Path.Combine(_tempDir, $"SecondBridge{bridgeRequired ?? "default"}{sliceCount}.Swift.iOS");
+            Directory.CreateDirectory(bindingDir);
+            var intermediateDir = Path.Combine(bindingDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+
+            // A bridge xcframework is a directory of per-platform slice directories; the target
+            // counts children matching '*-*'. One slice is the primary-only shape it must drop.
+            var bridgePath = Path.Combine(intermediateDir, "MixedBridge.xcframework");
+            Directory.CreateDirectory(bridgePath);
+            var sliceNames = new[] { "ios-arm64_x86_64-simulator", "ios-arm64" };
+            for (var i = 0; i < sliceCount; i++)
+                Directory.CreateDirectory(Path.Combine(bridgePath, sliceNames[i]));
+
+            var metadataPath = Path.Combine(intermediateDir, "binding-metadata.props");
+            File.WriteAllText(metadataPath, """
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingHasBridgeXCFramework>True</_SwiftBindingHasBridgeXCFramework>
+                    <_SwiftBindingBridgeSliceCount>1</_SwiftBindingBridgeSliceCount>
+                  </PropertyGroup>
+                </Project>
+                """);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(), "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+            var sdkPropsPath = Path.Combine(FindRepoRoot(), "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.props");
+
+            var requiredProperty = bridgeRequired is null
+                ? string.Empty
+                : $"<SwiftBridgeRequired>{bridgeRequired}</SwiftBridgeRequired>";
+
+            // The stub keeps AfterTargets="_CompileAppleFrameworkSecondWrapperSlice" off the real
+            // target, so the harness drives it through TestDump instead of the Apple-direct chain.
+            var project = $"""
+                <Project>
+                  <Import Project="{sdkPropsPath}" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                    {requiredProperty}
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                    <_SwiftBindingTargetKind>AppleFramework</_SwiftBindingTargetKind>
+                    <_SwiftBindingHasSimulatorSlice>true</_SwiftBindingHasSimulatorSlice>
+                    <_AFW_BridgePath>{bridgePath}</_AFW_BridgePath>
+                    <_AFW_BridgeModule>MixedBridge</_AFW_BridgeModule>
+                    <_AFW_OtherSdk></_AFW_OtherSdk>
+                  </PropertyGroup>
+                  <Target Name="_ComputeSwiftFingerprint" />
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ValidateSwiftPackageItems" />
+                  <Target Name="_GenerateSwiftBindings" />
+                  <Target Name="_GenerateSwiftBindingsAppleFramework" />
+                  <Target Name="_ImportSwiftBindingMetadata" />
+                  <Target Name="_CompileAppleFrameworkSecondWrapperSlice" />
+                  <Target Name="TestDump" DependsOnTargets="_CompileAppleFrameworkSecondBridgeSlice">
+                    <Message Importance="High" Text="VALIDATED" />
+                  </Target>
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(bindingDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(bindingDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
+            return (result.StdOut + "\n" + result.StdErr, result.ExitCode,
+                    Directory.Exists(bridgePath), File.ReadAllText(metadataPath));
         }
 
         /// <summary>

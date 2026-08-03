@@ -274,6 +274,16 @@ partial class Build
             //     UIKit RIDs (iOS / tvOS / Mac Catalyst).
             VerifyBridgeMacOSExclusion(extractDir, $"{PackGateFixtureFramework}Bridge");
 
+            // 5c. P/Invoke resolution. Every assertion above states an expectation someone wrote
+            //     down by hand — this one is derived from the shipped IL, so it covers natives
+            //     nobody thought to write an expectation for. It reflects each P/Invoke library
+            //     name out of lib/**/*.dll and requires the package or the OS to supply it. The
+            //     negative control immediately after removes a native from a scratch copy and
+            //     requires the analysis to go red, so a predicate that silently stopped resolving
+            //     anything cannot pass as a clean run.
+            VerifyPackagePInvokesResolve(extractDir, PackGateFixtureFramework);
+            VerifyPInvokeGateDetectsMissingNative(extractDir, scratch, PackGateFixtureFramework);
+
             // 6-8. Source xcframework slicing assertions. Packs a second fixture
             //    that references a real multi-platform source xcframework
             //    and asserts the per-RID slice subset is exact — no extras
@@ -308,6 +318,10 @@ partial class Build
                 var sourceExtractDir = sourceFixtureOut / "extract";
                 if (Directory.Exists(sourceExtractDir)) sourceExtractDir.DeleteDirectory();
                 ZipFile.ExtractToDirectory(sourceNupkgPath, sourceExtractDir);
+
+                // A source-xcframework pack ships both the source and its wrapper, so no
+                // static-carrier exemption applies: a dropped source here is a real failure.
+                VerifyPackagePInvokesResolve(sourceExtractDir, "source-xcfw");
 
                 var sourceFailures = new List<string>();
                 var verifiedSourceSlices = 0;
@@ -427,6 +441,8 @@ partial class Build
                 var autoExtractDir = autoFixtureOut / "extract";
                 if (Directory.Exists(autoExtractDir)) autoExtractDir.DeleteDirectory();
                 ZipFile.ExtractToDirectory(autoNupkgPath, autoExtractDir);
+
+                VerifyPackagePInvokesResolve(autoExtractDir, "auto-discover");
 
                 var autoFailures = new List<string>();
                 var verifiedAutoSlices = 0;

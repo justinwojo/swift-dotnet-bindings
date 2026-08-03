@@ -180,6 +180,11 @@ partial class Build
         var extract = legRoot / "swift-nupkg";
         ExtractNupkg(swiftNupkg, extract);
 
+        // Static source across every TFM, so the bare module name is exempt on each of them; the
+        // wrapper still has to be packed per RID for the exemption to hold. This is the leg where
+        // per-RID scoping matters most — four TFMs, four independent native trees.
+        VerifyPackagePInvokesResolve(extract, "mixed/multi-tfm", module);
+
         var failures = new List<string>();
 
         // (a/b) each platform's lib slice carries ONLY its own ObjC companion.
@@ -355,6 +360,14 @@ partial class Build
         var extract = legRoot / "swift-nupkg";
         ExtractNupkg(swiftNupkg, extract);
 
+        // The one leg that legitimately names a native the package does not ship: the static
+        // source is dropped and its wrapper force-loads the archive. Declared explicitly so the
+        // exemption is a decision recorded here, not something the resolver infers. The negative
+        // control then removes that wrapper and requires BOTH names to go red — proof the carve-out
+        // is conditional on the carrier actually being present rather than a blanket pass.
+        VerifyPackagePInvokesResolve(extract, "mixed/static", module);
+        VerifyPInvokeGateDetectsMissingNative(extract, legRoot, "mixed/static", module);
+
         var failures = new List<string>();
         var native = extract / "runtimes" / PackGateMixedRid / "native";
         var sourceXcfw = native / $"{module}.xcframework";
@@ -462,6 +475,11 @@ partial class Build
 
         var extract = legRoot / "swift-nupkg";
         ExtractNupkg(swiftNupkg, extract);
+
+        // No exemption: a dynamic source ships alongside its wrapper, so if the source ever stopped
+        // packing here the P/Invoke naming it must fail. This is the leg that proves the static
+        // carve-out above is not applied by inference from "a wrapper exists".
+        VerifyPackagePInvokesResolve(extract, "mixed/dynamic");
 
         var failures = new List<string>();
         var native = extract / "runtimes" / PackGateMixedRid / "native";
