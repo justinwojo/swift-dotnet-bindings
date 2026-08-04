@@ -846,6 +846,61 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     [Fact]
+    public void GetAsyncPattern_BlinkIDUXView_CompletedCase_CarriesTheScanResult()
+    {
+        // The registered scanning-UX pattern's monitor resolves to an enum whose completed case
+        // carries the scan result the UX exists to produce; without a payload on the descriptor
+        // the whole typed-callback path is unreachable for the one library that ships it, and a
+        // consumer sees a bare outcome code. The scan result is a non-frozen struct declared in
+        // the dependency module, so it crosses as a metadata-sized value-witness copy.
+        var pattern = SwiftUIBridgeEmitter.GetAsyncPattern("BlinkIDUXView", "BlinkIDUX");
+        Assert.NotNull(pattern);
+
+        var payload = pattern!.ResultCallback!.Payload;
+        Assert.NotNull(payload);
+        Assert.Equal(AsyncResultPayloadKind.Struct, payload!.Kind);
+        Assert.Equal("BlinkID.BlinkIDScanningResult", payload.SwiftTypeName);
+        Assert.Equal("global::BlinkID.BlinkIDScanningResult", payload.CSharpTypeName);
+
+        // One payload type per callback: the interrupted case's associated value is a different
+        // type (an alert kind), so only completed may bind the payload.
+        var carrying = pattern.ResultCallback.ResultCases.Where(c => c.CarriesPayload).ToList();
+        Assert.Equal(new[] { "completed" }, carrying.Select(c => c.SwiftCase).ToArray());
+
+        // The scalar codes stay as they were — the typed channel is additive.
+        Assert.Equal(
+            new[] { ("completed", 0), ("interrupted", 1), ("cancelled", 2), ("ended", 3) },
+            pattern.ResultCallback.ResultCases.Select(c => (c.SwiftCase, c.Code)).ToArray());
+    }
+
+    [Fact]
+    public void EmitAsyncViewBridge_RegisteredPattern_CarriesTheScanResultToBothSides()
+    {
+        // The descriptor assertions above are only worth anything if the registered pattern
+        // actually reaches emission — this drives the shipped registry entry (no test seam, no
+        // supplied manifest) and reads the payload channel off both halves of the bridge.
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("BlinkIDUXView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.BlinkIDUX", "BlinkIDUX", views,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.BlinkIDUX.SwiftUIBridge.swift"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.BlinkIDUX.SwiftUIBridge.cs"));
+
+        // Swift: the completed case binds its associated value and hands over a metadata-sized
+        // carrier; the module-qualified name is what the dependency import makes reachable.
+        Assert.Contains("case .completed(let payloadValue):", swiftContent);
+        Assert.Contains("MemoryLayout<BlinkID.BlinkIDScanningResult>.size", swiftContent);
+        Assert.Contains("initializeMemory(", swiftContent);
+
+        // C#: the typed channel is offered as an optional extra argument, so a consumer that
+        // only wants the outcome code keeps compiling against the same factory.
+        Assert.Contains("global::BlinkID.BlinkIDScanningResult", csContent);
+        Assert.Contains("onResultPayload", csContent);
+        Assert.Contains("MarshalExtractedPayloadValue", csContent);
+    }
+
+    [Fact]
     public void EmitAsyncViewBridge_Swift_GeneratesAsyncCreate()
     {
         var views = new List<TypeDecl> { CreateSimpleViewStruct("BlinkIDUXView") };
@@ -11007,6 +11062,89 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         Assert.Contains("bool flag,", cs);
         Assert.DoesNotContain("bool flag =", cs);
+    }
+
+    [Fact]
+    public void AsyncCreateAsync_PayloadChannel_DocumentsWhoReleasesThePayload()
+    {
+        var cs = EmitAsyncPatternCSharp("ClassResultView", ClassPayload);
+
+        // The ownership rule is only discoverable from the generated surface if it is written
+        // onto it — a consumer reading IntelliSense on the typed callback must be told that the
+        // value is theirs to dispose, and that the scalar-only arm needs no cleanup.
+        var doc = DocCommentBlockBefore(cs, "public static async Task<");
+        Assert.Contains("<param name=\"onResultPayload\">", doc);
+        Assert.Contains("takes ownership", doc);
+        Assert.Contains("dispose it", doc);
+        Assert.Contains("bridge disposes the value itself", doc);
+    }
+
+    [Fact]
+    public void AsyncCreateAsync_Doc_CoversEveryParameter()
+    {
+        // A doc comment that tags only some parameters compiles the generated binding with
+        // CS1573 on the rest (the emitted csproj turns documentation generation on), so the
+        // payload doc has to bring its siblings with it.
+        var cs = EmitAsyncPatternCSharp("ClassResultView", ClassPayload);
+
+        var signature = SingleLineContaining(cs, "public static async Task<");
+        var doc = DocCommentBlockBefore(cs, "public static async Task<");
+        foreach (var name in ParameterNames(signature))
+            Assert.Contains($"<param name=\"{name}\">", doc);
+    }
+
+    [Fact]
+    public void AsyncCreateAsync_PayloadlessPattern_DocumentsOnlyTheScalarChannel()
+    {
+        var cs = EmitAsyncPatternCSharp("PlainResultView", payload: null);
+
+        var doc = DocCommentBlockBefore(cs, "public static async Task<");
+        Assert.Contains("<param name=\"onResult\">", doc);
+        Assert.DoesNotContain("onResultPayload", doc);
+    }
+
+    // Returns the contiguous `///` block immediately above the first line containing the needle.
+    private static string DocCommentBlockBefore(string content, string needle)
+    {
+        var lines = content.Split('\n');
+        int index = Array.FindIndex(lines, l => l.Contains(needle, StringComparison.Ordinal));
+        Assert.True(index > 0, $"no line containing '{needle}'");
+        var block = new List<string>();
+        for (int i = index - 1; i >= 0 && lines[i].TrimStart().StartsWith("///", StringComparison.Ordinal); i--)
+            block.Insert(0, lines[i]);
+        Assert.NotEmpty(block);
+        return string.Join("\n", block);
+    }
+
+    // Parameter identifiers of a C# method signature line, with any `@` verbatim prefix and any
+    // default-value clause stripped — i.e. the names a <param> tag has to match.
+    private static IEnumerable<string> ParameterNames(string signatureLine)
+    {
+        int open = signatureLine.IndexOf('(');
+        int close = signatureLine.LastIndexOf(')');
+        Assert.True(open >= 0 && close > open, $"not a method signature: {signatureLine}");
+        // Split on top-level commas only: a parameter type like Action<int, T?> carries its own.
+        var parameters = new List<string>();
+        var current = new System.Text.StringBuilder();
+        int depth = 0;
+        foreach (var ch in signatureLine.Substring(open + 1, close - open - 1))
+        {
+            if (ch == '<') depth++;
+            else if (ch == '>') depth--;
+            if (ch == ',' && depth == 0)
+            {
+                parameters.Add(current.ToString());
+                current.Clear();
+                continue;
+            }
+            current.Append(ch);
+        }
+        parameters.Add(current.ToString());
+
+        return parameters
+            .Select(p => p.Split('=')[0].Trim())
+            .Where(p => p.Length > 0)
+            .Select(p => p.Substring(p.LastIndexOf(' ') + 1).TrimStart('@'));
     }
 
     private static readonly AsyncResultPayload ClassPayload = new(

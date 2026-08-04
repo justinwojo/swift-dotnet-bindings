@@ -80,16 +80,26 @@ public static partial class SwiftUIBridgeEmitter
                         new("uxSettings", ConstructionArgKind.ChainReference, "uxSettings"),
                     }),
             },
+            // The analyzer's result is an enum whose completed case carries the scan result the
+            // whole UX exists to produce, so the callback offers it alongside the outcome code.
+            // Only the completed case carries it: the interrupted case's associated value is a
+            // different type (an alert kind), and one callback config describes one payload type,
+            // so interrupted crosses as a bare code. The scan result is a non-frozen struct in the
+            // dependency module, hence the Struct carrier (metadata-sized, value-witness copy).
             ResultCallback: new AsyncResultCallbackConfig(
                 SourceFieldName: "analyzer",
                 AwaitMethodName: "result",
                 ResultCases: new[]
                 {
-                    new AsyncResultCase("completed", 0),
+                    new AsyncResultCase("completed", 0, CarriesPayload: true),
                     new AsyncResultCase("interrupted", 1),
                     new AsyncResultCase("cancelled", 2),
                     new AsyncResultCase("ended", 3),
-                }),
+                },
+                Payload: new AsyncResultPayload(
+                    AsyncResultPayloadKind.Struct,
+                    "BlinkID.BlinkIDScanningResult",
+                    "global::BlinkID.BlinkIDScanningResult")),
             ViewInitArgs: new[]
             {
                 new ConstructionArg("viewModel", ConstructionArgKind.ChainReference, "model"),
@@ -1123,6 +1133,8 @@ public static partial class SwiftUIBridgeEmitter
         if (pattern.ResultCallback != null && resultPayload != null)
         {
             sb.AppendLine("            public Action<int>? OnResult { get; }");
+            sb.AppendLine("            /// <summary>Typed result channel. Invoking it hands the payload's disposal over with it;");
+            sb.AppendLine("            /// the trampoline disposes the payload itself only when this is null.</summary>");
             sb.AppendLine($"            public Action<int, {resultPayload.CSharpTypeName}?>? OnResultPayload {{ get; }}");
             sb.AppendLine($"            public CreateState(TaskCompletionSource<{info.ViewName}Session> tcs, Action<int>? onResult,");
             sb.AppendLine($"                Action<int, {resultPayload.CSharpTypeName}?>? onResultPayload)");
@@ -1344,6 +1356,7 @@ public static partial class SwiftUIBridgeEmitter
         var errorPtrLocal = asyncFactoryScope.Reserve("errorPtr");
         var resultPtrLocal = asyncFactoryScope.Reserve("resultPtr");
 
+        EmitCreateAsyncDoc(sb, info, pattern, resultPayload);
         sb.AppendLine($"        public static async Task<{info.ViewName}Session> CreateAsync({string.Join(", ", requiredParams)})");
         sb.AppendLine("        {");
 
@@ -1417,6 +1430,52 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"            return await {tcsLocal}.Task;");
         sb.AppendLine("        }");
         sb.AppendLine();
+    }
+
+    /// <summary>
+    /// Emits the <c>CreateAsync</c> doc comment. Its reason for existing is the payload channel:
+    /// the value handed to the typed callback is a managed wrapper over Swift-owned memory whose
+    /// release the callback is responsible for, and that contract is only discoverable from the
+    /// generated surface if it is written onto it. Every parameter is documented rather than only
+    /// the payload one, so the generated binding does not compile with CS1573 on its siblings.
+    /// </summary>
+    private static void EmitCreateAsyncDoc(
+        StringBuilder sb, ViewBridgeInfo info, AsyncViewPattern pattern, AsyncResultPayload? resultPayload)
+    {
+        sb.AppendLine("        /// <summary>");
+        sb.AppendLine($"        /// Builds the Swift <c>{info.ViewName}</c> through its asynchronous construction chain and");
+        sb.AppendLine("        /// returns a session that owns the resulting view. Dispose the session to release it.");
+        sb.AppendLine("        /// </summary>");
+        foreach (var param in pattern.FlattenedParams)
+        {
+            // A keyword-named parameter is declared `@keyword`, but its NAME is the bare word —
+            // that is what a <param> tag has to match, or the tag resolves to nothing (CS1572).
+            var docName = NameProvider.StripVerbatimPrefix(param.CSharpName);
+            sb.AppendLine($"        /// <param name=\"{docName}\">Passed through to the Swift construction chain.</param>");
+        }
+        if (pattern.ResultCallback == null)
+            return;
+
+        sb.AppendLine("        /// <param name=\"onResult\">");
+        sb.AppendLine("        /// Invoked with the outcome code once the view's asynchronous result resolves.");
+        sb.AppendLine("        /// </param>");
+        if (resultPayload == null)
+            return;
+
+        sb.AppendLine("        /// <param name=\"onResultPayload\">");
+        sb.AppendLine("        /// Invoked with the outcome code and the value the result case carried, or <c>null</c> for");
+        sb.AppendLine("        /// an outcome that carries none.");
+        sb.AppendLine("        /// <para>");
+        sb.AppendLine("        /// The callback takes ownership of that value: it is a managed wrapper over memory the");
+        sb.AppendLine("        /// Swift side handed across, so dispose it once you have read what you need from it — a");
+        sb.AppendLine("        /// <c>using</c> around the callback body is the usual shape. Nothing else releases it");
+        sb.AppendLine("        /// while this callback is registered.");
+        sb.AppendLine("        /// </para>");
+        sb.AppendLine("        /// <para>");
+        sb.AppendLine("        /// When this callback is not supplied the bridge disposes the value itself, so a consumer");
+        sb.AppendLine("        /// using only <paramref name=\"onResult\"/> has nothing to release.");
+        sb.AppendLine("        /// </para>");
+        sb.AppendLine("        /// </param>");
     }
 
     private static void EmitDataDrivenCreateAsyncCall(

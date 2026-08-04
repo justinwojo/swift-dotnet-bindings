@@ -173,6 +173,67 @@ public class AsyncResultPayloadBridgeTests : TestBase
     }
 
     // ────────────────────────────────────────────────────────────────
+    // Scalar-only consumers — no typed callback registered
+    // ────────────────────────────────────────────────────────────────
+    //
+    // This is the arm every consumer written before the typed channel existed is on: the
+    // payload is still produced and marshalled, but nobody is handed it, so the bridge's own
+    // release is the only thing standing between a scalar-only consumer and a payload leaked
+    // per result. Each test observes the payload alive while the scalar callback runs (a probe
+    // that would pass vacuously if the payload were never built) and then requires the count
+    // back at zero.
+
+    public async Task TestClassPayload_ScalarOnlyConsumerLeavesNothingBehind()
+    {
+        LifetimeTracker.Reset();
+
+        var observed = new ScalarOnlyCapture();
+        using (var session = await WithTimeout(
+            global::SwiftBindingsTestLib.AsyncClassPayloadResultViewSession.CreateAsync(
+                "class-scalar-only",
+                onResult: c => observed.RecordScalar(c)),
+            DefaultAsyncTimeout))
+        {
+            await WithTimeout(observed.Completion, DefaultAsyncTimeout);
+        }
+
+        AssertEqual(1, observed.ScalarCalls, "scalar onResult fired exactly once");
+        AssertEqual(0, observed.ScalarCode, "completed case delivered result code 0");
+        AssertTrue(observed.LiveWhileRunning >= 1,
+            $"a payload was live while the scalar-only callback ran (saw {observed.LiveWhileRunning})");
+
+        // No typed callback was registered, so the +1 the trampoline adopted has exactly one
+        // possible releaser: the bridge itself.
+        LifetimeTracker.AssertNoLeaks("class payload: bridge released the undelivered payload");
+        TestLogger.Info("AsyncClassPayloadResultView: scalar-only consumer left no payload behind");
+    }
+
+    public async Task TestStructPayload_ScalarOnlyConsumerLeavesNothingBehind()
+    {
+        LifetimeTracker.Reset();
+
+        var observed = new ScalarOnlyCapture();
+        using (var session = await WithTimeout(
+            global::SwiftBindingsTestLib.AsyncStructPayloadResultViewSession.CreateAsync(
+                "struct-scalar-only",
+                onResult: c => observed.RecordScalar(c)),
+            DefaultAsyncTimeout))
+        {
+            await WithTimeout(observed.Completion, DefaultAsyncTimeout);
+        }
+
+        AssertEqual(1, observed.ScalarCalls, "scalar onResult fired exactly once");
+        AssertEqual(0, observed.ScalarCode, "completed case delivered result code 0");
+        AssertTrue(observed.LiveWhileRunning >= 1,
+            $"a payload was live while the scalar-only callback ran (saw {observed.LiveWhileRunning})");
+
+        // The struct arm has two allocations to balance — Swift's lent carrier and the managed
+        // copy taken out of it — and an undelivered copy is released by the bridge alone.
+        LifetimeTracker.AssertNoLeaks("struct payload: bridge released the undelivered copy");
+        TestLogger.Info("AsyncStructPayloadResultView: scalar-only consumer left no payload behind");
+    }
+
+    // ────────────────────────────────────────────────────────────────
     // Capture helpers
     // ────────────────────────────────────────────────────────────────
 
@@ -193,6 +254,33 @@ public class AsyncResultPayloadBridgeTests : TestBase
         using (payload)
         {
             capture.RecordPayload(code, payload?.Count ?? int.MinValue, payload?.Name);
+        }
+    }
+
+    /// <summary>
+    /// Capture for a consumer that registers only the scalar channel. It samples the tracked
+    /// live count from inside the callback — where the payload the consumer never asked for is
+    /// still alive — so the leak assertion afterwards is a before/after pair rather than a bare
+    /// zero that a never-built payload would also satisfy. The read goes through the tracker's
+    /// own exception-swallowing snapshot; a throw from inside the native trampoline would
+    /// fail-fast the process rather than fail the test.
+    /// </summary>
+    private sealed class ScalarOnlyCapture
+    {
+        private readonly TaskCompletionSource<bool> _tcs =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Completion => _tcs.Task;
+        public int ScalarCode { get; private set; } = int.MinValue;
+        public int ScalarCalls { get; private set; }
+        public int LiveWhileRunning { get; private set; } = -1;
+
+        public void RecordScalar(int code)
+        {
+            ScalarCode = code;
+            ScalarCalls++;
+            LiveWhileRunning = LifetimeTracker.GetStats().live;
+            _tcs.TrySetResult(true);
         }
     }
 
