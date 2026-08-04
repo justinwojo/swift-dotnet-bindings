@@ -14,8 +14,9 @@ paths:
 ## Detection & Collection Pipeline
 1. `SwiftUIViewDetector.cs` checks `Conformances` for View protocol (SwiftUI or SwiftUICore)
 2. `BaseHandler.HandleBaseDecl()` in `IHandler.cs` skips View types before handler dispatch
-3. `SwiftUIBridgeCollector.cs` — static thread-safe collector, reset per module in `ModuleEmitter.cs`
-4. `SwiftUIBridgeEmitter.cs` + `.InitAnalyzer.cs` + `.AsyncPattern.cs` — bridge emission
+3. `SwiftUIBridgeCollector.cs` — thin static facade over `ModuleEmissionContext.CollectSwiftUIView` (state is per-module-instance, not process-global; dedups on the module-qualified name, so same-leaf views under different parents all collect)
+4. `ModuleEmissionContext.AssignBridgeIdentifiers` — every generated Swift symbol and C# type name derives from `ViewBridgeInfo.Identifier`: the leaf name when unique among collected views, else derived from the enclosing-type path for the whole leaf group (`OuterA.ContentView` → `OuterAContentView`); a residual identifier tie keeps the first view in ABI order and skips the rest fail-closed (`DuplicateBridgeIdentifier`). Hint/async-pattern dictionaries stay **leaf-keyed** deliberately
+5. `SwiftUIBridgeEmitter.cs` + `.InitAnalyzer.cs` + `.AsyncPattern.cs` — bridge emission
 
 ## View Classification
 - Simple views: Session class + @_cdecl + handle tracking

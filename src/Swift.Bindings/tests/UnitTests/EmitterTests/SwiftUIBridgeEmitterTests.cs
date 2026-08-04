@@ -2715,6 +2715,60 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         ReportCollector.Reset();
     }
 
+    [Fact]
+    public void EmitBridgeFiles_SameLeafAsyncViewsFromManifest_EmitDistinctSessionClasses()
+    {
+        // Async-pattern lookup is leaf-keyed, so both nested Views resolve this one manifest
+        // entry — and the session class the entry spells must not become one Swift class
+        // declared twice.
+        var manifestPath = Path.Combine(_tempDir, "async-patterns.json");
+        File.WriteAllText(manifestPath, """
+            { "patterns": [ {
+              "moduleName": "TestModule",
+              "viewName": "ScanView",
+              "sessionClassName": "SBW_TestModule_ScanView_Session",
+              "sessionFields": [ { "name": "monitor", "swiftType": "PayloadMonitor" } ],
+              "flattenedParams": [
+                { "name": "label", "kind": "String", "swiftAbiType": "String", "csharpPInvokeType": "IntPtr" }
+              ],
+              "constructionChain": [
+                {
+                  "variableName": "monitor", "swiftTypeName": "PayloadMonitor",
+                  "isAsync": true, "throws": false, "factoryMethod": "make",
+                  "args": [ { "paramLabel": "label", "kind": "FlattenedParam", "value": "label" } ]
+                }
+              ],
+              "viewInitArgs": [ { "paramLabel": "monitor", "kind": "ChainReference", "value": "monitor" } ]
+            } ] }
+            """);
+
+        var views = new List<TypeDecl>
+        {
+            CreateNestedSimpleViewStruct("OuterA", "ScanView"),
+            CreateNestedSimpleViewStruct("OuterB", "ScanView"),
+        };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance, asyncPatternManifestPath: manifestPath);
+
+        var swift = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        var cs = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+
+        // Both Views really bridged through the async pattern.
+        Assert.Contains("TestModule.OuterA.ScanView", swift, StringComparison.Ordinal);
+        Assert.Contains("TestModule.OuterB.ScanView", swift, StringComparison.Ordinal);
+        AssertNoDuplicates(CdeclSymbols(swift), "@_cdecl symbol");
+        AssertNoDuplicates(DeclaredCSharpTypeNames(cs), "C# type");
+
+        // One session class per View, each attributable to the View it bridges.
+        var sessionClasses = Regex.Matches(swift, @"^final class (\w+)", RegexOptions.Multiline)
+            .Select(m => m.Groups[1].Value).ToList();
+        Assert.Equal(2, sessionClasses.Count);
+        AssertNoDuplicates(sessionClasses, "Swift session class");
+        Assert.Single(sessionClasses, n => n.Contains("OuterA", StringComparison.Ordinal));
+        Assert.Single(sessionClasses, n => n.Contains("OuterB", StringComparison.Ordinal));
+    }
+
     #endregion
 
     #region SwiftUIBridgeCollector Dedup

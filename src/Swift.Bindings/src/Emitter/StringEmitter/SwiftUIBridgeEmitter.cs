@@ -89,6 +89,17 @@ public static partial class SwiftUIBridgeEmitter
                     asyncPattern = InferAsyncPattern(info, context);
                 }
                 asyncPattern ??= ResolveAsyncPattern(info.ViewName, info.ModuleName, context);
+                // Pattern lookup is leaf-keyed, so every member of a shared-leaf group resolves
+                // the same manifest/built-in entry — including its authored SessionClassName.
+                // Emitting that class once per view is a Swift redeclaration, so a view that
+                // was path-qualified re-spells the session class from its own identifier.
+                if (asyncPattern != null && info.Identifier != info.ViewName)
+                {
+                    asyncPattern = asyncPattern with
+                    {
+                        SessionClassName = InferredSessionClassName(info.ModuleName, info.Identifier)
+                    };
+                }
                 isFunctional = asyncPattern != null;
             }
             else if (info.Classification == ViewInitClassification.Simple && info.Constructors.Count > 0)
