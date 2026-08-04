@@ -11,11 +11,14 @@ namespace Swift.Analyzers.Tests;
 using AnalyzerTest = CSharpAnalyzerTest<SwiftStructWriteBackAnalyzer, DefaultVerifier>;
 
 /// <summary>
-/// Tests for SB1003 (<see cref="SwiftStructWriteBackAnalyzer"/>): writing a member through a
-/// Swift-struct-typed property or subscript of a Swift-backed object mutates a temporary copy and is
-/// silently discarded. The negative cases pin the shapes the analyzer must stay quiet on — a struct
-/// held in a local/parameter/field, the copy-modify-write-back idiom that is the prescribed fix, a
-/// plain C# owner, and the deliberate protocol-interface false negative.
+/// Tests for SB1003 (<see cref="SwiftStructWriteBackAnalyzer"/>): mutating through a
+/// Swift-struct-typed property or subscript of a Swift-backed object — by writing a member, or by
+/// calling a Swift <c>mutating func</c> — changes only a temporary copy and is silently discarded.
+/// The negative cases pin the shapes the analyzer must stay quiet on — a struct held in a
+/// local/parameter/field, the copy-modify-write-back idiom that is the prescribed fix, a plain C#
+/// owner, a <c>ref</c>-returning property (which hands back the storage, so the write lands), a call
+/// whose result the caller consumes (indistinguishable from a read), and the deliberate
+/// protocol-interface false negative.
 /// </summary>
 public class SwiftStructWriteBackAnalyzerTests
 {
@@ -46,27 +49,47 @@ public partial class ScanSettings : Swift.Runtime.ISwiftStruct
     public NestedSettings Nested { get; set; }
     public int this[int index] { get { return 0; } set { } }
     public NestedSettings this[string key] { get { return Nested; } set { } }
+    public void Bump(int amount) { }
+    public ScanSettings Combine(int amount) { return this; }
+    public string Describe() { return string.Empty; }
+    public System.Threading.Tasks.Task BumpAsync(int amount)
+    {
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+    public static ScanSettings Create() { return new ScanSettings(); }
     public void Dispose() { }
 }
 
 public partial class NestedSettings : Swift.Runtime.ISwiftStruct
 {
     public int Depth { get; set; }
+    public void Touch() { }
+    public void Dispose() { }
+}
+
+public struct FrozenRange : Swift.Runtime.ISwiftStruct
+{
+    public int Location { get; set; }
     public void Dispose() { }
 }
 
 public class Lens : Swift.Runtime.ISwiftObject
 {
     public int Zoom { get; set; }
+    public void Focus() { }
     public void Dispose() { }
 }
 
 public partial class SessionSettings : Swift.Runtime.ISwiftObject
 {
+    private FrozenRange _span;
+    private ScanSettings _scanning = new ScanSettings();
     public ScanSettings Scanning { get; set; }
     public static ScanSettings Shared { get; set; }
     public ScanSettings Snapshot { get { return Scanning; } }
     public Lens Optics { get; set; }
+    public ref FrozenRange Span { get { return ref _span; } }
+    public ref ScanSettings ScanningByRef { get { return ref _scanning; } }
     public ScanSettings GetScanning() => Scanning;
     public void Dispose() { }
 }
@@ -93,6 +116,10 @@ public class PlainOwner
         "Read it into a local, mutate the local, then assign the local back: " +
         "'using var copy = ….Scanning; copy.Threshold = …; ….Scanning = copy;'.";
 
+    private const string CallWriteBackGuidance =
+        "Read it into a local, mutate the local, then assign the local back: " +
+        "'using var copy = ….Scanning; copy.Bump(…); ….Scanning = copy;'.";
+
     private const string IndexerWriteBackGuidance =
         "Read it into a local, mutate the local, then assign the local back: " +
         "'using var copy = ….Scanning; copy[…] = …; ….Scanning = copy;'.";
@@ -112,8 +139,19 @@ public class PlainOwner
         "outward one level at a time — and if any outer link has no setter, the write cannot " +
         "reach the owner at all.";
 
-    private static Task RunAsync(string body) =>
-        new AnalyzerTest { TestCode = MockTypes + body }.RunAsync();
+    /// <summary>
+    /// SB1003 has two descriptors — one for a lost write, one for a lost call — because the two read
+    /// nothing alike in prose. They share an ID, category and severity, so <c>{|SB1003:…|}</c> markup
+    /// is unambiguous about what it asserts; the option only tells the harness to stop asking which
+    /// of the two to template from.
+    /// </summary>
+    private static AnalyzerTest NewTest(string body) => new()
+    {
+        TestCode = MockTypes + body,
+        MarkupOptions = MarkupOptions.UseFirstDescriptor,
+    };
+
+    private static Task RunAsync(string body) => NewTest(body).RunAsync();
 
     /// <summary>
     /// Runs <paramref name="body"/> (marked up with <c>{|#0:…|}</c>) and asserts the full formatted
@@ -121,7 +159,7 @@ public class PlainOwner
     /// </summary>
     private static Task RunAsync(string body, string writtenName, string receiver, string guidance)
     {
-        var test = new AnalyzerTest { TestCode = MockTypes + body };
+        var test = NewTest(body);
         test.ExpectedDiagnostics.Add(
             new DiagnosticResult(SwiftStructWriteBackAnalyzer.DiagnosticId, DiagnosticSeverity.Warning)
                 .WithLocation(0)
@@ -335,6 +373,270 @@ public class TestClass
     }
 }
 ", "Depth", "the Swift struct property 'Nested'", ChainedGuidance);
+    }
+
+    #endregion
+
+    #region Positive — a call that cannot report a value loses its mutation
+
+    [Fact]
+    public async Task VoidMethodCalledThroughStructProperty_ReportsDiagnostic()
+    {
+        // A Swift `mutating func` projects as an ordinary C# method; the copy it mutates is the
+        // one the getter just handed back, so the mutation dies with the statement.
+        await RunAsync(@"
+public class TestClass
+{
+    public void Method(SessionSettings owner)
+    {
+        {|#0:owner.Scanning.Bump(1)|};
+    }
+}
+", "Bump", "the Swift struct property 'Scanning'", CallWriteBackGuidance);
+    }
+
+    [Fact]
+    public async Task DiscardedResultMethodCalledThroughStructProperty_ReportsDiagnostic()
+    {
+        // A `mutating func` that also returns a value loses its mutation just the same when the
+        // caller throws the value away.
+        await RunAsync(@"
+public class TestClass
+{
+    public void Method(SessionSettings owner)
+    {
+        {|SB1003:owner.Scanning.Combine(1)|};
+    }
+}
+");
+    }
+
+    [Fact]
+    public async Task VoidMethodCalledInsideLambda_ReportsDiagnostic()
+    {
+        // A void call has no value to consume wherever it appears, so statement position is not
+        // required for the loss to be certain.
+        await RunAsync(@"
+public class TestClass
+{
+    public void Method(SessionSettings owner)
+    {
+        System.Action a = () => {|SB1003:owner.Scanning.Bump(1)|};
+        a();
+    }
+}
+");
+    }
+
+    [Fact]
+    public async Task ConditionallyCalledMethodThroughStructProperty_ReportsDiagnostic()
+    {
+        // `?.` is the natural spelling once a struct property is optional-typed, and it is the one
+        // receiver shape a call can have that an assignment cannot. The copy is lost all the same.
+        await RunAsync(@"
+public class TestClass
+{
+    public void Method(SessionSettings owner)
+    {
+        {|#0:owner.Scanning?.Bump(1)|};
+    }
+}
+", "Bump", "the Swift struct property 'Scanning'", CallWriteBackGuidance);
+    }
+
+    [Fact]
+    public async Task AwaitedMethodCalledThroughStructProperty_ReportsDiagnostic()
+    {
+        // An awaited call in statement position discards its result exactly as a plain one does;
+        // the `await` in between must not hide that.
+        await RunAsync(@"
+public class TestClass
+{
+    public async System.Threading.Tasks.Task Method(SessionSettings owner)
+    {
+        await {|SB1003:owner.Scanning.BumpAsync(1)|};
+    }
+}
+");
+    }
+
+    [Fact]
+    public async Task VoidMethodCalledThroughNestedStructProperty_ReportsChainedGuidance()
+    {
+        await RunAsync(@"
+public class TestClass
+{
+    public void Method(SessionSettings owner)
+    {
+        {|#0:owner.Scanning.Nested.Touch()|};
+    }
+}
+", "Touch", "the Swift struct property 'Nested'", ChainedGuidance);
+    }
+
+    [Fact]
+    public async Task VoidMethodCalledThroughGetOnlyStructProperty_ReportsNoSetterGuidance()
+    {
+        await RunAsync(@"
+public class TestClass
+{
+    public void Method(SessionSettings owner)
+    {
+        {|#0:owner.Snapshot.Bump(1)|};
+    }
+}
+", "Bump", "the Swift struct property 'Snapshot'", NoSetterGuidance);
+    }
+
+    [Fact]
+    public async Task VoidMethodCalledThroughStructSubscript_ReportsSubscriptGuidance()
+    {
+        await RunAsync(@"
+public class TestClass
+{
+    public void Method(SessionSettings owner)
+    {
+        {|#0:owner.Scanning[""a""].Touch()|};
+    }
+}
+", "Touch", "the subscript on the Swift struct 'ScanSettings'", SubscriptReceiverGuidance);
+    }
+
+    #endregion
+
+    #region Negative — the call keeps its meaning, or the write reaches the owner
+
+    [Fact]
+    public async Task MethodResultConsumed_NoDiagnostic()
+    {
+        // A call whose value the caller uses is a read, and a read off a copy returns the same
+        // answer the owner would. Nothing in the projected C# marks a method `mutating`, so this
+        // is where the analyzer stops rather than guess.
+        await RunAsync(@"
+public class TestClass
+{
+    public int Method(SessionSettings owner)
+    {
+        var described = owner.Scanning.Describe();
+        var pending = owner.Scanning.BumpAsync(1);
+        return described.Length + owner.Scanning.Combine(1).Threshold + pending.Id;
+    }
+}
+");
+    }
+
+    [Fact]
+    public async Task DisposeOnStructProperty_NoDiagnostic()
+    {
+        // Disposing the copy is the correct thing to do with a copy — it releases the native
+        // buffer the getter just allocated.
+        await RunAsync(@"
+public class TestClass
+{
+    public void Method(SessionSettings owner)
+    {
+        owner.Scanning.Dispose();
+    }
+}
+");
+    }
+
+    [Fact]
+    public async Task ObjectOverrideCalledOnStructProperty_NoDiagnostic()
+    {
+        // Generated struct projections override the System.Object members; none of them mutates.
+        await RunAsync(@"
+public class TestClass
+{
+    public void Method(SessionSettings owner)
+    {
+        owner.Scanning.ToString();
+        owner.Scanning.GetHashCode();
+    }
+}
+");
+    }
+
+    [Fact]
+    public async Task StaticMethodOnStructProjection_NoDiagnostic()
+    {
+        await RunAsync(@"
+public class TestClass
+{
+    public void Method()
+    {
+        ScanSettings.Create();
+    }
+}
+");
+    }
+
+    [Fact]
+    public async Task MethodCalledOnSwiftClassProperty_NoDiagnostic()
+    {
+        // Reference semantics: the getter hands back the same instance, so the call reaches it.
+        await RunAsync(@"
+public class TestClass
+{
+    public void Method(SessionSettings owner)
+    {
+        owner.Optics.Focus();
+    }
+}
+");
+    }
+
+    [Fact]
+    public async Task MethodCalledOnLocalCopy_NoDiagnostic()
+    {
+        // The write-back idiom itself: the local is the copy, and it is assigned back.
+        await RunAsync(@"
+public class TestClass
+{
+    public void Method(SessionSettings owner)
+    {
+        using var copy = owner.Scanning;
+        copy.Bump(1);
+        owner.Scanning = copy;
+    }
+}
+");
+    }
+
+    [Fact]
+    public async Task MethodCalledOnPlainCSharpOwnersProperty_NoDiagnostic()
+    {
+        await RunAsync(@"
+public class TestClass
+{
+    public void Method(PlainOwner owner)
+    {
+        owner.Scanning.Bump(1);
+    }
+}
+");
+    }
+
+    #endregion
+
+    #region Negative — a ref-returning property is not a copy
+
+    [Fact]
+    public async Task WriteThroughRefReturningStructProperty_NoDiagnostic()
+    {
+        // `ref` returns the storage itself, so the write lands. The generator never emits a
+        // ref-returning property, so this shape is always consumer-authored.
+        await RunAsync(@"
+public class TestClass
+{
+    public void Method(SessionSettings owner)
+    {
+        owner.Span.Location = 1;
+        owner.ScanningByRef.Threshold = 5;
+        owner.ScanningByRef.Bump(1);
+    }
+}
+");
     }
 
     #endregion
