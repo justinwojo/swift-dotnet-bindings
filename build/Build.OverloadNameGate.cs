@@ -17,16 +17,22 @@
 // author's own `vector3`, but a record whose assigned name is its natural name plus digits is
 // unambiguously the former.
 //
+// The claim is about the OVERLOAD lane, and one other lane deliberately numbers members: two
+// sibling Swift names differing only by case (`url` alongside `URL`) project onto one C# identifier
+// and carry no labels or parameter types to derive a name from, so the later declaration takes a
+// numeric suffix. Those decisions travel in their own `CaseOnlyRenames` channel and are REPORTED
+// here rather than failed — the naming policy for that arm is a separate question, and a gate that
+// silently omitted them would leave numeric public names nothing accounts for.
+//
 // Fail-closed by construction. There is no `--permissive` arm and no flag to skip it: unlike the
 // ratchets around it this gate encodes a policy, not a baseline, so there is nothing to reseed and
-// no legitimate local state in which a numeric overload name is acceptable.
+// no legitimate local state in which a numeric OVERLOAD name is acceptable.
 
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Nuke.Common;
 using Nuke.Common.IO;
 using Serilog;
@@ -35,7 +41,8 @@ partial class Build
 {
     /// <summary>
     /// Asserts that no overload-disambiguation decision in the freshly-generated bindings assigned a
-    /// bare numeric suffix. Invoked from the --compile-only path after the ingestion-kitchen gate.
+    /// bare numeric suffix, and reports the case-only lane's deliberate numeric assignments as their
+    /// own non-failing category. Invoked from the --compile-only path after the ingestion-kitchen gate.
     /// </summary>
     void RunOverloadNameGate()
     {
@@ -54,88 +61,52 @@ partial class Build
                 $"Overload-name gate: no `binding-report.json` found under {BtOutputDir}. " +
                 "Run `nuke binding-tests --compile-only` (regenerates) first.");
 
-        var records = new List<OverloadRenameRecord>();
+        var overloadRenames = new List<OverloadRenameRecord>();
+        var caseOnlyRenames = new List<CaseOnlyRenameRecord>();
         foreach (var path in reports)
         {
-            OverloadRenameReport? parsed;
+            OverloadNameLedgerDocument parsed;
             try
             {
-                parsed = JsonSerializer.Deserialize<OverloadRenameReport>(
-                    File.ReadAllText(path),
-                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                parsed = OverloadNameLedger.Parse(File.ReadAllText(path));
             }
             catch (JsonException ex)
             {
                 throw new Exception($"Overload-name gate: {path} is not readable JSON: {ex.Message}");
             }
-            if (parsed?.OverloadRenames is { } list)
-                records.AddRange(list);
+            if (parsed.OverloadRenames is { } overloads)
+                overloadRenames.AddRange(overloads);
+            if (parsed.CaseOnlyRenames is { } caseOnly)
+                caseOnlyRenames.AddRange(caseOnly);
         }
 
-        // Positive control. Every fixture corpus this gate runs over contains colliding overloads, so
-        // an empty ledger means the records stopped being written (a manifest round-trip that dropped
-        // the section, a resolver that stopped recording), not that the surface got cleaner. Without
-        // this the gate would pass vacuously in exactly the situation it exists to catch.
-        if (records.Count == 0)
-            throw new Exception(
-                "Overload-name gate: the generated bindings recorded ZERO overload-disambiguation " +
-                "decisions. The BindingTests corpus contains colliding overloads, so an empty ledger " +
-                "means the resolver's records are no longer reaching binding-report.json — the gate " +
-                "cannot verify anything. Check ReportCollector.RecordOverloadRenamed and the " +
-                "GenerationSection.OverloadRenames round-trip.");
+        var verdict = OverloadNameLedger.Evaluate(overloadRenames, caseOnlyRenames);
 
-        var numeric = records.Where(IsNumericAssignment).ToList();
-        foreach (var r in numeric)
+        foreach (var r in verdict.NumericOverloadAssignments)
         {
             Log.Error("  ✗ {Declaring}.{Emitted} — numeric suffix over natural name '{Natural}' ({Swift})",
                 r.DeclaringName, r.EmittedName, r.NaturalName, r.SwiftSignature);
         }
 
-        if (numeric.Count > 0)
-            throw new Exception(
-                $"Overload-name gate: {numeric.Count} public member(s) carry a resolver-assigned numeric " +
-                "suffix. Overload names must come from Swift argument labels or parameter types; a family " +
-                "neither can separate is refused with a report entry, never numbered.");
+        if (!verdict.Passed)
+            throw new Exception("Overload-name gate: " + string.Join(" | ", verdict.Failures));
 
-        var byScheme = records
-            .GroupBy(r => r.Scheme ?? "Unknown", StringComparer.Ordinal)
-            .OrderBy(g => g.Key, StringComparer.Ordinal);
         Log.Information("  ✓ {Count} overload name(s) assigned, none numeric ({Breakdown})",
-            records.Count,
-            string.Join(", ", byScheme.Select(g => $"{g.Key}: {g.Count()}")));
-    }
+            overloadRenames.Count,
+            verdict.OverloadSchemeBreakdown);
 
-    /// <summary>
-    /// A record is a numeric assignment when the emitted name is the natural name followed only by
-    /// digits. Both names come from the same record, so a name that merely ENDS in a digit —
-    /// <c>Vector3</c>, <c>Utf8</c>, <c>Sha256</c> — cannot trip this: its natural name ends in the
-    /// same digits and the two are equal.
-    /// </summary>
-    static bool IsNumericAssignment(OverloadRenameRecord record)
-    {
-        var natural = record.NaturalName;
-        var emitted = record.EmittedName;
-        if (string.IsNullOrEmpty(natural) || string.IsNullOrEmpty(emitted))
-            return false;
-        if (emitted.Length <= natural.Length || !emitted.StartsWith(natural, StringComparison.Ordinal))
-            return false;
-        return emitted.Skip(natural.Length).All(char.IsAsciiDigit);
-    }
-
-    /// <summary>Just enough of <c>binding-report.json</c> to read the resolver's decision records.</summary>
-    sealed class OverloadRenameReport
-    {
-        [JsonPropertyName("OverloadRenames")]
-        public List<OverloadRenameRecord>? OverloadRenames { get; set; }
-    }
-
-    /// <summary>Mirror of the generator's <c>OverloadRenameItem</c>.</summary>
-    sealed class OverloadRenameRecord
-    {
-        public string? DeclaringName { get; set; }
-        public string? SwiftSignature { get; set; }
-        public string? NaturalName { get; set; }
-        public string? EmittedName { get; set; }
-        public string? Scheme { get; set; }
+        // Reported, not asserted. The case-only arm's numeric scheme is deliberate; whether it
+        // SHOULD be numeric is a naming-policy question this gate does not decide. What it does do
+        // is make the assignments countable and attributable instead of leaving them to be
+        // discovered by reading generated C#.
+        Log.Information("  · {Count} case-only member rename(s), {Numeric} numeric ({Breakdown})",
+            verdict.CaseOnlyAssignments.Count,
+            verdict.NumericCaseOnlyAssignments.Count,
+            verdict.CaseOnlySchemeBreakdown);
+        foreach (var r in verdict.NumericCaseOnlyAssignments)
+        {
+            Log.Information("      {Declaring}.{Emitted} — Swift '{Swift}' over natural name '{Natural}'",
+                r.DeclaringName, r.EmittedName, r.SwiftName, r.NaturalName);
+        }
     }
 }

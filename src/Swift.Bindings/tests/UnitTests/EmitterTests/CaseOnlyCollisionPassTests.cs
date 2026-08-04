@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System;
+using System.Linq;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -464,6 +466,145 @@ public class CaseOnlyCollisionPassTests
 
         Assert.True(typeDatabase.TryGetTypeRecord(siblingSwiftName, out var renamed));
         Assert.Equal($"SCANKit{NameCollisionPolicy.EnumTypeSuffix}", renamed!.CSharpTypeName.Name);
+    }
+
+    // ---- Report ledger -----------------------------------------------------------------------
+    // The member arm assigns NUMERIC names to the public surface. Every other numbering decision in
+    // the generator is published to binding-report.json; these were not, so the one arm that
+    // deliberately ships `Url2` was also the one arm no artifact accounted for.
+
+    [Fact]
+    public void MemberArm_PublishesEachRenameToTheBindingReport()
+    {
+        var (moduleDecl, typeDatabase, _) = BuildTypeWithProperties("EndpointSettings", "url", "URL");
+
+        ReportCollector.Start(moduleDecl);
+        CaseOnlyCollisionPass.Precompute(moduleDecl, typeDatabase);
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        Assert.NotNull(report);
+        var record = Assert.Single(report!.CaseOnlyRenames);
+        Assert.Equal("EndpointSettings", record.DeclaringName);
+        Assert.Equal("URL", record.SwiftName);
+        // Both names on one record: only a natural/emitted PAIR can tell a rename from an author's
+        // own numbered spelling, which is the same reason the overload lane records both.
+        Assert.Equal("Url", record.NaturalName);
+        Assert.Equal("Url2", record.EmittedName);
+        Assert.Equal(nameof(NameCollisionScheme.CaseOnlyMemberCollision), record.Scheme);
+    }
+
+    [Fact]
+    public void MemberArm_RenamesTravelInTheirOwnLaneNotTheOverloadLane()
+    {
+        // The two lanes answer to opposite policies — an overload name may never be the natural
+        // name plus digits, and this one is exactly that — so a case-only decision must not land in
+        // the channel read under the no-numeric-suffix contract.
+        var (moduleDecl, typeDatabase, _) = BuildTypeWithProperties("EndpointSettings", "url", "URL");
+
+        ReportCollector.Start(moduleDecl);
+        CaseOnlyCollisionPass.Precompute(moduleDecl, typeDatabase);
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        Assert.NotNull(report);
+        Assert.NotEmpty(report!.CaseOnlyRenames);
+        Assert.Empty(report.OverloadRenames);
+    }
+
+    [Fact]
+    public void MemberArm_NoCollision_PublishesNothing()
+    {
+        var (moduleDecl, typeDatabase, _) = BuildTypeWithProperties("EndpointSettings", "host", "port");
+
+        ReportCollector.Start(moduleDecl);
+        CaseOnlyCollisionPass.Precompute(moduleDecl, typeDatabase);
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        Assert.NotNull(report);
+        Assert.Empty(report!.CaseOnlyRenames);
+    }
+
+    [Fact]
+    public void MemberArm_ConformerAdoptingARequirementName_IsPublishedToo()
+    {
+        // The conformer declares the pair in the OPPOSITE order and adopts the requirement's name
+        // rather than choosing its own. That adoption is a rename like any other — the member does
+        // not carry its natural projection — so it has to be visible in the ledger as well.
+        var (moduleDecl, typeDatabase, _, _) = BuildProtocolAndConformer(
+            protocolProperties: new[] { "url", "URL" },
+            conformerProperties: new[] { "URL", "url" });
+
+        ReportCollector.Start(moduleDecl);
+        CaseOnlyCollisionPass.Precompute(moduleDecl, typeDatabase);
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        Assert.NotNull(report);
+        var byDeclaringType = report!.CaseOnlyRenames
+            .GroupBy(r => r.DeclaringName, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+
+        var requirement = Assert.Single(byDeclaringType["Endpoint"]);
+        Assert.Equal("URL", requirement.SwiftName);
+        Assert.Equal("Url2", requirement.EmittedName);
+
+        // Same Swift name, same emitted name — the conformer took the interface's answer, not the
+        // one its own declaration order would have produced.
+        var adopted = Assert.Single(byDeclaringType["Settings"]);
+        Assert.Equal("URL", adopted.SwiftName);
+        Assert.Equal("Url", adopted.NaturalName);
+        Assert.Equal("Url2", adopted.EmittedName);
+    }
+
+    [Fact]
+    public void MemberArm_ProtocolReachableFromBothModuleCollections_IsPublishedOnce()
+    {
+        // A ProtocolDecl IS a TypeDecl, so the parser files it in the module's protocol list AND
+        // its type list — the pass walks it twice. The ledger has to count decisions about the
+        // public surface, not visits, or a reader takes one renamed member for two.
+        var (moduleDecl, typeDatabase, protocolDecl, _) = BuildProtocolAndConformer(
+            protocolProperties: new[] { "url", "URL" },
+            conformerProperties: new[] { "url", "URL" });
+        moduleDecl.Types.Add(protocolDecl);
+
+        ReportCollector.Start(moduleDecl);
+        CaseOnlyCollisionPass.Precompute(moduleDecl, typeDatabase);
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        Assert.NotNull(report);
+        var requirement = Assert.Single(
+            report!.CaseOnlyRenames, r => string.Equals(r.DeclaringName, "Endpoint", StringComparison.Ordinal));
+        Assert.Equal("Url2", requirement.EmittedName);
+    }
+
+    [Fact]
+    public void MemberArm_RenamesSurviveTheManifestRoundTrip()
+    {
+        // binding-report.json is REDERIVED from the artifact manifest, so a channel that exists
+        // only on the live report reads as empty in the file the ship gate opens.
+        var (moduleDecl, typeDatabase, _) = BuildTypeWithProperties("EndpointSettings", "url", "URL");
+
+        ReportCollector.Start(moduleDecl);
+        CaseOnlyCollisionPass.Precompute(moduleDecl, typeDatabase);
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        Assert.NotNull(report);
+        var manifest = new BindingArtifactManifest
+        {
+            Module = report!.ModuleName,
+            Generation = GenerationSection.From(report),
+        };
+
+        var projected = BindingReportProjection.Project(manifest);
+
+        var record = Assert.Single(projected.CaseOnlyRenames);
+        Assert.Equal("URL", record.SwiftName);
+        Assert.Equal("Url", record.NaturalName);
+        Assert.Equal("Url2", record.EmittedName);
     }
 
     // ---- Helpers -----------------------------------------------------------------------------

@@ -142,14 +142,23 @@ internal static class ProtocolMethodDisambiguator
         // names are irrelevant to grouping (a Foo→FooMethod rename shifts every member uniformly, so it never
         // changes whether two members collide), so null is used for determinism. Type-erasure overloads whose
         // projected keys already differ (add(IExpression) vs add(object)) never share a group.
+        //
+        // Family order is tracked explicitly rather than taken from the dictionary's enumeration,
+        // the same way the class/free-function lane does it. Both lanes accumulate a scope-wide
+        // `reserved` set ACROSS families as they walk, so which family is visited first decides
+        // which one gets to claim a contested name — enumeration order is load-bearing, and
+        // Dictionary makes no promise about it beyond what today's insertion pattern happens to
+        // produce. Insertion order is the order the emission walk visits the requirements, which is
+        // the only order with a meaning behind it.
         var groups = new Dictionary<string, List<MethodDecl>>(StringComparer.Ordinal);
+        var groupOrder = new List<string>();
         foreach (var m in candidates)
         {
             var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(m, typeDatabase, protocolDecl, propertyNames: null);
             if (!groups.TryGetValue(projectedKey, out var list))
             {
-                list = new List<MethodDecl>();
-                groups[projectedKey] = list;
+                groups[projectedKey] = list = new List<MethodDecl>();
+                groupOrder.Add(projectedKey);
             }
             list.Add(m);
         }
@@ -163,8 +172,9 @@ internal static class ProtocolMethodDisambiguator
         // first, so comparing the accepted name against it would book every type-rung assignment as
         // LabelDerived and quietly lie to the ship-gate ledger.
         var pending = new List<(string slotKey, string nameInput, bool fromTypeRung)>();
-        foreach (var group in groups.Values)
+        foreach (var groupKey in groupOrder)
         {
+            var group = groups[groupKey];
             if (group.Count < 2)
                 continue;
 

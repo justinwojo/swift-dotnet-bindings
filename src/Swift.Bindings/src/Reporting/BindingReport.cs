@@ -43,6 +43,16 @@ public sealed class BindingReport
     public List<OverloadRenameItem> OverloadRenames { get; } = new();
 
     /// <summary>
+    /// Every case-only member rename this run made — see <see cref="CaseOnlyRenameItem"/>. Kept in
+    /// its own channel rather than folded into <see cref="OverloadRenames"/> because the two lanes
+    /// answer to different policies: an overload name is never allowed to be a numeric suffix,
+    /// while the case-only arm assigns one deliberately. Merging them would either make the ship
+    /// gate red on a decision it is supposed to accept, or force it to special-case a scheme string
+    /// inside a list whose whole contract is "no record here may be numeric".
+    /// </summary>
+    public List<CaseOnlyRenameItem> CaseOnlyRenames { get; } = new();
+
+    /// <summary>
     /// Distinct <c>// Unsupported:</c> comment-drops emitted this run (Finding 53) — a type or
     /// member the generator could not bind and left as a comment in the generated C#. Each is
     /// surfaced as a loud <c>SWIFTBIND025</c> diagnostic at report time so a dropped declaration is
@@ -720,6 +730,37 @@ public sealed class OverloadRenameItem
     public required string EmittedName { get; init; }
 
     /// <summary>Which rung of the disambiguation ladder produced <see cref="EmittedName"/>.</summary>
+    public required string Scheme { get; init; }
+}
+
+/// <summary>
+/// One case-only member rename: a member whose C# name was moved off its natural projection
+/// because a sibling Swift name differing only by case projects onto the same C# identifier
+/// (<c>url</c> and <c>URL</c> both PascalCase to <c>Url</c>), or because a protocol this type
+/// conforms to already settled that pair and the conformer has to adopt the requirement's name.
+///
+/// <para>Separate from <see cref="OverloadRenameItem"/> because the arm that produces these
+/// assigns a NUMERIC suffix on purpose: two Swift spellings that differ only by case carry no
+/// argument labels or parameter types to derive a name from, so there is nothing for a semantic
+/// token to say. Recording them here makes those assignments visible to a reader of
+/// <c>binding-report.json</c> — and to the ship gate, which reports them as their own category
+/// instead of either failing on them or being blind to them.</para>
+/// </summary>
+public sealed class CaseOnlyRenameItem
+{
+    /// <summary>Declaring type's name.</summary>
+    public required string DeclaringName { get; init; }
+
+    /// <summary>The member's Swift name — the case-sensitive spelling this record is about.</summary>
+    public required string SwiftName { get; init; }
+
+    /// <summary>The C# name this member would carry if no case-variant sibling contested it.</summary>
+    public required string NaturalName { get; init; }
+
+    /// <summary>The C# name actually emitted.</summary>
+    public required string EmittedName { get; init; }
+
+    /// <summary>The scheme that settled <see cref="EmittedName"/>.</summary>
     public required string Scheme { get; init; }
 }
 

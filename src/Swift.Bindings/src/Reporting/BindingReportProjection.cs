@@ -42,6 +42,7 @@ public static class BindingReportProjection
             report.BridgedViews.AddRange(g.BridgedViews);
             report.ThemeBridgedProperties.AddRange(g.ThemeBridgedProperties);
             report.OverloadRenames.AddRange(g.OverloadRenames);
+            report.CaseOnlyRenames.AddRange(g.CaseOnlyRenames);
             report.BridgeSummary = g.BridgeSummary;
             // Finding 53: the projected report is what gets written to binding-report.json, so the
             // SWIFTBIND025/026 lists must be restored here or the diagnostics' "recorded under

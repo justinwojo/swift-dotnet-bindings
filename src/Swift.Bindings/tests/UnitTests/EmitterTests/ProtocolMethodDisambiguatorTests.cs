@@ -436,6 +436,42 @@ public class ProtocolMethodDisambiguatorTests
     }
 
     // ===================================================================
+    //  Family walk order
+    // ===================================================================
+
+    [Fact]
+    public void Compute_ResolvesFamiliesInDeclarationOrder()
+    {
+        var db = CreateTypeDatabase();
+        var protocolDecl = TestDecls.Protocol(
+            "Observer",
+            IntRequirement("zeta", "_", "one"),
+            IntRequirement("zeta", "_", "two"),
+            IntRequirement("alpha", "_", "one"),
+            IntRequirement("alpha", "_", "two"),
+            IntRequirement("mid", "_", "one"),
+            IntRequirement("mid", "_", "two"));
+
+        ReportCollector.Start(TestModelFactory.CreateModuleDecl());
+        ProtocolMethodDisambiguator.Compute(protocolDecl, db);
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        // Families are resolved against a name reservation set that accumulates ACROSS families, so
+        // which family is walked first decides which one gets to claim a contested name — the order is
+        // public-surface-affecting rather than incidental, and the only order with a meaning behind it
+        // is the order the requirements are declared in. Every assignment is recorded as the walk makes
+        // it, so the recorded sequence IS the walk order.
+        Assert.NotNull(report);
+        Assert.Equal(6, report!.OverloadRenames.Count);
+        var families = report.OverloadRenames
+            .Select(r => r.SwiftSignature.Substring(0, r.SwiftSignature.IndexOf('(')))
+            .Distinct()
+            .ToList();
+        Assert.Equal(new[] { "zeta", "alpha", "mid" }, families);
+    }
+
+    // ===================================================================
     //  One map, four axes
     // ===================================================================
 

@@ -111,6 +111,15 @@ public sealed class GenerationSection
     /// </summary>
     public List<OverloadRenameItem> OverloadRenames { get; init; } = new();
 
+    /// <summary>
+    /// Every case-only member rename this run made. Carried here for the same round-trip reason as
+    /// <see cref="OverloadRenames"/>: the report is REDERIVED from this manifest, so a channel that
+    /// only exists on the in-memory report never reaches <c>binding-report.json</c> — and the ship
+    /// gate reads this lane from there to report the deliberate numeric assignments as their own
+    /// category rather than as an overload-policy violation.
+    /// </summary>
+    public List<CaseOnlyRenameItem> CaseOnlyRenames { get; init; } = new();
+
     public BridgeSummary? BridgeSummary { get; init; }
 
     /// <summary>
@@ -203,6 +212,7 @@ public sealed class GenerationSection
         section.BridgedViews.AddRange(report.BridgedViews);
         section.ThemeBridgedProperties.AddRange(report.ThemeBridgedProperties);
         section.OverloadRenames.AddRange(report.OverloadRenames);
+        section.CaseOnlyRenames.AddRange(report.CaseOnlyRenames);
         section.UnsupportedCommentDrops.AddRange(report.UnsupportedCommentDrops);
         section.UnsupportedCommentDropDetails.AddRange(report.UnsupportedCommentDropDetails);
         section.ObjectDegradations.AddRange(report.ObjectDegradations);

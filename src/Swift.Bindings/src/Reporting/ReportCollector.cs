@@ -898,6 +898,35 @@ public static class ReportCollector
         }
     }
 
+    /// <summary>
+    /// Records one case-only member rename. Duplicates for the same member are harmless for the
+    /// same reason the overload records tolerate them: a member reachable from more than one walk
+    /// can report twice, and every consumer of this channel reads a per-record fact rather than a
+    /// count. Deliberately a separate channel from
+    /// <see cref="RecordOverloadRenamed(string, string, string, string, string)"/> — this arm
+    /// assigns numeric suffixes by design, and the overload channel's contract is that none of its
+    /// records may.
+    /// </summary>
+    public static void RecordCaseOnlyRenamed(
+        string declaringName, string swiftName, string naturalName, string emittedName, string scheme)
+    {
+        var session = Current;
+        if (session == null)
+            return;
+
+        lock (session.Sync)
+        {
+            session.Report.CaseOnlyRenames.Add(new CaseOnlyRenameItem
+            {
+                DeclaringName = declaringName,
+                SwiftName = swiftName,
+                NaturalName = naturalName,
+                EmittedName = emittedName,
+                Scheme = scheme,
+            });
+        }
+    }
+
     public static void RecordThemeBridged(string className, string propertyName, string propertyType)
     {
         var session = Current;

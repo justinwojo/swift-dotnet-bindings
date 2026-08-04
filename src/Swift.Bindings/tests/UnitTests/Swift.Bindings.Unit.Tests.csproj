@@ -108,6 +108,15 @@
          index against maxRetries, so one launcher abort silently cost a product retry and left real
          test classes unrun. BCL-only arithmetic, AOT-clean. -->
     <Compile Include="../../../../build/Models/CrashRecoveryBudget.cs" Link="Models/CrashRecoveryBudget.cs" />
+    <!-- Link-compile the overload-name ship gate's decision model. The gate itself needs generated
+         bindings on disk, but the judgement it makes over the records is pure: an OVERLOAD name that
+         is the natural name plus digits is a policy breach, the CASE-ONLY arm's numerically-suffixed
+         names are its designed output and only get reported, and an empty lane on either side means
+         the records stopped reaching the artifact. Those three are exactly what must not drift, and
+         they are testable here without a booted anything. BCL-only with source-generated JSON
+         (OverloadNameLedgerJsonContext) and its own `#nullable enable`, so it compiles AOT-clean
+         under this project's Nullable=disable + warnings-as-errors. -->
+    <Compile Include="../../../../build/Models/OverloadNameLedger.cs" Link="Models/OverloadNameLedger.cs" />
     <!-- Link-compile the sandbox results probe for the same reason: the harness cannot exercise it
          without a booted simulator, but the decision it makes — first candidate carrying THIS
          launch's run token wins, a mismatched candidate disqualifies only itself, and no match at all

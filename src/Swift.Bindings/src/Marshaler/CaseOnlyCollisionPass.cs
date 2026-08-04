@@ -200,8 +200,28 @@ public static class CaseOnlyCollisionPass
         // that shares it, so the handlers' duplicate check still compares like with like.
         foreach (var property in typeDecl.Properties)
         {
-            if (stamps.TryGetValue(property.Name, out var chosen))
-                property.MarkCaseDisambiguated(chosen);
+            if (!stamps.TryGetValue(property.Name, out var chosen))
+                continue;
+            // A protocol is both a ProtocolDecl and a TypeDecl, so it sits in the module's
+            // protocol list AND its type list and this walk reaches it twice. Stamping the same
+            // name twice is a no-op, but PUBLISHING it twice would book one decision as two and
+            // make the ledger's count a fact about the traversal instead of about the surface.
+            if (string.Equals(property.CaseDisambiguatedName, chosen, StringComparison.Ordinal))
+                continue;
+            property.MarkCaseDisambiguated(chosen);
+
+            // Publish the decision to the binding report. This arm assigns numeric suffixes on
+            // purpose — two Swift spellings differing only by case carry no labels or parameter
+            // types to derive a semantic token from — so the record has to reach the report as its
+            // OWN channel: the overload lane's records are read under a contract that forbids a
+            // numeric assignment outright, and a rename that never lands anywhere is a public name
+            // no artifact accounts for.
+            ReportCollector.RecordCaseOnlyRenamed(
+                typeDecl.Name,
+                property.Name,
+                NameProvider.GetPropertyBaseName(property.Name),
+                chosen,
+                nameof(NameCollisionScheme.CaseOnlyMemberCollision));
         }
     }
 
