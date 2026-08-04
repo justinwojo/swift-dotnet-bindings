@@ -310,7 +310,7 @@ public static partial class SwiftUIBridgeEmitter
     internal static void EmitCSharpLifecycleMethod(
         StringBuilder sb, ViewBridgeInfo info)
     {
-        var nm = $"{info.ViewName}BridgeNativeMethods";
+        var nm = $"{info.Identifier}BridgeNativeMethods";
 
         sb.AppendLine($"        private unsafe void SetLifecycleCallbacks(Action? onAppear, Action? onDisappear)");
         sb.AppendLine("        {");
@@ -393,7 +393,7 @@ public static partial class SwiftUIBridgeEmitter
         StringBuilder sb, ViewBridgeInfo info,
         HashSet<string>? viewModifierNames = null)
     {
-        var nm = $"{info.ViewName}BridgeNativeMethods";
+        var nm = $"{info.Identifier}BridgeNativeMethods";
         bool skip(string name) => viewModifierNames != null && viewModifierNames.Contains(name);
 
         if (!skip("SetFrame"))
@@ -479,7 +479,7 @@ public static partial class SwiftUIBridgeEmitter
     internal static void EmitCSharpPresentationMethods(
         StringBuilder sb, ViewBridgeInfo info)
     {
-        var nm = $"{info.ViewName}BridgeNativeMethods";
+        var nm = $"{info.Identifier}BridgeNativeMethods";
 
         sb.AppendLine($"        public void PresentAsSheet(IntPtr fromViewController) =>");
         sb.AppendLine($"            {nm}.PresentAsSheet(Handle, fromViewController);");

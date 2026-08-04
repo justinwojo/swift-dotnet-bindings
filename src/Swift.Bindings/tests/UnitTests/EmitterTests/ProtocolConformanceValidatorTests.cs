@@ -3880,4 +3880,119 @@ public class ProtocolConformanceValidatorTests
     }
 
     #endregion
+
+    #region Overload-Name Parity Between the Protocol and Class Lanes
+
+    /// <summary>
+    /// A protocol whose overload family has to escalate because one label-derived name is already taken by
+    /// an uncontested sibling. The conforming type declares exactly the same members, so it runs the CLASS
+    /// lane over the same shape — and both lanes must move the WHOLE family to the type rung together. If
+    /// only the blocked member escalates on the interface side, the interface asks for <c>ConfigureOther</c>
+    /// while the class emits <c>ConfigureOtherWithIntAndInt</c>, and this validator drops the entire
+    /// conformance as an emitted-name divergence: an <c>: IConfigurable</c> the binding used to carry, gone.
+    /// </summary>
+    [Fact]
+    public void CanFullyImplementProtocol_LabelNameTakenByUncontestedSibling_KeepsConformance()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Configurable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Configurable"),
+            MangledName = "$s10TestModule12ConfigurableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = CreateConfigureFamily(moduleDecl),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var concreteType = CreateStructDecl("Configurator", moduleDecl);
+        foreach (var witness in CreateConfigureFamily(moduleDecl))
+        {
+            witness.ParentDecl = concreteType;
+            concreteType.Methods.Add(witness);
+        }
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var satisfied = validator.CanFullyImplementProtocol(concreteType, protocolDecl, out var gap);
+        Assert.True(satisfied, gap?.Explanation ?? "no gap reported");
+    }
+
+    /// <summary>
+    /// The same family with nothing occupying its label-derived names, so both lanes settle on the label
+    /// rung (<c>ConfigureMode</c> / <c>ConfigureOther</c>). Each requirement still has to be paired with
+    /// its OWN witness: the family shares one label-blind signature, so pairing both requirements with
+    /// whichever witness comes first compares <c>ConfigureOther</c> against <c>ConfigureMode</c> and
+    /// reports a divergence the names never actually had.
+    /// </summary>
+    [Fact]
+    public void CanFullyImplementProtocol_LabelOnlyOverloadFamily_PairsEachRequirementWithItsOwnWitness()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Configurable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Configurable"),
+            MangledName = "$s10TestModule12ConfigurableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = CreateConfigureFamily(moduleDecl).Take(2).ToList(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var concreteType = CreateStructDecl("Configurator", moduleDecl);
+        foreach (var witness in CreateConfigureFamily(moduleDecl).Take(2))
+        {
+            witness.ParentDecl = concreteType;
+            concreteType.Methods.Add(witness);
+        }
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var satisfied = validator.CanFullyImplementProtocol(concreteType, protocolDecl, out var gap);
+        Assert.True(satisfied, gap?.Explanation ?? "no gap reported");
+    }
+
+    /// <summary>
+    /// <c>configure(_:mode:)</c> / <c>configure(_:other:)</c> — one C# overload once labels are erased —
+    /// beside an uncontested <c>configureMode(_:_:)</c> whose natural name is exactly the first one's
+    /// label-derived name. Rebuilt per call: the protocol and the conforming type cannot share decls.
+    /// </summary>
+    private static List<MethodDecl> CreateConfigureFamily(ModuleDecl moduleDecl) => new()
+    {
+        CreateTwoIntMethod("configure", "_", "mode", moduleDecl),
+        CreateTwoIntMethod("configure", "_", "other", moduleDecl),
+        CreateTwoIntMethod("configureMode", "_", "_", moduleDecl),
+    };
+
+    private static MethodDecl CreateTwoIntMethod(string name, string firstLabel, string secondLabel, ModuleDecl moduleDecl)
+    {
+        var method = CreateVoidMethod(name, moduleDecl);
+        method.CSSignature.Add(CreateArgument(firstLabel, new NamedTypeSpec("Swift.Int"), moduleDecl));
+        method.CSSignature.Add(CreateArgument(secondLabel, new NamedTypeSpec("Swift.Int"), moduleDecl));
+        return method;
+    }
+
+    #endregion
 }

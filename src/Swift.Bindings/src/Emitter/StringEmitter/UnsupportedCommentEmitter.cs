@@ -12,6 +12,16 @@ public static class UnsupportedCommentEmitter
     /// <summary>
     /// Emits an unsupported comment for a skipped type.
     /// </summary>
+    /// <param name="containingDecl">
+    /// The type's parent declaration (typically <c>typeDecl.ParentDecl</c>), used to qualify a
+    /// nested type by its FULL enclosing-type path (<c>Outer.Inner</c>) in both the emitted comment
+    /// and the SWIFTBIND025 dedup/display key — the same qualification
+    /// <see cref="EmitMemberSkipped"/> applies to members, for the same reason: the dedup key is
+    /// the comment text, and a leaf type name is not unique across enclosing types, so two distinct
+    /// nested types dropped for the same reason would otherwise collapse to ONE tombstone and ONE
+    /// loud diagnostic. A <see cref="ModuleDecl"/> ancestor terminates the walk, so a top-level
+    /// type stays unqualified, as does a <c>null</c> parent.
+    /// </param>
     /// <param name="declId">
     /// Identity of the dropped type, recorded alongside the comment so a consumer can correlate the
     /// drop with the declaration across regenerations. Every production call site has the
@@ -25,16 +35,21 @@ public static class UnsupportedCommentEmitter
         string typeName,
         SkipReason reason,
         string? details = null,
+        BaseDecl? containingDecl = null,
         DeclId? declId = null)
     {
         var description = WorkaroundRecommendations.GetDescription(reason) ?? reason.ToString();
-        var comment = $"// Unsupported: type '{typeName}' — {description}";
+        var typePath = BuildContainingTypePath(containingDecl);
+        var qualifiedName = typePath is null ? typeName : $"{typePath}.{typeName}";
+        var comment = $"// Unsupported: type '{qualifiedName}' — {description}";
         if (!string.IsNullOrWhiteSpace(details))
             comment += $" ({details})";
         // At most one identical tombstone per file: sibling declarations that skip for the same
         // reason with the same details (e.g. one property declared in two constrained extensions)
         // would otherwise stutter adjacent identical lines. The structured skippedItems channel
-        // still records every declaration; only the human-facing comment collapses.
+        // still records every declaration; only the human-facing comment collapses. The qualified
+        // name keeps distinct nested types with the same leaf distinct, so only true same-type
+        // repeats collapse.
         if (!csWriter.TryWriteLineOnce(comment))
             return;
         // Finding 53: a comment-drop is a degradation — surface it loudly (SWIFTBIND025) via the

@@ -257,7 +257,7 @@ namespace BindingsGeneration
                     {
                         ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.EmitterFault, typeFaultDetails);
                         UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.EmitterFault,
-                            typeFaultDetails, DeclIdFactory.ForType(typeDecl));
+                            typeFaultDetails, typeDecl.ParentDecl, DeclIdFactory.ForType(typeDecl));
                         continue;
                     }
 
@@ -268,7 +268,7 @@ namespace BindingsGeneration
                         ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.UnderscorePrefixInternal,
                             "Underscore-prefixed type suppressed from public API.");
                         UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.UnderscorePrefixInternal,
-                            declId: DeclIdFactory.ForType(typeDecl));
+                            containingDecl: typeDecl.ParentDecl, declId: DeclIdFactory.ForType(typeDecl));
                         continue;
                     }
 
@@ -283,7 +283,7 @@ namespace BindingsGeneration
                         ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.ModuleInternal,
                             "@_spi type suppressed from bindings (not part of public API).");
                         UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.ModuleInternal, "@_spi type",
-                            DeclIdFactory.ForType(typeDecl));
+                            typeDecl.ParentDecl, DeclIdFactory.ForType(typeDecl));
                         continue;
                     }
 
@@ -306,7 +306,7 @@ namespace BindingsGeneration
                         ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.OwnedByAppleSupplement,
                             $"Type '{typeDecl.SwiftTypeName.ModuleQualifiedName}' is owned by SwiftBindings.Apple; consume the supplement projection instead.");
                         UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.OwnedByAppleSupplement,
-                            "owned by SwiftBindings.Apple", DeclIdFactory.ForType(typeDecl));
+                            "owned by SwiftBindings.Apple", typeDecl.ParentDecl, DeclIdFactory.ForType(typeDecl));
                         continue;
                     }
                 }
@@ -318,7 +318,7 @@ namespace BindingsGeneration
                         ReportCollector.RecordTypeSkipped(structDecl, SkipReason.SwiftUIView,
                             "Type conforms to SwiftUI.View. Bridge generation available.");
                         UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, structDecl.Name, SkipReason.SwiftUIView,
-                            declId: DeclIdFactory.ForType(structDecl));
+                            containingDecl: structDecl.ParentDecl, declId: DeclIdFactory.ForType(structDecl));
                         SwiftUIBridgeCollector.Collect(structDecl, context.GetEmissionContext());
                         continue;
                     }
@@ -358,7 +358,7 @@ namespace BindingsGeneration
                         _logger.LogWarning($"No handler found for method {structDecl.Name}");
                         ReportCollector.RecordTypeSkipped(structDecl, SkipReason.MissingHandler, "No type handler found for struct.");
                         UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, structDecl.Name, SkipReason.MissingHandler,
-                            declId: DeclIdFactory.ForType(structDecl));
+                            containingDecl: structDecl.ParentDecl, declId: DeclIdFactory.ForType(structDecl));
                     }
                 }
                 else if (baseDecl is ClassDecl classDecl)
@@ -368,7 +368,7 @@ namespace BindingsGeneration
                         ReportCollector.RecordTypeSkipped(classDecl, SkipReason.SwiftUIView,
                             "Type conforms to SwiftUI.View. Bridge generation available.");
                         UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, classDecl.Name, SkipReason.SwiftUIView,
-                            declId: DeclIdFactory.ForType(classDecl));
+                            containingDecl: classDecl.ParentDecl, declId: DeclIdFactory.ForType(classDecl));
                         SwiftUIBridgeCollector.Collect(classDecl, context.GetEmissionContext());
                         continue;
                     }
@@ -391,7 +391,7 @@ namespace BindingsGeneration
                         _logger.LogWarning($"No handler found for method {classDecl.Name}");
                         ReportCollector.RecordTypeSkipped(classDecl, SkipReason.MissingHandler, "No type handler found for class.");
                         UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, classDecl.Name, SkipReason.MissingHandler,
-                            declId: DeclIdFactory.ForType(classDecl));
+                            containingDecl: classDecl.ParentDecl, declId: DeclIdFactory.ForType(classDecl));
                     }
                 }
                 else if (baseDecl is ProtocolDecl protocolDecl)
@@ -414,7 +414,7 @@ namespace BindingsGeneration
                         _logger.LogWarning($"No handler found for method {protocolDecl.Name}");
                         ReportCollector.RecordTypeSkipped(protocolDecl, SkipReason.MissingHandler, "No type handler found for protocol.");
                         UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, protocolDecl.Name, SkipReason.MissingHandler,
-                            declId: DeclIdFactory.ForType(protocolDecl));
+                            containingDecl: protocolDecl.ParentDecl, declId: DeclIdFactory.ForType(protocolDecl));
                     }
                 }
                 else if (baseDecl is EnumDecl enumDecl)
@@ -454,7 +454,7 @@ namespace BindingsGeneration
                         _logger.LogWarning($"No handler found for enum {enumDecl.Name}");
                         ReportCollector.RecordTypeSkipped(enumDecl, SkipReason.MissingHandler, "No type handler found for enum.");
                         UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, enumDecl.Name, SkipReason.MissingHandler,
-                            declId: DeclIdFactory.ForType(enumDecl));
+                            containingDecl: enumDecl.ParentDecl, declId: DeclIdFactory.ForType(enumDecl));
                     }
                 }
                 else if (baseDecl is MethodDecl methodDecl)
@@ -531,6 +531,20 @@ namespace BindingsGeneration
                     // would cost two.
                     if (EmissionSeam.TryDenyUpFront(methodDecl, csWriter))
                         continue;
+
+                    // The projected names this iteration itself claims below, in claim order. Emit has
+                    // internal skip-and-return paths, so a name claimed ahead of it can outlive its
+                    // claimant and cost a SECOND member: a sibling projecting to the same name is then
+                    // dropped as a duplicate of something that never reached the output. Only keys this
+                    // iteration ADDS are tracked, so a key an earlier member owns (which the failable-
+                    // factory recovery arm reads without claiming) stays with its owner, and an adopted
+                    // override name reserved before the loop stays reserved — that reservation is what
+                    // makes the outcome independent of declaration order, so it must survive a claimant
+                    // that skips inside Emit.
+                    List<string>? claimedProjectedKeys = null;
+                    void ClaimProjectedKey(string claimed) => (claimedProjectedKeys ??= new List<string>(2)).Add(claimed);
+                    // The failable-init winner slot, when THIS member opened it.
+                    string? claimedFailableWinnerKey = null;
 
                     // Dedup: primary signature dedup (stays in HandleBaseDecl — stateful, shared with post-processors)
                     var signatureKey = GetMethodSignatureKey(methodDecl, typeDatabase, _logger);
@@ -628,6 +642,7 @@ namespace BindingsGeneration
                                         failableFactoryName = escalatedName;
                                     }
                                     reservedFactoryKey = factoryNamespace + failableFactoryName + factoryParams;
+                                    ClaimProjectedKey(reservedFactoryKey);
                                 }
                                 _logger.LogDebug($"Recovering failable init '{methodDecl.Name}' — projected C# signature collides: {projectedKey} → {failableFactoryName}");
                                 // fall through: emit the factory under the disambiguated name
@@ -659,7 +674,16 @@ namespace BindingsGeneration
                             var escalated = OverloadNameDisambiguator.Escalate(
                                 methodDecl,
                                 input => GetProjectedCSharpMethodKey(methodDecl, typeDatabase, _logger, siblingPropertyNames, nameOverride: input),
-                                emittedProjectedSignatures.Add);
+                                candidate =>
+                                {
+                                    // Record the key at the point it is taken, rather than recomputing the
+                                    // escalated name's key afterwards, so the release can never diverge
+                                    // from the reservation.
+                                    if (!emittedProjectedSignatures.Add(candidate))
+                                        return false;
+                                    ClaimProjectedKey(candidate);
+                                    return true;
+                                });
                             if (escalated == null)
                             {
                                 _logger.LogDebug($"Skipping method '{methodDecl.Name}' — projected C# signature is already taken and no argument label or parameter type frees it: {projectedKey}");
@@ -674,10 +698,14 @@ namespace BindingsGeneration
                     }
                     else
                     {
+                        ClaimProjectedKey(reservedKey);
                         // FB-1b: the first failable init to claim a projected key is the winner — it keeps the
                         // plain `TryCreate` name and later same-key failable siblings disambiguate against it.
-                        if (methodDecl.IsConstructor && methodDecl.IsFailable)
-                            firstFailableInitByProjectedKey.TryAdd(projectedKey, methodDecl);
+                        if (methodDecl.IsConstructor && methodDecl.IsFailable &&
+                            firstFailableInitByProjectedKey.TryAdd(projectedKey, methodDecl))
+                        {
+                            claimedFailableWinnerKey = projectedKey;
+                        }
                     }
 
                     // Record what this member reserved, in resolution terms. The required-parameter
@@ -738,7 +766,12 @@ namespace BindingsGeneration
                             if (adoptedParen > 0)
                             {
                                 var adoptedKey = env.AdoptedOverrideCSharpName + projectedKey.Substring(adoptedParen);
-                                emittedProjectedSignatures.Add(adoptedKey);
+                                // Tracked for release only when this Add is the one that took the key:
+                                // a key the pre-pass already holds is what makes the adopted-name
+                                // resolution declaration-order independent, so it outlives an override
+                                // that skips inside Emit.
+                                if (emittedProjectedSignatures.Add(adoptedKey))
+                                    ClaimProjectedKey(adoptedKey);
                                 OverloadAmbiguityGuard.RecordReservation(reservedOverloadShapes, adoptedKey, reservedRequiredCount);
                             }
                         }
@@ -795,6 +828,18 @@ namespace BindingsGeneration
                             ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.MissingHandler, "No method handler found.");
                             UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.MissingHandler, containingDecl: methodDecl.ParentDecl);
                         }
+                    }
+
+                    // Settle the reservations on the emission OUTCOME. A name a member never emitted
+                    // under belongs to whichever sibling can still use it, so the rule the dedup sets
+                    // enforce is "first EMITTING claimant wins": a name held by a member that DID emit
+                    // is never released, and a member that produced nothing gives its names back.
+                    if (!methodDecl.WasEmitted)
+                    {
+                        emittedMethodSignatures.Remove(signatureKey);
+                        if (claimedFailableWinnerKey != null)
+                            firstFailableInitByProjectedKey.Remove(claimedFailableWinnerKey);
+                        ReleaseProjectedReservations(emittedProjectedSignatures, reservedOverloadShapes, claimedProjectedKeys);
                     }
                 }
                 else
@@ -894,6 +939,28 @@ namespace BindingsGeneration
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Gives back the projected-signature names a member reserved before emission when the member
+        /// did not emit. Releases EXACTLY the keys the caller recorded as taken by that member — never
+        /// a recomputed key, and never a key an earlier member owns — and drops each released key's
+        /// companion shape entry with it, so the shape table cannot answer a later ambiguity question
+        /// about a signature no longer in the output.
+        /// </summary>
+        private protected static void ReleaseProjectedReservations(
+            HashSet<string> emittedProjectedSignatures,
+            IDictionary<string, int>? reservedOverloadShapes,
+            List<string>? claimedProjectedKeys)
+        {
+            if (claimedProjectedKeys == null)
+                return;
+
+            foreach (var claimed in claimedProjectedKeys)
+            {
+                emittedProjectedSignatures.Remove(claimed);
+                reservedOverloadShapes?.Remove(claimed);
+            }
         }
 
         /// <summary>

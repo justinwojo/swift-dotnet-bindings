@@ -249,6 +249,10 @@ namespace BindingsGeneration
                 {
                     ReportCollector.RecordMemberSkipped(subscriptDecl,
                         SkipReason.UnsupportedSignature, invalidReason);
+                    // The key was reserved ahead of this preflight, and nothing was written under it —
+                    // give it back so an overload that projects to the same indexer signature and CAN
+                    // be emitted is not dropped as a duplicate of a subscript that never emitted.
+                    emittedKeys.Remove(key);
                     continue;
                 }
 
@@ -450,6 +454,23 @@ namespace BindingsGeneration
                                     csWriter.WriteLine();
                                 }
                             }
+                        }
+
+                        // The indexer body calls each accessor method by name, so it is only writable
+                        // once every accessor actually emitted one. The preflight above predicts the
+                        // refusals it can see from a pre-emission environment, but the accessor's own
+                        // emission decides on the environment the wrapper/thunk flags settled — read
+                        // the outcome rather than re-asking the prediction, or a refused accessor
+                        // leaves the indexer calling a method that is not there.
+                        if (!subscriptDecl.Accessors.All(a => a.Method.WasEmitted))
+                        {
+                            ReportCollector.RecordMemberSkipped(subscriptDecl,
+                                SkipReason.UnsupportedSignature,
+                                "Subscript accessor was not emitted; the indexer body would call a method that does not exist.");
+                            // Nothing claims the indexer signature, so an overload that projects to the
+                            // same one stays eligible.
+                            emittedKeys.Remove(key);
+                            return;
                         }
 
                         // Emit indexer declaration

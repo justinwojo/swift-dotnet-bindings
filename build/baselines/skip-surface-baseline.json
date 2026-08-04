@@ -1,5 +1,5 @@
 {
-  "git_sha": "f9417204",
+  "git_sha": "fcca5878",
   "entries": [
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -1168,7 +1168,7 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "type \u0027NestedTitleView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
+      "reason": "type \u0027NestedViewOwner.NestedTitleView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {
@@ -1259,6 +1259,18 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "type \u0027RichToolbarView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "type \u0027SharedLeafOwnerA.SharedLeafView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "type \u0027SharedLeafOwnerB.SharedLeafView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {

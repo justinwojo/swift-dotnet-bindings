@@ -173,10 +173,11 @@ namespace BindingsGeneration
                 csWriter.Indent++;
 
                 // `seenPropertyNames` is the duplicate-collision detector — once a name has been
-                // claimed by a property that will actually be emitted, further PropertyDecl entries
-                // with the same C# name are dropped to keep the iteration idempotent. Properties
-                // that are synthesized away or skipped never reach the reservation, so they cannot
-                // consume a name their emittable sibling needs.
+                // claimed by a property that actually emitted, further PropertyDecl entries with the
+                // same C# name are dropped to keep the iteration idempotent. Properties that are
+                // synthesized away or skipped never reach the reservation, and one that reaches it
+                // but does not emit hands the name back, so neither can consume a name their
+                // emittable sibling needs.
                 //
                 // `actuallyEmittedPropertyNames` is the set we hand to downstream emitters that
                 // need to know which member names actually surfaced on the class — synthesized
@@ -223,10 +224,11 @@ namespace BindingsGeneration
                         continue;
                     }
 
-                    // Reserved only AFTER every skip decision above: a property that cannot be
-                    // emitted at all must not consume the C# name on its way out, or the sibling
-                    // that projects to the same name is dropped as a duplicate and the type loses a
-                    // member that has nothing wrong with it.
+                    // The first EMITTING claimant wins. Reserved only AFTER every skip decision
+                    // above, and released again below when the emission does not happen: a property
+                    // that never surfaces must not consume the C# name on its way out, or the
+                    // sibling that projects to the same name is dropped as a duplicate and the type
+                    // loses a member that has nothing wrong with it.
                     // Use post-rename name for consistency with the propertyNames collision set below.
                     var csPropertyName = NameProvider.GetFinalMemberName(
                         NameProvider.GetPropertyName(propertyDecl, structDecl.Name), propertyRenames);
@@ -239,11 +241,9 @@ namespace BindingsGeneration
 
                     if (conductor.TryGetPropertyHandler(propertyDecl, out var propertyHandler))
                     {
-                        // Contain one non-frozen-struct property. The name is recorded as actually
-                        // emitted only when the seam says the emission ran: a throw unwinds past this,
-                        // but a denial returns normally, and recording it then would tell downstream
-                        // emitters a member surfaced when nothing was written.
-                        bool propertyEmitted = EmissionSeam.Guard(
+                        // Contain one non-frozen-struct property. Escalates to the struct when the
+                        // fault is not leaf-local.
+                        EmissionSeam.Guard(
                             propertyDecl,
                             RecoveryScope.LeafApi,
                             structDecl,
@@ -252,11 +252,22 @@ namespace BindingsGeneration
                                 var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);
                                 propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor, childContext);
                             });
-                        if (propertyEmitted)
-                            actuallyEmittedPropertyNames.Add(csPropertyName);
                     }
                     else
                         _logger.LogWarning($"No handler found for field {propertyDecl.Name}");
+
+                    // Both sets settle on the emission OUTCOME, not on reaching the handler. Getting
+                    // that far is not enough: PropertyHandler carries skip decisions the gates here
+                    // cannot see (accessor signatures, closure storability, unresolved projections)
+                    // and takes them by returning normally, and the seam can deny the property
+                    // outright. Telling downstream emitters a member surfaced when nothing was
+                    // written suppresses their own substitute for it; holding the reserved name
+                    // drops the sibling that projects to it as a duplicate of a member the file does
+                    // not contain.
+                    if (propertyDecl.WasEmitted)
+                        actuallyEmittedPropertyNames.Add(csPropertyName);
+                    else
+                        seenPropertyNames.Remove(csPropertyName);
                 }
 
                 var availabilityCondition = AvailabilityAttributeEmitter.BuildIsAvailableCondition(

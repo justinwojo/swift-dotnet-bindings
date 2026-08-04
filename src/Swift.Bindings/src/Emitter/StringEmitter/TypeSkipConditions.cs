@@ -215,7 +215,7 @@ public static class TypeSkipConditions
                 var constraint = match.UnsupportedConstraint!;
                 var reason = AppleFrameworkRegistry.GetUnsupportedConstraintSkipReason(constraint.Module);
                 ReportCollector.RecordTypeSkipped(typeDecl, reason, $"Unsupported generic constraint: {constraint.ModuleQualifiedName}");
-                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, reason, $"generic constraint: {constraint.ModuleQualifiedName}", match.Subject);
+                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, reason, $"generic constraint: {constraint.ModuleQualifiedName}", typeDecl.ParentDecl, match.Subject);
                 logger.LogWarning(
                     "Skipping type '{TypeName}' - generic constraint references unsupported protocol '{Protocol}' from module '{Module}'.",
                     typeDecl.Name,
@@ -228,7 +228,7 @@ public static class TypeSkipConditions
             {
                 var variadicParam = match.VariadicParameter!;
                 ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.UnsupportedSignature, $"Variadic generic parameter pack '{variadicParam}' has no C# equivalent.");
-                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.UnsupportedSignature, $"variadic generic parameter pack '{variadicParam}' (Swift `{variadicParam}` / `repeat {variadicParam}`) has no C# equivalent.", match.Subject);
+                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.UnsupportedSignature, $"variadic generic parameter pack '{variadicParam}' (Swift `{variadicParam}` / `repeat {variadicParam}`) has no C# equivalent.", typeDecl.ParentDecl, match.Subject);
                 logger.LogWarning(
                     "Skipping type '{TypeName}' - variadic generic parameter pack '{Variadic}' has no C# equivalent.",
                     typeDecl.Name,
@@ -242,7 +242,7 @@ public static class TypeSkipConditions
                 // heap, so the handler fails closed (see HasIndeterminateBufferLayout).
                 const string detail = "stored property has a generic value-type layout whose per-instantiation size is not derivable cross-compile (e.g. ClosedRange<Bound>, Result<Success,Failure>); a blitted Buffer would mis-size the field.";
                 ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.IndeterminateStructLayout, detail);
-                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.IndeterminateStructLayout, detail, match.Subject);
+                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.IndeterminateStructLayout, detail, typeDecl.ParentDecl, match.Subject);
                 logger.LogWarning(
                     "Skipping frozen struct '{TypeName}' - indeterminate Buffer layout (unsizeable generic value-type stored field).",
                     typeDecl.Name);
@@ -256,7 +256,7 @@ public static class TypeSkipConditions
                 // HasSubWordOptionalLayoutMismatch).
                 const string detail = "frozen value struct mixes sub-word Optional<primitive> fields whose 8-byte IntPtr-word emission places a stored field at a different byte offset than the Swift packed layout; a by-value pass would read the field from the wrong slot and corrupt it.";
                 ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.IndeterminateStructLayout, detail);
-                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.IndeterminateStructLayout, detail, match.Subject);
+                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.IndeterminateStructLayout, detail, typeDecl.ParentDecl, match.Subject);
                 logger.LogWarning(
                     "Skipping frozen struct '{TypeName}' - sub-word Optional field packing makes the by-value C# layout diverge from Swift.",
                     typeDecl.Name);
@@ -271,7 +271,7 @@ public static class TypeSkipConditions
                 // actionable rather than just a hole.
                 var detail = match.FaultDetails!;
                 ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.EmitterFault, detail);
-                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.EmitterFault, detail, match.Subject);
+                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.EmitterFault, detail, typeDecl.ParentDecl, match.Subject);
                 logger.LogWarning(
                     "Skipping type '{TypeName}' - the emitter threw while lowering it; the module was re-emitted without it. {Detail}",
                     typeDecl.Name,

@@ -294,11 +294,12 @@ namespace BindingsGeneration
                     }
 
                     // Swift allows a static and an instance property of the same name; C# has one
-                    // name for both, so the first claimant wins. Reserved only AFTER every skip
-                    // decision above: a property that cannot be emitted at all must not consume the
-                    // name on its way out, or its emittable sibling is dropped as a duplicate and
-                    // the type loses a member that has nothing wrong with it — leaving any interface
-                    // requirement of that name with no witness.
+                    // name for both, so the first EMITTING claimant wins. Reserved only AFTER every
+                    // skip decision above, and released again below when the emission does not
+                    // happen: a property that never surfaces must not consume the name on its way
+                    // out, or its emittable sibling is dropped as a duplicate and the type loses a
+                    // member that has nothing wrong with it — leaving any interface requirement of
+                    // that name with no witness.
                     // Use post-rename name for consistency with the propertyNames collision set below.
                     var csPropertyName = NameProvider.GetFinalMemberName(
                         NameProvider.GetPropertyName(propertyDecl, classDecl.Name), propertyRenames);
@@ -327,6 +328,15 @@ namespace BindingsGeneration
                     {
                         _logger.LogWarning($"No handler found for property {propertyDecl.Name}");
                     }
+
+                    // The reservation above is a claim, not an outcome. PropertyHandler carries skip
+                    // decisions the gates here cannot see (accessor signatures, closure storability,
+                    // unresolved projections) and takes them by returning normally, and the seam can
+                    // deny the property outright — either way nothing was written. Give the name back
+                    // so a later sibling can claim it, rather than dropping it as a duplicate of a
+                    // member the file does not contain.
+                    if (!propertyDecl.WasEmitted)
+                        emittedPropertyNames.Remove(csPropertyName);
                 }
 
                 // Emit private fields and handle.

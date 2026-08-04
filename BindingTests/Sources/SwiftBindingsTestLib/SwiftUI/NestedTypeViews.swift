@@ -49,4 +49,49 @@ public struct NestedViewOwner {
         }
     }
 }
+
+/// A leaf name is unique only inside its enclosing type, so two Views nested in different
+/// enclosing types can share one. Every generated bridge name — the `@_cdecl` symbols, the
+/// session class, the native-methods class — has to separate them, or the pair emits two
+/// declarations of each and neither the bridge Swift nor the emitted C# compiles.
+public struct SharedLeafOwnerA {
+    public let ownerLabel: String
+
+    public init(ownerLabel: String) {
+        self.ownerLabel = ownerLabel
+    }
+
+    public struct SharedLeafView: View {
+        public let caption: String
+
+        public init(caption: String) {
+            self.caption = caption
+        }
+
+        public var body: some View {
+            Text("A: \(caption)")
+        }
+    }
+}
+
+/// The colliding sibling: same leaf name, different enclosing type.
+public struct SharedLeafOwnerB {
+    public let ownerLabel: String
+
+    public init(ownerLabel: String) {
+        self.ownerLabel = ownerLabel
+    }
+
+    public struct SharedLeafView: View {
+        public let caption: String
+
+        public init(caption: String) {
+            self.caption = caption
+        }
+
+        public var body: some View {
+            Text("B: \(caption)")
+        }
+    }
+}
 #endif

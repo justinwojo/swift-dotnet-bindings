@@ -85,6 +85,83 @@ public class UnsupportedCommentEmitterTests
     }
 
     [Fact]
+    public void EmitTypeSkipped_WithContainingDecl_QualifiesTypeName()
+    {
+        // A nested type is qualified by its full enclosing-type path, mirroring member
+        // qualification, so the tombstone names one declaration unambiguously.
+        var sw = new StringWriter();
+        var csWriter = new CSharpWriter(sw);
+        var module = NewModuleDecl();
+        var outer = new BaseDecl { Name = "Outer", ParentDecl = module, ModuleDecl = module };
+
+        UnsupportedCommentEmitter.EmitTypeSkipped(
+            csWriter, "Inner", SkipReason.UnsupportedType, containingDecl: outer);
+
+        var output = sw.ToString();
+        Assert.Contains("// Unsupported: type 'Outer.Inner'", output);
+        Assert.DoesNotContain("'Inner'", output); // never the bare, unqualified form
+    }
+
+    [Fact]
+    public void EmitTypeSkipped_WithModuleDeclParent_StaysUnqualified()
+    {
+        // A top-level type has no enclosing type; a ModuleDecl parent terminates the walk.
+        var sw = new StringWriter();
+        var csWriter = new CSharpWriter(sw);
+        var module = NewModuleDecl();
+
+        UnsupportedCommentEmitter.EmitTypeSkipped(
+            csWriter, "TopLevel", SkipReason.UnsupportedType, containingDecl: module);
+
+        var output = sw.ToString();
+        Assert.Contains("// Unsupported: type 'TopLevel'", output);
+        Assert.DoesNotContain("'TestModule.TopLevel'", output);
+    }
+
+    [Fact]
+    public void EmitTypeSkipped_DistinctNestedTypesSameLeaf_EmitBothTombstones()
+    {
+        // Two DIFFERENT nested types sharing a leaf name, skipped for the same reason in the
+        // same file, are distinct declarations: each keeps its own tombstone and its own loud
+        // diagnostic. Only a true same-type repeat collapses.
+        var sw = new StringWriter();
+        var csWriter = new CSharpWriter(sw);
+        var module = NewModuleDecl();
+        var outerA = new BaseDecl { Name = "OuterA", ParentDecl = module, ModuleDecl = module };
+        var outerB = new BaseDecl { Name = "OuterB", ParentDecl = module, ModuleDecl = module };
+
+        UnsupportedCommentEmitter.EmitTypeSkipped(
+            csWriter, "Inner", SkipReason.UnsupportedType, containingDecl: outerA);
+        UnsupportedCommentEmitter.EmitTypeSkipped(
+            csWriter, "Inner", SkipReason.UnsupportedType, containingDecl: outerB);
+
+        csWriter.Flush();
+        var output = sw.ToString();
+        Assert.Equal(1, CountOccurrences(output, "// Unsupported: type 'OuterA.Inner'"));
+        Assert.Equal(1, CountOccurrences(output, "// Unsupported: type 'OuterB.Inner'"));
+    }
+
+    [Fact]
+    public void EmitTypeSkipped_SameTypeRepeat_EmitsOneComment()
+    {
+        // The same type skipped twice with identical reason and details still collapses to
+        // one tombstone per file.
+        var sw = new StringWriter();
+        var csWriter = new CSharpWriter(sw);
+        var module = NewModuleDecl();
+        var outer = new BaseDecl { Name = "Outer", ParentDecl = module, ModuleDecl = module };
+
+        UnsupportedCommentEmitter.EmitTypeSkipped(
+            csWriter, "Inner", SkipReason.UnsupportedType, containingDecl: outer);
+        UnsupportedCommentEmitter.EmitTypeSkipped(
+            csWriter, "Inner", SkipReason.UnsupportedType, containingDecl: outer);
+
+        csWriter.Flush();
+        var occurrences = CountOccurrences(sw.ToString(), "// Unsupported: type 'Outer.Inner'");
+        Assert.Equal(1, occurrences);
+    }
+
+    [Fact]
     public void EmitTypeSkipped_NullDetails_NoParentheses()
     {
         var sw = new StringWriter();

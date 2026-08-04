@@ -76,6 +76,39 @@ public class ProtocolMethodDisambiguatorTests
     private static string? NameFor(IReadOnlyDictionary<string, string> map, MethodDecl m)
         => map.TryGetValue(EveryProtocolEmitter.GetMethodKey(m), out var name) ? name : null;
 
+    /// <summary>
+    /// A conforming type carrying the same members, so one Swift shape can be run through BOTH lanes. The
+    /// members are re-built rather than shared with the protocol: <c>TestDecls.Protocol</c> promotes what it
+    /// is handed to a requirement, and a decl cannot be a requirement and a class member at once.
+    /// </summary>
+    private static StructDecl ConformingType(string name, params MethodDecl[] members)
+    {
+        var typeDecl = new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}VN",
+            Properties = new List<PropertyDecl>(),
+            Methods = members.ToList(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsFrozen = false,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+        };
+        foreach (var m in members)
+            m.ParentDecl = typeDecl;
+        return typeDecl;
+    }
+
+    /// <summary>The base name a lane hands a member: the class lane's assignment, or its own Swift name.</summary>
+    private static string ClassLaneNameInput(IReadOnlyDictionary<MethodDecl, OverloadNameAssignment> map, MethodDecl m)
+        => map.TryGetValue(m, out var a) && a.NameInput != null ? a.NameInput : m.Name;
+
     // ===================================================================
     //  Which groups get disambiguated
     // ===================================================================
@@ -391,11 +424,36 @@ public class ProtocolMethodDisambiguatorTests
 
         var map = ProtocolMethodDisambiguator.Compute(protocolDecl, db);
 
-        // Taking the label rung here would collide with a member that emits under its own natural name,
-        // so this one drops to its Swift parameter types instead; its sibling is unaffected.
+        // One discriminand's label-derived name is occupied, so the WHOLE family moves to the type rung —
+        // including the sibling whose own label rung was free. Escalating only the blocked member is what
+        // splits the lanes: a conforming class body resolves this same shape through the class lane, which
+        // moves both members down together, so an interface that kept `ConfigureOther` here would ask for a
+        // member the class never declares and the whole conformance would be dropped as unsatisfiable.
         Assert.Equal("configureModeWithIntAndInt", NameFor(map, withMode));
-        Assert.Equal("configureOther", NameFor(map, withOther));
+        Assert.Equal("configureOtherWithIntAndInt", NameFor(map, withOther));
         Assert.Null(NameFor(map, existing));
+    }
+
+    /// <summary>
+    /// The discrimination control for the escalation above: with no occupied name in sight, the family stays
+    /// on the label rung. Without this, "escalate the whole family" could degenerate into "always take the
+    /// type rung", which would rename every delegate-callback pair in every binding for no reason.
+    /// </summary>
+    [Fact]
+    public void Compute_NoReservedCollision_KeepsTheWholeFamilyOnTheLabelRung()
+    {
+        var db = CreateTypeDatabase();
+        var withMode = IntRequirement("configure", "_", "mode");
+        var withOther = IntRequirement("configure", "_", "other");
+        // Same family, but the uncontested sibling's natural name is nowhere near either label-derived name.
+        var unrelated = IntRequirement("reset", "_", "_");
+        var protocolDecl = TestDecls.Protocol("Configurable", withMode, withOther, unrelated);
+
+        var map = ProtocolMethodDisambiguator.Compute(protocolDecl, db);
+
+        Assert.Equal("configureMode", NameFor(map, withMode));
+        Assert.Equal("configureOther", NameFor(map, withOther));
+        Assert.Null(NameFor(map, unrelated));
     }
 
     [Fact]
@@ -404,19 +462,101 @@ public class ProtocolMethodDisambiguatorTests
         var db = CreateTypeDatabase();
         var withMode = IntRequirement("configure", "_", "mode");
         var withOther = IntRequirement("configure", "_", "other");
-        // Uncontested siblings occupying BOTH rungs this requirement could reach.
+        // Uncontested siblings occupying BOTH rungs one of the two requirements could reach.
         var takesLabelRung = IntRequirement("configureMode", "_", "_");
         var takesTypeRung = IntRequirement("configureModeWithIntAndInt", "_", "_");
         var protocolDecl = TestDecls.Protocol("Configurable", withMode, withOther, takesLabelRung, takesTypeRung);
 
         var map = ProtocolMethodDisambiguator.Compute(protocolDecl, db);
 
-        // A `Configure2` here would propagate a meaningless name to every conformer and proxy in the
-        // consumer's code. The requirement keeps its natural key instead and collapses through the
-        // ordinary duplicate-signature dedup — the same graceful degradation a type-erasure pair gets.
+        // No rung frees the family as a unit, so each member takes its type-derived name if that key is
+        // still free — the same first-fit a conforming class body applies, which is why the survivor carries
+        // the same name in both lanes. The blocked one is left out of the map rather than numbered: a
+        // `Configure2` would propagate a meaningless name to every conformer and proxy in the consumer's
+        // code, so it keeps its natural key and collapses through the ordinary duplicate-signature dedup.
         Assert.Null(NameFor(map, withMode));
-        Assert.Equal("configureOther", NameFor(map, withOther));
+        Assert.Equal("configureOtherWithIntAndInt", NameFor(map, withOther));
         Assert.All(map.Values, name => Assert.False(char.IsDigit(name[^1]), $"'{name}' ends in a digit"));
+    }
+
+    /// <summary>
+    /// The other half of the unseparable arm: here the family's members reach the SAME type-derived name
+    /// (their Swift types share a simple name and differ only by module, and both erase to the same C#
+    /// projection), so the first one through claims it and the second has nowhere left to go. The blocked
+    /// member must land on the survivor's name, not on its own natural one — the class lane refuses it
+    /// outright, and the nearest thing this map has to a refusal is a name that collides so the ordinary
+    /// duplicate-signature dedup drops it. Leaving it under its natural name would publish a second
+    /// interface member callable exactly like the survivor.
+    /// </summary>
+    [Fact]
+    public void Compute_UnseparableFamily_AliasesTheBlockedMemberOntoTheSurvivorsName()
+    {
+        var db = CreateTypeDatabase();
+        var first = Requirement("record", ("value", "TestModule.Collapse"));
+        var second = Requirement("record", ("value", "OtherModule.Collapse"));
+        var protocolDecl = TestDecls.Protocol("OverloadCollapse", first, second);
+
+        var map = ProtocolMethodDisambiguator.Compute(protocolDecl, db);
+
+        Assert.Equal("recordValueWithCollapse", NameFor(map, first));
+        Assert.Equal(NameFor(map, first), NameFor(map, second));
+    }
+
+    // ===================================================================
+    //  Cross-lane parity — the invariant the two ladders exist to hold
+    // ===================================================================
+
+    /// <summary>
+    /// The invariant asserted directly rather than through two lanes' worth of expected literals: for ONE
+    /// Swift shape, the class-lane resolver and the protocol-lane map hand every member the same base name.
+    /// That equality is what <see cref="ProtocolConformanceValidator"/> checks before it keeps a conformance,
+    /// so a lane that names a member differently costs the consumer the entire <c>: IFoo</c>.
+    ///
+    /// <para>The shape is the one where the lanes are easiest to drift apart: a two-member family whose
+    /// label-derived name for ONE member is already occupied by an uncontested sibling. Accepting names
+    /// member-by-member keeps the unblocked sibling on the label rung in one lane while the other moves the
+    /// whole family down — a divergence no expected-literal test on either lane alone would notice.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Compute_ContestedFamily_NamesEveryMemberTheSameAsTheClassLane(bool reservedCollision)
+    {
+        var db = CreateTypeDatabase();
+
+        // `configureMode(_:_:)` is present only in the collision arm; without it neither lane has a reason
+        // to leave the label rung, which is what makes the two arms a discrimination pair.
+        MethodDecl[] Members() => reservedCollision
+            ? new[]
+            {
+                IntRequirement("configure", "_", "mode"),
+                IntRequirement("configure", "_", "other"),
+                IntRequirement("configureMode", "_", "_"),
+            }
+            : new[]
+            {
+                IntRequirement("configure", "_", "mode"),
+                IntRequirement("configure", "_", "other"),
+            };
+
+        var requirements = Members();
+        var protocolDecl = TestDecls.Protocol("Configurable", requirements);
+
+        var witnesses = Members();
+        var classMap = OverloadNameDisambiguator.ForTypeBody(ConformingType("Configurator", witnesses), db);
+
+        for (int i = 0; i < requirements.Length; i++)
+        {
+            Assert.Equal(
+                ClassLaneNameInput(classMap, witnesses[i]),
+                ProtocolMethodDisambiguator.EffectiveNameInput(requirements[i], protocolDecl, db));
+        }
+
+        // Anchor what "the same" is, so the two lanes cannot agree by both doing nothing: the collision arm
+        // moves the whole family to the type rung, the control arm keeps it on the labels.
+        Assert.Equal(
+            reservedCollision ? "configureOtherWithIntAndInt" : "configureOther",
+            ProtocolMethodDisambiguator.EffectiveNameInput(requirements[1], protocolDecl, db));
     }
 
     [Fact]

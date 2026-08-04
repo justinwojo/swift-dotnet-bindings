@@ -272,6 +272,15 @@ namespace BindingsGeneration
                         if (EmissionSeam.TryDenyUpFront(methodDecl, csWriter))
                             continue;
 
+                        // The projected names this iteration itself claims below (mirrors the type-body
+                        // sibling). Emit has internal skip-and-return paths, so a name claimed ahead of
+                        // it can outlive its claimant and cost a SECOND free function: one projecting to
+                        // the same name is then dropped as a duplicate of something that never reached
+                        // the output. Only keys this iteration ADDS are tracked, so a key an earlier
+                        // member owns stays with its owner.
+                        List<string>? claimedProjectedKeys = null;
+                        void ClaimProjectedKey(string claimed) => (claimedProjectedKeys ??= new List<string>(2)).Add(claimed);
+
                         // Primary dedup: Swift-level signature
                         var signatureKey = GetMethodSignatureKey(methodDecl, env.TypeDatabase, _logger);
                         if (emittedMethodSignatures.Contains(signatureKey))
@@ -300,7 +309,11 @@ namespace BindingsGeneration
                         var reservedKey = disambiguatedNameInput == null
                             ? projectedKey
                             : GetProjectedCSharpMethodKey(methodDecl, env.TypeDatabase, _logger, siblingPropertyNames: null, nameOverride: disambiguatedNameInput);
-                        if (!emittedProjectedSignatures.Add(reservedKey))
+                        if (emittedProjectedSignatures.Add(reservedKey))
+                        {
+                            ClaimProjectedKey(reservedKey);
+                        }
+                        else
                         {
                             // Occupancy escalation: the resolver's slot is already taken by something it did
                             // not see (a post-processor-emitted overload, an earlier module partition). Walk
@@ -308,7 +321,16 @@ namespace BindingsGeneration
                             var escalated = OverloadNameDisambiguator.Escalate(
                                 methodDecl,
                                 input => GetProjectedCSharpMethodKey(methodDecl, env.TypeDatabase, _logger, siblingPropertyNames: null, nameOverride: input),
-                                emittedProjectedSignatures.Add);
+                                candidate =>
+                                {
+                                    // Record the key at the point it is taken, rather than recomputing the
+                                    // escalated name's key afterwards, so the release can never diverge
+                                    // from the reservation.
+                                    if (!emittedProjectedSignatures.Add(candidate))
+                                        return false;
+                                    ClaimProjectedKey(candidate);
+                                    return true;
+                                });
                             if (escalated == null)
                             {
                                 _logger.LogDebug($"Skipping free function '{methodDecl.Name}' — projected C# signature is already taken and no argument label or parameter type frees it: {projectedKey}");
@@ -366,6 +388,15 @@ namespace BindingsGeneration
                             _logger.LogWarning($"No handler found for method {methodDecl.Name}");
                             ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.MissingHandler, "No method handler found for top-level method.");
                             UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.MissingHandler, containingDecl: methodDecl.ParentDecl);
+                        }
+
+                        // Settle the reservations on the emission OUTCOME (mirrors the type-body sibling):
+                        // a name held by a free function that DID emit is never released, and one that
+                        // produced nothing gives its names back to whichever sibling can still use them.
+                        if (!methodDecl.WasEmitted)
+                        {
+                            emittedMethodSignatures.Remove(signatureKey);
+                            ReleaseProjectedReservations(emittedProjectedSignatures, reservedOverloadShapes, claimedProjectedKeys);
                         }
                         csWriter.WriteLine();
                     }

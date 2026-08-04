@@ -49,14 +49,13 @@ public class TypeSkipIdentityTests
     }
 
     [Fact]
-    public void SameNamedNestedTypes_UnderDifferentParents_CollapseToOneDropButStayDistinctSkipRows()
+    public void SameNamedNestedTypes_UnderDifferentParents_StayDistinctInBothChannels()
     {
-        // The comment text names the type by its SIMPLE name, so A.Nested and B.Nested skipped for
-        // the same reason produce identical text and the description-keyed drop channel collapses
-        // them into one row whose DeclId names the FIRST of the two. That is the documented
-        // contract of the loud channel — a representative, not an enumeration. The per-declaration
-        // enumeration is SkippedItems, which must still carry both. Pinning both halves here keeps
-        // a future change to either channel a deliberate decision rather than a silent regression.
+        // The comment text qualifies the type by its enclosing-type path, so A.Nested and B.Nested
+        // are distinct declarations in BOTH channels: each keeps its own drop row (with its own
+        // DeclId) and its own SkippedItems row. Only a true same-type repeat collapses in the
+        // description-keyed drop channel. Pinning both halves here keeps a future change to either
+        // channel a deliberate decision rather than a silent regression.
         var moduleDecl = BuildModuleWithVariadicNested("A");
         AddVariadicNestedTo(moduleDecl, "B");
         var first = moduleDecl.Types[0].Types[0];
@@ -69,9 +68,12 @@ public class TypeSkipIdentityTests
             EmitSkip(second);
             var report = ReportCollector.Complete();
 
-            var drop = Assert.Single(report!.UnsupportedCommentDropDetails);
-            Assert.True(DeclId.TryParse(drop.DeclId, out var id));
-            Assert.Equal("A", id.DeclPath);
+            var dropPaths = report!.UnsupportedCommentDropDetails
+                .Select(d => DeclId.TryParse(d.DeclId, out var dropId) ? dropId.DeclPath : null)
+                .ToList();
+            Assert.Equal(new[] { "A", "B" }, dropPaths.OrderBy(p => p, StringComparer.Ordinal));
+            Assert.All(report.UnsupportedCommentDropDetails, d =>
+                Assert.Contains(".Nested'", d.Description));
 
             var skipPaths = report.SkippedItems
                 .Where(s => s.Kind == BindingItemKind.Type && s.Name == "Nested")

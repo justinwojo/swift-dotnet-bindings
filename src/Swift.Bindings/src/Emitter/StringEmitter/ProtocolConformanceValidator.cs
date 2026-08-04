@@ -1080,13 +1080,30 @@ public class ProtocolConformanceValidator
         // requirement and its witness key alike regardless of the async effect.
         var protoKey = ProtocolSignatureHelper.GetMethodSignatureKey(protoMethod, _typeDatabase, protocolContext, includeAsyncEffect: false);
 
+        // This key is label-blind, but the requirement loop iterates a label-only overload family as
+        // DISTINCT requirements (Effective* keys). Taking the first keyed match would hand every member
+        // of the family the SAME witness, so the second requirement is compared against the first
+        // witness's emitted name and reads as a name divergence that drops the whole conformance.
+        // Break the tie on the label-derived spelling — a genuine witness carries the requirement's
+        // argument labels, so that spelling is the Swift full name on both sides. Ambiguity is the only
+        // trigger: a single keyed match, or a family whose labels the parser did not preserve, still
+        // resolves exactly as before.
+        var protoLabelInput = OverloadNameDisambiguator.BuildLabelDerivedNameInput(protoMethod);
         foreach (var ancestor in GetEmittableAncestors(type))
         {
-            var match = ancestor.Methods.FirstOrDefault(m =>
+            var candidates = ancestor.Methods.Where(m =>
                 !m.IsConstructor && m.MethodType != MethodType.Static &&
-                ProtocolSignatureHelper.GetMethodSignatureKey(m, _typeDatabase, null, includeAsyncEffect: false) == protoKey);
-            if (match != null)
-                return match;
+                ProtocolSignatureHelper.GetMethodSignatureKey(m, _typeDatabase, null, includeAsyncEffect: false) == protoKey).ToList();
+            if (candidates.Count == 0)
+                continue;
+            if (candidates.Count > 1)
+            {
+                var labelMatch = candidates.FirstOrDefault(m => string.Equals(
+                    OverloadNameDisambiguator.BuildLabelDerivedNameInput(m), protoLabelInput, StringComparison.Ordinal));
+                if (labelMatch != null)
+                    return labelMatch;
+            }
+            return candidates[0];
         }
 
         // Fallback: position-aware matching with name normalization.

@@ -293,7 +293,7 @@ public static partial class SwiftUIBridgeEmitter
 
         return new AsyncViewPattern(
             ViewName: view.ViewName,
-            SessionClassName: $"SBW_{view.ModuleName}_{view.ViewName}_Session",
+            SessionClassName: InferredSessionClassName(view.ModuleName, view.Identifier),
             ExtraSwiftImports: extraImports,
             SessionFields: chain.Select(s => new AsyncSessionField(s.VariableName, s.SwiftTypeName)).ToArray(),
             FlattenedParams: flatParams.ToArray(),
@@ -473,11 +473,11 @@ public static partial class SwiftUIBridgeEmitter
         StringBuilder sb, string moduleName, ViewBridgeInfo info, AsyncViewPattern pattern,
         ModuleEmissionContext? emissionContext)
     {
-        var prefix = $"SBW_{moduleName}_{info.ViewName}";
+        var prefix = $"SBW_{moduleName}_{info.Identifier}";
         var sessionClass = pattern.SessionClassName;
         var handlesVar = $"{prefix}_liveHandles";
 
-        sb.AppendLine($"// --- {info.ViewName} (Async) ---");
+        sb.AppendLine($"// --- {info.SwiftTypeReference} (Async) ---");
         sb.AppendLine();
 
         // Callback typedefs
@@ -1016,11 +1016,11 @@ public static partial class SwiftUIBridgeEmitter
         StringBuilder sb, string moduleName, ViewBridgeInfo info, AsyncViewPattern pattern,
         ModuleEmissionContext? emissionContext)
     {
-        var prefix = $"SBW_{moduleName}_{info.ViewName}";
+        var prefix = $"SBW_{moduleName}_{info.Identifier}";
         var bridgeLib = $"{moduleName}Bridge";
 
         // NativeMethods class
-        sb.AppendLine($"    internal static partial class {info.ViewName}BridgeNativeMethods");
+        sb.AppendLine($"    internal static partial class {info.Identifier}BridgeNativeMethods");
         sb.AppendLine("    {");
         sb.AppendLine($"        private const string BridgeLib = \"{bridgeLib}\";");
         sb.AppendLine();
@@ -1108,27 +1108,27 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine();
 
         // Session class with CreateAsync factory
-        sb.AppendLine($"    public sealed class {info.ViewName}Session : IDisposable");
+        sb.AppendLine($"    public sealed class {info.Identifier}Session : IDisposable");
         sb.AppendLine("    {");
         sb.AppendLine("        private IntPtr _handle;");
         sb.AppendLine("        private bool _disposed;");
         sb.AppendLine("        private GCHandle _stateHandle;");
         sb.AppendLine();
-        sb.AppendLine($"        internal {info.ViewName}Session(IntPtr handle) => _handle = handle;");
+        sb.AppendLine($"        internal {info.Identifier}Session(IntPtr handle) => _handle = handle;");
         sb.AppendLine();
         sb.AppendLine("        public IntPtr Handle => !_disposed");
         sb.AppendLine($"            ? _handle");
-        sb.AppendLine($"            : throw new ObjectDisposedException(nameof({info.ViewName}Session));");
+        sb.AppendLine($"            : throw new ObjectDisposedException(nameof({info.Identifier}Session));");
         sb.AppendLine();
         sb.AppendLine("        public IntPtr GetViewController() =>");
-        sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.GetViewController(Handle);");
+        sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.GetViewController(Handle);");
         sb.AppendLine();
         EmitTypedViewControllerAccessor(sb);
 
         // CreateState inner class
         sb.AppendLine($"        private sealed class CreateState");
         sb.AppendLine("        {");
-        sb.AppendLine($"            public TaskCompletionSource<{info.ViewName}Session> Tcs {{ get; }}");
+        sb.AppendLine($"            public TaskCompletionSource<{info.Identifier}Session> Tcs {{ get; }}");
         var resultPayload = pattern.ResultCallback?.Payload;
         if (pattern.ResultCallback != null && resultPayload != null)
         {
@@ -1136,19 +1136,19 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine("            /// <summary>Typed result channel. Invoking it hands the payload's disposal over with it;");
             sb.AppendLine("            /// the trampoline disposes the payload itself only when this is null.</summary>");
             sb.AppendLine($"            public Action<int, {resultPayload.CSharpTypeName}?>? OnResultPayload {{ get; }}");
-            sb.AppendLine($"            public CreateState(TaskCompletionSource<{info.ViewName}Session> tcs, Action<int>? onResult,");
+            sb.AppendLine($"            public CreateState(TaskCompletionSource<{info.Identifier}Session> tcs, Action<int>? onResult,");
             sb.AppendLine($"                Action<int, {resultPayload.CSharpTypeName}?>? onResultPayload)");
             sb.AppendLine("            { Tcs = tcs; OnResult = onResult; OnResultPayload = onResultPayload; }");
         }
         else if (pattern.ResultCallback != null)
         {
             sb.AppendLine("            public Action<int>? OnResult { get; }");
-            sb.AppendLine($"            public CreateState(TaskCompletionSource<{info.ViewName}Session> tcs, Action<int>? onResult)");
+            sb.AppendLine($"            public CreateState(TaskCompletionSource<{info.Identifier}Session> tcs, Action<int>? onResult)");
             sb.AppendLine("            { Tcs = tcs; OnResult = onResult; }");
         }
         else
         {
-            sb.AppendLine($"            public CreateState(TaskCompletionSource<{info.ViewName}Session> tcs)");
+            sb.AppendLine($"            public CreateState(TaskCompletionSource<{info.Identifier}Session> tcs)");
             sb.AppendLine("            { Tcs = tcs; }");
         }
         sb.AppendLine("        }");
@@ -1161,7 +1161,7 @@ public static partial class SwiftUIBridgeEmitter
         OpenUcoFailFastGuard(sb);
         sb.AppendLine("            var stateHandle = GCHandle.FromIntPtr(userData);");
         sb.AppendLine("            var state = (CreateState)stateHandle.Target!;");
-        sb.AppendLine($"            var session = new {info.ViewName}Session(handle);");
+        sb.AppendLine($"            var session = new {info.Identifier}Session(handle);");
         sb.AppendLine("            session._stateHandle = stateHandle;");
         sb.AppendLine("            state.Tcs.TrySetResult(session);");
         CloseUcoFailFastGuard(sb);
@@ -1262,7 +1262,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine("            GC.SuppressFinalize(this);");
         sb.AppendLine("        }");
         sb.AppendLine();
-        sb.AppendLine($"        ~{info.ViewName}Session() => Dispose(disposing: false);");
+        sb.AppendLine($"        ~{info.Identifier}Session() => Dispose(disposing: false);");
         sb.AppendLine();
         sb.AppendLine("        private unsafe void Dispose(bool disposing)");
         sb.AppendLine("        {");
@@ -1287,7 +1287,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine("                postReleaseFreeFn = (IntPtr)fn;");
         sb.AppendLine("            }");
         sb.AppendLine();
-        sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Free(_handle, handleBuffer, handleCount, postReleaseFreeFn);");
+        sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Free(_handle, handleBuffer, handleCount, postReleaseFreeFn);");
         sb.AppendLine("            _handle = IntPtr.Zero;");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
@@ -1357,7 +1357,7 @@ public static partial class SwiftUIBridgeEmitter
         var resultPtrLocal = asyncFactoryScope.Reserve("resultPtr");
 
         EmitCreateAsyncDoc(sb, info, pattern, resultPayload);
-        sb.AppendLine($"        public static async Task<{info.ViewName}Session> CreateAsync({string.Join(", ", requiredParams)})");
+        sb.AppendLine($"        public static async Task<{info.Identifier}Session> CreateAsync({string.Join(", ", requiredParams)})");
         sb.AppendLine("        {");
 
         // Validate BoundType parameters are non-zero before entering native call
@@ -1370,7 +1370,7 @@ public static partial class SwiftUIBridgeEmitter
         if (boundTypeFactoryParams.Count > 0)
             sb.AppendLine();
 
-        sb.AppendLine($"            var {tcsLocal} = new TaskCompletionSource<{info.ViewName}Session>(");
+        sb.AppendLine($"            var {tcsLocal} = new TaskCompletionSource<{info.Identifier}Session>(");
         sb.AppendLine("                TaskCreationOptions.RunContinuationsAsynchronously);");
         if (pattern.ResultCallback != null && resultPayload != null)
         {
@@ -1516,7 +1516,7 @@ public static partial class SwiftUIBridgeEmitter
         }
         nativeArgs.Add($"GCHandle.ToIntPtr({stateHandleLocal})");
 
-        sb.AppendLine($"{indent}{info.ViewName}BridgeNativeMethods.Create(");
+        sb.AppendLine($"{indent}{info.Identifier}BridgeNativeMethods.Create(");
         for (int i = 0; i < nativeArgs.Count; i++)
         {
             var comma = i < nativeArgs.Count - 1 ? "," : ");";

@@ -689,15 +689,28 @@ public sealed class ModuleEmissionContext
 
     private readonly object _swiftUIViewsSync = new();
     private readonly List<TypeDecl> _collectedSwiftUIViews = new();
-    private readonly HashSet<string> _collectedSwiftUIViewNames = new();
+    private readonly HashSet<string> _collectedSwiftUIViewKeys = new(StringComparer.Ordinal);
 
-    /// <summary>Records a SwiftUI View type for bridge generation (deduped by name).</summary>
+    /// <summary>
+    /// Records a SwiftUI View type for bridge generation, deduped by the View's identity.
+    ///
+    /// Identity is the module-qualified name, not the leaf name: a leaf is unique only within its
+    /// enclosing type, so keying on it makes <c>Outer.ContentView</c> and a sibling
+    /// <c>OtherOuter.ContentView</c> look like the same type and silently drops the second — a
+    /// bindable View disappearing from the binding with nothing in the report to say so. The
+    /// emitter gives each collected View a unique bridge identifier, and reports a View it cannot
+    /// name, so two same-leaf Views are its problem to answer for rather than one this dedup hides.
+    /// A View reached twice by the emission walk still collects once.
+    /// </summary>
     public void CollectSwiftUIView(TypeDecl viewType)
     {
         ArgumentNullException.ThrowIfNull(viewType);
+        var key = viewType.SwiftTypeName?.ModuleQualifiedName is { Length: > 0 } qualified
+            ? qualified
+            : viewType.Name;
         lock (_swiftUIViewsSync)
         {
-            if (_collectedSwiftUIViewNames.Add(viewType.Name))
+            if (_collectedSwiftUIViewKeys.Add(key))
                 _collectedSwiftUIViews.Add(viewType);
         }
     }

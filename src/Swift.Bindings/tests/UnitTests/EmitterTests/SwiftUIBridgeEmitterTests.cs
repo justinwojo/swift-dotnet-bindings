@@ -2601,16 +2601,131 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
+    #region Bridge Identifier Uniqueness
+
+    [Fact]
+    public void EmitBridgeFiles_SameLeafInTwoEnclosingTypes_BridgesBothUnderDistinctNames()
+    {
+        var views = new List<TypeDecl>
+        {
+            CreateNestedSimpleViewStruct("OuterA", "ContentView"),
+            CreateNestedSimpleViewStruct("OuterB", "ContentView"),
+        };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swift = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        var cs = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+
+        // Both Views really bridged: each one's Swift type is constructed by the bridge.
+        Assert.Contains("TestModule.OuterA.ContentView", swift, StringComparison.Ordinal);
+        Assert.Contains("TestModule.OuterB.ContentView", swift, StringComparison.Ordinal);
+
+        AssertNoDuplicates(CdeclSymbols(swift), "@_cdecl symbol");
+        AssertNoDuplicates(DeclaredCSharpTypeNames(cs), "C# type");
+
+        // Each generated session class is attributable to the View it bridges.
+        var sessions = DeclaredCSharpTypeNames(cs).Where(n => n.EndsWith("Session", StringComparison.Ordinal)).ToList();
+        Assert.Equal(2, sessions.Count);
+        Assert.Single(sessions, n => n.Contains("OuterA", StringComparison.Ordinal));
+        Assert.Single(sessions, n => n.Contains("OuterB", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void EmitBridgeFiles_TopLevelAndNestedShareLeaf_BridgesBothAndTopLevelKeepsItsLeaf()
+    {
+        var views = new List<TypeDecl>
+        {
+            CreateSimpleViewStruct("ContentView"),
+            CreateNestedSimpleViewStruct("Outer", "ContentView"),
+        };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swift = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        var cs = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+
+        Assert.Contains("TestModule.Outer.ContentView", swift, StringComparison.Ordinal);
+        AssertNoDuplicates(CdeclSymbols(swift), "@_cdecl symbol");
+        AssertNoDuplicates(DeclaredCSharpTypeNames(cs), "C# type");
+
+        // The top-level View's path IS its leaf, so it keeps the name it has always had;
+        // the nested one moves off it.
+        var sessions = DeclaredCSharpTypeNames(cs).Where(n => n.EndsWith("Session", StringComparison.Ordinal)).ToList();
+        Assert.Equal(2, sessions.Count);
+        Assert.Contains("ContentViewSession", sessions);
+        Assert.Single(sessions, n => n.Contains("Outer", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void EmitBridgeFiles_NestedViewWithUniqueLeaf_KeepsItsLeafNamedSurface()
+    {
+        // Negative control for the two tests above: qualification is reserved for a shared leaf.
+        // A consumer already compiles against the leaf-named classes of every View that has its
+        // leaf to itself, nested or not, and those names must not move.
+        var views = new List<TypeDecl> { CreateNestedSimpleViewStruct("NestedViewOwner", "NestedTitleView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swift = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        var cs = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+
+        Assert.Contains("SBW_TestModule_NestedTitleView_Create", CdeclSymbols(swift));
+        Assert.Contains("NestedTitleViewSession", DeclaredCSharpTypeNames(cs));
+        Assert.Contains("NestedTitleViewBridgeNativeMethods", DeclaredCSharpTypeNames(cs));
+
+        // The Swift type is still spelled through its enclosing type — only the identifier is bare.
+        Assert.Contains("TestModule.NestedViewOwner.NestedTitleView", swift, StringComparison.Ordinal);
+        Assert.DoesNotContain("NestedViewOwnerNestedTitleView", cs, StringComparison.Ordinal);
+        Assert.DoesNotContain("NestedViewOwnerNestedTitleView", swift, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EmitBridgeFiles_UnresolvableIdentifierCollision_SkipsTheSecondAndReportsIt()
+    {
+        ReportCollector.Reset();
+        ReportCollector.Start(CreateModuleDecl());
+
+        // Two top-level Views with the same name: neither has an enclosing path to be named
+        // through, so the tie cannot be broken. One bridge is emitted, not two colliding ones.
+        var views = new List<TypeDecl>
+        {
+            CreateSimpleViewStruct("DuplicateView"),
+            CreateSimpleViewStruct("DuplicateView"),
+        };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swift = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        var cs = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        AssertNoDuplicates(CdeclSymbols(swift), "@_cdecl symbol");
+        AssertNoDuplicates(DeclaredCSharpTypeNames(cs), "C# type");
+
+        var report = ReportCollector.Complete()!;
+        var skipped = report.BridgedViews.Where(v => v.BridgeStatus == "Skipped").ToList();
+        Assert.Single(skipped);
+        Assert.Equal("DuplicateView", skipped[0].ViewName);
+        Assert.Contains("DuplicateView", skipped[0].InitClassification, StringComparison.Ordinal);
+        Assert.Single(report.BridgedViews, v => v.BridgeStatus == "Generated");
+
+        ReportCollector.Reset();
+    }
+
+    #endregion
+
     #region SwiftUIBridgeCollector Dedup
 
     [Fact]
-    public void Collect_DuplicateViewNames_OnlyFirstIsCollected()
+    public void Collect_SameViewTwice_OnlyFirstIsCollected()
     {
         var ctx = new ModuleEmissionContext();
 
         var view1 = CreateSimpleViewStruct("DuplicateView");
         var view2 = CreateSimpleViewStruct("DuplicateView");
-        view2.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OtherModule.DuplicateView");
 
         SwiftUIBridgeCollector.Collect(view1, ctx);
         SwiftUIBridgeCollector.Collect(view2, ctx);
@@ -2618,6 +2733,20 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var collected = SwiftUIBridgeCollector.GetCollectedViews(ctx);
         Assert.Single(collected);
         Assert.Same(view1, collected[0]);
+    }
+
+    [Fact]
+    public void Collect_SameLeafInDifferentEnclosingTypes_BothCollected()
+    {
+        // Two distinct Views that happen to share a leaf name. Dropping the second here would
+        // remove a bindable View from the binding with nothing anywhere to record it.
+        var ctx = new ModuleEmissionContext();
+
+        SwiftUIBridgeCollector.Collect(CreateNestedSimpleViewStruct("OuterA", "ContentView"), ctx);
+        SwiftUIBridgeCollector.Collect(CreateNestedSimpleViewStruct("OuterB", "ContentView"), ctx);
+
+        var collected = SwiftUIBridgeCollector.GetCollectedViews(ctx);
+        Assert.Equal(2, collected.Count);
     }
 
     [Fact]
@@ -2677,6 +2806,44 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var view = CreateViewStructWithNoConstructor(name);
         view.Methods.Add(CreateNoArgConstructor(name));
         return view;
+    }
+
+    /// <summary>
+    /// The same bridgeable View as <see cref="CreateSimpleViewStruct"/>, but declared inside
+    /// <paramref name="enclosingTypeName"/> — so its module-qualified name carries an enclosing
+    /// path and its leaf name is unique only within that enclosing type.
+    /// </summary>
+    private static StructDecl CreateNestedSimpleViewStruct(string enclosingTypeName, string name)
+    {
+        var view = CreateSimpleViewStruct(name);
+        view.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{enclosingTypeName}.{name}");
+        return view;
+    }
+
+    // Every symbol an emitted @_cdecl attribute binds, in file order.
+    private static List<string> CdeclSymbols(string swiftContent)
+    {
+        return Regex.Matches(swiftContent, @"^@_cdecl\(""([^""]+)""\)", RegexOptions.Multiline)
+            .Select(m => m.Groups[1].Value)
+            .ToList();
+    }
+
+    // Every type the emitted C# declares, in file order.
+    private static List<string> DeclaredCSharpTypeNames(string csContent)
+    {
+        return Regex.Matches(csContent, @"^\s*(?:public|internal)\s[\w\s]*\bclass\s+(\w+)", RegexOptions.Multiline)
+            .Select(m => m.Groups[1].Value)
+            .ToList();
+    }
+
+    private static void AssertNoDuplicates(IReadOnlyList<string> names, string what)
+    {
+        var duplicates = names.GroupBy(n => n, StringComparer.Ordinal)
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key)
+            .ToList();
+        Assert.True(duplicates.Count == 0,
+            $"duplicate {what} name(s): {string.Join(", ", duplicates)}");
     }
 
     /// <summary>

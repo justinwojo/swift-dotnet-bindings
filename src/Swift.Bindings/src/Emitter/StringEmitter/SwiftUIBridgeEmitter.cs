@@ -56,6 +56,12 @@ public static partial class SwiftUIBridgeEmitter
         }
         viewInfos = viewInfos.Where(v => v.Classification != ViewInitClassification.Skipped).ToList();
 
+        // Every generated name is built from ViewBridgeInfo.Identifier, which is unique across
+        // the views that reach emission — a leaf name is not (two Views nested in different
+        // enclosing types share one). Derived over the surviving set only: a skipped view emits
+        // no names, so counting it would path-qualify a survivor for no reason.
+        viewInfos = AssignBridgeIdentifiers(viewInfos, moduleName, logger);
+
         // If all views were skipped, clean up auto-generated bridge files and return
         if (viewInfos.Count == 0)
         {
@@ -128,7 +134,7 @@ public static partial class SwiftUIBridgeEmitter
                 ? "InferredAsync"
                 : info.Classification.ToString();
             ReportCollector.RecordBridgedView(
-                info.ViewName, moduleName, classification, status);
+                info.Identifier, moduleName, classification, status);
         }
 
         // Collect extra Swift imports from hints (global + per-view)
@@ -153,6 +159,94 @@ public static partial class SwiftUIBridgeEmitter
         logger.LogInformation(
             "SwiftUI bridge files written: {Functional} functional, {Template} templates",
             functionalCount, templateCount);
+    }
+
+    /// <summary>
+    /// Stamps each View with the identifier its generated Swift symbols and C# classes are named
+    /// from, and drops any View whose identifier is still taken.
+    ///
+    /// A leaf name is unique per enclosing type, not per module: <c>OuterA.ContentView</c> and
+    /// <c>OuterB.ContentView</c> both leaf to <c>ContentView</c>, and naming both bridges from the
+    /// leaf emits two <c>SBW_{Module}_ContentView_Create</c> @_cdecl functions and two
+    /// <c>ContentViewBridgeNativeMethods</c> classes — neither the bridge Swift nor the emitted C#
+    /// compiles. So a leaf shared by two or more Views promotes EVERY View in that group to its
+    /// enclosing-type path (<c>OuterA.ContentView</c> → <c>OuterAContentView</c>); a leaf held by
+    /// exactly one View is left alone, because a consumer already compiles against the leaf-named
+    /// classes and moving them would break source that has nothing to do with the collision.
+    /// Promotion reads only the View's own path, so the result does not depend on ABI order.
+    ///
+    /// A top-level View in a colliding group keeps its leaf — its path IS the leaf — which cannot
+    /// meet a path-qualified sibling unless a literal name reproduces the concatenation. That, and
+    /// any other residual tie, is the fail-closed arm: the first View in ABI order keeps the
+    /// identifier and the rest are dropped with a report entry naming the collision, so an
+    /// unnameable pair costs one bridge instead of a binding that will not compile.
+    /// </summary>
+    internal static List<ViewBridgeInfo> AssignBridgeIdentifiers(
+        List<ViewBridgeInfo> viewInfos, string moduleName, ILogger logger)
+    {
+        var leafCounts = viewInfos
+            .GroupBy(v => v.ViewName, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+
+        var claimed = new Dictionary<string, string>(StringComparer.Ordinal);
+        var kept = new List<ViewBridgeInfo>(viewInfos.Count);
+
+        foreach (var info in viewInfos)
+        {
+            var identifier = leafCounts[info.ViewName] > 1
+                ? DeriveQualifiedIdentifier(info)
+                : info.ViewName;
+
+            if (claimed.TryGetValue(identifier, out var owner))
+            {
+                logger.LogWarning(
+                    "SwiftUI bridge: skipping view {View} — its bridge identifier {Identifier} is already taken by {Owner}",
+                    info.SwiftTypeReference, identifier, owner);
+                ReportCollector.RecordBridgedView(
+                    info.ViewName, moduleName,
+                    $"DuplicateBridgeIdentifier '{identifier}' (held by {owner})", "Skipped");
+                continue;
+            }
+
+            claimed[identifier] = info.SwiftTypeReference;
+
+            // An inferred async pattern names its Swift session class itself, and it was built
+            // before the module-wide leaf counts were known. Re-derive it so it follows the
+            // identifier; a pattern that came from the manifest or the known-pattern table spells
+            // its own session class and is left as its author wrote it.
+            var inferred = info.InferredPattern;
+            if (inferred != null && identifier != info.ViewName)
+                inferred = inferred with { SessionClassName = InferredSessionClassName(moduleName, identifier) };
+
+            kept.Add(info with { Identifier = identifier, InferredPattern = inferred });
+        }
+
+        return kept;
+    }
+
+    /// <summary>
+    /// The Swift session class name an inferred async pattern generates for a View.
+    /// </summary>
+    internal static string InferredSessionClassName(string moduleName, string identifier) =>
+        $"SBW_{moduleName}_{identifier}_Session";
+
+    /// <summary>
+    /// Joins a nested View's enclosing-type path into one identifier: the module-qualified
+    /// spelling minus its module segment, with the dots removed (<c>Mod.Outer.Inner</c> →
+    /// <c>OuterInner</c>). Every segment is already a Swift type name, so the concatenation is a
+    /// legal C# identifier and a legal Swift symbol component without further shaping.
+    ///
+    /// A top-level View has no path beyond its leaf and keeps it. The result carries no separator
+    /// on purpose — the underscores in <c>SBW_{Module}_{Identifier}_Create</c> separate the
+    /// symbol's fields, and adding more inside the identifier field would make the symbol read as
+    /// though it had a field it does not.
+    /// </summary>
+    private static string DeriveQualifiedIdentifier(ViewBridgeInfo info)
+    {
+        var segments = info.SwiftTypeReference.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length > 2
+            ? string.Concat(segments.Skip(1))
+            : info.ViewName;
     }
 
     /// <summary>
@@ -726,11 +820,13 @@ public static partial class SwiftUIBridgeEmitter
         List<SynthesizedInitArg>? synthesizedArgs = null, List<BridgeModifier>? modifiers = null,
         ModuleEmissionContext? emissionContext = null)
     {
-        var prefix = $"SBW_{moduleName}_{info.ViewName}";
+        var prefix = $"SBW_{moduleName}_{info.Identifier}";
         var sessionClass = $"{prefix}_Session";
         var handlesVar = $"{prefix}_liveHandles";
 
-        sb.AppendLine($"// --- {info.ViewName} ---");
+        // The Swift spelling, not the leaf: two Views nested in different enclosing types share a
+        // leaf, and a section header that names both the same tells a reader nothing.
+        sb.AppendLine($"// --- {info.SwiftTypeReference} ---");
         sb.AppendLine();
 
         var hasUpdatableParams = bridgeParams.Any(p => p.IsUpdatable);
@@ -1836,7 +1932,7 @@ public static partial class SwiftUIBridgeEmitter
 
             sb.AppendLine($"        public {factoryType} Read{pascalName}()");
             sb.AppendLine("        {");
-            sb.AppendLine($"            var ptr = {info.ViewName}BridgeNativeMethods.Read{pascalName}Json(Handle, out var len);");
+            sb.AppendLine($"            var ptr = {info.Identifier}BridgeNativeMethods.Read{pascalName}Json(Handle, out var len);");
             // The Swift reader allocates the buffer before checking length, so a non-null ptr
             // with len <= 0 is reachable in principle. Free the allocation inside the finally
             // so the error path never leaks.
@@ -1852,7 +1948,7 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine("            }");
             sb.AppendLine("            finally");
             sb.AppendLine("            {");
-            sb.AppendLine($"                {info.ViewName}BridgeNativeMethods.FreeJsonBuffer(ptr);");
+            sb.AppendLine($"                {info.Identifier}BridgeNativeMethods.FreeJsonBuffer(ptr);");
             sb.AppendLine("            }");
             sb.AppendLine("        }");
             sb.AppendLine();
@@ -1881,13 +1977,13 @@ public static partial class SwiftUIBridgeEmitter
                 {
                     sb.AppendLine("            if (newValue == null)");
                     sb.AppendLine("            {");
-                    sb.AppendLine($"                {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, IntPtr.Zero, 0);");
+                    sb.AppendLine($"                {info.Identifier}BridgeNativeMethods.Update{pascalName}(Handle, IntPtr.Zero, 0);");
                     sb.AppendLine("                return;");
                     sb.AppendLine("            }");
                 }
                 sb.AppendLine($"            var bytes = global::System.Text.Encoding.UTF8.GetBytes(newValue ?? \"\");");
                 sb.AppendLine("            fixed (byte* ptr = bytes)");
-                sb.AppendLine($"                {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, (IntPtr)ptr, bytes.Length);");
+                sb.AppendLine($"                {info.Identifier}BridgeNativeMethods.Update{pascalName}(Handle, (IntPtr)ptr, bytes.Length);");
                 sb.AppendLine("        }");
                 sb.AppendLine();
             }
@@ -1895,9 +1991,9 @@ public static partial class SwiftUIBridgeEmitter
             {
                 sb.AppendLine($"        public void Update{pascalName}({factoryType} newValue) =>");
                 if (param.IsSimpleEnum)
-                    sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, ({param.CSharpPInvokeType})newValue);");
+                    sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Update{pascalName}(Handle, ({param.CSharpPInvokeType})newValue);");
                 else
-                    sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, newValue.RawValue);");
+                    sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Update{pascalName}(Handle, newValue.RawValue);");
                 sb.AppendLine();
             }
             else if (param.IsBindingCodableStruct)
@@ -1911,7 +2007,7 @@ public static partial class SwiftUIBridgeEmitter
                 sb.AppendLine("            ArgumentNullException.ThrowIfNull(newValue);");
                 sb.AppendLine("            var bytes = newValue.EncodeToJson();");
                 sb.AppendLine("            fixed (byte* ptr = bytes)");
-                sb.AppendLine($"                {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, (IntPtr)ptr, bytes.Length);");
+                sb.AppendLine($"                {info.Identifier}BridgeNativeMethods.Update{pascalName}(Handle, (IntPtr)ptr, bytes.Length);");
                 sb.AppendLine("        }");
                 sb.AppendLine();
             }
@@ -1919,7 +2015,7 @@ public static partial class SwiftUIBridgeEmitter
             {
                 var handleExpr = param.IsObjCBridgeable ? "newValue.Handle" : "newValue.Payload.DangerousGetHandle()";
                 sb.AppendLine($"        public void Update{pascalName}({factoryType} newValue) =>");
-                sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, {handleExpr});");
+                sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Update{pascalName}(Handle, {handleExpr});");
                 sb.AppendLine();
             }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
@@ -1927,7 +2023,7 @@ public static partial class SwiftUIBridgeEmitter
                 var innerBridgeable = param.InnerParameter?.IsObjCBridgeable == true;
                 var handleExpr = innerBridgeable ? "newValue?.Handle ?? IntPtr.Zero" : "newValue?.Payload.DangerousGetHandle() ?? IntPtr.Zero";
                 sb.AppendLine($"        public void Update{pascalName}({factoryType} newValue) =>");
-                sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, {handleExpr});");
+                sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Update{pascalName}(Handle, {handleExpr});");
                 sb.AppendLine();
             }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped)
@@ -1939,20 +2035,20 @@ public static partial class SwiftUIBridgeEmitter
                 {
                     if (inner.IsSimpleEnum)
                     {
-                        sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, newValue.HasValue ? 1 : 0, newValue.HasValue ? ({inner.CSharpPInvokeType})newValue.Value : 0);");
+                        sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Update{pascalName}(Handle, newValue.HasValue ? 1 : 0, newValue.HasValue ? ({inner.CSharpPInvokeType})newValue.Value : 0);");
                     }
                     else
                     {
-                        sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, newValue != null ? 1 : 0, newValue?.RawValue ?? 0);");
+                        sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Update{pascalName}(Handle, newValue != null ? 1 : 0, newValue?.RawValue ?? 0);");
                     }
                 }
                 else if (inner.CSharpConversion != null) // Bool
                 {
-                    sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, newValue.HasValue ? 1 : 0, newValue.HasValue ? (newValue.Value {inner.CSharpConversion}) : 0);");
+                    sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Update{pascalName}(Handle, newValue.HasValue ? 1 : 0, newValue.HasValue ? (newValue.Value {inner.CSharpConversion}) : 0);");
                 }
                 else
                 {
-                    sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, newValue.HasValue ? 1 : 0, newValue ?? 0);");
+                    sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Update{pascalName}(Handle, newValue.HasValue ? 1 : 0, newValue ?? 0);");
                 }
                 sb.AppendLine("        }");
                 sb.AppendLine();
@@ -1961,13 +2057,13 @@ public static partial class SwiftUIBridgeEmitter
             {
                 // Bool: value ? 1 : 0
                 sb.AppendLine($"        public void Update{pascalName}({factoryType} newValue) =>");
-                sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, newValue {param.CSharpConversion});");
+                sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Update{pascalName}(Handle, newValue {param.CSharpConversion});");
                 sb.AppendLine();
             }
             else
             {
                 sb.AppendLine($"        public void Update{pascalName}({factoryType} newValue) =>");
-                sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, newValue);");
+                sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Update{pascalName}(Handle, newValue);");
                 sb.AppendLine();
             }
         }
@@ -2228,7 +2324,7 @@ public static partial class SwiftUIBridgeEmitter
             if (mod.IsParameterless)
             {
                 sb.AppendLine($"        public void {mod.PascalName}(bool enabled = true) =>");
-                sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Set{mod.PascalName}(Handle, enabled ? 1 : 0);");
+                sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Set{mod.PascalName}(Handle, enabled ? 1 : 0);");
                 sb.AppendLine();
             }
             else
@@ -2249,12 +2345,12 @@ public static partial class SwiftUIBridgeEmitter
                     sb.AppendLine("        {");
                     sb.AppendLine("            if (value == null)");
                     sb.AppendLine("            {");
-                    sb.AppendLine($"                {info.ViewName}BridgeNativeMethods.Set{mod.PascalName}(Handle, IntPtr.Zero, 0);");
+                    sb.AppendLine($"                {info.Identifier}BridgeNativeMethods.Set{mod.PascalName}(Handle, IntPtr.Zero, 0);");
                     sb.AppendLine("                return;");
                     sb.AppendLine("            }");
                     sb.AppendLine($"            var bytes = global::System.Text.Encoding.UTF8.GetBytes(value);");
                     sb.AppendLine("            fixed (byte* ptr = bytes)");
-                    sb.AppendLine($"                {info.ViewName}BridgeNativeMethods.Set{mod.PascalName}(Handle, (IntPtr)ptr, bytes.Length);");
+                    sb.AppendLine($"                {info.Identifier}BridgeNativeMethods.Set{mod.PascalName}(Handle, (IntPtr)ptr, bytes.Length);");
                     sb.AppendLine("        }");
                     sb.AppendLine();
                 }
@@ -2262,7 +2358,7 @@ public static partial class SwiftUIBridgeEmitter
                 {
                     // Bool param
                     sb.AppendLine($"        public void {mod.PascalName}(bool? value) =>");
-                    sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Set{mod.PascalName}(Handle, value.HasValue ? 1 : 0, value.HasValue ? (value.Value ? 1 : 0) : 0);");
+                    sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Set{mod.PascalName}(Handle, value.HasValue ? 1 : 0, value.HasValue ? (value.Value ? 1 : 0) : 0);");
                     sb.AppendLine();
                 }
                 else if (param.Kind == BridgeParameterKind.BoundEnum)
@@ -2271,12 +2367,12 @@ public static partial class SwiftUIBridgeEmitter
                     if (param.IsSimpleEnum)
                     {
                         sb.AppendLine($"        public void {mod.PascalName}({factoryType} value) =>");
-                        sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Set{mod.PascalName}(Handle, value.HasValue ? 1 : 0, value.HasValue ? ({param.CSharpPInvokeType})value.Value : 0);");
+                        sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Set{mod.PascalName}(Handle, value.HasValue ? 1 : 0, value.HasValue ? ({param.CSharpPInvokeType})value.Value : 0);");
                     }
                     else
                     {
                         sb.AppendLine($"        public void {mod.PascalName}({factoryType} value) =>");
-                        sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Set{mod.PascalName}(Handle, value != null ? 1 : 0, value?.RawValue ?? 0);");
+                        sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Set{mod.PascalName}(Handle, value != null ? 1 : 0, value?.RawValue ?? 0);");
                     }
                     sb.AppendLine();
                 }
@@ -2285,7 +2381,7 @@ public static partial class SwiftUIBridgeEmitter
                     // Other primitives (Double, Float, Int32, etc.)
                     var factoryType = GetFactoryParamType(param);
                     sb.AppendLine($"        public void {mod.PascalName}({factoryType}? value) =>");
-                    sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Set{mod.PascalName}(Handle, value.HasValue ? 1 : 0, value ?? 0);");
+                    sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Set{mod.PascalName}(Handle, value.HasValue ? 1 : 0, value ?? 0);");
                     sb.AppendLine();
                 }
             }
@@ -2307,9 +2403,9 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine($"// Unsupported reason: {info.UnsupportedReason}");
         sb.AppendLine($"// Status: Template — complete the TODO sections");
         sb.AppendLine($"//");
-        sb.AppendLine($"// @_cdecl(\"SBW_{moduleName}_{info.ViewName}_Create\")");
-        sb.AppendLine($"// @_cdecl(\"SBW_{moduleName}_{info.ViewName}_GetViewController\")");
-        sb.AppendLine($"// @_cdecl(\"SBW_{moduleName}_{info.ViewName}_Free\")");
+        sb.AppendLine($"// @_cdecl(\"SBW_{moduleName}_{info.Identifier}_Create\")");
+        sb.AppendLine($"// @_cdecl(\"SBW_{moduleName}_{info.Identifier}_GetViewController\")");
+        sb.AppendLine($"// @_cdecl(\"SBW_{moduleName}_{info.Identifier}_Free\")");
         sb.AppendLine($"//");
         sb.AppendLine();
     }
@@ -2440,7 +2536,7 @@ public static partial class SwiftUIBridgeEmitter
         List<BridgeModifier>? modifiers = null,
         ModuleEmissionContext? emissionContext = null)
     {
-        var prefix = $"SBW_{moduleName}_{info.ViewName}";
+        var prefix = $"SBW_{moduleName}_{info.Identifier}";
         var bridgeLib = $"{moduleName}Bridge";
         var hasClosures = bridgeParams.Any(p => p.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure or BridgeParameterKind.ResultClosure);
         var hasStrings = bridgeParams.Any(p => p.Kind == BridgeParameterKind.String ||
@@ -2450,7 +2546,7 @@ public static partial class SwiftUIBridgeEmitter
         var needsUnsafe = hasClosures || hasStrings || hasCodableBindings;
 
         // NativeMethods class
-        sb.AppendLine($"    internal static partial class {info.ViewName}BridgeNativeMethods");
+        sb.AppendLine($"    internal static partial class {info.Identifier}BridgeNativeMethods");
         sb.AppendLine("    {");
         sb.AppendLine($"        private const string BridgeLib = \"{bridgeLib}\";");
         sb.AppendLine();
@@ -2581,7 +2677,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine();
 
         // Session class
-        sb.AppendLine($"    public sealed class {info.ViewName}Session : IDisposable");
+        sb.AppendLine($"    public sealed class {info.Identifier}Session : IDisposable");
         sb.AppendLine("    {");
         sb.AppendLine("        private IntPtr _handle;");
         sb.AppendLine("        private bool _disposed;");
@@ -2598,14 +2694,14 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine("        private global::System.Collections.Generic.Dictionary<string, Action>? _propertyDispatchers;");
         }
         sb.AppendLine();
-        sb.AppendLine($"        internal {info.ViewName}Session(IntPtr handle) => _handle = handle;");
+        sb.AppendLine($"        internal {info.Identifier}Session(IntPtr handle) => _handle = handle;");
         sb.AppendLine();
         sb.AppendLine("        public IntPtr Handle => !_disposed");
         sb.AppendLine($"            ? _handle");
-        sb.AppendLine($"            : throw new ObjectDisposedException(nameof({info.ViewName}Session));");
+        sb.AppendLine($"            : throw new ObjectDisposedException(nameof({info.Identifier}Session));");
         sb.AppendLine();
         sb.AppendLine("        public IntPtr GetViewController() =>");
-        sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.GetViewController(Handle);");
+        sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.GetViewController(Handle);");
         sb.AppendLine();
         EmitTypedViewControllerAccessor(sb);
 
@@ -2684,7 +2780,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine("            GC.SuppressFinalize(this);");
         sb.AppendLine("        }");
         sb.AppendLine();
-        sb.AppendLine($"        ~{info.ViewName}Session() => Dispose(disposing: false);");
+        sb.AppendLine($"        ~{info.Identifier}Session() => Dispose(disposing: false);");
         sb.AppendLine();
         // Dispose hands the GCHandle batch to the native Free callback. Swift owns
         // disposal so the handles outlive any Swift state captured via user-data
@@ -2731,7 +2827,7 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine("            _closureHandles = Array.Empty<GCHandle>();");
         }
         sb.AppendLine("            _lifecycleHandles = Array.Empty<GCHandle>();");
-        sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Free(_handle, handleBuffer, totalHandles, postReleaseFreeFn);");
+        sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Free(_handle, handleBuffer, totalHandles, postReleaseFreeFn);");
         sb.AppendLine("            _handle = IntPtr.Zero;");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
@@ -2830,7 +2926,7 @@ public static partial class SwiftUIBridgeEmitter
 
         var unsafeKeyword = needsUnsafe ? "unsafe " : "";
         var hasArrays = bridgeParams.Any(p => p.Kind == BridgeParameterKind.BridgeArray);
-        sb.AppendLine($"        public static {unsafeKeyword}{info.ViewName}Session Create({string.Join(", ", requiredParams)})");
+        sb.AppendLine($"        public static {unsafeKeyword}{info.Identifier}Session Create({string.Join(", ", requiredParams)})");
         sb.AppendLine("        {");
 
         if (hasClosures || hasArrays)
@@ -2947,10 +3043,10 @@ public static partial class SwiftUIBridgeEmitter
         {
             // Simple case: no closures, no strings, no arrays
             var nativeArgs = BuildSimpleNativeCallArgs(bridgeParams);
-            sb.AppendLine($"            var {handleLocal} = {info.ViewName}BridgeNativeMethods.Create({string.Join(", ", nativeArgs)});");
+            sb.AppendLine($"            var {handleLocal} = {info.Identifier}BridgeNativeMethods.Create({string.Join(", ", nativeArgs)});");
             sb.AppendLine($"            if ({handleLocal} == IntPtr.Zero)");
             sb.AppendLine($"                throw new InvalidOperationException(\"Failed to create {info.ViewName} session.\");");
-            sb.AppendLine($"            var {sessionLocal} = new {info.ViewName}Session({handleLocal});");
+            sb.AppendLine($"            var {sessionLocal} = new {info.Identifier}Session({handleLocal});");
             sb.AppendLine($"            {sessionLocal}.SetLifecycleCallbacks(onAppear, onDisappear);");
             sb.AppendLine($"            return {sessionLocal};");
         }
@@ -3050,10 +3146,10 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine($"{indent}fixed ({fixedDecls})");
             sb.AppendLine($"{indent}{{");
             var innerIndent = indent + "    ";
-            sb.AppendLine($"{innerIndent}var {handleLocal} = {info.ViewName}BridgeNativeMethods.Create({string.Join(", ", nativeArgs)});");
+            sb.AppendLine($"{innerIndent}var {handleLocal} = {info.Identifier}BridgeNativeMethods.Create({string.Join(", ", nativeArgs)});");
             sb.AppendLine($"{innerIndent}if ({handleLocal} == IntPtr.Zero)");
             sb.AppendLine($"{innerIndent}    throw new InvalidOperationException(\"Failed to create {info.ViewName} session.\");");
-            sb.AppendLine($"{innerIndent}var {sessionLocal} = new {info.ViewName}Session({handleLocal});");
+            sb.AppendLine($"{innerIndent}var {sessionLocal} = new {info.Identifier}Session({handleLocal});");
             if (hasClosures)
             {
                 sb.AppendLine($"{innerIndent}{sessionLocal}._closureHandles = {closureHandlesLocal}.ToArray();");
@@ -3065,10 +3161,10 @@ public static partial class SwiftUIBridgeEmitter
         }
         else
         {
-            sb.AppendLine($"{indent}var {handleLocal} = {info.ViewName}BridgeNativeMethods.Create({string.Join(", ", nativeArgs)});");
+            sb.AppendLine($"{indent}var {handleLocal} = {info.Identifier}BridgeNativeMethods.Create({string.Join(", ", nativeArgs)});");
             sb.AppendLine($"{indent}if ({handleLocal} == IntPtr.Zero)");
             sb.AppendLine($"{indent}    throw new InvalidOperationException(\"Failed to create {info.ViewName} session.\");");
-            sb.AppendLine($"{indent}var {sessionLocal} = new {info.ViewName}Session({handleLocal});");
+            sb.AppendLine($"{indent}var {sessionLocal} = new {info.Identifier}Session({handleLocal});");
             if (hasClosures)
             {
                 sb.AppendLine($"{indent}{sessionLocal}._closureHandles = {closureHandlesLocal}.ToArray();");
@@ -3245,12 +3341,12 @@ public static partial class SwiftUIBridgeEmitter
         // If there are updatable params or modifiers, the hosted view is the Wrapper, not the raw view
         if (bridgeParams != null && bridgeParams.Any(p => p.IsUpdatable))
         {
-            var prefix = $"SBW_{info.ModuleName}_{info.ViewName}";
+            var prefix = $"SBW_{info.ModuleName}_{info.Identifier}";
             return $"{prefix}_Wrapper";
         }
         if (modifiers != null && modifiers.Count > 0)
         {
-            var prefix = $"SBW_{info.ModuleName}_{info.ViewName}";
+            var prefix = $"SBW_{info.ModuleName}_{info.Identifier}";
             return $"{prefix}_Wrapper";
         }
 
@@ -4281,12 +4377,21 @@ public record ViewBridgeInfo(
     /// <summary>
     /// How the emitted bridge Swift spells this View's type — the enclosing-type path included,
     /// so a nested View resolves from the bridge module. <see cref="ViewName"/> stays the bare leaf
-    /// name and remains the identifier every generated C#/symbol name is built from
-    /// (<c>SBW_{Module}_{ViewName}_Create</c>, <c>{ViewName}Session</c>); the two are the same
-    /// string for a top-level View.
+    /// name — the Swift declaration's own name, and the key bridge hints are written against.
     /// See <see cref="SwiftUIBridgeEmitter.ResolveSwiftTypeReference"/> for how it is derived.
     /// </summary>
     public string SwiftTypeReference { get; init; } = ViewName;
+
+    /// <summary>
+    /// The single string every generated name for this View is built from — the Swift symbol
+    /// prefix <c>SBW_{Module}_{Identifier}</c> and its <c>_Create</c>/<c>_Session</c>/
+    /// <c>_liveHandles</c> derivatives, the C# <c>{Identifier}BridgeNativeMethods</c> class and
+    /// the <c>{Identifier}Session</c> class. It defaults to the leaf name, which is what a View
+    /// whose leaf is unique in its module keeps; <see cref="SwiftUIBridgeEmitter.AssignBridgeIdentifiers"/>
+    /// re-stamps it only for a leaf shared by two or more Views, where the leaf alone would name
+    /// both. Never spell a Swift type from this — that is <see cref="SwiftTypeReference"/>'s job.
+    /// </summary>
+    public string Identifier { get; init; } = ViewName;
 }
 
 /// <summary>

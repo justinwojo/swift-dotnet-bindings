@@ -449,15 +449,22 @@ namespace BindingsGeneration
                 //       at all), and the requirement it collapses onto is itself a non-dispatchable
                 //       throwing stub. Either way there is no working dispatch to lose — no silent
                 //       MIS-dispatch of a live call, only a metadata-fidelity gap.
-                //   (2) A selector-style rename on the INTERFACE alone would REGRESS conformance: a
-                //       concrete conforming type disambiguates its own label-only statics via the
-                //       class path's NUMERIC suffix (Configure/Configure2), so the conformance
-                //       validator's static name-parity gate would see interface names that no longer
-                //       match the concrete member names and drop an otherwise-valid conformance. A
-                //       faithful fix must reconcile interface and concrete static naming under one
-                //       policy (naming-policy work), not a disambiguator one-liner. Revisit only when
-                //       a real library needs both label-only static requirements AND working static
-                //       dispatch.
+                //   (2) The naming divergence this exclusion leaves behind is compile-benign, and
+                //       closing it is not a disambiguator one-liner. A concrete conforming type runs
+                //       the CLASS lane over its own label-only statics, which names them from their
+                //       labels (ConfigureMode/ConfigureOther), while the interface collapses them to a
+                //       single Configure — so the names do diverge. The conformance survives it: a
+                //       static interface requirement is emitted as `static virtual` with a throwing
+                //       default body, so the validator's static name-parity gate treats a diverged
+                //       name exactly like an absent member and keeps the conformance rather than
+                //       trading it for CS0311 on every generic constraint. Feeding statics through
+                //       this map alone would not close the gap either — the static path still dedups
+                //       on the label-blind key above, so the second requirement would keep collapsing
+                //       and only the SURVIVOR's name would move. A faithful fix has to move the
+                //       static dedup onto the Effective* keys, teach the validator's static gate the
+                //       class lane's own assignment, and give the recovered member a dispatch story.
+                //       Revisit only when a real library needs both label-only static requirements
+                //       AND working static dispatch.
                 if (methodDecl.MethodType == MethodType.Static)
                 {
                     var staticMethodKey = ProtocolSignatureHelper.GetMethodSignatureKey(methodDecl, env.TypeDatabase, protocolDecl);

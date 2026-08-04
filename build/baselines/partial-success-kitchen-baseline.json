@@ -1,7 +1,15 @@
 {
-  "git_sha": "56f1d1b4",
+  "git_sha": "fcca5878",
   "review_count": 0,
   "by_reason": [
+    {
+      "key": "ConformanceProtocolHasAssociatedTypes",
+      "count": 4
+    },
+    {
+      "key": "ConformanceProtocolNotInTypeDatabase",
+      "count": 5
+    },
     {
       "key": "EveryProtocolConformanceSkipped",
       "count": 2
@@ -46,7 +54,7 @@
     },
     {
       "key": "KnownLimitation",
-      "count": 3
+      "count": 12
     }
   ]
 }

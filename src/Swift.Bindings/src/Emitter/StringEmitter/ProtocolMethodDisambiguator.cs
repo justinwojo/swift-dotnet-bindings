@@ -22,14 +22,22 @@ namespace BindingsGeneration;
 /// Swift parameter types when the labels do not separate the family. Every emission and dedup site reads it
 /// through the <c>Effective*</c> helpers, so they all agree on which methods emit and under what name.
 ///
-/// SCOPE — the same two-rung ladder the class lane walks, in the same per-family order. A group is
-/// disambiguated on the LABEL rung when its members yield distinct label-derived names; a pure type-erasure
-/// collision (same labels, different Swift types that project to the same C# type, e.g.
-/// <c>add(any Expression)</c> / <c>add(any Sendable)</c>) yields identical label-derived names and drops to
-/// the TYPE rung, exactly as a conforming class body would — the lanes have to agree here or the conformance
-/// is dropped as unsatisfiable. When neither rung separates the family it is left to collapse through the
-/// ordinary duplicate-signature dedup. Grouping is on the PROJECTED key, so type-erasure overloads whose
-/// projected keys already differ never group here in the first place.
+/// SCOPE — the same two-rung ladder the class lane walks, chosen the same way: a rung is taken for a whole
+/// FAMILY only when every discriminand's candidate key under that rung is distinct AND unoccupied
+/// scope-wide. So a group takes the LABEL rung when its members yield distinct label-derived names that no
+/// uncontested sibling already holds; identical label-derived names (a pure type-erasure collision — same
+/// labels, different Swift types projecting to the same C# type, e.g. <c>add(any Expression)</c> /
+/// <c>add(any Sendable)</c>) OR a label-derived name a sibling already emits under (<c>foo(bar:)</c>
+/// alongside a real <c>fooBar(_:)</c>) moves the ENTIRE family to the TYPE rung, exactly as a conforming
+/// class body would. Escalating only the blocked member — leaving its sibling on the label rung — is what
+/// splits the lanes: the class body moves both, so the interface would require a name the conformer never
+/// declares and the whole conformance is dropped as unsatisfiable. When neither rung separates the family,
+/// each member takes its type-derived name if that key is still free and the rest are aliased onto the
+/// survivor's name so the ordinary duplicate-signature dedup drops them — the class lane's refusal arm
+/// reaches the same surviving names, and differs only in reporting the blocked members as refusals with a
+/// report entry rather than collapsing them silently.
+/// Grouping is on the PROJECTED key, so type-erasure overloads whose projected keys already differ never
+/// group here in the first place.
 ///
 /// FORWARD (SBW witness) dispatch keys its slot index off the label-blind <see cref="WitnessDispatchEmitter.GetMethodKey"/>,
 /// which collapses a label-only pair to one slot. That is correct ONLY while the pair also collapses to one
@@ -128,6 +136,13 @@ internal static class ProtocolMethodDisambiguator
             NameOverride = nameOverride,
         });
 
+    /// <summary>
+    /// One requirement of a contested family, carried with the slot key it is keyed by and the
+    /// label-rung input its own content yields. Grouping the three together is what lets rung selection
+    /// consider the family as a unit instead of one member at a time.
+    /// </summary>
+    private readonly record struct Discriminand(string SlotKey, MethodDecl Decl, string LabelInput);
+
     private static IReadOnlyDictionary<string, string> ComputeCore(ProtocolDecl protocolDecl, ITypeDatabase typeDatabase)
     {
         // Eligible candidates mirror the ProtocolHandler method loop's own filters: instance methods only
@@ -163,20 +178,35 @@ internal static class ProtocolMethodDisambiguator
             list.Add(m);
         }
 
+        // CONTENT PASS — settle, from the requirements alone, which groups are contested and who owns each
+        // contested family's natural name, before any name is handed out. Splitting the walk this way is
+        // what lets the scope-wide occupancy set below be seeded with every key that is already spoken for,
+        // which in turn is what makes rung selection a family-wide decision rather than a per-member one.
+        //
         // A group needs disambiguation only when it holds ≥2 DISTINCT slot keys — genuinely different
-        // requirements rather than a true duplicate. Which rung names them is decided per family below:
-        // the labels when they separate every sibling, otherwise the Swift parameter types.
-        var disambiguatedSlotKeys = new HashSet<string>(StringComparer.Ordinal);
-        // The rung travels WITH each entry rather than being re-inferred later from string equality: once a
-        // family drops to the type rung its type-derived input IS the base name the assignment loop tries
-        // first, so comparing the accepted name against it would book every type-rung assignment as
-        // LabelDerived and quietly lie to the ship-gate ledger.
-        var pending = new List<(string slotKey, string nameInput, bool fromTypeRung)>();
+        // requirements rather than a true duplicate.
+        //
+        // Scope-wide occupancy: every requirement that emits under its natural projected key holds that key
+        // for the rest of the walk, so a derived name can never silently land on one. This is the same set
+        // the class lane calls `reserved`, seeded the same way — the uncontested groups up front, each
+        // family's own key as soon as an owner claims it.
+        //
+        // The reservation is deliberately property-AGNOSTIC (propertyNames: null), matching the projected-key
+        // axis everywhere else: the chosen disambiguated name is a pure function of the protocol's method set,
+        // so EVERY walk (interface, proxy, receiver, cctor, validator) reads the SAME name for a given slot key
+        // and the split stays in lockstep. Threading a property-name set in here would make the map content vary
+        // by caller — sites that pass null would pick a different name than sites that pass the real set — which
+        // is precisely the cross-walk inconsistency (CS0535 / dangling witness symbol) this whole map prevents.
+        // The one residual it cannot see: a property whose emitted C# name equals a disambiguated name renames
+        // the method Foo→FooMethod uniformly at every site, which can re-collide with a natural FooMethod sibling.
+        // That is caught downstream by the orthogonal emitted-signature dedup (which IS property-aware), dropping
+        // one member as a DuplicateSignature exactly like any other collapse — a graceful, consistent degradation,
+        // not a compile error. Keep this null; do not make the map property-dependent.
+        var reserved = new HashSet<string>(StringComparer.Ordinal);
+        var contested = new List<(string GroupKey, List<Discriminand> Discriminands)>();
         foreach (var groupKey in groupOrder)
         {
             var group = groups[groupKey];
-            if (group.Count < 2)
-                continue;
 
             // One representative (first in declaration order) per distinct slot key.
             var reps = new List<MethodDecl>();
@@ -187,10 +217,15 @@ internal static class ProtocolMethodDisambiguator
                     reps.Add(m);
             }
             if (reps.Count < 2)
-                continue; // all members are true duplicates → collapse as before
+            {
+                // Uncontested, or a family of true duplicates that collapses as before. Either way every
+                // member of the group emits under this key, so it is occupied.
+                reserved.Add(groupKey);
+                continue;
+            }
 
             var named = reps
-                .Select(m => (slotKey: EveryProtocolEmitter.GetMethodKey(m), name: OverloadNameDisambiguator.BuildLabelDerivedNameInput(m), bare: m.Name, decl: m))
+                .Select(m => new Discriminand(EveryProtocolEmitter.GetMethodKey(m), m, OverloadNameDisambiguator.BuildLabelDerivedNameInput(m)))
                 .ToList();
             // BARE-NAME OWNERSHIP — the same content rule the class lane applies, in the same ORDER. A
             // requirement whose labels add nothing to its name has nothing to be discriminated BY, so it is
@@ -206,60 +241,105 @@ internal static class ProtocolMethodDisambiguator
             // hand that member the bare name, so the interface would require `TransformWithRefBox` while the
             // conforming class declares `Transform`, and the whole conformance is dropped as unsatisfiable.
             // The owner is a fact about one member; a rung is a fact about the rest of the family.
-            var claimants = named.Where(x => string.Equals(x.name, x.bare, StringComparison.Ordinal)).ToList();
-            var bareNameOwner = claimants.Count == 1 ? claimants[0].slotKey : null;
+            //
+            // One honest difference from the class lane, and the reason it is not a divergence here: the
+            // class rule also requires the claimant's UN-renamed natural name to be the contested spelling,
+            // which stops a member pushed onto that spelling by a property collision from out-claiming the
+            // member actually named that way. This map is property-agnostic by construction, so no such
+            // rename is visible on its keys and there is nothing for the extra clause to catch.
+            var claimants = named.Where(x => string.Equals(x.LabelInput, x.Decl.Name, StringComparison.Ordinal)).ToList();
+            var bareNameOwner = claimants.Count == 1 ? claimants[0].SlotKey : null;
+            if (bareNameOwner != null)
+                reserved.Add(groupKey);
             var discriminands = named
-                .Where(x => !string.Equals(x.slotKey, bareNameOwner, StringComparison.Ordinal))
+                .Where(x => !string.Equals(x.SlotKey, bareNameOwner, StringComparison.Ordinal))
                 .ToList();
             if (discriminands.Count == 0)
                 continue;
+            contested.Add((groupKey, discriminands));
+        }
+        if (contested.Count == 0)
+            return EmptyMap;
 
-            var usedTypeRung = false;
-            if (discriminands.Select(x => x.name).Distinct(StringComparer.Ordinal).Count() < discriminands.Count)
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        var disambiguatedSlotKeys = new HashSet<string>(StringComparer.Ordinal);
+
+        // NAMING WALK — one rung per FAMILY, chosen the way the class lane chooses it: a rung is taken only
+        // if EVERY discriminand's candidate key under that rung is distinct AND unoccupied. A member-by-member
+        // acceptance instead lets one sibling keep the label rung while the sibling whose label-derived name
+        // happens to be taken drops to the type rung — and since a conforming class body runs the class lane
+        // over the same shape and moves the WHOLE family down together, the interface would then ask for
+        // `ConfigureOther` while the class declares `ConfigureOtherWithIntAndInt`. The conformance validator
+        // reads that as an emitted-name divergence and drops the whole `: IFoo`, so the two lanes agreeing on
+        // the rung is what keeps the conformance rather than a cosmetic preference.
+        //
+        // Candidates are tested as projected KEYS, not as name strings: the family shares one projected
+        // parameter list by construction, so the key is what the member will actually occupy, and two inputs
+        // the name shaper folds together are caught here instead of colliding at emission.
+        foreach (var (groupKey, discriminands) in contested)
+        {
+            var labelInputs = discriminands.Select(x => x.LabelInput).ToList();
+            // The base input for the type rung is each member's own label-derived input, the same composition
+            // the class lane feeds BuildTypeDerivedNameInput, so both lanes land on the identical string by
+            // construction rather than by agreement of two hand-kept ladders.
+            var typeInputs = discriminands
+                .Select(x => OverloadNameDisambiguator.BuildTypeDerivedNameInput(x.Decl, x.LabelInput))
+                .ToList();
+
+            var chosen = RungFits(discriminands, labelInputs, typeDatabase, protocolDecl, reserved) ? labelInputs
+                : RungFits(discriminands, typeInputs, typeDatabase, protocolDecl, reserved) ? typeInputs
+                : null;
+
+            if (chosen != null)
             {
-                // TYPE RUNG — the labels do not separate every sibling (a pure type-erasure family:
-                // identical labels, different Swift types, one projected C# key). The class lane resolves
-                // exactly this shape on its type rung, so this lane has to as well.
-                //
-                // Leaving the family collapsed here while the class lane splits it is the one lane
-                // divergence the conformance validator cannot repair. A conforming Swift class names these
-                // members from its own type rung (`TransformWithRefBox` / `TransformWithOptionalRefBox`)
-                // while the interface would still require a bare `Transform` that nobody declares, so the
-                // whole conformance is dropped as unsatisfiable — losing an entire `: IFoo` the binding
-                // used to carry. The retired numeric scheme papered over this by accident: its first
-                // member kept the bare name, which happened to match the collapsed interface member.
-                //
-                // Slot identity is untouched. These siblings differ in their RAW Swift parameter types, so
-                // EveryProtocolEmitter.GetMethodKey already allocates each one its own vtable slot; the
-                // collapse only ever dropped the C# interface MEMBER. Naming them apart fills a slot the
-                // collapse used to leave empty — it does not move, add, or remove one.
-                //
-                // Rung selection is per-FAMILY, mirroring the class lane: every discriminand moves down
-                // together, so which rung a member lands on is a fact about the family rather than about
-                // which one the walk reached first. The base input is each member's own label-derived input,
-                // the same composition the class lane feeds BuildTypeDerivedNameInput, so both lanes land on
-                // the identical string by construction rather than by agreement of two hand-kept ladders.
-                //
-                // Two label-less siblings never leave an owner behind: their identical label inputs make the
-                // claimant count 2, so no one owns the bare name and both land here — matching the class
-                // lane, which likewise leaves a pure type-erasure family ownerless.
-                discriminands = discriminands
-                    .Select(x => (x.slotKey, name: OverloadNameDisambiguator.BuildTypeDerivedNameInput(x.decl, x.name), x.bare, x.decl))
-                    .ToList();
-                if (discriminands.Select(x => x.name).Distinct(StringComparer.Ordinal).Count() < discriminands.Count)
-                    continue; // neither rung separates the family → collapse through the emitted-signature dedup
-                usedTypeRung = true;
+                // The rung travels WITH the assignment rather than being re-inferred later from string
+                // equality: a type-rung family's input IS the name it emits under, so comparing the accepted
+                // name against its own base would book every type-rung assignment as LabelDerived and quietly
+                // lie to the ship-gate ledger.
+                var outcome = ReferenceEquals(chosen, labelInputs)
+                    ? OverloadNameOutcome.LabelDerived
+                    : OverloadNameOutcome.TypeDerived;
+                for (int i = 0; i < discriminands.Count; i++)
+                    Accept(discriminands[i], chosen[i], outcome);
+                continue;
             }
 
-            foreach (var (slotKey, nameInput, _, _) in discriminands)
+            // NO RUNG SEPARATES THE FAMILY. Whatever distinguishes these requirements in Swift is invisible
+            // at a C# call site, so they cannot all survive. Walk them in declaration order and let each take
+            // its type-derived name if that key is still free — the same first-fit the class lane applies to
+            // a conforming body, so the survivor carries the same name in both lanes.
+            //
+            // Where this lane deliberately parts company: the class lane books the blocked members as Refused
+            // and drops them with a report entry. This map has no refusal channel — a slot key it omits reads
+            // as "keeps its natural name", which would leave the blocked requirement standing as a SECOND
+            // interface member under a different name, callable identically to the survivor and dispatching
+            // to a vtable slot nothing fills. So a blocked member is instead aliased ONTO the survivor's
+            // name: the family shares one projected parameter list by construction, so the alias reproduces
+            // the survivor's key exactly and the ordinary duplicate-signature dedup drops the member, the way
+            // it dropped the whole family before either lane named anything. Consumer-visible outcome matches
+            // the class lane member for member — one surviving member under the same name — and the alias is
+            // kept out of the rename ledger because nothing about it reaches a consumer.
+            string? survivorName = null;
+            for (int i = 0; i < discriminands.Count; i++)
             {
-                disambiguatedSlotKeys.Add(slotKey);
-                pending.Add((slotKey, nameInput, usedTypeRung));
+                var d = discriminands[i];
+                var nameInput = typeInputs[i];
+                if (reserved.Add(BuildProjectedKeyWithOverride(d.Decl, typeDatabase, protocolDecl, propertyNames: null, nameInput)))
+                {
+                    survivorName ??= nameInput;
+                    if (string.Equals(nameInput, d.Decl.Name, StringComparison.Ordinal))
+                        continue;
+                    Record(d, nameInput, OverloadNameOutcome.TypeDerived);
+                    continue;
+                }
+                // No survivor yet (the first member's own type key was already spoken for), or the survivor
+                // kept its natural name: either way the natural key is what collapses them, which is what
+                // omitting the member from the map already says.
+                if (survivorName == null || string.Equals(survivorName, d.Decl.Name, StringComparison.Ordinal))
+                    continue;
+                Alias(d, survivorName);
             }
         }
-
-        if (pending.Count == 0)
-            return EmptyMap;
 
         // FAMILY FOLD — uniform label-derived naming across a mixed renamed/bare family.
         //
@@ -289,85 +369,91 @@ internal static class ProtocolMethodDisambiguator
         {
             var slotKey = EveryProtocolEmitter.GetMethodKey(m);
             if (disambiguatedSlotKeys.Contains(slotKey))
-                continue; // already label-derived by the projected-key pass
+                continue; // already label-derived by the naming walk
             if (!disambiguatedBaseNames.Contains(m.Name))
                 continue; // not part of a mixed renamed/bare family
-            var nameInput = OverloadNameDisambiguator.BuildLabelDerivedNameInput(m);
-            if (string.Equals(nameInput, m.Name, StringComparison.Ordinal))
+            var labelInput = OverloadNameDisambiguator.BuildLabelDerivedNameInput(m);
+            if (string.Equals(labelInput, m.Name, StringComparison.Ordinal))
                 continue; // no label to fold — honest bare name, leave it
-            if (disambiguatedSlotKeys.Add(slotKey))
-                pending.Add((slotKey, nameInput, fromTypeRung: false)); // the fold composes labels, never types
-        }
 
-        // Reserve the natural projected keys of every candidate that is NOT being disambiguated, so a derived
-        // name can never silently collide with a sibling that emits under its natural name.
-        //
-        // This reservation is deliberately property-AGNOSTIC (propertyNames: null), matching the projected-key
-        // axis everywhere else: the chosen disambiguated name is a pure function of the protocol's method set,
-        // so EVERY walk (interface, proxy, receiver, cctor, validator) reads the SAME name for a given slot key
-        // and the split stays in lockstep. Threading a property-name set in here would make the map content vary
-        // by caller — sites that pass null would pick a different name than sites that pass the real set — which
-        // is precisely the cross-walk inconsistency (CS0535 / dangling witness symbol) this whole map prevents.
-        // The one residual it cannot see: a property whose emitted C# name equals a disambiguated name renames
-        // the method Foo→FooMethod uniformly at every site, which can re-collide with a natural FooMethod sibling.
-        // That is caught downstream by the orthogonal emitted-signature dedup (which IS property-aware), dropping
-        // one member as a DuplicateSignature exactly like any other collapse — a graceful, consistent degradation,
-        // not a compile error. Keep this null; do not make the map property-dependent.
-        var reserved = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var m in candidates)
-        {
-            if (disambiguatedSlotKeys.Contains(EveryProtocolEmitter.GetMethodKey(m)))
-                continue;
-            reserved.Add(ProtocolSignatureHelper.GetProjectedCSharpMethodKey(m, typeDatabase, protocolDecl, propertyNames: null));
-        }
-
-        var result = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var (slotKey, baseName, fromTypeRung) in pending)
-        {
-            if (result.ContainsKey(slotKey))
-                continue;
-            // Representative method for this slot key (any member with that key — they share projected shape).
-            var rep = candidates.First(m => EveryProtocolEmitter.GetMethodKey(m) == slotKey);
-
-            // Same ladder the class lane walks, and deliberately NOT a numeric last resort. A protocol
-            // requirement's C# name is the interface member every conformer must declare and every proxy
-            // must forward, so an opaque `FooBar2` propagates the meaningless name across the whole
-            // conformance surface. When neither the labels nor the parameter types free a name, leave the
-            // slot out of the map entirely: the member then keeps its natural key and collapses through the
-            // ordinary emitted-signature dedup as a DuplicateSignature — the same graceful degradation this
-            // helper already applies to a pure type-erasure pair.
-            // A family that already took the type rung has no rung left: its stored input IS the type-derived
-            // name, so re-composing from it would append the parameter types a SECOND time
-            // (`TransformWithRefBox` → `TransformWithRefBoxWithRefBox`) — an invented spelling no lane and no
-            // conforming class would ever produce. The class lane refuses the member at that point instead;
-            // here the equivalent is to leave the slot out of the map and let it collapse.
-            var ladder = fromTypeRung
-                ? new[] { baseName }
-                : new[] { baseName, OverloadNameDisambiguator.BuildTypeDerivedNameInput(rep, baseName) };
-            string? accepted = null;
+            // The fold is per-MEMBER, not per-family, and that is not a lane divergence: a folded sibling is
+            // alone in its projected group by definition (it never collided with anything), so there is no
+            // family to move down together and no conforming class body that would move it. It walks the
+            // ladder on its own — labels first, then its Swift parameter types — and when neither is free it
+            // is simply left bare, which is the name it carried before the fold existed.
+            var ladder = new[] { labelInput, OverloadNameDisambiguator.BuildTypeDerivedNameInput(m, labelInput) };
             foreach (var candidateInput in ladder)
             {
-                if (string.Equals(candidateInput, rep.Name, StringComparison.Ordinal))
+                if (string.Equals(candidateInput, m.Name, StringComparison.Ordinal))
                     continue;
-                if (reserved.Add(BuildProjectedKeyWithOverride(rep, typeDatabase, protocolDecl, propertyNames: null, candidateInput)))
-                {
-                    accepted = candidateInput;
-                    break;
-                }
-            }
-            if (accepted != null)
-            {
-                result[slotKey] = accepted;
-                // Same ship-gate ledger the class and free-function lanes feed: an interface requirement is
-                // public surface too, so its disambiguation has to be auditable by the same records.
-                OverloadNameDisambiguator.RecordProtocolAssignment(
-                    rep,
-                    !string.Equals(accepted, baseName, StringComparison.Ordinal) || fromTypeRung
-                        ? OverloadNameOutcome.TypeDerived
-                        : OverloadNameOutcome.LabelDerived,
-                    accepted);
+                if (!reserved.Add(BuildProjectedKeyWithOverride(m, typeDatabase, protocolDecl, propertyNames: null, candidateInput)))
+                    continue;
+                Record(
+                    new Discriminand(slotKey, m, labelInput),
+                    candidateInput,
+                    string.Equals(candidateInput, labelInput, StringComparison.Ordinal)
+                        ? OverloadNameOutcome.LabelDerived
+                        : OverloadNameOutcome.TypeDerived);
+                break;
             }
         }
+
         return result;
+
+        void Accept(Discriminand d, string nameInput, OverloadNameOutcome outcome)
+        {
+            // RungFits already proved this key free; claiming it here is what stops a LATER family in the
+            // walk from landing on it.
+            reserved.Add(BuildProjectedKeyWithOverride(d.Decl, typeDatabase, protocolDecl, propertyNames: null, nameInput));
+            // A label-less member in an ownerless family reaches a rung that adds nothing to its own name.
+            // Absent from the map IS how it keeps that name — every Effective* helper then falls through to
+            // its natural key — so there is no consumer-visible rename to record either.
+            if (string.Equals(nameInput, d.Decl.Name, StringComparison.Ordinal))
+                return;
+            Record(d, nameInput, outcome);
+        }
+
+        void Alias(Discriminand d, string nameInput)
+        {
+            if (!result.TryAdd(d.SlotKey, nameInput))
+                return;
+            // Counted as settled so the family fold leaves it alone: the alias exists to be collapsed, and
+            // handing it a name of its own would resurrect the member the collapse is dropping.
+            disambiguatedSlotKeys.Add(d.SlotKey);
+        }
+
+        void Record(Discriminand d, string nameInput, OverloadNameOutcome outcome)
+        {
+            if (!result.TryAdd(d.SlotKey, nameInput))
+                return;
+            disambiguatedSlotKeys.Add(d.SlotKey);
+            // Same ship-gate ledger the class and free-function lanes feed: an interface requirement is
+            // public surface too, so its disambiguation has to be auditable by the same records.
+            OverloadNameDisambiguator.RecordProtocolAssignment(d.Decl, outcome, nameInput);
+        }
+    }
+
+    /// <summary>
+    /// Whether a whole family can be named on one rung: every discriminand's candidate must project to a key
+    /// that is both distinct within the family and unoccupied scope-wide. This is the protocol-lane counterpart
+    /// of the class lane's own rung test, and it is the reason the two lanes agree — a family blocked on one
+    /// candidate moves down as a unit in BOTH lanes, so an interface never asks for a member name the
+    /// conforming class body resolves differently.
+    /// </summary>
+    private static bool RungFits(
+        IReadOnlyList<Discriminand> discriminands,
+        IReadOnlyList<string> nameInputs,
+        ITypeDatabase typeDatabase,
+        ProtocolDecl protocolDecl,
+        IReadOnlySet<string> reserved)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        for (int i = 0; i < discriminands.Count; i++)
+        {
+            var key = BuildProjectedKeyWithOverride(discriminands[i].Decl, typeDatabase, protocolDecl, propertyNames: null, nameInputs[i]);
+            if (reserved.Contains(key) || !seen.Add(key))
+                return false;
+        }
+        return true;
     }
 }

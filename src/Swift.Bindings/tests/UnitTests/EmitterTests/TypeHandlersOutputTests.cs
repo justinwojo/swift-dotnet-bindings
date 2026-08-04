@@ -1053,6 +1053,112 @@ public class TypeHandlersOutputTests
         Assert.DoesNotContain("static", keySize);
     }
 
+    // The same name loss reaches one layer deeper. A property can clear every gate the type handler
+    // itself applies and still be refused inside PropertyHandler, which returns normally rather than
+    // faulting. The name it claimed on the way in has to come back, or its emittable sibling is
+    // dropped as a duplicate of a member that was never written.
+    [Fact]
+    public void Emit_ClassHandler_PropertyHandlerRefusedPropertyFirst_StillEmitsStaticSibling()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = new ClassDecl
+        {
+            Name = "Cipher",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Cipher"),
+            MangledName = "$s10TestModule6CipherCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        classDecl.Properties.Add(
+            CreateGettableProperty("keySize", CreateAsyncClosureTypeSpec(), isStatic: false, classDecl, moduleDecl));
+        classDecl.Properties.Add(
+            CreateGettableProperty("keySize", "Swift.Int", isStatic: true, classDecl, moduleDecl));
+
+        var (csOutput, _) = EmitType(classDecl, typeDatabase, new ClassHandler(new NullLogger<ClassHandler>()));
+
+        var keySize = GetKeySizeDeclarationLine(csOutput);
+        Assert.False(keySize.Length == 0, "the emittable static sibling should have surfaced as a public KeySize member");
+        Assert.Contains("static", keySize);
+    }
+
+    [Fact]
+    public void Emit_FrozenStructHandler_PropertyHandlerRefusedPropertyFirst_StillEmitsStaticSibling()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDecl("Vault", moduleDecl, isFrozen: true, requiresMemoryManagement: false);
+        structDecl.Properties.Add(
+            CreateGettableProperty("keySize", CreateAsyncClosureTypeSpec(), isStatic: false, structDecl, moduleDecl));
+        structDecl.Properties.Add(
+            CreateGettableProperty("keySize", "Swift.Int", isStatic: true, structDecl, moduleDecl));
+
+        var (csOutput, _) = EmitType(structDecl, typeDatabase, new FrozenStructHandler(new NullLogger<FrozenStructHandler>()));
+
+        var keySize = GetKeySizeDeclarationLine(csOutput);
+        Assert.False(keySize.Length == 0, "the emittable static sibling should have surfaced as a public KeySize member");
+        Assert.Contains("static", keySize);
+    }
+
+    [Fact]
+    public void Emit_NonFrozenStructHandler_PropertyHandlerRefusedPropertyFirst_StillEmitsStaticSibling()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDecl("Satchel", moduleDecl, isFrozen: false, requiresMemoryManagement: true);
+        structDecl.Properties.Add(
+            CreateGettableProperty("keySize", CreateAsyncClosureTypeSpec(), isStatic: false, structDecl, moduleDecl));
+        structDecl.Properties.Add(
+            CreateGettableProperty("keySize", "Swift.Int", isStatic: true, structDecl, moduleDecl));
+
+        var (csOutput, _) = EmitType(structDecl, typeDatabase, new NonFrozenStructHandler(new NullLogger<NonFrozenStructHandler>()));
+
+        var keySize = GetKeySizeDeclarationLine(csOutput);
+        Assert.False(keySize.Length == 0, "the emittable static sibling should have surfaced as a public KeySize member");
+        Assert.Contains("static", keySize);
+    }
+
+    // The other half of the contract: releasing a refused property's name must not turn the
+    // static/instance collision into two same-named C# members (CS0102). A sibling that follows one
+    // which actually emitted is still dropped.
+    [Fact]
+    public void Emit_ClassHandler_EmittedPropertyFirst_StillDropsOppositeStaticnessSibling()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = new ClassDecl
+        {
+            Name = "Cipher",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Cipher"),
+            MangledName = "$s10TestModule6CipherCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        classDecl.Properties.Add(
+            CreateGettableProperty("keySize", "Swift.Int", isStatic: false, classDecl, moduleDecl));
+        classDecl.Properties.Add(
+            CreateGettableProperty("keySize", "Swift.Int", isStatic: true, classDecl, moduleDecl));
+
+        var (csOutput, _) = EmitType(classDecl, typeDatabase, new ClassHandler(new NullLogger<ClassHandler>()));
+
+        var keySize = Assert.Single(GetKeySizeDeclarationLines(csOutput));
+        Assert.DoesNotContain("static", keySize);
+    }
+
     /// <summary>
     /// The emitted member declaration line for <c>KeySize</c> — the public property, not the
     /// P/Invoke or the `// Unsupported:` tombstone, so a test can ask whether the member that
@@ -1060,13 +1166,27 @@ public class TypeHandlersOutputTests
     /// </summary>
     private static string GetKeySizeDeclarationLine(string csOutput)
     {
+        foreach (var line in GetKeySizeDeclarationLines(csOutput))
+            return line;
+        return string.Empty;
+    }
+
+    /// <summary>
+    /// Every emitted <c>KeySize</c> property declaration, so a test can assert that exactly one of a
+    /// static/instance pair surfaced rather than just that some member did. The name has to end the
+    /// line: the property's own accessor method (<c>public nint KeySize()</c>) is emitted alongside
+    /// it and would otherwise read as a second declaration of the same member.
+    /// </summary>
+    private static List<string> GetKeySizeDeclarationLines(string csOutput)
+    {
+        var declarations = new List<string>();
         foreach (var line in csOutput.Split('\n'))
         {
             var trimmed = line.Trim();
-            if (trimmed.StartsWith("public") && trimmed.Contains("KeySize"))
-                return trimmed;
+            if (trimmed.StartsWith("public") && trimmed.EndsWith(" KeySize"))
+                declarations.Add(trimmed);
         }
-        return string.Empty;
+        return declarations;
     }
 
     [Fact]
@@ -1534,6 +1654,14 @@ public class TypeHandlersOutputTests
     /// </summary>
     private static PropertyDecl CreateGettableProperty(
         string name, string swiftTypeName, bool isStatic, TypeDecl parent, ModuleDecl moduleDecl)
+        => CreateGettableProperty(name, new NamedTypeSpec(swiftTypeName), isStatic, parent, moduleDecl);
+
+    /// <summary>
+    /// A read-only property carrying an arbitrary declared type, so a test can hand a handler a
+    /// shape that only the property handler's own gates reject.
+    /// </summary>
+    private static PropertyDecl CreateGettableProperty(
+        string name, TypeSpec swiftTypeSpec, bool isStatic, TypeDecl parent, ModuleDecl moduleDecl)
     {
         var getter = new MethodDecl
         {
@@ -1546,7 +1674,7 @@ public class TypeHandlersOutputTests
             {
                 new ArgumentDecl
                 {
-                    SwiftTypeSpec = new NamedTypeSpec(swiftTypeName),
+                    SwiftTypeSpec = swiftTypeSpec,
                     Name = string.Empty,
                     PrivateName = string.Empty,
                     IsInOut = false,
@@ -1566,7 +1694,7 @@ public class TypeHandlersOutputTests
         return new PropertyDecl
         {
             Name = name,
-            SwiftTypeSpec = new NamedTypeSpec(swiftTypeName),
+            SwiftTypeSpec = swiftTypeSpec,
             IsStatic = isStatic,
             HasStorage = false,
             Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getter } },
@@ -1574,6 +1702,15 @@ public class TypeHandlersOutputTests
             ModuleDecl = moduleDecl
         };
     }
+
+    /// <summary>
+    /// <c>() async -&gt; Int</c>. The type-level property gates admit this shape — the closure bridge
+    /// supports it where a closure is passed in — but a property cannot store it, because Swift has
+    /// no way to build an async closure value from a C# function pointer through a sync accessor.
+    /// So it reaches the property handler and is refused there, which is the case under test.
+    /// </summary>
+    private static ClosureTypeSpec CreateAsyncClosureTypeSpec()
+        => new ClosureTypeSpec(null, new NamedTypeSpec("Swift.Int")) { IsAsync = true };
 
     private static (string csOutput, string swiftOutput) EmitType(TypeDecl typeDecl, TypeDatabase typeDatabase, ITypeHandler handler)
     {

@@ -312,10 +312,11 @@ namespace BindingsGeneration
                         continue;
                     }
 
-                    // Reserved only AFTER every skip decision above: a property that cannot be
-                    // emitted at all must not consume the C# name on its way out, or the sibling
-                    // that projects to the same name is dropped as a duplicate and the type loses a
-                    // member that has nothing wrong with it.
+                    // The first EMITTING claimant wins. Reserved only AFTER every skip decision
+                    // above, and released again below when the emission does not happen: a property
+                    // that never surfaces must not consume the C# name on its way out, or the
+                    // sibling that projects to the same name is dropped as a duplicate and the type
+                    // loses a member that has nothing wrong with it.
                     // Use post-rename name for consistency with the propertyNames collision set below.
                     var csPropertyName = NameProvider.GetFinalMemberName(
                         NameProvider.GetPropertyName(propertyDecl, structDecl.Name), propertyRenames);
@@ -344,6 +345,15 @@ namespace BindingsGeneration
                     {
                         _logger.LogWarning($"No handler found for property {propertyDecl.Name}");
                     }
+
+                    // The reservation above is a claim, not an outcome. PropertyHandler carries skip
+                    // decisions the gates here cannot see (accessor signatures, closure storability,
+                    // unresolved projections) and takes them by returning normally, and the seam can
+                    // deny the property outright — either way nothing was written. Give the name back
+                    // so a later sibling can claim it, rather than dropping it as a duplicate of a
+                    // member the file does not contain.
+                    if (!propertyDecl.WasEmitted)
+                        emittedPropertyNames.Remove(csPropertyName);
                 }
                 csWriter.WriteLine();
 
