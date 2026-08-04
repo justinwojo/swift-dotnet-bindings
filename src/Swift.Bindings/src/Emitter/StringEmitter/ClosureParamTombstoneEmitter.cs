@@ -296,6 +296,8 @@ internal static class ClosureParamTombstoneEmitter
 
         // Build the parameter list. Closures → object?; other params → projected public type.
         var paramStrings = new List<string>();
+        // The same parameters without their names — what an API-surface record names them by.
+        var paramTypes = new List<string>();
         var unsupportedClosureSpecs = new List<string>();
         var factory = new TypeProjectionFactory();
         for (int i = 1; i < method.CSSignature.Count; i++)
@@ -346,8 +348,10 @@ internal static class ClosureParamTombstoneEmitter
             }
 
             paramStrings.Add($"{paramType} {paramName}");
+            paramTypes.Add(paramType);
         }
         var paramList = string.Join(", ", paramStrings);
+        var emittedParameterPortion = ModuleEmissionContext.FormatParameterPortion(paramTypes);
 
         // Pick the swift-side closure spec for the [UnsupportedSwiftType] attribute.
         // If multiple unsupported closures, list them comma-separated.
@@ -378,6 +382,8 @@ internal static class ClosureParamTombstoneEmitter
                 (classParent.HasResolvedSuperclass || classParent.HasCrossModuleSwiftSuperclass)
                     ? " : base(default(SwiftInheritanceChain))"
                     : "";
+
+            env.EmissionContext?.RecordEmittedApiShape(method, ctorName, emittedParameterPortion);
 
             csWriter.WriteLine($"{accessModifier} {ctorName}({paramList}){baseChain}");
             csWriter.WriteLine("{");
@@ -429,6 +435,8 @@ internal static class ClosureParamTombstoneEmitter
 
             // Use the env's resolved C# method name (handles renames + collisions).
             var methodName = env.CSharpMethodName;
+
+            env.EmissionContext?.RecordEmittedApiShape(method, methodName, emittedParameterPortion);
 
             csWriter.WriteLine($"{accessModifier} {staticKw}{returnType} {methodName}({paramList})");
             csWriter.WriteLine("{");

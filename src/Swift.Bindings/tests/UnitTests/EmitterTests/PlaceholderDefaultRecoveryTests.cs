@@ -48,10 +48,11 @@ public class PlaceholderDefaultRecoveryTests
         // U-004/U-009 regression guard: the recovered constructor's FULL signature was rejected, so it
         // never flows through the main dedup loop's WasEmitted manifest recording. Without the manifest
         // entry the emitted-but-undocumented ctor is exactly the api-surface drift U-009 exists to kill.
-        // The manifest keys constructors under "Init"; the trimmed form's params are (nint, nint).
+        // A constructor is keyed by the name it is EMITTED under — the type's — and the trimmed form
+        // takes (nint, nint).
         Assert.Contains(
             emissionCtx.ApiManifestEntries.Keys,
-            k => k.Contains("PayConfig.Init(") && k.Contains("nint") && !k.Contains("AnyType"));
+            k => k.Contains("PayConfig.PayConfig(") && k.Contains("nint") && !k.Contains("AnyType"));
     }
 
     [Fact]
@@ -78,7 +79,7 @@ public class PlaceholderDefaultRecoveryTests
         Assert.Matches(@"var\s+\w+\s*=\s*PInvoke_init_[^;]*;", csOutput);
         Assert.Contains(
             emissionCtx.ApiManifestEntries.Keys,
-            k => k.Contains("PayLoader.Init(") && k.Contains("nint") && !k.Contains("AnyType"));
+            k => k.Contains("PayLoader.PayLoader(") && k.Contains("nint") && !k.Contains("AnyType"));
     }
 
     [Fact]
@@ -115,9 +116,11 @@ public class PlaceholderDefaultRecoveryTests
         Assert.DoesNotContain("_dbw_init_", swiftOutput);
         Assert.Contains("// Unsupported: method 'HardConfig.init'", csOutput);
         // Nothing recovered → nothing recorded for this type: a dropped member must NOT leak into the
-        // documented surface. (The manifest may hold entries for other emitted members, but none for
-        // HardConfig's constructor.)
-        Assert.DoesNotContain(emissionCtx.ApiManifestEntries.Keys, k => k.Contains("HardConfig.Init("));
+        // documented surface. Matched on the key a constructor is actually recorded under — the
+        // type's own name — because under this key scheme no entry is ever spelled `HardConfig.Init(`,
+        // so forbidding that spelling would forbid nothing.
+        Assert.DoesNotContain(emissionCtx.ApiManifestEntries.Keys,
+            k => k.Contains("HardConfig.HardConfig(") || k.Contains("HardConfig.Init("));
     }
 
     #region Helpers

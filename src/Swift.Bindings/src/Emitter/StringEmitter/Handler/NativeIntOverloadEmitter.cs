@@ -200,7 +200,8 @@ internal static class NativeIntOverloadEmitter
         string returnTypeName,
         List<(string typeName, string paramName, ITypeProjection? projection)> paramInfos,
         HashSet<string>? emittedIndexerKeys = null,
-        ModuleEmissionContext? emissionContext = null)
+        ModuleEmissionContext? emissionContext = null,
+        ITypeDatabase? typeDatabase = null)
     {
         // Detect nint/nuint params
         var conversions = new List<(int index, string nativeType, string convType)>();
@@ -277,6 +278,17 @@ internal static class NativeIntOverloadEmitter
         // convenience overload would read that poisoned getter (CS0619). Mirror the poison instead — a
         // throwing, poisoned getter — while keeping the setter forward where the primary has a usable setter.
         bool getterPoisoned = hasGetter && emissionContext?.WasSubscriptGetterProduceThrow(subscriptDecl) == true;
+
+        // The convenience overload is a public indexer in its own right — record it under its own
+        // narrowed index types so the API manifest carries both indexer forms, not just the nint one.
+        emissionContext?.RecordSubscriptApiManifestEntry(
+            subscriptDecl,
+            paramInfos.Select((p, i) =>
+            {
+                var conv = conversions.Find(c => c.index == i);
+                return conv != default ? conv.convType : p.typeName;
+            }),
+            typeDatabase);
 
         if (getterPoisoned)
         {

@@ -145,6 +145,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             }
             EmitAsyncStreamProperty(csWriter, swiftWriter, propertyEnv, propertyDecl, context.GetEmissionContext(), context.PropertyRenames);
             propertyDecl.MarkEmitted();
+            RecordPropertyApiManifestEntry(context.GetEmissionContext(), propertyDecl, propertyEnv.TypeDatabase);
             ReportCollector.RecordMemberEmitted(propertyDecl);
             return;
         }
@@ -810,6 +811,17 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 if (isGetOnlyProperty)
                     accessorEnv.ExistentialHandler.SpecializationEngine = context.GetEmissionContext()?.SpecializationEngine;
                 methodHandler.Emit(csWriter, swiftWriter, accessorEnv, conductor, context);
+                // The accessor was emitted here rather than through IHandler's type-body loop, so
+                // IHandler's post-emit side-table write never fires for it. Record the promoted
+                // symbol at this site instead: it is the EntryPoint the P/Invoke just above binds
+                // (a `Tj` dispatch thunk for a non-final class property, a wrapper symbol for a
+                // cdecl-backed one), and the API manifest reads the side table to name it. Without
+                // this the manifest records the accessor's silgen name — a symbol nothing binds —
+                // and the retarget gate watches an entry point the consumer never calls.
+                // Keyed on accessor.Method, the reference the manifest record path looks up — the
+                // side table compares by reference identity, so an equal-valued clone would miss.
+                context.GetEmissionContext()?.RecordMethodEmissionSymbol(
+                    accessor.Method, accessorEnv.EmissionSymbol);
             }
         }
 
@@ -954,7 +966,28 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
 
         csWriter.WriteLine();
         propertyDecl.MarkEmitted();
+        RecordPropertyApiManifestEntry(context.GetEmissionContext(), propertyDecl, propertyEnv.TypeDatabase);
         ReportCollector.RecordMemberEmitted(propertyDecl);
+    }
+
+    /// <summary>
+    /// Records an emitted property in the API manifest, keyed by its parent-qualified settled C#
+    /// name. The entry symbol covers every accessor the property has — both, joined, for a
+    /// read/write one — so a property that rebinds EITHER native accessor is visible to the
+    /// retarget gate the same way a method is. Nothing is recorded when the property never settled on a C# name —
+    /// an async property emits as <c>Get{Name}</c> methods rather than a C# property, and those
+    /// members are recorded by the method path that writes them, not here.
+    /// </summary>
+    private static void RecordPropertyApiManifestEntry(ModuleEmissionContext? emissionCtx,
+        PropertyDecl propertyDecl, ITypeDatabase typeDatabase)
+    {
+        if (emissionCtx is null || propertyDecl.EmittedCSharpName is not { Length: > 0 } name)
+            return;
+        if (emissionCtx.BuildAccessorEntrySymbol(propertyDecl.Accessors) is not { } symbol)
+            return;
+        emissionCtx.RecordApiManifestEntry(
+            ModuleEmissionContext.BuildPropertyApiManifestKey(propertyDecl.ParentDecl, name, typeDatabase),
+            symbol);
     }
 
     /// <summary>
@@ -1583,6 +1616,24 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 accessorEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
 
             methodHandler.Emit(csWriter, swiftWriter, accessorEnv, conductor, context);
+            // Emitted directly, so IHandler's post-emit side-table write never fires — record the
+            // symbol this env settled on (an async accessor's steering symbol is promoted during
+            // Emit) so the manifest read just below names what the P/Invoke binds.
+            context.GetEmissionContext()?.RecordMethodEmissionSymbol(
+                accessor.Method, accessorEnv.EmissionSymbol);
+
+            // An async property's C# surface is this Get{Name} method, not a C# property, so it is
+            // recorded as the method it is. The wrapper emitter stamped the emitted name and
+            // parameter list (including the trailing CancellationToken) on the way past; an
+            // accessor that wrote no declaration leaves nothing stamped and records nothing.
+            if (context.GetEmissionContext() is { } asyncPropCtx
+                && asyncPropCtx.GetEmittedApiShape(accessor.Method) is { CSharpName.Length: > 0 } shape)
+            {
+                asyncPropCtx.RecordApiManifestEntry(
+                    ModuleEmissionContext.BuildApiManifestKey(
+                        propertyDecl.ParentDecl, shape.CSharpName, "()", propertyEnv.TypeDatabase, shape),
+                    asyncPropCtx.GetMethodEntryPointSymbol(accessor.Method));
+            }
         }
 
         propertyDecl.MarkEmitted();

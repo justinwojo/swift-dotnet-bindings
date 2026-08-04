@@ -37,13 +37,13 @@ using System.Text.Json.Serialization;
 ///     a reseed for every newly bound member would make the baseline pure friction.</description></item>
 /// </list></para>
 ///
-/// <para><b>Honest scope.</b> The manifest is written at the generator's overload-disambiguation
-/// chokepoints, which cover methods, constructors, and free functions — the members that carry a
-/// native entry symbol. Properties, subscripts, and type declarations are NOT recorded, so the
-/// removal ratchet detects the disappearance of a symbol-bearing member and nothing else. A type
-/// that loses only its properties, or a type whose declaration vanishes while it had no methods at
-/// all, passes this gate silently. Read a green result as "no symbol-bearing member disappeared",
-/// never as "the public surface is unchanged".</para>
+/// <para><b>Honest scope.</b> The manifest covers the members that carry a native entry symbol:
+/// methods, constructors and free functions (written at the generator's overload-disambiguation
+/// chokepoints, which give them their post-collision C# signature) plus properties and subscripts
+/// (written at their own emission points and keyed by accessor). Type declarations are NOT
+/// recorded, so a type whose declaration vanishes while it had no symbol-bearing member at all
+/// passes this gate silently. Read a green result as "no symbol-bearing member disappeared", never
+/// as "the public surface is unchanged".</para>
 /// </summary>
 public record ApiManifestBaseline
 {

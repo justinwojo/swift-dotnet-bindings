@@ -953,6 +953,15 @@ public static class ExistentialBypassEmitter
         {
             WrapperEmitter.EmitSuppressedProxyReadPoison(csWriter);
         }
+        // The bypass emits a *reduced* parameter list — every omittable existential argument is
+        // dropped and supplied by Swift's own default — so the declared parameter types describe a
+        // signature that was never written. Record what was, so the API manifest names this member
+        // with the arity a caller sees.
+        env.EmissionContext?.RecordEmittedApiShape(
+            env.MethodDecl,
+            csharpName: methodName,
+            parameterPortion: ModuleEmissionContext.FormatParameterPortion(
+                reducedWrapperSig.ApiSurfaceParameterTypes()));
         csWriter.WriteLine($"{accessModifier} {unsafeModifier}{returnTypeKeyword} {methodName}({paramString})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
@@ -1208,7 +1217,14 @@ public static class ExistentialBypassEmitter
             csWriter.WriteLine();
         }
 
-        // Emit factory method
+        // Emit factory method. As on the method path the parameter list is reduced, and the member
+        // is emitted as a static factory rather than a constructor — record both halves so the API
+        // manifest names the factory a caller sees instead of the declared initializer.
+        env.EmissionContext?.RecordEmittedApiShape(
+            env.MethodDecl,
+            csharpName: factoryName,
+            parameterPortion: ModuleEmissionContext.FormatParameterPortion(
+                reducedWrapperSig.ApiSurfaceParameterTypes()));
         csWriter.WriteLine($"{accessModifier} static unsafe {typeName} {factoryName}({paramString})");
         csWriter.WriteLine("{");
         csWriter.Indent++;

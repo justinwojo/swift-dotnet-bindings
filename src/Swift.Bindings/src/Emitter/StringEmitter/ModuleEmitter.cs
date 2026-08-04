@@ -190,6 +190,15 @@ namespace BindingsGeneration
                 // what the generator actually emitted instead of a hand-authored (drift-prone) list.
                 ApiSurfaceDocEmitter.Emit(moduleDecl.Name, @namespace, emissionContext, _outputDirectory, _logger);
 
+                // Both artifacts above describe the C# that was just written, but neither is derived
+                // from it — they are accumulated at emission chokepoints, while the declaration is
+                // written later by whichever emitter claims the member and may reshape its name or
+                // parameter list on the way. A record with no emitted counterpart still compiles and
+                // still passes every test; it only fails a consumer who calls what it promised. So the
+                // agreement is checked here, against the same text WriteModuleFiles just split into
+                // files, and a discrepancy fails the generator.
+                ApiSurfaceReconciler.Verify(moduleDecl.Name, emissionContext, wholeOutput);
+
                 string swiftOutputPath = Path.Combine(_outputDirectory, $"{@namespace}.Wrapper.swift");
                 // Module/type-name collision rewrite (formerly Pattern 5 in SwiftWrapperPostProcessor):
                 // when the module has a public type with the same name as the module, bare

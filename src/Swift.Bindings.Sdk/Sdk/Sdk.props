@@ -88,6 +88,12 @@
     <!-- NOTE: SwiftAppleFrameworkMinDeploymentVersion default is set in Sdk.targets,
          alongside the rest of the platform-derived properties (see note above). -->
 
+    <!-- The generated {namespace}.api-surface.md is packed as the binding package's readme, so
+         nuget.org shows the member list the generator actually emitted. Set to false to pack
+         without one. A project that sets its own PackageReadmeFile, or has a README.md of its
+         own, already keeps it — this only fills the otherwise-empty case. -->
+    <SwiftBindingPackApiSurfaceReadme Condition="'$(SwiftBindingPackApiSurfaceReadme)' == ''">true</SwiftBindingPackApiSurfaceReadme>
+
     <!-- Register our pack target for per-TFM content collection.
          This is how .NET SDK's NuGet pack discovers per-TFM pack items
          in multi-TFM projects (via _WalkEachTargetPerFramework). -->

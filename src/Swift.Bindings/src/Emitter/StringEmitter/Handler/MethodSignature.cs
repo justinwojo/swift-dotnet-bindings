@@ -16,7 +16,13 @@ namespace BindingsGeneration
     /// When set, GetCallArgumentString uses this instead of Name for the call argument value.</param>
     public record Parameter(MarshalledType Type, string Name, string modifier = "", string? DefaultValue = null, string? CallExpression = null)
     {
-        public string CallString()
+        public string CallString() => $"{TypeString()} {Name}";
+
+        /// <summary>
+        /// The parameter's public C# type, with no name and no modifier. This is the type as it
+        /// appears in the emitted declaration, so it is what an API-surface record must name.
+        /// </summary>
+        public string TypeString()
         {
             var typeStr = Type switch
             {
@@ -50,7 +56,7 @@ namespace BindingsGeneration
                 MarshalledType.Simple(var csharpType) => csharpType,
                 _ => "unknown"
             };
-            return $"{typeStr} {Name}";
+            return typeStr;
         }
 
         /// <summary>
@@ -158,6 +164,15 @@ namespace BindingsGeneration
         /// Used by failable factory (TryCreate) where trailing 'out' param makes defaults invalid.
         /// </summary>
         public string ParametersStringWithoutDefaults() => string.Join(", ", Parameters.Select(p => p.SignatureString()));
+
+        /// <summary>
+        /// The parameter types as an API-surface record sees them: public type, no parameter name,
+        /// no default value, but keeping any <c>ref</c>/<c>out</c> modifier — C#'s own overload
+        /// identity treats those as distinguishing, so dropping them could collapse two distinct
+        /// emitted members onto one manifest key.
+        /// </summary>
+        public IEnumerable<string> ApiSurfaceParameterTypes() => Parameters.Select(p =>
+            string.IsNullOrWhiteSpace(p.modifier) ? p.TypeString() : $"{p.modifier.Trim()} {p.TypeString()}");
 
         /// <summary>
         /// Returns the parameters string with optional per-parameter attribute prefixes.

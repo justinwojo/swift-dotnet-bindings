@@ -177,6 +177,40 @@ public class ApiManifestBaselineTests
     }
 
     [Fact]
+    public void Compare_DroppedPropertyOrSubscript_BlocksTheGate()
+    {
+        // The manifest covers properties and subscripts, not just methods, so the ratchet has to
+        // hold over their key shapes too — a property key carries no parameter list and a subscript
+        // key uses brackets. Neither is a shape the method-signature cases above exercise, and a
+        // deleted property is exactly as much of a source break for a consumer as a deleted method.
+        var baseline = Seeded(
+            E("Foo.Bar(int)", "SBW_A"),
+            E("Foo.Amount", "SYM_amount_get"),
+            E("Foo.this[int]", "SYM_subscript_get"));
+
+        var comparison = baseline.Compare(new[] { E("Foo.Bar(int)", "SBW_A") });
+
+        Assert.Empty(comparison.Retargets);
+        Assert.Equal(2, comparison.Removed.Count);
+        Assert.Contains(comparison.Removed, r => r.Contains("Foo.Amount"));
+        Assert.Contains(comparison.Removed, r => r.Contains("Foo.this[int]"));
+        Assert.True(comparison.HasBlockingFindings);
+    }
+
+    [Fact]
+    public void Compare_PropertyAccessorRetargeted_IsRetarget()
+    {
+        // A property's recorded symbol is its accessor's. Rebinding it — the same C# property now
+        // reading a different native accessor — is the same silent hazard the method case covers.
+        var baseline = Seeded(E("Foo.Amount", "SYM_amount_get"));
+
+        var comparison = baseline.Compare(new[] { E("Foo.Amount", "SYM_other_get") });
+
+        Assert.Single(comparison.Retargets);
+        Assert.True(comparison.HasBlockingFindings);
+    }
+
+    [Fact]
     public void RoundTrip_PreservesEntriesAndSchema()
     {
         var baseline = Seeded(E("Foo.Bar(int)", "SBW_A"), E("Foo.Baz()", "SBW_C"));

@@ -20,8 +20,9 @@ namespace BindingsGeneration
     /// declaration order, so the bare-name owner (and thus the symbol a stable C# signature binds)
     /// can shift if upstream reorders its overloads; the manifest is the durable detector that
     /// surfaces exactly that — any retarget of a stable signature, whatever its cause, is caught
-    /// before it ships. Added/removed members are reported by the gate but are not failures
-    /// (only a retarget on a stable signature breaks the ABI contract).
+    /// before it ships. The ratchet is two-sided: a baselined member that is no longer emitted
+    /// fails too (silent surface shrink, which no compile gate objects to), while an added member
+    /// is reported and never fails.
     /// </summary>
     public static class ApiManifestEmitter
     {

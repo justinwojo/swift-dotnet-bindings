@@ -1275,11 +1275,14 @@ public static class NestedClosureBridge
             returnsClass = returnSpec is NamedTypeSpec rn && !MarshallingHelpers.IsSwiftPrimitive(rn.Name);
         }
 
-        // Build public parameter list
+        // Build public parameter list. The types are also collected on their own, because the
+        // API-surface record names the emitted parameter types without their names.
         var publicParams = new List<string>();
+        var publicParamTypes = new List<string>();
         foreach (var (_, csName, csType, _) in passableNonClosureParams)
         {
             publicParams.Add($"{csType} {csName}");
+            publicParamTypes.Add(csType);
         }
 
         // Add delegate params for each outer closure
@@ -1303,6 +1306,7 @@ public static class NestedClosureBridge
                 ? $"Action<{string.Join(", ", outerDelegateTypeArgs)}>"
                 : "Action";
             publicParams.Add($"{delegateType} {nc.ParamName}");
+            publicParamTypes.Add(delegateType);
         }
 
         // Use env.CSharpMethodName so the projected-signature collision suffix from
@@ -1323,6 +1327,15 @@ public static class NestedClosureBridge
         var declarator = isCtor
             ? $"public unsafe {ctorTypeName}"
             : $"public {staticKeyword}unsafe {returnType} {methodName}";
+
+        // This bridge writes its own declaration rather than going through WrapperEmitter, so it
+        // owns telling the API surface what it emitted — the name (a constructor's is the type's)
+        // and the bridged parameter list, which is not the one the projected signature describes.
+        env.EmissionContext?.RecordEmittedApiShape(
+            method,
+            csharpName: isCtor ? ctorTypeName : methodName,
+            parameterPortion: ModuleEmissionContext.FormatParameterPortion(publicParamTypes));
+
         csWriter.WriteLine($"{declarator}({string.Join(", ", publicParams)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;

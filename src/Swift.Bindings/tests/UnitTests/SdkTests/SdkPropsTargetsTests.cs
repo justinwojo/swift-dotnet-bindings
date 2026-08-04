@@ -5,6 +5,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Xunit;
@@ -184,6 +185,16 @@ namespace BindingsGeneration.Tests
         {
             Assert.Contains("<SwiftGenerateDocComments Condition=", PropsContent);
             Assert.Contains(">true</SwiftGenerateDocComments>", PropsContent);
+        }
+
+        [Fact]
+        public void Props_DefaultsPackingTheApiSurfaceDocAsTheReadme()
+        {
+            // On by default: a binding package that ships no readme shows a consumer nothing on
+            // nuget.org, and the generated surface doc is the one description that cannot drift
+            // from the shipped API. The opt-out exists, but opting IN must not be required.
+            Assert.Contains("<SwiftBindingPackApiSurfaceReadme Condition=", PropsContent);
+            Assert.Contains(">true</SwiftBindingPackApiSurfaceReadme>", PropsContent);
         }
 
         private static string FindRepoRoot()
@@ -436,9 +447,10 @@ namespace BindingsGeneration.Tests
             // Pack paths use _SwiftBindingPackTfm (version-qualified) not raw $(TargetFramework)
             Assert.Contains("buildTransitive/$(_SwiftBindingPackTfm)/", TargetsContent);
             Assert.Contains("runtimes/$(_SwiftBindingNuGetRid)/native/", TargetsContent);
-            // Pack target runs before _GetPackageFiles (not GenerateNuspec) so items are
-            // collected before NuGet freezes the file list
-            Assert.Contains("_GetPackageFiles", TargetsContent);
+            // The layout is contributed per-TFM (see Targets_PackTargetUsesPerTfmContentMechanism),
+            // so the items are TfmSpecificPackageFile — not None/Pack items the outer build's
+            // _GetPackageFiles would collect.
+            Assert.Contains("<TfmSpecificPackageFile", TargetsContent);
         }
 
         [Fact]
@@ -449,7 +461,19 @@ namespace BindingsGeneration.Tests
             // _WalkEachTargetPerFramework collects during multi-TFM pack. This replaces the
             // old BeforeTargets="_GetPackageFiles" approach which only worked for single-TFM.
             Assert.Contains("Returns=\"@(TfmSpecificPackageFile)\"", TargetsContent);
-            Assert.DoesNotContain("BeforeTargets=\"_GetPackageFiles\"", TargetsContent);
+
+            // Package CONTENT must never regress to that single-TFM-only hook. Exactly one target
+            // is allowed to anchor there: _SetSwiftBindingPackageReadme, which contributes no
+            // per-TFM content — it sets $(PackageReadmeFile), a property only the OUTER build's
+            // GenerateNuspec reads, and which an inner-build (per-TFM) target structurally cannot
+            // set. Any other name appearing here is content taking the single-TFM path again.
+            var anchoredOnGetPackageFiles = Regex.Matches(TargetsContent, @"<Target\s[^>]*>")
+                .Select(m => m.Value)
+                .Where(tag => Regex.Match(tag, @"BeforeTargets=""([^""]*)""").Groups[1].Value
+                    .Split(';').Any(t => t.Trim() == "_GetPackageFiles"))
+                .Select(tag => Regex.Match(tag, @"Name=""([^""]+)""").Groups[1].Value)
+                .ToArray();
+            Assert.Equal(new[] { "_SetSwiftBindingPackageReadme" }, anchoredOnGetPackageFiles);
         }
 
         [Fact]

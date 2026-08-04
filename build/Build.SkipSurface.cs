@@ -29,9 +29,10 @@
 // count-based ratchet reads that amputation as an improvement. So every
 // GONE/DOWN row is cross-referenced against the API manifest: if the declaring
 // type no longer contributes any symbol-bearing member, the row is reclassified
-// as a regression instead of being logged with a checkmark. Same blind spot as
-// the manifest itself — properties and subscripts are not recorded, so the
-// cross-reference only speaks for types that had at least one method or ctor.
+// as a regression instead of being logged with a checkmark. The cross-reference
+// inherits the manifest's scope: it speaks for types that had at least one
+// symbol-bearing member (method, ctor, property or subscript), not for a type
+// that only ever declared nested types or constants.
 //
 // Introducing a new authored skip key: run
 // `nuke binding-tests --compile-only --skip-surface`, let it fail, and copy the

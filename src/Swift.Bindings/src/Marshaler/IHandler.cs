@@ -771,8 +771,13 @@ namespace BindingsGeneration
                             // its post-collision C# signature → the entry symbol the P/Invoke binds.
                             // Recorded here (not in a later model walk) because env.CSharpMethodName's
                             // collision suffix is only known inside this disambiguation loop.
+                            // Emit() ran just above, so any declaration writer that emitted a name or
+                            // parameter list other than the declared one (a constructor, a failable or
+                            // async init, an existential-bypass or metatype-array bridge) has already
+                            // recorded what it wrote; prefer that over the pre-emission shape.
                             emissionCtx.RecordApiManifestEntry(
-                                ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, env.CSharpMethodName, projectedKey, env.TypeDatabase),
+                                ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, env.CSharpMethodName, projectedKey, env.TypeDatabase,
+                                    emissionCtx.GetEmittedApiShape(methodDecl)),
                                 env.EmissionSymbol);
                         }
                         // AF13: stash the emission-time symbol this method settled on, keyed by

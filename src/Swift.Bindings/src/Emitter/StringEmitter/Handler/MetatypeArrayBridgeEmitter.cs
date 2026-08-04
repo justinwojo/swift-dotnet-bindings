@@ -144,6 +144,19 @@ public static class MetatypeArrayBridgeEmitter
         var wrapperEmitter = new WrapperEmitter(normalizedEnv, signatureHandler, fallbackInfo, emissionContext);
         wrapperEmitter.EmitMethod(csWriter, swiftWriter);
         PInvokeEmitter.EmitPInvoke(csWriter, normalizedEnv, signatureHandler);
+
+        // The public declaration was written from the *normalized* decl, where each metatype array
+        // became a raw pointer + count pair, so the original decl's parameter types describe a
+        // signature that was never emitted. The wrapper emitter recorded the emitted shape against
+        // the clone; re-record it against the decl the API manifest keys on.
+        if (emissionContext != null)
+        {
+            var emittedShape = emissionContext.GetEmittedApiShape(normalized);
+            emissionContext.RecordEmittedApiShape(
+                methodDecl,
+                csharpName: emittedShape.CSharpName ?? normalizedEnv.CSharpMethodName,
+                parameterPortion: emittedShape.ParameterPortion);
+        }
         return true;
     }
 

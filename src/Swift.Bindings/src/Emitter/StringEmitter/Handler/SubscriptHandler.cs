@@ -403,6 +403,12 @@ namespace BindingsGeneration
                                 if (promotedSymbol != null)
                                     accessorEnv.PromoteSymbol(promotedSymbol);
                                 methodHandler.Emit(csWriter, swiftWriter, accessorEnv, conductor, context);
+                                // Emitted here rather than through IHandler's type-body loop, so its
+                                // post-emit side-table write never fires — record the promoted symbol
+                                // at this site, keyed on the reference the manifest record path looks
+                                // up, so the manifest names the EntryPoint the P/Invoke actually binds.
+                                context.GetEmissionContext()?.RecordMethodEmissionSymbol(
+                                    accessor.Method, accessorEnv.EmissionSymbol);
                             }
                         }
 
@@ -462,7 +468,7 @@ namespace BindingsGeneration
             // indexer won't be shadowed by a convenience nint→int overload from an earlier subscript.
             foreach (var (decl, retType, pInfos) in convenienceCandidates)
             {
-                NativeIntOverloadEmitter.TryEmitIndexerOverload(csWriter, decl, retType, pInfos, emittedKeys, context.GetEmissionContext());
+                NativeIntOverloadEmitter.TryEmitIndexerOverload(csWriter, decl, retType, pInfos, emittedKeys, context.GetEmissionContext(), typeDatabase);
             }
         }
 
@@ -528,6 +534,9 @@ namespace BindingsGeneration
             }
 
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, subscriptDecl, subscriptDecl.ParentDecl, emitObsolete: true);
+            // Record the indexer against the same index types the declaration below is written from.
+            emissionContext?.RecordSubscriptApiManifestEntry(
+                subscriptDecl, paramInfos.Select(p => p.typeName), typeDatabase);
             csWriter.WriteLine($"public {returnTypeName} this[{paramList}]");
             csWriter.WriteLine("{");
             csWriter.Indent++;

@@ -9,6 +9,19 @@ namespace BindingsGeneration
     internal partial class WrapperEmitter
     {
         /// <summary>
+        /// The API-manifest parameter portion for the declaration this emitter is about to write.
+        /// Taken from the same wrapper signature the declaration itself renders from, so the
+        /// recorded shape cannot drift from the emitted one.
+        /// </summary>
+        private string BuildEmittedParameterPortion(bool includeCancellationToken = false)
+        {
+            var types = _wrapperSignature.ApiSurfaceParameterTypes();
+            if (includeCancellationToken)
+                types = types.Append("global::System.Threading.CancellationToken");
+            return ModuleEmissionContext.FormatParameterPortion(types);
+        }
+
+        /// <summary>
         /// Emits the constructor signature.
         /// </summary>
         /// <param name="csWriter">The IndentedTextWriter instance.</param>
@@ -19,6 +32,14 @@ namespace BindingsGeneration
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.IsSynthesizedAccessor);
             // Use the resolved C# type name (may be renamed for nested type collision avoidance)
             var constructorName = GetResolvedTypeName();
+
+            // A constructor is emitted under the type's own name; CSharpMethodName holds only the
+            // internal dedup identity for it. Record the emitted name so the API manifest keys the
+            // member a consumer can actually call.
+            _emissionContext.RecordEmittedApiShape(
+                _env.MethodDecl,
+                csharpName: constructorName,
+                parameterPortion: BuildEmittedParameterPortion());
 
             if (_env.ParentDecl is ClassDecl cd && cd.IsObjCRooted)
             {
@@ -97,6 +118,15 @@ namespace BindingsGeneration
             var methodName = isAsyncConstructor
                 ? NameProvider.GetMethodName("createAsync", _env.SiblingPropertyNames)
                 : _env.CSharpMethodName;
+
+            // An async constructor emits as a static factory under a name this site chooses, not
+            // under CSharpMethodName; an async method carries a trailing CancellationToken the
+            // declared signature has no parameter for. Record what is about to be written so the
+            // API manifest describes the member as a caller sees it.
+            _emissionContext.RecordEmittedApiShape(
+                _env.MethodDecl,
+                csharpName: methodName,
+                parameterPortion: BuildEmittedParameterPortion(_requiresSwiftAsync));
 
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.IsSynthesizedAccessor);
             // Async methods get CancellationToken as the last parameter

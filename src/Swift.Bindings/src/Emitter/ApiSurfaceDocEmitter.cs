@@ -19,11 +19,12 @@ namespace BindingsGeneration
     /// omits ones it did). Because this table is regenerated from what the generator actually
     /// emitted on every build, a README that derives its member list from it cannot drift.
     ///
-    /// Scope note: the table lists the members the API manifest records — emitted methods and free
-    /// functions, whose post-collision C# signatures are captured at the overload-disambiguation
-    /// chokepoints. Properties and subscripts carry no overload disambiguation and are not recorded
-    /// there, so they are not enumerated here yet; the header states this so a reader never mistakes
-    /// their absence for "the binding has no properties."
+    /// Scope note: the table lists the members the API manifest records — emitted methods, free
+    /// functions, properties and subscripts. Methods and free functions are captured at the
+    /// overload-disambiguation chokepoints, which give them their post-collision C# signature;
+    /// properties and subscripts carry no overload disambiguation, so they are recorded at their own
+    /// emission points and appear under their emitted C# name (a property with no parameter list, a
+    /// subscript as <c>this[…]</c>).
     /// </summary>
     public static class ApiSurfaceDocEmitter
     {
@@ -62,10 +63,9 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Renders the Markdown member table from the manifest signature keys. Pure function of the
-        /// key set — no I/O — so it is unit-testable directly against a manifest. Each key has the
-        /// shape <c>{ContainingType.Path}.{Member}({params})</c> (or <c>{Member}({params})</c> for a
-        /// free function); the first <c>'('</c> reliably splits the name from the parameter list even
-        /// when a projected parameter type contains parentheses.
+        /// key set — no I/O — so it is unit-testable directly against a manifest. Splitting a key
+        /// into its containing-type path and its member is the exact inverse of how the key was
+        /// built, so it is done by the key builders' own core rather than re-derived here.
         /// </summary>
         internal static string Render(string moduleName, IEnumerable<string> manifestKeys)
         {
@@ -73,12 +73,8 @@ namespace BindingsGeneration
             var groups = new SortedDictionary<string, SortedSet<string>>(StringComparer.Ordinal);
             foreach (var key in manifestKeys)
             {
-                int paren = key.IndexOf('(');
-                string namePortion = paren >= 0 ? key.Substring(0, paren) : key;
-                string paramPortion = paren >= 0 ? key.Substring(paren) : "()";
-                int lastDot = namePortion.LastIndexOf('.');
-                string heading = lastDot >= 0 ? namePortion.Substring(0, lastDot) : FreeFunctionsHeading;
-                string member = (lastDot >= 0 ? namePortion.Substring(lastDot + 1) : namePortion) + paramPortion;
+                var (parentPath, member) = ModuleEmissionContext.SplitApiManifestKey(key);
+                string heading = parentPath.Length > 0 ? parentPath : FreeFunctionsHeading;
 
                 if (!groups.TryGetValue(heading, out var members))
                     groups[heading] = members = new SortedSet<string>(StringComparer.Ordinal);
@@ -92,8 +88,8 @@ namespace BindingsGeneration
             sb.Append("  Regenerated on every binding build from the emitted member set (the post-collision\n");
             sb.Append("  C# signatures the generator actually emitted). Point any consumer-facing README member\n");
             sb.Append("  list at this file so documentation cannot drift from the shipped API.\n");
-            sb.Append("  Scope: emitted methods and free functions. Properties and subscripts are not enumerated\n");
-            sb.Append("  here yet — their absence does not mean the binding has none.\n");
+            sb.Append("  Scope: the emitted public members — methods, free functions, properties and subscripts.\n");
+            sb.Append("  A member listed without a parameter list is a property; an indexer appears as `this[...]`.\n");
             sb.Append("-->\n");
 
             foreach (var (heading, members) in groups)

@@ -19,10 +19,11 @@
 // so silent surface shrink is exactly the failure mode with no natural detector. Newly added
 // members are reported but never fail; growing the bound surface is the direction of travel.
 //
-// Scope, honestly: the generator records the manifest at its overload-disambiguation chokepoints,
-// which cover methods, constructors, and free functions — the members carrying a native entry
-// symbol. Properties, subscripts, and type declarations are NOT recorded, so a green gate means
-// "no symbol-bearing member disappeared", not "the public surface is unchanged".
+// Scope, honestly: the manifest records the members that carry a native entry symbol — methods,
+// constructors and free functions (at the overload-disambiguation chokepoints, which give them
+// their post-collision C# signature) plus properties and subscripts (at their own emission points,
+// keyed by accessor). Type declarations are NOT recorded, so a green gate means "no symbol-bearing
+// member disappeared", not "the public surface is unchanged".
 //
 // Fail-closed by default (consistent with the rest of --compile-only); `--permissive` downgrades
 // to warnings for local exploration. Reseed with `nuke SeedApiManifestBaseline` after an

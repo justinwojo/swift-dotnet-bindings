@@ -1668,9 +1668,12 @@ public sealed class ModuleEmissionContext
     // the key unique within a type body, and parent-qualification separates types, so
     // a collision here would be a manifest-key bug rather than a retarget — the gate
     // compares baseline↔current on matching keys, so any stable key affects both
-    // sides equally. Properties/subscripts are intentionally out of v1 scope: they
-    // carry no overload disambiguation, so they are not the "same C# name retargets to
-    // a different symbol" hazard the gate guards.
+    // sides equally. Properties and subscripts are recorded too — they carry no
+    // overload disambiguation, so they are not the "same C# name retargets to a
+    // different symbol" hazard the gate was built for, but recording them makes the
+    // manifest (and the api-surface doc derived from it) the whole emitted public
+    // surface rather than its method half, and extends the gate's removal detection
+    // over them.
     private readonly SortedDictionary<string, string> _apiManifest = new(StringComparer.Ordinal);
 
     /// <summary>
@@ -1690,17 +1693,210 @@ public sealed class ModuleEmissionContext
     /// name and the projected C# parameter portion of <paramref name="projectedKey"/>. The
     /// method/free-function name always precedes its parameter list, so the first '(' reliably
     /// splits name from params even when a projected param type contains parentheses.
+    /// <paramref name="emitted"/> overrides either half with what the declaration writer
+    /// actually wrote, for the members whose emitted shape diverges from the declared one.
     /// </summary>
     public static string BuildApiManifestKey(BaseDecl? parent, string csharpName, string projectedKey,
-        ITypeDatabase? typeDatabase = null)
+        ITypeDatabase? typeDatabase = null, EmittedApiShape emitted = default)
     {
         int paren = projectedKey.IndexOf('(');
         string paramPortion = paren >= 0 ? projectedKey.Substring(paren) : "()";
+        if (emitted.ParameterPortion is { } emittedParams)
+        {
+            // Only the parameter list was reshaped — anything the projected key carries *past*
+            // its parameter list (the `N generic-arity marker) still describes the member and is
+            // preserved, so a reshaped generic method keeps its arity in the key.
+            int close = paren >= 0 ? IndexOfMatchingParen(projectedKey, paren) : -1;
+            paramPortion = emittedParams + (close >= 0 ? projectedKey.Substring(close + 1) : "");
+        }
         string parentPath = BuildParentPath(parent, typeDatabase);
+        string name = emitted.CSharpName ?? csharpName;
         return parentPath.Length > 0
-            ? $"{parentPath}.{csharpName}{paramPortion}"
-            : $"{csharpName}{paramPortion}";
+            ? $"{parentPath}.{name}{paramPortion}"
+            : $"{name}{paramPortion}";
     }
+
+    /// <summary>
+    /// Builds the API-manifest key for an emitted property: the parent-type path plus the settled
+    /// C# property name. A property has no parameter list, so the key carries no parentheses —
+    /// which is also what distinguishes it from a zero-parameter method of the same name.
+    /// </summary>
+    public static string BuildPropertyApiManifestKey(BaseDecl? parent, string csharpName,
+        ITypeDatabase? typeDatabase = null)
+    {
+        string parentPath = BuildParentPath(parent, typeDatabase);
+        return parentPath.Length > 0 ? $"{parentPath}.{csharpName}" : csharpName;
+    }
+
+    /// <summary>
+    /// Builds the API-manifest key for an emitted subscript: the parent-type path plus
+    /// <c>this[…]</c> over the emitted C# index parameter types — the member as a caller spells it.
+    /// </summary>
+    public static string BuildSubscriptApiManifestKey(BaseDecl? parent, IEnumerable<string> indexTypes,
+        ITypeDatabase? typeDatabase = null)
+    {
+        string parentPath = BuildParentPath(parent, typeDatabase);
+        string member = "this[" + string.Join(",", indexTypes) + "]";
+        return parentPath.Length > 0 ? $"{parentPath}.{member}" : member;
+    }
+
+    /// <summary>
+    /// Records an emitted subscript — the primary indexer or its convenience int/uint overload —
+    /// in the API manifest under the C# indexer spelling <c>this[…]</c> over
+    /// <paramref name="indexTypes"/>. The entry symbol covers both accessors (see
+    /// <see cref="BuildAccessorEntrySymbol"/>), falling back to the subscript's own mangled name
+    /// when it has neither.
+    /// </summary>
+    public void RecordSubscriptApiManifestEntry(SubscriptDecl subscriptDecl,
+        IEnumerable<string> indexTypes, ITypeDatabase? typeDatabase = null)
+    {
+        string symbol = BuildAccessorEntrySymbol(subscriptDecl.Accessors) ?? subscriptDecl.MangledName;
+        RecordApiManifestEntry(
+            BuildSubscriptApiManifestKey(subscriptDecl.ParentDecl, indexTypes, typeDatabase),
+            symbol);
+    }
+
+    /// <summary>
+    /// The manifest entry symbol for an accessor-backed member (property or subscript): a member
+    /// with both accessors carries BOTH native symbols, joined by '|' in get-then-set order, and a
+    /// member with one carries that one bare.
+    /// <para>
+    /// A property is one manifest key but two native entry points, and they retarget independently
+    /// — the setter of a read/write property can bind a different symbol while the getter is
+    /// untouched. Recording the getter alone would let exactly that half of the ABI contract move
+    /// without the gate seeing it. Joining rather than emitting two keys keeps one manifest entry
+    /// per consumer-visible member, so the api-surface doc, the key scheme and the reconciler are
+    /// all unaffected; '|' never appears in a mangled Swift symbol, so the pair stays splittable.
+    /// </para>
+    /// Returns null when the member has no accessor carrying a symbol.
+    /// </summary>
+    public string? BuildAccessorEntrySymbol(IReadOnlyList<AccessorDecl> accessors)
+    {
+        var getter = accessors.OfType<GetAccessorDecl>().FirstOrDefault()?.Method;
+        var setter = accessors.OfType<SetAccessorDecl>().FirstOrDefault()?.Method;
+        if (getter is not null && setter is not null)
+            return $"{GetMethodEntryPointSymbol(getter)}|{GetMethodEntryPointSymbol(setter)}";
+        var single = getter ?? setter;
+        return single is null ? null : GetMethodEntryPointSymbol(single);
+    }
+
+    /// <summary>
+    /// The native symbol an accessor's manifest entry names: the entry point its P/Invoke actually
+    /// binds, resolved through the same <see cref="PInvokeEmitter.ComputeEntryPoint(MethodDecl, string)"/>
+    /// the accessor's own declaration went through.
+    /// <para>
+    /// The promoted emission symbol is the BASE of that entry point, not the entry point: an
+    /// async accessor reapplies its wrapper-kind suffix on top of it, and a directly-called
+    /// non-final class accessor doesn't use the base at all — it binds the <c>…Tj</c> dispatch
+    /// thunk the call-target resolver derives from the silgen symbol. Recording the base puts a
+    /// symbol in the manifest that no P/Invoke names, so the retarget gate watches an entry point
+    /// the consumer never calls and stays green through a move in the one it does.
+    /// </para>
+    /// <para>
+    /// Scoped to accessors on purpose. A member emitted by a specialized bridge — a method-level
+    /// generic bridge, a multi-callback closure wrapper, an AsyncStream property bridge — mints its
+    /// P/Invoke name in that bridge rather than here, so resolving through this function would
+    /// name a symbol it never emits (a generic bridge binds <c>…_XM</c> where this reapplies a
+    /// further <c>_XC</c>). Those members keep recording their promoted base symbol, which no
+    /// P/Invoke binds either but is at least the stable per-member identity the gate has always
+    /// compared. Closing that gap needs the bridges to stamp the entry point they wrote, the way
+    /// they already stamp the emitted API shape.
+    /// </para>
+    /// </summary>
+    public string GetMethodEntryPointSymbol(MethodDecl method)
+        => PInvokeEmitter.ComputeEntryPoint(method, GetMethodEmissionSymbolOrMangled(method)).entryPoint;
+
+    /// <summary>
+    /// Splits a manifest key into its parent-type path and member portion — the inverse of the
+    /// <c>Build*ApiManifestKey</c> builders above, and the one place that knows the key's shape.
+    /// A member name always precedes its parameter or index list, so the separating dot is the
+    /// last one before the first '(' or '['; a property key has neither and splits on its last
+    /// dot. The parent path is empty for a free function.
+    /// </summary>
+    public static (string ParentPath, string Member) SplitApiManifestKey(string key)
+    {
+        int paren = key.IndexOf('(');
+        int bracket = key.IndexOf('[');
+        int listStart = paren < 0 ? bracket : bracket < 0 ? paren : Math.Min(paren, bracket);
+
+        int lastDot = listStart < 0 ? key.LastIndexOf('.') : key.LastIndexOf('.', Math.Max(listStart - 1, 0));
+        if (lastDot < 0 || (listStart >= 0 && lastDot >= listStart))
+            return ("", key);
+        return (key.Substring(0, lastDot), key.Substring(lastDot + 1));
+    }
+
+    /// <summary>
+    /// Index of the ')' closing the '(' at <paramref name="openIndex"/>, or -1 when unbalanced.
+    /// Depth-aware so a projected parameter type containing parentheses (a tuple or a closure
+    /// type) does not terminate the scan early.
+    /// </summary>
+    private static int IndexOfMatchingParen(string text, int openIndex)
+    {
+        int depth = 0;
+        for (int i = openIndex; i < text.Length; i++)
+        {
+            if (text[i] == '(') depth++;
+            else if (text[i] == ')' && --depth == 0) return i;
+        }
+        return -1;
+    }
+
+    // ==================== Emitted API Shape Side Table ====================
+
+    // A manifest key names a member a consumer can call, so it has to be built from what the
+    // declaration writer actually wrote. Three shapes make the declared model disagree with it:
+    //   - a constructor emits under the containing type's C# name, while the method environment's
+    //     CSharpMethodName carries an internal dedup identity for it ("GetInit" — the noun→Get
+    //     rule fires on a zero-parameter, value-returning decl) that is emitted nowhere;
+    //   - a failable init emits `static bool TryCreate…(…, out T result)` and an async init emits
+    //     `static Task<T> CreateAsync(…)`, both named inside the wrapper emitter;
+    //   - the existential-bypass and metatype-array bridges emit a *reshaped* parameter list
+    //     (a defaulted unsupported-existential parameter dropped; a metatype array split into a
+    //     raw pointer + count pair), so the declared parameter types describe a signature that
+    //     was never written.
+    // Whoever writes the declaration records what it wrote here, and the manifest key prefers it.
+    // The record is optional per axis: a writer records only the axis it owns, and a member whose
+    // emitted shape matches its declared one records nothing. Nothing enforces that a *new*
+    // divergent writer remembers to record — the api-surface reconciler does, by failing the
+    // generator when a manifest entry names no member in the emitted C#.
+    //
+    // Keyed by MethodDecl reference identity, same rationale as the emission-symbol table above.
+    private readonly Dictionary<MethodDecl, EmittedApiShape> _emittedApiShapes =
+        new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// The public C# name and/or parameter portion (including the enclosing parentheses) that a
+    /// declaration writer actually emitted for a method. Either half may be null, meaning
+    /// "declared shape is accurate for this axis".
+    /// </summary>
+    public readonly record struct EmittedApiShape(string? CSharpName, string? ParameterPortion);
+
+    /// <summary>
+    /// Records the emitted public shape of <paramref name="methodDecl"/>. Merges per axis, so the
+    /// name writer and the parameter-list writer can be different emitters.
+    /// </summary>
+    public void RecordEmittedApiShape(MethodDecl methodDecl, string? csharpName = null,
+        string? parameterPortion = null)
+    {
+        _emittedApiShapes.TryGetValue(methodDecl, out var existing);
+        _emittedApiShapes[methodDecl] = new EmittedApiShape(
+            csharpName ?? existing.CSharpName,
+            parameterPortion ?? existing.ParameterPortion);
+    }
+
+    /// <summary>
+    /// The recorded emitted shape for <paramref name="methodDecl"/>, or a shape with both halves
+    /// null when nothing was recorded (the declared shape is then used as-is).
+    /// </summary>
+    public EmittedApiShape GetEmittedApiShape(MethodDecl methodDecl) =>
+        _emittedApiShapes.TryGetValue(methodDecl, out var shape) ? shape : default;
+
+    /// <summary>
+    /// Formats a parameter-type list as a manifest-key parameter portion, matching the projected
+    /// key's shape (comma-separated, no spaces, enclosing parentheses).
+    /// </summary>
+    public static string FormatParameterPortion(IEnumerable<string> parameterTypes) =>
+        "(" + string.Join(",", parameterTypes) + ")";
 
     private static string BuildParentPath(BaseDecl? parent, ITypeDatabase? typeDatabase)
     {

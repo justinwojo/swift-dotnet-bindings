@@ -97,6 +97,14 @@ namespace BindingsGeneration
             // is recovered under a distinguishing-label-suffixed factory name (e.g. TryCreateWithMessengerPageId);
             // the first-declared/no-collision case keeps the plain "TryCreate".
             var factoryName = _env.FailableFactoryName ?? "TryCreate";
+            // A failable init emits neither under its declared name nor with its declared parameter
+            // list: it becomes a static factory carrying an extra trailing `out` result. Record both
+            // halves so the API manifest describes the member that was written.
+            _emissionContext.RecordEmittedApiShape(
+                _env.MethodDecl,
+                csharpName: factoryName,
+                parameterPortion: ModuleEmissionContext.FormatParameterPortion(
+                    _wrapperSignature.ApiSurfaceParameterTypes().Append($"out {typeName}")));
             csWriter.WriteLine($"{accessModifier} static bool {factoryName}({_wrapperSignature.ParametersStringWithoutDefaults()}{(_wrapperSignature.Parameters.Count > 0 ? ", " : "")}out {typeName} {resultName})");
             // ABI floor, same contract as the method and constructor paths: capture the body start so a
             // failable init with no ABI-correct call route can have its call replaced by a throw once the

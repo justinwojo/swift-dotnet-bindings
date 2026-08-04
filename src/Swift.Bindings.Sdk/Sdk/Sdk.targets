@@ -31,6 +31,14 @@
        In .props it evaluates to empty, causing output to land in project root. -->
   <PropertyGroup>
     <_SwiftBindingIntermediateDir>$(IntermediateOutputPath)swift-binding/</_SwiftBindingIntermediateDir>
+    <!-- Deliberately NOT under $(IntermediateOutputPath): the per-TFM inner builds write here and
+         the outer build reads it, so the path has to be one both agree on. Each inner build owns
+         exactly ONE file — its own TFM's fragment — so cross-targeting builds, which run their
+         inner builds concurrently, never write the same path; the outer build then combines the
+         fragments into the single README the package ships. -->
+    <_SwiftBindingReadmeStageDir>$(BaseIntermediateOutputPath)swift-binding-readme/</_SwiftBindingReadmeStageDir>
+    <_SwiftBindingTfmReadmeFragment>$(_SwiftBindingReadmeStageDir)$(TargetFramework).api-surface.md</_SwiftBindingTfmReadmeFragment>
+    <_SwiftBindingStagedReadme>$(_SwiftBindingReadmeStageDir)README.md</_SwiftBindingStagedReadme>
   </PropertyGroup>
 
   <!-- Bridge the optional generator-timeout properties to the generator process as environment
@@ -4038,6 +4046,93 @@ TARGETSEOF"
     <Exec Command="dotnet exec &quot;$(_SwiftBindingGeneratorDir)Swift.Bindings.dll&quot; --slice-xcframework --xcframework &quot;%(SwiftFramework.Identity)&quot; --rid $(_SwiftBindingNuGetRid) -o &quot;$(_StagedSourceXcfwDir)&quot;"
           ConsoleToMSBuild="true" />
     <Touch Files="$(_StagedSourceXcfwStamp)" AlwaysCreate="true" />
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 7b''': Stage the generated API-surface doc as the package README -->
+  <!--                                                                         -->
+  <!-- A binding package otherwise ships with no readme at all, so nuget.org   -->
+  <!-- shows a consumer nothing about what the package contains. The generator -->
+  <!-- already writes {namespace}.api-surface.md — the member table derived    -->
+  <!-- from what it actually emitted — so that IS the readme: it cannot drift  -->
+  <!-- from the shipped API the way a hand-written one does.                   -->
+  <!--                                                                         -->
+  <!-- Two targets, because the two halves live in different builds. The stage -->
+  <!-- runs per-TFM (that is where the generator output lives) and writes THAT -->
+  <!-- TFM's fragment; the combine-and-name half must run in the OUTER build,  -->
+  <!-- because PackageReadmeFile is read by GenerateNuspec there and an        -->
+  <!-- inner-build property never reaches it.                                  -->
+  <!--                                                                         -->
+  <!-- A run that binds several Swift modules emits one doc each; they are     -->
+  <!-- concatenated rather than one being picked, so the readme describes the  -->
+  <!-- whole package.                                                          -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="_StageSwiftBindingApiSurfaceReadme"
+          BeforeTargets="_ConfigureSwiftBindingPack"
+          Condition="'$(IsPackable)' == 'true' AND '$(TargetFramework)' != ''
+                     AND '$(SwiftBindingPackApiSurfaceReadme)' != 'false'">
+    <ItemGroup>
+      <_SwiftBindingApiSurfaceDoc Include="$(_SwiftBindingIntermediateDir)*.api-surface.md" />
+    </ItemGroup>
+
+    <!-- Unconditional, and BEFORE the write: obj/ survives between packs, so a generation that
+         now emits no surface doc has to clear this TFM's fragment rather than leave the previous
+         run's for the outer build to find. Staleness here would ship a readme describing an API
+         the package no longer contains. -->
+    <Delete Files="$(_SwiftBindingTfmReadmeFragment)" />
+
+    <MakeDir Directories="$(_SwiftBindingReadmeStageDir)"
+             Condition="'@(_SwiftBindingApiSurfaceDoc)' != ''" />
+    <Exec Condition="'@(_SwiftBindingApiSurfaceDoc)' != ''"
+          Command="cat @(_SwiftBindingApiSurfaceDoc->'&quot;%(FullPath)&quot;', ' ') &gt; &quot;$(_SwiftBindingTfmReadmeFragment)&quot;" />
+  </Target>
+
+  <!-- Runs immediately before NuGet collects the package files. _GetPackageFiles belongs to the
+       build that produces the nuspec, and it comes after _WalkEachTargetPerFramework in
+       GenerateNuspecDependsOn — so every inner build has already staged its fragment by the time
+       this combines them, in both the single- and multi-TFM shapes.
+
+       The fragments are enumerated from the project's DECLARED target frameworks, not by globbing
+       the stage directory: that fixes both the order (a cross-targeting pack's readme reads in the
+       order the project lists its TFMs, not in whatever order the filesystem hands back) and the
+       membership (a TFM dropped from the project since the last pack leaves its fragment behind on
+       disk, and enumerating declarations ignores it). The combined file is deleted first for the
+       same staleness reason the fragments are.
+
+       Both halves are deliberately conservative. A project that names its own readme, or ships
+       a README.md of its own, keeps it: taking that over would be surprising, and packing two
+       files to the package root is NU5118. The PackageReadmeFile property is set only when a
+       fragment actually exists, because naming an absent readme is a hard NU5039 error — so
+       a binding whose generator emitted no surface doc simply packs without a readme.
+
+       IncludeContentInPack=false skips _GetPackageFiles entirely, which would leave the readme
+       named but unpacked (NU5039 again), so that configuration opts out too. -->
+  <Target Name="_SetSwiftBindingPackageReadme"
+          BeforeTargets="_GetPackageFiles"
+          Condition="'$(IsPackable)' == 'true'
+                     AND '$(PackageReadmeFile)' == ''
+                     AND '$(IncludeContentInPack)' != 'false'
+                     AND '$(SwiftBindingPackApiSurfaceReadme)' != 'false'
+                     AND !Exists('$(MSBuildProjectDirectory)/README.md')">
+    <ItemGroup>
+      <_SwiftBindingReadmeTfm Include="$(TargetFrameworks)" Condition="'$(TargetFrameworks)' != ''" />
+      <_SwiftBindingReadmeTfm Include="$(TargetFramework)" Condition="'$(TargetFrameworks)' == ''" />
+      <_SwiftBindingReadmeFragment
+          Include="@(_SwiftBindingReadmeTfm->'$(_SwiftBindingReadmeStageDir)%(Identity).api-surface.md')" />
+      <_SwiftBindingReadmeFragmentPresent Include="@(_SwiftBindingReadmeFragment)"
+                                          Condition="Exists('%(Identity)')" />
+    </ItemGroup>
+
+    <Delete Files="$(_SwiftBindingStagedReadme)" />
+    <Exec Condition="'@(_SwiftBindingReadmeFragmentPresent)' != ''"
+          Command="cat @(_SwiftBindingReadmeFragmentPresent->'&quot;%(FullPath)&quot;', ' ') &gt; &quot;$(_SwiftBindingStagedReadme)&quot;" />
+
+    <PropertyGroup Condition="'@(_SwiftBindingReadmeFragmentPresent)' != ''">
+      <PackageReadmeFile>README.md</PackageReadmeFile>
+    </PropertyGroup>
+    <ItemGroup Condition="'@(_SwiftBindingReadmeFragmentPresent)' != ''">
+      <None Include="$(_SwiftBindingStagedReadme)" Pack="true" PackagePath="" />
+    </ItemGroup>
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->

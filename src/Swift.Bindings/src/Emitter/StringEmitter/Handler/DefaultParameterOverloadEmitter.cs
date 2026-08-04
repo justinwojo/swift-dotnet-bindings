@@ -594,15 +594,16 @@ public static class DefaultParameterOverloadEmitter
             // WasEmitted stays false — recording the callable TRUNCATED form here (not the full
             // unbindable signature) keeps the emitted C# and the documented surface in agreement.
             // Guarded on recordedProjectedKey so a synthetic env with no dedup set (unit harness that
-            // never assigns EmittedProjectedSignatures) records nothing. The name mirrors the emitted
-            // member: a failable init emits under its label-disambiguated factory name, everything else
-            // under CSharpMethodName ("Init" for constructors, matching the primary-path keying).
+            // never assigns EmittedProjectedSignatures) records nothing. The name and parameter list
+            // come from whichever writer above emitted the declaration — a constructor writes under
+            // the type's own name, a failable init under its (possibly label-disambiguated) factory
+            // name plus a trailing `out` result — so the entry names the member as written.
             if (emissionContext != null && recordedProjectedKey != null)
             {
-                var manifestName = overloadEnv.FailableFactoryName ?? overloadEnv.CSharpMethodName;
                 emissionContext.RecordApiManifestEntry(
                     ModuleEmissionContext.BuildApiManifestKey(
-                        overloadDecl.ParentDecl, manifestName, recordedProjectedKey, env.TypeDatabase),
+                        overloadDecl.ParentDecl, overloadEnv.CSharpMethodName, recordedProjectedKey, env.TypeDatabase,
+                        emissionContext.GetEmittedApiShape(overloadDecl)),
                     overloadEnv.EmissionSymbol);
             }
         }

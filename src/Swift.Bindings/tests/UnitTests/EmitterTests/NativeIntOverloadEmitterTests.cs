@@ -821,6 +821,23 @@ public class NativeIntOverloadEmitterTests
         var moduleDecl = CreateModuleDecl();
         var parentType = CreateClassDecl("TestClass", moduleDecl);
 
+        // Every parsed accessor leads its CSSignature with a return-type entry; an empty one is a
+        // shape the parser never produces, and consumers that inspect the return type (entry-point
+        // resolution, for one) read it unguarded.
+        List<ArgumentDecl> ReturnOnlySignature(string returnType) => new()
+        {
+            new()
+            {
+                Name = "",
+                PrivateName = "",
+                SwiftTypeSpec = new NamedTypeSpec(returnType),
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = parentType,
+                ModuleDecl = moduleDecl
+            }
+        };
+
         var accessors = new List<AccessorDecl>();
         if (hasGetter)
             accessors.Add(new GetAccessorDecl { Method = new MethodDecl
@@ -829,7 +846,7 @@ public class NativeIntOverloadEmitterTests
                 MangledName = "$sGet",
                 MethodType = MethodType.Instance,
                 IsConstructor = false,
-                CSSignature = new List<ArgumentDecl>(),
+                CSSignature = ReturnOnlySignature("Swift.String"),
                 GenericParameters = new List<GenericArgumentDecl>(),
                 ParentDecl = parentType,
                 ModuleDecl = moduleDecl,
@@ -844,7 +861,7 @@ public class NativeIntOverloadEmitterTests
                 MangledName = "$sSet",
                 MethodType = MethodType.Instance,
                 IsConstructor = false,
-                CSSignature = new List<ArgumentDecl>(),
+                CSSignature = ReturnOnlySignature("()"),
                 GenericParameters = new List<GenericArgumentDecl>(),
                 ParentDecl = parentType,
                 ModuleDecl = moduleDecl,

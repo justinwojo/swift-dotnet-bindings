@@ -353,9 +353,12 @@ namespace BindingsGeneration
                             // its post-collision C# signature → the entry symbol the P/Invoke binds. Mirrors
                             // the type-body chokepoint in IHandler; the module is the implicit parent so the
                             // key is the bare C# name (a free function can't collide with a type member's key).
-                            if (methodDecl.WasEmitted)
-                                context.GetEmissionContext()?.RecordApiManifestEntry(
-                                    ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, methodEnv.CSharpMethodName, projectedKey, env.TypeDatabase),
+                            // As at the type-body chokepoint, a declaration writer that reshaped the
+                            // emitted name or parameter list has already recorded what it wrote.
+                            if (methodDecl.WasEmitted && context.GetEmissionContext() is { } freeFnCtx)
+                                freeFnCtx.RecordApiManifestEntry(
+                                    ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, methodEnv.CSharpMethodName, projectedKey, env.TypeDatabase,
+                                        freeFnCtx.GetEmittedApiShape(methodDecl)),
                                     methodEnv.EmissionSymbol);
                         }
                         else

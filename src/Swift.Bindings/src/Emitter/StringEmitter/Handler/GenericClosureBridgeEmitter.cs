@@ -761,10 +761,14 @@ public static class GenericClosureBridgeEmitter
             .ToList();
 
         var publicParams = new List<string>();
+        var publicParamTypes = new List<string>();
         publicParams.Add($"{funcType} {csClosureName}");
-        AddNonClosurePublicParams(publicParams, methodDecl, env);
+        publicParamTypes.Add(funcType);
+        AddNonClosurePublicParams(publicParams, publicParamTypes, methodDecl, env);
 
         XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
+        env.EmissionContext?.RecordEmittedApiShape(
+            methodDecl, methodName, ModuleEmissionContext.FormatParameterPortion(publicParamTypes));
         csWriter.WriteLine($"public unsafe T {methodName}<T>({string.Join(", ", publicParams)}) where T : ISwiftObject");
         csWriter.WriteLine("{");
         csWriter.Indent++;
@@ -956,9 +960,13 @@ public static class GenericClosureBridgeEmitter
             : "Action";
 
         var publicParams = new List<string>();
+        var publicParamTypes = new List<string>();
         publicParams.Add($"{actionType} {csClosureName}");
-        AddNonClosurePublicParams(publicParams, methodDecl, env);
+        publicParamTypes.Add(actionType);
+        AddNonClosurePublicParams(publicParams, publicParamTypes, methodDecl, env);
 
+        env.EmissionContext?.RecordEmittedApiShape(
+            methodDecl, methodName, ModuleEmissionContext.FormatParameterPortion(publicParamTypes));
         csWriter.WriteLine($"public unsafe void {methodName}({string.Join(", ", publicParams)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
@@ -1023,6 +1031,7 @@ public static class GenericClosureBridgeEmitter
 
     private static void AddNonClosurePublicParams(
         List<string> publicParams,
+        List<string> publicParamTypes,
         MethodDecl methodDecl,
         MethodEnvironment env)
     {
@@ -1035,6 +1044,7 @@ public static class GenericClosureBridgeEmitter
             // A generic non-closure param (`value: T`) surfaces as the method's own `T` type parameter.
             var csType = IsGenericNonClosureParam(arg) ? "T" : GetPublicParamType(arg, env);
             publicParams.Add($"{csType} {csName}");
+            publicParamTypes.Add(csType);
         }
     }
 
