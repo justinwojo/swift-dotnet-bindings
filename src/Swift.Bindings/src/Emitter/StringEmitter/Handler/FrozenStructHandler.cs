@@ -288,15 +288,6 @@ namespace BindingsGeneration
                     // will never emit under and drop the sibling that projects to the same name.
                     if (EmissionSeam.TryDenyUpFront(propertyDecl, csWriter))
                         continue;
-                    // Use post-rename name for consistency with the propertyNames collision set below.
-                    var csPropertyName = NameProvider.GetFinalMemberName(
-                        NameProvider.GetPropertyName(propertyDecl, structDecl.Name), propertyRenames);
-                    if (!emittedPropertyNames.Add(csPropertyName))
-                    {
-                        _logger.LogInformation($"Skipping duplicate property '{structDecl.Name}.{csPropertyName}'.");
-                        ReportCollector.RecordMemberSkipped(propertyDecl, SkipReason.DuplicateSignature, $"Property '{csPropertyName}' already emitted.");
-                        continue;
-                    }
 
                     if (MemberEmissionValidator.IsSynthesizedProtocolProperty(propertyDecl, structDecl))
                     {
@@ -318,6 +309,20 @@ namespace BindingsGeneration
                         // so consumers can grep the file. The outer gate skips PropertyHandler.Emit
                         // entirely, so this is the only place the omission can be made visible.
                         UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, propertyDecl.Name, BindingItemKind.Property, skipReason.Value, skipDetails, containingDecl: propertyDecl.ParentDecl);
+                        continue;
+                    }
+
+                    // Reserved only AFTER every skip decision above: a property that cannot be
+                    // emitted at all must not consume the C# name on its way out, or the sibling
+                    // that projects to the same name is dropped as a duplicate and the type loses a
+                    // member that has nothing wrong with it.
+                    // Use post-rename name for consistency with the propertyNames collision set below.
+                    var csPropertyName = NameProvider.GetFinalMemberName(
+                        NameProvider.GetPropertyName(propertyDecl, structDecl.Name), propertyRenames);
+                    if (!emittedPropertyNames.Add(csPropertyName))
+                    {
+                        _logger.LogInformation($"Skipping duplicate property '{structDecl.Name}.{csPropertyName}'.");
+                        ReportCollector.RecordMemberSkipped(propertyDecl, SkipReason.DuplicateSignature, $"Property '{csPropertyName}' already emitted.");
                         continue;
                     }
 

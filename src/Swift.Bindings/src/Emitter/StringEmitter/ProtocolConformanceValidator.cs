@@ -1020,6 +1020,16 @@ public class ProtocolConformanceValidator
     /// survivor is the static one, nothing can implement an instance interface requirement of that
     /// name — not the dropped instance sibling, and not a default interface member either, because
     /// the static member is still what C# finds while resolving the implementation (CS0736).
+    ///
+    /// This is a compile-error predictor, which normally belongs to the verify-recover loop rather
+    /// than to emission. It is kept here because the loop demonstrably cannot recover this shape: the
+    /// C# probe does report the CS0736, but the diagnostic lands on the base list of the class
+    /// declaration, so the interval map attributes it to the conforming type's whole type surface.
+    /// That scope is not leaf-recoverable, coarse withdrawal is unauthorized, and the run ends in
+    /// non-convergence — the ENTIRE module fails closed instead of shipping a partial binding.
+    /// Removing this predicate therefore trades one dropped conformance for a dropped library. The
+    /// standing fix is to make the static/instance name arbitration conformance-aware in the type
+    /// emitters (or to let the loop withdraw a conformance edge), after which this predicate can go.
     /// </summary>
     private bool EmitsStaticPropertyUnderRequirementName(TypeDecl type, PropertyDecl protoProperty)
     {
@@ -1031,7 +1041,7 @@ public class ProtocolConformanceValidator
                     continue;
                 // Mirrors the type emitters' first-claimant rule: declaration order decides which
                 // sibling keeps the C# name, and a property that cannot be emitted at all never
-                // claims it in the first place.
+                // claims it — the emitters reserve the name only after every skip decision.
                 if (MemberEmissionValidator.CanEmitProperty(candidate, _typeDatabase, out _, out _) != null)
                     continue;
                 return candidate.IsStatic;

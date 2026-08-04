@@ -978,6 +978,97 @@ public class TypeHandlersOutputTests
         Assert.DoesNotContain("unownedExecutor", csOutput);
     }
 
+    // Swift lets a type declare `static let keySize` next to `let keySize`; C# has one name for
+    // both, so exactly one of them can surface. The one that cannot be emitted at all must not
+    // consume the name on its way out — otherwise BOTH are lost, and any interface requirement of
+    // that name is left with no member to satisfy it (CS0535) even though a perfectly emittable
+    // witness was declared. Declaration order is the tie-break only among siblings that CAN emit.
+    [Fact]
+    public void Emit_ClassHandler_UnemittableStaticPropertyFirst_StillEmitsInstanceSibling()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = new ClassDecl
+        {
+            Name = "Cipher",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Cipher"),
+            MangledName = "$s10TestModule6CipherCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        // `TestModule.SecretBox` is deliberately absent from the type database, so this one and only
+        // this one fails emission. It is declared FIRST, which is what used to decide the name.
+        classDecl.Properties.Add(
+            CreateGettableProperty("keySize", "TestModule.SecretBox", isStatic: true, classDecl, moduleDecl));
+        classDecl.Properties.Add(
+            CreateGettableProperty("keySize", "Swift.Int", isStatic: false, classDecl, moduleDecl));
+
+        var (csOutput, _) = EmitType(classDecl, typeDatabase, new ClassHandler(new NullLogger<ClassHandler>()));
+
+        var keySize = GetKeySizeDeclarationLine(csOutput);
+        Assert.False(keySize.Length == 0, "the emittable instance sibling should have surfaced as a public KeySize member");
+        Assert.DoesNotContain("static", keySize);
+    }
+
+    [Fact]
+    public void Emit_FrozenStructHandler_UnemittableStaticPropertyFirst_StillEmitsInstanceSibling()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDecl("Vault", moduleDecl, isFrozen: true, requiresMemoryManagement: false);
+        structDecl.Properties.Add(
+            CreateGettableProperty("keySize", "TestModule.SecretBox", isStatic: true, structDecl, moduleDecl));
+        structDecl.Properties.Add(
+            CreateGettableProperty("keySize", "Swift.Int", isStatic: false, structDecl, moduleDecl));
+
+        var (csOutput, _) = EmitType(structDecl, typeDatabase, new FrozenStructHandler(new NullLogger<FrozenStructHandler>()));
+
+        var keySize = GetKeySizeDeclarationLine(csOutput);
+        Assert.False(keySize.Length == 0, "the emittable instance sibling should have surfaced as a public KeySize member");
+        Assert.DoesNotContain("static", keySize);
+    }
+
+    [Fact]
+    public void Emit_NonFrozenStructHandler_UnemittableStaticPropertyFirst_StillEmitsInstanceSibling()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDecl("Satchel", moduleDecl, isFrozen: false, requiresMemoryManagement: true);
+        structDecl.Properties.Add(
+            CreateGettableProperty("keySize", "TestModule.SecretBox", isStatic: true, structDecl, moduleDecl));
+        structDecl.Properties.Add(
+            CreateGettableProperty("keySize", "Swift.Int", isStatic: false, structDecl, moduleDecl));
+
+        var (csOutput, _) = EmitType(structDecl, typeDatabase, new NonFrozenStructHandler(new NullLogger<NonFrozenStructHandler>()));
+
+        var keySize = GetKeySizeDeclarationLine(csOutput);
+        Assert.False(keySize.Length == 0, "the emittable instance sibling should have surfaced as a public KeySize member");
+        Assert.DoesNotContain("static", keySize);
+    }
+
+    /// <summary>
+    /// The emitted member declaration line for <c>KeySize</c> — the public property, not the
+    /// P/Invoke or the `// Unsupported:` tombstone, so a test can ask whether the member that
+    /// surfaced is the instance one.
+    /// </summary>
+    private static string GetKeySizeDeclarationLine(string csOutput)
+    {
+        foreach (var line in csOutput.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith("public") && trimmed.Contains("KeySize"))
+                return trimmed;
+        }
+        return string.Empty;
+    }
+
     [Fact]
     public void Emit_FrozenStructHandler_StoredValueTypeProperty_EmitsTypedField()
     {
@@ -1435,6 +1526,53 @@ public class TypeHandlersOutputTests
         moduleDecl.Types.Add(structDecl);
 
         return structDecl;
+    }
+
+    /// <summary>
+    /// A read-only property with a real getter accessor, so the only thing that can make it
+    /// unemittable is its declared type.
+    /// </summary>
+    private static PropertyDecl CreateGettableProperty(
+        string name, string swiftTypeName, bool isStatic, TypeDecl parent, ModuleDecl moduleDecl)
+    {
+        var getter = new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule{parent.Name.Length}{parent.Name}C{name.Length}{name}{(isStatic ? "Z" : "")}vg",
+            MethodType = isStatic ? MethodType.Static : MethodType.Instance,
+            IsConstructor = false,
+            IsAccessor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec(swiftTypeName),
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parent,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+
+        return new PropertyDecl
+        {
+            Name = name,
+            SwiftTypeSpec = new NamedTypeSpec(swiftTypeName),
+            IsStatic = isStatic,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getter } },
+            ParentDecl = parent,
+            ModuleDecl = moduleDecl
+        };
     }
 
     private static (string csOutput, string swiftOutput) EmitType(TypeDecl typeDecl, TypeDatabase typeDatabase, ITypeHandler handler)

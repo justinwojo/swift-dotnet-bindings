@@ -270,17 +270,6 @@ namespace BindingsGeneration
                         continue;
                     }
 
-                    // Bug #9: Skip duplicate property names (static + instance with same C# name)
-                    // Use post-rename name for consistency with the propertyNames collision set below.
-                    var csPropertyName = NameProvider.GetFinalMemberName(
-                        NameProvider.GetPropertyName(propertyDecl, classDecl.Name), propertyRenames);
-                    if (!emittedPropertyNames.Add(csPropertyName))
-                    {
-                        _logger.LogInformation($"Skipping duplicate property '{classDecl.Name}.{csPropertyName}' (static/instance collision).");
-                        ReportCollector.RecordMemberSkipped(propertyDecl, SkipReason.DuplicateSignature, $"Property '{csPropertyName}' already emitted with different staticness.");
-                        continue;
-                    }
-
                     if (MemberEmissionValidator.IsSynthesizedProtocolProperty(propertyDecl, classDecl))
                     {
                         ReportCollector.RecordMemberSynthesized(propertyDecl);
@@ -301,6 +290,22 @@ namespace BindingsGeneration
                         // so consumers can grep the file. The outer gate skips PropertyHandler.Emit
                         // entirely, so this is the only place the omission can be made visible.
                         UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, propertyDecl.Name, BindingItemKind.Property, skipReason.Value, skipDetails, containingDecl: propertyDecl.ParentDecl);
+                        continue;
+                    }
+
+                    // Swift allows a static and an instance property of the same name; C# has one
+                    // name for both, so the first claimant wins. Reserved only AFTER every skip
+                    // decision above: a property that cannot be emitted at all must not consume the
+                    // name on its way out, or its emittable sibling is dropped as a duplicate and
+                    // the type loses a member that has nothing wrong with it — leaving any interface
+                    // requirement of that name with no witness.
+                    // Use post-rename name for consistency with the propertyNames collision set below.
+                    var csPropertyName = NameProvider.GetFinalMemberName(
+                        NameProvider.GetPropertyName(propertyDecl, classDecl.Name), propertyRenames);
+                    if (!emittedPropertyNames.Add(csPropertyName))
+                    {
+                        _logger.LogInformation($"Skipping duplicate property '{classDecl.Name}.{csPropertyName}' (static/instance collision).");
+                        ReportCollector.RecordMemberSkipped(propertyDecl, SkipReason.DuplicateSignature, $"Property '{csPropertyName}' already emitted with different staticness.");
                         continue;
                     }
 
