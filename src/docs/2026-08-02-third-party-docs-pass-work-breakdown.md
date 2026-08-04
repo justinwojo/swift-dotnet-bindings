@@ -116,6 +116,16 @@ consumer cost.
 
 **Status (2026-08-03).** Fixed — session 03 (`81bebf0c`). Argument-label-aware overload ladder in `OverloadNameDisambiguator`, with a Swift-parameter-type rung and refusal as the last rung, so the public surface never carries a bare numeric overload suffix; a build gate reads the resolver's own assignment records. The async axis was split out of the collision key. Written up in the wiki, § "How names are chosen".
 
+**Audit correction (2026-08-04).** The "never a bare numeric suffix" invariant holds for the *overload*
+resolver, which is what the gate reads — it is not a property of every emitted name. The case-only
+collision pass is a separate producer and deliberately does emit a numeric scheme (`Url` / `Url2`) for
+a pair that is not an overload and has no argument label or parameter type to derive a name from; the
+gate does not see it. State the carve-out wherever the invariant is quoted. Second correction: this
+item's direction also asked for *collapse* of an identical-signature pair where one member is
+upstream-deprecated (`HandleNextAction` / `HandleNextAction2`) — that half was never implemented, and
+the survivor of such a pair is still simply first in declaration order. Both are owner-register rows;
+evidence in § 7(b) and § 7(c) of `2026-08-docs-pass-evidence.md`.
+
 ---
 
 ### A2 — Five coexisting de-collision schemes for names (P2)
@@ -153,6 +163,12 @@ any type-side token so a reader can tell which side moved. Then publish the tabl
 **Affected libraries.** Nuke, Stripe, BlinkID, BlinkIDUX, Facebook.
 
 **Status (2026-08-03).** Fixed — session 02 (`90d8089d`). `NameCollisionPolicy` is the single source of truth for the de-collision vocabularies and their precedence (six schemes). The believed "outer-type prefix on the nested type" fifth scheme was refuted — the vendor declares that name itself — and Apple platform-type flattening is a separate identity mapping, deliberately not converged here. Written up in the wiki, § "How names are chosen".
+
+**Audit correction (2026-08-04).** "Converged" here means *centralized*, not *reduced*: the six schemes
+were brought under `NameCollisionPolicy` with one explicit precedence order, and all six still coexist
+— by design, with disjoint token vocabularies so a reader can tell which side of a collision moved.
+Nothing was merged away. Read the status line as "one source of truth for six schemes", not "six
+schemes became one".
 
 ---
 
@@ -217,6 +233,14 @@ such rather than re-litigated per vendor.
 
 **Status (2026-08-03).** Fixed — session 17 (`403c0aeb`). `ObjCSwiftImportNameRewriter` applies the vetted Swift-import names as the last pre-emission step; `TypeRecord.ObjCRuntimeName` keeps the raw name so superclass resolution and ObjC runtime registration still work. This renames types that are already published, so it is an owner veto point before any package re-release.
 
+**Audit correction (2026-08-04).** The veto was exercised and the renames **ship as breaking** — owner
+decision, no compatibility re-exports and no revert. This applies to D1, D2 and D6 as well. The
+complete old→new tables for all three rename classes plus the constant de-prefixing are §§ 2 and 3 of
+`2026-08-docs-pass-evidence.md`; they are the migration document and belong in the release notes of
+every affected package. They were regenerated from the emitted artifacts on 2026-08-04 because no
+rename table was produced at the time. FBSDKLoginKit is the one module whose tables cannot be derived
+— its generation aborts before ObjC emission — so it must not publish until that is fixed.
+
 ---
 
 ## B. Generator correctness & coverage
@@ -263,6 +287,11 @@ severity; today we only have the count. Pairs naturally with the *pending owner 
 (routine).
 
 **Status (2026-08-03).** Partly fixed, remainder report-only — session 05 (`504c464a`). 6 of 20 SB0001 cases recovered; the prominence ranking stayed a report, not a gate.
+
+**Audit correction (2026-08-04).** Neither of the two P1 entry points this item named was among the
+six. Mappedin's `GetMapData` is still a genuine `SB0001` stub, reason `closure_params`, and Facebook's
+`LogIn` is still a stub as well. The recovery was real but landed off the surfaces that motivated the
+item, so "6 of 20" should not be read as progress on the named blockers.
 
 ---
 
@@ -410,6 +439,11 @@ structural.
 **Affected libraries.** Nuke.
 
 **Status (2026-08-03).** Diagnostics session 01 (`8b65164c`), fixed session 09 (`485eb7ae`). The corpus count moved 496 → 400 and 6 protocol interfaces were gained.
+
+**Audit correction (2026-08-04).** The six are **4 `IImageProcessing` + 2 `IImageEncoding`**, not the
+five processors this item's problem statement named. The recovery is real; the conformances recovered
+are not the ones the item asked about, so check the specific interface before treating a named
+processor as fixed.
 
 ---
 
@@ -590,6 +624,12 @@ fix is in the bridge template rather than in general marshalling.
 
 **Status (2026-08-03).** Fixed — session 15 (`e2493471`): an async `View`'s result callback hands back the value it produced.
 
+**Audit correction (2026-08-04).** The machinery landed and is runtime-tested on fixtures, but the
+production registry entry carried **no payload declaration**, so no shipped binding actually returned
+a payload until a follow-up fix wave wired it. Between the two changes the feature was present and
+inert on every real surface. Read the original status as "the mechanism works", not "shipped bindings
+return payloads".
+
 ---
 
 ### B13 — `api-surface.md` lists members that were never emitted (P2)
@@ -614,6 +654,14 @@ this is new.
 **Affected libraries.** Mappedin (observed); the report is emitted for every library.
 
 **Status (2026-08-03).** Fixed — session 16 (`3d628a24`). The verdict was recorded-but-differently-emitted rather than recorded-but-unemitted; `ApiSurfaceReconciler` is now an always-on hard generator error. 282 of 4,385 manifest entries still record a base symbol that no P/Invoke binds — recorded in `not-planned.md`.
+
+**Audit correction (2026-08-04).** What shipped is the drift **detector**, not regeneration of the
+documents that had drifted. Mappedin's `api-surface.md` still documents a 4-parameter `GetInView`
+against a 2-parameter emission — the exact phantom this item was raised about. Separately, the
+reconciler being an unconditional hard error means an unmatched entry now *aborts* the module: it does
+so on FBSDKLoginKit and six other corpus libraries, which is a regression the reconciler introduced
+and which is being fixed by having the reshaping emitters record the shape they emit. See § 4.4 of
+`2026-08-docs-pass-evidence.md`.
 
 ---
 
@@ -836,7 +884,7 @@ registered in `not-planned.md`.
 
 **Affected libraries.** MapLibre (observed); every pure-ObjC binding.
 
-**Status (2026-08-03).** Fixed — session 12 (`98ebf20c`): `ObjCConstantsEmitter` emits into `ApiDefinition.cs`, which is where bgen parses the declaration it needs to back a `[Field]`.
+**Status (2026-08-03).** Fixed — session 12 (`98ebf20c`): `ObjCConstantsEmitter` emits into `ApiDefinition.cs`, which is where bgen parses the declaration it needs to back a `[Field]`. **Audit correction (2026-08-04):** the de-prefix half is a breaking rename and was decided along with A5 — ships as breaking; the per-constant tables are § 3 of `2026-08-docs-pass-evidence.md`, which also records one FBSDKShareKit rename the original enumeration did not name.
 
 ---
 
@@ -858,7 +906,7 @@ mechanism; do not conflate them.
 
 **Affected libraries.** MapLibre.
 
-**Status (2026-08-03).** Fixed — session 17: `StructsAndEnumsEmitter.ResolveCasePrefix` strips an exact type-name prefix first, else the registered module tag at a token boundary, else leaves the case alone. Renames published names, so owner-vetoable.
+**Status (2026-08-03).** Fixed — session 17: `StructsAndEnumsEmitter.ResolveCasePrefix` strips an exact type-name prefix first, else the registered module tag at a token boundary, else leaves the case alone. Renames published names, so owner-vetoable. **Audit correction (2026-08-04):** decided — ships as breaking; migration tables in §§ 2–3 of `2026-08-docs-pass-evidence.md`.
 
 ---
 
@@ -942,7 +990,7 @@ framework.
 
 **Affected libraries.** MapLibre.
 
-**Status (2026-08-03).** Fixed — session 17: a leading selector part matching the receiver is stripped and the remainder kept. Renames published names, so owner-vetoable.
+**Status (2026-08-03).** Fixed — session 17: a leading selector part matching the receiver is stripped and the remainder kept. Renames published names, so owner-vetoable. **Audit correction (2026-08-04):** decided — ships as breaking; migration tables in §§ 2–3 of `2026-08-docs-pass-evidence.md`.
 
 ---
 
@@ -1115,8 +1163,16 @@ consumer evidence:
 ## Closeout status (2026-08-03)
 
 Every item above carries an inline `**Status.**` line. This is the same information as one table.
-Session numbers refer to `src/docs/sessions/2026-08-docs-pass-upstream/`; the phase summaries that
-back each verdict are `.agent/phase-N-summary.md`.
+The session numbers in the right-hand column are provenance for the commits, nothing more — the
+working directories they named were never tracked by git. The decision-relevant content that backs
+each verdict is inlined in [`2026-08-docs-pass-evidence.md`](2026-08-docs-pass-evidence.md), which is
+tracked; read that rather than looking for a session or phase directory.
+
+**Audit correction (2026-08-04).** Six of the `Fixed` verdicts below are narrower than their status
+line reads, and each carries a dated correction inline at its item: A1, A2, B1, B5, B12, B13. The
+corrections are collected in § 6 of the evidence appendix. Separately, no full-corpus simulator gate
+in this program reached a clean pass, so treat any runtime pass-count quoted in an item as unverified
+until one clean unfiltered run exists (§ 5 of the appendix).
 
 | Item | Outcome | Landed / recorded |
 |---|---|---|
