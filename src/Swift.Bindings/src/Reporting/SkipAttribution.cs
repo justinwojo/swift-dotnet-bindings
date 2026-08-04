@@ -267,6 +267,10 @@ public static class SkipCauseClassifier
         // row answers — this row only says "the generator declined the conformance here".
         Add(SkipReason.ConformanceNotFullyImplementable, CauseOwner.Generator, RecoveryStage.Plan, AttributionConfidence.High);
 
+        // The generator decided this one too, from its own PAT-binding resolution, and the row says
+        // which binding stayed open — so owner and stage are known rather than inferred.
+        Add(SkipReason.ConformanceProtocolHasAssociatedTypes, CauseOwner.Generator, RecoveryStage.Plan, AttributionConfidence.High);
+
         // Decided while emitting the proxy, from a dispatch classification the emitter computed itself.
         Add(SkipReason.ProtocolWitnessNotDispatchable, CauseOwner.Generator, RecoveryStage.Emit, AttributionConfidence.High);
 
@@ -283,6 +287,11 @@ public static class SkipCauseClassifier
         // ── Packaging / configuration ────────────────────────────────────────────────────────────
         // Not a loss: the surface is bound, by the Apple supplement package instead of here.
         Add(SkipReason.OwnedByAppleSupplement, CauseOwner.InputConfiguration, RecoveryStage.Plan, AttributionConfidence.High);
+
+        // The protocol was absent from the databases this run was given. Nothing about the library or
+        // the generator's lowering decided it, and the same inputs plus the declaring module's
+        // database bind the conformance — so the cause is the run's configuration.
+        Add(SkipReason.ConformanceProtocolNotInTypeDatabase, CauseOwner.InputConfiguration, RecoveryStage.Plan, AttributionConfidence.High);
 
         // ── Toolchain and environment ────────────────────────────────────────────────────────────
         Add(SkipReason.NetUnavailableType, CauseOwner.DotNetToolchain, RecoveryStage.Plan, AttributionConfidence.High);

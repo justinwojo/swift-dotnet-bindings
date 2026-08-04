@@ -16,7 +16,7 @@ namespace RuntimeTestsApp.FoundationInterop;
 /// Bug (h) (variadic parameter on a foreign-type extension method) has no runtime
 /// coverage here by design: the fix declines the member outright (a clean skip — Swift's
 /// `total(_:Int32...)` never emits a wrapper at all), so there is nothing to call from C#.
-/// Verified via <c>binding-emission-report.json</c>'s <c>variadic_params</c> skip count and
+/// Verified via <c>binding-emission-report.json</c>'s <c>variadic_parameter</c> skip count and
 /// by confirming <c>NSObjectSwiftBindingsTestLibExtensions</c> only exposes
 /// <c>Classify</c>/<c>Tagged</c>, never a `Total`/`total` member.
 /// </summary>

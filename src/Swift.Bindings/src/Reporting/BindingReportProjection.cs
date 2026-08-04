@@ -80,7 +80,7 @@ public static class BindingReportProjection
                 ApplyCoGated(report, member, SkipReason.MissingWrapperSymbol, details);
             }
 
-            ReconcileMarkedSurfaceAfterCoGating(report, w.CSharpCoGatedMembers);
+            ReconcileMarkedSurfaceAfterCoGating(report, w.CSharpCoGatedMembers, manifest.Module);
         }
 
         // A1: fold the ObjC binding surface's dropped symbols into the same skip list. For a mixed
@@ -140,9 +140,17 @@ public static class BindingReportProjection
     /// degraded row carries no ordinal, so two marked overloads of one name are indistinguishable
     /// here, and a blanket match would withdraw both when the strip took one. Removing exactly as
     /// many rows as were co-gated under that name keeps the surviving overload in the report.</para>
+    ///
+    /// <para>The two sides do not name members the same way, and matching them raw silently removes
+    /// nothing. The co-gated list is read back out of the generated C#, so it carries C# identities:
+    /// the emitted member name, and a containing type that is the dot-joined nesting path with no
+    /// namespace. The report rows come from the emitter's own Swift declarations: a Swift member name
+    /// and a module-qualified containing type. So a row is probed under both spellings — its emitted
+    /// name where the recording site captured one, and its containing type with the module prefix
+    /// removed — and the first candidate with budget left is the one that spends it.</para>
     /// </summary>
     private static void ReconcileMarkedSurfaceAfterCoGating(
-        BindingReport report, List<CoGatedMember> coGated)
+        BindingReport report, List<CoGatedMember> coGated, string moduleName)
     {
         if (coGated.Count == 0)
             return;
@@ -156,11 +164,13 @@ public static class BindingReportProjection
 
         RemoveUpToBudget(
             report.DegradedMembers,
-            m => (m.Kind, m.Name, m.ContainingType ?? string.Empty),
+            // A degraded row already carries the emitted C# name; only its containing type needs
+            // translating.
+            m => CoGatedIdentityCandidates(m.Kind, m.Name, null, m.ContainingType, moduleName),
             budget);
         RemoveUpToBudget(
             report.WrappedItems,
-            w => (w.Kind, w.Name, w.ContainingType ?? string.Empty),
+            w => CoGatedIdentityCandidates(w.Kind, w.Name, w.EmittedName, w.ContainingType, moduleName),
             budget);
 
         var rebuilt = new DegradedSurfaceSummary { Total = report.DegradedMembers.Count };
@@ -193,6 +203,52 @@ public static class BindingReportProjection
     }
 
     /// <summary>
+    /// Every co-gated identity a report row could be the same member as, most specific first. Only
+    /// the first one with budget left is spent, so a row withdraws at most once however many
+    /// candidates it offers.
+    /// </summary>
+    /// <remarks>
+    /// Two translations, both from the report's Swift domain into the co-gated list's C# domain.
+    /// <para>
+    /// The name: a row that captured what was emitted for it is probed under that first, since the
+    /// generated C# can only have been read under the emitted spelling; the Swift name follows for
+    /// rows that captured none and for the members whose two names coincide.
+    /// </para>
+    /// <para>
+    /// The containing type: a module-qualified Swift type name minus its module prefix IS the C#
+    /// nesting path, including for nested types (<c>M.Outer.Inner</c> → <c>Outer.Inner</c>), which is
+    /// exactly what the co-gated side records. Two cases the strip cannot reach, and does not
+    /// pretend to: a type whose C# name was renamed away from its Swift one, and a module-scope
+    /// member, whose free-function class name is chosen during emission and is not recoverable here.
+    /// Both simply fail to match, which is the pre-existing behaviour for every row — never a
+    /// mismatched removal, because the untranslated spelling is still offered as a candidate and a
+    /// wrong one would have to collide on kind and name as well.
+    /// </para>
+    /// </remarks>
+    private static IEnumerable<(BindingItemKind, string, string)> CoGatedIdentityCandidates(
+        BindingItemKind kind, string swiftName, string? emittedName, string? containingType, string moduleName)
+    {
+        var containers = new List<string>(2);
+        var container = containingType ?? string.Empty;
+        var modulePrefix = moduleName + ".";
+        if (container.StartsWith(modulePrefix, StringComparison.Ordinal))
+            containers.Add(container.Substring(modulePrefix.Length));
+        containers.Add(container);
+
+        var names = new List<string>(2);
+        if (!string.IsNullOrEmpty(emittedName))
+            names.Add(emittedName);
+        if (names.Count == 0 || !string.Equals(names[0], swiftName, StringComparison.Ordinal))
+            names.Add(swiftName);
+
+        foreach (var name in names)
+        {
+            foreach (var c in containers)
+                yield return (kind, name, c);
+        }
+    }
+
+    /// <summary>
     /// Removes from <paramref name="rows"/> at most as many entries per identity as
     /// <paramref name="budget"/> allows, consuming the budget as it goes. Each list gets the full
     /// allowance: a co-gated member is expected to appear in several, and one list's removals must
@@ -200,7 +256,7 @@ public static class BindingReportProjection
     /// </summary>
     private static void RemoveUpToBudget<T>(
         List<T> rows,
-        Func<T, (BindingItemKind, string, string)> identity,
+        Func<T, IEnumerable<(BindingItemKind, string, string)>> identities,
         Dictionary<(BindingItemKind, string, string), int> budget)
     {
         if (rows.Count == 0)
@@ -209,12 +265,16 @@ public static class BindingReportProjection
         var remaining = new Dictionary<(BindingItemKind, string, string), int>(budget);
         rows.RemoveAll(row =>
         {
-            var key = identity(row);
-            if (remaining.GetValueOrDefault(key) <= 0)
-                return false;
+            foreach (var key in identities(row))
+            {
+                if (remaining.GetValueOrDefault(key) <= 0)
+                    continue;
 
-            remaining[key] -= 1;
-            return true;
+                remaining[key] -= 1;
+                return true;
+            }
+
+            return false;
         });
     }
 

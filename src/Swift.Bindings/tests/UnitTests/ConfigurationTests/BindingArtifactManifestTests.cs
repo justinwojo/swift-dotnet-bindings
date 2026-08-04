@@ -95,14 +95,20 @@ public class BindingArtifactManifestTests
         // [Obsolete] the binding carries. The same projection then lists it as skipped. Left alone
         // that is a report contradicting itself in the two places a consumer reads to decide whether
         // SwiftWrapperRequired=false is honest.
+        //
+        // Both sides are spelled the way the generator actually spells them, which is NOT the same
+        // way: the report rows come from Swift declarations (module-qualified containing type, Swift
+        // member name on a wrapped item), while the co-gated rows are read back out of the generated
+        // C# (namespace-less nesting path, emitted member name). Reconciling on the raw strings
+        // matches nothing and every assertion below fails.
         var report = new BindingReport { ModuleName = "Strip" };
         report.EmittedMembers = 2;
         report.EmittedMembersByKind[BindingItemKind.Method] = 2;
         report.DegradedMembers.Add(new DegradedMemberItem
         {
             Kind = BindingItemKind.Method,
-            Name = "Stripped",
-            ContainingType = "Strip.Client",
+            Name = "LoadStripped",
+            ContainingType = "Strip.Client.Session",
             DiagnosticId = "SB0001",
             WrapperReason = "closure_params",
             ProminenceScore = 5,
@@ -110,8 +116,8 @@ public class BindingArtifactManifestTests
         report.DegradedMembers.Add(new DegradedMemberItem
         {
             Kind = BindingItemKind.Method,
-            Name = "Survivor",
-            ContainingType = "Strip.Client",
+            Name = "LoadSurvivor",
+            ContainingType = "Strip.Client.Session",
             DiagnosticId = "SB0009",
             ProminenceScore = 3,
         });
@@ -120,8 +126,8 @@ public class BindingArtifactManifestTests
         report.DegradedSurface.ByDiagnosticId["SB0009"] = 1;
         report.DegradedSurface.ByWrapperReason["closure_params"] = 1;
         report.DegradedSurface.TopDegradedMembers.AddRange(report.DegradedMembers);
-        report.WrappedItems.Add(Wrapped("Stripped", "Strip.Client"));
-        report.WrappedItems.Add(Wrapped("Survivor", "Strip.Client"));
+        report.WrappedItems.Add(Wrapped("loadStripped", "Strip.Client.Session", "LoadStripped"));
+        report.WrappedItems.Add(Wrapped("loadSurvivor", "Strip.Client.Session", "LoadSurvivor"));
         report.WrapperRequirement = new WrapperRequirementSummary
         {
             WrapperRequired = true,
@@ -136,7 +142,7 @@ public class BindingArtifactManifestTests
 
         var wrapper = new WrapperSection { Status = PhaseStatus.Success };
         ((List<CoGatedMember>)wrapper.CSharpCoGatedMembers).Add(
-            Heuristic("Stripped", "Strip.Client", 0));
+            Heuristic("LoadStripped", "Client.Session", 0));
 
         var projected = BindingReportProjection.Project(new BindingArtifactManifest
         {
@@ -152,12 +158,12 @@ public class BindingArtifactManifestTests
         Assert.Contains("1 member(s) are already marked", projected.WrapperRequirement.Rationale);
         Assert.DoesNotContain("2 member(s)", projected.WrapperRequirement.Rationale);
         var survivor = Assert.Single(projected.DegradedMembers);
-        Assert.Equal("Survivor", survivor.Name);
+        Assert.Equal("LoadSurvivor", survivor.Name);
         Assert.Equal(1, projected.DegradedSurface!.Total);
         Assert.False(projected.DegradedSurface.ByDiagnosticId.ContainsKey("SB0001"));
         Assert.Empty(projected.DegradedSurface.ByWrapperReason);
-        Assert.Equal("Survivor", Assert.Single(projected.DegradedSurface.TopDegradedMembers).Name);
-        Assert.Equal("Survivor", Assert.Single(projected.WrappedItems).Name);
+        Assert.Equal("LoadSurvivor", Assert.Single(projected.DegradedSurface.TopDegradedMembers).Name);
+        Assert.Equal("loadSurvivor", Assert.Single(projected.WrappedItems).Name);
         // Whether the artifacts export anything at all — and how many symbols they carry — is not the
         // question stripping one member row answers; both are measured from the files themselves.
         Assert.True(projected.WrapperRequirement.WrapperRequired);
@@ -169,7 +175,8 @@ public class BindingArtifactManifestTests
     {
         // A degraded row carries no ordinal, so two marked overloads of one name look alike here.
         // Co-gating one of them must withdraw one row: matching every row with that name would
-        // delete the surviving overload's marker from a binding that still declares it.
+        // delete the surviving overload's marker from a binding that still declares it. Spelled as
+        // the generator spells each side — Swift-domain report rows, C#-domain co-gated row.
         var report = new BindingReport { ModuleName = "Strip" };
         report.EmittedMembers = 2;
         report.EmittedMembersByKind[BindingItemKind.Method] = 2;
@@ -179,11 +186,11 @@ public class BindingArtifactManifestTests
             {
                 Kind = BindingItemKind.Method,
                 Name = "Load",
-                ContainingType = "Strip.Client",
+                ContainingType = "Strip.Client.Session",
                 DiagnosticId = "SB0001",
                 ProminenceScore = 4,
             });
-            report.WrappedItems.Add(Wrapped("Load", "Strip.Client"));
+            report.WrappedItems.Add(Wrapped("load", "Strip.Client.Session", "Load"));
         }
         report.DegradedSurface = new DegradedSurfaceSummary { Total = 2 };
         report.DegradedSurface.ByDiagnosticId["SB0001"] = 2;
@@ -198,7 +205,7 @@ public class BindingArtifactManifestTests
 
         var wrapper = new WrapperSection { Status = PhaseStatus.Success };
         ((List<CoGatedMember>)wrapper.CSharpCoGatedMembers).Add(
-            Heuristic("Load", "Strip.Client", 0));
+            Heuristic("Load", "Client.Session", 0));
 
         var projected = BindingReportProjection.Project(new BindingArtifactManifest
         {
@@ -210,17 +217,63 @@ public class BindingArtifactManifestTests
         Assert.Equal("Load", Assert.Single(projected.DegradedMembers).Name);
         Assert.Equal(1, projected.DegradedSurface!.ByDiagnosticId["SB0001"]);
         Assert.Equal(1, projected.WrapperRequirement!.UnwrappedMarkedMemberCount);
-        Assert.Equal("Load", Assert.Single(projected.WrappedItems).Name);
+        Assert.Equal("load", Assert.Single(projected.WrappedItems).Name);
         Assert.Equal(1, projected.WrapperRequirement.WrappedMemberCount);
     }
 
-    private static WrappedItem Wrapped(string name, string containingType) => new()
+    [Fact]
+    public void Projection_CoGating_LeavesAnUnrelatedTypeAlone()
     {
-        Kind = BindingItemKind.Method,
-        Name = name,
-        ContainingType = containingType,
-        WrapperKind = "CdeclWrapper",
-    };
+        // Translation must not over-match: stripping Client.Session.Load may not withdraw the
+        // same-named member on a different type, whose own rows are still true of the binding.
+        var report = new BindingReport { ModuleName = "Strip" };
+        report.EmittedMembers = 2;
+        report.EmittedMembersByKind[BindingItemKind.Method] = 2;
+        report.DegradedMembers.Add(new DegradedMemberItem
+        {
+            Kind = BindingItemKind.Method,
+            Name = "Load",
+            ContainingType = "Strip.Client.Session",
+            DiagnosticId = "SB0001",
+            ProminenceScore = 4,
+        });
+        report.DegradedMembers.Add(new DegradedMemberItem
+        {
+            Kind = BindingItemKind.Method,
+            Name = "Load",
+            ContainingType = "Strip.Cache",
+            DiagnosticId = "SB0001",
+            ProminenceScore = 4,
+        });
+        report.WrappedItems.Add(Wrapped("load", "Strip.Client.Session", "Load"));
+        report.WrappedItems.Add(Wrapped("load", "Strip.Cache", "Load"));
+        report.DegradedSurface = new DegradedSurfaceSummary { Total = 2 };
+        report.DegradedSurface.ByDiagnosticId["SB0001"] = 2;
+
+        var wrapper = new WrapperSection { Status = PhaseStatus.Success };
+        ((List<CoGatedMember>)wrapper.CSharpCoGatedMembers).Add(
+            Heuristic("Load", "Client.Session", 0));
+
+        var projected = BindingReportProjection.Project(new BindingArtifactManifest
+        {
+            Module = "Strip",
+            Generation = GenerationSection.From(report),
+            Wrapper = wrapper,
+        });
+
+        Assert.Equal("Strip.Cache", Assert.Single(projected.DegradedMembers).ContainingType);
+        Assert.Equal("Strip.Cache", Assert.Single(projected.WrappedItems).ContainingType);
+    }
+
+    private static WrappedItem Wrapped(string name, string containingType, string? emittedName = null)
+        => new()
+        {
+            Kind = BindingItemKind.Method,
+            Name = name,
+            EmittedName = emittedName,
+            ContainingType = containingType,
+            WrapperKind = "CdeclWrapper",
+        };
 
     [Fact]
     public void Projection_PreservesOverloadDuplicates()

@@ -508,9 +508,15 @@ public static class ReportCollector
             position ?? operatorDecl.Position);
     }
 
+    /// <param name="emittedName">
+    /// The C# name the member surfaces under, when the caller has it. The projection reconciles these
+    /// rows against a co-gated list read back out of the generated C#, which can only name members as
+    /// C# spells them, so a row recorded with only its Swift name is unmatchable there.
+    /// </param>
     public static void RecordMemberWrapped(
         BindingItemKind kind, string name, string? mangledName,
-        BaseDecl? containingDecl, string wrapperKind, string? details = null)
+        BaseDecl? containingDecl, string wrapperKind, string? details = null,
+        string? emittedName = null)
     {
         var session = Current;
         if (session == null)
@@ -530,6 +536,7 @@ public static class ReportCollector
             {
                 Kind = kind,
                 Name = name,
+                EmittedName = string.IsNullOrEmpty(emittedName) ? null : emittedName,
                 MangledName = mangledName,
                 ContainingType = GetContainingTypeName(containingDecl),
                 WrapperKind = wrapperKind,
@@ -716,7 +723,24 @@ public static class ReportCollector
     /// (see <c>ConformanceGap</c>), which is the one fact that turns "not implementable" into
     /// something actionable.
     /// </param>
-    public static void RecordConformanceDropped(TypeDecl conformingType, string protocolName, string details)
+    /// <param name="reason">
+    /// Which taxonomy row the drop reports under. Conformances are dropped for causes that share
+    /// nothing but their effect — a requirement the validator could not implement, a protocol the run
+    /// never loaded, an associated type left unbound — and each carries a different recommended
+    /// action, so they must not collapse onto one reason. Defaults to the validator's cause, which is
+    /// what the majority of call sites report.
+    /// </param>
+    /// <remarks>
+    /// Deduplicated per <c>(conforming type, protocol)</c>, first write wins. A site that may be
+    /// superseded by a more specific later verdict on the same pair must therefore defer its record
+    /// until the more specific one has had its chance — recording early makes the coarser reason
+    /// permanent and there is no withdrawal.
+    /// </remarks>
+    public static void RecordConformanceDropped(
+        TypeDecl conformingType,
+        string protocolName,
+        string details,
+        SkipReason reason = SkipReason.ConformanceNotFullyImplementable)
     {
         ArgumentNullException.ThrowIfNull(conformingType);
         ArgumentException.ThrowIfNullOrWhiteSpace(protocolName);
@@ -735,10 +759,9 @@ public static class ReportCollector
                 Kind = BindingItemKind.Type,
                 Name = protocolName,
                 ContainingType = conformingType.SwiftTypeName.ModuleQualifiedName,
-                Reason = SkipReason.ConformanceNotFullyImplementable,
+                Reason = reason,
                 Details = details,
-                RecommendedWorkaround = WorkaroundRecommendations.GetRecommendation(
-                    SkipReason.ConformanceNotFullyImplementable),
+                RecommendedWorkaround = WorkaroundRecommendations.GetRecommendation(reason),
                 Position = conformingType.Position,
                 // Intentionally id-less. A dropped conformance is a relationship, not a declaration:
                 // stamping the conforming type's id would enter this row into the attribution linker's

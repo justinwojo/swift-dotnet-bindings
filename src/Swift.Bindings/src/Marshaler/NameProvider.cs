@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using Microsoft.CodeAnalysis.CSharp;
+
 namespace BindingsGeneration;
 
 
@@ -814,6 +816,41 @@ public static class NameProvider
     }
 
     /// <summary>
+    /// Recovers the raw Swift argument label for <paramref name="arg"/> — the label that has to
+    /// appear at a Swift call site and in a wrapper's own signature, as opposed to
+    /// <see cref="BaseDecl.Name"/>, which is the C#-safe spelling.
+    ///
+    /// <para>The single recovery used by every Swift-label emission path. It prefers the
+    /// parser-captured <see cref="BaseDecl.OriginalSwiftName"/>, and when that is absent it
+    /// undoes exactly the transform that could have produced the C# name: the parser prefixes an
+    /// underscore only when the label is a C# keyword, so only <c>_</c> + keyword is stripped.
+    /// An unconditional leading-underscore strip is what this replaces — it rewrites a Swift label
+    /// that genuinely begins with an underscore (<c>_box_0</c>, <c>_self</c>) into a different
+    /// label, and swiftc rejects the resulting call, taking the whole wrapper library down with
+    /// it. Not every <see cref="ArgumentDecl"/> reaches emission with provenance attached (several
+    /// are synthesized by emitters, and the subscript index path fills the field only for a
+    /// keyword rename), so the fallback has to be label-faithful on its own.</para>
+    /// </summary>
+    public static string RecoverSwiftArgumentLabel(ArgumentDecl arg)
+    {
+        ArgumentNullException.ThrowIfNull(arg);
+        return arg.OriginalSwiftName ?? StripParserKeywordPrefix(arg.Name);
+    }
+
+    /// <summary>
+    /// Inverse of the parser's C#-keyword escape: strips a leading underscore only when what
+    /// remains is a C# keyword, which is the only case the parser adds one. Uses the same
+    /// <see cref="SyntaxFacts"/> predicate the escape does, so the two cannot drift.
+    /// </summary>
+    public static string StripParserKeywordPrefix(string name)
+    {
+        if (name.Length > 1 && name[0] == '_'
+            && SyntaxFacts.GetKeywordKind(name.Substring(1)) != SyntaxKind.None)
+            return name.Substring(1);
+        return name;
+    }
+
+    /// <summary>
     /// Strips the underscore prefix added by the parser for C# keywords.
     /// e.g., "_for" -> "for", "_in" -> "in"
     /// </summary>
@@ -956,17 +993,15 @@ public static class NameProvider
     /// only in escaping, because a keyword is legal bare in call-argument position.
     /// </summary>
     /// <remarks>
-    /// Recovery is deliberately <see cref="BaseDecl.GetSwiftName"/> alone, WITHOUT the
-    /// underscore-stripping fallback <c>CdeclParamMapper.BuildSwiftCallArgLabel</c> applies when
-    /// <see cref="BaseDecl.OriginalSwiftName"/> is absent. Adopting that fallback here would break
-    /// twice. First, the parser populates <c>OriginalSwiftName</c> ONLY for labels that collide with
-    /// a C# keyword (<c>SwiftABIParser.ExtractUniqueNameWithOriginal</c>), so a genuine Swift label
-    /// spelling <c>_foo</c> arrives as <c>(Name: "_foo", OriginalSwiftName: null)</c> and the strip
-    /// would silently rewrite it to <c>foo</c>. Second, the declaration sibling
-    /// <see cref="GetSubscriptExternalLabel"/> does not strip, so stripping only on the call side
-    /// desynchronizes <c>subscript(_foo x:)</c> from <c>obj[foo: x]</c> — a hard error in the
-    /// emitted wrapper, strictly worse than the mangled-but-matching label it replaces. The two
-    /// subscript sides must recover identically; they differ only in the escaping rule.
+    /// Recovery is deliberately <see cref="BaseDecl.GetSwiftName"/> alone rather than the shared
+    /// <see cref="RecoverSwiftArgumentLabel"/>, because the declaration sibling
+    /// <see cref="GetSubscriptExternalLabel"/> recovers that way too and the two subscript sides
+    /// must agree byte for byte: a label recovered differently on the call side desynchronizes
+    /// <c>subscript(_foo x:)</c> from <c>obj[foo: x]</c>, a hard error in the emitted wrapper. The
+    /// two differ only in the escaping rule. On the live parser path the two recoveries agree
+    /// anyway — a subscript index label is renamed only when it collides with a C# keyword, and
+    /// that rename always records <see cref="BaseDecl.OriginalSwiftName"/>, which both recoveries
+    /// prefer.
     /// </remarks>
     public static string GetSubscriptCallArgLabel(ArgumentDecl param)
     {

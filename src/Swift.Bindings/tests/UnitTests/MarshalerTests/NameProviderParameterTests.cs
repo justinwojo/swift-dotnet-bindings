@@ -569,6 +569,57 @@ public class NameProviderParameterTests
     }
 
     [Theory]
+    [InlineData("_box_0")]
+    [InlineData("_self")]
+    [InlineData("_internalHandle")]
+    public void BuildSwiftCallArgLabel_GenuineUnderscoreLabel_SurvivesVerbatim(string label)
+    {
+        // A Swift label may genuinely begin with an underscore. Nothing renamed it, so no provenance
+        // is recorded — and an unconditional leading-underscore strip therefore rewrites it to a
+        // DIFFERENT label. swiftc rejects the resulting call ("incorrect argument label"), and since
+        // every wrapper for the module compiles as one unit, the whole wrapper library goes with it.
+        var arg = MakeArg(label);
+        Assert.Null(arg.OriginalSwiftName);
+
+        Assert.Equal($"{label}: ", CdeclParamMapper.BuildSwiftCallArgLabel(arg));
+        Assert.Equal(label, NameProvider.RecoverSwiftArgumentLabel(arg));
+    }
+
+    [Theory]
+    [InlineData("_default", "default")]   // parser escape of a C# keyword — must be undone
+    [InlineData("_for", "for")]
+    [InlineData("_box_0", "_box_0")]      // not a keyword underneath — must be left alone
+    [InlineData("_", "_")]                // too short to be an escape
+    [InlineData("value", "value")]
+    public void RecoverSwiftArgumentLabel_UndoesOnlyTheKeywordEscape(string csharpName, string expected)
+    {
+        // The recovery is the exact inverse of the parser's escape, which prefixes an underscore only
+        // when the label collides with a C# keyword. Anything wider than that is lossy: it cannot tell
+        // an escape from a label the Swift author actually spelled with a leading underscore.
+        Assert.Equal(expected, NameProvider.RecoverSwiftArgumentLabel(MakeArg(csharpName)));
+    }
+
+    [Fact]
+    public void RecoverSwiftArgumentLabel_PrefersRecordedProvenanceOverTheHeuristic()
+    {
+        // When the parser did record what it renamed, that wins outright — the keyword un-escape is
+        // only the fallback for decls that reach emission without provenance.
+        var arg = new ArgumentDecl
+        {
+            Name = "_default",
+            OriginalSwiftName = "_default",
+            PrivateName = "",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        Assert.Equal("_default", NameProvider.RecoverSwiftArgumentLabel(arg));
+    }
+
+    [Theory]
     [InlineData("value")]
     [InlineData("name")]
     [InlineData("count")]

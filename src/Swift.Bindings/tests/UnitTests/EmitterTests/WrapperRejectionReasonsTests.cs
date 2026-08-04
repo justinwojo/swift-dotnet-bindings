@@ -23,6 +23,53 @@ public class WrapperRejectionReasonsTests
         // and it is added in the emitter, not here. An identifier-shaped token has to be in the
         // table; a site that already rejects with prose (one carries a SWIFTBIND code and a
         // sentence) is self-describing and passes through Describe untouched.
+        var tokens = LiveRejectionTokens();
+        var unexplained = tokens
+            .Where(t => !t.Contains(' ') && !WrapperRejectionReasons.KnownReasons.Contains(t))
+            .ToList();
+        Assert.True(
+            unexplained.Count == 0,
+            "Wrapper give-up tokens with no sentence in WrapperRejectionReasons: "
+            + string.Join(", ", unexplained));
+
+        // Whichever arm a site takes, what a consumer reads is prose rather than the raw token.
+        foreach (var token in tokens)
+        {
+            var described = WrapperRejectionReasons.Describe(token);
+            Assert.Contains(' ', described);
+            if (!token.Contains(' '))
+                Assert.NotEqual(token, described);
+        }
+    }
+
+    [Fact]
+    public void EveryLiveRejectionCause_HasExactlyOneToken()
+    {
+        // DegradedSurface.ByWrapperReason buckets on the raw token, so two spellings of one cause
+        // split its count in half and read as two unrelated problems in the report. Two live tokens
+        // sharing a sentence is exactly that condition: the table already says they mean the same
+        // thing. Retired spellings are excluded because no emitter produces them — they exist only
+        // so an older report still describes.
+        var live = LiveRejectionTokens();
+        var bySentence = live
+            .Where(WrapperRejectionReasons.KnownReasons.Contains)
+            .GroupBy(WrapperRejectionReasons.Describe, StringComparer.Ordinal)
+            .Where(g => g.Count() > 1)
+            .Select(g => $"[{string.Join(" / ", g.OrderBy(t => t, StringComparer.Ordinal))}] -> \"{g.Key}\"")
+            .ToList();
+
+        Assert.True(
+            bySentence.Count == 0,
+            "One rejection cause is emitted under several tokens, so its report bucket splits: "
+            + string.Join("; ", bySentence));
+    }
+
+    /// <summary>
+    /// Every give-up token the wrapper emitters actually produce today, gathered the same way the
+    /// coverage test gathers them.
+    /// </summary>
+    private static SortedSet<string> LiveRejectionTokens()
+    {
         var sourceRoot = FindEmitterSourceRoot();
         var tokens = new SortedSet<string>(StringComparer.Ordinal);
         foreach (var file in Directory.EnumerateFiles(sourceRoot, "*.cs", SearchOption.AllDirectories))
@@ -42,22 +89,7 @@ public class WrapperRejectionReasonsTests
         }
 
         Assert.NotEmpty(tokens);
-        var unexplained = tokens
-            .Where(t => !t.Contains(' ') && !WrapperRejectionReasons.KnownReasons.Contains(t))
-            .ToList();
-        Assert.True(
-            unexplained.Count == 0,
-            "Wrapper give-up tokens with no sentence in WrapperRejectionReasons: "
-            + string.Join(", ", unexplained));
-
-        // Whichever arm a site takes, what a consumer reads is prose rather than the raw token.
-        foreach (var token in tokens)
-        {
-            var described = WrapperRejectionReasons.Describe(token);
-            Assert.Contains(' ', described);
-            if (!token.Contains(' '))
-                Assert.NotEqual(token, described);
-        }
+        return tokens;
     }
 
     [Fact]

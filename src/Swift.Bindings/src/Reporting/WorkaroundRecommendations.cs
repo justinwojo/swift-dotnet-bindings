@@ -100,6 +100,10 @@ public static class WorkaroundRecommendations
             "Duplicate selectors across the ObjC type hierarchy are flattened to a single member by design; no action needed.",
         SkipReason.ConformanceNotFullyImplementable =>
             "The type still emits, but without this conformance: at least one protocol requirement has no representable C# member on it, so the `: I{Protocol}` entry was dropped rather than emitted with a hole. Details names the first unmet requirement — make that one requirement bindable (a supported signature, a satisfiable constraint, or an unconstrained extension default the validator can see) and regenerate to reveal the next blocker, or expose the protocol-typed usage through a Swift wrapper that takes the concrete type.",
+        SkipReason.ConformanceProtocolNotInTypeDatabase =>
+            "The type still emits, but without this conformance: the protocol is not in the type database this run loaded, so the generator has nothing to project the `: I{Protocol}` entry from. Details names the declaring module — generate again passing that module's database (`--module-database`, or a `<SwiftFrameworkDependency>` on the binding project) and the conformance comes back. If the protocol genuinely is not bound anywhere, the conformance cannot be surfaced and the type has to be passed as its concrete self.",
+        SkipReason.ConformanceProtocolHasAssociatedTypes =>
+            "The type still emits and can still be boxed through IExistentialBoxable, but the typed `: I{Protocol}<…>` entry is absent, so it cannot be passed where the closed interface is expected. A protocol with associated types projects to a generic interface, and the base-list entry needs every associated type bound to a concrete type — bind them concretely on the conforming type (`typealias Element = String` rather than leaving it tied to the conformer's own generic parameter), or expose a concrete, non-generic Swift wrapper type for the call site that needs the typed conformance.",
         SkipReason.ProtocolWitnessNotDispatchable =>
             "The member IS declared and still callable on a concrete instance — only calls through a protocol-typed value throw (SB0003). The requirement's shape has no witness-table lowering: a non-blittable parameter or return, a closure parameter, a subscript, or a requirement set that mixes generic and non-generic members. Call it on the concrete type, or add a Swift wrapper requirement whose signature is blittable so the protocol-typed path becomes dispatchable.",
         SkipReason.ProtocolProxyVtableEmpty =>
@@ -197,6 +201,10 @@ public static class WorkaroundRecommendations
             "ObjC duplicate selector flattened by design",
         SkipReason.ConformanceNotFullyImplementable =>
             "conformance dropped — a protocol requirement has no representable C# member on the conforming type",
+        SkipReason.ConformanceProtocolNotInTypeDatabase =>
+            "conformance dropped — the protocol is not in the type database this run loaded",
+        SkipReason.ConformanceProtocolHasAssociatedTypes =>
+            "conformance dropped — the protocol's associated types are not all bound to concrete types",
         SkipReason.ProtocolWitnessNotDispatchable =>
             "member declared but not dispatchable through a protocol-typed value (witness stub throws)",
         SkipReason.ProtocolProxyVtableEmpty =>

@@ -21,6 +21,12 @@ public static class WrapperRejectionReasons
     /// Reason token to consumer-facing sentence. Keys are the literals passed to
     /// <see cref="WrapperEligibility.Reject"/> in the four wrapper emitters plus the shared
     /// tokens returned by <c>WrapperValidation.GetMemberRejectionReason</c>.
+    ///
+    /// <para>One rejection cause has exactly one live token, because
+    /// <c>DegradedSurface.ByWrapperReason</c> groups raw tokens: two spellings of one cause split
+    /// its count across two buckets and read as two unrelated problems. A handful of keys below
+    /// are retired spellings no emitter produces any more — they stay so a report generated
+    /// before the unification still describes rather than falling through to the humanizer.</para>
     /// </summary>
     private static readonly Dictionary<string, string> Descriptions = new(StringComparer.Ordinal)
     {
@@ -34,6 +40,7 @@ public static class WrapperRejectionReasons
         ["closure_index_param"] = "a closure-typed subscript index, which has no C-callable representation",
         ["closure_params"] = "a closure parameter shape the C wrapper bridge cannot marshal",
         ["closure_return_type"] = "the subscript returns a closure, which the wrapper bridge cannot hand back",
+        // Retired spelling of const_literal_parameter.
         ["const_literal"] = "a parameter that Swift requires to be a compile-time constant literal",
         ["const_literal_parameter"] = "a parameter that Swift requires to be a compile-time constant literal",
         ["constructor"] = "the member is an initializer, which is wrapped through the constructor path instead",
@@ -41,6 +48,7 @@ public static class WrapperRejectionReasons
         ["direct_closure_setter"] = "a property setter taking a closure directly, which the wrapper bridge cannot marshal",
         ["dynamic_self_non_class"] = "a Self return on a struct or enum, which has no stable pointer representation",
         ["failable_non_frozen_struct"] = "a failable initializer on a struct whose layout is not frozen",
+        // Retired spelling of generic_parent_type.
         ["generic_parent"] = "the declaring type is generic in a way the wrapper cannot specialize",
         ["generic_parent_inout"] = "an inout parameter whose type is one of the declaring type's generic parameters",
         ["generic_parent_metadata_buffer_mode"] = "the declaring type is generic and its metadata cannot be threaded through the wrapper",
@@ -55,6 +63,7 @@ public static class WrapperRejectionReasons
         ["method_level_generics"] = "the method declares its own generic parameters, which have no C-callable ABI",
         ["module_internal"] = "the member is internal to its Swift module",
         ["nested_frozen_struct_index_param"] = "a subscript index that is a frozen struct containing another struct",
+        // Retired spelling of nested_frozen_struct_parameter.
         ["nested_frozen_struct_param"] = "a parameter that is a frozen struct containing another struct",
         ["nested_frozen_struct_parameter"] = "a parameter that is a frozen struct containing another struct",
         ["nested_type_return"] = "the subscript returns a nested type the wrapper cannot name at the boundary",
@@ -76,6 +85,7 @@ public static class WrapperRejectionReasons
         ["uses_wrapper_library"] = "the member is already served by a hand-written wrapper",
         ["variadic_expansion_pattern"] = "a parameter-pack expansion, which has no C-callable ABI",
         ["variadic_parameter"] = "a variadic parameter shape the wrapper bridge does not support",
+        // Retired spelling of variadic_parameter.
         ["variadic_params"] = "a variadic parameter shape the wrapper bridge does not support",
         ["xcframework_mode"] = "wrappers are not generated in this input mode",
     };

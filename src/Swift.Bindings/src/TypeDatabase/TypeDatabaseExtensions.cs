@@ -363,15 +363,21 @@ public static class TypeDatabaseExtensions
     /// descriptor, and no consumer-facing semantics.
     /// </remarks>
     public static bool IsWellKnownRuntimeProtocol(TypeRecord record)
-    {
-        var name = record.SwiftTypeName.ModuleQualifiedName;
-        return name is "Swift.Error"
+        => IsWellKnownRuntimeProtocol(record.SwiftTypeName.ModuleQualifiedName);
+
+    /// <summary>
+    /// Name-only form, for callers that must reach the same verdict BEFORE a record lookup — a gate
+    /// that reports why a conformance was dropped has to recognize these by name, or a run whose type
+    /// database happens not to carry <c>Swift.Sendable</c> reports every type's implicit marker
+    /// conformances as a loss. Shares the one list with the record form so the two cannot drift.
+    /// </summary>
+    public static bool IsWellKnownRuntimeProtocol(string moduleQualifiedName)
+        => moduleQualifiedName is "Swift.Error"
             or "Swift.Sendable"
             or "Swift.Copyable"
             or "Swift.Escapable"
             or "Swift.SendableMetatype"
             or "_Concurrency.Actor";
-    }
 
     /// <summary>
     /// The marker subset of <see cref="IsWellKnownRuntimeProtocol"/>: stdlib protocols

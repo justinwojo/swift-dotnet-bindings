@@ -113,7 +113,8 @@ namespace BindingsGeneration
                     BindingItemKind.Method, methodEnv.MethodDecl.Name,
                     methodEnv.MethodDecl.MangledName, methodEnv.MethodDecl.ParentDecl,
                     "ClosureParamTombstone",
-                    "Unsupported closure parameter; emitted as tombstoned-but-reachable surface (SB0005).");
+                    "Unsupported closure parameter; emitted as tombstoned-but-reachable surface (SB0005).",
+                    emittedName: methodEnv.CSharpMethodName);
                 ReportCollector.RecordClosureTombstoneTypeReferences(methodEnv.MethodDecl);
                 return;
             }
@@ -214,7 +215,8 @@ namespace BindingsGeneration
                         methodEnv.MethodDecl.MangledName,
                         methodEnv.MethodDecl.ParentDecl,
                         "ExistentialBypass",
-                        $"Existential parameter(s) omitted; Swift defaults used.");
+                        $"Existential parameter(s) omitted; Swift defaults used.",
+                        emittedName: methodEnv.CSharpMethodName);
                     return;
                 }
 
@@ -227,7 +229,8 @@ namespace BindingsGeneration
                         methodEnv.MethodDecl.MangledName,
                         methodEnv.MethodDecl.ParentDecl,
                         "ConstrainedExistentialBridge",
-                        "Constrained existential parameter(s) bridged via @_silgen_name wrapper.");
+                        "Constrained existential parameter(s) bridged via @_silgen_name wrapper.",
+                        emittedName: methodEnv.CSharpMethodName);
                     methodEnv.MethodDecl.MarkEmitted();
                     return;
                 }
@@ -282,7 +285,8 @@ namespace BindingsGeneration
                         methodEnv.MethodDecl.MangledName,
                         methodEnv.MethodDecl.ParentDecl,
                         "OptionalClosureBypass",
-                        "Optional closure parameter(s) with defaults omitted; Swift fills nil.");
+                        "Optional closure parameter(s) with defaults omitted; Swift fills nil.",
+                        emittedName: methodEnv.CSharpMethodName);
                     return;
                 }
                 // Explicit fallback skip — bypass failed (not struct, failable, throwing)
@@ -305,7 +309,8 @@ namespace BindingsGeneration
                     methodEnv.MethodDecl.MangledName,
                     methodEnv.MethodDecl.ParentDecl,
                     "ConstrainedExistentialBridge",
-                    "Constrained existential parameter(s) bridged via @_silgen_name wrapper.");
+                    "Constrained existential parameter(s) bridged via @_silgen_name wrapper.",
+                    emittedName: methodEnv.CSharpMethodName);
                 methodEnv.MethodDecl.MarkEmitted();
                 return;
             }
@@ -380,7 +385,8 @@ namespace BindingsGeneration
                         methodEnv.MethodDecl.MangledName,
                         methodEnv.MethodDecl.ParentDecl,
                         "NestedClosureBridge",
-                        "Constructor with a callback-bearing closure parameter bridged via two-level trampoline.");
+                        "Constructor with a callback-bearing closure parameter bridged via two-level trampoline.",
+                        emittedName: methodEnv.CSharpMethodName);
                     return;
                 }
             }
@@ -1101,7 +1107,8 @@ namespace BindingsGeneration
                     BindingItemKind.Method, methodEnv.MethodDecl.Name,
                     methodEnv.MethodDecl.MangledName, methodEnv.MethodDecl.ParentDecl,
                     "ClosureParamTombstone",
-                    "Unsupported closure parameter; emitted as tombstoned-but-reachable surface (SB0005).");
+                    "Unsupported closure parameter; emitted as tombstoned-but-reachable surface (SB0005).",
+                    emittedName: methodEnv.CSharpMethodName);
                 ReportCollector.RecordClosureTombstoneTypeReferences(methodEnv.MethodDecl);
                 return;
             }
@@ -1213,7 +1220,8 @@ namespace BindingsGeneration
                             ReportCollector.RecordMemberWrapped(
                                 BindingItemKind.Method, methodEnv.MethodDecl.Name,
                                 methodEnv.MethodDecl.MangledName, methodEnv.MethodDecl.ParentDecl,
-                                result.BridgeName, result.Description);
+                                result.BridgeName, result.Description,
+                                emittedName: methodEnv.CSharpMethodName);
                         }
                         return;
                     }

@@ -1075,6 +1075,15 @@ internal static class ProtocolConformanceHelper
         };
 
         bool hasProtocolConformance = false;
+
+        // A PAT is rejected by the interface gate but may still be rescued by the closed-generic
+        // projection that runs after this loop, so its drop cannot be recorded here — the report
+        // dedups per (type, protocol) with first write wins, and a row written now can never be
+        // withdrawn. Park it, let the projection either surface the conformance or record its own
+        // more specific verdict, and flush whatever is left over afterwards.
+        var provisionalPatDrops = new Dictionary<string, ConformanceDrop>(StringComparer.Ordinal);
+        var surfacedProtocols = new HashSet<string>(StringComparer.Ordinal);
+
         foreach (var conformance in conformances)
         {
             // Hashable is a marker interface (ISwiftHashable) for PWT lookup only — not a user-facing
@@ -1090,8 +1099,8 @@ internal static class ProtocolConformanceHelper
 
                 if (!ShouldEmitConformanceInterface(conformance, moduleName, typeDatabase, out var equatableGateDrop))
                 {
-                    if (equatableGateDrop != null)
-                        ReportCollector.RecordConformanceDropped(typeDecl, conformance.Protocol.ModuleQualifiedName, equatableGateDrop);
+                    RecordOrParkConformanceDrop(
+                        typeDecl, conformance, equatableGateDrop, provisionalPatDrops);
                     continue;
                 }
 
@@ -1134,8 +1143,8 @@ internal static class ProtocolConformanceHelper
                 // gate accepts it (CS0535 protection for cross-module member stubs).
                 if (!ShouldEmitConformanceInterface(conformance, moduleName, typeDatabase, out var interfaceGateDrop))
                 {
-                    if (interfaceGateDrop != null)
-                        ReportCollector.RecordConformanceDropped(typeDecl, conformance.Protocol.ModuleQualifiedName, interfaceGateDrop);
+                    RecordOrParkConformanceDrop(
+                        typeDecl, conformance, interfaceGateDrop, provisionalPatDrops);
                     continue;
                 }
 
@@ -1179,6 +1188,10 @@ internal static class ProtocolConformanceHelper
                                 typeNameWithGenerics, resolvedSelfModule, moduleName);
                             baseName = QualifyNestedProtocolInterface(baseName, conformance.Protocol);
                             var genericIface = $"{baseName}<{typeNameWithGenerics}>";
+                            // Marked surfaced outside the emitted-set guard: a second conformance to
+                            // the same protocol still ends up with the interface in the base list, and
+                            // the parked-drop flush asks "is it there", not "did this line add it".
+                            surfacedProtocols.Add(conformance.Protocol.ModuleQualifiedName);
                             if (emitted.Add(genericIface))
                             {
                                 interfaces.Add(genericIface);
@@ -1258,19 +1271,41 @@ internal static class ProtocolConformanceHelper
                 }
 
                 if (!conformanceValidator.TryResolveClosedPatBindings(typeDecl, protocolDecl, out var bindings))
+                {
+                    // The last chance to surface this conformance, and it declined. Its sibling gates
+                    // above both report; leaving this one silent was what made an open PAT binding the
+                    // single unexplained way a conformance could disappear.
+                    ReportCollector.RecordConformanceDropped(
+                        typeDecl, conformance.Protocol.ModuleQualifiedName,
+                        "at least one of the protocol's associated types is not bound to a concrete "
+                        + "type by this conformance — it resolves to a type parameter of the conforming "
+                        + "type, so the closed generic interface cannot be named in the base list",
+                        SkipReason.ConformanceProtocolHasAssociatedTypes);
                     continue;
+                }
 
                 var resolvedModule = ResolveProtocolEmissionModule(conformance, typeDatabase);
                 var baseName = NameProvider.GetInterfaceName(
                     conformance.Protocol.Name, typeNameWithGenerics, resolvedModule, moduleName);
                 baseName = QualifyNestedProtocolInterface(baseName, conformance.Protocol);
                 var closedIface = $"{baseName}<{string.Join(", ", bindings)}>";
+                surfacedProtocols.Add(conformance.Protocol.ModuleQualifiedName);
                 if (emitted.Add(closedIface))
                 {
                     interfaces.Add(closedIface);
                     hasProtocolConformance = true;
                 }
             }
+        }
+
+        // Everything the projection neither surfaced nor explained more precisely is a genuine loss.
+        // The dedup in the collector makes this a no-op for the pairs the loop above already recorded.
+        foreach (var (protocolName, patDrop) in provisionalPatDrops)
+        {
+            if (surfacedProtocols.Contains(protocolName))
+                continue;
+            ReportCollector.RecordConformanceDropped(
+                typeDecl, protocolName, patDrop.Details, patDrop.Reason);
         }
 
         // PAT conformances: the generic interface (e.g., ITaggedAssociator<TSelf>) can't be
@@ -1586,6 +1621,44 @@ internal static class ProtocolConformanceHelper
     }
 
     /// <summary>
+    /// Routes a gate's verdict on a dropped conformance: reports it immediately, or parks it when a
+    /// later pass may still surface the conformance or reach a more specific verdict on it.
+    /// <para>
+    /// Only the associated-type drop is provisional. The report deduplicates per (type, protocol)
+    /// with first write wins, so a row written before the closed-generic PAT projection has run would
+    /// stand even when that projection goes on to emit the interface — a drop that never happened,
+    /// which is worse than the silence this whole path replaces.
+    /// </para>
+    /// </summary>
+    private static void RecordOrParkConformanceDrop(
+        TypeDecl typeDecl,
+        TypeConformance conformance,
+        ConformanceDrop? drop,
+        Dictionary<string, ConformanceDrop> provisionalPatDrops)
+    {
+        if (drop is not { } verdict)
+            return;
+
+        var protocolName = conformance.Protocol.ModuleQualifiedName;
+        if (verdict.Reason == SkipReason.ConformanceProtocolHasAssociatedTypes)
+        {
+            provisionalPatDrops[protocolName] = verdict;
+            return;
+        }
+
+        ReportCollector.RecordConformanceDropped(typeDecl, protocolName, verdict.Details, verdict.Reason);
+    }
+
+    /// <summary>
+    /// A conformance the emitter declined to surface, carried out of the gate with the taxonomy row
+    /// it reports under. The reason travels WITH the sentence because conformances are dropped for
+    /// causes that share nothing but their effect — a protocol the run never loaded is a
+    /// configuration input, an unbound associated type is a projection limit, an unimplementable
+    /// requirement is a capability gap — and each earns a different recommended action.
+    /// </summary>
+    internal readonly record struct ConformanceDrop(SkipReason Reason, string Details);
+
+    /// <summary>
     /// Shared baseline gate for both the conformance-descriptor dictionary path and the
     /// C# interface inheritance path. Filters out unknown protocols, PATs, non-protocols,
     /// and well-known runtime protocols that have direct runtime mappings (Swift.Error → AnyError).
@@ -1593,30 +1666,69 @@ internal static class ProtocolConformanceHelper
     /// in <see cref="ShouldEmitConformanceInterface"/>.
     /// </summary>
     internal static bool ShouldEmitConformanceDictionary(TypeConformance conformance, ITypeDatabase typeDatabase)
+        => ShouldEmitConformanceDictionary(conformance, typeDatabase, out _);
+
+    /// <inheritdoc cref="ShouldEmitConformanceDictionary(TypeConformance, ITypeDatabase)"/>
+    /// <param name="drop">
+    /// Set when the rejection is a consumer-visible loss worth a report row, null when the rejection
+    /// is by design (a well-known runtime protocol, or a marker protocol every type carries) or when
+    /// the method returns true. The PAT rejection reports a drop that the caller must treat as
+    /// PROVISIONAL: the closed-generic PAT projection runs after the interface loop and can still
+    /// surface the conformance, and the drop record cannot be withdrawn once written.
+    /// </param>
+    internal static bool ShouldEmitConformanceDictionary(
+        TypeConformance conformance, ITypeDatabase typeDatabase, out ConformanceDrop? drop)
     {
+        drop = null;
+
         // Preserve existing behavior for Equatable/Hashable even when protocol records are unavailable.
         if (conformance.Protocol.ModuleQualifiedName == "Swift.Equatable")
             return true;
         if (conformance.Protocol.ModuleQualifiedName == "Swift.Hashable" || (conformance.Protocol.Name == "Hashable" && string.IsNullOrEmpty(conformance.Protocol.Module)))
             return true;
 
-        // Skip unknown protocols and protocols with associated types (PATs).
-        // Cross-module protocols require a loaded module database (--module-database)
-        // to have a TypeRecord; without one they are silently skipped.
-        if (!typeDatabase.TryGetTypeRecord(conformance.Protocol, out var record))
+        // Well-known runtime protocols (e.g. Swift.Error → AnyError) map to direct runtime types, and
+        // the marker protocols (Sendable, Copyable, …) are compiler artifacts every type carries.
+        // Neither is a loss, so neither reports — and the check is by NAME, ahead of the record
+        // lookup, so a database that happens not to carry them doesn't turn every type's implicit
+        // markers into "protocol not in the type database" rows.
+        if (TypeDatabaseExtensions.IsWellKnownRuntimeProtocol(conformance.Protocol.ModuleQualifiedName))
             return false;
+
+        // Cross-module protocols need the declaring module's database (--module-database) to have a
+        // TypeRecord at all. Without one the conformance is unprojectable — but it is a real loss
+        // with a configuration fix, so it reports rather than vanishing.
+        if (!typeDatabase.TryGetTypeRecord(conformance.Protocol, out var record))
+        {
+            drop = new ConformanceDrop(
+                SkipReason.ConformanceProtocolNotInTypeDatabase,
+                $"the protocol {conformance.Protocol.ModuleQualifiedName} has no entry in the type "
+                + "databases this run loaded, so no C# interface could be named for it");
+            return false;
+        }
 
         if (record.Kind != TypeRecordKind.Protocol)
+        {
+            drop = new ConformanceDrop(
+                SkipReason.ConformanceProtocolNotInTypeDatabase,
+                $"the type database resolves {conformance.Protocol.ModuleQualifiedName} to a "
+                + $"{record.Kind}, not a protocol, so the conformance cannot be projected as an "
+                + "interface — the entry is likely from a different declaration of the same name");
             return false;
+        }
 
         if (record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
+        {
+            drop = new ConformanceDrop(
+                SkipReason.ConformanceProtocolHasAssociatedTypes,
+                "the protocol has associated types, so its C# interface is generic and cannot be "
+                + "named in a base list without type arguments; this conformance does not bind them "
+                + "all to concrete types");
             return false;
+        }
 
-        // Well-known runtime protocols (e.g., Swift.Error → AnyError) map to direct
-        // runtime types, not generated interfaces. Skip them.
-        if (TypeDatabaseExtensions.IsWellKnownRuntimeProtocol(record))
-            return false;
-
+        // A well-known runtime protocol that DID resolve is caught by the name check above; nothing
+        // else needs the record form here.
         return true;
     }
 
@@ -1630,18 +1742,18 @@ internal static class ProtocolConformanceHelper
     /// can land in <c>_protocolConformanceSymbols</c> without surfacing as a direct interface.
     /// Same-module protocols are validated by <c>CanFullyImplementProtocol</c> in the caller.
     /// </summary>
-    /// <param name="dropReason">
+    /// <param name="drop">
     /// Set when the conformance is dropped for a reason worth reporting to a consumer, null otherwise
-    /// (including when the method returns true). Only the cross-module-with-members gate fills it: the
-    /// dictionary gate below rejects the marker protocols every type carries (Sendable, Copyable, …),
-    /// where "the interface was not emitted" is the design rather than a loss.
+    /// (including when the method returns true). Filled both here — by the cross-module-with-members
+    /// gate — and by the shared dictionary gate, which reports an unresolvable protocol and a PAT.
+    /// The marker protocols every type carries (Sendable, Copyable, …) stay silent: "the interface
+    /// was not emitted" is the design there rather than a loss. A PAT drop is PROVISIONAL; see
+    /// <see cref="ShouldEmitConformanceDictionary(TypeConformance, ITypeDatabase, out ConformanceDrop?)"/>.
     /// </param>
     internal static bool ShouldEmitConformanceInterface(
-        TypeConformance conformance, string moduleName, ITypeDatabase typeDatabase, out string? dropReason)
+        TypeConformance conformance, string moduleName, ITypeDatabase typeDatabase, out ConformanceDrop? drop)
     {
-        dropReason = null;
-
-        if (!ShouldEmitConformanceDictionary(conformance, typeDatabase))
+        if (!ShouldEmitConformanceDictionary(conformance, typeDatabase, out drop))
             return false;
 
         // Equatable/Hashable always project, even when the record is unavailable — their
@@ -1667,12 +1779,14 @@ internal static class ProtocolConformanceHelper
             // Conservatively skip to avoid potential CS0535.
             if (record.EmittedMemberCount == null || record.EmittedMemberCount > 0)
             {
-                dropReason = record.EmittedMemberCount == null
-                    ? $"the protocol is declared in another module ({resolvedProtocolModule}) and this type " +
-                      "database does not record how many members it emits, so the conformance is dropped conservatively"
-                    : $"the protocol is declared in another module ({resolvedProtocolModule}) and has " +
-                      $"{record.EmittedMemberCount} emitted requirement(s) — the generator cannot produce the " +
-                      "cross-module member stubs the C# interface would demand";
+                drop = new ConformanceDrop(
+                    SkipReason.ConformanceNotFullyImplementable,
+                    record.EmittedMemberCount == null
+                        ? $"the protocol is declared in another module ({resolvedProtocolModule}) and this type " +
+                          "database does not record how many members it emits, so the conformance is dropped conservatively"
+                        : $"the protocol is declared in another module ({resolvedProtocolModule}) and has " +
+                          $"{record.EmittedMemberCount} emitted requirement(s) — the generator cannot produce the " +
+                          "cross-module member stubs the C# interface would demand");
                 return false;
             }
         }

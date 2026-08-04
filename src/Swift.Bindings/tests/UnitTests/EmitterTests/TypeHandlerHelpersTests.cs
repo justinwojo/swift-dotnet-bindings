@@ -595,6 +595,144 @@ public class TypeHandlerHelpersTests
         Assert.DoesNotContain(interfaces, i => i.Contains("Iterable"));
     }
 
+    // ==================== Dropped-conformance reporting ====================
+
+    [Fact]
+    public void GetImplementedInterfaces_ProtocolWithNoTypeRecord_ReportsTheDroppedConformance()
+    {
+        // The conformance disappears from the emitted C#, and the type still compiles, so nothing
+        // downstream notices. The consumer's symptom is a type that cannot be passed where the
+        // protocol is expected, with no row anywhere saying why. This is the module-B-conforming-to-
+        // module-A's-protocol shape: generated without A's database, A's protocol has no record.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDeclWithConformances("Point", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+                SwiftTypeName.FromModuleQualifiedName("OtherModule.SomeProtocol"),
+                "$s10TestModule5PointVOtherModuleSomeProtocolMc"));
+
+        var report = RunWithReport(moduleDecl, () =>
+            ProtocolConformanceHelper.GetImplementedInterfaces(
+                structDecl, "Point", "TestModule", typeDatabase));
+
+        var row = Assert.Single(report.SkippedItems, i => i.Name == "OtherModule.SomeProtocol");
+        Assert.Equal(SkipReason.ConformanceProtocolNotInTypeDatabase, row.Reason);
+        Assert.Equal("TestModule.Point", row.ContainingType);
+        Assert.Contains("OtherModule.SomeProtocol", row.Details);
+        Assert.NotNull(row.RecommendedWorkaround);
+    }
+
+    [Theory]
+    [InlineData("Swift.Sendable")]
+    [InlineData("Swift.Copyable")]
+    [InlineData("Swift.Escapable")]
+    [InlineData("_Concurrency.Actor")]
+    public void GetImplementedInterfaces_MarkerProtocol_ReportsNothing(string markerProtocol)
+    {
+        // Marker protocols are compiler artifacts every type carries and are never projected — their
+        // absence is the design, not a loss. Reporting them would bury the real drops under one row
+        // per type per marker, so the gate has to recognize them BEFORE it decides "not in the
+        // database" (these have no record in a bare test database, and often none in a real one).
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDeclWithConformances("Point", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+                SwiftTypeName.FromModuleQualifiedName(markerProtocol),
+                "$sMc"));
+
+        var report = RunWithReport(moduleDecl, () =>
+            ProtocolConformanceHelper.GetImplementedInterfaces(
+                structDecl, "Point", "TestModule", typeDatabase));
+
+        Assert.Empty(report.SkippedItems);
+    }
+
+    [Fact]
+    public void GetImplementedInterfaces_OpenPAT_ReportsTheDroppedConformance()
+    {
+        // An open PAT binding is the one path where a conformance could vanish with no row at all:
+        // the interface gate rejected it as a PAT, and the closed-generic projection then declined
+        // it without a word. Both sibling gates in that projection already report.
+        var typeDatabase = CreateTypeDatabaseWithPAT();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = CreatePATProtocolDecl(moduleDecl, "Iterable", "Element");
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var structDecl = CreateStructDeclWithConformances("GenericIterator", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.GenericIterator"),
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Iterable"),
+                "$s10TestModule15GenericIteratorVIterableMc"));
+        moduleDecl.ConformanceGraph.AddWitness(
+            "TestModule.GenericIterator", "TestModule.Iterable", "Element",
+            new NamedTypeSpec("U"));
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var report = RunWithReport(moduleDecl, () =>
+            ProtocolConformanceHelper.GetImplementedInterfaces(
+                structDecl, "GenericIterator<U>", "TestModule", typeDatabase, validator));
+
+        var row = Assert.Single(report.SkippedItems, i => i.Name == "TestModule.Iterable");
+        Assert.Equal(SkipReason.ConformanceProtocolHasAssociatedTypes, row.Reason);
+        Assert.Contains("concrete", row.Details);
+        Assert.NotNull(row.RecommendedWorkaround);
+    }
+
+    [Fact]
+    public void GetImplementedInterfaces_ClosedPAT_Surfaced_ReportsNoDrop()
+    {
+        // The PAT rejection in the interface gate is provisional: the closed-generic projection runs
+        // afterwards and surfaces exactly this conformance. Reporting the rejection where it happens
+        // would claim a loss that did not occur — and the report deduplicates per (type, protocol)
+        // with first write wins, so the false row could never be withdrawn.
+        var typeDatabase = CreateTypeDatabaseWithPAT();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = CreatePATProtocolDecl(moduleDecl, "Iterable", "Element");
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var structDecl = CreateStructDeclWithConformances("MyIterator", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.MyIterator"),
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Iterable"),
+                "$s10TestModule10MyIteratorVIterableMc"));
+        moduleDecl.ConformanceGraph.AddWitness(
+            "TestModule.MyIterator", "TestModule.Iterable", "Element",
+            new NamedTypeSpec("Swift.Int"));
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        IReadOnlyList<string> interfaces = new List<string>();
+        var report = RunWithReport(moduleDecl, () =>
+            interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+                structDecl, "MyIterator", "TestModule", typeDatabase, validator));
+
+        Assert.Contains(interfaces, i => i == "IIterable<nint>");
+        Assert.DoesNotContain(report.SkippedItems, i => i.Name == "TestModule.Iterable");
+    }
+
+    /// <summary>
+    /// Runs an emission step inside a report session and hands back the completed report, so a test
+    /// can assert on rows the step recorded. Always resets, session state being AsyncLocal-scoped
+    /// static.
+    /// </summary>
+    private static BindingReport RunWithReport(ModuleDecl moduleDecl, System.Action step)
+    {
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        try
+        {
+            step();
+            var report = ReportCollector.Complete();
+            Assert.NotNull(report);
+            return report!;
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+    }
+
     [Fact]
     public void TryResolveClosedPatBindings_ConcreteBinding_ReturnsTrueWithFullyQualifiedName()
     {

@@ -127,6 +127,15 @@ public static class SkipDispositionClassifier
             // unexplained one: the row carries the first unmet requirement by name, which is exactly
             // what a triage pass would otherwise have to re-derive. Attributed, so KnownLimitation.
             [SkipReason.ConformanceNotFullyImplementable] = SkipDisposition.KnownLimitation,
+            // A PAT conformance whose associated types are not all concretely bound is the same
+            // decided gap in a different shape: the closed generic base-list entry cannot be named,
+            // the row says which binding stayed open, and the type is still boxable. Attributed.
+            [SkipReason.ConformanceProtocolHasAssociatedTypes] = SkipDisposition.KnownLimitation,
+            // A conformance to a protocol the run never loaded is a consumer-visible loss with a
+            // fully known cause and a fix that needs no source change — pass the declaring module's
+            // database. Not ExpectedStructural: nothing about this is correct-by-design, and burying
+            // it in an "expected" tier is what let it go unreported in the first place.
+            [SkipReason.ConformanceProtocolNotInTypeDatabase] = SkipDisposition.KnownLimitation,
             // A non-dispatchable witness is a documented lowering gap, and the least severe kind of
             // loss in this tier: the member is still declared and still callable on a concrete
             // instance, so only the protocol-typed call path is gone. The per-site shape reason is

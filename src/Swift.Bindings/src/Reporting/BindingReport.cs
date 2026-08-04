@@ -499,6 +499,37 @@ public enum SkipReason
     ConformanceNotFullyImplementable,
 
     /// <summary>
+    /// A protocol conformance was dropped because the protocol itself is not in the type database
+    /// this run loaded: no record at all, or a record that is not a protocol. The conformance never
+    /// reaches the validator, so the loss has a different cause and a different fix from
+    /// <see cref="ConformanceNotFullyImplementable"/> — nothing about the conforming type or the
+    /// requirement shapes is at fault, and no change to either would recover it.
+    /// <para>
+    /// The usual cause is a protocol declared in another module that was generated without that
+    /// module's database (<c>--module-database</c>), which is a configuration input rather than a
+    /// capability gap: supplying it can turn the conformance back on with no source change.
+    /// <see cref="SkippedItem.Details"/> names the protocol's declaring module so the missing input
+    /// is identifiable from the report alone.
+    /// </para>
+    /// </summary>
+    ConformanceProtocolNotInTypeDatabase,
+
+    /// <summary>
+    /// A protocol conformance was dropped because the protocol has associated types and this
+    /// conformance could not be projected as a closed generic interface. A PAT projects to
+    /// <c>I{Protocol}&lt;…&gt;</c>, which cannot be named in a base list without type arguments;
+    /// the generator supplies them when the conformance binds every associated type to a concrete
+    /// type, and drops the conformance when at least one binding stays open (bound to a
+    /// conformer-side type parameter) or cannot be resolved.
+    /// <para>
+    /// The type still emits and is still boxable through <c>IExistentialBoxable</c>; what is lost is
+    /// the typed base-list entry, so a consumer cannot pass the type where the closed interface is
+    /// expected. <see cref="SkippedItem.Details"/> says which of the two applied.
+    /// </para>
+    /// </summary>
+    ConformanceProtocolHasAssociatedTypes,
+
+    /// <summary>
     /// A protocol requirement that IS declared on the emitted <c>I{Protocol}</c> interface, but whose
     /// <c>{Protocol}Proxy</c> implementation cannot reach the Swift witness — the shape has no
     /// dispatchable witness-table lowering (non-blittable parameter/return, closure parameter,
@@ -711,7 +742,19 @@ public sealed class BridgeSummary
 public sealed class WrappedItem
 {
     public required BindingItemKind Kind { get; init; }
+
+    /// <summary>The Swift declaration's own name.</summary>
     public required string Name { get; init; }
+
+    /// <summary>
+    /// The C# name a consumer sees, when the recording site knew it. Carried because this row has to
+    /// be reconcilable against the co-gated surface, which is read back out of the generated C# and
+    /// therefore names members as C# spells them — <see cref="Name"/> alone cannot be matched to it.
+    /// Null where the site had no emitted name to hand, which leaves that row matchable only by its
+    /// Swift name.
+    /// </summary>
+    public string? EmittedName { get; init; }
+
     public string? MangledName { get; init; }
     public string? ContainingType { get; init; }
     public required string WrapperKind { get; init; }
