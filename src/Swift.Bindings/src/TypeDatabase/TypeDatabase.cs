@@ -418,6 +418,9 @@ namespace BindingsGeneration
                 string hasBoolFields = typeDeclarationNode?.Attributes?["hasBoolFields"]?.Value ?? "false";
                 string objcBridgeable = typeDeclarationNode?.Attributes?["objcBridgeable"]?.Value ?? "false";
                 string? rawValueType = typeDeclarationNode?.Attributes?["rawValueType"]?.Value;
+                // Absent on every record whose C# name is already its ObjC name, and on databases
+                // written before the Swift-import rename existed — null is the correct reading of both.
+                string? objcRuntimeName = typeDeclarationNode?.Attributes?["objcRuntimeName"]?.Value;
                 string? emittedMemberCountStr = typeDeclarationNode?.Attributes?["emittedMemberCount"]?.Value;
                 int? emittedMemberCount = emittedMemberCountStr != null ? int.Parse(emittedMemberCountStr) : null;
                 // Optional — only present on protocol records produced by 0.10.0+ generators.
@@ -600,6 +603,7 @@ namespace BindingsGeneration
                     },
                     NativeTypeName = nativeTypeName,
                     RawValueTypeName = rawValueType,
+                    ObjCRuntimeName = objcRuntimeName,
                     EmittedMemberCount = emittedMemberCount,
                     AssociatedTypeCount = associatedTypeCount,
                     SuperclassTypeName = superclassStr != null && !superclassStr.Contains('<')

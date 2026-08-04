@@ -177,6 +177,20 @@ public record TypeRecord
     public required TypeRecordKind Kind { get; init; }
 
     /// <summary>
+    /// The Objective-C runtime name of a mixed-framework ObjC type whose C# projection was renamed to
+    /// the name Swift imports it under. Null when the two coincide (the common case) and on every
+    /// non-ObjC record.
+    /// </summary>
+    /// <remarks>
+    /// The C# projection used to BE the raw ObjC name, so consumers that need the ObjC identity — the
+    /// superclass resolution in <c>MarshallingHelpers</c>, which cross-checks a bridge record against
+    /// the raw name in a Clang USR — read it off <see cref="CSharpTypeName"/>. Once the projection
+    /// follows the Swift-import rename that identity is gone from the record, and those consumers
+    /// silently stop matching. This carries it explicitly instead of leaving it implied by a name.
+    /// </remarks>
+    public string? ObjCRuntimeName { get; init; }
+
+    /// <summary>
     /// Optional native type name to use in public method signatures.
     /// When set, the public API exposes this type (e.g., Foundation.NSUrl) instead of the
     /// internal Swift wrapper type (e.g., Swift.Foundation.Data). Conversion happens at the marshalling layer.

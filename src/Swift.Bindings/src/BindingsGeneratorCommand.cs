@@ -978,6 +978,11 @@ public static class BindingsGeneratorCommand
         // exit. On success, mixedBridgeRecords carries the synthesized records into GenerateBindings.
         ObjCParseResult? mixedParse = null;
         IReadOnlyList<TypeRecord>? mixedBridgeRecords = null;
+        // Filled by GenerateBindings below: the rawObjCName -> swiftImportName mapping the Swift ABI
+        // parse harvested, already vetted down to the renames the companion will actually apply. The
+        // mixed companion is emitted after that call and needs it to declare its types under the names
+        // Swift gives them; the Swift half's bridge records are re-keyed from the same vetted subset.
+        IReadOnlyDictionary<string, string>? swiftObjCImportedTypeNames = null;
         if (hasXcframework && resolution != null && mixedObjcResolution != null)
         {
             var mixedSiblingPaths = XCFrameworkResolver.ResolveSiblingFrameworkSearchPaths(
@@ -1306,7 +1311,11 @@ public static class BindingsGeneratorCommand
                 logger: logger);
         }
 
-        var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, out var depModuleCollisions, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase, descriptorAssemblyNameOverride: assemblyNameOverride, swiftRuntimeVersion: swiftRuntimeVersion, objcBridgeRecords: mixedBridgeRecords, compileWrapper: verifyRecoverCompile, verifyRecoverCsharp: verifyRecoverCsharp, staticMergedModuleName: staticMergedModuleName, asyncPatternManifestPath: asyncPatternManifest);
+        var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, out var depModuleCollisions, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase, descriptorAssemblyNameOverride: assemblyNameOverride, swiftRuntimeVersion: swiftRuntimeVersion, objcBridgeRecords: mixedBridgeRecords, compileWrapper: verifyRecoverCompile, verifyRecoverCsharp: verifyRecoverCsharp, staticMergedModuleName: staticMergedModuleName, asyncPatternManifestPath: asyncPatternManifest, vetObjCImportedTypeNames: names => swiftObjCImportedTypeNames =
+                mixedParse?.Module == null
+                    ? names
+                    : ObjCSwiftImportNameRewriter.AcceptRenames(
+                        mixedParse.Module, names, mixedParse.ResolvedNamespace, logger));
         if (!success)
         {
             context.ExitCode = 1;
@@ -1931,7 +1940,8 @@ public static class BindingsGeneratorCommand
                 logger, packageId: null, sdkMode: sdkMode, isMixed: true,
                 excludeTypeNames: swiftTypeNames,
                 sourceNativeLinkage: sourceNativeLinkage,
-                hasWrapperXCFramework: wrapperWillExist);
+                hasWrapperXCFramework: wrapperWillExist,
+                objcImportedTypeNames: swiftObjCImportedTypeNames);
             // A1: attach the ObjC surface's dropped symbols to the manifest the Swift generation
             // pass already wrote into this output dir, so they fold into binding-report.json's
             // single SkipTriage/ReviewCount gate. mixedParse.Diagnostics is the same object

@@ -80,6 +80,17 @@ public sealed record ObjCPropertyDecl
 public sealed record ObjCClassDecl
 {
     public required string Name { get; init; }
+
+    /// <summary>
+    /// The Objective-C spelling this declaration was parsed under, set only when
+    /// <see cref="Name"/> has been rewritten to the type's Swift-import name. It is the name the
+    /// ObjC runtime registers (and the one <c>[BaseType(..., Name = "…")]</c> must carry), so every
+    /// site that talks to the runtime rather than to C# reads this in preference to
+    /// <see cref="Name"/>. <c>null</c> means no rename applied and <see cref="Name"/> is already the
+    /// raw spelling.
+    /// </summary>
+    public string? RawObjCName { get; init; }
+
     public string? SuperclassName { get; init; }
     public List<string> ProtocolNames { get; init; } = [];
     public List<string> GenericTypeParamNames { get; init; } = [];
@@ -107,6 +118,14 @@ public sealed record ObjCClassDecl
 public sealed record ObjCProtocolDecl
 {
     public required string Name { get; init; }
+
+    /// <summary>
+    /// The Objective-C spelling this declaration was parsed under, set only when
+    /// <see cref="Name"/> has been rewritten to the type's Swift-import name. See
+    /// <see cref="ObjCClassDecl.RawObjCName"/>.
+    /// </summary>
+    public string? RawObjCName { get; init; }
+
     public List<string> InheritedProtocolNames { get; init; } = [];
     public List<ObjCMethodDecl> Methods { get; init; } = [];
     public List<ObjCPropertyDecl> Properties { get; init; } = [];
@@ -143,6 +162,15 @@ public sealed record ObjCEnumCaseDecl
 public sealed record ObjCEnumDecl
 {
     public required string Name { get; init; }
+
+    /// <summary>
+    /// The Objective-C spelling this declaration was parsed under, set only when
+    /// <see cref="Name"/> has been rewritten to the type's Swift-import name. Enum CASE names are
+    /// written against this spelling, so the case prefix strip keys on it. See
+    /// <see cref="ObjCClassDecl.RawObjCName"/>.
+    /// </summary>
+    public string? RawObjCName { get; init; }
+
     public bool IsOptions { get; init; }
     public ObjCTypeRef? UnderlyingType { get; init; }
     public List<ObjCEnumCaseDecl> Cases { get; init; } = [];

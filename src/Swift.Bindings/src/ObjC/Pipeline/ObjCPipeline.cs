@@ -260,7 +260,8 @@ public static class ObjCPipeline
         bool isMixed = false,
         HashSet<string>? excludeTypeNames = null,
         NativeLinkage sourceNativeLinkage = NativeLinkage.Dynamic,
-        bool hasWrapperXCFramework = false)
+        bool hasWrapperXCFramework = false,
+        IReadOnlyDictionary<string, string>? objcImportedTypeNames = null)
     {
         // 4b. Apply mixed-framework filtering (member-level dedup with category extraction)
         if (excludeTypeNames != null && excludeTypeNames.Count > 0)
@@ -300,6 +301,12 @@ public static class ObjCPipeline
         {
             module = FilterToForeignCategories(module, logger);
         }
+
+        // 4g. Adopt Swift-import names. Runs LAST among the filters and immediately before emission:
+        // every filter above matches on the raw ObjC spelling (mixed dedup against Swift-owned
+        // runtime names, native-symbol probes, category classification), so renaming earlier would
+        // silently stop those matching. From here on the module speaks the emitted C# names.
+        module = ObjCSwiftImportNameRewriter.Rewrite(module, objcImportedTypeNames, logger).Module;
 
         // 5. Emit bindings
         var apiDefPath = ApiDefinitionEmitter.Emit(module, outputDirectory, resolvedNamespace, logger, diagnostics, pi);

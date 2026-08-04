@@ -4082,6 +4082,76 @@ public class ApiDefinitionEmitterTests
         Assert.Equal(expected, ApiDefinitionEmitter.SelectorToDelegateMethodName(selector));
     }
 
+    [Theory]
+    // The first selector part carries SEMANTICS past the receiver token: only the receiver is
+    // dropped, so the verb survives instead of the callback collapsing onto the trailing label.
+    [InlineData("mapViewDidFailLoadingMap:withError:", "MLNMapViewDelegate", "DidFailLoadingMapWithError")]
+    [InlineData("mapViewDidFinishLoadingMap:", "MLNMapViewDelegate", "DidFinishLoadingMap")]
+    [InlineData("chartViewDidFailRenderingChart:withReason:", "OUChartViewDelegate", "DidFailRenderingChartWithReason")]
+    // The receiver token may be spelled with the class's ObjC prefix.
+    [InlineData("MLNMapViewDidStopLocatingUser:", "MLNMapViewDelegate", "DidStopLocatingUser")]
+    // A data-source protocol names its receiver the same way.
+    [InlineData("mapViewNumberOfSources:", "MLNMapViewDataSource", "NumberOfSources")]
+    // The first part is JUST the receiver — nothing to keep, so today's drop-part[0] rule stands.
+    [InlineData("mapView:didSelectAnnotation:", "MLNMapViewDelegate", "DidSelectAnnotation")]
+    [InlineData("chartView:didSelectIndex:", "OUChartViewDelegate", "DidSelectIndex")]
+    // The first part does not name the receiver at all — unchanged behavior.
+    [InlineData("tableView:cellForRowAtIndexPath:", "MLNMapViewDelegate", "CellForRowAtIndexPath")]
+    [InlineData("didReceiveNotification:", "MLNMapViewDelegate", "DidReceiveNotification")]
+    // Single-part selectors keep their whole name whether or not a receiver is known.
+    [InlineData("viewDidLoad", "MLNMapViewDelegate", "ViewDidLoad")]
+    public void SelectorToDelegateMethodName_KeepsSemanticsCarriedByTheFirstPart(
+        string selector, string delegatingProtocolName, string expected)
+    {
+        Assert.Equal(expected, ApiDefinitionEmitter.SelectorToDelegateMethodName(selector, delegatingProtocolName));
+    }
+
+    [Fact]
+    public void SelectorToDelegateMethodName_ReceiverTokenIsTheWholeFirstPart_DoesNotEmitAnEmptyName()
+    {
+        // A selector whose first part IS exactly the receiver leaves no remainder to keep; stripping
+        // it would name the method after the trailing part only, which is the existing rule.
+        Assert.Equal(
+            "DidUpdate",
+            ApiDefinitionEmitter.SelectorToDelegateMethodName("mapView:didUpdate:", "MLNMapViewDelegate"));
+
+        // ...and with no second part there is nothing else to fall back to, so the part survives whole.
+        Assert.Equal(
+            "MapView",
+            ApiDefinitionEmitter.SelectorToDelegateMethodName("mapView", "MLNMapViewDelegate"));
+    }
+
+    [Fact]
+    public void Emit_DelegateProtocolMethodWithSemanticFirstPart_KeepsTheVerb()
+    {
+        var module = ObjCModuleBuilder.Create()
+            .WithProtocol(new ObjCProtocolDecl
+            {
+                Name = "MLNMapViewDelegate",
+                IsDelegateProtocol = true,
+                Methods =
+                [
+                    new ObjCMethodDecl
+                    {
+                        Selector = "mapViewDidFailLoadingMap:withError:",
+                        ReturnType = SimpleType("void"),
+                        IsInstanceMethod = true,
+                        Parameters =
+                        [
+                            new ObjCParameterDecl { Name = "mapView", Type = SimpleType("MLNMapView", isPointer: true) },
+                            new ObjCParameterDecl { Name = "error", Type = SimpleType("NSError", isPointer: true) }
+                        ]
+                    }
+                ]
+            })
+            .WithAppleSdkTypeNames("MLNMapView")
+            .Build();
+
+        var result = EmitAndRead(module);
+        Assert.Contains("void DidFailLoadingMapWithError(", result);
+        Assert.DoesNotContain("void WithError(", result);
+    }
+
     [Fact]
     public void Emit_DelegateProtocolMethod_UsesLastSelectorPart()
     {
@@ -5614,6 +5684,38 @@ public class ApiDefinitionEmitterTests
         Assert.Contains("Consume(INSUrlThing thing)", result);
         Assert.Contains("INSUrlThing Produce()", result);
         Assert.Contains("INSUrlThing Thing { get; }", result);
+    }
+
+    [Fact]
+    public void Emit_SwiftImportRenamedClassAndProtocol_KeepTheObjCNameOnTheRegistration()
+    {
+        // The whole point of the declaration≠registration split: a type declared under its
+        // Swift-import name must still register with the ObjC runtime under the name the runtime
+        // knows it by. Dropping the `Name =` argument compiles cleanly and only fails at launch, as
+        // an unrecognized-selector send against a class that never registered.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            AppleSdkTypeNamespaces = new Dictionary<string, string> { ["NSObject"] = "" },
+            Classes =
+            [
+                new ObjCClassDecl { Name = "AccessToken", RawObjCName = "FBSDKAccessToken" },
+                new ObjCClassDecl { Name = "Profile" },
+            ],
+            Protocols =
+            [
+                new ObjCProtocolDecl { Name = "Sharing", RawObjCName = "FBSDKSharing" },
+            ],
+        };
+
+        var result = EmitAndRead(module);
+
+        Assert.Contains("[BaseType(typeof(NSObject), Name = \"FBSDKAccessToken\")]", result);
+        Assert.Contains("partial interface AccessToken", result);
+        Assert.Contains("[Protocol(Name = \"FBSDKSharing\")]", result);
+        Assert.Contains("interface Sharing", result);
+        // An un-renamed sibling must not pick up a redundant registration argument.
+        Assert.Contains("[BaseType(typeof(NSObject))]", result);
     }
 
     [Fact]

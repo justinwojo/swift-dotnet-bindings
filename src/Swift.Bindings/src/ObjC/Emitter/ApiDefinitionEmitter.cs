@@ -229,9 +229,12 @@ public static class ApiDefinitionEmitter
         // `INSURLThing` from the declaration while members are typed `INSUrlThing` — which resolves
         // only against the empty forward declaration, so the member silently binds to a placeholder
         // interface instead of the protocol (and for a class, fails outright with CS0246).
+        // The registration argument is the name the ObjC runtime knows, which is the raw declaration
+        // spelling — NOT `proto.Name`, which may already carry the type's Swift-import rename.
+        var protocolRuntimeName = proto.RawObjCName ?? proto.Name;
         var declarationName = ObjCTypeMapper.MapProtocolName(proto.Name, classProtocolClashNames);
-        var protocolAttrArgs = !string.Equals(declarationName, proto.Name, StringComparison.Ordinal)
-            ? $"(Name = \"{proto.Name}\")"
+        var protocolAttrArgs = !string.Equals(declarationName, protocolRuntimeName, StringComparison.Ordinal)
+            ? $"(Name = \"{protocolRuntimeName}\")"
             : "";
 
         // A protocol that declares a parameterless init requirement otherwise gets BOTH a
@@ -334,7 +337,7 @@ public static class ApiDefinitionEmitter
                 diagnostics?.RecordSkip("Method", method.Selector, ObjCSkipReason.DuplicateSelector, $"selector also exported by a property accessor on protocol '{proto.Name}' (kept the property)");
                 continue;
             }
-            var emittedName = EmitMethod(sb, method, declaringClassName: null, isProtocol: true, genericTypeParams: null, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, enumNames: enumNames, isDelegateProtocol: proto.IsDelegateProtocol, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics);
+            var emittedName = EmitMethod(sb, method, declaringClassName: null, isProtocol: true, genericTypeParams: null, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, enumNames: enumNames, isDelegateProtocol: proto.IsDelegateProtocol, delegateProtocolName: proto.RawObjCName ?? proto.Name, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics);
             if (emittedName != null) emittedMemberNames.Add(emittedName);
         }
 
@@ -380,9 +383,10 @@ public static class ApiDefinitionEmitter
         // through MapClassName, so the declaration must carry that name too. `Name = "{raw}"` keeps
         // the native registration on the ObjC spelling. (Only NS-prefixed names with a convention
         // acronym differ at all — for every other class the two spellings are identical.)
+        var classRuntimeName = cls.RawObjCName ?? cls.Name;
         var classDeclarationName = ObjCTypeMapper.MapClassName(cls.Name);
-        var classNameArg = !string.Equals(classDeclarationName, cls.Name, StringComparison.Ordinal)
-            ? $", Name = \"{cls.Name}\""
+        var classNameArg = !string.Equals(classDeclarationName, classRuntimeName, StringComparison.Ordinal)
+            ? $", Name = \"{classRuntimeName}\""
             : "";
         sb.AppendLine($"    [BaseType(typeof({baseType}){classNameArg})]");
 
@@ -911,7 +915,7 @@ public static class ApiDefinitionEmitter
     /// <paramref name="categoryStatics"/> collects the receiver-free overloads planned for a
     /// category's class members, and every emitted member's generated signature alongside them.
     /// </summary>
-    static string? EmitMethod(StringBuilder sb, ObjCMethodDecl method, string? declaringClassName, bool isProtocol, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? emittedConstructorSignatures = null, HashSet<string>? emittedMethodSignatures = null, HashSet<string>? emittedPropertyNames = null, HashSet<string>? knownTypes = null, HashSet<string>? appleSdkTypes = null, HashSet<string>? enumNames = null, bool isDelegateProtocol = false, HashSet<string>? localProtocolNames = null, HashSet<string>? classProtocolClashNames = null, List<ObjCArrayOverload>? arrayOverloads = null, CategoryStaticsCollector? categoryStatics = null, ILogger? logger = null, ObjCBindingDiagnostics? diagnostics = null, string? nameOverride = null, string exportArgumentSemantic = "")
+    static string? EmitMethod(StringBuilder sb, ObjCMethodDecl method, string? declaringClassName, bool isProtocol, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? emittedConstructorSignatures = null, HashSet<string>? emittedMethodSignatures = null, HashSet<string>? emittedPropertyNames = null, HashSet<string>? knownTypes = null, HashSet<string>? appleSdkTypes = null, HashSet<string>? enumNames = null, bool isDelegateProtocol = false, string? delegateProtocolName = null, HashSet<string>? localProtocolNames = null, HashSet<string>? classProtocolClashNames = null, List<ObjCArrayOverload>? arrayOverloads = null, CategoryStaticsCollector? categoryStatics = null, ILogger? logger = null, ObjCBindingDiagnostics? diagnostics = null, string? nameOverride = null, string exportArgumentSemantic = "")
     {
         // Pre-check: skip methods with types not resolvable in ApiDefinition context.
         //
@@ -1035,7 +1039,7 @@ public static class ApiDefinitionEmitter
         var methodName = isConstructor
             ? "Constructor"
             : nameOverride
-              ?? (isDelegateProtocol ? SelectorToDelegateMethodName(method.Selector) : SelectorToMethodName(method.Selector));
+              ?? (isDelegateProtocol ? SelectorToDelegateMethodName(method.Selector, delegateProtocolName) : SelectorToMethodName(method.Selector));
 
         // Duplicate method signature detection: rename with full selector parts if collision.
         // Also rename if the short name collides with an already-emitted PROPERTY name (CS0102) —
@@ -2185,7 +2189,7 @@ public static class ApiDefinitionEmitter
             if (CollidesWithPropertyAccessor(method, ownAccessorSelectors))
                 continue;
             var startName = proto.IsDelegateProtocol
-                ? SelectorToDelegateMethodName(method.Selector)
+                ? SelectorToDelegateMethodName(method.Selector, proto.RawObjCName ?? proto.Name)
                 : SelectorToMethodName(method.Selector);
             var finalName = ResolveMethodNameWithDedup(startName, method, genericTypeParams: null, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: sigs, emittedPropertyNames: propertyNames);
             memberNames.Add(finalName);
@@ -2230,13 +2234,103 @@ public static class ApiDefinitionEmitter
     ///   "tableView:commitEditingStyle:forRowAtIndexPath:" → "CommitEditingStyleForRowAtIndexPath"
     ///   "didReceiveNotification:"                → "DidReceiveNotification"
     /// For single-part selectors, falls back to normal SelectorToMethodName behavior.
+    /// <para>
+    /// Dropping part[0] wholesale is only right when part[0] is nothing BUT the receiver name.
+    /// The platform's own delegates routinely fold the first semantic word into it —
+    /// <c>mapViewDidFailLoadingMap:withError:</c> — where the wholesale drop throws away
+    /// <c>DidFailLoadingMap</c> and leaves a method called <c>WithError</c>. When
+    /// <paramref name="delegatingProtocolName"/> identifies the delegating class, only the leading
+    /// receiver token is peeled off and the rest of part[0] is kept:
+    /// <c>DidFailLoadingMapWithError</c>. A part[0] that does not carry the receiver token keeps
+    /// the historical behaviour.
+    /// </para>
     /// </summary>
-    internal static string SelectorToDelegateMethodName(string selector)
+    /// <param name="selector">The Objective-C selector.</param>
+    /// <param name="delegatingProtocolName">The delegate protocol's own ObjC name (e.g.
+    /// <c>MLNMapViewDelegate</c>), or null when it isn't known — in which case no receiver token is
+    /// peeled and the historical naming applies unchanged.</param>
+    internal static string SelectorToDelegateMethodName(string selector, string? delegatingProtocolName = null)
     {
         var parts = selector.Split(':', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+            return string.Empty;
+
+        var carriedByFirstPart = StripDelegateReceiverToken(parts[0], delegatingProtocolName);
+        if (carriedByFirstPart != null)
+            return ToPascalCase(carriedByFirstPart) + string.Concat(parts.Skip(1).Select(ToPascalCase));
+
         if (parts.Length >= 2)
             return string.Concat(parts.Skip(1).Select(ToPascalCase));
         return ToPascalCase(parts[0]);
+    }
+
+    /// <summary>The role suffixes a delegating class's protocol is named with.</summary>
+    static readonly string[] DelegateRoleSuffixes = ["DataSource", "Delegate"];
+
+    /// <summary>
+    /// The part of <paramref name="firstSelectorPart"/> that remains after peeling the delegating
+    /// class's receiver token, or <c>null</c> when it carries no receiver token (or the whole part
+    /// IS the receiver, which is the case the wholesale drop already handles correctly).
+    /// The remainder must start a new PascalCase word, so a receiver token can never bite into the
+    /// middle of one.
+    /// </summary>
+    static string? StripDelegateReceiverToken(string firstSelectorPart, string? delegatingProtocolName)
+    {
+        if (string.IsNullOrEmpty(delegatingProtocolName))
+            return null;
+
+        foreach (var receiver in DelegateReceiverCandidates(delegatingProtocolName))
+        {
+            // Case-insensitive: the receiver token lower-cases the class name's first letter
+            // (MLNMapView → mapView), and an acronym-leading class lower-cases the whole acronym.
+            if (firstSelectorPart.Length > receiver.Length
+                && firstSelectorPart.StartsWith(receiver, StringComparison.OrdinalIgnoreCase)
+                && char.IsUpper(firstSelectorPart[receiver.Length]))
+                return firstSelectorPart[receiver.Length..];
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The receiver-token spellings a delegate selector may use for the class behind
+    /// <paramref name="protocolName"/>, longest first so the match doesn't depend on candidate
+    /// order. Two forms: the delegating class name itself (protocol name minus its role suffix)
+    /// and that name with its framework acronym removed — ObjC selectors name the receiver by the
+    /// unprefixed class (<c>MLNMapViewDelegate</c> → <c>MLNMapView</c> → <c>mapView</c>).
+    /// </summary>
+    static IEnumerable<string> DelegateReceiverCandidates(string protocolName)
+    {
+        var declaringClass = protocolName;
+        foreach (var suffix in DelegateRoleSuffixes)
+        {
+            if (declaringClass.Length > suffix.Length
+                && declaringClass.EndsWith(suffix, StringComparison.Ordinal))
+            {
+                declaringClass = declaringClass[..^suffix.Length];
+                break;
+            }
+        }
+
+        yield return declaringClass;
+        var unprefixed = StripLeadingAcronym(declaringClass);
+        if (!string.Equals(unprefixed, declaringClass, StringComparison.Ordinal))
+            yield return unprefixed;
+    }
+
+    /// <summary>
+    /// Removes a leading all-uppercase framework acronym from <paramref name="name"/>, keeping the
+    /// acronym run's last letter when it starts the next PascalCase word (<c>MLNMapView</c> →
+    /// <c>MapView</c>). Returns the input unchanged when there is no acronym of at least two
+    /// letters to remove.
+    /// </summary>
+    static string StripLeadingAcronym(string name)
+    {
+        var run = 0;
+        while (run < name.Length && char.IsUpper(name[run]))
+            run++;
+        if (run < name.Length && char.IsLower(name[run]))
+            run--;
+        return run >= 2 && run < name.Length ? name[run..] : name;
     }
 
     static string ToPascalCase(string name)

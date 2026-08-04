@@ -247,3 +247,24 @@ CGSize const OUDefaultTileSize = { 256, 512 };
 }
 
 @end
+
+// Shape 14 — the module-tag-prefixed enum.
+@implementation OUSourcePicker
+- (OUSourceKind)nextAfter:(OUSourceKind)kind {
+    return kind == OUMapbox ? OUMapTiler : (OUSourceKind)(kind + 1);
+}
+@end
+
+// Shape 15 — the delegate whose first selector segment carries semantics.
+@implementation OUChartView
+- (void)failWithReason:(NSString *)reason {
+    if ([self.delegate respondsToSelector:@selector(chartViewDidFailRenderingChart:withReason:)]) {
+        [self.delegate chartViewDidFailRenderingChart:self withReason:reason];
+    }
+}
+- (void)selectIndex:(NSInteger)index {
+    if ([self.delegate respondsToSelector:@selector(chartView:didSelectIndex:)]) {
+        [self.delegate chartView:self didSelectIndex:index];
+    }
+}
+@end

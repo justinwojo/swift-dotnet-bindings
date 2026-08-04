@@ -53,19 +53,73 @@ public class ObjCBridgeRecordRekeyerTests
     }
 
     [Fact]
-    public void Rekey_PreservesCSharpProjectionAndKindAndFlags()
+    public void Rekey_MovesCSharpProjectionToSwiftImportName_AndPreservesKindAndFlags()
     {
-        // Re-keying touches ONLY the Swift resolution key — the C# projection (the companion's raw
-        // `partial interface` name) and the marshalling classification must survive untouched, or the
-        // resolved reference points at a type the companion never emitted / marshals the wrong way.
+        // The companion now DECLARES the renamed type under its Swift-import name, so a record whose
+        // projection is this type's own companion declaration has to follow the key — leaving it on
+        // the raw name resolves a Swift member onto a C# type the companion never emitted (CS0246).
+        // The namespace and the marshalling classification are untouched either way.
         var original = RawKeyedRecord("FBSDKAccessToken");
         var map = new Dictionary<string, string> { ["FBSDKAccessToken"] = "AccessToken" };
 
         var record = Assert.Single(ObjCBridgeRecordRekeyer.Rekey(new[] { original }, Module, map));
 
-        Assert.Equal("FacebookLogin.Binding.FBSDKAccessToken", record.CSharpTypeName.FullyQualifiedName);
+        Assert.Equal("FacebookLogin.Binding.AccessToken", record.CSharpTypeName.FullyQualifiedName);
+        Assert.Equal(Namespace, record.CSharpTypeName.Namespace);
         Assert.Equal(TypeRecordKind.Class, record.Kind);
         Assert.Equal(original.Flags, record.Flags);
+    }
+
+    [Fact]
+    public void Rekey_ProjectsAClassThroughTheDotNetAcronymConvention_ButAnEnumVerbatim()
+    {
+        // The companion declares a class under MapClassName's spelling (NSURLBox → NSUrlBox) and an
+        // enum under its own. A projection that skips that mapping points a Swift member at a name
+        // the companion never declared — the same CS0246 the re-key exists to prevent.
+        var cls = ObjCBridgeRecordRekeyer.Rekey(
+            new[] { RawKeyedRecord("XYZBox") },
+            Module,
+            new Dictionary<string, string> { ["XYZBox"] = "NSURLBox" });
+        var enumRecord = ObjCBridgeRecordRekeyer.Rekey(
+            new[] { RawKeyedRecord("XYZMode", TypeRecordKind.Enum) },
+            Module,
+            new Dictionary<string, string> { ["XYZMode"] = "NSURLMode" });
+
+        Assert.Equal("NSUrlBox", Assert.Single(cls).CSharpTypeName.Name);
+        Assert.Equal("NSURLBox", Assert.Single(cls).SwiftTypeName.Name); // the Swift key is the import name
+        Assert.Equal("XYZBox", Assert.Single(cls).ObjCRuntimeName);
+        Assert.Equal("NSURLMode", Assert.Single(enumRecord).CSharpTypeName.Name);
+    }
+
+    [Fact]
+    public void Rekey_KeepsTheObjCRuntimeName_WhenTheProjectionMovesOffIt()
+    {
+        // The projection USED to be where the record's ObjC identity lived, and superclass resolution
+        // reads it there to cross-check a Clang USR. Moving the projection to the Swift-import name
+        // has to carry that identity somewhere, or a Swift class subclassing this ObjC type stops
+        // resolving against the record and emits a base the companion never declared.
+        var records = new[] { RawKeyedRecord("FBSDKAccessToken") };
+        var map = new Dictionary<string, string> { ["FBSDKAccessToken"] = "AccessToken" };
+
+        var record = Assert.Single(ObjCBridgeRecordRekeyer.Rekey(records, Module, map));
+
+        Assert.Equal("FBSDKAccessToken", record.ObjCRuntimeName);
+    }
+
+    [Fact]
+    public void Rekey_LeavesTheObjCRuntimeNameNull_WhenTheProjectionDoesNotMove()
+    {
+        // A null ObjCRuntimeName is the signal "C# name == ObjC name". Stamping it unconditionally
+        // would tell every downstream consumer that ordinary types were renamed.
+        var unrenamed = ObjCBridgeRecordRekeyer.Rekey(
+            new[] { RawKeyedRecord("MLevel", TypeRecordKind.Enum) },
+            Module,
+            new Dictionary<string, string> { ["MLevel"] = "MLevel" });
+        var typedEnum = ObjCBridgeRecordRekeyer.Rekey(
+            new[] { RawKeyedRecord("FBSDKProfile") }, Module, new Dictionary<string, string>());
+
+        Assert.Null(Assert.Single(unrenamed).ObjCRuntimeName);
+        Assert.Null(Assert.Single(typedEnum).ObjCRuntimeName);
     }
 
     [Fact]

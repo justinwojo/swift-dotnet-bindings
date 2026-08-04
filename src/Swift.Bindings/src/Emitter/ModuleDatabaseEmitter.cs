@@ -222,6 +222,13 @@ namespace BindingsGeneration
             if (!string.IsNullOrEmpty(record.RawValueTypeName))
                 writer.WriteAttributeString("rawValueType", record.RawValueTypeName);
 
+            // Present only on a mixed-framework ObjC type whose C# name is its Swift-import name
+            // rather than its ObjC spelling. A downstream module resolving this type as a superclass
+            // has both spellings available (the ABI gives the Swift name, the Clang USR the ObjC one)
+            // but no way to know which one this binding actually emitted — this is that answer.
+            if (!string.IsNullOrEmpty(record.ObjCRuntimeName))
+                writer.WriteAttributeString("objcRuntimeName", record.ObjCRuntimeName);
+
             // Emitted interface member count (protocols only)
             if (record.Kind == TypeRecordKind.Protocol && record.EmittedMemberCount.HasValue)
                 writer.WriteAttributeString("emittedMemberCount", record.EmittedMemberCount.Value.ToString());

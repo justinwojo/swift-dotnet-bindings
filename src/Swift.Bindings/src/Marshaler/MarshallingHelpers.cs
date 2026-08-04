@@ -789,6 +789,24 @@ namespace BindingsGeneration
                 if (!AppleFrameworkRegistry.IsKnownModule(module)
                     && IsPureObjCClassUsr(classDecl.SuperclassUsr))
                 {
+                    // Since a dependency may bind such a class under its Swift-import name instead —
+                    // it does so exactly when its own Swift ABI referenced the type, which only that
+                    // dependency's generation can know — the raw ObjC name below is a guess unless the
+                    // dependency says otherwise. Its module database does say so: a record carrying an
+                    // ObjC runtime name distinct from its C# name is one that took the Swift-import
+                    // spelling, and its C# projection is the type a base reference must name. Records
+                    // without that marker bound under the ObjC name, so they fall through unchanged.
+                    if (typeDatabase != null
+                        && SwiftTypeName.TryFromModuleQualifiedName(classDecl.DirectSuperclassName, out var depKey)
+                        && typeDatabase.TryGetTypeRecord(depKey, out var depRecord)
+                        && depRecord.Kind == TypeRecordKind.Class
+                        && depRecord.Flags.HasFlag(TypeRecordFlags.ObjCBridged)
+                        && depRecord.ObjCRuntimeName != null
+                        && depRecord.ObjCRuntimeName == ExtractObjCClassName(classDecl.SuperclassUsr))
+                    {
+                        return depRecord.CSharpTypeName.ToString();
+                    }
+
                     var objcName = ExtractObjCClassName(classDecl.SuperclassUsr);
                     if (!string.IsNullOrEmpty(objcName))
                         return $"{MapSwiftModuleToNetNamespace(module)}.{objcName}";
@@ -805,8 +823,9 @@ namespace BindingsGeneration
         /// synthesized by <see cref="ObjC.ObjCBridgeRecordFactory"/> is keyed
         /// <c>{currentModule}.{swiftImportName}</c>, so a candidate match means an ObjC class of that
         /// import name is declared in this framework. <paramref name="expectedRawObjCName"/> is the raw
-        /// ObjC class name extracted from the superclass USR; the record's projection
-        /// (<see cref="TypeRecord.CSharpTypeName"/>'s leaf, the raw ObjC name) must equal it. This
+        /// ObjC class name extracted from the superclass USR; the record's ObjC identity — its
+        /// <see cref="TypeRecord.ObjCRuntimeName"/> when the projection was renamed to the type's
+        /// Swift-import name, else the projection's own leaf — must equal it. This
         /// identity check mirrors the parse-time gate and prevents a false positive when a module hosts
         /// BOTH a local ObjC helper and an unrelated Swift class whose genuinely-external ObjC base
         /// happens to share the same Swift-import leaf name but a different USR. Returns false when no
@@ -829,7 +848,7 @@ namespace BindingsGeneration
             if (typeDatabase.TryGetTypeRecord(key, out var record)
                 && record.Kind == TypeRecordKind.Class
                 && record.Flags.HasFlag(TypeRecordFlags.ObjCBridged)
-                && record.CSharpTypeName.Name == expectedRawObjCName)
+                && (record.ObjCRuntimeName ?? record.CSharpTypeName.Name) == expectedRawObjCName)
             {
                 csharpBaseName = record.CSharpTypeName.ToString();
                 return true;

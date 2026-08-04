@@ -355,4 +355,46 @@ extern double const OUScaleFactor;
 // with a recorded skip rather than emitting a field that cannot be backed.
 extern CGSize const OUDefaultTileSize;
 
+// MARK: - Shape 14 — an NS_ENUM whose cases share a prefix that is NOT the enum's own type name.
+//
+// The classic ObjC idiom repeats the type name on every case (`OUSourceKindMapTiler`), and that is
+// what the prefix strip has always keyed on. Real headers also ship the shape below: the cases carry
+// only the MODULE's tag (`OU`), so the type-name strip cannot fire and every case used to keep the
+// tag in its C# name. Stripping the longest COMMON prefix of the case set instead would be worse
+// than doing nothing — here that prefix is `OUMap`, so the members would be `Tiler`/`Libre`/`box`,
+// and adding one upstream case (`OUSatellite`) would collapse the prefix to `OU` and silently RENAME
+// all three. The tag is the stable choice: it comes from the module, not from which cases exist.
+// Shape observed in a mapping SDK's tile-source enum.
+typedef NS_ENUM(NSInteger, OUSourceKind) {
+    OUMapTiler = 0,
+    OUMapLibre = 1,
+    OUMapbox = 2,
+};
+
+@interface OUSourcePicker : NSObject
+- (OUSourceKind)nextAfter:(OUSourceKind)kind;
+@end
+
+// MARK: - Shape 15 — a delegate protocol whose first selector segment carries SEMANTICS, not just
+// the receiver.
+//
+// `chartView:didSelectIndex:` is the textbook shape: segment 0 is nothing but the receiver, so
+// dropping it whole is right. `chartViewDidFailRenderingChart:withReason:` is equally common in
+// Apple's own headers, and there the drop threw away `DidFailRenderingChart` and named the method
+// `WithReason`. Only the receiver token is peeled now, so the two coexist as
+// `DidFailRenderingChartWithReason` and `DidSelectIndex`.
+@class OUChartView;
+
+@protocol OUChartViewDelegate <NSObject>
+@optional
+- (void)chartViewDidFailRenderingChart:(OUChartView *)chartView withReason:(NSString *)reason;
+- (void)chartView:(OUChartView *)chartView didSelectIndex:(NSInteger)index;
+@end
+
+@interface OUChartView : NSObject
+@property (nonatomic, weak, nullable) id<OUChartViewDelegate> delegate;
+- (void)failWithReason:(NSString *)reason;
+- (void)selectIndex:(NSInteger)index;
+@end
+
 NS_ASSUME_NONNULL_END

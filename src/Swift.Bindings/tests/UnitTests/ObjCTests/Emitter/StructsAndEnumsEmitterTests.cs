@@ -188,6 +188,205 @@ public class StructsAndEnumsEmitterTests
     }
 
     [Fact]
+    public void EmitEnum_CasesCarryModuleTagNotTypeName_StripsTheModuleTag()
+    {
+        // The ObjC idiom is `EnumNameCaseName`, but a large share of real enums instead repeat only
+        // the module's acronym tag (MLNMapTiler on MLNSourceKind). Those read as stutter in C#. The
+        // strip falls back to the tag the module's own extern constants already establish — never to
+        // a longest-common-prefix over the case set, which would eat a real word the moment a
+        // library ships cases that happen to share one.
+        var module = new ObjCModule
+        {
+            ModuleName = "MapLib",
+            Constants =
+            [
+                new ObjCConstantDecl { Name = "MLNErrorDomain", Type = SimpleType("NSString", isPointer: true), IsExtern = true },
+                new ObjCConstantDecl { Name = "MLNVersionString", Type = SimpleType("NSString", isPointer: true), IsExtern = true },
+            ],
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "MLNSourceKind",
+                    Cases =
+                    [
+                        new ObjCEnumCaseDecl { Name = "MLNMapTiler" },
+                        new ObjCEnumCaseDecl { Name = "MLNMapLibre" },
+                        new ObjCEnumCaseDecl { Name = "MLNMapbox" },
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        // Anchored on the member indentation: a bare Contains("MapTiler,") is also satisfied by the
+        // unstripped "MLNMapTiler," it is supposed to rule out.
+        Assert.Contains("        MapTiler,", output);
+        Assert.Contains("        MapLibre,", output);
+        Assert.Contains("        Mapbox,", output);
+        Assert.DoesNotContain("MLNMapTiler", output);
+        // The shared "Map" word survives — an LCP over the case set would have eaten it.
+        Assert.DoesNotContain("        Tiler,", output);
+    }
+
+    [Fact]
+    public void EmitEnum_OneCaseMissingTheModuleTag_LeavesEveryCaseAlone()
+    {
+        // All-or-nothing: stripping only the cases that carry the tag would emit a member set with
+        // two different naming conventions, so one bare case declines the strip for the whole enum.
+        var module = new ObjCModule
+        {
+            ModuleName = "MapLib",
+            Constants =
+            [
+                new ObjCConstantDecl { Name = "MLNErrorDomain", Type = SimpleType("NSString", isPointer: true), IsExtern = true },
+                new ObjCConstantDecl { Name = "MLNVersionString", Type = SimpleType("NSString", isPointer: true), IsExtern = true },
+            ],
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "MLNSourceKind",
+                    Cases =
+                    [
+                        new ObjCEnumCaseDecl { Name = "MLNMapTiler" },
+                        new ObjCEnumCaseDecl { Name = "Unknown" },
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("MLNMapTiler,", output);
+        Assert.Contains("Unknown,", output);
+    }
+
+    [Fact]
+    public void EmitEnum_ModuleTagNotOnATokenBoundary_LeavesEveryCaseAlone()
+    {
+        // `MLNmapTiler` is not a tagged case, it is an identifier that happens to start with those
+        // three letters. Stripping it would produce a lowercase-leading member name.
+        var module = new ObjCModule
+        {
+            ModuleName = "MapLib",
+            Constants =
+            [
+                new ObjCConstantDecl { Name = "MLNErrorDomain", Type = SimpleType("NSString", isPointer: true), IsExtern = true },
+                new ObjCConstantDecl { Name = "MLNVersionString", Type = SimpleType("NSString", isPointer: true), IsExtern = true },
+            ],
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "MLNSourceKind",
+                    Cases =
+                    [
+                        new ObjCEnumCaseDecl { Name = "MLNmapTiler" },
+                        new ObjCEnumCaseDecl { Name = "MLNmapbox" },
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("MLNmapTiler,", output);
+        Assert.Contains("MLNmapbox,", output);
+    }
+
+    [Fact]
+    public void EmitEnum_ModuleDeclaresNoConstants_SharedCasePrefixIsNotStripped()
+    {
+        // No constants means no registered tag, and there is no other stable source for one. The
+        // shared "MLN" is left in place rather than inferred from the case set.
+        var module = new ObjCModule
+        {
+            ModuleName = "MapLib",
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "MLNSourceKind",
+                    Cases =
+                    [
+                        new ObjCEnumCaseDecl { Name = "MLNMapTiler" },
+                        new ObjCEnumCaseDecl { Name = "MLNMapbox" },
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("MLNMapTiler,", output);
+        Assert.Contains("MLNMapbox,", output);
+    }
+
+    [Fact]
+    public void EmitEnum_RenamedToSwiftImportName_StripsTheRawObjCTypeName()
+    {
+        // The C# type may be declared under its Swift-import name, but the CASES were written
+        // against the ObjC spelling, so the exact-type-name strip has to key on the raw name.
+        var module = new ObjCModule
+        {
+            ModuleName = "MapLib",
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "SourceKind",
+                    RawObjCName = "MLNSourceKind",
+                    Cases =
+                    [
+                        new ObjCEnumCaseDecl { Name = "MLNSourceKindTiler" },
+                        new ObjCEnumCaseDecl { Name = "MLNSourceKindVector" },
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("public enum SourceKind", output);
+        Assert.Contains("        Tiler,", output);
+        Assert.Contains("        Vector,", output);
+        Assert.DoesNotContain("MLNSourceKind", output);
+    }
+
+    [Fact]
+    public void EmitEnum_ModuleDeclaresANonExternConstant_StillStripsTheRegisteredTag()
+    {
+        // The tag has to be inferred from the same constants the constants emitter registers — the
+        // extern ones. Reading the unfiltered list lets a single non-exported constant that doesn't
+        // carry the acronym null the tag out here while the constants emitter still resolves one,
+        // so one module would speak two different prefixes.
+        var module = new ObjCModule
+        {
+            ModuleName = "MapLib",
+            Constants =
+            [
+                new ObjCConstantDecl { Name = "MLNErrorDomain", Type = SimpleType("NSString", isPointer: true), IsExtern = true },
+                new ObjCConstantDecl { Name = "MLNVersionString", Type = SimpleType("NSString", isPointer: true), IsExtern = true },
+                new ObjCConstantDecl { Name = "InternalScratchKey", Type = SimpleType("NSString", isPointer: true), IsExtern = false },
+            ],
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "MLNSourceKind",
+                    Cases =
+                    [
+                        new ObjCEnumCaseDecl { Name = "MLNMapTiler" },
+                        new ObjCEnumCaseDecl { Name = "MLNMapbox" },
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("        MapTiler,", output);
+        Assert.Contains("        Mapbox,", output);
+        Assert.DoesNotContain("MLNMapTiler", output);
+    }
+
+    [Fact]
     public void EmitEnum_NSOptions_HasFlagsAttribute()
     {
         var module = new ObjCModule

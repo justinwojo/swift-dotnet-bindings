@@ -501,6 +501,81 @@ public class ClassObjCRootedTests
     }
 
     [Fact]
+    public void GetObjCBaseTypeName_LocalObjCHelper_ProjectionTookTheSwiftImportName_StillResolvesViaBridgeRecord()
+    {
+        // Same renamed local helper, but this binding's companion DECLARES it under the Swift-import
+        // name, so the record's projection moved to `SwiftProxy` and its ObjC identity lives on
+        // ObjCRuntimeName. The USR identity check has to read it from there: matching on the
+        // projection alone would fail, the same-module resolve would silently not fire, and the base
+        // would fall through to a `RawProxy` the companion no longer declares (CS0246).
+        var cls = CreateClassDecl("DelegateProxy", "MixedKit",
+            superclassUsr: "c:objc(cs)RawProxy",
+            superclassNames: new[] { "Runtime.SwiftProxy", "ObjectiveC.NSObject" });
+        var record = MakeObjCBridgeRecord("MixedKit", "SwiftProxy", "SwiftProxy", "MixedKit")
+            with { ObjCRuntimeName = "RawProxy" };
+        var db = BuildDbFromRecords("MixedKit", record);
+
+        var result = MarshallingHelpers.GetObjCBaseTypeName(cls, "MixedKit", db);
+
+        Assert.Equal("MixedKit.SwiftProxy", result);
+    }
+
+    [Fact]
+    public void GetObjCBaseTypeName_LocalObjCHelper_RenamedProjection_DifferentUsr_DoesNotFalseResolve()
+    {
+        // The identity check must still reject an unrelated same-leaf record. Here the local helper's
+        // ObjC name is `OtherProxy`, but a Swift class's genuinely external base imports under the
+        // same leaf `SwiftProxy`. Reading the identity off ObjCRuntimeName must not turn the check
+        // into "any record under this key wins".
+        var cls = CreateClassDecl("DelegateProxy", "MixedKit",
+            superclassUsr: "c:objc(cs)RawProxy",
+            superclassNames: new[] { "Elsewhere.SwiftProxy", "ObjectiveC.NSObject" });
+        var record = MakeObjCBridgeRecord("MixedKit", "SwiftProxy", "SwiftProxy", "MixedKit")
+            with { ObjCRuntimeName = "OtherProxy" };
+        var db = BuildDbFromRecords("MixedKit", record);
+
+        var result = MarshallingHelpers.GetObjCBaseTypeName(cls, "MixedKit", db);
+
+        Assert.Equal("Elsewhere.RawProxy", result);
+    }
+
+    [Fact]
+    public void GetObjCBaseTypeName_DependencyDeclaredItUnderTheSwiftImportName_UsesThatName()
+    {
+        // Cross-module: `FBSDKButton` lives in a dependency, which bound it under its Swift-import
+        // name `FBButton`. Only the dependency's generation knows that, and it says so in its module
+        // database — a record carrying an ObjC runtime name distinct from its C# name. Substituting
+        // the USR's raw ObjC name here would emit a base the dependency never declared.
+        var cls = CreateClassDecl("FBLoginButton", "FBSDKLoginKit",
+            superclassUsr: "c:objc(cs)FBSDKButton",
+            superclassNames: new[] { "FBSDKCoreKit.FBButton" });
+        var record = MakeObjCBridgeRecord("FBSDKCoreKit", "FBButton", "FBButton", "FacebookCore.Binding")
+            with { ObjCRuntimeName = "FBSDKButton" };
+        var db = BuildDbFromRecords("FBSDKCoreKit", record);
+
+        var result = MarshallingHelpers.GetObjCBaseTypeName(cls, "FBSDKLoginKit", db);
+
+        Assert.Equal("FacebookCore.Binding.FBButton", result);
+    }
+
+    [Fact]
+    public void GetObjCBaseTypeName_DependencyDeclaredItUnderTheObjCName_KeepsTheUsrName()
+    {
+        // The same lookup with no rename marker on the dependency's record: that binding kept the
+        // ObjC spelling, so the USR-derived name is still the correct base. Pins that the new
+        // dependency lookup narrows to renamed types only and leaves every other binding alone.
+        var cls = CreateClassDecl("FBLoginButton", "FBSDKLoginKit",
+            superclassUsr: "c:objc(cs)FBSDKButton",
+            superclassNames: new[] { "FBSDKCoreKit.FBButton" });
+        var record = MakeObjCBridgeRecord("FBSDKCoreKit", "FBButton", "FBSDKButton", "FacebookCore.Binding");
+        var db = BuildDbFromRecords("FBSDKCoreKit", record);
+
+        var result = MarshallingHelpers.GetObjCBaseTypeName(cls, "FBSDKLoginKit", db);
+
+        Assert.Equal("FBSDKCoreKit.FBSDKButton", result);
+    }
+
+    [Fact]
     public void GetObjCBaseTypeName_LocalObjCHelper_MisattributedToUnsupportedModule_ResolvesViaBridgeRecord()
     {
         // The digester can mis-attribute a local ObjC helper to an *unsupported* Apple module

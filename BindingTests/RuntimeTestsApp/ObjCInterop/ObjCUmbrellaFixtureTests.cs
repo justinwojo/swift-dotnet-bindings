@@ -501,6 +501,43 @@ public class ObjCUmbrellaFixtureTests : TestBase
     }
 
     /// <summary>
+    /// Shape 14 — an enum whose cases share a prefix that is NOT the enum's own type name
+    /// (<c>OUMapTiler</c> on <c>OUSourceKind</c>). The strip falls back to the module's registered
+    /// tag, so the cases read <c>MapTiler</c>/<c>MapLibre</c>/<c>Mapbox</c> rather than repeating it.
+    /// Naming is only half the claim: the stripped members must still carry the NATIVE values, which
+    /// is what round-tripping them through Objective-C proves.
+    /// </summary>
+    public void TestModuleTagStrippedEnumCasesCarryNativeValues()
+    {
+        using var picker = new OUSourcePicker();
+
+        AssertEqual((int)OUSourceKind.MapLibre, (int)picker.NextAfter(OUSourceKind.MapTiler), "the first case advances to the second");
+        AssertEqual((int)OUSourceKind.Mapbox, (int)picker.NextAfter(OUSourceKind.MapLibre), "the second case advances to the third");
+        AssertEqual((int)OUSourceKind.MapTiler, (int)picker.NextAfter(OUSourceKind.Mapbox), "the last case wraps to the first");
+        AssertEqual(0, (int)OUSourceKind.MapTiler, "the stripped member kept its native raw value");
+    }
+
+    /// <summary>
+    /// Shape 15 — a delegate protocol whose FIRST selector segment carries semantics
+    /// (<c>chartViewDidFailRenderingChart:withReason:</c>). Only the receiver token is dropped, so the
+    /// callback is <c>DidFailRenderingChartWithReason</c> instead of the bare <c>WithReason</c> the
+    /// drop-part[0] rule used to produce. The sibling <c>chartView:didSelectIndex:</c> — where part[0]
+    /// IS just the receiver — keeps today's name, which is why both are asserted together.
+    /// </summary>
+    public void TestDelegateSelectorKeepsSemanticsCarriedInFirstSegment()
+    {
+        using var chart = new OUChartView();
+        var observer = new CapturingChartDelegate();
+        chart.Delegate = observer;
+
+        chart.FailWithReason("tiles");
+        AssertEqual("tiles", observer.Reason, "the semantics-carrying callback dispatched into managed code");
+
+        chart.SelectIndex(3);
+        AssertEqual(3, (int)observer.SelectedIndex, "the receiver-only sibling callback still dispatches");
+    }
+
+    /// <summary>
     /// Managed adopter of the optional-callback protocol. Conforming to <see cref="IOUListener"/> plus
     /// the <c>[Export("didReceiveValue:")]</c> selector makes <c>respondsToSelector:</c> return true,
     /// so the notifier invokes it.
@@ -535,5 +572,20 @@ public class ObjCUmbrellaFixtureTests : TestBase
     {
         [Export("badgeLabel")]
         public string BadgeLabel() => "badge:managed";
+    }
+
+    /// <summary>
+    /// Managed adopter of the chart delegate (Shape 15), subclassing the generated <c>[Model]</c>
+    /// class. Overriding by the renamed method name is the whole point: if the emitter dropped the
+    /// semantics-carrying first segment, these overrides would name a member that does not exist.
+    /// </summary>
+    private sealed class CapturingChartDelegate : OUChartViewDelegate
+    {
+        public string? Reason { get; private set; }
+        public nint SelectedIndex { get; private set; } = -1;
+
+        public override void DidFailRenderingChartWithReason(OUChartView chartView, string reason) => Reason = reason;
+
+        public override void DidSelectIndex(OUChartView chartView, nint index) => SelectedIndex = index;
     }
 }

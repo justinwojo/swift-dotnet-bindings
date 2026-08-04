@@ -53,7 +53,40 @@ public static class ObjCBridgeRecordRekeyer
                 ? mapped
                 : record.SwiftTypeName.Name;
             var key = SwiftTypeName.FromModuleQualifiedName($"{moduleName}.{swiftName}");
-            result.Add(key.Equals(record.SwiftTypeName) ? record : record with { SwiftTypeName = key });
+
+            // The companion now DECLARES a renamed type under its Swift-import name, so the record's
+            // C# projection has to follow or a Swift member typed by this ObjC type resolves to a
+            // C# name the companion never emitted (CS0246). Only a projection that is this type's own
+            // companion declaration moves: a record projecting onto a foreign type (a typed-enum
+            // typedef projects to Foundation.NSString) keeps its projection whatever the key does.
+            var csharpName = record.CSharpTypeName;
+            var objcRuntimeName = record.ObjCRuntimeName;
+            if (!string.Equals(swiftName, rawObjCName, StringComparison.Ordinal)
+                && string.Equals(csharpName.Name, rawObjCName, StringComparison.Ordinal))
+            {
+                // A class declaration is emitted under the .NET acronym spelling (MapClassName turns
+                // NSURLBox into NSUrlBox); an enum is emitted verbatim. The projection has to follow
+                // the same mapping the emitter will apply, or it names a type the companion never
+                // declared — the very CS0246 this re-key exists to prevent.
+                var declaredName = record.Kind == TypeRecordKind.Class
+                    ? ObjCTypeMapper.MapClassName(swiftName)
+                    : swiftName;
+                csharpName = CSharpTypeName.FromNamespaceAndName(csharpName.Namespace, declaredName);
+                // Moving the projection off the raw name erases the only place the record carried its
+                // ObjC identity, which superclass resolution cross-checks against a Clang USR. Keep it.
+                objcRuntimeName = rawObjCName;
+            }
+
+            var keyUnchanged = key.Equals(record.SwiftTypeName);
+            var nameUnchanged = csharpName.Equals(record.CSharpTypeName);
+            result.Add(keyUnchanged && nameUnchanged
+                ? record
+                : record with
+                {
+                    SwiftTypeName = key,
+                    CSharpTypeName = csharpName,
+                    ObjCRuntimeName = objcRuntimeName,
+                });
         }
         return result;
     }

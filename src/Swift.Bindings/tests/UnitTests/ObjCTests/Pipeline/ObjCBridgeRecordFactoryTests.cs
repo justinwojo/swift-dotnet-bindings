@@ -57,9 +57,11 @@ public class ObjCBridgeRecordFactoryTests
     [Fact]
     public void ClassRecord_CSharpNameIsRawObjCNameInResolvedNamespace()
     {
-        // The companion emits `partial interface FBSDKAccessToken` verbatim (NOT the SwiftName),
-        // so the C# projection must be the raw ObjC name — and it must live in the SAME namespace
-        // the companion is emitted into, or the resolved reference points at a type that isn't there.
+        // The factory runs BEFORE the Swift parse, so the raw ObjC name is the only name it has —
+        // clang's JSON AST does not expose the NS_SWIFT_NAME string. The upgrade to the Swift-import
+        // name (matching the name the companion actually declares) happens later, in the rekeyer,
+        // which is the stage that holds the ABI-harvested map. What this pins is the namespace: the
+        // projection must live where the companion is emitted, or it points at a type that isn't there.
         var module = ObjCModuleBuilder.Create(Module)
             .WithClass("FBSDKAccessToken", configure: c => c.SwiftName("AccessToken"))
             .Build();

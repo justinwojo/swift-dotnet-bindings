@@ -50,7 +50,7 @@ namespace BindingsGeneration
             GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibraryName, swiftInterfacePath, symbolGraphPath, bridgeHintsPath, namespacePattern, logger, loggerFactory, out _, out _, out _, out _, dependencyModuleNames: null, moduleDatabasePaths: null);
         }
 
-        internal static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, out HashSet<string>? nestedTypesInCollidingClass, out DepModuleCollisionDetector.SlicedCollisionResult depModuleCollisions, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null, bool keepBuiltinDatabaseForTargetModule = false, Producers.InterfaceFactsAggregator? factsAggregator = null, string? descriptorAssemblyNameOverride = null, string? swiftRuntimeVersion = null, IReadOnlyList<TypeRecord>? objcBridgeRecords = null, Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics>? compileWrapper = null, Func<IReadOnlySet<RecoveryUnitId>, CSharpVerificationResult>? verifyRecoverCsharp = null, string? staticMergedModuleName = null, string? asyncPatternManifestPath = null)
+        internal static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, out HashSet<string>? nestedTypesInCollidingClass, out DepModuleCollisionDetector.SlicedCollisionResult depModuleCollisions, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null, bool keepBuiltinDatabaseForTargetModule = false, Producers.InterfaceFactsAggregator? factsAggregator = null, string? descriptorAssemblyNameOverride = null, string? swiftRuntimeVersion = null, IReadOnlyList<TypeRecord>? objcBridgeRecords = null, Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics>? compileWrapper = null, Func<IReadOnlySet<RecoveryUnitId>, CSharpVerificationResult>? verifyRecoverCsharp = null, string? staticMergedModuleName = null, string? asyncPatternManifestPath = null, Func<IReadOnlyDictionary<string, string>, IReadOnlyDictionary<string, string>>? vetObjCImportedTypeNames = null)
         {
             internalTypeNames = null;
             moduleNameForCollision = null;
@@ -821,9 +821,19 @@ namespace BindingsGeneration
                 // JSON AST doesn't expose. ObjCBridgeRecordRekeyer applies the authoritative
                 // rawObjCName -> swiftImportName map the Swift ABI parse harvested, anchoring every
                 // record on moduleName so it stays coherent with the database it lives in.
+                //
+                // Not every harvested rename survives: the companion declines one that would collide
+                // with a name it already emits. Since the companion is emitted after this method
+                // returns, it vets the map through this callback FIRST and the rekeyer applies only
+                // the vetted subset — a record re-keyed to a rename the companion declined would point
+                // Swift at a C# type the companion never declared. The callback also keeps the vetted
+                // map for that later emission, so both halves of a mixed binding rename in lockstep.
+                var objcImportedTypeNames = vetObjCImportedTypeNames?.Invoke(swiftParser.ObjCImportedTypeNames)
+                    ?? swiftParser.ObjCImportedTypeNames;
+
                 if (objcBridgeRecords != null)
                 {
-                    var rekeyed = ObjCBridgeRecordRekeyer.Rekey(objcBridgeRecords, moduleName, swiftParser.ObjCImportedTypeNames);
+                    var rekeyed = ObjCBridgeRecordRekeyer.Rekey(objcBridgeRecords, moduleName, objcImportedTypeNames);
                     foreach (var record in rekeyed)
                         moduleDatabase.Register(record.SwiftTypeName, record, ConflictPolicy.KeepExisting);
                 }
