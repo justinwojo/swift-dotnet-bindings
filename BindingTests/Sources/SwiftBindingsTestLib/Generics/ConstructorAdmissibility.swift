@@ -182,3 +182,39 @@ public final class CtorAdmVoidPin<RowDecoder> {
         self.tag = "void-\(salt)"
     }
 }
+
+// MARK: - Facet (f): CONSTRUCTED-GENERIC concrete same-type pin
+//
+// Same confinement as facet (e), but the pin's target carries generic arguments
+// (`== CtorAdmPair<Int>`) rather than being a bare unrepresentable type. Both are
+// unrepresentable as a nominal conformance, so the parser drops the clause either
+// way — the difference is that the angle-bracket guard used to return BEFORE the
+// confinement was recorded, so this shape leaked to the open path even after facet
+// (e) was fixed. A same-type target that names no generic parameter is ONE concrete
+// type, not a family: `init(pinnedCount:)` is valid only for
+// `CtorAdmGenericPin<CtorAdmPair<Int>>`, so an unconditional
+// `extension CtorAdmGenericPin: _SBW_CI_{hash} {}` cannot compile.
+//
+// Two properties distinguish this from a family relationship (`== CtorAdmPair<T>`),
+// which stays admissible: the target is fully concrete, and the parent parameter is
+// otherwise unconstrained (no PAT → no CSM closed form), so open dispatch is the
+// only surface and refusing it removes the init entirely.
+//
+// Distinct C# parameter TYPES (tag→ctor(string), pinnedCount→ctor(nint)) keep the
+// two inits reflection-distinguishable.
+public struct CtorAdmPair<T> {
+    public let first: T
+    public init(first: T) { self.first = first }
+}
+
+public final class CtorAdmGenericPin<RowDecoder> {
+    public let tag: String
+
+    public init(tag: String) {
+        self.tag = tag
+    }
+
+    public init(pinnedCount count: Int) where RowDecoder == CtorAdmPair<Int> {
+        self.tag = "pair-\(count)"
+    }
+}

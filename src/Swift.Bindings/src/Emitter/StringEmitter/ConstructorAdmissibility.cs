@@ -95,10 +95,11 @@ internal static class ConstructorAdmissibility
         if (method.GenericParameters.Count == 0)
             return false;
 
-        // A dropped concrete same-type pin (`where RowDecoder == ()`) survives only as a flag and
-        // is invisible to the conformance-list walks below; check it up front via the shared
-        // helper so the open-erasure gate and CSM refuse it in lockstep.
-        if (HasUnrepresentableConcreteParentPin(method, parentTypeDecl))
+        // A dropped concrete same-type pin (`where RowDecoder == ()`) survives only on the
+        // GenericArgumentDecl side-channel and is invisible to the conformance-list walks below;
+        // check it up front. The extension-added variant is the one that matters here, for the same
+        // reason the walk below subtracts parent-declared representable constraints.
+        if (HasExtensionAddedUnrepresentableConcretePin(method, parentTypeDecl))
             return true;
 
         var parentParamNames = parentTypeDecl.GenericParameters
@@ -134,22 +135,26 @@ internal static class ConstructorAdmissibility
 
     /// <summary>
     /// True when an initializer pins a PARENT-level generic parameter to a concrete,
-    /// unrepresentable same-type target (<c>where RowDecoder == ()</c>). Such a pin is dropped by
-    /// <see cref="GenericSignatureParser"/> as unrepresentable, so it survives ONLY as
-    /// <see cref="GenericArgumentDecl.HasUnrepresentableConcreteSameTypePin"/> — invisible to the
+    /// unrepresentable same-type target (<c>where RowDecoder == ()</c>), REGARDLESS of whether the
+    /// parent type declares that pin itself. Such a pin is dropped by
+    /// <see cref="GenericSignatureParser"/> as unrepresentable, so it survives only on
+    /// <see cref="GenericArgumentDecl.UnrepresentableConcreteSameTypePins"/> — invisible to the
     /// conformance-list walks that both the open-ctor gate
     /// (<see cref="HasUnsatisfiableParentGenericExtensionConstraint"/>) and CSM's per-conformer
     /// constraint evaluation otherwise rely on.
     ///
-    /// No erasure path can satisfy it, so every path must refuse it in lockstep:
-    ///   • the open <c>_SBW_CI_</c> / GSF form erases against the UNCONSTRAINED type, which Swift
-    ///     rejects ("does not conform" / "requires the types … be equivalent");
-    ///   • a CSM closed form closes over a DIFFERENT parameter, leaving the pinned parameter
-    ///     generic — and the unrepresentable target (e.g. <c>()</c>) is itself never a conformer
-    ///     CSM enumerates, so no closed form can pin it either.
-    /// This mirrors the module-qualified <c>== Swift.Int</c> form (which IS in GenericConformances
-    /// and is caught by the conformance walks); the unrepresentable form needs the flag because the
-    /// parser could not represent its target.
+    /// This is CSM's gate. CSM does not SUBTRACT a parent-declared constraint — it EVALUATES every
+    /// constraint against each candidate conformer and emits only the closed forms that satisfy
+    /// them. A dropped pin cannot be evaluated at all, so a conformer violating it would be
+    /// enumerated anyway; and the unrepresentable target (e.g. <c>()</c>) is itself never a
+    /// conformer CSM enumerates, so no closed form can pin the parameter either. Origin is
+    /// therefore irrelevant to CSM: any parent-param pin it cannot see must be refused.
+    ///
+    /// The open-erasure paths take <see cref="HasExtensionAddedUnrepresentableConcretePin"/>
+    /// instead, which subtracts the parent's own pins — see the remarks there for why the two gates
+    /// legitimately differ. This mirrors the module-qualified <c>== Swift.Int</c> form (which IS in
+    /// GenericConformances and is caught by the conformance walks); the unrepresentable form needs
+    /// the side-channel because the parser could not represent its target.
     /// </summary>
     public static bool HasUnrepresentableConcreteParentPin(MethodDecl method, TypeDecl parentTypeDecl)
     {
@@ -160,9 +165,54 @@ internal static class ConstructorAdmissibility
             .Select(p => p.TypeName)
             .ToHashSet(System.StringComparer.Ordinal);
 
+        return method.GenericParameters.Any(gp =>
+            parentParamNames.Contains(gp.TypeName) && gp.HasUnrepresentableConcreteSameTypePin);
+    }
+
+    /// <summary>
+    /// The open-erasure narrowing of <see cref="HasUnrepresentableConcreteParentPin"/>: true only
+    /// when the initializer carries a dropped concrete pin on a parent-level parameter that the
+    /// PARENT TYPE does not declare itself.
+    ///
+    /// An init inherits its enclosing type's whole generic signature, so
+    /// <c>final class Box&lt;T: Seq&gt; where T.Element == Pair&lt;Int&gt;</c> puts that pin on
+    /// EVERY init — including a plain in-body one. That shape is legal Swift and its open erased
+    /// form compiles: <c>extension Box: _SBW_CI_{hash} {}</c> carries the type's own requirements,
+    /// and the type is never usable unpinned, so nothing is left unsatisfied. Only a pin the init
+    /// carries and the parent does not is extension-origin, and only that one makes the open form
+    /// fail ("does not conform" / "requires the types … be equivalent"). This is exactly the
+    /// subtraction <see cref="HasUnsatisfiableParentGenericExtensionConstraint"/> already performs
+    /// for representable parent-declared constraints, extended to the dropped ones.
+    ///
+    /// Subtraction is per CLAUSE, not per parameter, so an extension that adds a SECOND pin rooted
+    /// at an already-pinned parameter is still refused.
+    /// </summary>
+    public static bool HasExtensionAddedUnrepresentableConcretePin(
+        MethodDecl method, TypeDecl parentTypeDecl)
+    {
+        if (!parentTypeDecl.IsGeneric || method.GenericParameters.Count == 0)
+            return false;
+
+        var parentParamNames = parentTypeDecl.GenericParameters
+            .Select(p => p.TypeName)
+            .ToHashSet(System.StringComparer.Ordinal);
+
+        // The clause text is rooted at the parameter it constrains, so one flat set over the whole
+        // parent signature identifies each declared pin unambiguously.
+        var parentDeclaredPins = new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal);
+        foreach (var pp in parentTypeDecl.GenericParameters)
+            if (pp.UnrepresentableConcreteSameTypePins is { } declared)
+                parentDeclaredPins.UnionWith(declared);
+
         foreach (var gp in method.GenericParameters)
-            if (gp.HasUnrepresentableConcreteSameTypePin && parentParamNames.Contains(gp.TypeName))
+        {
+            if (!parentParamNames.Contains(gp.TypeName))
+                continue;
+            if (gp.UnrepresentableConcreteSameTypePins is not { Count: > 0 } pins)
+                continue;
+            if (pins.Any(p => !parentDeclaredPins.Contains(p)))
                 return true;
+        }
         return false;
     }
 

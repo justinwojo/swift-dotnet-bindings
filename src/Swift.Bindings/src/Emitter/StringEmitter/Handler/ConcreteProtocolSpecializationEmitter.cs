@@ -2325,8 +2325,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // (`where RowDecoder == ()`) cannot be emitted as a CSM closed form either: the pin is
         // dropped by GenericSignatureParser so the per-conformer constraint evaluation below never
         // sees it, and a closed form closing over a DIFFERENT parameter leaves the pinned parameter
-        // generic (the `()` target is never an enumerated conformer). Refuse it the same way the
-        // open-erasure gate does, via the shared admissibility helper.
+        // generic (the `()` target is never an enumerated conformer). Refuse it whether or not the
+        // PARENT TYPE declares the pin: the open-erasure gate can subtract a parent-declared pin
+        // because its open form inherits the type's own requirements, but CSM satisfies constraints
+        // by evaluating them per conformer, and one it cannot see it cannot evaluate.
         if (isConstructor &&
             ConstructorAdmissibility.HasUnrepresentableConcreteParentPin(method, parentTypeDecl))
         {

@@ -269,15 +269,43 @@ public class ConstructorAdmissibilityTests
         Assert.False(ConstructorAdmissibility.HasUnerasableParentMarkerConstraint(method, parent));
     }
 
-    // ── Shared dropped-pin helper (consulted by BOTH the open gate and CSM) ─────────
+    // ── Parser → gate seam ─────────────────────────────────────────────────────────
+    // The tests above hand-build GenericParameters, so they pass even when the PARSER drops the
+    // confinement on the floor and the gate is never given anything to refuse. These two drive the
+    // real signature text through GenericSignatureParser first, which is where the constructed-generic
+    // pin was previously lost without a trace.
+
+    [Theory]
+    // Pinned to ONE concrete type: an open erasure against the unconstrained parent cannot compile.
+    [InlineData("Unit.Measure<Unit.Duration>", true)]
+    // Related to a sibling PARAMETER: a family, and the open form compiles — must stay admissible.
+    [InlineData("Unit.Measure<τ_0_1>", false)]
+    public void HasUnsatisfiableConstraint_ForParsedConstructedGenericMemberPin(string target, bool expected)
+    {
+        // `extension Holder where Value.ValueType == <target> { init(key:) }`, with the parent
+        // declaring only `Value : Other.Valued` — so the `where` clause is extension-origin.
+        var sig = $"<τ_0_0, τ_0_1 where τ_0_0 : Other.Valued, τ_0_0.ValueType == {target}>";
+
+        var parent = GenericClass("Holder",
+            GenericParam("τ_0_0", generic: Conformance(new[] { "τ_0_0" }, "Other.Valued")),
+            GenericParam("τ_0_1"));
+        var method = Ctor(ReturnArg(), Param("key", "Swift.String"));
+        method.GenericParameters = GenericSignatureParser.ParseGenericSignature(sig, sig);
+
+        Assert.Equal(
+            expected,
+            ConstructorAdmissibility.HasUnsatisfiableParentGenericExtensionConstraint(method, parent));
+    }
+
+    // ── Dropped-pin helpers: strict (CSM) vs extension-added (open erasure) ────────
 
     [Fact]
     public void HasUnrepresentableConcreteParentPin_True_ForParentLevelPinnedParam()
     {
         // `final class TableAlias<RowDecoder> { init(name:) where RowDecoder == () }` — the dropped
-        // `== ()` pin is flagged on the parent-level param. CSM consults this helper to refuse the
-        // init exactly as the open gate does: a CSM closed form closing over a different parameter
-        // would leave RowDecoder generic, and `()` is never a conformer CSM enumerates.
+        // `== ()` pin is recorded on the parent-level param. This is CSM's gate: a CSM closed form
+        // closing over a different parameter would leave RowDecoder generic, and `()` is never a
+        // conformer CSM enumerates.
         var parent = GenericClass("TableAlias", GenericParam("RowDecoder"));
         var method = Ctor(ReturnArg(), Param("name", "Swift.String"));
         method.GenericParameters.Add(GenericParam("RowDecoder", concretePin: true));
@@ -305,6 +333,55 @@ public class ConstructorAdmissibilityTests
         method.GenericParameters.Add(GenericParam("Value")); // no pin
 
         Assert.False(ConstructorAdmissibility.HasUnrepresentableConcreteParentPin(method, parent));
+    }
+
+    [Fact]
+    public void ParentDeclaredPin_IsSubtractedByTheOpenGateButStillRefusedByCsm()
+    {
+        // `final class Holder<τ_0_0: Other.Valued> where τ_0_0.ValueType == Unit.Measure<Unit.Duration>`
+        // with a plain in-body `init(key:)`. The pin is the PARENT's own, so it lands on every init,
+        // including ones no extension constrained. That shape is legal Swift and its OPEN erased form
+        // compiles — the extension carries the type's own requirements and the type is never usable
+        // unpinned — so the open gate must not read the inherited pin as an extension-added
+        // confinement and suppress the constructor.
+        //
+        // CSM must still refuse it: CSM does not subtract parent-declared constraints, it evaluates
+        // them per candidate conformer, and a dropped pin is invisible to that evaluation. The two
+        // gates therefore disagree on this input BY DESIGN — asserted together so a future
+        // "simplification" that re-merges them fails here.
+        //
+        // Both signatures go through the real parser: the confinement is carried on a side-channel,
+        // and a test that hand-built the flags could not observe whether parent and init agree.
+        const string sig = "<τ_0_0 where τ_0_0 : Other.Valued, τ_0_0.ValueType == Unit.Measure<Unit.Duration>>";
+        var parent = GenericClass("Holder");
+        parent.GenericParameters = GenericSignatureParser.ParseGenericSignature(sig, sig);
+        var method = Ctor(ReturnArg(), Param("key", "Swift.String"));
+        method.GenericParameters = GenericSignatureParser.ParseGenericSignature(sig, sig);
+
+        Assert.False(
+            ConstructorAdmissibility.HasExtensionAddedUnrepresentableConcretePin(method, parent));
+        Assert.False(
+            ConstructorAdmissibility.HasUnsatisfiableParentGenericExtensionConstraint(method, parent));
+        Assert.True(ConstructorAdmissibility.HasUnrepresentableConcreteParentPin(method, parent));
+    }
+
+    [Fact]
+    public void HasExtensionAddedUnrepresentableConcretePin_True_WhenAnExtensionAddsASecondPinOnAPinnedParam()
+    {
+        // Same parent as above, but the init comes from `extension Holder where τ_0_0.KeyType ==
+        // Unit.Measure<Unit.Count>` — a SECOND dropped pin rooted at the SAME parameter the parent
+        // already pins. Subtracting per parameter would cancel it and admit an init whose open erased
+        // form cannot compile; subtracting per clause keeps it refused. CSM refuses it either way.
+        const string parentSig = "<τ_0_0 where τ_0_0 : Other.Valued, τ_0_0.ValueType == Unit.Measure<Unit.Duration>>";
+        const string initSig = "<τ_0_0 where τ_0_0 : Other.Valued, τ_0_0.ValueType == Unit.Measure<Unit.Duration>, τ_0_0.KeyType == Unit.Measure<Unit.Count>>";
+        var parent = GenericClass("Holder");
+        parent.GenericParameters = GenericSignatureParser.ParseGenericSignature(parentSig, parentSig);
+        var method = Ctor(ReturnArg(), Param("key", "Swift.String"));
+        method.GenericParameters = GenericSignatureParser.ParseGenericSignature(initSig, initSig);
+
+        Assert.True(
+            ConstructorAdmissibility.HasExtensionAddedUnrepresentableConcretePin(method, parent));
+        Assert.True(ConstructorAdmissibility.HasUnrepresentableConcreteParentPin(method, parent));
     }
 
     // ── Minimal model builders ─────────────────────────────────────────────────────
@@ -371,11 +448,12 @@ public class ConstructorAdmissibilityTests
         string name,
         GenericParameterConformance? generic = null,
         GenericParameterConformance? assoc = null,
-        bool concretePin = false) =>
+        bool concretePin = false,
+        string[]? concretePins = null) =>
         new(name, name,
             generic is null ? new List<GenericParameterConformance>() : new List<GenericParameterConformance> { generic },
             assoc is null ? new List<GenericParameterConformance>() : new List<GenericParameterConformance> { assoc },
-            concretePin);
+            concretePins ?? (concretePin ? new[] { $"{name}==<dropped>" } : null));
 
     private static ClassDecl GenericClass(string name, params GenericArgumentDecl[] genericParams)
     {

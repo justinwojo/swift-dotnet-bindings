@@ -157,4 +157,43 @@ public class ConstructorAdmissibilityTests : TestBase
             pinType.GetConstructor(new[] { typeof(nint) }),
             "void-pin (pinnedSalt:) `where RowDecoder == ()` init is suppressed (open dispatch refused)");
     }
+
+    // ── Facet (f): CONSTRUCTED-GENERIC concrete same-type pin ──────────────────────
+    //
+    // `init(pinnedCount:) where RowDecoder == CtorAdmPair<Int>` confines the init to one
+    // specialization exactly as facet (e) does, but its target carries angle brackets. The
+    // parser's constructed-generic guard dropped the clause and returned before recording the
+    // confinement, so the init still reached the `_SBW_CI_` open path and emitted an
+    // unconditional `extension CtorAdmGenericPin: _SBW_CI_{hash} {}` against the unconstrained
+    // type → "does not conform to protocol". A target that names no generic parameter is one
+    // concrete type, so it now pins like `== ()`.
+    //
+    // Unlike facet (e), these assertions do NOT go red on the pre-fix generator, and the fixture
+    // does not pretend otherwise. This path compiles the wrapper through verify-recover, which
+    // catches the non-compiling conformance and withdraws the init to recover the build — pre-fix
+    // the report carries an EmitterFault ("Withdrawn by wrapper verify-recover") for this type,
+    // but the emitted surface is byte-identical either way. The defect is red at the layers with
+    // no such safety net: the parser→gate seam (ConstructorAdmissibilityTests /
+    // GenericSignatureParserTests) and the Apple-framework direct path, where the same shape is a
+    // hard wrapper-compile failure. What these two lock is the intended steady state — the pinned
+    // init has no surface and the general one still erases — so a future change that re-admits it
+    // (or drops the general init with it) is caught here.
+
+    public void TestGenericPin_GeneralInit_RoundTripsTag()
+    {
+        using var pin = new CtorAdmGenericPin<CtorAdmIntValue>("paired");
+        AssertEqual("paired", pin.Tag, "generic-pin general (tag:) open _SBW_CI_ erasure round-trips tag");
+    }
+
+    public void TestGenericPin_PinnedInitSuppressed_GeneralInitEmitted()
+    {
+        var pinType = typeof(CtorAdmGenericPin<CtorAdmIntValue>);
+
+        AssertNotNull(
+            pinType.GetConstructor(new[] { typeof(string) }),
+            "generic-pin general (tag:) init is emitted (open _SBW_CI_ erasure backs the unconstrained type)");
+        AssertNull(
+            pinType.GetConstructor(new[] { typeof(nint) }),
+            "generic-pin (pinnedCount:) `where RowDecoder == CtorAdmPair<Int>` init is suppressed (open dispatch refused)");
+    }
 }

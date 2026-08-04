@@ -43,7 +43,7 @@ public class GenericSignatureParser
                 paramMap[typeName],
                 constraints.Where(c => c.Path[0] == typeName && c.Path.Length == 1).ToList(),
                 constraints.Where(c => c.Path[0] == typeName && c.Path.Length > 1).ToList(),
-                HasUnrepresentableConcreteSameTypePin: concretePinnedParams.Contains(typeName),
+                UnrepresentableConcreteSameTypePins: concretePinnedParams.TryGetValue(typeName, out var pins) ? pins : null,
                 HasDroppedNominalMarkerConstraint: markerConstrainedParams.Contains(typeName)
             )
         ).ToList();
@@ -68,16 +68,16 @@ public class GenericSignatureParser
     /// </summary>
     /// <param name="signature">The generic signature to extract constraints from.</param>
     /// <returns>
-    /// The representable constraints, plus the set of root generic-parameter names that carried a
-    /// dropped same-type concrete pin (see <see cref="ParseConstraint"/>). The pin set feeds
-    /// <see cref="GenericArgumentDecl.HasUnrepresentableConcreteSameTypePin"/>.
+    /// The representable constraints, plus — keyed by root generic-parameter name — the clause text
+    /// of each dropped same-type concrete pin (see <see cref="ParseConstraint"/>). The pin map feeds
+    /// <see cref="GenericArgumentDecl.UnrepresentableConcreteSameTypePins"/>.
     /// </returns>
-    private static (List<GenericParameterConformance> Constraints, HashSet<string> ConcretePinnedParams, HashSet<string> MarkerConstrainedParams)
+    private static (List<GenericParameterConformance> Constraints, Dictionary<string, List<string>> ConcretePinnedParams, HashSet<string> MarkerConstrainedParams)
         ExtractConstraints(string signature)
     {
         var whereIndex = signature.IndexOf("where", StringComparison.OrdinalIgnoreCase);
         if (whereIndex == -1)
-            return (new List<GenericParameterConformance>(), new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal));
+            return (new List<GenericParameterConformance>(), new Dictionary<string, List<string>>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal));
 
         var constraintsSection = signature[(whereIndex + "where".Length)..];
         // Split at top-level commas only. A constructed-generic constraint target
@@ -85,22 +85,34 @@ public class GenericSignatureParser
         // `Split(',')` would tear apart, producing fragments that throw downstream.
         var constraintClauses = SwiftTypeListText.SplitTopLevelCommas(constraintsSection);
 
+        // The parameters this signature declares, used to tell a same-type target that names ONE
+        // concrete type from one that relates parameters. Signatures arrive in both spellings —
+        // desugared (`τ_0_0`) and sugared (`Value`, `Self`, `Entity`) — so a target cannot be
+        // classified by looking for `τ_`; it has to be compared against the names actually
+        // declared here.
+        var declaredParams = new HashSet<string>(ExtractGenericParams(signature), StringComparer.Ordinal);
+
         // ParseConstraint returns null for constraints it cannot represent (constructed
         // generic / non-qualified targets) so a single unrepresentable constraint never
         // propagates a throw that would silently drop the whole enclosing decl. When the
-        // dropped constraint is a same-type pin to a concrete type, the root parameter is
-        // recorded so downstream admissibility gates still see the single-specialization
-        // confinement the dropped constraint expressed.
+        // dropped constraint is a same-type pin to a concrete type, the clause is recorded
+        // under its root parameter so downstream admissibility gates still see the
+        // single-specialization confinement the dropped constraint expressed — and can tell one
+        // dropped pin from another, which a bare per-parameter flag could not.
         var parsed = new List<GenericParameterConformance>();
-        var concretePinnedParams = new HashSet<string>(StringComparer.Ordinal);
+        var concretePinnedParams = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var markerConstrainedParams = new HashSet<string>(StringComparer.Ordinal);
         foreach (var clause in constraintClauses)
         {
-            var pc = ParseConstraint(clause, out var droppedConcretePinRoot, out var droppedNominalMarkerRoot);
+            var pc = ParseConstraint(clause, declaredParams, out var droppedConcretePin, out var droppedNominalMarkerRoot);
             if (pc != null)
                 parsed.Add(pc);
-            else if (droppedConcretePinRoot != null)
-                concretePinnedParams.Add(droppedConcretePinRoot);
+            else if (droppedConcretePin is { } pin)
+            {
+                if (!concretePinnedParams.TryGetValue(pin.Root, out var pins))
+                    concretePinnedParams[pin.Root] = pins = new List<string>();
+                pins.Add(pin.Clause);
+            }
             else if (droppedNominalMarkerRoot != null)
                 markerConstrainedParams.Add(droppedNominalMarkerRoot);
         }
@@ -109,17 +121,64 @@ public class GenericSignatureParser
     }
 
     /// <summary>
+    /// True when <paramref name="target"/> names any of the signature's own generic parameters,
+    /// which makes a same-type target a FAMILY relationship (`== Foo&lt;Value&gt;`, one open form
+    /// per specialization) rather than a pin to a single concrete type
+    /// (`== Measurement&lt;UnitDuration&gt;`).
+    /// </summary>
+    /// <remarks>
+    /// Two things narrow the match, and both exist to stop a concrete pin from being misread as a
+    /// family (which would let a confined member reach the open-erasure path again):
+    /// <list type="bullet">
+    ///   <item>Matching is whole-identifier, not substring — a signature declaring <c>Unit</c> must
+    ///     not read <c>Measurement&lt;UnitDuration&gt;</c> as referencing it.</item>
+    ///   <item>A dot-qualified segment is skipped. <c>Foundation.Measurement</c> names a nominal
+    ///     type; a generic parameter is always referenced unqualified (<c>Value</c>, <c>τ_0_1</c>),
+    ///     optionally followed by a member path. Without this, a signature that happens to declare
+    ///     a parameter named <c>Measurement</c> would read the fully-concrete
+    ///     <c>Foundation.Measurement&lt;Foundation.UnitDuration&gt;</c> as a family.</item>
+    /// </list>
+    /// </remarks>
+    private static bool ReferencesDeclaredParameter(string target, HashSet<string> declaredParams)
+    {
+        if (declaredParams.Count == 0)
+            return false;
+
+        var start = -1;
+        for (int i = 0; i <= target.Length; i++)
+        {
+            bool isIdentChar = i < target.Length && (char.IsLetterOrDigit(target[i]) || target[i] == '_');
+            if (isIdentChar)
+            {
+                if (start < 0) start = i;
+                continue;
+            }
+            if (start >= 0)
+            {
+                bool isQualifiedSegment = start > 0 && target[start - 1] == '.';
+                if (!isQualifiedSegment && declaredParams.Contains(target[start..i]))
+                    return true;
+                start = -1;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Parses a constraint clause into a Conformance object.
     /// </summary>
     /// <param name="clause">The constraint clause to parse.</param>
-    /// <param name="droppedConcretePinRoot">
-    /// Set to the root generic-parameter name when this clause is a dropped same-type (<c>==</c>)
-    /// constraint pinning that parameter to a concrete, non-constructed-generic target (e.g.
-    /// <c>RowDecoder == ()</c>). Such a clause confines the owning member to a single
-    /// specialization; the target is unrepresentable so the constraint itself is dropped, but the
-    /// confinement must survive for the open-constructor-erasure admissibility gate. Null for
-    /// representable constraints, protocol/layout constraints, and constructed-generic same-type
-    /// targets (family relationships, not single-specialization pins).
+    /// <param name="droppedConcretePin">
+    /// Set when this clause is a dropped same-type (<c>==</c>) constraint pinning a parameter to a
+    /// concrete target — either a non-nominal one (<c>RowDecoder == ()</c>) or a fully-concrete
+    /// constructed generic (<c>RowDecoder == Measurement&lt;UnitDuration&gt;</c>). Such a clause
+    /// confines the owning member to a single specialization; the target is unrepresentable so the
+    /// constraint itself is dropped, but the confinement must survive for the open-constructor-erasure
+    /// admissibility gate. <c>Root</c> is the parameter the clause is rooted at; <c>Clause</c> is the
+    /// clause's own <c>subject.path==target</c> text, which lets a consumer tell a pin the parent type
+    /// declared from one an extension added. Null for representable constraints, protocol/layout
+    /// constraints, and constructed-generic targets that name a declared parameter (family
+    /// relationships, not single-specialization pins).
     /// </param>
     /// <returns>
     /// A Conformance object, or null when the clause cannot be represented as a nominal
@@ -132,9 +191,13 @@ public class GenericSignatureParser
     /// <c>SwiftABIParser.HandleNode</c>, which swallows it and silently discards the entire
     /// enclosing decl rather than just the one constraint.
     /// </returns>
-    private static GenericParameterConformance? ParseConstraint(string clause, out string? droppedConcretePinRoot, out string? droppedNominalMarkerRoot)
+    private static GenericParameterConformance? ParseConstraint(
+        string clause,
+        HashSet<string> declaredParams,
+        out (string Root, string Clause)? droppedConcretePin,
+        out string? droppedNominalMarkerRoot)
     {
-        droppedConcretePinRoot = null;
+        droppedConcretePin = null;
         droppedNominalMarkerRoot = null;
 
         var parts = clause.Split(new[] { ":", "==" }, StringSplitOptions.TrimEntries);
@@ -148,18 +211,28 @@ public class GenericSignatureParser
 
         // A same-type (`==`) constraint pinning a parameter to a concrete, non-constructed-generic
         // target (`RowDecoder == ()`) confines the owning member to one specialization. The target
-        // is dropped as unrepresentable below, but `droppedConcretePinRoot` carries the confinement
+        // is dropped as unrepresentable below, but `droppedConcretePin` carries the confinement
         // forward so the open-ctor-erasure gate refuses a `_SBW_CI_`/GSF wrapper that would not
         // compile against the unconstrained type. Constructed-generic same-type targets
         // (`== Foo<τ_0_1>`) are excluded: they relate parameters (a family), and that open form
-        // already compiles, so flagging them would drop currently-working constructors.
-        bool isSameTypeConcretePin = clause.Contains("==") && !conformanceTarget.Contains('<');
+        // already compiles, so flagging them would drop currently-working constructors. A
+        // constructed-generic target that names NO declared parameter
+        // (`== Measurement<UnitDuration>`) is not a family — it is one fully-concrete type, so it
+        // pins exactly like `== ()` does.
+        bool isSameTypeConcretePin = clause.Contains("==")
+            && (!conformanceTarget.Contains('<') || !ReferencesDeclaredParameter(conformanceTarget, declaredParams));
 
         // A constructed-generic target carries angle brackets and is not a nominal type.
         // Drop the constraint rather than feeding it to FromModuleQualifiedName (which
-        // throws on '<') or stripping it to a misleading outer-name conformance.
+        // throws on '<') or stripping it to a misleading outer-name conformance. The pin
+        // must still be recorded on the way out: this return precedes every other drop site,
+        // so leaving it unset loses a fully-concrete pin without a trace and the open-erasure
+        // gate then admits a constructor whose emitted conformance cannot compile.
         if (conformanceTarget.Contains('<'))
+        {
+            if (isSameTypeConcretePin) droppedConcretePin = (target[0], $"{parts[0]}=={conformanceTarget}");
             return null;
+        }
 
         // Layout/marker keyword constraints (AnyObject, Sendable, Any, Copyable, ...) are not
         // representable as a nominal SwiftTypeName. They appear EITHER unqualified (a bare keyword,
@@ -184,7 +257,7 @@ public class GenericSignatureParser
             or "Copyable" or "SendableMetatype" or "BitwiseCopyable" or "Any";
         if (isStdlibMarkerName && markerModule is null or "Swift")
         {
-            if (isSameTypeConcretePin) droppedConcretePinRoot = target[0];
+            if (isSameTypeConcretePin) droppedConcretePin = (target[0], $"{parts[0]}=={conformanceTarget}");
             // A module-qualified protocol-kind marker (e.g. `Swift.Sendable`) was a nominal
             // GenericParameterConformance before this drop existed; the enum-demotion gate keys
             // off "param has any conformance", so record the root to preserve that signal.
@@ -193,7 +266,7 @@ public class GenericSignatureParser
         }
         if (!conformanceTarget.Contains('.'))
         {
-            if (isSameTypeConcretePin) droppedConcretePinRoot = target[0];
+            if (isSameTypeConcretePin) droppedConcretePin = (target[0], $"{parts[0]}=={conformanceTarget}");
             return null;
         }
 
@@ -204,7 +277,7 @@ public class GenericSignatureParser
         // rather than this one clause, so check the same condition here and drop like the shapes above.
         if (conformanceTarget.Split('.', StringSplitOptions.RemoveEmptyEntries).Length < 2)
         {
-            if (isSameTypeConcretePin) droppedConcretePinRoot = target[0];
+            if (isSameTypeConcretePin) droppedConcretePin = (target[0], $"{parts[0]}=={conformanceTarget}");
             return null;
         }
 

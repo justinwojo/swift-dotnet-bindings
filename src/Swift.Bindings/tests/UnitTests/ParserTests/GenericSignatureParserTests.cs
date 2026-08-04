@@ -309,12 +309,18 @@ public class GenericSignatureParserTests
     // UNCONSTRAINED type, which swiftc rejects identically to `== ()` ("candidate would match if
     // 'T' was the same type as 'U'"). Flagging is therefore protective, not a false positive — it
     // gates only the open/CSM erasure paths (an unconstrained parent has no other surface anyway).
-    // The constructed-generic `== Foo.Bar<τ_0_1>` case below stays unflagged because those real
-    // constructors reach a working method-generic path; the bare param==param form does not.
+    // The PARAMETERIZED constructed-generic `== Foo.Bar<τ_0_1>` case below stays unflagged because
+    // those real constructors reach a working method-generic path; the bare param==param form does not.
     [InlineData("τ_0_0 == τ_0_1", true)]
+    // A constructed-generic target that mentions NO generic parameter names ONE concrete type, so it
+    // confines the member exactly like `== ()` does — the angle brackets make it unrepresentable as a
+    // nominal conformance, but they do not make it a family.
+    [InlineData("τ_0_0 == Foo.Bar<Foo.Baz>", true)]
+    [InlineData("τ_0_0.Element == Foo.Bar<Foo.Baz>", true)]   // pin via an associated-type member clause
     // Representable / non-pin constraints → never flagged.
     [InlineData("τ_0_0 : Swift.Equatable", false)]      // protocol constraint, not a pin
     [InlineData("τ_0_0 == Swift.Int", false)]           // module-qualified concrete survives as a real constraint
+    [InlineData("τ_0_0 : Foo.Bar<Foo.Baz>", false)]     // conformance to a constructed generic is not a same-type pin
     [InlineData("τ_0_0 == Foo.Bar<τ_0_1>", false)]      // constructed-generic family relationship, not a single-specialization pin
     public void ParseGenericSignature_ConcreteSameTypePinFlag_OnlySetForDroppedConcretePin(string constraint, bool expectedFlag)
     {
@@ -324,6 +330,105 @@ public class GenericSignatureParserTests
         var result = GenericSignatureParser.ParseGenericSignature(sig, sig);
 
         Assert.Equal(expectedFlag, result[0].HasUnrepresentableConcreteSameTypePin);
+    }
+
+    [Fact]
+    public void ParseGenericSignature_SugaredConstructedGenericFamily_IsNotFlagged()
+    {
+        // Signatures reach the parser in BOTH spellings — desugared (`τ_0_0`) and sugared
+        // (`Self`, `Value`) — so "does the target mention a generic parameter?" cannot be answered
+        // by looking for `τ_`. Here `Self == Mod.Container<Value, Swift.Never>` relates two
+        // DECLARED parameters: it is a family whose open form compiles, and flagging it would
+        // withdraw working constructors.
+        var sig = "<Self, Value where Self == Mod.Container<Value, Swift.Never>, Value : Mod.Marker>";
+
+        var result = GenericSignatureParser.ParseGenericSignature(sig, sig);
+
+        Assert.False(result[0].HasUnrepresentableConcreteSameTypePin);   // Self — family, not a pin
+        Assert.False(result[1].HasUnrepresentableConcreteSameTypePin);   // Value
+    }
+
+    [Fact]
+    public void ParseGenericSignature_ConcretePinWhoseTargetSharesAParameterPrefix_IsStillFlagged()
+    {
+        // The declared parameter `Unit` is a PREFIX of the target's `UnitDuration`. Matching the
+        // target's identifiers by substring would read this concrete pin as a family and let the
+        // confined member reach the open-erasure path — the exact failure the flag exists to stop.
+        var sig = "<Unit, Value where Value.ValueType == Foundation.Measurement<Foundation.UnitDuration>>";
+
+        var result = GenericSignatureParser.ParseGenericSignature(sig, sig);
+
+        var value = Assert.Single(result, p => p.TypeName == "Value");
+        Assert.True(value.HasUnrepresentableConcreteSameTypePin);
+    }
+
+    [Fact]
+    public void ParseGenericSignature_ConcretePinWhoseTargetQualifierMatchesAParameterName_IsStillFlagged()
+    {
+        // Harder than the prefix case: the declared parameter `Measurement` matches a segment of the
+        // target EXACTLY — but that segment is dot-qualified (`Foundation.Measurement`), so it names
+        // a nominal type, not the parameter. A generic parameter is always referenced unqualified,
+        // so a qualified segment can never be one; reading this target as a family would drop the
+        // confinement and let the member reach the open-erasure path.
+        var sig = "<Measurement, Value where Value.ValueType == Foundation.Measurement<Foundation.UnitDuration>>";
+
+        var result = GenericSignatureParser.ParseGenericSignature(sig, sig);
+
+        var value = Assert.Single(result, p => p.TypeName == "Value");
+        Assert.True(value.HasUnrepresentableConcreteSameTypePin);
+    }
+
+    [Fact]
+    public void ParseGenericSignature_UnqualifiedParameterInsideConstructedGenericTarget_IsStillAFamily()
+    {
+        // The companion to the test above: skipping DOT-QUALIFIED segments must not stop an
+        // unqualified parameter reference from being seen. `Container<Value, Swift.Never>` relates a
+        // declared parameter, so it stays a family and its open form keeps compiling.
+        var sig = "<Self, Value where Self == Mod.Container<Value, Swift.Never>>";
+
+        var result = GenericSignatureParser.ParseGenericSignature(sig, sig);
+
+        Assert.All(result, p => Assert.False(p.HasUnrepresentableConcreteSameTypePin));
+    }
+
+    [Fact]
+    public void ParseGenericSignature_RecordsEachDroppedPinSeparately()
+    {
+        // The confinement is carried as one entry PER CLAUSE, not as a per-parameter flag, so a
+        // consumer can subtract the pins a parent type declares from the ones an initializer carries.
+        // Two pins rooted at the same parameter must therefore stay distinguishable.
+        var sig = "<τ_0_0 where τ_0_0.ValueType == Unit.Measure<Unit.Duration>, τ_0_0.KeyType == Unit.Measure<Unit.Count>>";
+
+        var result = GenericSignatureParser.ParseGenericSignature(sig, sig);
+
+        var decl = Assert.Single(result);
+        Assert.Equal(
+            new[] { "τ_0_0.ValueType==Unit.Measure<Unit.Duration>", "τ_0_0.KeyType==Unit.Measure<Unit.Count>" },
+            decl.UnrepresentableConcreteSameTypePins);
+    }
+
+    [Fact]
+    public void ParseGenericSignature_DropsConcreteConstructedGenericPin_FlagsRootParameter()
+    {
+        // `extension Holder where Value.ValueType == Unit.Measure<Unit.Duration> { init(key:) }` —
+        // the target is unrepresentable (angle brackets) so the clause is dropped, but it names a
+        // single concrete type, so the confinement must still reach the open-erasure gate. Dropping
+        // it silently lets an unconditional `extension Holder: _SBW_CI_… {}` be emitted against the
+        // unconstrained type, which swiftc rejects ("does not conform to protocol"), and the whole
+        // wrapper compile fails. Shape observed on a system framework whose generic property type
+        // carries ~66 such per-unit constrained extensions.
+        var genericSig = "<τ_0_0 where τ_0_0 : Other.Valued, τ_0_0.ValueType == Unit.Measure<Unit.Duration>>";
+        var sugaredSig = "<Value where Value : Other.Valued, Value.ValueType == Unit.Measure<Unit.Duration>>";
+
+        var result = GenericSignatureParser.ParseGenericSignature(genericSig, sugaredSig);
+
+        var decl = Assert.Single(result);
+        Assert.Equal("τ_0_0", decl.TypeName);
+        // The representable sibling constraint survives; only the constructed-generic pin is dropped.
+        var conformance = Assert.Single(decl.GenericConformances);
+        Assert.Equal("Other.Valued", conformance.ConformanceTarget.ModuleQualifiedName);
+        Assert.Empty(decl.AssosiatedTypeConformances);
+        Assert.True(decl.HasUnrepresentableConcreteSameTypePin);  // confinement preserved
     }
 
     // --- Dropped module-qualified marker conformances (`where U : Swift.Sendable`) are flagged ---
