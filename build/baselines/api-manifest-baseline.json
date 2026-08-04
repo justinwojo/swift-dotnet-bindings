@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "git_sha": "e2493471",
+  "git_sha": "24e23da6",
   "entries": [
     {
       "module": "SwiftBindingsTestLib",
@@ -789,32 +789,32 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "AnyErrorCallbackFixture.ReportMathError(global::System.Action\u003CSwift.Foundation.AnyError\u003E)",
+      "signature": "AnyErrorCallbackFixture.ReportMathError(Action\u003CSwift.Foundation.AnyError\u003E)",
       "symbol": "$s20SwiftBindingsTestLib23AnyErrorCallbackFixtureC010reportMathF08callbackyys0F0_pXE_tF"
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "AnyErrorCallbackFixture.ReportNSError(global::System.Action\u003CSwift.Foundation.AnyError\u003E)",
+      "signature": "AnyErrorCallbackFixture.ReportNSError(Action\u003CSwift.Foundation.AnyError\u003E)",
       "symbol": "$s20SwiftBindingsTestLib23AnyErrorCallbackFixtureC13reportNSError8callbackyys0F0_pXE_tF"
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "AnyErrorCallbackFixture.ReportOptionalError(bool,global::System.Action\u003CSwift.Foundation.AnyError?\u003E)",
+      "signature": "AnyErrorCallbackFixture.ReportOptionalError(bool,Action\u003CSwift.Foundation.AnyError?\u003E)",
       "symbol": "$s20SwiftBindingsTestLib23AnyErrorCallbackFixtureC014reportOptionalF013shouldSucceed8callbackySb_ys0F0_pSgXEtF"
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "AnyErrorCallbackFixture.ReportPinDetails(int,global::System.Action\u003Cint, int, Swift.Foundation.AnyError?\u003E)",
+      "signature": "AnyErrorCallbackFixture.ReportPinDetails(int,Action\u003Cint, int, Swift.Foundation.AnyError?\u003E)",
       "symbol": "$s20SwiftBindingsTestLib23AnyErrorCallbackFixtureC16reportPinDetails4kind8callbackys5Int32V_yAH_AHs0F0_pSgtXEtF"
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "AnyErrorCallbackFixture.ReportResult(bool,global::System.Action\u003CSwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
+      "signature": "AnyErrorCallbackFixture.ReportResult(bool,Action\u003CSwift.SwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
       "symbol": "$s20SwiftBindingsTestLib23AnyErrorCallbackFixtureC12reportResult13shouldSucceed8callbackySb_ys0J0Oys5Int32Vs0F0_pGXEtF"
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "AnyErrorCallbackFixture.ReportValidationError(global::System.Action\u003CSwift.Foundation.AnyError\u003E)",
+      "signature": "AnyErrorCallbackFixture.ReportValidationError(Action\u003CSwift.Foundation.AnyError\u003E)",
       "symbol": "$s20SwiftBindingsTestLib23AnyErrorCallbackFixtureC016reportValidationF08callbackyys0F0_pXE_tF"
     },
     {
@@ -2834,22 +2834,22 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "BridgeHost.MakeBox(Swift.AnyType)\u00601",
+      "signature": "BridgeHost.MakeBox(ISwiftObject)\u00601",
       "symbol": "SBW_SwiftBindingsTestLib_BridgeHost_makeBox_80BFD5AD_XM"
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "BridgeHost.MakeBoxAt(int,Swift.AnyType)\u00601",
+      "signature": "BridgeHost.MakeBoxAt(int,ISwiftObject)\u00601",
       "symbol": "SBW_SwiftBindingsTestLib_BridgeHost_makeBoxAt_4A9BF429_XM"
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "BridgeHost.MakeBoxSelf(Swift.AnyType)\u00601",
+      "signature": "BridgeHost.MakeBoxSelf(ISwiftObject)\u00601",
       "symbol": "SBW_SwiftBindingsTestLib_BridgeHost_makeBoxSelf_9F034FCC_XM"
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "BridgeHost.MakeRefBox(Swift.AnyType)\u00601",
+      "signature": "BridgeHost.MakeRefBox(ISwiftObject)\u00601",
       "symbol": "SBW_SwiftBindingsTestLib_BridgeHost_makeRefBox_C4C8415B_XM"
     },
     {
@@ -4364,7 +4364,7 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "ClassTransformer.Process(global::System.Action\u003CSwiftBindingsTestLib.TransformOutcome\u003E)",
+      "signature": "ClassTransformer.Process(Action\u003CSwiftBindingsTestLib.TransformOutcome\u003E)",
       "symbol": "$s20SwiftBindingsTestLib16ClassTransformerC7process10completionyyAA16TransformOutcomeOc_tF"
     },
     {
@@ -4999,6 +4999,21 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "CompletionAsyncLattice.CompletionAsyncLattice()",
+      "symbol": "thunk_SwiftBindingsTestLib_25fe44e0"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "CompletionAsyncLattice.Load(int,global::System.Action\u003Cint\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_CompletionAsyncLattice_load_247B9151"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "CompletionAsyncLattice.LoadAsync(int,int,global::System.Threading.CancellationToken)",
+      "symbol": "SBW_SwiftBindingsTestLib_CompletionAsyncLattice_load_CFBEEEE1"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "CompletionDeinitProbe.CompletionDeinitProbe(System.IntPtr)",
       "symbol": "thunk_SwiftBindingsTestLib_51f628e1"
     },
@@ -5019,7 +5034,7 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "CompletionProbePresenter.Present(int,global::System.Action\u003CSwiftBindingsTestLib.CompletionProbeOutcome\u003E,bool)",
+      "signature": "CompletionProbePresenter.Present(int,bool,Action\u003CSwiftBindingsTestLib.CompletionProbeOutcome\u003E)",
       "symbol": "$s20SwiftBindingsTestLib24CompletionProbePresenterC7present5label10completion8animatedys5Int32V_yAA0eF7OutcomeOcSbtF"
     },
     {
@@ -6469,12 +6484,12 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "DataProcessor.Process(global::System.Action\u003CSwiftResult\u003CSwiftBindingsTestLib.FetchResult, SwiftBindingsTestLib.FetchError\u003E\u003E)",
+      "signature": "DataProcessor.Process(Action\u003CSwift.SwiftResult\u003CSwiftBindingsTestLib.FetchResult, SwiftBindingsTestLib.FetchError\u003E\u003E)",
       "symbol": "$s20SwiftBindingsTestLib13DataProcessorC7process10completionyys6ResultOyAA05FetchI0CAA0J5ErrorOGc_tF"
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "DataProcessor.ProcessWithError(global::System.Action\u003CSwiftResult\u003CSwiftBindingsTestLib.FetchResult, SwiftBindingsTestLib.FetchError\u003E\u003E)",
+      "signature": "DataProcessor.ProcessWithError(Action\u003CSwift.SwiftResult\u003CSwiftBindingsTestLib.FetchResult, SwiftBindingsTestLib.FetchError\u003E\u003E)",
       "symbol": "$s20SwiftBindingsTestLib13DataProcessorC16processWithError10completionyys6ResultOyAA05FetchK0CAA0lI0OGc_tF"
     },
     {
@@ -6489,7 +6504,7 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "DataTransformer.Process(global::System.Action\u003CSwiftBindingsTestLib.TransformOutcome\u003E)",
+      "signature": "DataTransformer.Process(Action\u003CSwiftBindingsTestLib.TransformOutcome\u003E)",
       "symbol": "$s20SwiftBindingsTestLib15DataTransformerV7process10completionyyAA16TransformOutcomeOc_tF"
     },
     {
@@ -7884,7 +7899,7 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "EnumCarrierClosureBridge.Combine(SwiftBindingsTestLib.FetchScope,SwiftBindingsTestLib.WriteMode,int,global::System.Action\u003CSwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
+      "signature": "EnumCarrierClosureBridge.Combine(SwiftBindingsTestLib.FetchScope,SwiftBindingsTestLib.WriteMode,int,Action\u003CSwift.SwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
       "symbol": "$s20SwiftBindingsTestLib24EnumCarrierClosureBridgeC7combine5scope4mode10multiplier10completionyAA10FetchScopeO_AA9WriteModeOs5Int32Vys6ResultOyANs5Error_pGXEtF"
     },
     {
@@ -7894,17 +7909,17 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "EnumCarrierClosureBridge.Fetch(SwiftBindingsTestLib.FetchScope,global::System.Action\u003CSwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
+      "signature": "EnumCarrierClosureBridge.Fetch(SwiftBindingsTestLib.FetchScope,Action\u003CSwift.SwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
       "symbol": "$s20SwiftBindingsTestLib24EnumCarrierClosureBridgeC5fetch5scope10completionyAA10FetchScopeO_ys6ResultOys5Int32Vs5Error_pGXEtF"
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "EnumCarrierClosureBridge.RetryResult(SwiftBindingsTestLib.FetchScope,SwiftBindingsTestLib.WriteMode,global::System.Action\u003CSwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
+      "signature": "EnumCarrierClosureBridge.RetryResult(SwiftBindingsTestLib.FetchScope,SwiftBindingsTestLib.WriteMode,Action\u003CSwift.SwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
       "symbol": "$s20SwiftBindingsTestLib24EnumCarrierClosureBridgeC11retryResult3for5dueTo10completionyAA10FetchScopeO_AA9WriteModeOys0J0Oys5Int32Vs5Error_pGXEtF"
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "EnumCarrierClosureBridge.Write(SwiftBindingsTestLib.WriteMode,global::System.Action\u003CSwift.Foundation.AnyError?\u003E)",
+      "signature": "EnumCarrierClosureBridge.Write(SwiftBindingsTestLib.WriteMode,Action\u003CSwift.Foundation.AnyError?\u003E)",
       "symbol": "$s20SwiftBindingsTestLib24EnumCarrierClosureBridgeC5write4mode10completionyAA9WriteModeO_ys5Error_pSgXEtF"
     },
     {
@@ -8359,7 +8374,7 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "FetchWithScope(SwiftBindingsTestLib.FetchScope,global::System.Action\u003CSwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
+      "signature": "FetchWithScope(SwiftBindingsTestLib.FetchScope,Action\u003CSwift.SwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
       "symbol": "$s20SwiftBindingsTestLib14fetchWithScope_10completionyAA05FetchG0O_ys6ResultOys5Int32Vs5Error_pGXEtF"
     },
     {
@@ -9444,12 +9459,12 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "GenericProcessor.Run(global::System.Action\u003CSwiftBindingsTestLib.ProcessResult\u003E)\u00601",
+      "signature": "GenericProcessor.Run(Action\u003CSwiftBindingsTestLib.ProcessResult\u003E)\u00601",
       "symbol": "$s20SwiftBindingsTestLib16GenericProcessorC3run10completionyyAA13ProcessResultOc_tF"
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "GenericProcessor.RunWithFilter(global::System.Func\u003CSwiftBindingsTestLib.ProcessResult, bool\u003E)\u00601",
+      "signature": "GenericProcessor.RunWithFilter(Func\u003CSwiftBindingsTestLib.ProcessResult, bool\u003E)\u00601",
       "symbol": "$s20SwiftBindingsTestLib16GenericProcessorC13runWithFilter9predicateS2bAA13ProcessResultOc_tF"
     },
     {
@@ -10139,7 +10154,7 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "ImageProcessor.Process(global::System.Action\u003CSwiftResult\u003CSwiftBindingsTestLib.FetchResult, SwiftBindingsTestLib.FetchError\u003E\u003E)",
+      "signature": "ImageProcessor.Process(Action\u003CSwift.SwiftResult\u003CSwiftBindingsTestLib.FetchResult, SwiftBindingsTestLib.FetchError\u003E\u003E)",
       "symbol": "$s20SwiftBindingsTestLib14ImageProcessorC7process10completionyys6ResultOyAA05FetchI0CAA0J5ErrorOGc_tF"
     },
     {
@@ -10719,7 +10734,7 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "InvokeWithBorrowedTrackedResult(int,global::System.Action\u003CSwiftResult\u003CSwiftBindingsTestLib.TrackedRef, SwiftBindingsTestLib.TrackedRefError\u003E\u003E)",
+      "signature": "InvokeWithBorrowedTrackedResult(int,Action\u003CSwift.SwiftResult\u003CSwiftBindingsTestLib.TrackedRef, SwiftBindingsTestLib.TrackedRefError\u003E\u003E)",
       "symbol": "$s20SwiftBindingsTestLib31invokeWithBorrowedTrackedResult5count_ys5Int32V_ys0I0OyAA0H3RefCAA0hL5ErrorOGXEtF"
     },
     {
@@ -11326,6 +11341,16 @@
       "module": "SwiftBindingsTestLib",
       "signature": "LabelledContainerBuilder.BuildBlock(IEnumerable\u003CILabelledContainer\u003CSwift.SwiftString\u003E\u003E)",
       "symbol": "SBW_SwiftBindingsTestLib_LabelledContainerBuilder_buildBlock_D51A6711"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "LabelledContainerSink.GetDescribe()",
+      "symbol": "SBW_SwiftBindingsTestLib_LabelledContainerSink_describe_D9E50A73"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "LabelledContainerSink.LabelledContainerSink(ISwiftObject,int)",
+      "symbol": "$s20SwiftBindingsTestLib21LabelledContainerSinkC9container3tagAcA0eF0_pSS5LabelAaFPRts_XP_s5Int32VtcfC"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -14434,7 +14459,7 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "NonEscapingMCBFixture.RunSynchronously(global::System.Func\u003CSwiftBindingsTestLib.ProcessResult, bool\u003E)",
+      "signature": "NonEscapingMCBFixture.RunSynchronously(Func\u003CSwiftBindingsTestLib.ProcessResult, bool\u003E)",
       "symbol": "$s20SwiftBindingsTestLib21NonEscapingMCBFixtureC16runSynchronouslyyS2bAA13ProcessResultOXEF"
     },
     {
@@ -14884,12 +14909,12 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "OnboardingFlow.SessionController.Create(string,SwiftBindingsTestLib.OnboardingFlow.Configuration,bool,global::System.Action\u003CSwiftResult\u003CSwiftBindingsTestLib.OnboardingFlow.SessionController, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
+      "signature": "OnboardingFlow.SessionController.Create(string,SwiftBindingsTestLib.OnboardingFlow.Configuration,bool,Action\u003CSwift.SwiftResult\u003CSwiftBindingsTestLib.OnboardingFlow.SessionController, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
       "symbol": "$s20SwiftBindingsTestLib14OnboardingFlowC17SessionControllerC6create5token13configuration10shouldFail10completionySS_AC13ConfigurationVSbys6ResultOyAEs5Error_pGctFZ"
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "OnboardingFlow.SessionController.CreateWithOptionalError(string,SwiftBindingsTestLib.OnboardingFlow.Configuration,bool,global::System.Action\u003CSwift.Foundation.AnyError?\u003E)",
+      "signature": "OnboardingFlow.SessionController.CreateWithOptionalError(string,SwiftBindingsTestLib.OnboardingFlow.Configuration,bool,Action\u003CSwift.Foundation.AnyError?\u003E)",
       "symbol": "$s20SwiftBindingsTestLib14OnboardingFlowC17SessionControllerC23createWithOptionalError5token13configuration10shouldFail10completionySS_AC13ConfigurationVSbys0L0_pSgctFZ"
     },
     {
@@ -14904,7 +14929,7 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "OnboardingFlow.SessionController.Update(SwiftBindingsTestLib.OnboardingFlow.Configuration,bool,global::System.Action\u003CSwift.Foundation.AnyError?\u003E)",
+      "signature": "OnboardingFlow.SessionController.Update(SwiftBindingsTestLib.OnboardingFlow.Configuration,bool,Action\u003CSwift.Foundation.AnyError?\u003E)",
       "symbol": "$s20SwiftBindingsTestLib14OnboardingFlowC17SessionControllerC6update13configuration10shouldFail10completionyAC13ConfigurationV_Sbys5Error_pSgctF"
     },
     {
@@ -15204,7 +15229,7 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "OptionalErrorCallbackFixture.ReportIfPresent(global::System.Action\u003CSwift.Foundation.AnyError\u003E)",
+      "signature": "OptionalErrorCallbackFixture.ReportIfPresent(Action\u003CSwift.Foundation.AnyError\u003E?)",
       "symbol": "$s20SwiftBindingsTestLib28OptionalErrorCallbackFixtureC15reportIfPresent8callbacks5Int32Vys0F0_pcSg_tF"
     },
     {
@@ -15569,17 +15594,57 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "PExtClosureItem.PExtClosureItem(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_c29a997d"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PExtClosureItem.Value",
+      "symbol": "thunk_SwiftBindingsTestLib_17ddf72d"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PExtClosureSecondSeed.DropMatching(Func\u003CSwiftBindingsTestLib.PExtClosureItem, bool\u003E)",
+      "symbol": "SBW_PExtClosureSecondSeed_dropMatching_whereclosure"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PExtClosureSecondSeed.PExtClosureSecondSeed(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_2b7f49ff"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PExtClosureSecondSeed.RunEscapingVoid(Action)",
+      "symbol": "SBW_PExtClosureSecondSeed_runEscapingVoid_closure"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PExtClosureSecondSeed.RunNonEscapingVoid(Action)",
+      "symbol": "SBW_PExtClosureSecondSeed_runNonEscapingVoid_closure"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PExtClosureSecondSeed.Seed",
+      "symbol": "thunk_SwiftBindingsTestLib_db79ba57"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PExtClosureSeed.DropMatching(Func\u003CSwiftBindingsTestLib.PExtClosureItem, bool\u003E)",
+      "symbol": "SBW_PExtClosureSeed_dropMatching_whereclosure"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "PExtClosureSeed.PExtClosureSeed(int)",
       "symbol": "thunk_SwiftBindingsTestLib_13b28540"
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "PExtClosureSeed.RunEscapingVoid(global::System.Action)",
+      "signature": "PExtClosureSeed.RunEscapingVoid(Action)",
       "symbol": "SBW_PExtClosureSeed_runEscapingVoid_closure"
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "PExtClosureSeed.RunNonEscapingVoid(global::System.Action)",
+      "signature": "PExtClosureSeed.RunNonEscapingVoid(Action)",
       "symbol": "SBW_PExtClosureSeed_runNonEscapingVoid_closure"
     },
     {
@@ -16964,6 +17029,21 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "ReshapedClosureLoader.LoadPair(int,Action\u003Cint, Swift.Foundation.AnyError?\u003E)",
+      "symbol": "$s20SwiftBindingsTestLib21ReshapedClosureLoaderC8loadPair_5scale6offset10completionys5Int32V_A2IyAI_s5Error_pSgtctF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReshapedClosureLoader.LoadValue(int,Action\u003Cint, Swift.Foundation.AnyError?\u003E)",
+      "symbol": "$s20SwiftBindingsTestLib21ReshapedClosureLoaderC9loadValue_7retries10completionys5Int32V_AHyAH_s5Error_pSgtctF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReshapedClosureLoader.ReshapedClosureLoader()",
+      "symbol": "thunk_SwiftBindingsTestLib_3509b0ed"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "ResilientAttribute.Detail",
       "symbol": "SBW_Get_SwiftBindingsTestLib_ResilientAttribute_detail"
     },
@@ -17019,17 +17099,17 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "ResultCallbackProcessor.CalculateSize(global::System.Action\u003CSwiftResult\u003Cnuint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
+      "signature": "ResultCallbackProcessor.CalculateSize(Action\u003CSwift.SwiftResult\u003Cnuint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
       "symbol": "$s20SwiftBindingsTestLib23ResultCallbackProcessorC13calculateSize10completionyys0E0OySus5Error_pGc_tF"
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "ResultCallbackProcessor.ProcessMultiple(int,global::System.Action\u003CSwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
+      "signature": "ResultCallbackProcessor.ProcessMultiple(int,Action\u003CSwift.SwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
       "symbol": "$s20SwiftBindingsTestLib23ResultCallbackProcessorC15processMultiple5count10completionys5Int32V_ys0E0OyAHs5Error_pGctF"
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "ResultCallbackProcessor.ProcessWithResult(global::System.Action\u003CSwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
+      "signature": "ResultCallbackProcessor.ProcessWithResult(Action\u003CSwift.SwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
       "symbol": "$s20SwiftBindingsTestLib23ResultCallbackProcessorC011processWithE010completionyys0E0Oys5Int32Vs5Error_pGc_tF"
     },
     {
@@ -17039,7 +17119,7 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "ResultClosureTest.FetchData(SwiftBindingsTestLib.NonFrozenPoint,global::System.Action\u003CSwiftResult\u003CSwiftBindingsTestLib.FetchResult, SwiftBindingsTestLib.FetchError\u003E\u003E)",
+      "signature": "ResultClosureTest.FetchData(SwiftBindingsTestLib.NonFrozenPoint,Action\u003CSwift.SwiftResult\u003CSwiftBindingsTestLib.FetchResult, SwiftBindingsTestLib.FetchError\u003E\u003E)",
       "symbol": "$s20SwiftBindingsTestLib013ResultClosureC0C9fetchData7request10completionyAA14NonFrozenPointV_ys0E0OyAA05FetchE0CAA0N5ErrorOGctF"
     },
     {
@@ -17049,7 +17129,7 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "ResultClosureTest.StaticFetch(SwiftBindingsTestLib.NonFrozenPoint,global::System.Action\u003CSwiftResult\u003CSwiftBindingsTestLib.FetchResult, SwiftBindingsTestLib.FetchError\u003E\u003E)",
+      "signature": "ResultClosureTest.StaticFetch(SwiftBindingsTestLib.NonFrozenPoint,Action\u003CSwift.SwiftResult\u003CSwiftBindingsTestLib.FetchResult, SwiftBindingsTestLib.FetchError\u003E\u003E)",
       "symbol": "$s20SwiftBindingsTestLib013ResultClosureC0C11staticFetch7request10completionyAA14NonFrozenPointV_ys0E0OyAA0hE0CAA0H5ErrorOGctFZ"
     },
     {
@@ -18894,7 +18974,7 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "StringParamMCBFixture.Measure(string,global::System.Action\u003CSwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
+      "signature": "StringParamMCBFixture.Measure(string,Action\u003CSwift.SwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
       "symbol": "$s20SwiftBindingsTestLib21StringParamMCBFixtureC7measure5input10completionySS_ys6ResultOys5Int32Vs5Error_pGctF"
     },
     {
@@ -19234,27 +19314,27 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "SyntheticNameCollisionHost.RunAdapterCollision(int,global::System.Action\u003CSwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
+      "signature": "SyntheticNameCollisionHost.RunAdapterCollision(int,Action\u003CSwift.SwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
       "symbol": "$s20SwiftBindingsTestLib26SyntheticNameCollisionHostC010runAdapterG010__adapter010completionys5Int32V_ys6ResultOyAHs5Error_pGctF"
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "SyntheticNameCollisionHost.RunBoxCollision(int,global::System.Action\u003CSwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
+      "signature": "SyntheticNameCollisionHost.RunBoxCollision(int,Action\u003CSwift.SwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
       "symbol": "$s20SwiftBindingsTestLib26SyntheticNameCollisionHostC06runBoxG06_box_010completionys5Int32V_ys6ResultOyAHs5Error_pGctF"
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "SyntheticNameCollisionHost.RunCdeclCollision(int,global::System.Action\u003CSwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
+      "signature": "SyntheticNameCollisionHost.RunCdeclCollision(int,Action\u003CSwift.SwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
       "symbol": "$s20SwiftBindingsTestLib26SyntheticNameCollisionHostC08runCdeclG05cdecl10completionys5Int32V_ys6ResultOyAHs5Error_pGctF"
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "SyntheticNameCollisionHost.RunSelfCollision(int,global::System.Action\u003CSwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
+      "signature": "SyntheticNameCollisionHost.RunSelfCollision(int,Action\u003CSwift.SwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
       "symbol": "$s20SwiftBindingsTestLib26SyntheticNameCollisionHostC07runSelfG05self_10completionys5Int32V_ys6ResultOyAHs5Error_pGctF"
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "SyntheticNameCollisionHost.RunSelfObjCollision(int,global::System.Action\u003CSwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
+      "signature": "SyntheticNameCollisionHost.RunSelfObjCollision(int,Action\u003CSwift.SwiftResult\u003Cint, Swift.Runtime.ExistentialContainer1\u003E\u003E)",
       "symbol": "$s20SwiftBindingsTestLib26SyntheticNameCollisionHostC010runSelfObjG004selfK010completionys5Int32V_ys6ResultOyAHs5Error_pGctF"
     },
     {

@@ -56,6 +56,32 @@ public func makeStringLabel(_ value: String) -> any LabelledContainer<String> {
     return StringLabel(label: value)
 }
 
+// MARK: - Constrained-existential CONSTRUCTOR (emitted shape diverges from the declared one)
+//
+// A constructor taking a constrained existential is bound by a dedicated bridge that cannot keep
+// the declared parameter type: the C# side cannot statically tell a class conformer from a struct
+// conformer, so the parameter is erased to the broadest common type (`ISwiftObject`), and the
+// member is written under the TYPE's name rather than under any method name. Neither half of the
+// emitted declaration matches the declared one, which makes this the constructor counterpart of
+// the closure-bridge divergence in Closures/ReshapedPublicSignature.swift.
+//
+// Provenance: a document-scanning SDK's `init(analyzer:settings:)`, whose analyzer parameter is a
+// parameterized-protocol existential, hit exactly this shape.
+@available(iOS 16.0, macOS 13.0, tvOS 16.0, *)
+public final class LabelledContainerSink {
+    private let container: any LabelledContainer<String>
+    private let tag: Int32
+
+    public init(container: any LabelledContainer<String>, tag: Int32) {
+        self.container = container
+        self.tag = tag
+    }
+
+    public func describe() -> String {
+        return "\(tag):\(container.describeLabel())"
+    }
+}
+
 // MARK: - Open-PAT (generic-conformer-bound) negative fixture
 //
 // Pins the open-PAT exclusion gate in the closed-constrained PAT projection:

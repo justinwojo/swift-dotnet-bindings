@@ -177,10 +177,27 @@ public static class DefaultParameterOverloadEmitter
             // the answer changes the cap arithmetic below: the all-defaults form spends one of the
             // MaxOverloads slots, so a candidate the arity-collision rule will throw away anyway must
             // not also cost a trailing trim that would otherwise have been emitted.
-            else if (HasSignatureCollision(
-                BuildOverloadDeclDropping(env.EmissionSymbol, methodDecl, defaultedIndices)))
+            //
+            // Report it the way the candidate loop reports its own declines. This arm runs BEFORE
+            // the loop, so without an explicit log + report row the ergonomic form disappears with
+            // no trace anywhere — the one decline in this emitter a reader could not account for.
+            else
             {
-                wantAllDefaultsForm = false;
+                var allDefaultsDecl = BuildOverloadDeclDropping(env.EmissionSymbol, methodDecl, defaultedIndices);
+                if (TryFindSignatureCollision(allDefaultsDecl, out var collidingSibling))
+                {
+                    var declinedKey = GetProjectedOverloadKey(
+                        allDefaultsDecl, env.TypeDatabase, env.SiblingPropertyNames, env.DisambiguatedNameInput);
+                    var collidingKey = GetProjectedOverloadKey(
+                        collidingSibling!, env.TypeDatabase, env.SiblingPropertyNames);
+                    logger.LogDebug(
+                        "DefaultParameterOverload: declining the all-defaults overload for {Name} — it would " +
+                        "declare the same arity as the existing sibling {Other}: {Key}",
+                        methodDecl.Name, collidingKey, declinedKey);
+                    emissionContext?.TryRecordSuppressedAmbiguousOverload(
+                        declinedKey, collidingKey, candidateWasFuller: false);
+                    wantAllDefaultsForm = false;
+                }
             }
         }
 
@@ -1291,7 +1308,16 @@ public static class DefaultParameterOverloadEmitter
     /// name and parameter count, skip the overload to avoid CS0111 duplicate declarations.
     /// </summary>
     private static bool HasSignatureCollision(MethodDecl overloadDecl)
+        => TryFindSignatureCollision(overloadDecl, out _);
+
+    /// <summary>
+    /// The colliding sibling variant of <see cref="HasSignatureCollision"/>: reports WHICH
+    /// declaration the candidate would duplicate, so a decline can name it in the log and in the
+    /// suppressed-overload report rather than vanishing silently.
+    /// </summary>
+    private static bool TryFindSignatureCollision(MethodDecl overloadDecl, out MethodDecl? collidingSibling)
     {
+        collidingSibling = null;
         int overloadParamCount = overloadDecl.CSSignature.Count - 1; // exclude return type
 
         IEnumerable<MethodDecl>? siblingMethods = overloadDecl.ParentDecl switch
@@ -1303,11 +1329,12 @@ public static class DefaultParameterOverloadEmitter
         if (siblingMethods == null)
             return false;
 
-        return siblingMethods.Any(m =>
+        collidingSibling = siblingMethods.FirstOrDefault(m =>
             m.Name == overloadDecl.Name &&
             m.IsConstructor == overloadDecl.IsConstructor &&
             m.CSSignature.Count - 1 == overloadParamCount &&
             m.MangledName != overloadDecl.MangledName); // don't compare against self
+        return collidingSibling != null;
     }
 
     /// <summary>

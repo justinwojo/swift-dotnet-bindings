@@ -111,3 +111,24 @@ public final class AsyncDefaultLattice {
         return "id=\(id) tag=\(tag)"
     }
 }
+
+/// The same set-validity question asked of a DIFFERENT producer: the Task-returning convenience
+/// overload synthesized for a completion-handler method. `load(_:completion:)` wants to add
+/// `LoadAsync(int, CancellationToken = default)`; the sibling `load(_:_:) async` already projects to
+/// `LoadAsync(int, int = 3, CancellationToken = default)`. A caller passing one argument supplies
+/// every parameter of neither, so the two bind equally well — CS0121 at the CALLER, which is
+/// invisible to a gate that only compiles the binding itself. The convenience overload is the side
+/// that yields; both primaries stay.
+public final class CompletionAsyncLattice {
+    public init() {}
+
+    /// Declared first, so its projected shape is reserved before the completion-handler lane
+    /// synthesizes its own `LoadAsync`.
+    public func load(_ id: Int32, _ retries: Int32 = 3) async -> Int32 {
+        return id + retries
+    }
+
+    public func load(_ id: Int32, completion: @escaping (Int32) -> Void) {
+        completion(id)
+    }
+}

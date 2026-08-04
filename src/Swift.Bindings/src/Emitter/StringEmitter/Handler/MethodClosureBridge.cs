@@ -279,7 +279,7 @@ public static class MethodClosureBridge
         }
 
         // Public method always in the class body
-        EmitPublicMethod(csWriter, method, closures, passableNonClosureParams, env, parentDecl, helperClassName);
+        EmitPublicMethod(csWriter, method, closures, passableNonClosureParams, env, parentDecl, helperClassName, ctx);
 
         method.MarkEmitted();
         return true;
@@ -1204,7 +1204,8 @@ public static class MethodClosureBridge
         List<(ArgumentDecl arg, string csName, string csType, ParamAbiCategory category)> passableNonClosureParams,
         MethodEnvironment env,
         TypeDecl? parentDecl,
-        string helperClassName)
+        string helperClassName,
+        ModuleEmissionContext ctx)
     {
         var pInvokeName = $"PInvoke_{closures[0].CallbackBaseName}";
 
@@ -1278,6 +1279,19 @@ public static class MethodClosureBridge
         // method and callers (`Functions.X(...)`) would fail with CS0120.
         var isStatic = method.MethodType == MethodType.Static || method.ParentDecl is ModuleDecl;
         var staticKeyword = isStatic ? "static " : "";
+
+        // This bridge writes a parameter list the declared signature does not describe: every
+        // defaulted non-closure parameter was dropped above (Swift fills its own default through
+        // the shim) and each closure parameter is re-spelled as an Action/Func delegate. Record the
+        // list actually written so the API manifest keys the member a consumer can call — without
+        // it the manifest names the full declared signature, which appears nowhere in the emitted C#.
+        var emittedParameterTypes = passableNonClosureParams
+            .Select(p => p.csType)
+            .Concat(closureDelegateTypes);
+        ctx.RecordEmittedApiShape(
+            method,
+            csharpName: methodName,
+            parameterPortion: ModuleEmissionContext.FormatParameterPortion(emittedParameterTypes));
 
         XmlDocCommentEmitter.EmitMethodDocComment(csWriter, method);
 

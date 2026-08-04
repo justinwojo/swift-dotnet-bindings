@@ -81,6 +81,27 @@ public class ApiSurfaceReconcilerTests : IDisposable
         Assert.Contains("Magnitude", ex.Message);
     }
 
+    [Fact]
+    public void EmitModule_RecordedEmittedShapeIsNotAnEscapeHatch()
+    {
+        // An emitter that reshapes what it writes records the reshaped form so the manifest keys the
+        // member a consumer can actually call. That must not degrade into "recording anything
+        // reconciles it": a recorded shape the emitted C# does not contain is the same phantom as an
+        // unrecorded one, and the check has to keep failing on it.
+        var context = new ModuleEmissionContext();
+        var key = ModuleEmissionContext.BuildApiManifestKey(
+            parent: null,
+            csharpName: "Reshaped",
+            projectedKey: "Reshaped(int)",
+            typeDatabase: null,
+            emitted: new ModuleEmissionContext.EmittedApiShape("Reshaped", "(int,int,int)"));
+        context.RecordApiManifestEntry(key, "sym_reshaped_phantom");
+
+        var ex = Assert.Throws<ApiSurfaceReconciliationException>(() => EmitFixtureModule(context));
+
+        Assert.Contains("Reshaped(int,int,int)", ex.Message);
+    }
+
     // ── matcher rules ──────────────────────────────────────────────────────────────────────
 
     [Fact]

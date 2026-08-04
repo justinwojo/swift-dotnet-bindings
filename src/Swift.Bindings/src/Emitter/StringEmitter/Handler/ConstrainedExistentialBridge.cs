@@ -217,7 +217,7 @@ public static class ConstrainedExistentialBridge
 
         // --- Emit C# constructor ---
         EmitCSharpConstructor(csWriter, env, classDecl, typeNameWithGenerics, wrapperSymbol, wrapperLibPath,
-            bridgeParams, mergedAvailability);
+            bridgeParams, ctx, mergedAvailability);
 
         return true;
     }
@@ -340,6 +340,7 @@ public static class ConstrainedExistentialBridge
         string wrapperSymbol,
         string wrapperLibPath,
         List<BridgeParam> bridgeParams,
+        ModuleEmissionContext ctx,
         IReadOnlyList<AvailabilityAnnotation>? availability = null)
     {
         var accessModifier = NameProvider.GetAccessModifier(env.MethodDecl.IsSynthesizedAccessor);
@@ -355,6 +356,17 @@ public static class ConstrainedExistentialBridge
             csParams.Add($"{bp.CSharpType} {paramName}");
         }
         var paramString = string.Join(", ", csParams);
+
+        // Neither half of this declaration matches the declared signature: a constructor is written
+        // under the type's own name, the constrained existential parameters are erased to
+        // ISwiftObject, and any parameter the classifier could not pass was dropped (Swift supplies
+        // its default). Record what is about to be written so the API manifest names a callable
+        // member instead of the un-emitted declared form.
+        ctx.RecordEmittedApiShape(
+            env.MethodDecl,
+            csharpName: constructorName,
+            parameterPortion: ModuleEmissionContext.FormatParameterPortion(
+                bridgeParams.Select(bp => bp.CSharpType)));
 
         // Build P/Invoke call arguments
         var pInvokeArgs = new List<string>();

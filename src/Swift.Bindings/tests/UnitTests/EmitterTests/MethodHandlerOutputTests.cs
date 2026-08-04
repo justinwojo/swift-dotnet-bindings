@@ -180,6 +180,125 @@ public class MethodHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_CompletionHandlerOverload_DeclinedWhenACallSiteWouldBindItAndASiblingEqually()
+    {
+        // Set validity, not signature identity: the sibling `collect(amount:retries:) async` already
+        // reserved `CollectAsync(nint, nint = 3, CancellationToken = default)`, and this lane wants
+        // to add `CollectAsync(nint, CancellationToken = default)`. The two keys DIFFER, so the
+        // exact-signature dedup lets both through — but a caller writing `CollectAsync(1)` supplies
+        // every parameter of neither, which is CS0121 at the CALLER and invisible to any gate that
+        // only compiles the binding itself. The synthesized convenience overload is the side that
+        // yields.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "/tmp/AsyncWrapper.dylib";
+
+        var method = CreateCompletionHandlerMethod(typeDatabase);
+
+        const string reservedKey = "CollectAsync(nint,nint,System.Threading.CancellationToken)";
+        var emittedSignatures = new HashSet<string> { reservedKey };
+        // The sibling's trailing `nint = 3` and its CancellationToken are both optional, so only one
+        // of its three parameters is required.
+        var reservedShapes = new Dictionary<string, int> { [reservedKey] = 1 };
+        var emissionContext = new ModuleEmissionContext();
+
+        var (csOutput, _) = EmitMethodWithSignatures(
+            method, typeDatabase, emittedSignatures, reservedShapes, emissionContext);
+
+        Assert.Contains("public virtual void Collect(", csOutput);
+        Assert.DoesNotContain("CollectAsync", csOutput);
+        // The decline is reported, not silent.
+        Assert.Contains(
+            emissionContext.SuppressedAmbiguousOverloads,
+            entry => entry.Contains("CollectAsync(nint,System.Threading.CancellationToken)")
+                     && entry.Contains(reservedKey));
+    }
+
+    [Fact]
+    public void Emit_CompletionHandlerOverload_ReservesItsOwnShapeForLaterCandidates()
+    {
+        // The other half of the wiring: an emitted overload has to record how many of its parameters
+        // a caller MUST supply. A reservation with no recorded shape reads back as fully-required,
+        // which would make a later candidate that ties with this one look safe.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "/tmp/AsyncWrapper.dylib";
+
+        var method = CreateCompletionHandlerMethod(typeDatabase);
+        var emittedSignatures = new HashSet<string>();
+        var reservedShapes = new Dictionary<string, int>();
+
+        var (csOutput, _) = EmitMethodWithSignatures(
+            method, typeDatabase, emittedSignatures, reservedShapes, new ModuleEmissionContext());
+
+        Assert.Contains("CollectAsync", csOutput);
+        var reserved = Assert.Single(reservedShapes);
+        Assert.Contains("CollectAsync", reserved.Key);
+        // Only the trailing CancellationToken is optional.
+        Assert.Equal(
+            OverloadAmbiguityGuard.ParseKey(reserved.Key, 0).ParameterTypes.Count - 1,
+            reserved.Value);
+    }
+
+    [Fact]
+    public void Emit_CompletionHandlerOverload_UnrecordedReservationDoesNotSuppress()
+    {
+        // Under-detection is the safe direction: a reservation whose optional tail nobody recorded
+        // is read as fully-required, so it can never be the ambiguous partner of anything. An
+        // unrecorded producer degrades to the previous behavior rather than to a spurious
+        // suppression that would permanently delete public surface.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "/tmp/AsyncWrapper.dylib";
+
+        var method = CreateCompletionHandlerMethod(typeDatabase);
+        var emittedSignatures = new HashSet<string>
+        {
+            "CollectAsync(nint,nint,System.Threading.CancellationToken)"
+        };
+
+        var (csOutput, _) = EmitMethodWithSignatures(
+            method, typeDatabase, emittedSignatures, new Dictionary<string, int>(), new ModuleEmissionContext());
+
+        Assert.Contains("CollectAsync", csOutput);
+    }
+
+    /// <summary>
+    /// A sync `collect(amount:completion:)` whose trailing escaping closure is a completion handler —
+    /// the shape that makes the emitter synthesize a Task-returning `CollectAsync` convenience
+    /// overload alongside the primary.
+    /// </summary>
+    private static MethodDecl CreateCompletionHandlerMethod(TypeDatabase typeDatabase)
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var closureSpec = new ClosureTypeSpec(
+            arguments: new NamedTypeSpec("Swift.String"),
+            returnType: TupleTypeSpec.Empty);
+        closureSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = new MethodDecl
+        {
+            Name = "collect",
+            MangledName = "$s10TestModule6LoaderCcollectSiyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                CreateArgument("amount", new NamedTypeSpec("Swift.Int"), moduleDecl),
+                CreateArgument("completion", closureSpec, moduleDecl),
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+        parentDecl.Methods.Add(method);
+        return method;
+    }
+
+    [Fact]
     public void Emit_ThrowingMethod_EmitsSwiftErrorHandling()
     {
         var typeDatabase = CreateTypeDatabase();
@@ -1849,6 +1968,14 @@ public class MethodHandlerOutputTests
         MethodDecl methodDecl,
         TypeDatabase typeDatabase,
         HashSet<string> emittedProjectedSignatures)
+        => EmitMethodWithSignatures(methodDecl, typeDatabase, emittedProjectedSignatures, null, null);
+
+    private static (string csOutput, string swiftOutput) EmitMethodWithSignatures(
+        MethodDecl methodDecl,
+        TypeDatabase typeDatabase,
+        HashSet<string> emittedProjectedSignatures,
+        Dictionary<string, int>? reservedOverloadShapes,
+        ModuleEmissionContext? emissionContext)
     {
         var csOutput = new StringWriter();
         var swiftOutput = new StringWriter();
@@ -1858,8 +1985,15 @@ public class MethodHandlerOutputTests
         var handler = new MethodHandler(new NullLogger<MethodHandler>());
         var env = new MethodEnvironment(methodDecl, typeDatabase);
         env.EmittedProjectedSignatures = emittedProjectedSignatures;
+        env.ReservedOverloadShapes = reservedOverloadShapes;
         var conductor = new Conductor(new NullLoggerFactory());
-        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+        // The emission context has to ride on the TypeHandlerContext, not on the environment: the
+        // handler re-publishes `context.GetEmissionContext()` onto the environment on entry, so an
+        // instance set here directly is discarded before any emitter can record against it.
+        var handlerContext = emissionContext == null
+            ? TypeHandlerContext.Empty
+            : TypeHandlerContext.Empty with { EmissionContext = emissionContext };
+        handler.Emit(csWriter, swiftWriter, env, conductor, handlerContext);
 
         return (csOutput.ToString(), swiftOutput.ToString());
     }

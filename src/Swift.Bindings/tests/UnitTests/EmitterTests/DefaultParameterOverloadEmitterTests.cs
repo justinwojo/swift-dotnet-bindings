@@ -1755,6 +1755,41 @@ public class DefaultParameterOverloadEmitterTests
     }
 
     [Fact]
+    public void AllDefaultsOverload_DeclinedOnCSharpArityCollision_IsReported()
+    {
+        // The C# half of the same question, and the one decline in this emitter that used to leave no
+        // trace: the reduced form `Describe(nint, nint)` is unambiguous on the SWIFT side (the sibling
+        // carries different argument labels, so the shortened Swift call reaches only one
+        // declaration) but would declare a C# signature the sibling already occupies. Declining it is
+        // right; declining it silently is not — a member missing from the surface with no log line
+        // and no report row is indistinguishable from a member the emitter never considered.
+        var (method, env) = CreateClassMethodEnvironment(
+            "Log", "describe",
+            CreateArg("a", hasDefault: false),
+            CreateArgWithDefault("b", "Config()"),
+            CreateArg("c", hasDefault: false));
+
+        AddSibling(
+            method,
+            CreateArg("x", hasDefault: false),
+            CreateArg("y", hasDefault: false));
+
+        var emissionContext = RunOverloads(env);
+
+        Assert.DoesNotContain(
+            emissionContext.ApiManifestEntries.Keys,
+            k => k.StartsWith("Log.Describe(", StringComparison.Ordinal));
+
+        var suppressed = Assert.Single(emissionContext.SuppressedAmbiguousOverloads);
+        // Both sides are named — the row has to identify what was dropped AND what it collided with.
+        var parts = suppressed.Split(" ~ ", StringSplitOptions.None);
+        Assert.Equal(2, parts.Length);
+        Assert.All(parts, p => Assert.Contains("Describe", p, StringComparison.Ordinal));
+        // The declined form is the shorter one: the two surviving parameters of the reduced call.
+        Assert.Equal(2, OverloadAmbiguityGuard.ParseKey(parts[0], 0).ParameterTypes.Count);
+    }
+
+    [Fact]
     public void AllDefaultsOverload_SurvivesWhenTheSiblingStillNeedsAnOmittedArgument()
     {
         // Same base name, but the sibling's second parameter is REQUIRED. The reduced call supplies

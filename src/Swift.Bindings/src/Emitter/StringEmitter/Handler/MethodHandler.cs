@@ -2035,8 +2035,40 @@ namespace BindingsGeneration
             // unhandled shape — still claim the `{Name}Async(...)` slot, which then silently suppressed
             // a genuine sibling that could have emitted under it.
             var overloadKey = BuildCompletionOverloadProjectedKey(methodEnv, asyncMethodName);
+
+            // Every parameter this lane writes is required except the trailing
+            // `CancellationToken cancellationToken = default` it appends — so the candidate carries
+            // exactly one C# optional, which is what makes it eligible to be the ambiguous partner
+            // of another optional-carrying member under the same name (CS0121 at the CALLER, which
+            // no gate that only compiles the binding itself can see).
+            int overloadRequiredCount = Math.Max(0,
+                OverloadAmbiguityGuard.ParseKey(overloadKey, 0).ParameterTypes.Count - 1);
+
+            // Cross-producer set validity, asked before the reservation: the exact-signature dedup
+            // below only catches a candidate that projects to the SAME signature as an existing
+            // member, never two DIFFERENT signatures a single argument list satisfies equally well.
+            // Emission is immediate-write, so the already-reserved member cannot be retracted — this
+            // synthesized convenience overload is the side that yields.
+            var ambiguousReservation = OverloadAmbiguityGuard.FindAmbiguousReservation(
+                methodEnv.EmittedProjectedSignatures, methodEnv.ReservedOverloadShapes,
+                overloadKey, overloadRequiredCount);
+            if (ambiguousReservation != null)
+            {
+                bool candidateWasFuller =
+                    OverloadAmbiguityGuard.ParseKey(overloadKey, 0).ParameterTypes.Count >
+                    OverloadAmbiguityGuard.ParseKey(ambiguousReservation, 0).ParameterTypes.Count;
+                methodEnv.EmissionContext?.TryRecordSuppressedAmbiguousOverload(
+                    overloadKey, ambiguousReservation, candidateWasFuller);
+                return;
+            }
+
             if (methodEnv.EmittedProjectedSignatures?.Add(overloadKey) == false)
                 return; // Another member already owns this projected signature.
+
+            // Record the shape alongside the reservation: an unrecorded reservation reads back as
+            // fully-required, which would make a LATER candidate that ties with this one look safe.
+            OverloadAmbiguityGuard.RecordReservation(
+                methodEnv.ReservedOverloadShapes, overloadKey, overloadRequiredCount);
 
             // The Task-returning convenience overload is a public member like any other, so it belongs
             // in the API manifest; without this entry the ABI-contract gate cannot see it change or

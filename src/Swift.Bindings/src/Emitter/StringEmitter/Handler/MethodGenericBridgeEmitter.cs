@@ -723,6 +723,9 @@ public static class MethodGenericBridgeEmitter
 
         // Build public parameter list
         var publicParams = new List<string>();
+        // The emitted parameter TYPES, parallel to publicParams — recorded below so the API
+        // manifest can key this member on what was written rather than on the declared signature.
+        var publicParamTypes = new List<string>();
         // Projected public parameter names — seed for the body-local scope below so the hardcoded
         // indirect-result locals (resultPtr, _result) never shadow a user param (CS0136).
         var publicParamNames = new List<string>();
@@ -735,36 +738,40 @@ public static class MethodGenericBridgeEmitter
             var csName = NameProvider.GetCSharpParameterName(arg);
             publicParamNames.Add(csName);
 
+            string csParamType;
             if (arg.SwiftTypeSpec is NamedTypeSpec named && named.Name == genericInfo.Param.TypeName)
             {
                 // Generic param → ISwiftObject (any Swift object with a handle)
-                publicParams.Add($"ISwiftObject {csName}");
+                csParamType = "ISwiftObject";
             }
             else
             {
                 // Non-generic param — use the same type as P/Invoke for simplicity
                 var category = MethodClosureBridge.ClassifyParam(arg, env.TypeDatabase);
-                switch (category)
+                csParamType = category switch
                 {
-                    case MethodClosureBridge.ParamAbiCategory.Primitive:
-                        if (MarshallingHelpers.IsBoolType(arg.SwiftTypeSpec))
-                            publicParams.Add($"bool {csName}");
-                        else
-                            publicParams.Add($"{MethodClosureBridge.GetPInvokePrimitiveType(arg.SwiftTypeSpec)} {csName}");
-                        break;
-                    case MethodClosureBridge.ParamAbiCategory.ObjCHandle:
-                    case MethodClosureBridge.ParamAbiCategory.PayloadHandle:
-                        publicParams.Add($"ISwiftObject {csName}");
-                        break;
-                    case MethodClosureBridge.ParamAbiCategory.Utf8Slice:
-                        publicParams.Add($"string {csName}");
-                        break;
-                    default:
-                        publicParams.Add($"IntPtr {csName}");
-                        break;
-                }
+                    MethodClosureBridge.ParamAbiCategory.Primitive =>
+                        MarshallingHelpers.IsBoolType(arg.SwiftTypeSpec)
+                            ? "bool"
+                            : MethodClosureBridge.GetPInvokePrimitiveType(arg.SwiftTypeSpec),
+                    MethodClosureBridge.ParamAbiCategory.ObjCHandle or
+                    MethodClosureBridge.ParamAbiCategory.PayloadHandle => "ISwiftObject",
+                    MethodClosureBridge.ParamAbiCategory.Utf8Slice => "string",
+                    _ => "IntPtr",
+                };
             }
+
+            publicParamTypes.Add(csParamType);
+            publicParams.Add($"{csParamType} {csName}");
         }
+
+        // The list just built is not the declared one: defaulted and debug parameters are dropped
+        // (Swift fills their values through the bridge) and the generic parameter is erased to
+        // ISwiftObject. Record it so the API manifest keys the member as a caller spells it.
+        env.EmissionContext?.RecordEmittedApiShape(
+            methodDecl,
+            csharpName: methodName,
+            parameterPortion: ModuleEmissionContext.FormatParameterPortion(publicParamTypes));
 
         // Emit XML doc comment
         XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);

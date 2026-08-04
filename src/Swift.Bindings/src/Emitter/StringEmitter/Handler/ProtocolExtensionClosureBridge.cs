@@ -401,6 +401,16 @@ public static class ProtocolExtensionClosureBridge
         var publicParams = new List<string>();
         publicParams.Add($"{delegateType} {closureParamName}");
 
+        // The list just built is not the declared one: the closure is re-spelled as a plain
+        // Action/Func (a `throws ->` arm is carried by the shim, not by the delegate type) and the
+        // bridge writes the closure parameter alone. Record what is about to be written so the API
+        // manifest keys the member a consumer can call — without it the manifest names the declared
+        // shape, which appears nowhere in the emitted C#.
+        env.EmissionContext?.RecordEmittedApiShape(
+            method,
+            csharpName: methodName,
+            parameterPortion: ModuleEmissionContext.FormatParameterPortion(new[] { delegateType }));
+
         // Emit XML doc
         XmlDocCommentEmitter.EmitMethodDocComment(csWriter, method);
 

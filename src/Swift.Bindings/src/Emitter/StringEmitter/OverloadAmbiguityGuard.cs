@@ -41,6 +41,18 @@ namespace BindingsGeneration;
 /// resolved types) and a false suppression permanently removes public API surface. Under-detection
 /// leaves today's behavior; over-detection deletes a working member.
 /// </para>
+///
+/// <para><b>Accepted residual: the check is source-order asymmetric.</b> Only SYNTHESIZED candidates
+/// consult it — a primary member reserves its projected signature unconditionally and is never itself
+/// tested against what is already reserved. So a pair that is only ambiguous primary-against-primary
+/// is not caught at all, and for a primary/synthesized pair the outcome depends on which side the
+/// emitter reached first: the synthesized side yields when it comes second, and silently wins the
+/// slot when it comes first. Closing this would mean either retracting an already-written member
+/// (emission is immediate-write, so there is nothing to retract) or deferring every primary's
+/// reservation until the whole family is enumerable, which is a restructuring of the emission order
+/// rather than a change to this predicate. The residual is one-directional in the safe sense — it
+/// only ever leaves a CS0121 pair in place, never deletes a member that would have compiled.
+/// </para>
 /// </summary>
 internal static class OverloadAmbiguityGuard
 {
