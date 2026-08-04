@@ -402,12 +402,18 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Targets_ReportsEmittedPublicMemberCount()
+        public void Targets_ReportsEmittedMemberCount()
         {
             // A module hollowed out by @_spi/internal annotations still packs; the emitted
             // count is the only signal in a green build that the package has nothing callable.
+            //
+            // The message must NOT call the number a "public" member count: a plain synchronous
+            // @usableFromInline-internal member on a public parent binds through a direct
+            // CallConvSwift P/Invoke and is counted here, so the emitted total is broader than
+            // the Swift public surface.
             Assert.Contains("EmittedMembers", TargetsContent);
-            Assert.Contains("public member(s) emitted", TargetsContent);
+            Assert.Contains("member(s) emitted", TargetsContent);
+            Assert.DoesNotContain("public member(s) emitted", TargetsContent);
         }
 
         [Fact]

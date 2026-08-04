@@ -252,6 +252,16 @@ public static partial class SwiftUIBridgeEmitter
     /// </summary>
     public static ViewBridgeInfo AnalyzeView(TypeDecl viewType, string moduleName, BridgeContext? context)
     {
+        // Classification is independent of how the View's type is spelled in Swift, so the
+        // spelling is resolved once here and stamped onto whichever result the classifier
+        // returns — rather than threaded through its dozen-odd exit points, where a newly
+        // added branch would silently ship the bare name again.
+        var info = ClassifyView(viewType, moduleName, context);
+        return info with { SwiftTypeReference = ResolveSwiftTypeReference(viewType, info.ViewName) };
+    }
+
+    private static ViewBridgeInfo ClassifyView(TypeDecl viewType, string moduleName, BridgeContext? context)
+    {
         var constructors = viewType.Methods.Where(m => m.IsConstructor).ToList();
         var viewHint = context?.Hints?.Views?.GetValueOrDefault(viewType.Name);
 
@@ -3212,9 +3222,9 @@ public static partial class SwiftUIBridgeEmitter
         }
 
         if (info.GenericAnalysis == null)
-            return info.ViewName;
+            return info.SwiftTypeReference;
 
-        return $"{info.ViewName}<{GetOrderedTypeArgs(info.GenericAnalysis)}>";
+        return $"{info.SwiftTypeReference}<{GetOrderedTypeArgs(info.GenericAnalysis)}>";
     }
 
     /// <summary>
@@ -3224,9 +3234,9 @@ public static partial class SwiftUIBridgeEmitter
     internal static string GetConcreteViewType(ViewBridgeInfo info)
     {
         if (info.GenericAnalysis == null)
-            return info.ViewName;
+            return info.SwiftTypeReference;
 
-        return $"{info.ViewName}<{GetOrderedTypeArgs(info.GenericAnalysis)}>";
+        return $"{info.SwiftTypeReference}<{GetOrderedTypeArgs(info.GenericAnalysis)}>";
     }
 
     /// <summary>
@@ -3239,9 +3249,35 @@ public static partial class SwiftUIBridgeEmitter
     {
         if (info.GenericAnalysis?.NonViewResolvedParams is { Count: > 0 })
         {
-            return $"{info.ViewName}<{GetOrderedTypeArgs(info.GenericAnalysis)}>";
+            return $"{info.SwiftTypeReference}<{GetOrderedTypeArgs(info.GenericAnalysis)}>";
         }
-        return info.ViewName;
+        return info.SwiftTypeReference;
+    }
+
+    /// <summary>
+    /// Resolves the spelling the emitted bridge Swift must use to name <paramref name="viewType"/>.
+    ///
+    /// The bridge is compiled as its own Swift module that only <c>import</c>s the framework, so a
+    /// View declared inside another type is never reachable by its leaf name alone — swiftc reports
+    /// "cannot find 'X' in scope". The ABI's module-qualified name already carries the full nesting
+    /// path, so a nested View is spelled with it in full (<c>Module.Outer.Inner</c>): the module
+    /// prefix costs nothing under <c>import Module</c> and additionally protects the enclosing type's
+    /// name from being shadowed by a same-named type in SwiftUI/UIKit, which are imported alongside.
+    /// (The wrapper-source collision rewrite drops that prefix again for the one case where the
+    /// module name collides with a type name.)
+    ///
+    /// A top-level View keeps the bare name it has always used: the two spellings resolve
+    /// identically there, and the bare form is what every existing bridge and its baselines record.
+    /// </summary>
+    internal static string ResolveSwiftTypeReference(TypeDecl viewType, string viewName)
+    {
+        var qualified = viewType.SwiftTypeName?.ModuleQualifiedName;
+        if (string.IsNullOrEmpty(qualified))
+            return viewName;
+
+        // Exactly two segments is "module + type" — a top-level type, nothing to qualify.
+        var segments = qualified.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length > 2 ? qualified : viewName;
     }
 
     /// <summary>
@@ -4207,7 +4243,18 @@ public record ViewBridgeInfo(
     List<MethodDecl> Constructors,
     AsyncViewPattern? InferredPattern = null,
     GenericViewAnalysis? GenericAnalysis = null,
-    List<BridgeModifier>? Modifiers = null);
+    List<BridgeModifier>? Modifiers = null)
+{
+    /// <summary>
+    /// How the emitted bridge Swift spells this View's type — the enclosing-type path included,
+    /// so a nested View resolves from the bridge module. <see cref="ViewName"/> stays the bare leaf
+    /// name and remains the identifier every generated C#/symbol name is built from
+    /// (<c>SBW_{Module}_{ViewName}_Create</c>, <c>{ViewName}Session</c>); the two are the same
+    /// string for a top-level View.
+    /// See <see cref="SwiftUIBridgeEmitter.ResolveSwiftTypeReference"/> for how it is derived.
+    /// </summary>
+    public string SwiftTypeReference { get; init; } = ViewName;
+}
 
 /// <summary>
 /// Strategy for filling generic View placeholder type parameters.

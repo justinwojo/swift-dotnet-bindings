@@ -2062,11 +2062,14 @@ done; true"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftBindingTotalMembers" />
     </Exec>
-    <!-- Emitted-member count. Every member that reaches the emitted counter has already
-         cleared the module-internal / @_spi visibility gate, so this number is the callable
-         public surface, not a raw member total. TotalMembers is NOT filtered that way (it
-         counts every declaration the parser produced), which is why the message below states
-         the emitted count on its own rather than as a fraction. -->
+    <!-- Emitted-member count: how many members actually made it into the generated binding.
+         It is NOT a count of the Swift *public* surface. @_spi members are dropped, and so are
+         async/closure-bearing members that are module-internal or hang off a module-internal
+         parent — but a plain synchronous @usableFromInline-internal member on a public parent
+         still binds (a direct CallConvSwift P/Invoke needs no Swift wrapper to name it) and is
+         counted here. TotalMembers is a different quantity again — every declaration the parser
+         produced, unfiltered — which is why the message below states the emitted count on its
+         own rather than as a fraction. -->
     <Exec Command="awk '/&quot;EmittedMembers&quot;:/{print $2+0}' &quot;$(_SwiftBindingIntermediateDir)binding-report.json&quot; || echo 0"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftBindingEmittedMembers" />
@@ -2084,13 +2087,13 @@ done; true"
              Code="SWIFTBIND066"
              Text="$(_SwiftBindingSkippedMembers) of $(_SwiftBindingTotalMembers) Swift members were skipped during binding generation. See $([System.IO.Path]::GetFullPath('$(_SwiftBindingIntermediateDir)binding-report.json', '$(MSBuildProjectDirectory)')) for per-item skip reasons." />
 
-    <!-- Emitted public surface, always reported. A module whose exports are almost entirely
+    <!-- Emitted surface, always reported. A module whose exports are almost entirely
          @_spi- or internal-annotated compiles to a package with nothing callable in it, and
          nothing in a green build says so today: skip counts describe what was dropped, not
          what survived. High importance so the number lands in a default-verbosity pack log
          and the ship/don't-ship call for a hollow module can be made deliberately. -->
     <Message Importance="high"
-             Text="Swift bindings for '$(_SwiftBindingModuleName)': $(_SwiftBindingEmittedMembers) public member(s) emitted." />
+             Text="Swift bindings for '$(_SwiftBindingModuleName)': $(_SwiftBindingEmittedMembers) member(s) emitted." />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->

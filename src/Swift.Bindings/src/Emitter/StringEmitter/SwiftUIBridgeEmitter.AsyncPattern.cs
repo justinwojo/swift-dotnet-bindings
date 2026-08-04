@@ -566,7 +566,7 @@ public static partial class SwiftUIBridgeEmitter
         {
             sb.AppendLine($"    let {field.SwiftName}: {field.SwiftType}");
         }
-        sb.AppendLine($"    let hostingController: UIHostingController<{info.ViewName}>");
+        sb.AppendLine($"    let hostingController: UIHostingController<{info.SwiftTypeReference}>");
         if (pattern.ResultCallback != null)
         {
             sb.AppendLine($"    private var resultTask: {SwiftConcurrencyNames.Task}<Void, Never>?");
@@ -577,7 +577,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"    @MainActor");
         sb.Append($"    init(");
         var initParams = pattern.SessionFields.Select(f => $"{f.SwiftName}: {f.SwiftType}").ToList();
-        initParams.Add($"hostingController: UIHostingController<{info.ViewName}>");
+        initParams.Add($"hostingController: UIHostingController<{info.SwiftTypeReference}>");
         sb.Append(string.Join(",\n         ", initParams));
         sb.AppendLine(") {");
 
@@ -931,9 +931,9 @@ public static partial class SwiftUIBridgeEmitter
         // flattened leaf params are available (fixes mixed chain + leaf param views)
         var viewInitArgs = BuildViewInitArgsFromChain(info, pattern);
         if (viewInitArgs.Count == 0)
-            sb.AppendLine($"{indent}let rootView = {info.ViewName}()");
+            sb.AppendLine($"{indent}let rootView = {info.SwiftTypeReference}()");
         else
-            sb.AppendLine($"{indent}let rootView = {info.ViewName}({string.Join(", ", viewInitArgs)})");
+            sb.AppendLine($"{indent}let rootView = {info.SwiftTypeReference}({string.Join(", ", viewInitArgs)})");
         sb.AppendLine($"{indent}let hc = UIHostingController(rootView: rootView)");
         sb.AppendLine();
 

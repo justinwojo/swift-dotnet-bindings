@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -6559,6 +6560,107 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Equal("BigView<String, Int, Double, Bool, String, Int, Double, Bool, String, Int, Double, Bool>", result);
     }
 
+    // ==================== Nested View type spelling ====================
+    //
+    // The generated bridge is compiled as a separate Swift module that only `import`s the
+    // framework, so a View declared inside another type is not reachable by its leaf name —
+    // swiftc reports "cannot find 'X' in scope". Every Swift reference the bridge emits for
+    // such a View has to carry its enclosing type path; the C#/symbol names stay on the leaf.
+
+    /// <summary>
+    /// A View struct nested inside <paramref name="ownerName"/>. Identical to
+    /// <see cref="CreateViewStructWithNoConstructor"/> except for the ABI name, which carries
+    /// the enclosing type — that name is the only thing that makes a type nested.
+    /// </summary>
+    private static StructDecl CreateNestedViewStruct(string ownerName, string name)
+    {
+        var view = CreateViewStructWithNoConstructor(name);
+        view.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{ownerName}.{name}");
+        return view;
+    }
+
+    [Fact]
+    public void ResolveSwiftTypeReference_TopLevelView_KeepsBareName()
+    {
+        var view = CreateSimpleViewStruct("TopLevelView");
+
+        Assert.Equal("TopLevelView", SwiftUIBridgeEmitter.ResolveSwiftTypeReference(view, view.Name));
+    }
+
+    [Fact]
+    public void ResolveSwiftTypeReference_NestedView_CarriesEnclosingTypePath()
+    {
+        var view = CreateNestedViewStruct("SheetOwner", "NestedView");
+
+        // Asserting the tail rather than the whole string: how much leading qualification the
+        // spelling carries is the emitter's call, but the enclosing type is what makes it resolve.
+        Assert.EndsWith("SheetOwner.NestedView", SwiftUIBridgeEmitter.ResolveSwiftTypeReference(view, view.Name));
+    }
+
+    [Fact]
+    public void AnalyzeView_NestedView_QualifiesSwiftReferenceButNotViewName()
+    {
+        var view = CreateNestedViewStruct("SheetOwner", "NestedView");
+        view.Methods.Add(CreateNoArgConstructor("NestedView"));
+
+        var info = SwiftUIBridgeEmitter.AnalyzeView(view, "TestModule");
+
+        // ViewName is the identifier every generated C#/symbol name is built from — it must
+        // stay the bare leaf, or the @_cdecl symbols grow dots.
+        Assert.Equal("NestedView", info.ViewName);
+        Assert.EndsWith("SheetOwner.NestedView", info.SwiftTypeReference);
+    }
+
+    [Fact]
+    public void NestedView_EmittedSwift_NamesViewThroughEnclosingType()
+    {
+        var view = CreateNestedViewStruct("SheetOwner", "NestedTitleView");
+        view.Methods.Add(CreateConstructorWithPrimitive("title", "Swift.String"));
+        view.Methods.Add(CreateSelfReturningMethod(view, "highlighted"));
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
+            new List<TypeDecl> { view }, NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+
+        // The wrapper body constructs the raw view, and the applyModifiers helper takes and
+        // returns it — both spellings have to resolve from the bridge module. How much LEADING
+        // qualification the emitter adds is its own call, so only the enclosing-type path is
+        // pinned here; that is the part that makes the name resolve at all.
+        Assert.Contains("SheetOwner.NestedTitleView(title:", swiftContent);
+        Assert.Matches(
+            new Regex(@"private func applyModifiers\(_ view: (?:\w+\.)*SheetOwner\.NestedTitleView\) -> (?:\w+\.)*SheetOwner\.NestedTitleView\b"),
+            swiftContent);
+
+        // ...and no emitted CODE may still name the leaf on its own. Matches an invocation or a
+        // type reference whose immediately preceding character is neither a dot (already
+        // qualified) nor an identifier character (the SBW_… symbol names embed the leaf).
+        // Comment lines are dropped first: the section banners name the view and are inert.
+        var swiftCode = string.Join("\n", swiftContent
+            .Split('\n')
+            .Where(line => !line.TrimStart().StartsWith("//", StringComparison.Ordinal)));
+        Assert.DoesNotMatch(new Regex(@"(?<![.\w])NestedTitleView\b"), swiftCode);
+    }
+
+    [Fact]
+    public void NestedView_EmittedSymbols_StayOnTheLeafName()
+    {
+        var view = CreateNestedViewStruct("SheetOwner", "NestedTitleView");
+        view.Methods.Add(CreateConstructorWithPrimitive("title", "Swift.String"));
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
+            new List<TypeDecl> { view }, NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+
+        // Qualifying the Swift type reference must not leak into the ABI symbol or the C#
+        // surface — a dotted @_cdecl name is not a legal symbol, and the managed names would move.
+        Assert.Contains("@_cdecl(\"SBW_TestModule_NestedTitleView_Create\")", swiftContent);
+        Assert.Contains("SBW_TestModule_NestedTitleView_Create", csContent);
+        Assert.Contains("NestedTitleViewSession", csContent);
+    }
+
     [Fact]
     public void BuildMergedInitArgs_NoSynthesized_ReturnsOriginal()
     {
@@ -7679,7 +7781,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             ModuleDecl = null,
             CSSignature = new List<ArgumentDecl>
             {
-                new ArgumentDecl { Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new NamedTypeSpec($"TestModule.{parentView.Name}"), ParentDecl = null, ModuleDecl = null },
+                // Self-return detection compares this spec against the parent's
+                // ModuleQualifiedName, which for a NESTED view carries its enclosing type —
+                // so read it off the decl rather than rebuilding "TestModule.{leaf}".
+                new ArgumentDecl { Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new NamedTypeSpec(parentView.SwiftTypeName.ModuleQualifiedName), ParentDecl = null, ModuleDecl = null },
             },
         };
     }
