@@ -482,6 +482,21 @@ public class ObjCUmbrellaFixtureTests : TestBase
     }
 
     /// <summary>
+    /// Shape 10 — a category class method taking the element-pointer + <c>count:</c> pair. The pair
+    /// is declared <c>[Internal]</c> under an underscored name, and a category has no partial class
+    /// to hold the array-shaped overload consumers are meant to call, so the receiver-free forwarder
+    /// is the only member that can publish it. The values are the assertion: a member reachable but
+    /// handed a zeroed buffer would still compile, link and run.
+    /// </summary>
+    public void TestCategoryClassMethodTakingArrayReachesNativeIntact()
+    {
+        using var boxed = NSValue_OUBoxing.Ou_valueWithSpans(new double[] { 1.5, 2.25, 4.0 });
+
+        AssertApproxEqual(7.75, boxed.GetOu_spanValue(), 0.001,
+            "every element of the array crossed with its value intact (a zeroed buffer would sum to 0)");
+    }
+
+    /// <summary>
     /// Shape 10 — the instance half of the same category. A static extension class cannot hold an
     /// instance property (CS0708), so both properties are projected to accessor METHODS on the
     /// property's own selectors. The read-write one carries the load: the projection's accessor

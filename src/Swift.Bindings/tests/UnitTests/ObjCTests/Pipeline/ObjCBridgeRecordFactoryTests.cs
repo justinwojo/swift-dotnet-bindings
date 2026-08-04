@@ -194,6 +194,34 @@ public class ObjCBridgeRecordFactoryTests
         Assert.Equal(companionBase, EnumHandler.GetCSharpEnumUnderlyingType(record.RawValueTypeName));
     }
 
+    [Fact]
+    public void EnumRecord_CarriesTheCaseNamesTheCompanionDeclares()
+    {
+        // The record is the only channel a Swift-side reference has to the companion's member names.
+        // The companion strips a shared prefix off every case; a reference site that re-derived a
+        // name from the Swift spelling would name a member that was never declared (CS0117). Asserted
+        // against the emitter's own resolver so the record cannot describe names the file does not
+        // contain.
+        var module = ObjCModuleBuilder.Create(Module)
+            .WithConstant("MLNErrorDomain", "NSString")
+            .WithConstant("MLNVersionString", "NSString")
+            .WithEnum("MLNSourceKind", e => e.Case("MLNMapTiler").Case("MLNMapbox"))
+            .Build();
+        var enumDecl = Assert.Single(module.Enums);
+
+        var record = Assert.Single(
+            ObjCBridgeRecordFactory.CreateRecords(module, Module, Namespace, Logger),
+            r => r.Kind == TypeRecordKind.Enum);
+
+        var declared = StructsAndEnumsEmitter.ResolveEnumCaseNames(
+            enumDecl, StructsAndEnumsEmitter.ResolveModuleCaseTag(module));
+
+        Assert.NotNull(record.ObjCEnumCaseNames);
+        Assert.Equal(
+            enumDecl.Cases.Select(c => c.Name).Zip(declared).ToDictionary(p => p.First, p => p.Second),
+            record.ObjCEnumCaseNames);
+    }
+
     // --- NS_TYPED_ENUM / NS_TYPED_EXTENSIBLE_ENUM records ---
 
     /// <summary>

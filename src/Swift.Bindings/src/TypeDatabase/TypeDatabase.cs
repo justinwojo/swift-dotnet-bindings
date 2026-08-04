@@ -441,6 +441,8 @@ namespace BindingsGeneration
                 int? inlineSize = inlineSizeStr != null ? int.Parse(inlineSizeStr) : null;
                 string? abiFieldLayout = typeDeclarationNode?.Attributes?["abiLayout"]?.Value;
                 string? protocolDescriptorSymbol = typeDeclarationNode?.Attributes?["protocolDescriptorSymbol"]?.Value;
+                var objcEnumCaseNames = ObjCEnumCaseNames.Decode(
+                    typeDeclarationNode?.Attributes?["objcEnumCases"]?.Value);
                 string? protocolConformancesAttr = typeDeclarationNode?.Attributes?["protocolConformances"]?.Value;
                 IReadOnlyList<SwiftTypeName>? protocolConformances = null;
                 if (!string.IsNullOrEmpty(protocolConformancesAttr))
@@ -613,6 +615,7 @@ namespace BindingsGeneration
                     AbiFieldLayout = abiFieldLayout,
                     ProtocolDescriptorSymbol = protocolDescriptorSymbol,
                     ProtocolConformances = protocolConformances,
+                    ObjCEnumCaseNames = objcEnumCaseNames,
                     EmittedClassMethods = emittedClassMethods,
                     RenamedMembers = renamedMembers,
                     EmittedMetadataPInvoke = emittedMetadataPInvoke,

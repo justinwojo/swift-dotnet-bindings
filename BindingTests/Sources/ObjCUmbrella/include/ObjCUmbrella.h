@@ -230,6 +230,12 @@ typedef id<OUElement> _Nonnull (^OUElementFactory)(NSInteger index);
 // compile gate runs; the emitter unit tests cover the projection's shape and its skip records.
 @interface NSValue (OUBoxing)
 + (NSValue *)ou_valueWithSpan:(double)span;
+// The element-pointer + `count:` pair (Shape 12) on a category CLASS method — the two mechanisms
+// crossing. The pair is rendered `[Internal]` under an underscored name because consumers are meant
+// to call an array-shaped overload instead, and a category has no partial class to put that overload
+// in; the receiver-free forwarder is the only member left that can publish it. Without one the whole
+// member drops, so a category factory taking a run of values is unreachable.
++ (NSValue *)ou_valueWithSpans:(const double *)spans count:(NSUInteger)count;
 // Readonly — projects to a getter method alone.
 @property (nonatomic, readonly) double ou_spanValue;
 // Read-write — projects to the getter/setter method pair, on the property's real selectors.

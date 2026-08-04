@@ -1925,6 +1925,73 @@ public class ApiDefinitionEmitterTests
     }
 
     [Fact]
+    public void Emit_CategoryArrayClassMethod_ForwarderPublishesTheArrayShape()
+    {
+        // The element-pointer + count pair is declared [Internal] under an underscored name because
+        // an array-shaped overload is meant to publish it — and a category has no partial CLASS for
+        // that overload to live in. The receiver-free forwarder is the only member left that can, so
+        // it declares the array signature, pins, and passes the length as the count.
+        var (apiDefinition, statics, _) = EmitApiDefinitionWithCategoryStatics(CategoryWithArrayClassFactory());
+
+        Assert.Contains("[Internal]", apiDefinition);
+        Assert.Contains("_BoxSpans", apiDefinition);
+
+        Assert.NotNull(statics);
+        Assert.Contains("public static unsafe", statics);
+        Assert.Contains("BoxSpans(double[] spans)", statics);
+        Assert.Contains("fixed (double*", statics);
+        // The count is the array's own length, not a parameter the caller has to keep in step.
+        Assert.Contains("spans?.Length ?? 0", statics);
+        // It names the underscored member explicitly: there is no same-named receiver-carrying
+        // sibling for overload resolution to find.
+        Assert.Contains("_BoxSpans((Widget)null!", statics);
+    }
+
+    [Fact]
+    public void Emit_CategoryArrayInstanceMethod_StillDropsWithRecordedSkip()
+    {
+        // The forwarder only covers class members. An instance member's receiver IS the point, so
+        // there is nothing receiver-free to hang its array overload on — and the static extension
+        // class cannot hold the instance overload one would need. It must still fail closed rather
+        // than fall back to an `out` that hands the callee one slot to write `count` values into.
+        var (apiDefinition, statics, diagnostics) =
+            EmitApiDefinitionWithCategoryStatics(CategoryWithArrayClassFactory(isInstanceMethod: true));
+
+        Assert.DoesNotContain("out double", apiDefinition);
+        Assert.Null(statics);
+        Assert.Contains(diagnostics.SkippedSymbols,
+            s => s.SymbolName == "boxSpans:count:" && s.Reason == ObjCSkipReason.UnsupportedConstruct);
+    }
+
+    /// <summary>
+    /// A category class factory whose parameters are a const value run plus its <c>count:</c>.
+    /// </summary>
+    private static ObjCModule CategoryWithArrayClassFactory(bool isInstanceMethod = false) => new()
+    {
+        ModuleName = "Test",
+        Classes = [new ObjCClassDecl { Name = "Widget" }],
+        Categories =
+        [
+            new ObjCCategoryDecl
+            {
+                CategoryName = "Boxing",
+                ClassName = "Widget",
+                Methods = [new ObjCMethodDecl
+                {
+                    Selector = "boxSpans:count:",
+                    ReturnType = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                    IsInstanceMethod = isInstanceMethod,
+                    Parameters =
+                    [
+                        new ObjCParameterDecl { Name = "spans", Type = ObjCTypeRefParser.Parse("const double *") },
+                        new ObjCParameterDecl { Name = "count", Type = new ObjCTypeRef { Name = "NSUInteger" } },
+                    ]
+                }]
+            }
+        ]
+    };
+
+    [Fact]
     public void Emit_CategoryClassMethod_ColludingWithGeneratedInstanceSignature_SkippedWithDiagnostic()
     {
         // The receiver an instance member is generated WITH is the parameter the class member's

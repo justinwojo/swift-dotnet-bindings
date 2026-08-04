@@ -23,6 +23,32 @@ public sealed class EdgeInsets : ISwiftObject, IDisposable
     /// </summary>
     public SwiftSafeHandle<EdgeInsets> Payload => _payload;
 
+    /// <summary>
+    /// Blittable stand-in for the frozen layout of <c>SwiftUI.EdgeInsets</c>: the four
+    /// <c>CGFloat</c> insets, in declaration order.
+    /// </summary>
+    /// <remarks>
+    /// Managed code never reads the fields — only size, alignment and field classification
+    /// matter. Swift passes a frozen <c>EdgeInsets</c> directly rather than through a pointer,
+    /// so bindings that take one as a parameter pass this struct by value; declaring the fields
+    /// as floating point is what puts them in the registers Swift reads them from.
+    /// </remarks>
+    public struct Buffer
+    {
+#pragma warning disable CS0169
+        private double _top;
+        private double _leading;
+        private double _bottom;
+        private double _trailing;
+#pragma warning restore CS0169
+    }
+
+    /// <summary>
+    /// Pins the payload for the duration of a call and exposes it as the by-value
+    /// <see cref="Buffer"/> the Swift ABI expects. Dispose to release the pin.
+    /// </summary>
+    public unsafe PayloadBuffer<EdgeInsets.Buffer> PayloadBuffer => new PayloadBuffer<EdgeInsets.Buffer>(_payload);
+
     IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
 
     // Non-reflective borrowed-marshal finalizer suppression (Finding 56a). See ISwiftObject.SuppressPayloadFinalizer.

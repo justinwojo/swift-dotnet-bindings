@@ -1,34 +1,52 @@
 <?xml version="1.0" encoding="utf-8"?>
 <swifttypedatabase version="1.0" moduleName="SwiftUI" modulePath="/System/Library/Frameworks/SwiftUI.framework/SwiftUI">
     <entities>
+        <!-- Every type below is declared @frozen by SwiftUICore, so Swift passes it DIRECTLY
+             (in registers, or through the @_cdecl wrapper's own by-value parameter) rather
+             than behind a pointer. Describing one as non-frozen makes every binding that takes
+             it as a parameter hand Swift the address of the payload buffer where it expects
+             the value itself.
+
+             `inlineSize` / `abiLayout` are stated only where the flattened per-field layout
+             string can express the type exactly; a composite or generic layout is left absent
+             so thunk lowering declines and routes the call through the @_cdecl wrapper, whose
+             C-ABI call is correct by construction. Sizes are measured with MemoryLayout on the
+             live SDK, field shapes read from SwiftUICore.swiftinterface. -->
         <entity managedNameSpace="SwiftUI" managedTypeName="Color">
-            <!-- Color and Font are declared @frozen by SwiftUICore, each a single 8-byte
-                 refcounted box reference. Swift therefore passes them DIRECTLY in a register
-                 (SIL `@guaranteed`), not through a pointer, so describing them as non-frozen
-                 makes every binding that takes one as a parameter hand Swift the address of
-                 the payload buffer where it expects the box itself. -->
+            <!-- Single refcounted color-provider box reference. -->
             <typedeclaration kind="struct" name="Color" module="SwiftUI" frozen="true" requiresMemoryManagement="true" inlineSize="8" abiLayout="p8" />
         </entity>
         <entity managedNameSpace="SwiftUI" managedTypeName="Font">
+            <!-- Single refcounted font-provider box reference. -->
             <typedeclaration kind="struct" name="Font" module="SwiftUI" frozen="true" requiresMemoryManagement="true" inlineSize="8" abiLayout="p8" />
         </entity>
         <entity managedNameSpace="SwiftUI" managedTypeName="EdgeInsets">
-            <typedeclaration kind="struct" name="EdgeInsets" module="SwiftUI" frozen="false" requiresMemoryManagement="true" />
+            <!-- Four CGFloats (top/leading/bottom/trailing) — 32 bytes of pure floating point.
+                 hasFloatFields keeps instance members on the @_cdecl path, where the GPR/FPR
+                 split cannot diverge between Swift and a .NET CallConvSwift stub. -->
+            <typedeclaration kind="struct" name="EdgeInsets" module="SwiftUI" frozen="true" requiresMemoryManagement="true" hasFloatFields="true" inlineSize="32" abiLayout="f8,f8,f8,f8" />
         </entity>
         <entity managedNameSpace="SwiftUI" managedTypeName="Animation">
-            <typedeclaration kind="struct" name="Animation" module="SwiftUI" frozen="false" requiresMemoryManagement="true" />
+            <!-- Single refcounted animation box reference. -->
+            <typedeclaration kind="struct" name="Animation" module="SwiftUI" frozen="true" requiresMemoryManagement="true" inlineSize="8" abiLayout="p8" />
         </entity>
         <entity managedNameSpace="SwiftUI" managedTypeName="Image">
-            <typedeclaration kind="struct" name="Image" module="SwiftUI" frozen="false" requiresMemoryManagement="true" />
+            <!-- Single refcounted image-provider box reference. -->
+            <typedeclaration kind="struct" name="Image" module="SwiftUI" frozen="true" requiresMemoryManagement="true" inlineSize="8" abiLayout="p8" />
         </entity>
         <entity managedNameSpace="SwiftUI" managedTypeName="Text">
-            <typedeclaration kind="struct" name="Text" module="SwiftUI" frozen="false" requiresMemoryManagement="true" />
+            <!-- A multi-payload storage enum plus an array of modifiers: 32 bytes whose interior
+                 padding the flattened layout string cannot reproduce, so no abiLayout is stated. -->
+            <typedeclaration kind="struct" name="Text" module="SwiftUI" frozen="true" requiresMemoryManagement="true" inlineSize="32" />
         </entity>
         <entity managedNameSpace="SwiftUI" managedTypeName="AnyView">
-            <typedeclaration kind="struct" name="AnyView" module="SwiftUI" frozen="false" requiresMemoryManagement="true" />
+            <!-- Single refcounted view-storage reference. -->
+            <typedeclaration kind="struct" name="AnyView" module="SwiftUI" frozen="true" requiresMemoryManagement="true" inlineSize="8" abiLayout="p8" />
         </entity>
         <entity managedNameSpace="SwiftUI" managedTypeName="Binding">
-            <typedeclaration kind="struct" name="Binding" module="SwiftUI" frozen="false" requiresMemoryManagement="true" />
+            <!-- Generic: it stores the wrapped value inline, so its size follows Value and no
+                 single inlineSize describes it. -->
+            <typedeclaration kind="struct" name="Binding" module="SwiftUI" frozen="true" requiresMemoryManagement="true" />
         </entity>
     </entities>
 </swifttypedatabase>

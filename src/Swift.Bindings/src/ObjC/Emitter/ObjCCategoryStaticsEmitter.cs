@@ -31,6 +31,22 @@ public sealed record ObjCCategoryStaticForwarder
     /// <summary>Argument list forwarded to the bgen member, receiver excluded.</summary>
     public required IReadOnlyList<string> CallArguments { get; init; }
 
+    /// <summary>
+    /// Name of the generated member to call when it differs from <see cref="MethodName"/> — the
+    /// underscored <c>[Internal]</c> pointer+count member of an array-projected selector. Null means
+    /// the overload calls its own name, which resolves to the receiver-carrying sibling.
+    /// </summary>
+    public string? ForwardTargetName { get; init; }
+
+    /// <summary>
+    /// C# element type of the array parameter for an array-projected selector, whose buffer this
+    /// overload pins before forwarding. Null when there is no array parameter.
+    /// </summary>
+    public string? ArrayElementType { get; init; }
+
+    /// <summary>Escaped C# identifier of the array parameter, pinned at the call.</summary>
+    public string? ArrayParameterName { get; init; }
+
     /// <summary>ObjC selector this overload ultimately invokes, for the generated doc comment.</summary>
     public required string Selector { get; init; }
 
@@ -127,19 +143,43 @@ public static class ObjCCategoryStaticsEmitter
     {
         var signature = string.Join(", ", forwarder.SignatureParts);
         var arguments = string.Join(", ", new[] { $"({forwarder.ReceiverType})null!" }.Concat(forwarder.CallArguments));
+        var target = forwarder.ForwardTargetName ?? forwarder.MethodName;
 
         sb.AppendLine("        /// <summary>");
         sb.AppendLine($"        /// Invokes the class method <c>+{forwarder.Selector}</c> with no receiver.");
         sb.AppendLine("        /// </summary>");
         sb.AppendLine("        /// <remarks>");
-        sb.AppendLine("        /// The sibling overload carries a receiver only because bgen gives every member of a");
+        sb.AppendLine("        /// The generated member carries a receiver only because bgen gives every member of a");
         sb.AppendLine("        /// generated category class one. A class method dispatches on the class itself and never");
         sb.AppendLine("        /// reads that receiver, so this overload passes none.");
+        if (forwarder.ArrayElementType != null)
+        {
+            sb.AppendLine("        /// The array's elements are passed as the contiguous buffer the selector expects,");
+            sb.AppendLine("        /// and its length as the element count.");
+        }
         sb.AppendLine("        /// </remarks>");
         ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, forwarder.Availability, "        ");
-        sb.AppendLine($"        public static {forwarder.ReturnType} {forwarder.MethodName}({signature})");
-        // An expression body covers a void selector as well as a returning one: the forwarded call
-        // is the whole member either way.
-        sb.AppendLine($"            => {forwarder.MethodName}({arguments});");
+
+        if (forwarder.ArrayElementType == null)
+        {
+            sb.AppendLine($"        public static {forwarder.ReturnType} {forwarder.MethodName}({signature})");
+            // An expression body covers a void selector as well as a returning one: the forwarded
+            // call is the whole member either way.
+            sb.AppendLine($"            => {target}({arguments});");
+            return;
+        }
+
+        sb.AppendLine($"        public static unsafe {forwarder.ReturnType} {forwarder.MethodName}({signature})");
+        sb.AppendLine("        {");
+        // Pinning a null or empty array yields a null pointer, which is what a zero count means to
+        // the callee — so no null branch is needed here.
+        sb.AppendLine($"            fixed ({forwarder.ArrayElementType}* {ObjCArrayOverloadsEmitter.PinnedPointerName} = {forwarder.ArrayParameterName})");
+        sb.AppendLine("            {");
+        var call = $"{target}({arguments});";
+        sb.AppendLine(forwarder.ReturnType == "void"
+            ? $"                {call}"
+            : $"                return {call}");
+        sb.AppendLine("            }");
+        sb.AppendLine("        }");
     }
 }

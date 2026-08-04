@@ -79,6 +79,18 @@ public struct SwiftUIValueProbe {
         return color == SwiftUI.Color(red: red, green: green, blue: blue, opacity: opacity)
     }
 
+    /// True when `text` equals a Text rebuilt from the same string.
+    ///
+    /// Text is a MULTI-WORD frozen value — a storage enum plus an array of modifiers — where
+    /// Color and Font are single words, so it is the case that separates "we described the
+    /// type as frozen" from "we described its size correctly": a by-pointer pass, or a
+    /// by-value pass of the wrong width, delivers something other than the string that went in.
+    /// Text exposes no readback, so equality against an independently reconstructed value is
+    /// the available oracle.
+    public func textEquals(_ text: SwiftUI.Text, content: String) -> Bool {
+        return text == SwiftUI.Text(content)
+    }
+
     /// 0 ultraLight · 1 thin · 2 light · 3 regular · 4 medium
     /// 5 semibold   · 6 bold · 7 heavy · 8 black
     private static func weight(forCode code: Int32) -> SwiftUI.Font.Weight {

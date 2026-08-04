@@ -213,6 +213,17 @@ public record TypeRecord
     private readonly string? _rawValueTypeName;
 
     /// <summary>
+    /// For an NS_ENUM/NS_OPTIONS record bridged from an ObjC companion: the
+    /// <c>raw ObjC case name → emitted C# member name</c> map, so a Swift-side reference to one of
+    /// its cases can name the member the companion actually declared instead of re-deriving a name
+    /// from the Swift spelling. Null for every other kind, and for an ObjC enum loaded from a module
+    /// database written before the attribute existed — reference sites fall back to their own
+    /// PascalCase transform, which is the pre-existing behaviour.
+    /// See <see cref="ObjCEnumCaseNames"/> for the resolution and encoding rules.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? ObjCEnumCaseNames { get; init; }
+
+    /// <summary>
     /// The number of members emitted in the C# interface for this protocol.
     /// Only meaningful for Protocol kind records. Null means unknown (e.g., loaded from
     /// an older module database that predates this field). 0 means empty/marker interface.

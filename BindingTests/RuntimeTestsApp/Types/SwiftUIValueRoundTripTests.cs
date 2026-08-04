@@ -56,6 +56,29 @@ public class SwiftUIValueRoundTripTests : TestBase
             "a different red component must not compare equal");
     }
 
+    public void TestMultiWordValueSurvivesTheAbi()
+    {
+        // Color and Font are single words, so they cross correctly even if only the
+        // frozen/non-frozen decision is right. Text is four words: passing it by pointer, or
+        // by value at the wrong width, hands Swift something other than the string built here.
+        using var probe = new SwiftUIValueProbe();
+        using var text = global::SwiftUI.Text.Create("value round-trip");
+
+        AssertTrue(probe.TextEquals(text, "value round-trip"),
+            "constructed Text should equal a Swift-side Text built from the same string");
+    }
+
+    public void TestMultiWordValueContentIsNotIgnored()
+    {
+        // Guards the oracle: if the probe compared anything other than the value that arrived,
+        // a mismatched string would still report equal.
+        using var probe = new SwiftUIValueProbe();
+        using var text = global::SwiftUI.Text.Create("value round-trip");
+
+        AssertFalse(probe.TextEquals(text, "a different string"),
+            "a Text carrying different content must not compare equal");
+    }
+
     public void TestFontCarriesSizeWeightAndDesign()
     {
         using var probe = new SwiftUIValueProbe();

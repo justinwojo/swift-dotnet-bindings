@@ -2324,4 +2324,69 @@ public class StructsAndEnumsEmitterTests
         Assert.Contains("public struct Rect", output);
         Assert.Contains("public Point Origin;", output);
     }
+
+    [Fact]
+    public void EmitEnum_TypeNameRepeatedMidWord_IsNotStripped()
+    {
+        // The type-name rule has to demand the same PascalCase word boundary the tag rule does.
+        // Without it, an enum whose cases merely BEGIN with the type's letters strips mid-word and
+        // emits garbage members (`Feedback` → `back`) that no reference site would ever name.
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Enums =
+            [
+                new ObjCEnumDecl
+                {
+                    Name = "Feed",
+                    Cases =
+                    [
+                        new ObjCEnumCaseDecl { Name = "Feedback" },
+                        new ObjCEnumCaseDecl { Name = "Feedforward" },
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("        Feedback,", output);
+        Assert.Contains("        Feedforward,", output);
+        Assert.DoesNotContain("        back,", output);
+        Assert.DoesNotContain("        forward,", output);
+    }
+
+    [Fact]
+    public void ResolveEnumCaseNames_ReportsTheNamesTheDeclarationEmits()
+    {
+        // The reference sites resolve a Swift-side case spelling through this list, so it is only
+        // useful if it says exactly what the declaration wrote. Asserted against the emitted text
+        // rather than a hard-coded expectation, so the two cannot drift apart silently.
+        var enumDecl = new ObjCEnumDecl
+        {
+            Name = "MLNSourceKind",
+            Cases =
+            [
+                new ObjCEnumCaseDecl { Name = "MLNMapTiler" },
+                new ObjCEnumCaseDecl { Name = "MLNMapbox" },
+            ]
+        };
+        var module = new ObjCModule
+        {
+            ModuleName = "MapLib",
+            Constants =
+            [
+                new ObjCConstantDecl { Name = "MLNErrorDomain", Type = SimpleType("NSString", isPointer: true), IsExtern = true },
+                new ObjCConstantDecl { Name = "MLNVersionString", Type = SimpleType("NSString", isPointer: true), IsExtern = true },
+            ],
+            Enums = [enumDecl]
+        };
+
+        var output = EmitAndRead(module);
+        var names = StructsAndEnumsEmitter.ResolveEnumCaseNames(
+            enumDecl, StructsAndEnumsEmitter.ResolveModuleCaseTag(module));
+
+        Assert.Equal(["MapTiler", "Mapbox"], names);
+        foreach (var name in names)
+            Assert.Contains($"        {name},", output);
+    }
 }

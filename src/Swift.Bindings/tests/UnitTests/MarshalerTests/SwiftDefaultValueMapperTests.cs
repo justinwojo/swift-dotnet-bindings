@@ -309,6 +309,89 @@ public class SwiftDefaultValueMapperTests
 
     #endregion
 
+    #region ObjC enum cases whose declared name was prefix-stripped
+
+    // An NS_ENUM emitted through the ObjC companion drops a shared prefix from every case, while
+    // Swift's ObjC importer derives its own prefix independently — so the spelling a Swift default
+    // value uses and the member the companion declared can differ. PascalCasing the Swift spelling
+    // then names a member that does not exist (CS0117). These pin the reference site onto the map
+    // the record carries instead.
+
+    [Fact]
+    public void DotCase_ObjCEnumCase_NamesTheDeclaredMemberNotThePascalCasedSwiftSpelling()
+    {
+        // Companion declares `MapTiler` (module tag `MLN` stripped); Swift imports the case as
+        // `mlnMapTiler`, which PascalCases to `MlnMapTiler` — a member that was never declared.
+        var db = new SimpleTypeDatabase(
+            ("MapLib.SourceKind", TypeRecordKind.Enum, TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum, "MapLib.Binding", "SourceKind"))
+            .WithObjCEnumCaseNames("MapLib.SourceKind", ("MLNMapTiler", "MapTiler"), ("MLNMapbox", "Mapbox"));
+        var typeSpec = MakeNamedType("MapLib.SourceKind");
+
+        var result = SwiftDefaultValueMapper.TryMapToCSharpDefault(".mlnMapTiler", typeSpec, db);
+
+        Assert.Equal("MapLib.Binding.SourceKind.MapTiler", result);
+    }
+
+    [Fact]
+    public void DotCase_ObjCEnumCase_ResolvesWhenSwiftAlsoStrippedThePrefix()
+    {
+        // The other side of the divergence: Swift found a prefix to strip too, so the spelling is
+        // already the stripped word. It must resolve to the same declared member.
+        var db = new SimpleTypeDatabase(
+            ("MapLib.SourceKind", TypeRecordKind.Enum, TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum, "MapLib.Binding", "SourceKind"))
+            .WithObjCEnumCaseNames("MapLib.SourceKind", ("MLNMapTiler", "MapTiler"), ("MLNMapbox", "Mapbox"));
+        var typeSpec = MakeNamedType("MapLib.SourceKind");
+
+        var result = SwiftDefaultValueMapper.TryMapToCSharpDefault(".mapTiler", typeSpec, db);
+
+        Assert.Equal("MapLib.Binding.SourceKind.MapTiler", result);
+    }
+
+    [Fact]
+    public void QualifiedEnum_ObjCEnumCase_NamesTheDeclaredMember()
+    {
+        // Same resolution has to run on the qualified `Type.case` form, not just the leading-dot one.
+        var db = new SimpleTypeDatabase(
+            ("MapLib.SourceKind", TypeRecordKind.Enum, TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum, "MapLib.Binding", "SourceKind"))
+            .WithObjCEnumCaseNames("MapLib.SourceKind", ("MLNMapTiler", "MapTiler"), ("MLNMapbox", "Mapbox"));
+        var typeSpec = MakeNamedType("MapLib.SourceKind");
+
+        var result = SwiftDefaultValueMapper.TryMapToCSharpDefault("SourceKind.mlnMapbox", typeSpec, db);
+
+        Assert.Equal("MapLib.Binding.SourceKind.Mapbox", result);
+    }
+
+    [Fact]
+    public void DotCase_SwiftOwnedEnum_StillPascalCases()
+    {
+        // A record with no ObjC case map is a Swift-owned enum: the PascalCase transform stays the
+        // answer there, so the new resolution must not change any existing mapping.
+        var db = new SimpleTypeDatabase(
+            ("TestModule.Level", TypeRecordKind.Enum, TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum, "TestModule", "Level"));
+        var typeSpec = MakeNamedType("TestModule.Level");
+
+        var result = SwiftDefaultValueMapper.TryMapToCSharpDefault(".mid", typeSpec, db);
+
+        Assert.Equal("TestModule.Level.Mid", result);
+    }
+
+    [Fact]
+    public void DotCase_ObjCEnumCaseNotInTheMap_FallsBackToPascalCase()
+    {
+        // An unrecognised spelling must not resolve to some other case: falling back to the old
+        // transform yields a name the compiler will reject loudly rather than a silently wrong case.
+        var db = new SimpleTypeDatabase(
+            ("MapLib.SourceKind", TypeRecordKind.Enum, TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum, "MapLib.Binding", "SourceKind"))
+            .WithObjCEnumCaseNames("MapLib.SourceKind", ("MLNMapTiler", "MapTiler"));
+        var typeSpec = MakeNamedType("MapLib.SourceKind");
+
+        var result = SwiftDefaultValueMapper.TryMapToCSharpDefault(".somethingElse", typeSpec, db);
+
+        Assert.Equal("MapLib.Binding.SourceKind.SomethingElse", result);
+    }
+
+    #endregion
+
     #region Unmappable expressions
 
     [Fact]
@@ -402,6 +485,20 @@ public class SwiftDefaultValueMapperTests
                     Kind = kind
                 };
             }
+        }
+
+        /// <summary>
+        /// Attaches the <c>raw ObjC case name → emitted C# member name</c> map an NS_ENUM bridge
+        /// record carries, so a test can exercise the reference-site resolution that map exists for.
+        /// </summary>
+        public SimpleTypeDatabase WithObjCEnumCaseNames(
+            string swiftName, params (string Raw, string Emitted)[] caseNames)
+        {
+            _types[swiftName] = _types[swiftName] with
+            {
+                ObjCEnumCaseNames = caseNames.ToDictionary(c => c.Raw, c => c.Emitted, StringComparer.Ordinal),
+            };
+            return this;
         }
 
         public bool IsTypeProcessed(SwiftTypeName swiftTypeName) => _types.ContainsKey(swiftTypeName.ModuleQualifiedName);

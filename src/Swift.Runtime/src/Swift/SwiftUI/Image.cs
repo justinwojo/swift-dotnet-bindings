@@ -23,6 +23,28 @@ public sealed class Image : ISwiftObject, IDisposable
     /// </summary>
     public SwiftSafeHandle<Image> Payload => _payload;
 
+    /// <summary>
+    /// Blittable stand-in for the frozen layout of <c>SwiftUI.Image</c>: a single 8-byte
+    /// reference to its refcounted image provider.
+    /// </summary>
+    /// <remarks>
+    /// Managed code never reads the field — only size and alignment matter. Swift passes a
+    /// frozen <c>Image</c> directly in a register rather than through a pointer, so bindings
+    /// that take one as a parameter pass this struct by value.
+    /// </remarks>
+    public struct Buffer
+    {
+#pragma warning disable CS0169
+        private IntPtr _providerBox;
+#pragma warning restore CS0169
+    }
+
+    /// <summary>
+    /// Pins the payload for the duration of a call and exposes it as the by-value
+    /// <see cref="Buffer"/> the Swift ABI expects. Dispose to release the pin.
+    /// </summary>
+    public unsafe PayloadBuffer<Image.Buffer> PayloadBuffer => new PayloadBuffer<Image.Buffer>(_payload);
+
     IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
 
     // Non-reflective borrowed-marshal finalizer suppression (Finding 56a). See ISwiftObject.SuppressPayloadFinalizer.

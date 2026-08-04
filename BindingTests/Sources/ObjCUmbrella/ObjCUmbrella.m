@@ -163,6 +163,15 @@ CGSize const OUDefaultTileSize = { 256, 512 };
 + (NSValue *)ou_valueWithSpan:(double)span {
     return [NSValue valueWithBytes:&span objCType:@encode(double)];
 }
++ (NSValue *)ou_valueWithSpans:(const double *)spans count:(NSUInteger)count {
+    // Sums the run so a caller can tell "every element arrived" from "the first one did" — and a
+    // zeroed buffer (what an `out` projection would deliver) from a real one.
+    double total = 0;
+    for (NSUInteger i = 0; i < count; i++) {
+        total += spans[i];
+    }
+    return [NSValue valueWithBytes:&total objCType:@encode(double)];
+}
 - (double)ou_spanValue {
     double span = 0;
     if (strcmp(self.objCType, @encode(double)) == 0) {

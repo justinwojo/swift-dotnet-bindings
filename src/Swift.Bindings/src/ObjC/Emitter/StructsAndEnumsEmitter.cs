@@ -160,12 +160,8 @@ public static class StructsAndEnumsEmitter
 
         // The module's registered tag (the acronym every extern constant carries, e.g. MLN) is the
         // fallback prefix for enum cases that don't repeat their own type name. Resolved once per
-        // module from the SAME inference AND the same input the constants emitter uses — extern
-        // constants only — so one module has exactly one tag. Feeding the unfiltered list instead
-        // would let a non-exported constant that doesn't carry the acronym null the tag out here
-        // while the constants emitter still resolves one.
-        var moduleTag = ObjCConstantsEmitter.ResolveModuleTag(
-            module.Constants.Where(c => c.IsExtern).ToList());
+        // module so one module has exactly one tag.
+        var moduleTag = ResolveModuleCaseTag(module);
 
         foreach (var enumDecl in module.Enums)
             EmitEnum(sb, enumDecl, typedefMap, diagnostics, moduleTag);
@@ -250,6 +246,44 @@ public static class StructsAndEnumsEmitter
         sb.AppendLine($"    public enum {enumDecl.Name} : {baseType}");
         sb.AppendLine("    {");
 
+        var caseNames = ResolveEnumCaseNames(enumDecl, moduleTag, diagnostics);
+
+        for (var i = 0; i < enumDecl.Cases.Count; i++)
+        {
+            var c = enumDecl.Cases[i];
+            // Per-case availability attributes ([Supported/Obsoleted/UnsupportedOSPlatform] are valid
+            // on enum members) — a no-op when the enumerator carried no availability macro.
+            ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, c.Availability, "        ");
+            var valueStr = c.Value.HasValue ? $" = {c.Value.Value}" : "";
+            sb.AppendLine($"        {caseNames[i]}{valueStr},");
+        }
+
+        sb.AppendLine("    }");
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// The module-wide acronym tag that enum cases may be prefixed with, inferred from the same
+    /// input the constants emitter uses — extern constants only — so one module resolves exactly
+    /// one tag. Feeding the unfiltered constant list instead would let a non-exported constant that
+    /// doesn't carry the acronym null the tag out here while the constants emitter still resolves one.
+    /// </summary>
+    internal static string? ResolveModuleCaseTag(ObjCModule module) =>
+        ObjCConstantsEmitter.ResolveModuleTag(module.Constants.Where(c => c.IsExtern).ToList());
+
+    /// <summary>
+    /// The C# member name each case of <paramref name="enumDecl"/> is emitted under, in declaration
+    /// order (index-aligned with <see cref="ObjCEnumDecl.Cases"/>).
+    ///
+    /// Prefix stripping, PascalCasing, digit-escaping and collision disambiguation all live here so
+    /// that anything needing to NAME one of these members — the declaration itself, and every
+    /// reference site that has to resolve a Swift-side case spelling back to the emitted member —
+    /// reads one answer. A reference site that re-derived the name from the raw case would miss the
+    /// strip entirely and emit a member that was never declared (CS0117).
+    /// </summary>
+    internal static IReadOnlyList<string> ResolveEnumCaseNames(
+        ObjCEnumDecl enumDecl, string? moduleTag, ObjCBindingDiagnostics? diagnostics = null)
+    {
         var stripToken = ResolveCasePrefix(enumDecl, moduleTag);
 
         // Reserve the enum's own type name so a case that PascalCases to it is disambiguated
@@ -257,6 +291,7 @@ public static class StructsAndEnumsEmitter
         // to detect two source cases that collapse to the same C# identifier (CS0102). Swift
         // permits e.g. `case foo` alongside `case Foo` — both PascalCase to `Foo`.
         var emittedNames = new HashSet<string>(StringComparer.Ordinal) { enumDecl.Name };
+        var resolved = new List<string>(enumDecl.Cases.Count);
 
         foreach (var c in enumDecl.Cases)
         {
@@ -276,8 +311,7 @@ public static class StructsAndEnumsEmitter
             else
             {
                 // Not prefix-stripped: PascalCase the member via the SAME transform the reference
-                // sites use (NameProvider.ToPascalCase in SwiftDefaultValueMapper.MapEnumCase). The
-                // Swift-side default-value/enum-reference emitters name a case as
+                // sites use. The Swift-side default-value/enum-reference emitters name a case as
                 // NameProvider.ToPascalCase(caseName) (e.g. RiveAlignment.Center), so emitting the
                 // raw Swift-lowercase declaration name (`center`) produced CS0117 at every reference.
                 // Matching the transform keeps declaration and references consistent.
@@ -302,15 +336,10 @@ public static class StructsAndEnumsEmitter
                     $"sibling case; emitted as '{disambiguated}' to keep the enum valid.");
                 caseName = disambiguated;
             }
-            // Per-case availability attributes ([Supported/Obsoleted/UnsupportedOSPlatform] are valid
-            // on enum members) — a no-op when the enumerator carried no availability macro.
-            ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, c.Availability, "        ");
-            var valueStr = c.Value.HasValue ? $" = {c.Value.Value}" : "";
-            sb.AppendLine($"        {caseName}{valueStr},");
+            resolved.Add(caseName);
         }
 
-        sb.AppendLine("    }");
-        sb.AppendLine();
+        return resolved;
     }
 
     /// <summary>
@@ -318,8 +347,8 @@ public static class StructsAndEnumsEmitter
     /// the case names alone. Two rules, tried in order, both derived from metadata that a later
     /// upstream release cannot move:
     /// <list type="number">
-    /// <item>the enum's own ObjC type name, when EVERY case repeats it (the <c>EnumNameCaseName</c>
-    /// idiom);</item>
+    /// <item>the enum's own ObjC type name, when EVERY case repeats it at a PascalCase word boundary
+    /// (the <c>EnumNameCaseName</c> idiom), or spells the type name exactly;</item>
     /// <item>otherwise the module's registered acronym tag, when every case carries it AND the
     /// remainder starts a new PascalCase word — <c>MLNMapTiler</c>/<c>MLNMapLibre</c> under tag
     /// <c>MLN</c> become <c>MapTiler</c>/<c>MapLibre</c>.</item>
@@ -338,8 +367,13 @@ public static class StructsAndEnumsEmitter
 
         // The strip is keyed on the ObjC spelling the cases were written against, which is the raw
         // declaration name even when the C# type carries a Swift-import rename.
+        //
+        // The same token-boundary requirement rule 2 uses applies here: a bare StartsWith would let
+        // an enum `Foo` whose cases read `Foobar`/`Foobaz` strip mid-word into `bar`/`baz`. The
+        // equality arm covers the one legitimate non-boundary case — a case spelled exactly like its
+        // enum — which strips to the empty string and is handled by the fall-back-to-full-name rule.
         var typeName = enumDecl.RawObjCName ?? enumDecl.Name;
-        if (enumDecl.Cases.All(c => c.Name.StartsWith(typeName, StringComparison.Ordinal)))
+        if (enumDecl.Cases.All(c => c.Name == typeName || CarriesTagAtTokenBoundary(c.Name, typeName)))
             return typeName;
 
         if (moduleTag != null && enumDecl.Cases.All(c => CarriesTagAtTokenBoundary(c.Name, moduleTag)))
@@ -350,14 +384,16 @@ public static class StructsAndEnumsEmitter
 
     /// <summary>
     /// True when <paramref name="caseName"/> starts with <paramref name="tag"/> and the remainder
-    /// begins a new PascalCase word (an upper-case letter). The token-boundary requirement is what
-    /// keeps the strip from biting into the middle of a word: under tag <c>MLN</c>, <c>MLNMapTiler</c>
+    /// begins a new token — an upper-case letter, or a digit (<c>SpeedRate1ips</c> starts a new word
+    /// at the <c>1</c> just as <c>SpeedRateFast</c> does at the <c>F</c>; the digit-leading remainder
+    /// is escaped to a valid identifier downstream). The token-boundary requirement is what keeps the
+    /// strip from biting into the middle of a word: under tag <c>MLN</c>, <c>MLNMapTiler</c>
     /// qualifies (<c>MapTiler</c>) while a hypothetical <c>MLNext</c> does not.
     /// </summary>
     static bool CarriesTagAtTokenBoundary(string caseName, string tag) =>
         caseName.Length > tag.Length
         && caseName.StartsWith(tag, StringComparison.Ordinal)
-        && char.IsUpper(caseName[tag.Length]);
+        && (char.IsUpper(caseName[tag.Length]) || char.IsDigit(caseName[tag.Length]));
 
     // Native-width ObjC types that map to long/ulong with [Native] attribute.
     static readonly HashSet<string> NativeWidthSignedTypes = ["NSInteger", "long", "CFIndex"];

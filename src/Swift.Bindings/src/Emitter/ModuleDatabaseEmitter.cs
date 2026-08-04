@@ -269,6 +269,12 @@ namespace BindingsGeneration
                     string.Join(",", conformances.Select(p => p.ModuleQualifiedName)));
             }
 
+            // ObjC enum case bindings (raw ObjC case name → emitted C# member name), so a downstream
+            // module's Swift member referencing one of these cases resolves the same member name the
+            // companion declared rather than re-deriving it from the Swift spelling.
+            if (ObjCEnumCaseNames.Encode(record.ObjCEnumCaseNames) is { Length: > 0 } objcEnumCases)
+                writer.WriteAttributeString("objcEnumCases", objcEnumCases);
+
             // Inline size for frozen struct Buffer field sizing (e.g., Swift.String = 16 bytes)
             if (record.InlineSize.HasValue)
                 writer.WriteAttributeString("inlineSize", record.InlineSize.Value.ToString());

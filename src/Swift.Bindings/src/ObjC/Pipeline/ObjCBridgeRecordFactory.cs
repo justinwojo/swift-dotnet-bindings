@@ -112,8 +112,20 @@ public static class ObjCBridgeRecordFactory
         // side casts to and the scalar the wrapper receives agree by construction. The `Type(rawValue:)`
         // reconstruction is always available (RawRepresentable NS_ENUM / OptionSet NS_OPTIONS alike),
         // so no per-case data is needed here.
+        // Per-case data IS needed for one thing: naming a case from the Swift side. The companion
+        // strips a shared prefix off every case, and Swift's importer strips a prefix it derives
+        // independently, so a Swift member defaulting to or otherwise referencing a case cannot
+        // re-derive the emitted member name from its own spelling. Ask the emitter — the one place
+        // the strip is decided — for the names it will declare, and carry them on the record.
+        var moduleCaseTag = StructsAndEnumsEmitter.ResolveModuleCaseTag(module);
+
         foreach (var enumDecl in module.Enums)
         {
+            var emittedCaseNames = StructsAndEnumsEmitter.ResolveEnumCaseNames(enumDecl, moduleCaseTag);
+            var caseNameMap = new Dictionary<string, string>(enumDecl.Cases.Count, StringComparer.Ordinal);
+            for (var i = 0; i < enumDecl.Cases.Count; i++)
+                caseNameMap[enumDecl.Cases[i].Name] = emittedCaseNames[i];
+
             var (companionBase, isNativeWidth) = StructsAndEnumsEmitter.ResolveEnumBackingType(enumDecl, typedefMap);
             var rawValueType = isNativeWidth
                 ? (companionBase == "ulong" ? "UInt" : "Int")
@@ -131,6 +143,7 @@ public static class ObjCBridgeRecordFactory
                 Flags = flags,
                 Kind = TypeRecordKind.Enum,
                 RawValueTypeName = rawValueType,
+                ObjCEnumCaseNames = caseNameMap,
             });
         }
 

@@ -23,6 +23,28 @@ public sealed class AnyView : ISwiftObject, IDisposable
     /// </summary>
     public SwiftSafeHandle<AnyView> Payload => _payload;
 
+    /// <summary>
+    /// Blittable stand-in for the frozen layout of <c>SwiftUI.AnyView</c>: a single 8-byte
+    /// reference to the boxed view it erases.
+    /// </summary>
+    /// <remarks>
+    /// Managed code never reads the field — only size and alignment matter. Swift passes a
+    /// frozen <c>AnyView</c> directly in a register rather than through a pointer, so bindings
+    /// that take one as a parameter pass this struct by value.
+    /// </remarks>
+    public struct Buffer
+    {
+#pragma warning disable CS0169
+        private IntPtr _storageBox;
+#pragma warning restore CS0169
+    }
+
+    /// <summary>
+    /// Pins the payload for the duration of a call and exposes it as the by-value
+    /// <see cref="Buffer"/> the Swift ABI expects. Dispose to release the pin.
+    /// </summary>
+    public unsafe PayloadBuffer<AnyView.Buffer> PayloadBuffer => new PayloadBuffer<AnyView.Buffer>(_payload);
+
     IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
 
     // Non-reflective borrowed-marshal finalizer suppression (Finding 56a). See ISwiftObject.SuppressPayloadFinalizer.

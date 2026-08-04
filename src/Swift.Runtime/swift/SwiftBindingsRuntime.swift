@@ -871,7 +871,8 @@ import SwiftUI
 
 /// Creates a SwiftUI.Text from a UTF-8 string and writes it into a pre-allocated buffer.
 /// The caller allocates the output buffer using Text's type metadata size.
-/// Text is a non-frozen struct — the output buffer must be destroyed via VWT Destroy.
+/// Text is a frozen struct holding a refcounted storage box and an array of modifiers — the
+/// output buffer must be destroyed via VWT Destroy (SwiftSafeHandle does this on disposal).
 @available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
 @_cdecl("SBW_SwiftUI_Text_Create")
 public func sbw_swiftUITextCreate(

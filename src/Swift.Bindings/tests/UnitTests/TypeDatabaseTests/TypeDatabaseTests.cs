@@ -687,17 +687,22 @@ public class TypeDatabaseTests
         }
 
         /// <summary>
-        /// SwiftUICore declares <c>Color</c> and <c>Font</c> <c>@frozen</c>, each a single 8-byte
-        /// reference to a refcounted provider box. Swift therefore passes them DIRECTLY in a
-        /// register (SIL <c>@guaranteed</c>), and the marshaller keys that decision entirely off
-        /// this flag: describing either as non-frozen makes every binding that takes one as a
-        /// parameter hand Swift the address of the payload buffer where it expects the box
-        /// itself, which faults inside SwiftUI on first use.
+        /// Every SwiftUI value type the seed database describes is declared <c>@frozen</c> by
+        /// SwiftUICore, so Swift passes it DIRECTLY rather than behind a pointer. The marshaller
+        /// keys that decision entirely off this flag: describing one as non-frozen makes every
+        /// binding that takes it as a parameter hand Swift the address of the payload buffer
+        /// where it expects the value itself, which faults inside SwiftUI on first use.
         /// </summary>
         [Theory]
         [InlineData("SwiftUI.Color")]
         [InlineData("SwiftUI.Font")]
-        public async Task SwiftUIDatabase_ValueTypes_AreFrozenSingleWordWithRefField(string typeName)
+        [InlineData("SwiftUI.EdgeInsets")]
+        [InlineData("SwiftUI.Animation")]
+        [InlineData("SwiftUI.Image")]
+        [InlineData("SwiftUI.Text")]
+        [InlineData("SwiftUI.AnyView")]
+        [InlineData("SwiftUI.Binding")]
+        public async Task SwiftUIDatabase_ValueTypes_AreDeclaredFrozen(string typeName)
         {
             var typeDatabase = new TypeDatabase();
             var dbPath = Path.Combine(TestDbDirectory, "SwiftUIDatabase.xml");
@@ -707,10 +712,74 @@ public class TypeDatabaseTests
             Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record),
                 $"Type {typeName} should be found in the SwiftUI database");
             Assert.Equal(TypeRecordKind.Struct, record!.Kind);
-            Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
+            Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen),
+                $"{typeName} is @frozen in SwiftUICore; declaring it resilient passes it indirectly");
             Assert.True(record.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement));
-            Assert.Equal(8, record.InlineSize);
+        }
+
+        /// <summary>
+        /// The single-word SwiftUI value types are each one 8-byte reference to a refcounted
+        /// box, so their layout is expressible and is stated: <c>p8</c> lowers to one
+        /// general-purpose register, matching how Swift passes them.
+        /// </summary>
+        [Theory]
+        [InlineData("SwiftUI.Color")]
+        [InlineData("SwiftUI.Font")]
+        [InlineData("SwiftUI.Animation")]
+        [InlineData("SwiftUI.Image")]
+        [InlineData("SwiftUI.AnyView")]
+        public async Task SwiftUIDatabase_SingleWordValueTypes_CarrySingleReferenceLayout(string typeName)
+        {
+            var typeDatabase = new TypeDatabase();
+            var dbPath = Path.Combine(TestDbDirectory, "SwiftUIDatabase.xml");
+            await typeDatabase.LoadModuleDatabaseFromFile(dbPath);
+
+            Assert.True(typeDatabase.TryGetTypeRecord(
+                SwiftTypeName.FromModuleQualifiedName(typeName), out var record));
+            Assert.Equal(8, record!.InlineSize);
             Assert.Equal("p8", record.AbiFieldLayout);
+        }
+
+        /// <summary>
+        /// <c>EdgeInsets</c> is four CGFloats. Its layout IS expressible, so it is stated —
+        /// and the float-field flag keeps instance members on the @_cdecl path, where the
+        /// GPR/FPR split cannot diverge between Swift and a .NET CallConvSwift stub.
+        /// </summary>
+        [Fact]
+        public async Task SwiftUIDatabase_EdgeInsets_IsFourFloatFields()
+        {
+            var typeDatabase = new TypeDatabase();
+            var dbPath = Path.Combine(TestDbDirectory, "SwiftUIDatabase.xml");
+            await typeDatabase.LoadModuleDatabaseFromFile(dbPath);
+
+            Assert.True(typeDatabase.TryGetTypeRecord(
+                SwiftTypeName.FromModuleQualifiedName("SwiftUI.EdgeInsets"), out var record));
+            Assert.Equal(32, record!.InlineSize);
+            Assert.Equal("f8,f8,f8,f8", record.AbiFieldLayout);
+            Assert.True(record.Flags.HasFlag(TypeRecordFlags.HasFloatFields));
+        }
+
+        /// <summary>
+        /// <c>Text</c> is a multi-payload storage enum plus an array, and <c>Binding</c> stores
+        /// its wrapped value inline so its size follows the generic argument. Neither shape can
+        /// be reproduced by the flattened per-field layout string, so neither states one —
+        /// thunk lowering then declines and routes the call through the @_cdecl wrapper, whose
+        /// C-ABI call is correct by construction. Stating a guessed layout here would place the
+        /// fields in the wrong registers with no compile error to catch it.
+        /// </summary>
+        [Theory]
+        [InlineData("SwiftUI.Text")]
+        [InlineData("SwiftUI.Binding")]
+        public async Task SwiftUIDatabase_CompositeValueTypes_StateNoFieldLayout(string typeName)
+        {
+            var typeDatabase = new TypeDatabase();
+            var dbPath = Path.Combine(TestDbDirectory, "SwiftUIDatabase.xml");
+            await typeDatabase.LoadModuleDatabaseFromFile(dbPath);
+
+            Assert.True(typeDatabase.TryGetTypeRecord(
+                SwiftTypeName.FromModuleQualifiedName(typeName), out var record));
+            Assert.True(string.IsNullOrEmpty(record!.AbiFieldLayout),
+                $"{typeName} has no expressible flattened field layout; stating one mis-places its fields");
         }
 
         [Fact]

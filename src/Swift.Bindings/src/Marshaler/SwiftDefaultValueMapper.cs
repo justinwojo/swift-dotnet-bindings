@@ -163,8 +163,24 @@ public static class SwiftDefaultValueMapper
         if (!record!.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
             return null;
 
+        return QualifyEnumCase(record, caseName);
+    }
+
+    /// <summary>
+    /// Names <paramref name="caseName"/> as a member of <paramref name="record"/>'s C# enum.
+    ///
+    /// An ObjC-bridged NS_ENUM carries the member names its companion declared, because the companion
+    /// strips a shared prefix off every case (the enum's own name, or the module's acronym tag) that
+    /// Swift's importer does not necessarily strip the same way — PascalCasing the Swift spelling of a
+    /// stripped case names a member that was never declared. Every other enum keeps the PascalCase
+    /// transform, which is what its own declaration site uses.
+    /// </summary>
+    private static string QualifyEnumCase(TypeRecord record, string caseName)
+    {
         var csTypeName = record.CSharpTypeName.FullyQualifiedName;
-        var csCaseName = NameProvider.ToPascalCase(caseName);
+        var csCaseName = ObjCEnumCaseNames.TryResolveEmittedName(record.ObjCEnumCaseNames, caseName, out var emitted)
+            ? emitted
+            : NameProvider.ToPascalCase(caseName);
         return $"{csTypeName}.{csCaseName}";
     }
 
@@ -180,11 +196,7 @@ public static class SwiftDefaultValueMapper
         if (TryLookupTypeRecord(typePart, typeDatabase, out var record))
         {
             if (record!.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
-            {
-                var csTypeName = record.CSharpTypeName.FullyQualifiedName;
-                var csCaseName = NameProvider.ToPascalCase(casePart);
-                return $"{csTypeName}.{csCaseName}";
-            }
+                return QualifyEnumCase(record, casePart);
             return null;
         }
 
@@ -201,9 +213,7 @@ public static class SwiftDefaultValueMapper
         if (TryLookupTypeRecord(innerType.ToString(), typeDatabase, out var paramRecord) &&
             paramRecord!.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
         {
-            var csTypeName = paramRecord.CSharpTypeName.FullyQualifiedName;
-            var csCaseName = NameProvider.ToPascalCase(casePart);
-            return $"{csTypeName}.{csCaseName}";
+            return QualifyEnumCase(paramRecord, casePart);
         }
 
         return null;

@@ -971,11 +971,20 @@ public static class ApiDefinitionEmitter
         // own arguments. A mutable pointer with no count sibling is untouched: that one really does
         // address a single value, and `out T` is the right projection for it.
         //
-        // The array projection needs a class to hang the overload off: a protocol has no
-        // implementation to extend, a category compiles to a static extension class bgen owns, and a
-        // constructor cannot be forwarded from a partial-class member. In those contexts, and
-        // wherever the pair itself cannot be planned, the refusal below is what fails closed.
-        var canProjectArray = arrayOverloads != null && declaringClassName != null && !isProtocol && !isConstructor;
+        // The array projection needs somewhere to hang the overload: a protocol has no implementation
+        // to extend, and a constructor cannot be forwarded from a partial-class member. In those
+        // contexts, and wherever the pair itself cannot be planned, the refusal below is what fails
+        // closed.
+        //
+        // A category has no partial CLASS to extend — bgen compiles it to a static extension class —
+        // so its array overload rides the receiver-free forwarder instead, which is already an extra
+        // partial part of that same static class. That covers a category's CLASS (+) members only:
+        // an instance member of a category has no forwarder to carry it (its receiver is the point),
+        // and the static class cannot hold the instance overload one would need, so an instance
+        // member with an array pair still fails closed below.
+        var canProjectArrayViaForwarder = categoryStatics != null && !method.IsInstanceMethod;
+        var canProjectArray = (arrayOverloads != null || canProjectArrayViaForwarder)
+            && declaringClassName != null && !isProtocol && !isConstructor;
         var arrayPlan = canProjectArray
             ? ObjCArrayParameterProjection.TryPlan(method, genericTypeParams, typedefMap, blockTypedefMap, enumNames, localProtocolNames, classProtocolClashNames)
             : null;
@@ -1078,11 +1087,16 @@ public static class ApiDefinitionEmitter
         sb.AppendLine($"        {returnType} {declaredName}({parameters});");
         sb.AppendLine();
 
-        if (arrayPlan != null)
-            arrayOverloads!.Add(BuildArrayOverload(method, arrayPlan, declaringClassName!, methodName, declaredName, returnType));
+        if (arrayPlan != null && arrayOverloads != null)
+            arrayOverloads.Add(BuildArrayOverload(method, arrayPlan, declaringClassName!, methodName, declaredName, returnType));
 
+        // A variadic member stays excluded from the forwarder: its trailing `IntPtr varArgs` is the
+        // raw argument list, and no C# signature can shape that faithfully — an overload of it would
+        // publish a member whose arguments a consumer has no sound way to build. An array-projected
+        // member is different: its pointer+count pair HAS a faithful shape, and the forwarder builds
+        // it, so it is no longer treated as internal here.
         if (categoryStatics != null && !isConstructor)
-            RecordCategoryStaticForwarder(categoryStatics, method, declaredName, methodName, returnType, isInternalMember: method.IsVariadic || arrayPlan != null, genericTypeParams, typedefMap, blockTypedefMap, enumNames, localProtocolNames, classProtocolClashNames, arrayPlan);
+            RecordCategoryStaticForwarder(categoryStatics, method, declaredName, methodName, returnType, isInternalMember: method.IsVariadic, genericTypeParams, typedefMap, blockTypedefMap, enumNames, localProtocolNames, classProtocolClashNames, arrayPlan);
 
         return isConstructor ? null : methodName;
     }
@@ -1091,9 +1105,12 @@ public static class ApiDefinitionEmitter
     /// Records an emitted category member with the collector, and — when it is a class
     /// (<c>+</c>) member consumers are meant to call — plans the receiver-free overload for it.
     ///
-    /// A member declared <c>[Internal]</c> is deliberately passed over: bgen renders it
-    /// non-public precisely because it is not the surface consumers call, and an overload of it
-    /// would publish it.
+    /// A VARIADIC member is deliberately passed over: bgen renders it <c>[Internal]</c> because its
+    /// trailing raw argument list has no faithful C# shape, and an overload of it would publish a
+    /// member a consumer has no sound way to call. An ARRAY-projected member is also <c>[Internal]</c>
+    /// but for the opposite reason — its pointer+count pair has a faithful shape and something else
+    /// is meant to publish it — so here the forwarder IS that something: it declares the array-shaped
+    /// signature, pins, and calls the underscored member.
     /// </summary>
     static void RecordCategoryStaticForwarder(CategoryStaticsCollector statics, ObjCMethodDecl method, string declaredName, string methodName, string returnType, bool isInternalMember, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap, HashSet<string>? enumNames, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, ObjCArrayParameterPlan? arrayPlan)
     {
@@ -1103,14 +1120,35 @@ public static class ApiDefinitionEmitter
         if (method.IsInstanceMethod || isInternalMember)
             return;
 
+        var arrayParamName = arrayPlan == null
+            ? null
+            : EscapeCSharpKeyword(method.Parameters[arrayPlan.PointerParameterIndex].Name);
         var signatureParts = new List<string>();
         var callArguments = new List<string>();
-        foreach (var param in method.Parameters)
+        for (var index = 0; index < method.Parameters.Count; index++)
         {
+            var param = method.Parameters[index];
+            var safeName = EscapeCSharpKeyword(param.Name);
             // The bgen attributes EmitParameters writes ([NullAllowed]) belong to the api-definition
             // contract, not to a plain C# member — the nullable annotation carries the same
             // statement here, and matches the signature bgen generated for what this forwards to.
-            if (ObjCTypeMapper.IsNSErrorOutParameter(param.Type))
+            if (arrayPlan != null && index == arrayPlan.PointerParameterIndex)
+            {
+                // A nullable ObjC pointer stays nullable as an array: pinning null yields a null
+                // pointer, which pairs with the zero count computed below.
+                var nullSuffix = ObjCTypeMapper.IsNullableAttribute(param.Type) ? "?" : "";
+                signatureParts.Add($"{arrayPlan.ElementType}[]{nullSuffix} {safeName}");
+                callArguments.Add($"(IntPtr){ObjCArrayOverloadsEmitter.PinnedPointerName}");
+            }
+            else if (arrayPlan != null && index == arrayPlan.CountParameterIndex)
+            {
+                // `checked` because the declared count type may be narrower than the array length
+                // (`uint8_t count` caps the run at 255): an unchecked narrowing conversion would wrap
+                // a longer array to a small — or negative — count and quietly pass the callee a
+                // length that does not describe the buffer it was given.
+                callArguments.Add($"checked(({arrayPlan.CountType})({arrayParamName}?.Length ?? 0))");
+            }
+            else if (ObjCTypeMapper.IsNSErrorOutParameter(param.Type))
             {
                 signatureParts.Add("out NSError error");
                 callArguments.Add("out error");
@@ -1118,20 +1156,25 @@ public static class ApiDefinitionEmitter
             else if (ObjCTypeMapper.IsValueTypePointerParameter(param.Type, typedefMap, enumNames))
             {
                 var pointeeType = ObjCTypeMapper.MapValueTypePointerParameterType(param.Type, typedefMap);
-                var safeName = EscapeCSharpKeyword(param.Name);
                 signatureParts.Add($"out {pointeeType} {safeName}");
                 callArguments.Add($"out {safeName}");
             }
             else
             {
                 var mappedType = ObjCTypeMapper.MapType(param.Type, genericTypeParams: genericTypeParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames);
-                var safeName = EscapeCSharpKeyword(param.Name);
                 signatureParts.Add($"{mappedType}{NullableSuffix(param.Type, mappedType)} {safeName}");
                 callArguments.Add(safeName);
             }
         }
 
-        statics.AddCandidate(methodName, paramTypes, method.Selector, new ObjCCategoryStaticForwarder
+        // The overload's OWN signature is the array-shaped one when there is a plan, so that is what
+        // the free-signature check has to be asked about — keying it on the pointer+count shape would
+        // ask whether a signature it never declares is free.
+        var candidateKey = arrayPlan == null
+            ? paramTypes
+            : BuildCategorySignatureKeyTypes(method, genericTypeParams, typedefMap, blockTypedefMap, enumNames, localProtocolNames, classProtocolClashNames, arrayPlan, publicArrayShape: true);
+
+        statics.AddCandidate(methodName, candidateKey, method.Selector, new ObjCCategoryStaticForwarder
         {
             DeclaringClassName = statics.GeneratedClassName,
             MethodName = methodName,
@@ -1139,6 +1182,12 @@ public static class ApiDefinitionEmitter
             ReceiverType = statics.ReceiverType,
             SignatureParts = signatureParts,
             CallArguments = callArguments,
+            // An array-projected selector is declared `[Internal]` under an underscored name, so the
+            // forwarder is the only member publishing it and has to name that member explicitly —
+            // there is no same-named receiver-carrying sibling for overload resolution to find.
+            ForwardTargetName = arrayPlan == null ? null : declaredName,
+            ArrayElementType = arrayPlan?.ElementType,
+            ArrayParameterName = arrayParamName,
             Selector = method.Selector,
             // The overload is the member consumers actually call, so it has to carry the same
             // platform-availability annotations as the member it forwards to — without them the
@@ -1788,14 +1837,21 @@ public static class ApiDefinitionEmitter
     /// that is actually free) while spelling a protocol-typed parameter differently from the member
     /// bgen generates (missing a collision that then fails the consumer's build as CS0111).
     /// </summary>
-    static string BuildCategorySignatureKeyTypes(ObjCMethodDecl method, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap, HashSet<string>? enumNames, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, ObjCArrayParameterPlan? arrayPlan)
+    /// <param name="publicArrayShape">Key the ARRAY-projected shape a consumer sees — the pointer
+    /// half as <c>T[]</c> and the count half gone — instead of the pointer+count shape bgen
+    /// generates. The receiver-free overload of an array-projected class method declares that shape,
+    /// so its own signature has to be keyed by it while the member it forwards to is keyed by the
+    /// generated one.</param>
+    static string BuildCategorySignatureKeyTypes(ObjCMethodDecl method, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap, HashSet<string>? enumNames, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, ObjCArrayParameterPlan? arrayPlan, bool publicArrayShape = false)
     {
         var types = new List<string>();
         for (var index = 0; index < method.Parameters.Count; index++)
         {
             var param = method.Parameters[index];
             if (arrayPlan != null && index == arrayPlan.PointerParameterIndex)
-                types.Add("IntPtr");
+                types.Add(publicArrayShape ? $"{arrayPlan.ElementType}[]" : "IntPtr");
+            else if (arrayPlan != null && publicArrayShape && index == arrayPlan.CountParameterIndex)
+                continue;
             else if (ObjCTypeMapper.IsNSErrorOutParameter(param.Type))
                 types.Add("out NSError");
             else if (ObjCTypeMapper.IsValueTypePointerParameter(param.Type, typedefMap, enumNames))
