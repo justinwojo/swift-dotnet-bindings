@@ -7684,6 +7684,120 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Contains("public void Enabled(bool? value)", csContent);
     }
 
+    /// <summary>
+    /// Builds a self-returning modifier method taking a single <c>Binding&lt;inner&gt;</c> parameter.
+    /// <paramref name="externalLabel"/> is the Swift argument label ("_" for an unlabeled param).
+    /// </summary>
+    private static MethodDecl CreateBindingModifierMethod(
+        TypeDecl view, string methodName, string externalLabel, string internalName, string innerType)
+    {
+        return new MethodDecl
+        {
+            Name = methodName,
+            MangledName = $"$s_{methodName}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            IsAccessor = false,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            IsSynthesizedAccessor = false,
+            ParentDecl = view,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new NamedTypeSpec($"TestModule.{view.Name}"), ParentDecl = null, ModuleDecl = null },
+                new ArgumentDecl
+                {
+                    Name = externalLabel,
+                    PrivateName = internalName,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("SwiftUICore.Binding", new NamedTypeSpec(innerType)),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+            },
+        };
+    }
+
+    [Fact]
+    public void Modifier_BindingParam_PassesConstructedBindingNotBareValue()
+    {
+        // A modifier whose parameter is Binding<Bool> — a SwiftUI two-way binding, not a value.
+        // The bridge state stores the inner Bool (that is what crosses the ABI), so the modifier
+        // call has to build a Binding over that state field; handing over the bare Bool does not
+        // type-check against a Binding<Bool> parameter.
+        var view = CreateSimpleViewStruct("BindingModView");
+        view.Methods.Add(CreateBindingModifierMethod(view, "isOn", externalLabel: "_", internalName: "binding", innerType: "Swift.Bool"));
+
+        var views = new List<TypeDecl> { view };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views, NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+
+        // The ABI is unchanged: state still holds the inner value.
+        Assert.Contains("@Published var mod_isOn: Bool? = nil", swiftContent);
+
+        // The bare value must never be handed to a Binding<Bool> parameter.
+        Assert.DoesNotContain("result.isOn(val)", swiftContent);
+
+        // A real Binding over the same @Published field, so a SwiftUI-side write lands back on
+        // the bridge state (unlabeled param → no call label).
+        Assert.Contains("result.isOn(Binding<Bool>(", swiftContent);
+        Assert.Contains("mod_isOn = $0", swiftContent);
+
+        // The managed surface is unchanged: the C# setter still takes the inner value.
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("public void IsOn(bool? value)", csContent);
+    }
+
+    [Fact]
+    public void Modifier_BindingParam_KeepsArgumentLabel()
+    {
+        // Same Binding<T> handling, but the modifier parameter carries a real Swift label:
+        // the constructed Binding must be passed under that label.
+        var view = CreateSimpleViewStruct("LabeledBindingModView");
+        view.Methods.Add(CreateBindingModifierMethod(view, "toggled", externalLabel: "state", internalName: "state", innerType: "Swift.Bool"));
+
+        var views = new List<TypeDecl> { view };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views, NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("result.toggled(state: Binding<Bool>(", swiftContent);
+        Assert.DoesNotContain("result.toggled(state: val)", swiftContent);
+    }
+
+    [Fact]
+    public void Modifier_BindingStringParam_UsesInnerTypeForBinding()
+    {
+        // Binding<String> resolves to a String-kinded bridge parameter; the constructed Binding
+        // must be typed on the inner Swift type the state field holds, not on the ABI type.
+        var view = CreateSimpleViewStruct("BindingTextModView");
+        view.Methods.Add(CreateBindingModifierMethod(view, "text", externalLabel: "_", internalName: "value", innerType: "Swift.String"));
+
+        var views = new List<TypeDecl> { view };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views, NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("@Published var mod_text: String? = nil", swiftContent);
+        Assert.Contains("result.text(Binding<String>(", swiftContent);
+        Assert.DoesNotContain("result.text(val)", swiftContent);
+    }
+
+    [Fact]
+    public void Modifier_NonBindingParam_StillPassesBareValue()
+    {
+        // Guard the other side of the branch: a plain value parameter must keep passing the
+        // stored value directly — only Binding<T> parameters get the Binding construction.
+        var views = new List<TypeDecl> { CreateViewWithModifierMethods("PlainModView") };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views, NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("if let val = state.mod_animationSpeed { result = result.animationSpeed(speed: val) }", swiftContent);
+        Assert.DoesNotContain("Binding<Double>(", swiftContent);
+    }
+
     [Fact]
     public void Modifier_ArgPrefixedLabel_PreservesLabel()
     {

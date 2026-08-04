@@ -63,6 +63,16 @@ public static class MethodClosureBridge
         if (method.IsAccessor) return false;
         if (method.Throws) return false;
 
+        // Every signature type this bridge takes is rendered VERBATIM into the Swift wrapper —
+        // the adapter's closure type, the pointer-loaded parameter types, the return type. The
+        // wrapper is a @_cdecl free function, or a @_silgen_name extension that inherits only the
+        // PARENT's generic context; a method's own type parameter is in neither scope, and this
+        // emitter does no substitution or sugaring. A raw ABI archetype reaching the Swift text
+        // is `cannot find type 'τ_0_0' in scope`, which fails the wrapper compile for the entire
+        // library, not just this member. Refuse the shape so the member falls back to the ordinary
+        // path, where it is reported as an unsupported closure with a named cause.
+        if (WrapperValidation.HasRawGenericTypeParams(method)) return false;
+
         // Collect ALL closure parameters — require at least one with bound generic, complex enum,
         // or any Swift.Error existential arg to activate MCB
         var closureArgs = new List<(ClosureTypeSpec spec, ArgumentDecl arg)>();

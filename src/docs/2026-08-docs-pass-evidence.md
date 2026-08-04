@@ -252,14 +252,49 @@ rule with `FBSDKSharing → Sharing`. The rewriter's accept-list is vetted per n
 `FBSDKSharing` is not among the renames the regeneration produced — the FBSDKShareKit row
 is the enum above.
 
-### 2.4 What could not be derived — FBSDKLoginKit
+### 2.4 FBSDKLoginKit — resolved: zero rows for all three rules
 
-**FBSDKLoginKit has no rename tables here, and cannot until its generation completes.**
-The generator aborts that module during emission on the api-surface reconciler
-(see § 4.4), so no `ApiDefinition.cs` / `StructsAndEnums.cs` is written and there is
-nothing to diff the vendor headers against. Its rows for all three rules are **unknown**,
-not "zero". Regenerate FBSDKLoginKit once the reconciler failure is fixed and extend
-§ 2.1–2.3 from that output before publishing a FBSDKLoginKit release.
+This section previously recorded FBSDKLoginKit's rename rows as **unknown**, because the
+generator aborted that module during emission on the api-surface reconciler (§ 4.4) and
+wrote no output to diff against. The reconciler failure is fixed; FBSDKLoginKit now
+generates end to end, and the answer is **zero rows for § 2.1, § 2.2 and § 2.3** — not
+"unknown", and not "some renames we have yet to enumerate".
+
+**Why zero.** FBSDKLoginKit emits no ObjC companion lane at all. Its ObjC-visible classes
+are Swift `@objc` declarations that the Swift lane already binds, so the mixed-module
+dedup pass removes them from the ObjC side and nothing is left for the ObjC emitter:
+
+```
+Mixed dedup: removed 2 shared class(es) and 0 shared protocol(s) from ObjC output, extracted 0 category interface(s).
+Mixed framework 'FBSDKLoginKit': no ObjC classes, protocols, or enums found — skipping ObjC emission.
+```
+
+All three rules in § 2.1–2.3 rewrite names on ObjC *declarations*, so with no declarations
+emitted there is nothing to rename. Confirmed on the generated output: no
+`ApiDefinition.cs` and no `StructsAndEnums.cs` are written, and the emitted C# contains
+zero `[BaseType(…)]` and zero `Name = "…"` occurrences. A `-v 2` regeneration logs no
+`… is imported into Swift as …` lines for this module. The C# type names a consumer sees
+(`CodeVerifier`, `DeviceLoginCodeInfo`, `DeviceLoginManager`, `FBLoginButton`,
+`LoginConfiguration`, …) are the Swift declaration names, carried straight through — they
+are not products of a rename rule and carry no migration rows.
+
+**The one bridge record that matters.** The same regeneration reports:
+
+```
+Mixed bridge: synthesized 3 ObjC type-resolution record(s) for module 'FBSDKLoginKit' (2 class(es), 0 enum(s), 1 typed enum(s)).
+```
+
+The typed-enum record is `FBSDKLoginAuthType`, an `NS_TYPED_EXTENSIBLE_ENUM`. Type
+resolution for it runs through the bridge-record rekeyer, which needs the typedef's
+Swift-import rename even though the typedef is never *declared* in the ObjC output — the
+case § 2.3's accept-list pass-through now covers. With that in place `AuthType` resolves
+and binds rather than being skipped: it appears as `Foundation.NSString?` on both
+`FBLoginButton` and `LoginConfiguration`, and twice in `FBSDKLoginKit.api-surface.md`. The
+module's `binding-report.json` contains **zero** occurrences of the string `AuthType` — no
+skip of any class mentions it.
+
+Nothing here requires a consumer migration row, so § 2.5's downstream-cost picture is
+unchanged by FBSDKLoginKit.
 
 ### 2.5 Downstream cost, measured
 

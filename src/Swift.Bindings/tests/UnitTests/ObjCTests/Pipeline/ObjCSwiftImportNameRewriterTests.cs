@@ -302,6 +302,50 @@ public class ObjCSwiftImportNameRewriterTests
     }
 
     [Fact]
+    public void AcceptRenames_PassesThroughATypedEnumTypedefRename_ThatRewriteIgnores()
+    {
+        // A typed-enum typedef (NS_TYPED_EXTENSIBLE_ENUM) has no companion declaration for this pass
+        // to rename — its bridge record projects onto Foundation.NSString and only the record REKEY
+        // consumes the mapping. The vetted map must still carry the entry: dropping it leaves the
+        // record keyed by the raw ObjC name, so every Swift member typed by the Swift-import name
+        // resolves to a placeholder and is skipped.
+        var module = ObjCModuleBuilder.Create("SbGap2Static")
+            .WithTypedef("SbGap2StaticAuthType", "NSString *")
+            .Build();
+        var map = new Dictionary<string, string> { ["SbGap2StaticAuthType"] = "AuthType" };
+
+        var accepted = ObjCSwiftImportNameRewriter.AcceptRenames(module, map, reservedName: null, Logger);
+
+        Assert.Equal("AuthType", accepted["SbGap2StaticAuthType"]);
+
+        // The rewriter itself must NOT act on the pass-through: the typedef declaration (and every
+        // reference resolving through it) keeps the raw spelling in the companion.
+        var (rewritten, renames) = Rewrite(module, map);
+        Assert.Same(module, rewritten);
+        Assert.Empty(renames);
+    }
+
+    [Fact]
+    public void AcceptRenames_StillExcludesADeclinedDeclarationRename()
+    {
+        // The pass-through is only for entries the rewriter can never apply. A class rename DECLINED
+        // on a collision must stay out of the vetted map, or the rekeyer moves the Swift-side
+        // reference to a C# name the companion kept on its raw spelling (CS0246).
+        var module = ObjCModuleBuilder.Create("FBSDKCoreKit")
+            .WithClass("FBSDKAccessToken")
+            .WithClass("AccessToken")
+            .Build();
+
+        var accepted = ObjCSwiftImportNameRewriter.AcceptRenames(
+            module,
+            new Dictionary<string, string> { ["FBSDKAccessToken"] = "AccessToken" },
+            reservedName: null,
+            Logger);
+
+        Assert.Empty(accepted);
+    }
+
+    [Fact]
     public void AcceptRenames_KeepsTheClaimOfANamesakeWhenARenamedDeclarationReleasesIt()
     {
         // NSURLThing and NSUrlThing are two declarations projecting onto ONE C# name. Renaming the

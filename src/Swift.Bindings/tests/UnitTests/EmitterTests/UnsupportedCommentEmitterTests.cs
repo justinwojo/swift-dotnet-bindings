@@ -163,6 +163,79 @@ public class UnsupportedCommentEmitterTests
         Assert.Contains("// Unsupported: method 'doStuff'", output);
     }
 
+    [Fact]
+    public void EmitMemberSkipped_IdenticalRepeat_EmitsOneComment()
+    {
+        // A property declared in two constrained extensions of the same generic type skips twice
+        // with identical reason and details; the file must carry ONE tombstone, not a stutter.
+        var sw = new StringWriter();
+        var csWriter = new CSharpWriter(sw);
+        var owner = new BaseDecl { Name = "Witness", ParentDecl = null, ModuleDecl = null };
+
+        UnsupportedCommentEmitter.EmitMemberSkipped(
+            csWriter, "markerLabel", BindingItemKind.Property, SkipReason.UnsupportedType,
+            "suppressed at the open-generic class level", containingDecl: owner);
+        UnsupportedCommentEmitter.EmitMemberSkipped(
+            csWriter, "markerLabel", BindingItemKind.Property, SkipReason.UnsupportedType,
+            "suppressed at the open-generic class level", containingDecl: owner);
+
+        csWriter.Flush();
+        var occurrences = CountOccurrences(sw.ToString(), "// Unsupported: property 'Witness.markerLabel'");
+        Assert.Equal(1, occurrences);
+    }
+
+    [Fact]
+    public void EmitMemberSkipped_SameMemberDifferentDetails_EmitsBoth()
+    {
+        // Distinct details are distinct information — only exact repeats collapse.
+        var sw = new StringWriter();
+        var csWriter = new CSharpWriter(sw);
+        var owner = new BaseDecl { Name = "Witness", ParentDecl = null, ModuleDecl = null };
+
+        UnsupportedCommentEmitter.EmitMemberSkipped(
+            csWriter, "markerLabel", BindingItemKind.Property, SkipReason.UnsupportedType,
+            "first detail", containingDecl: owner);
+        UnsupportedCommentEmitter.EmitMemberSkipped(
+            csWriter, "markerLabel", BindingItemKind.Property, SkipReason.UnsupportedType,
+            "second detail", containingDecl: owner);
+
+        csWriter.Flush();
+        var occurrences = CountOccurrences(sw.ToString(), "// Unsupported: property 'Witness.markerLabel'");
+        Assert.Equal(2, occurrences);
+    }
+
+    [Fact]
+    public void EmitMemberSkipped_RepeatAfterRollback_ReEmits()
+    {
+        // A rollback erases the first tombstone from the buffer; the dedup must notice and let the
+        // second emission through, or the member loses its marker entirely.
+        var sw = new StringWriter();
+        var csWriter = new CSharpWriter(sw);
+        var owner = new BaseDecl { Name = "Witness", ParentDecl = null, ModuleDecl = null };
+
+        var checkpoint = csWriter.Checkpoint();
+        UnsupportedCommentEmitter.EmitMemberSkipped(
+            csWriter, "markerLabel", BindingItemKind.Property, SkipReason.UnsupportedType,
+            containingDecl: owner);
+        csWriter.RollbackTo(checkpoint);
+        UnsupportedCommentEmitter.EmitMemberSkipped(
+            csWriter, "markerLabel", BindingItemKind.Property, SkipReason.UnsupportedType,
+            containingDecl: owner);
+
+        csWriter.Flush();
+        var occurrences = CountOccurrences(sw.ToString(), "// Unsupported: property 'Witness.markerLabel'");
+        Assert.Equal(1, occurrences);
+    }
+
+    private static int CountOccurrences(string text, string needle)
+    {
+        int count = 0;
+        for (int i = text.IndexOf(needle, StringComparison.Ordinal); i >= 0;
+             i = text.IndexOf(needle, i + needle.Length, StringComparison.Ordinal))
+            count++;
+        return count;
+    }
+
     private static ModuleDecl NewModuleDecl() => new()
     {
         Name = "TestModule",

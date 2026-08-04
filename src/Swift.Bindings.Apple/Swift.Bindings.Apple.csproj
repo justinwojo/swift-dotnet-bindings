@@ -144,6 +144,12 @@
        is not set at project-evaluation time — top-level PropertyGroups would capture
        an empty string and write directly next to the csproj. -->
   <PropertyGroup>
+    <!-- Serialize the inner per-TargetFramework builds (outer cross-targeting dispatch only).
+         Each inner build regenerates the Apple types via `dotnet run` on the generator
+         project, and that child build writes the generator's and Swift.Runtime's shared
+         Release obj/bin. When a generator source change invalidates every TFM's stamp at
+         once, concurrent inner builds race those writes (MSB3026/CS2012 file locks). -->
+    <BuildInParallel Condition="'$(TargetFramework)' == ''">false</BuildInParallel>
     <_AppleTypesManifestDir>$(MSBuildThisFileDirectory)..\Swift.Bindings.Sdk\tools\apple-types-manifest</_AppleTypesManifestDir>
     <_AppleTypesManifestJson>$(_AppleTypesManifestDir)\manifest.json</_AppleTypesManifestJson>
     <_AppleTypesSequentialLayoutWhitelist>$(_AppleTypesManifestDir)\sequential-layout-whitelist.json</_AppleTypesSequentialLayoutWhitelist>

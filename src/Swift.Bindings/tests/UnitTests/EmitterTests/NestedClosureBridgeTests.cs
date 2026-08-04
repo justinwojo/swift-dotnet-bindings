@@ -46,6 +46,43 @@ public class NestedClosureBridgeTests
         Assert.False(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
     }
 
+    /// <summary>
+    /// Adds a leading <c>Box&lt;…&gt;</c> parameter to the nested-closure fixture. A generic class
+    /// is a payload-handle parameter, so the bridge passes it through and writes its type spec
+    /// verbatim into the Swift wrapper signature.
+    /// </summary>
+    private static (MethodDecl method, TypeDatabase typeDatabase) CreateMethodWithNestedClosureAndBoxParam(
+        TypeSpec boxElement)
+    {
+        var (method, typeDatabase) = CreateMethodWithNestedClosure();
+        var boxArg = CreateArgument("box", new NamedTypeSpec("TestModule.Box", boxElement), method.ModuleDecl!);
+        method.CSSignature.Insert(1, boxArg);
+        return (method, typeDatabase);
+    }
+
+    [Fact]
+    public void IsEligible_ParamOverMethodOwnGeneric_ReturnsFalse()
+    {
+        // The wrapper is a @_cdecl free function; the method's own type parameter is not in its
+        // scope, so a `Box<τ_0_0>` parameter renders into Swift as a type name that does not
+        // resolve and fails the wrapper compile for the whole library.
+        var (method, typeDatabase) = CreateMethodWithNestedClosureAndBoxParam(new NamedTypeSpec("τ_0_0"));
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.False(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_ParamOverConcreteGenericArgument_ReturnsTrue()
+    {
+        // Positive control: the same parameter shape with a concrete element stays eligible.
+        var (method, typeDatabase) = CreateMethodWithNestedClosureAndBoxParam(
+            new NamedTypeSpec("Swift.Int"));
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.True(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
     [Fact]
     public void IsEligible_AsyncMethod_ReturnsFalse()
     {
@@ -1656,6 +1693,18 @@ public class NestedClosureBridgeTests
                 Flags = TypeRecordFlags.SimpleEnum | TypeRecordFlags.Frozen,
                 Kind = TypeRecordKind.Enum,
                 RawValueTypeName = "UInt32"
+            });
+        // A generic class, so a parameter can be spelled Box<T> — a payload-handle param whose
+        // spec still carries the method's own type parameter.
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Box"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Box"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Box"),
+                MetadataAccessor = "$s10TestModule3BoxCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
             });
         typeDatabase.AddModuleDatabase(testModule);
 

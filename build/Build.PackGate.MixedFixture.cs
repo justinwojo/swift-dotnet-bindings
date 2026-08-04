@@ -439,7 +439,8 @@ partial class Build
         // is absent. This is the only place the load-time Gap 2 symptom is
         // observable in CI.
         RunPackGateMixedConsumer(legRoot, nupkgDir, fixtureOut, module, probeClass,
-            assertSingleRegistration: true, exerciseTypeBridge: true);
+            assertSingleRegistration: true, exerciseTypeBridge: true,
+            declaredClassName: "Greeter");
     }
 
     // ── Dynamic leg: source RETAINED, then consume + link + run ────────────────
@@ -695,9 +696,10 @@ partial class Build
         // When bridging, the umbrella header (the surface swiftc imports as the module's ObjC
         // half AND the generator parses to bind the ObjC companion) declares an NS_ENUM, an
         // NS_OPTIONS bitmask, an NS_TYPED_EXTENSIBLE_ENUM (typedef NSString *…), and renames the
-        // probe class to Swift `Greeter` via NS_SWIFT_NAME. The companion still emits the RAW ObjC name (partial
-        // interface {probeClass}); NS_SWIFT_NAME only steers the Swift-import name, which is
-        // exactly what the bridge re-keyer reconciles.
+        // probe class to Swift `Greeter` via NS_SWIFT_NAME. The companion emits the C# type under
+        // that Swift-import name (partial interface Greeter) while [BaseType(Name = "{probeClass}")]
+        // keeps ObjC registration on the raw name — the bridge re-keyer reconciles the Swift-side
+        // references to the same import name.
         //
         // The typed enum ({module}AuthType, renamed to Swift `AuthType`) is the FBSDKLoginAuthType
         // shape from issue #40's LoginKit report: NS_TYPED_ENUM/NS_TYPED_EXTENSIBLE_ENUM imports as
@@ -854,8 +856,13 @@ partial class Build
     void RunPackGateMixedConsumer(
         AbsolutePath legRoot, AbsolutePath nupkgDir, AbsolutePath fixtureOut,
         string module, string probeClass, bool assertSingleRegistration,
-        bool exerciseTypeBridge = false)
+        bool exerciseTypeBridge = false, string? declaredClassName = null)
     {
+        // The C# type name the companion DECLARES the probe class under. On the bridged leg the
+        // umbrella header carries NS_SWIFT_NAME, so the companion emits the Swift-import name and
+        // keeps only the ObjC runtime registration on {probeClass}; a consumer referencing the raw
+        // spelling would fail CS0234 against exactly the surface an Apple developer never sees.
+        var consumerClass = declaredClassName ?? probeClass;
         var appDir = legRoot / "consumer";
         if (Directory.Exists(appDir)) appDir.DeleteDirectory();
         appDir.CreateDirectory();
@@ -912,7 +919,7 @@ partial class Build
         // and nil to exercise the OptionalProjection-over-ObjCBridgeable both-arms path.
         var bridgeProgram = exerciseTypeBridge
             ? $$"""
-                global::{{module}}.{{probeClass}} bridged = global::{{module}}.Functions.MakeGreeter();
+                global::{{module}}.{{consumerClass}} bridged = global::{{module}}.Functions.MakeGreeter();
                 Console.WriteLine("BRIDGE_GREETING:" + bridged.Greeting());
                 global::{{module}}.{{module}}Level echoed = global::{{module}}.Functions.EchoLevel(global::{{module}}.{{module}}Level.High);
                 Console.WriteLine("BRIDGE_ENUM:" + (int)echoed);
@@ -931,7 +938,7 @@ partial class Build
         var program = $$"""
             // Copyright (c) 2026 Justin Wojciechowski.
             // Licensed under the MIT License.
-            var probe = new global::{{module}}.{{probeClass}}();
+            var probe = new global::{{module}}.{{consumerClass}}();
             Console.WriteLine("OBJC_GREETING:" + probe.Greeting());
             {{bridgeProgram}}
             """;
@@ -1065,14 +1072,24 @@ partial class Build
         var text = string.Join("\n", generatedFiles.Select(File.ReadAllText));
 
         // The class member (makeGreeter) must resolve to the companion class via the ObjCBridged
-        // projection — materialized with GetNSObject<...{probeClass}>. A degraded member would
-        // return object and never name the companion type.
-        if (!System.Text.RegularExpressions.Regex.IsMatch(
-                text, $@"GetNSObject<[^>]*\b{System.Text.RegularExpressions.Regex.Escape(probeClass)}>"))
+        // projection — materialized with GetNSObject<...Greeter>, the Swift-import name the
+        // companion's C# type now carries. A degraded member would return object and never name
+        // the companion type; a member resolved to the raw ObjC spelling would mean the
+        // Swift-import renamer stopped reaching the companion.
+        if (!System.Text.RegularExpressions.Regex.IsMatch(text, @"GetNSObject<[^>]*\bGreeter>"))
             Assert.Fail(
                 $"PackGate (mixed/static): the generated Swift binding does not resolve the member returning the " +
-                $"NS_SWIFT_NAME'd ObjC class to the companion type (no GetNSObject<...{probeClass}>) — the " +
-                $"type-resolution bridge degraded it to object / Swift.AnyType.");
+                $"NS_SWIFT_NAME'd ObjC class to the companion type (no GetNSObject<...Greeter>) — the " +
+                $"type-resolution bridge degraded it to object / Swift.AnyType, or the companion no longer " +
+                $"takes the Swift-import name.");
+
+        // The companion must still REGISTER under the raw ObjC name — [BaseType(..., Name = "{probeClass}")]
+        // — or the renamed C# type would re-register a second ObjC class at runtime.
+        if (!text.Contains($"Name = \"{probeClass}\"", StringComparison.Ordinal))
+            Assert.Fail(
+                $"PackGate (mixed/static): the generated companion does not keep ObjC registration on the raw " +
+                $"name (no [BaseType(..., Name = \"{probeClass}\")]) — the Swift-import rename must change only " +
+                $"the C# type name, never the registered ObjC class name.");
 
         // The enum member (echoLevel) must resolve to the companion enum type {module}Level.
         if (!text.Contains($"{module}Level", StringComparison.Ordinal))
@@ -1128,7 +1145,7 @@ partial class Build
                 "NS_TYPED_EXTENSIBLE_ENUM to Foundation.NSString — OptionalProjection over the typed-enum bridge record was not applied.");
 
         Log.Information(
-            "PackGate (mixed/static) type-bridge generation OK — class→GetNSObject<{Probe}>, enum→{Module}Level, options→{Module}Options, typedEnum→NSString (value + optional)",
+            "PackGate (mixed/static) type-bridge generation OK — class→GetNSObject<Greeter> (registered as {Probe}), enum→{Module}Level, options→{Module}Options, typedEnum→NSString (value + optional)",
             probeClass, module);
     }
 

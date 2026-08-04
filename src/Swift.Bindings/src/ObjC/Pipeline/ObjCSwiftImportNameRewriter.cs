@@ -145,7 +145,32 @@ public static class ObjCSwiftImportNameRewriter
         IReadOnlyDictionary<string, string>? objcImportedTypeNames,
         string? reservedName,
         ILogger logger)
-        => BuildRenameMap(module, objcImportedTypeNames, reservedName, logger, out _);
+    {
+        var map = BuildRenameMap(module, objcImportedTypeNames, reservedName, logger, out _);
+        if (objcImportedTypeNames == null || objcImportedTypeNames.Count == 0)
+            return map;
+
+        // The vet above covers DECLARATION renames — the shapes this rewriter itself applies. An
+        // entry whose raw name is not declared here as a class, protocol or enum has no companion
+        // declaration to rename, so the rewriter can never disagree with the rekeyer about it: the
+        // rekeyer is its only applier. It must pass through unvetted. A typed-enum typedef
+        // (NS_TYPED_EXTENSIBLE_ENUM under NS_SWIFT_NAME) reaches the Swift side only through its
+        // bridge record, whose projection is Foundation.NSString — a foreign type the rekey never
+        // moves — and dropping the entry leaves that record keyed by the raw ObjC name, so every
+        // Swift member typed by the Swift-import name degrades to a placeholder and is skipped.
+        var declared = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var c in module.Classes) declared.Add(c.Name);
+        foreach (var p in module.Protocols) declared.Add(p.Name);
+        foreach (var e in module.Enums) declared.Add(e.Name);
+
+        foreach (var (rawName, swiftName) in objcImportedTypeNames)
+        {
+            if (!declared.Contains(rawName)
+                && !string.Equals(rawName, swiftName, StringComparison.Ordinal))
+                map[rawName] = swiftName;
+        }
+        return map;
+    }
 
     /// <summary>
     /// The subset of <paramref name="objcImportedTypeNames"/> that is safe to apply: the raw name is

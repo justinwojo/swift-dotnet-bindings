@@ -31,7 +31,12 @@ public static class UnsupportedCommentEmitter
         var comment = $"// Unsupported: type '{typeName}' — {description}";
         if (!string.IsNullOrWhiteSpace(details))
             comment += $" ({details})";
-        csWriter.WriteLine(comment);
+        // At most one identical tombstone per file: sibling declarations that skip for the same
+        // reason with the same details (e.g. one property declared in two constrained extensions)
+        // would otherwise stutter adjacent identical lines. The structured skippedItems channel
+        // still records every declaration; only the human-facing comment collapses.
+        if (!csWriter.TryWriteLineOnce(comment))
+            return;
         // Finding 53: a comment-drop is a degradation — surface it loudly (SWIFTBIND025) via the
         // ambient collector. Strip the leading "// " so the diagnostic reads cleanly.
         ReportCollector.RecordUnsupportedCommentDrop(
@@ -75,7 +80,10 @@ public static class UnsupportedCommentEmitter
         var comment = $"// Unsupported: {kindLabel} '{qualifiedName}' — {description}";
         if (!string.IsNullOrWhiteSpace(details))
             comment += $" ({details})";
-        csWriter.WriteLine(comment);
+        // At most one identical tombstone per file — see EmitTypeSkipped. The qualified name keeps
+        // distinct declaring types distinct, so only true same-member/same-reason repeats collapse.
+        if (!csWriter.TryWriteLineOnce(comment))
+            return;
         // Finding 53: a comment-drop is a degradation — surface it loudly (SWIFTBIND025) via the
         // ambient collector. Strip the leading "// " so the diagnostic reads cleanly. The qualified
         // name keeps the dedup key distinct per declaring type.

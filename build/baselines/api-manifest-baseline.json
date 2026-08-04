@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "git_sha": "24e23da6",
+  "git_sha": "f9417204",
   "entries": [
     {
       "module": "SwiftBindingsTestLib",
@@ -14374,6 +14374,21 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "NestedViewOwner.GetDescribe()",
+      "symbol": "SBW_SwiftBindingsTestLib_NestedViewOwner_describe_8461522F"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "NestedViewOwner.NestedViewOwner(string)",
+      "symbol": "SBW_SwiftBindingsTestLib_NestedViewOwner_init_499ED298"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "NestedViewOwner.OwnerLabel",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_NestedViewOwner_ownerLabel"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "NetworkConfig.ContentType",
       "symbol": "SBW_Get_SwiftBindingsTestLib_NetworkConfig_contentType"
     },
@@ -19279,6 +19294,11 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "SwiftUIValueProbe.TextEquals(SwiftUI.Text,string)",
+      "symbol": "SBW_SwiftBindingsTestLib_SwiftUIValueProbe_textEquals_85643B77"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "SyntheticDefaultCollider.Go(int,int)",
       "symbol": "thunk_SwiftBindingsTestLib_16a8da5f"
     },
@@ -20686,6 +20706,41 @@
       "module": "SwiftBindingsTestLib",
       "signature": "UnaryValue.UnaryValue(bool,uint)",
       "symbol": "SBW_SwiftBindingsTestLib_UnaryValue_init_3A810E89"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "UnderscoreLabelBox.DescribeBox(string)",
+      "symbol": "SBW_SwiftBindingsTestLib_UnderscoreLabelBox_describeBox_766AC1DD"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "UnderscoreLabelBox.DescribeFallback(string)",
+      "symbol": "SBW_SwiftBindingsTestLib_UnderscoreLabelBox_describeFallback_35311E65"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "UnderscoreLabelBox.Fallback(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_b91b7adb"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "UnderscoreLabelBox.Offset(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_47614d98"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "UnderscoreLabelBox.UnderscoreLabelBox(int)",
+      "symbol": "SBW_SwiftBindingsTestLib_UnderscoreLabelBox_init_9DBA859F"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "UnderscoreLabelBox.Value",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_UnderscoreLabelBox_value|SBW_Set_SwiftBindingsTestLib_UnderscoreLabelBox_value"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "UnderscoreLabelBox.this[int]",
+      "symbol": "SBW_SubGet_SwiftBindingsTestLib_UnderscoreLabelBox_93F59534"
     },
     {
       "module": "SwiftBindingsTestLib",

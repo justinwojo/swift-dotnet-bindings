@@ -45,6 +45,12 @@ public static class NestedClosureBridge
         if (method.IsAccessor) return false;
         if (method.Throws) return false;
 
+        // Same reasoning as the sibling closure bridge: every signature type is rendered verbatim
+        // into a @_cdecl wrapper that has no method-own generic parameter in scope, and this
+        // emitter substitutes nothing. An archetype that survives into the Swift text is a
+        // `cannot find type` error that fails the whole wrapper library.
+        if (WrapperValidation.HasRawGenericTypeParams(method)) return false;
+
         // Find all closure parameters with nested closures
         var closureArgs = new List<ArgumentDecl>();
         foreach (var arg in method.CSSignature.Skip(1))

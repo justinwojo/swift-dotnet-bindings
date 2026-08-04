@@ -204,13 +204,21 @@ public static class DefaultParameterOverloadEmitter
         if (trailingDefaultsAreMappable && !wantAllDefaultsForm)
             return;
 
-        // Cap accounting: the all-defaults form counts against MaxOverloads, so a method with more
-        // trailing defaults than the cap trades its least-useful trim for the ergonomic form. When
-        // the primary already carries the whole inline default tail, the trim variants stay declined
-        // (that was this method's historical early-out) and only the all-defaults form is added.
+        // Cap accounting: the trim ladder keeps the WHOLE MaxOverloads budget, and the all-defaults
+        // form is added on top of it rather than taking one of its slots. Charging both to one budget
+        // looks like a fair trade but is not a symmetric one: the slot it takes is the deepest trim,
+        // i.e. the shortest arity the ladder had, so a method whose trailing-default run exceeds the
+        // cap silently LOSES a public overload that consumers already call and gains a shorter one
+        // that no existing call site uses — a source break handed out in exchange for an ergonomic
+        // addition. Emission stays bounded: the extra form is at most one per method, and only for a
+        // method whose shortest callable form the trim ladder cannot reach at all.
+        //
+        // When the primary already carries the whole inline default tail, the trim variants stay
+        // declined (that was this method's historical early-out) and only the all-defaults form is
+        // added.
         var overloadCount = trailingDefaultsAreMappable
             ? 0
-            : Math.Min(trailingDefaultCount, MaxOverloads - (wantAllDefaultsForm ? 1 : 0));
+            : Math.Min(trailingDefaultCount, MaxOverloads);
 
         // Candidate list, most-trimmed first (fewest params first in source output). DropIndices is
         // null for a plain trailing trim — those keep routing through the historical builder so the

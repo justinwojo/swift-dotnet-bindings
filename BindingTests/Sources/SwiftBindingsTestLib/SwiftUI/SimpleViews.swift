@@ -196,6 +196,13 @@ public struct ModifiableView: View {
     /// must not leak as the label. Gates the keyword-label modifier call path.
     public func badge(repeat count: Int32) -> Self { return self }
 
+    /// Single-param modifier whose parameter is a two-way `Binding<Bool>`, not a value.
+    /// Only the inner Bool crosses the bridge ABI, so the generated modifier call has to
+    /// construct a Binding over the stored state — handing the stored value straight to a
+    /// `Binding<Bool>` parameter does not type-check, which only the Swift compile of the
+    /// generated bridge catches. Gates the Binding<T> modifier-parameter call path.
+    public func toggled(_ binding: Binding<Bool>) -> Self { return self }
+
     public var body: some View {
         Text(title)
     }

@@ -1310,8 +1310,32 @@ public static partial class SwiftUIBridgeEmitter
                     var swiftLabel = mod.Parameter!.SwiftLabel;
                     var isUnlabeled = paramName == "_" || NameProvider.IsGeneratedArgName(paramName)
                         || swiftLabel == "_" || NameProvider.IsGeneratedArgName(swiftLabel);
-                    var callArg = isUnlabeled ? "val" : $"{swiftLabel}: val";
-                    sb.AppendLine($"        if let val = state.mod_{mod.MethodName} {{ result = result.{mod.SwiftCallName}({callArg}) }}");
+
+                    if (mod.Parameter!.IsBinding)
+                    {
+                        // The modifier takes a SwiftUI Binding<T>, but only the inner T crosses the
+                        // ABI and lands in the state field — passing the stored value straight to a
+                        // Binding<T> parameter does not type-check. Build a real Binding over that
+                        // same @Published field so a SwiftUI-side write (the user flipping a toggle)
+                        // lands back on the bridge state and re-renders, matching the $state
+                        // projection the bridge already hands to Binding<T> INIT parameters. The
+                        // state field is optional (nil = "never set from managed code"), so the
+                        // value that opened the `if let` is the getter's fallback should the field
+                        // be cleared while the binding is still alive. Binding the local class
+                        // reference keeps the escaping get/set closures off the whole Wrapper value.
+                        var bindingValueType = GetModifierSwiftStateType(mod.Parameter!);
+                        var bindingExpr = $"Binding<{bindingValueType}>(get: {{ modState.mod_{mod.MethodName} ?? val }}, set: {{ modState.mod_{mod.MethodName} = $0 }})";
+                        var bindingArg = isUnlabeled ? bindingExpr : $"{swiftLabel}: {bindingExpr}";
+                        sb.AppendLine($"        if let val = state.mod_{mod.MethodName} {{");
+                        sb.AppendLine($"            let modState = state");
+                        sb.AppendLine($"            result = result.{mod.SwiftCallName}({bindingArg})");
+                        sb.AppendLine($"        }}");
+                    }
+                    else
+                    {
+                        var callArg = isUnlabeled ? "val" : $"{swiftLabel}: val";
+                        sb.AppendLine($"        if let val = state.mod_{mod.MethodName} {{ result = result.{mod.SwiftCallName}({callArg}) }}");
+                    }
                 }
             }
             sb.AppendLine($"        return result");
@@ -2210,6 +2234,15 @@ public static partial class SwiftUIBridgeEmitter
             else
             {
                 var param = mod.Parameter!;
+                if (param.IsBinding)
+                {
+                    // The Swift modifier takes a two-way SwiftUI binding. The bridge stores the
+                    // value here and hands the view a binding over that storage, so a write from
+                    // the SwiftUI side updates the view but has no channel back to managed code.
+                    sb.AppendLine($"        /// <summary>Sets the value bound by the Swift <c>{mod.SwiftCallName}</c> modifier, which takes a two-way SwiftUI binding.");
+                    sb.AppendLine($"        /// A change made on the SwiftUI side updates the view but is not reported back here. Pass <c>null</c> to clear the modifier.</summary>");
+                }
+
                 if (param.Kind == BridgeParameterKind.String)
                 {
                     sb.AppendLine($"        public unsafe void {mod.PascalName}(string? value)");

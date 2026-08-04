@@ -228,6 +228,50 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Offsets of lines already written through <see cref="TryWriteLineOnce"/>, keyed by exact
+        /// line text (indentation excluded). Lets a caller emit a line at most once per buffer —
+        /// e.g. two sibling declarations that both skip for the same reason would otherwise leave
+        /// adjacent identical <c>// Unsupported:</c> tombstones.
+        /// </summary>
+        private readonly Dictionary<string, int> _onceLines = new();
+
+        /// <summary>
+        /// Writes <paramref name="line"/> unless this buffer already contains an identical line
+        /// written through this method. Returns true when the line was written, false when it was
+        /// suppressed as a duplicate. A recorded line can be erased by <see cref="RollbackTo"/>, so
+        /// suppression re-verifies the text is still present at its recorded offset — a rolled-back
+        /// line is re-emitted, never silently dropped.
+        /// </summary>
+        public bool TryWriteLineOnce(string line)
+        {
+            ArgumentNullException.ThrowIfNull(line);
+            Flush();
+            var builder = _innerWriter.GetStringBuilder();
+            if (_onceLines.TryGetValue(line, out var offset)
+                && offset + line.Length <= builder.Length
+                && MatchesAt(builder, line, offset))
+            {
+                return false;
+            }
+            WriteLine(line);
+            Flush();
+            // The line text sits just before the trailing newline; indentation (written ahead of
+            // the text) is excluded so the recorded offset points at the text itself.
+            _onceLines[line] = builder.Length - CoreNewLine.Length - line.Length;
+            return true;
+        }
+
+        private static bool MatchesAt(System.Text.StringBuilder builder, string text, int offset)
+        {
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (builder[offset + i] != text[i])
+                    return false;
+            }
+            return true;
+        }
+
+        /// <summary>
         /// Rejects a checkpoint issued by a different writer (or a default-constructed one).
         /// Truncating to a foreign offset would silently delete unrelated output — a corrupted
         /// file rather than a dropped member — so this fails loudly instead.

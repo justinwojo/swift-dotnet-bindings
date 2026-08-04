@@ -1842,6 +1842,85 @@ public class DefaultParameterOverloadEmitterTests
         Assert.Equal(2, OverloadAmbiguityGuard.ParseKey(entry, 0).ParameterTypes.Count);
     }
 
+    [Fact]
+    public void AllDefaultsOverload_DoesNotSpendATrimSlot()
+    {
+        // Six parameters, every one defaulted to an expression C# cannot spell inline. The trailing
+        // run is longer than the per-method overload cap, so the trim ladder alone cannot reach the
+        // shortest callable form and the all-defaults form is synthesized alongside it.
+        //
+        // The all-defaults form is an ADDITION to the ladder, never a substitution for part of it.
+        // Charging it to the same budget removes the DEEPEST trim — the shortest arity the ladder had
+        // — which is a public overload consumers already call, in exchange for an even shorter one
+        // they have never seen. Removing a callable arity is a source-breaking change for every
+        // consumer of the binding; adding one is not.
+        var (_, env) = CreateClassMethodEnvironment(
+            "Ledger", "record",
+            CreateArgWithDefault("a", "Config()"),
+            CreateArgWithDefault("b", "Config()"),
+            CreateArgWithDefault("c", "Config()"),
+            CreateArgWithDefault("d", "Config()"),
+            CreateArgWithDefault("e", "Config()"),
+            CreateArgWithDefault("f", "Config()"));
+
+        var arities = EmittedArities(RunOverloads(env), "Ledger.Record");
+
+        // The four trims the cap allows, counted down from the six-parameter primary.
+        Assert.Superset(new HashSet<int> { 5, 4, 3, 2 }, arities);
+        // Plus the form the trim ladder can never reach: every argument omitted, Swift's own defaults.
+        Assert.Contains(0, arities);
+    }
+
+    [Fact]
+    public void AllDefaultsOverload_AddsAnArity_AndRemovesNone()
+    {
+        // The same contract stated as the property that matters to a consumer, and measured on both
+        // sides rather than written out: whatever the ladder emits without the all-defaults form, it
+        // must still emit WITH it. The control suppresses the all-defaults form through the emitter's
+        // own Swift-ambiguity path (a sibling declaration that accepts the fully-reduced call), so
+        // both runs share one fixture and one code path and differ only in that form's presence.
+        //
+        // An arity vanishing while a never-before-emitted one appears is the shape of the regression
+        // this pins: a consumer's existing call site stops compiling, and the replacement is a
+        // signature no consumer has written yet.
+        var (controlMethod, controlEnv) = CreateClassMethodEnvironment(
+            "Ledger", "record",
+            CreateArgWithDefault("a", "Config()"),
+            CreateArgWithDefault("b", "Config()"),
+            CreateArgWithDefault("c", "Config()"),
+            CreateArgWithDefault("d", "Config()"),
+            CreateArgWithDefault("e", "Config()"),
+            CreateArgWithDefault("f", "Config()"));
+        AddSibling(controlMethod, CreateArgWithDefault("z", "Config()"));
+
+        var (_, env) = CreateClassMethodEnvironment(
+            "Ledger", "record",
+            CreateArgWithDefault("a", "Config()"),
+            CreateArgWithDefault("b", "Config()"),
+            CreateArgWithDefault("c", "Config()"),
+            CreateArgWithDefault("d", "Config()"),
+            CreateArgWithDefault("e", "Config()"),
+            CreateArgWithDefault("f", "Config()"));
+
+        var withoutAllDefaults = EmittedArities(RunOverloads(controlEnv), "Ledger.Record");
+        var withAllDefaults = EmittedArities(RunOverloads(env), "Ledger.Record");
+
+        // The control really is the ladder-only run — otherwise the comparison below is vacuous.
+        Assert.DoesNotContain(0, withoutAllDefaults);
+        Assert.Contains(0, withAllDefaults);
+        Assert.Superset(withoutAllDefaults, withAllDefaults);
+    }
+
+    /// <summary>
+    /// The parameter counts of every overload this producer actually wrote for
+    /// <paramref name="memberPrefix"/>, read back from what it recorded as emitted API surface.
+    /// </summary>
+    private static HashSet<int> EmittedArities(ModuleEmissionContext emissionContext, string memberPrefix)
+        => emissionContext.ApiManifestEntries.Keys
+            .Where(k => k.StartsWith(memberPrefix + "(", StringComparison.Ordinal))
+            .Select(k => OverloadAmbiguityGuard.ParseKey(k, 0).ParameterTypes.Count)
+            .ToHashSet();
+
     /// <summary>
     /// Adds a second declaration of <paramref name="primary"/>'s Swift name to the same parent, so
     /// the emitter sees the overload family a real module would present.

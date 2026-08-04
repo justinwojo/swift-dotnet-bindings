@@ -848,6 +848,81 @@ public class MethodClosureBridgeTests
         Assert.True(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
     }
 
+    // ─── IsEligible: method-own generic parameters ────────────────────
+
+    /// <summary>
+    /// Builds the real-world shape a generic accessor takes:
+    /// <c>func getByType&lt;T&gt;(_ type: SomeEnum, onResult: @escaping (Result&lt;[T], any Error&gt;) -&gt; Void)</c>.
+    /// The method's own generic parameter reaches the signature as the raw ABI archetype
+    /// <c>τ_0_0</c>, nested two levels deep inside the closure's <c>Result</c> payload.
+    /// The enum leading parameter is what admits the method to the bridge at all.
+    /// </summary>
+    private static (MethodDecl method, TypeDatabase typeDatabase) CreateMethodWithMethodOwnGenericResultClosure(
+        TypeSpec resultSuccessType)
+    {
+        var typeDatabase = CreateTypeDatabaseWithResultTypes();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var anyError = new ProtocolListTypeSpec(new List<NamedTypeSpec> { new NamedTypeSpec("Swift.Error") });
+        var resultArg = new NamedTypeSpec("Swift.Result", resultSuccessType, anyError);
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)resultArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDeclWithNonClosureParam("getByType", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "onResult",
+            new NamedTypeSpec("TestModule.MyError"), "type");
+        return (method, typeDatabase);
+    }
+
+    [Fact]
+    public void IsEligible_ResultClosureOverMethodOwnGeneric_ReturnsFalse()
+    {
+        // The bridge writes closure argument types verbatim into the Swift adapter, and neither a
+        // @_cdecl free function nor a @_silgen_name extension over the PARENT's generics has the
+        // method's own type parameter in scope. Admitting the shape emits `Result<Array<τ_0_0>, Error>`
+        // into the wrapper — a swiftc "cannot find type" that fails the whole wrapper library.
+        var (method, typeDatabase) = CreateMethodWithMethodOwnGenericResultClosure(
+            new NamedTypeSpec("Swift.Array", new NamedTypeSpec("τ_0_0")));
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.False(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_ResultClosureOverConcreteSuccessType_ReturnsTrue()
+    {
+        // Positive control for the archetype refusal above: the identical shape with the success
+        // type substituted stays eligible, so the guard keys on the archetype and not on the
+        // Result-of-Array-through-an-enum-parameter shape.
+        var (method, typeDatabase) = CreateMethodWithMethodOwnGenericResultClosure(
+            new NamedTypeSpec("Swift.Array", new NamedTypeSpec("TestModule.MyData")));
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.True(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void TryEmit_ResultClosureOverMethodOwnGeneric_WritesNoArchetypeIntoWrapper()
+    {
+        var (method, typeDatabase) = CreateMethodWithMethodOwnGenericResultClosure(
+            new NamedTypeSpec("Swift.Array", new NamedTypeSpec("τ_0_0")));
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var emitted = MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        Assert.False(emitted);
+        csWriter.Flush();
+        swiftWriter.Flush();
+        Assert.DoesNotContain("τ_", swiftOutput.ToString());
+        Assert.DoesNotContain("τ_", csOutput.ToString());
+    }
+
     [Fact]
     public void IsEligible_ResultClosure_ObjCParam_ReturnsTrue()
     {
