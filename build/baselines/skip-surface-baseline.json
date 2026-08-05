@@ -1,5 +1,5 @@
 {
-  "git_sha": "fcca5878",
+  "git_sha": "49305360",
   "entries": [
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -233,6 +233,12 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "method \u0027CtorAdmBox.init\u0027 \u2014 NonBlittableCallConvSwift (generic-type constructor inadmissible for open dispatch (CSM emits concrete forms))",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027CtorAdmGenericPin.init\u0027 \u2014 NonBlittableCallConvSwift (generic-type constructor inadmissible for open dispatch (CSM emits concrete forms))",
       "count": 1
     },
     {
