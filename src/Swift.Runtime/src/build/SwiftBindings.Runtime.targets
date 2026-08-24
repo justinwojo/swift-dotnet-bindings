@@ -7,6 +7,19 @@
     <IncludeSwiftBindingsRuntimeNative Condition="'$(IncludeSwiftBindingsRuntimeNative)' == ''">true</IncludeSwiftBindingsRuntimeNative>
   </PropertyGroup>
 
+  <!-- Mac App Store framework anatomy for the app bundle's embedded frameworks.
+
+       Deliberately NOT gated on IncludeSwiftBindingsRuntimeNative: that switch decides whether
+       THIS package contributes its own native framework, while the anatomy step works on
+       whatever the app bundle ended up containing — the Apple supplement, a binding's wrapper,
+       a vendor framework. A consumer that turns the runtime's native off still embeds those, and
+       still needs them in the right shape. Importing it from here means a runtime patch reaches
+       every consumer of every already-published binding package, since they all resolve the
+       runtime through their own dependency. -->
+  <Import Project="$(MSBuildThisFileDirectory)SwiftBindings.MacFrameworkAnatomy.targets"
+          Condition="'$(_SwiftBindingsMacFrameworkAnatomyImported)' != 'true'
+                     AND Exists('$(MSBuildThisFileDirectory)SwiftBindings.MacFrameworkAnatomy.targets')" />
+
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Defect H: build-time runtime-flavor switch for SwiftRuntimeInfo         -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->

@@ -30,6 +30,13 @@
     <None Include="$(SwiftBindingsSdkPropsToPack)" Pack="true" PackagePath="Sdk/Sdk.props" />
     <None Include="Sdk/Sdk.targets" Pack="true" PackagePath="Sdk/" />
     <None Include="Sdk/scripts/*.sh" Pack="true" PackagePath="Sdk/scripts/" />
+
+    <!-- Mac framework-anatomy backstop for SDK-direct apps that opt out of the implicit runtime
+         package reference (Sdk.targets imports these when the runtime's own copy is absent).
+         Packed straight from the runtime's source files rather than duplicated in this folder,
+         so the two packages can never carry divergent versions of the same step. -->
+    <None Include="../Swift.Runtime/src/build/SwiftBindings.MacFrameworkAnatomy.targets" Pack="true" PackagePath="Sdk/" />
+    <None Include="../Swift.Runtime/src/build/deepen-mac-framework.sh" Pack="true" PackagePath="Sdk/" />
   </ItemGroup>
 
   <!-- Pack the published generator into tools/ -->

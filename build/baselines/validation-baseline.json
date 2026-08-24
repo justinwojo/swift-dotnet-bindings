@@ -995,7 +995,7 @@
       "crash": 0
     },
     "macos": {
-      "pass": 2595,
+      "pass": 2673,
       "fail": 0,
       "skip": 32,
       "crash": 0
@@ -1007,7 +1007,7 @@
       "crash": 0
     },
     "maccatalyst": {
-      "pass": 2673,
+      "pass": 2675,
       "fail": 0,
       "skip": 37,
       "crash": 0
@@ -1026,6 +1026,6 @@
     }
   },
   "unit_tests": {
-    "swift_bindings_unit_pass_floor": 17187
+    "swift_bindings_unit_pass_floor": 17210
   }
 }

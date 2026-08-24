@@ -1160,13 +1160,17 @@ partial class Build
             // --appstore-hygiene: the opt-in App Store TN2435-hygiene gate (issue #42). Packs the
             // Runtime, publishes a device IPA through a single-PackageReference consumer, and asserts
             // the runtime embeds as a signed SwiftBindingsRuntime.framework (not a loose dylib), the
-            // app embeds zero libswift*.dylib, and no SwiftSupport/ folder is present. Builds +
-            // inspects on the host (a code-signing identity is required, but no connected device or
-            // simulator), so it composes with no platform flag.
+            // app embeds zero libswift*.dylib, and no SwiftSupport/ folder is present. It then runs
+            // four macOS / Mac Catalyst legs (build and publish each) asserting the opposite layout
+            // those platforms require: every embedded framework must be a deep versioned bundle that
+            // still signs and whose install_name still resolves. Those legs run on this flag alone,
+            // not on --macos/--catalyst, and need no signing identity. Builds + inspects on the host
+            // (the IPA leg requires a code-signing identity, but no connected device or simulator),
+            // so it composes with no platform flag.
             if (AppstoreHygiene)
             {
                 if (Sim || Device || Macos || MacosX64 || Catalyst || CatalystX64 || Tvos)
-                    Log.Warning("--appstore-hygiene builds + inspects a device IPA on the host; platform flags are ignored.");
+                    Log.Warning("--appstore-hygiene builds + inspects app bundles on the host; platform flags are ignored.");
                 RunAppStoreHygieneLeg();
                 return;
             }

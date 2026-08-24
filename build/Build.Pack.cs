@@ -218,6 +218,14 @@ partial class Build
                     $"Packed Sdk.props ('{entryPath}') in '{sdkNupkg}' still contains the 0.0.0-dev sentinel.");
         }
 
+        // SDK: the Mac framework-anatomy pair ships beside Sdk.targets, which is the copy an
+        // SDK-direct consumer imports (the runtime package carries its own for the PackageReference
+        // path). Named entry-for-entry so a pack that dropped either file fails here rather than as
+        // a malformed-framework rejection on somebody's upload. ReadNupkgEntriesBySuffix throws
+        // when nothing matches, which is the assertion.
+        _ = ReadNupkgEntriesBySuffix(sdkNupkg, "Sdk/SwiftBindings.MacFrameworkAnatomy.targets");
+        _ = ReadNupkgEntriesBySuffix(sdkNupkg, "Sdk/deepen-mac-framework.sh");
+
         // Templates: template.json's sdkVersion defaultValue must be the real version, while its
         // `replaces` token stays the 0.0.0-dev sentinel (it matches the verbatim ProjectName.csproj
         // token the template engine swaps at `dotnet new` time).

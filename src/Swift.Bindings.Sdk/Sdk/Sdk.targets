@@ -26,6 +26,22 @@
 
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
 
+  <!-- Mac App Store framework anatomy, as a backstop for SDK-direct apps.
+
+       The step normally arrives through SwiftBindings.Runtime's buildTransitive targets, which
+       every Swift/mixed consumer resolves. An app that sets DisableImplicitSwiftRuntimeReference
+       has no such reference, so it would otherwise embed frameworks into a Mac app bundle with
+       no one to give them the versioned shape Mac App Store validation expects.
+
+       Imported only when the runtime's copy has not already claimed it — the guard property is
+       set by the file itself, and the NuGet-generated imports (which carry the runtime's copy)
+       are evaluated by the Microsoft.NET.Sdk import above, i.e. before this line. Existence is
+       checked because these files are packed into the SDK's Sdk/ folder rather than kept there
+       in the source tree; a repo-layout SDK simply resolves the runtime's copy instead. -->
+  <Import Project="$(MSBuildThisFileDirectory)SwiftBindings.MacFrameworkAnatomy.targets"
+          Condition="'$(_SwiftBindingsMacFrameworkAnatomyImported)' != 'true'
+                     AND Exists('$(MSBuildThisFileDirectory)SwiftBindings.MacFrameworkAnatomy.targets')" />
+
   <!-- Intermediate dir must be defined in .targets (not .props) so that
        $(IntermediateOutputPath) is fully resolved (e.g. obj/Debug/net10.0-ios/).
        In .props it evaluates to empty, causing output to land in project root. -->

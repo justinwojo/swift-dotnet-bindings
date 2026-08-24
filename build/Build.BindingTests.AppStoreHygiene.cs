@@ -105,6 +105,13 @@ partial class Build
         // Shared with the ReleaseGates composed leg so both run byte-identical structural checks.
         RunAppStoreHygieneStructuralChecks(nupkgDir, scope);
 
+        // Mac framework anatomy next, ahead of the signing tri-state below: macOS and Mac Catalyst
+        // bundles sign ad-hoc, so these legs are meaningful on any Mac and should not be lost to a
+        // host that merely lacks a device distribution identity. They assert the layout the Mac App
+        // Store requires, which is the opposite of the shallow shape the device-IPA leg asserts —
+        // both are correct, on their own platforms.
+        RunMacFrameworkAnatomyLegs(scratch, nupkgDir);
+
         // Tri-state (Finding 61): the structural nupkg checks above need no signing and have run. The
         // device-IPA leg requires this host to sign with AppStoreHygieneCodesignKey. If it can't, report
         // an honest SKIP (non-failing) instead of throwing deep inside the publish — "this host cannot
@@ -222,9 +229,21 @@ partial class Build
                     failures.Add($"runtime nupkg is missing required xcframework entry: {required}");
 
             // buildTransitive targets present; SwiftSupport injector + loose dylib are GONE.
-            if (!entries.Any(e => e.StartsWith("buildTransitive/", StringComparison.Ordinal)
-                    && e.EndsWith("SwiftBindings.Runtime.targets", StringComparison.Ordinal)))
-                failures.Add("runtime nupkg is missing buildTransitive/SwiftBindings.Runtime.targets.");
+            // The Mac framework-anatomy pair is named entry-for-entry rather than left to the Mac
+            // legs to notice: those legs consume the runtime through this package, so a nupkg that
+            // dropped either file would take the whole step down with it, and "the layout is
+            // wrong" is a much longer walk back than "the script did not ship".
+            foreach (var required in new[]
+                     {
+                         "SwiftBindings.Runtime.targets",
+                         "SwiftBindings.MacFrameworkAnatomy.targets",
+                         "deepen-mac-framework.sh",
+                     })
+            {
+                if (!entries.Any(e => e.StartsWith("buildTransitive/", StringComparison.Ordinal)
+                        && e.EndsWith(required, StringComparison.Ordinal)))
+                    failures.Add($"runtime nupkg is missing buildTransitive/{required}.");
+            }
             foreach (var e in entries)
             {
                 if (e.EndsWith("libSwiftBindingsRuntime.dylib", StringComparison.Ordinal))

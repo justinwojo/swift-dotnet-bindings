@@ -1,0 +1,103 @@
+<!-- Mac App Store framework anatomy for embedded frameworks.
+
+     Apple expects opposite bundle shapes on either side of the platform line. iOS and tvOS
+     frameworks must be SHALLOW — the Mach-O and Info.plist at the bundle root. macOS and Mac
+     Catalyst frameworks must be VERSIONED (deep): a root holding only `Versions/` plus symbolic
+     links, the executable at `Versions/A/<Name>`, and the plist at
+     `Versions/A/Resources/Info.plist`. dyld loads either shape without complaint on macOS, so a
+     framework authored once in the iOS shape runs fine everywhere and only reads as malformed
+     when a Mac app is validated for the store.
+
+     The deep shape needs REAL symbolic links, and a NuGet package is a zip that does not
+     round-trip them — so the links cannot be carried across the package boundary and are
+     materialised here, on the consumer's Mac, in the app bundle Apple actually validates.
+     Rewriting the embedded copy rather than the package's own tree also covers a framework from
+     any origin, including one whose links were flattened somewhere in transit.
+
+     Ordering is the other half of the story: the bundle must be rewritten BEFORE it is signed.
+     Editing a sealed bundle afterwards invalidates the seal, which is what a post-build repair
+     runs into. The step therefore sits after the workload has copied and post-processed the
+     frameworks and before it collects codesigning data and signs.
+
+     Escape hatches, for a consumer who needs one:
+       <SwiftBindingsDeepenMacFrameworks>false</SwiftBindingsDeepenMacFrameworks>  — turn it off
+       <SwiftBindingsMacFrameworkAnatomyExclude Include="Foo" />                   — leave Foo alone
+-->
+<Project>
+
+  <PropertyGroup>
+    <!-- Set on import so a second copy of this file (the SDK ships one for apps that opt out of
+         the implicit runtime package reference) can decline to import itself on top. -->
+    <_SwiftBindingsMacFrameworkAnatomyImported>true</_SwiftBindingsMacFrameworkAnatomyImported>
+
+    <SwiftBindingsDeepenMacFrameworks Condition="'$(SwiftBindingsDeepenMacFrameworks)' == ''">true</SwiftBindingsDeepenMacFrameworks>
+
+    <_SwiftBindingsMacFrameworkAnatomyScript>$(MSBuildThisFileDirectory)deepen-mac-framework.sh</_SwiftBindingsMacFrameworkAnatomyScript>
+    <_SwiftBindingsMacFrameworkAnatomyStamp>$(IntermediateOutputPath)swiftbindings-mac-anatomy.stamp</_SwiftBindingsMacFrameworkAnatomyStamp>
+
+    <!-- Runs only where all three of these hold: the step is enabled, the host is a Mac (the
+         work is `mv`/`ln -s` against a bundle that only exists on the build Mac — a
+         Windows-driven remote-Mac build is out of scope here), and the app being built is a
+         macOS or Mac Catalyst app. iOS/tvOS apps must keep their shallow frameworks, and their
+         bundles have no Contents/ directory at all, so the path check below is a second,
+         structural guard on the same line. -->
+    <_SwiftBindingsMacFrameworkAnatomyApplies Condition="'$(SwiftBindingsDeepenMacFrameworks)' == 'true'
+                                                          AND '$(OS)' == 'Unix'
+                                                          AND ($(TargetFramework.Contains('macos')) OR $(TargetFramework.Contains('maccatalyst')))">true</_SwiftBindingsMacFrameworkAnatomyApplies>
+  </PropertyGroup>
+
+  <!-- Clear last build's stamp before this build embeds anything, so the sentinel below reports
+       on THIS build rather than inheriting a previous one's success. Anchored to the workload's
+       framework-embed step, the same step the runtime's embed sentinel anchors to. -->
+  <Target Name="_SwiftBindingsResetMacFrameworkAnatomyStamp"
+          BeforeTargets="_CopyDirectoriesToBundle"
+          Condition="'$(_SwiftBindingsMacFrameworkAnatomyApplies)' == 'true'">
+    <Delete Files="$(_SwiftBindingsMacFrameworkAnatomyStamp)" ContinueOnError="true" />
+  </Target>
+
+  <!-- The rewrite itself. AfterTargets is the workload's post-embed step (dsymutil/strip, so the
+       Mach-O is final before it moves); BeforeTargets covers every entry into signing, so the
+       bundle reaches the signer already in its final shape. The script is idempotent, which is
+       what makes an incremental rebuild — where the frameworks are already versioned — a no-op
+       rather than a second rewrite.
+
+       For a multi-RID (universal) app the workload builds one bundle per RID and then merges
+       them; this fires in the inner builds and again on the merged bundle, where it finds the
+       shape already correct. The merged pass is also the repair point should a merge ever land a
+       copy where a link belongs.
+
+       Invoked through `sh` rather than executed directly: NuGet does not preserve the executable
+       bit through a package, so the restored script is not runnable on its own. -->
+  <Target Name="_SwiftBindingsDeepenMacFrameworks"
+          AfterTargets="_PostProcessAppBundle"
+          BeforeTargets="_CollectCodesigningData;_CodesignAppBundle;Codesign"
+          Condition="'$(_SwiftBindingsMacFrameworkAnatomyApplies)' == 'true'
+                     AND '$(AppBundleDir)' != ''
+                     AND Exists('$(AppBundleDir)/Contents/Frameworks')">
+    <ItemGroup>
+      <_SwiftBindingsMacFrameworkAnatomyExcludeArg Include="@(SwiftBindingsMacFrameworkAnatomyExclude->'--exclude &quot;%(Identity)&quot;')" />
+    </ItemGroup>
+
+    <Exec Command="/bin/sh &quot;$(_SwiftBindingsMacFrameworkAnatomyScript)&quot; @(_SwiftBindingsMacFrameworkAnatomyExcludeArg, ' ') &quot;$(AppBundleDir)/Contents/Frameworks&quot;" />
+
+    <WriteLinesToFile File="$(_SwiftBindingsMacFrameworkAnatomyStamp)"
+                      Lines="mac framework anatomy applied to $(AppBundleDir)/Contents/Frameworks"
+                      Overwrite="true" />
+  </Target>
+
+  <!-- Positive sentinel, in the spirit of the runtime's embed stamp: a build that embedded
+       frameworks into a Mac app bundle but never ran the rewrite would still succeed, and the
+       shape defect would only surface at upload. If the anchors above ever stop resolving — a
+       future workload renaming its embed/sign targets, say — the stamp is absent and the build
+       says so by name instead of quietly shipping the wrong anatomy. -->
+  <Target Name="_SwiftBindingsVerifyMacFrameworkAnatomy"
+          AfterTargets="Codesign"
+          Condition="'$(_SwiftBindingsMacFrameworkAnatomyApplies)' == 'true'
+                     AND '$(AppBundleDir)' != ''
+                     AND Exists('$(AppBundleDir)/Contents/Frameworks')">
+    <Error Condition="!Exists('$(_SwiftBindingsMacFrameworkAnatomyStamp)')"
+           Code="SWIFTBIND082"
+           Text="Frameworks were embedded into $(AppBundleDir)/Contents/Frameworks but the Mac framework-anatomy step did not run, so they may still carry the shallow (iOS) layout that Mac App Store validation rejects. _SwiftBindingsDeepenMacFrameworks anchors to the .NET Apple workload's _PostProcessAppBundle / Codesign targets; if those were renamed or removed, re-anchor it. Set SwiftBindingsDeepenMacFrameworks=false to opt out deliberately." />
+  </Target>
+
+</Project>

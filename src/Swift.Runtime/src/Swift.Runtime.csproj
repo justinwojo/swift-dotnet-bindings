@@ -119,6 +119,11 @@
           Pack="true"
           PackagePath="native/SwiftBindingsRuntime.xcframework/" />
     <None Include="build/SwiftBindings.Runtime.targets" Pack="true" PackagePath="buildTransitive" />
+    <!-- Imported by the targets above. The script travels next to it because the targets file
+         resolves it via $(MSBuildThisFileDirectory); it is invoked through `sh` since NuGet does
+         not carry the executable bit through a package. -->
+    <None Include="build/SwiftBindings.MacFrameworkAnatomy.targets" Pack="true" PackagePath="buildTransitive" />
+    <None Include="build/deepen-mac-framework.sh" Pack="true" PackagePath="buildTransitive" />
     <!-- Pack the descriptor adjacent to the targets file so consumer projects can resolve
          it via $(MSBuildThisFileDirectory)ILLink.Descriptors.xml. The same file is also
          consumed as <EmbeddedResource> above for the IL trimmer's auto-discovery path —
