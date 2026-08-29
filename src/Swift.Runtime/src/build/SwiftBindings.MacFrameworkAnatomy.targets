@@ -46,13 +46,54 @@
                                                           AND ($(TargetFramework.Contains('macos')) OR $(TargetFramework.Contains('maccatalyst')))">true</_SwiftBindingsMacFrameworkAnatomyApplies>
   </PropertyGroup>
 
-  <!-- Clear last build's stamp before this build embeds anything, so the sentinel below reports
-       on THIS build rather than inheriting a previous one's success. Anchored to the workload's
-       framework-embed step, the same step the runtime's embed sentinel anchors to. -->
+  <!-- Two things happen before the workload embeds anything, anchored to its framework-embed step
+       (the same step the runtime's embed sentinel anchors to).
+
+       First, last build's sentinel is cleared, so the check below reports on THIS build rather
+       than inheriting a previous one's success.
+
+       Second, every embedded framework this step has already rewritten is removed, together with
+       the workload's copy stamp for it, so the workload copies it again from the package. The
+       workload copies frameworks with `ditto`, and ditto cannot copy a directory onto a symbolic
+       link: once a bundle has been rewritten, its root `Modules` (or `Headers`, or any other
+       directory entry) is a link into Versions/Current, and a later copy of the shallow source
+       onto it fails with "<bundle>/Modules: Not a directory". The copy is incremental, gated on a
+       stamp per framework, so most rebuilds never reach ditto — but a package update, a stamp
+       lost from obj/, or a publish whose inputs moved does, and then the build dies. It would also
+       be wrong if it survived: ditto does overwrite the FILE links, so the fresh binary would land
+       at the root beside the previous package's payload under Versions/. Starting every copy from
+       an empty destination makes the embedded copy always the current package's, in the versioned
+       shape, at the cost of re-copying a few frameworks per build.
+
+       `_DirectoriesToPublish` (with its TargetDirectory and StampLocation metadata) is computed by
+       the copy target's own DependsOnTargets, which run before any BeforeTargets target, so it is
+       populated here. Only a destination carrying a Versions/ directory is removed: a shallow
+       destination is one ditto copies onto without trouble, and leaving it alone keeps the
+       workload's incremental copy intact for anything this step never touched.
+
+       The stamp goes first, and its removal is allowed to fail the build: the stamp is what tells
+       the workload's incremental copy that the destination is current, so a stamp that outlived
+       the destination would have the copy skipped over an empty Frameworks/ entry — an app that
+       builds, signs, and ships without the framework. Removing the destination only once the
+       stamp is gone means a failure at either point leaves a state the next copy repairs. -->
   <Target Name="_SwiftBindingsResetMacFrameworkAnatomyStamp"
           BeforeTargets="_CopyDirectoriesToBundle"
           Condition="'$(_SwiftBindingsMacFrameworkAnatomyApplies)' == 'true'">
     <Delete Files="$(_SwiftBindingsMacFrameworkAnatomyStamp)" ContinueOnError="true" />
+
+    <ItemGroup>
+      <_SwiftBindingsDeepenedFrameworkToRefresh Include="@(_DirectoriesToPublish)"
+                                                Condition="'%(_DirectoriesToPublish.TargetDirectory)' != ''
+                                                           AND Exists('%(_DirectoriesToPublish.TargetDirectory)/Versions')" />
+    </ItemGroup>
+
+    <Message Importance="normal"
+             Condition="'@(_SwiftBindingsDeepenedFrameworkToRefresh)' != ''"
+             Text="  framework anatomy: removing the versioned copy of %(_SwiftBindingsDeepenedFrameworkToRefresh.TargetDirectory) so the workload embeds it afresh" />
+    <Delete Files="%(_SwiftBindingsDeepenedFrameworkToRefresh.StampLocation)"
+            Condition="'@(_SwiftBindingsDeepenedFrameworkToRefresh)' != '' AND '%(_SwiftBindingsDeepenedFrameworkToRefresh.StampLocation)' != ''" />
+    <RemoveDir Directories="%(_SwiftBindingsDeepenedFrameworkToRefresh.TargetDirectory)"
+               Condition="'@(_SwiftBindingsDeepenedFrameworkToRefresh)' != ''" />
   </Target>
 
   <!-- The rewrite itself. AfterTargets is the workload's post-embed step (dsymutil/strip, so the

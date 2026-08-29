@@ -275,6 +275,38 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void NewerContentDeliveredAtTheRoot_ReplacesTheVersionDirectorysCopy()
+        {
+            if (!IsMacOS) return;
+
+            var frameworks = MakeTempDir();
+            var fw = CreateDeepFramework(frameworks, "SBApple");
+            Directory.CreateDirectory(Path.Combine(fw, "Versions", "A", "Modules"));
+            File.WriteAllText(Path.Combine(fw, "Versions", "A", "Modules", "module.modulemap"), "old-module");
+            Directory.CreateSymbolicLink(Path.Combine(fw, "Modules"), "Versions/Current/Modules");
+
+            // What a copier that overwrites file links with files (ditto does exactly this) leaves
+            // behind when a newer package is copied over the rewritten bundle: fresh content at the
+            // root, previous content under Versions/. The root is the newer delivery and must win.
+            File.Delete(Path.Combine(fw, "SBApple"));
+            File.WriteAllText(Path.Combine(fw, "SBApple"), "new-mach-o");
+            File.Delete(Path.Combine(fw, "Resources"));
+            Directory.CreateDirectory(Path.Combine(fw, "Resources"));
+            File.WriteAllText(Path.Combine(fw, "Resources", "Info.plist"), PlistXml("SBApple") + "<!-- new -->");
+            File.Delete(Path.Combine(fw, "Modules"));
+            Directory.CreateDirectory(Path.Combine(fw, "Modules"));
+            File.WriteAllText(Path.Combine(fw, "Modules", "module.modulemap"), "new-module");
+
+            var (exit, stdout, stderr) = Deepen(frameworks);
+            Assert.True(exit == 0, $"converter failed: {stdout}{stderr}");
+
+            AssertValidDeepBundle(fw, "SBApple");
+            Assert.Equal("new-mach-o", File.ReadAllText(Path.Combine(fw, "Versions", "A", "SBApple")));
+            Assert.EndsWith("<!-- new -->", File.ReadAllText(Path.Combine(fw, "Versions", "A", "Resources", "Info.plist")));
+            Assert.Equal("new-module", File.ReadAllText(Path.Combine(fw, "Versions", "A", "Modules", "module.modulemap")));
+        }
+
+        [Fact]
         public void AlreadyVersioned_IsLeftByteIdentical()
         {
             if (!IsMacOS) return;
@@ -513,6 +545,57 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void NestedFrameworks_AreRewrittenAlongWithTheirParent()
+        {
+            if (!IsMacOS) return;
+
+            // An umbrella or vendor framework carrying frameworks of its own: the child is as
+            // visible to a validator as the parent, and after the parent's rewrite it lives under
+            // Versions/A/Frameworks. Both a shallow parent and one that is already deep are covered,
+            // since the already-deep path is the one an incremental rebuild takes.
+            var frameworks = MakeTempDir();
+            var shallowParent = CreateShallowFramework(frameworks, "Vendor", withModules: false);
+            CreateShallowFramework(Path.Combine(shallowParent, "Frameworks"), "Child");
+
+            var deepParent = CreateDeepFramework(frameworks, "Umbrella");
+            var grandchildHost = CreateShallowFramework(Path.Combine(deepParent, "Versions", "A", "Frameworks"), "Inner");
+            CreateShallowFramework(Path.Combine(grandchildHost, "Frameworks"), "Innermost", withModules: false);
+            Directory.CreateSymbolicLink(Path.Combine(deepParent, "Frameworks"), "Versions/Current/Frameworks");
+
+            var (exit, stdout, stderr) = Deepen(frameworks);
+            Assert.True(exit == 0, $"converter failed: {stdout}{stderr}");
+
+            AssertValidDeepBundle(shallowParent, "Vendor");
+            AssertValidDeepBundle(Path.Combine(shallowParent, "Versions", "A", "Frameworks", "Child.framework"), "Child");
+            Assert.True(IsSymlink(Path.Combine(shallowParent, "Frameworks")));
+
+            AssertValidDeepBundle(deepParent, "Umbrella");
+            var inner = Path.Combine(deepParent, "Versions", "A", "Frameworks", "Inner.framework");
+            AssertValidDeepBundle(inner, "Inner");
+            AssertValidDeepBundle(Path.Combine(inner, "Versions", "A", "Frameworks", "Innermost.framework"), "Innermost");
+
+            // The nested passes report per bundle, never a spurious "no changes needed".
+            Assert.DoesNotContain("no changes needed", stdout);
+        }
+
+        [Fact]
+        public void NestedFrameworks_HonourTheExclusionList()
+        {
+            if (!IsMacOS) return;
+
+            var frameworks = MakeTempDir();
+            var parent = CreateShallowFramework(frameworks, "Vendor", withModules: false);
+            var kept = CreateShallowFramework(Path.Combine(parent, "Frameworks"), "KeepShallow");
+            var keptBefore = Snapshot(kept);
+
+            Assert.Equal(0, Deepen(frameworks, "--exclude", "KeepShallow").exitCode);
+
+            AssertValidDeepBundle(parent, "Vendor");
+            var keptAfter = Path.Combine(parent, "Versions", "A", "Frameworks", "KeepShallow.framework");
+            Assert.Equal(keptBefore, Snapshot(keptAfter));
+        }
+
+        [Fact]
         public void MissingFrameworksDirectory_IsANoOpNotAFailure()
         {
             if (!IsMacOS) return;
@@ -580,6 +663,39 @@ namespace BindingsGeneration.Tests
             // Editing a sealed bundle invalidates the seal, so the rewrite has to precede signing.
             Assert.Contains("AfterTargets=\"_PostProcessAppBundle\"", targets);
             Assert.Contains("BeforeTargets=\"_CollectCodesigningData;_CodesignAppBundle;Codesign\"", targets);
+        }
+
+        [Fact]
+        public void Targets_RemoveAnAlreadyVersionedCopyBeforeTheWorkloadCopiesOverIt()
+        {
+            var targets = File.ReadAllText(TargetsPath);
+
+            // The workload embeds frameworks with ditto, which cannot copy a directory onto the
+            // directory links a rewritten bundle carries at its root ("Modules: Not a directory").
+            // Its copy is stamp-gated, so the collision only surfaces when the stamp is stale — a
+            // package update, a lost obj/, a publish whose inputs moved — which is exactly when a
+            // consumer least expects a build to break. The step that clears the sentinel, which
+            // already runs before the copy, therefore also removes every destination that has a
+            // Versions/ tree and the workload's stamp for it, so the copy starts from nothing.
+            var start = targets.IndexOf("<Target Name=\"_SwiftBindingsResetMacFrameworkAnatomyStamp\"", StringComparison.Ordinal);
+            Assert.True(start >= 0);
+            var end = targets.IndexOf("</Target>", start, StringComparison.Ordinal);
+            var resetTarget = targets[start..end];
+
+            Assert.Contains("BeforeTargets=\"_CopyDirectoriesToBundle\"", resetTarget);
+            Assert.Contains("@(_DirectoriesToPublish)", resetTarget);
+            Assert.Contains("Exists('%(_DirectoriesToPublish.TargetDirectory)/Versions')", resetTarget);
+
+            // The stamp is what tells the workload's incremental copy the destination is current,
+            // so it has to be gone before the destination is, and its removal must not be allowed
+            // to fail quietly — a surviving stamp over a removed destination is a copy that gets
+            // skipped and an app that ships without the framework.
+            var removeDir = resetTarget.IndexOf("<RemoveDir Directories=\"%(_SwiftBindingsDeepenedFrameworkToRefresh.TargetDirectory)\"", StringComparison.Ordinal);
+            var deleteStamp = resetTarget.IndexOf("<Delete Files=\"%(_SwiftBindingsDeepenedFrameworkToRefresh.StampLocation)\"", StringComparison.Ordinal);
+            Assert.True(removeDir >= 0 && deleteStamp >= 0);
+            Assert.True(deleteStamp < removeDir, "the workload's copy stamp must be deleted before its destination is removed");
+            var deleteStampElement = resetTarget[deleteStamp..resetTarget.IndexOf("/>", deleteStamp, StringComparison.Ordinal)];
+            Assert.DoesNotContain("ContinueOnError", deleteStampElement);
         }
 
         [Fact]

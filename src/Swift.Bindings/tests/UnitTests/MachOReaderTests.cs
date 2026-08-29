@@ -145,6 +145,90 @@ public class MachOReaderTests
         Assert.Null(MachOReader.ReadInstallName(Path.Combine(Path.GetTempPath(), "does-not-exist-" + Guid.NewGuid().ToString("N"))));
     }
 
+    // ---- dependency (otool -L) reading ----
+
+    [Fact]
+    public void ReadLinkedDylibs_ReturnsEveryDependencyCommandInOrder_AndNotTheInstallName()
+    {
+        var image = BuildThinMachOWithCommands(Endian.Little, is64: true,
+            DylibCommand(LcIdDylib, RuntimeInstallName, Endian.Little, is64: true),
+            DylibCommand(LcLoadDylib, "/usr/lib/libSystem.B.dylib", Endian.Little, is64: true),
+            DylibCommand(LcLoadWeakDylib, "/usr/lib/swift/libswiftCoreFoundation.dylib", Endian.Little, is64: true),
+            DylibCommand(LcReexportDylib, "@rpath/Other.framework/Other", Endian.Little, is64: true),
+            DylibCommand(LcLoadUpwardDylib, "@rpath/Up.framework/Up", Endian.Little, is64: true));
+
+        var deps = MachOReader.ReadLinkedDylibs(image);
+        Assert.NotNull(deps);
+        Assert.Equal(new[]
+        {
+            "/usr/lib/libSystem.B.dylib",
+            "/usr/lib/swift/libswiftCoreFoundation.dylib",
+            "@rpath/Other.framework/Other",
+            "@rpath/Up.framework/Up",
+        }, deps);
+    }
+
+    [Fact]
+    public void ReadLinkedDylibs_BigEndian32_ReadsThroughTheHeaderEndianness()
+    {
+        var image = BuildThinMachOWithCommands(Endian.Big, is64: false,
+            DylibCommand(LcLoadDylib, "@rpath/Foo.framework/Foo", Endian.Big, is64: false));
+        Assert.Equal(new[] { "@rpath/Foo.framework/Foo" }, MachOReader.ReadLinkedDylibs(image));
+    }
+
+    [Fact]
+    public void ReadLinkedDylibs_Fat_UnionsSlicesWithoutDuplicates()
+    {
+        // A universal binary's slices usually name the same dependencies, but a slice may carry one
+        // the other does not (a weak import present on one architecture only); the union is what a
+        // loader on either architecture could ask for.
+        var arm64 = BuildThinMachOWithCommands(Endian.Little, is64: true,
+            DylibCommand(LcLoadDylib, "/usr/lib/libSystem.B.dylib", Endian.Little, is64: true),
+            DylibCommand(LcLoadDylib, "@rpath/Shared.framework/Shared", Endian.Little, is64: true));
+        var x86_64 = BuildThinMachOWithCommands(Endian.Little, is64: true,
+            DylibCommand(LcLoadDylib, "/usr/lib/libSystem.B.dylib", Endian.Little, is64: true),
+            DylibCommand(LcLoadWeakDylib, "@rpath/X64Only.framework/X64Only", Endian.Little, is64: true));
+
+        var deps = MachOReader.ReadLinkedDylibs(BuildFat((CpuTypeArm64, arm64), (CpuTypeX86_64, x86_64)));
+        Assert.Equal(new[]
+        {
+            "/usr/lib/libSystem.B.dylib",
+            "@rpath/Shared.framework/Shared",
+            "@rpath/X64Only.framework/X64Only",
+        }, deps);
+    }
+
+    [Fact]
+    public void ReadLinkedDylibs_NoDependencyCommands_ReturnsEmptyNotNull()
+    {
+        var image = BuildThinMachOWithSingleOtherCommand(LcUuid, Endian.Little);
+        var deps = MachOReader.ReadLinkedDylibs(image);
+        Assert.NotNull(deps);
+        Assert.Empty(deps);
+    }
+
+    [Fact]
+    public void ReadLinkedDylibs_NotAMachO_ReturnsNull()
+    {
+        Assert.Null(MachOReader.ReadLinkedDylibs(new byte[] { 0x7F, 0x45, 0x4C, 0x46, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06 }));
+        Assert.Null(MachOReader.ReadLinkedDylibs(Array.Empty<byte>()));
+        Assert.Null(MachOReader.ReadLinkedDylibs(Path.Combine(Path.GetTempPath(), "does-not-exist-" + Guid.NewGuid().ToString("N"))));
+    }
+
+    [Fact]
+    public void ReadLinkedDylibs_TruncatedCommand_StopsWithoutReadingPastTheBuffer()
+    {
+        var image = BuildThinMachOWithCommands(Endian.Little, is64: true,
+            DylibCommand(LcLoadDylib, "/usr/lib/libSystem.B.dylib", Endian.Little, is64: true),
+            DylibCommand(LcLoadDylib, "@rpath/Foo.framework/Foo", Endian.Little, is64: true));
+        var truncated = new byte[image.Length - 6];
+        Array.Copy(image, truncated, truncated.Length);
+
+        var deps = MachOReader.ReadLinkedDylibs(truncated);
+        Assert.NotNull(deps);
+        Assert.Equal(new[] { "/usr/lib/libSystem.B.dylib" }, deps);
+    }
+
     // ---- fixture construction ----
 
     private enum Endian { Little, Big }
@@ -154,6 +238,10 @@ public class MachOReaderTests
     private const uint FatMagic = 0xCAFEBABE;
     private const uint FatMagic64 = 0xCAFEBABF;
     private const uint LcIdDylib = 0x0D;
+    private const uint LcLoadDylib = 0x0C;
+    private const uint LcLoadWeakDylib = 0x80000018;
+    private const uint LcReexportDylib = 0x8000001F;
+    private const uint LcLoadUpwardDylib = 0x80000023;
     private const uint LcUuid = 0x1B;
     private const int CpuTypeArm64 = 0x0100000C;
     private const int CpuTypeX86_64 = 0x01000007;
@@ -186,16 +274,21 @@ public class MachOReaderTests
         if (is64) WriteU32(image, 0, endian);                   // reserved (64-bit only)
     }
 
-    private static byte[] IdDylibCommand(string installName, Endian endian, bool is64)
+    private static byte[] IdDylibCommand(string installName, Endian endian, bool is64) =>
+        DylibCommand(LcIdDylib, installName, endian, is64);
+
+    // Every dylib-naming load command (LC_ID_DYLIB, LC_LOAD_DYLIB, LC_LOAD_WEAK_DYLIB, …) shares the
+    // dylib_command layout; only the cmd value differs.
+    private static byte[] DylibCommand(uint cmd, string name, Endian endian, bool is64)
     {
-        var nameBytes = Encoding.UTF8.GetBytes(installName);
+        var nameBytes = Encoding.UTF8.GetBytes(name);
         const int nameOffset = 24; // cmd(4) cmdsize(4) name(4) timestamp(4) current(4) compat(4)
         int align = is64 ? 8 : 4;
         int rawCmdSize = nameOffset + nameBytes.Length + 1; // + NUL
         int cmdSize = (rawCmdSize + (align - 1)) & ~(align - 1);
 
         var lc = new List<byte>();
-        WriteU32(lc, LcIdDylib, endian);
+        WriteU32(lc, cmd, endian);
         WriteU32(lc, (uint)cmdSize, endian);
         WriteU32(lc, nameOffset, endian);
         WriteU32(lc, 1, endian);            // timestamp
@@ -207,12 +300,16 @@ public class MachOReaderTests
         return lc.ToArray();
     }
 
-    private static byte[] BuildThinMachO(string installName, Endian endian, bool is64)
+    private static byte[] BuildThinMachO(string installName, Endian endian, bool is64) =>
+        BuildThinMachOWithCommands(endian, is64, IdDylibCommand(installName, endian, is64));
+
+    private static byte[] BuildThinMachOWithCommands(Endian endian, bool is64, params byte[][] commands)
     {
-        var lc = IdDylibCommand(installName, endian, is64);
         var image = new List<byte>();
-        AppendMachHeader(image, ncmds: 1, sizeofcmds: (uint)lc.Length, endian, is64);
-        image.AddRange(lc);
+        uint sizeofcmds = 0;
+        foreach (var lc in commands) sizeofcmds += (uint)lc.Length;
+        AppendMachHeader(image, ncmds: (uint)commands.Length, sizeofcmds, endian, is64);
+        foreach (var lc in commands) image.AddRange(lc);
         return image.ToArray();
     }
 

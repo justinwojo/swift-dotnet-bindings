@@ -45,7 +45,15 @@
 
 set -e
 
-EXCLUDES=""
+# A framework may carry frameworks of its own (an umbrella or vendor bundle with a Frameworks/
+# directory), and those need the versioned shape just as much as their parent. Once the parent is
+# deep they sit under Versions/Current/Frameworks, and this script re-enters itself on that
+# directory as a child process rather than recursing in-shell: the functions below share the
+# shell's single variable namespace, so an in-shell recursion would overwrite the loop state of the
+# caller mid-iteration. The exclusion list rides along in the environment so `--exclude` reaches
+# the nested pass unchanged, and the nested pass keeps quiet when it finds nothing to do.
+EXCLUDES=${SWIFTBINDINGS_DEEPEN_EXCLUDES:-}
+NESTED_PASS=${SWIFTBINDINGS_DEEPEN_NESTED:-}
 
 while [ $# -gt 0 ]; do
     case $1 in
@@ -161,9 +169,12 @@ link_top_level() {
 # (Modules, Headers, PrivateHeaders, nested Frameworks, …) keeping their name, and loose files
 # (Info.plist, PrivacyInfo.xcprivacy, …) under Resources. Symlinks are left for link_top_level.
 #
-# Where an entry exists on both sides, the version directory's copy is the one the finished layout
-# refers to, so it wins and the root copy is dropped — that is what makes a bundle whose links were
-# flattened into copies repair rather than double.
+# Where an entry exists on both sides, the ROOT copy wins and replaces the version directory's: real
+# content at the root of a versioned tree is content that was delivered after the tree was made — a
+# copier writing a newer package's files over the links — while the version directory holds what
+# was there before. Preferring the root is what keeps the embedded payload current; a bundle whose
+# links were merely flattened into identical copies repairs the same way either round, without
+# doubling.
 migrate_root_entries() {
     fw=$1
     version=$2
@@ -181,11 +192,8 @@ migrate_root_entries() {
                     continue
                 fi
                 base=$(basename "$entry")
-                if [ -e "$fw/Versions/$version/Resources/$base" ]; then
-                    rm -rf "$entry"
-                else
-                    mv "$entry" "$fw/Versions/$version/Resources/$base"
-                fi
+                rm -rf "$fw/Versions/$version/Resources/$base"
+                mv "$entry" "$fw/Versions/$version/Resources/$base"
             done
             rm -rf "$fw/Resources"
         fi
@@ -212,11 +220,8 @@ migrate_root_entries() {
             dest="$fw/Versions/$version/Resources/$base"
         fi
 
-        if [ -e "$dest" ] || [ -L "$dest" ]; then
-            rm -rf "$entry"
-        else
-            mv "$entry" "$dest"
-        fi
+        rm -rf "$dest"
+        mv "$entry" "$dest"
     done
 }
 
@@ -301,6 +306,14 @@ converge_versioned() {
     link_top_level "$fw"
 }
 
+# Give any frameworks nested inside a (now versioned) bundle the same treatment, through a child
+# process for the reason given at the top of the file.
+deepen_nested() {
+    nested="$1/Versions/Current/Frameworks"
+    [ -d "$nested" ] || return 0
+    SWIFTBINDINGS_DEEPEN_EXCLUDES="$EXCLUDES" SWIFTBINDINGS_DEEPEN_NESTED=1 /bin/sh "$0" "$nested"
+}
+
 changed=0
 
 for fw in "$FRAMEWORKS_DIR"/*.framework; do
@@ -317,8 +330,9 @@ for fw in "$FRAMEWORKS_DIR"/*.framework; do
 
     exec_name=$(executable_name "$fw" "$name")
 
-    # Already the deep shape — leave it exactly as it is.
+    # Already the deep shape — leave it exactly as it is, apart from anything nested in it.
     if is_valid_deep "$fw" "$exec_name"; then
+        deepen_nested "$fw"
         continue
     fi
 
@@ -339,10 +353,11 @@ for fw in "$FRAMEWORKS_DIR"/*.framework; do
         echo "  framework anatomy: rewrote $bundle into a versioned bundle"
     fi
     changed=$((changed + 1))
+    deepen_nested "$fw"
 done
 
 # Silence on a rebuild is the expected case; say so once rather than per bundle.
-if [ "$changed" -eq 0 ]; then
+if [ "$changed" -eq 0 ] && [ -z "$NESTED_PASS" ]; then
     echo "  framework anatomy: no changes needed in $FRAMEWORKS_DIR"
 fi
 
