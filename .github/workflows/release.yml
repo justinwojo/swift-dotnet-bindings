@@ -578,8 +578,12 @@ jobs:
             src/Swift.Bindings.Sdk/tools/swift-interface-parser
           key: sip-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('tools/SwiftInterfaceParser/Package.swift', 'tools/SwiftInterfaceParser/Package.resolved', 'tools/SwiftInterfaceParser/Sources/**') }}
 
+      # pack-gate runs through Compile, so a cold SwiftInterfaceParser cache puts a
+      # swift-syntax build inside this budget — 14 minutes of the 30 on a slow runner,
+      # which is what tripped it. The cache normally absorbs that; the headroom is for
+      # the runs that legitimately miss it (a parser bump, a toolchain move).
       - name: Pack gate (nupkg packaging regression)
-        timeout-minutes: 30
+        timeout-minutes: 45
         run: dotnet nuke pack-gate
 
   # --- Publish (gated by all validation jobs + pack) ---
