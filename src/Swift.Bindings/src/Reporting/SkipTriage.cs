@@ -68,6 +68,17 @@ public sealed class SkipTriageSummary
     /// instead of an unexplained gap between the two figures.
     /// </summary>
     public int DeclaredButDegradedCount { get; set; }
+
+    /// <summary>
+    /// Every reason name <see cref="SkipDispositionClassifier.IsDeclaredButDegraded"/> covers — the
+    /// whole predicate, not just the reasons this run happened to hit, so a consumer sees the same
+    /// contract on a corpus that trips none of them. Published because the predicate has an
+    /// out-of-process consumer: the BindingTests coverage ratchet measures LOST surface per feature,
+    /// and a row here names a member that WAS emitted. Reading the set beats re-declaring it — a
+    /// second copy agrees with this one only until the next reason is added, and the failure is
+    /// silent (a working member reported as a coverage loss).
+    /// </summary>
+    public List<string> DeclaredButDegradedReasons { get; } = new();
 }
 
 /// <summary>
@@ -98,6 +109,12 @@ public static class SkipTriageBuilder
         var byReason = new Dictionary<SkipReason, int>();
         var summary = new SkipTriageSummary { Total = items.Count };
         var declaredButDegraded = 0;
+
+        summary.DeclaredButDegradedReasons.AddRange(
+            Enum.GetValues<SkipReason>()
+                .Where(SkipDispositionClassifier.IsDeclaredButDegraded)
+                .Select(reason => reason.ToString())
+                .OrderBy(name => name, StringComparer.Ordinal));
 
         foreach (var item in items)
         {

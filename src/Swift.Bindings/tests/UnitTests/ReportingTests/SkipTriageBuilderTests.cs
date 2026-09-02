@@ -194,4 +194,46 @@ public class SkipTriageBuilderTests
         Assert.Equal(0, summary.DegradedConsumeCount);
         Assert.Empty(summary.DegradedConsumeItems);
     }
+
+    [Fact]
+    public void Build_PublishesTheWholeDeclaredButDegradedPredicate_NotJustTheReasonsPresent()
+    {
+        // The set is a contract for out-of-process consumers that measure lost surface (the coverage
+        // ratchet), so it must describe the predicate rather than this input: a corpus that trips none
+        // of the reasons still has to learn which reasons to exclude. Asserted against the predicate
+        // itself so a newly-classified reason cannot reach the emitted set without reaching this list.
+        var expected = Enum.GetValues<SkipReason>()
+            .Where(SkipDispositionClassifier.IsDeclaredButDegraded)
+            .Select(reason => reason.ToString())
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToList();
+
+        // MixedList() deliberately contains no declared-but-degraded row.
+        var summary = SkipTriageBuilder.Build(MixedList());
+
+        Assert.Equal(0, summary.DeclaredButDegradedCount);
+        Assert.Equal(expected, summary.DeclaredButDegradedReasons);
+    }
+
+    [Fact]
+    public void DeclaredButDegraded_MembershipIsFrozen_WideningIsADeliberateAct()
+    {
+        // Deliberately duplicates the predicate as a literal, which the sibling test above
+        // deliberately does not. The BindingTests coverage ratchet excludes these reasons from the
+        // surface-loss count it enforces, so widening the predicate narrows a release gate — and an
+        // increase-only ratchet cannot notice, because a count that wrongly DROPS stays green.
+        // Whoever adds a reason has to change this list in the same commit and argue that the
+        // surface it names really does still ship.
+        string[] frozen =
+        [
+            nameof(SkipReason.PropertyWrapperDeclinedDirectPInvoke),
+            nameof(SkipReason.ProtocolProxyVtableEmpty),
+            nameof(SkipReason.ProtocolWitnessNotDispatchable),
+        ];
+
+        var summary = SkipTriageBuilder.Build(MixedList());
+
+        Assert.Equal(frozen.OrderBy(n => n, StringComparer.Ordinal).ToList(),
+            summary.DeclaredButDegradedReasons);
+    }
 }

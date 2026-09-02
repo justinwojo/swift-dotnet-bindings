@@ -33,6 +33,24 @@ COVERAGE_RATCHET_KEYS = {
 }
 
 
+def partition_declared_but_degraded(skipped_items, declared_but_degraded_reasons):
+    """Split a skip list into (lost surface, emitted-but-degraded).
+
+    Not every row in SkippedItems describes lost surface. Some name a member the generator DID
+    emit, degraded on one call path — a property whose @_cdecl wrapper was declined still binds
+    through the direct CallConvSwift P/Invoke, and a non-dispatchable protocol witness still has
+    its interface and proxy emitted. Only the first partition may feed a count that measures loss.
+
+    The reason set is the generator's, read from the report rather than restated here: a second
+    copy agrees with the predicate only until the next reason is added, and the disagreement is
+    silent in the dangerous direction (a working member reported as a coverage gap).
+    """
+    reasons = set(declared_but_degraded_reasons or ())
+    surface_loss = [i for i in skipped_items if i.get("Reason") not in reasons]
+    degraded_only = [i for i in skipped_items if i.get("Reason") in reasons]
+    return surface_loss, degraded_only
+
+
 def compare_coverage_baseline(summary, baseline):
     """Ratchet the derived coverage summary against committed baseline budgets.
 
@@ -1051,10 +1069,26 @@ def main():
         skipped_items = []
         if binding_report and "SkippedItems" in binding_report:
             skipped_items = binding_report["SkippedItems"]
-    
+
+        # must_pass_degraded asks "did this feature lose surface?", so the rows that name an EMITTED
+        # member have to come out before attribution — see partition_declared_but_degraded. Both
+        # .get()s tolerate an explicit JSON null, which "default" alone would not.
+        declared_but_degraded = set(
+            ((binding_report or {}).get("SkipTriage") or {}).get("DeclaredButDegradedReasons") or [])
+        if binding_report and not declared_but_degraded:
+            print("WARNING: binding-report.json publishes no SkipTriage.DeclaredButDegradedReasons — "
+                  "degraded-but-emitted members cannot be separated from real skips; "
+                  "the degraded count may overstate lost surface")
+        surface_loss_items, degraded_only_items = partition_declared_but_degraded(
+            skipped_items, declared_but_degraded)
+
         # Build feature -> skipped items mapping (declaration-level granularity)
-        feature_skips = match_skipped_to_features(skipped_items, decl_map, module_name)
-    
+        feature_skips = match_skipped_to_features(surface_loss_items, decl_map, module_name)
+        # Same attribution over the excluded rows, so they stay visible as a callout instead of
+        # vanishing from the feature view — an anonymous fall-through is the thing they exist to name.
+        degraded_only_feature_skips = match_skipped_to_features(
+            degraded_only_items, decl_map, module_name)
+
         must_pass_total = 0
         must_pass_passing = 0
         must_pass_degraded = 0
@@ -1206,7 +1240,17 @@ def main():
                 "with_test": known_unsupported_with_test,
                 "compiled_out": known_unsupported_compiled_out,
                 "without_test": known_unsupported_without_test,
-            }
+            },
+            # Reported, never ratcheted: these rows describe members that ARE on the emitted surface.
+            # attributed_rows counts only the rows that land on a tracked feature — the rest of
+            # total_rows sit on declarations no feature claims, and would be invisible here anyway.
+            "declared_but_degraded": {
+                "total_rows": len(degraded_only_items),
+                "attributed_rows": sum(len(items)
+                                       for items in degraded_only_feature_skips.values()),
+                "by_feature": {name: len(items)
+                               for name, items in sorted(degraded_only_feature_skips.items())},
+            },
         }
     
     
@@ -1316,6 +1360,17 @@ def main():
                 print(f"      {s['kind']} {s['name']}: {s['reason']}")
             if len(skips) > 3:
                 print(f"      ... and {len(skips) - 3} more")
+
+    dbd = summary.get("declared_but_degraded", {})
+    if dbd.get("attributed_rows"):
+        by_feature = dbd.get("by_feature", {})
+        print(f"\nNOTE: {dbd['attributed_rows']} row(s) on {len(by_feature)} tracked feature(s) "
+              f"({dbd['total_rows']} corpus-wide) describe an EMITTED member degraded on one call "
+              f"path, not a lost one — reported, not counted as degraded:")
+        for name, count in list(by_feature.items())[:10]:
+            print(f"  - {name}: {count} row(s)")
+        if len(by_feature) > 10:
+            print(f"  ... and {len(by_feature) - 10} more feature(s)")
 
     mp_untested = mp.get('passing_untested', 0)
     if mp_untested > 0:
