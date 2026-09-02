@@ -262,7 +262,7 @@ jobs:
         run: >
           python3 build/scripts/ci/ci_ios_test.py
           --device-udid "$SIM_UDID" --skip-prepare --skip-build
-          --tier 2 --timeout 90 --skip-regen
+          --tier 2 --timeout 420 --skip-regen
           --step-timeout 2100
 
       - name: Upload simulator diagnostics

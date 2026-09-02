@@ -117,7 +117,7 @@ def run_tests(
     test_framework_dir: str,
     device_udid: str,
     tier: int = 2,
-    timeout: int = 90,
+    timeout: int = 420,
     skip_regen: bool = True,
     max_test_retries: int = 1,
     deadline: Optional[float] = None,
@@ -317,7 +317,7 @@ def run_pipeline(
     skip_prepare: bool = False,
     skip_build: bool = False,
     tier: int = 2,
-    test_timeout: int = 90,
+    test_timeout: int = 420,
     skip_regen: bool = True,
     max_infra_retries: int = 1,
     diag_dir: str = "/tmp/sim-diagnostics",
@@ -516,7 +516,11 @@ Examples:
     test_group.add_argument("--test-framework-dir", default="BindingTests",
                            help="Path to BindingTests directory (default: BindingTests)")
     test_group.add_argument("--tier", type=int, default=2, help="Test tier (default: 2)")
-    test_group.add_argument("--timeout", type=int, default=90, help="Test timeout in seconds (default: 90)")
+    test_group.add_argument("--timeout", type=int, default=420,
+                           help="Per-launch app timeout in seconds (default: 420). Must comfortably "
+                                "exceed a full suite run on the slowest runner, or the launcher kills "
+                                "the app mid-suite and the resume loop turns an in-flight test into a "
+                                "spurious crash.")
     test_group.add_argument("--skip-regen", action="store_true", default=True,
                            help="Skip binding regeneration (default: true)")
     test_group.add_argument("--skip-build", action="store_true",
