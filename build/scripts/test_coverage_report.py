@@ -125,5 +125,49 @@ class CompareCoverageBaselineTests(unittest.TestCase):
                          "do not re-add it as a dead key")
 
 
+class PartitionDeclaredButDegradedTests(unittest.TestCase):
+    """The split that decides what must_pass_degraded is allowed to count.
+
+    Over-exclusion here is the dangerous direction and the ratchet cannot catch it: an
+    increase-only gate stays green when a count wrongly drops, so a reason that should have
+    counted as lost surface just stops being measured, silently.
+    """
+
+    ITEMS = [
+        {"Reason": "UnsupportedSignature", "Name": "realLoss"},
+        {"Reason": "PropertyWrapperDeclinedDirectPInvoke", "Name": "stillEmitted"},
+        {"Reason": "ConformanceProtocolNotInTypeDatabase", "Name": "alsoRealLoss"},
+    ]
+
+    def test_only_named_reasons_are_withheld_from_the_loss_count(self):
+        loss, degraded = coverage_report.partition_declared_but_degraded(
+            self.ITEMS, ["PropertyWrapperDeclinedDirectPInvoke"])
+        self.assertEqual([i["Name"] for i in loss], ["realLoss", "alsoRealLoss"])
+        self.assertEqual([i["Name"] for i in degraded], ["stillEmitted"])
+
+    def test_every_row_lands_in_exactly_one_partition(self):
+        # The two counts are reported side by side; a row counted twice or dropped
+        # would make the callout disagree with the ratchet.
+        loss, degraded = coverage_report.partition_declared_but_degraded(
+            self.ITEMS, ["PropertyWrapperDeclinedDirectPInvoke"])
+        self.assertEqual(len(loss) + len(degraded), len(self.ITEMS))
+
+    def test_absent_or_null_reason_set_withholds_nothing(self):
+        # An older report that publishes no set must fall back to counting everything
+        # (the pre-existing over-count), never to counting nothing.
+        for empty in (None, [], ()):
+            loss, degraded = coverage_report.partition_declared_but_degraded(
+                self.ITEMS, empty)
+            self.assertEqual(len(loss), len(self.ITEMS))
+            self.assertEqual(degraded, [])
+
+    def test_unknown_reason_names_do_not_withhold_real_losses(self):
+        # A reason the report names but this corpus never hits must not perturb the split.
+        loss, degraded = coverage_report.partition_declared_but_degraded(
+            self.ITEMS, ["SomeReasonNotPresentHere"])
+        self.assertEqual(len(loss), len(self.ITEMS))
+        self.assertEqual(degraded, [])
+
+
 if __name__ == "__main__":
     unittest.main()
