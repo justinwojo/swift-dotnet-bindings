@@ -138,6 +138,25 @@ jobs:
           key: nuget-${{ hashFiles('**/*.csproj') }}
           restore-keys: nuget-
 
+      # swift-syntax is compiled from source and, at two universal2 slices per job,
+      # dominates every job that runs the generator (25 min of the BindingTests job on
+      # the run that motivated this). Package.swift pins the swift-syntax tag, so the
+      # key holds until the parser sources, the pin, or the toolchain move. Caching
+      # .build (not just the staged binary) is what keeps `nuke compile`'s deliberate
+      # always-rebuild cheap — Pack/PackGate go through Compile. No restore-keys: a
+      # partial match would restore a STALE staged binary that the generator's
+      # existence guard then uses as-is, so a miss must rebuild.
+      - name: Resolve Swift toolchain key
+        run: echo "SWIFT_TOOLCHAIN_KEY=$(swiftc --version | shasum -a 256 | cut -c1-12)" >> "$GITHUB_ENV"
+
+      - name: Cache SwiftInterfaceParser
+        uses: actions/cache@v4
+        with:
+          path: |
+            tools/SwiftInterfaceParser/.build
+            src/Swift.Bindings.Sdk/tools/swift-interface-parser
+          key: sip-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('tools/SwiftInterfaceParser/Package.swift', 'tools/SwiftInterfaceParser/Package.resolved', 'tools/SwiftInterfaceParser/Sources/**') }}
+
       - name: Build and run tests
         run: dotnet nuke test
 
@@ -178,6 +197,25 @@ jobs:
           path: ~/.nuget/packages
           key: nuget-${{ hashFiles('**/*.csproj') }}
           restore-keys: nuget-
+
+      # swift-syntax is compiled from source and, at two universal2 slices per job,
+      # dominates every job that runs the generator (25 min of the BindingTests job on
+      # the run that motivated this). Package.swift pins the swift-syntax tag, so the
+      # key holds until the parser sources, the pin, or the toolchain move. Caching
+      # .build (not just the staged binary) is what keeps `nuke compile`'s deliberate
+      # always-rebuild cheap — Pack/PackGate go through Compile. No restore-keys: a
+      # partial match would restore a STALE staged binary that the generator's
+      # existence guard then uses as-is, so a miss must rebuild.
+      - name: Resolve Swift toolchain key
+        run: echo "SWIFT_TOOLCHAIN_KEY=$(swiftc --version | shasum -a 256 | cut -c1-12)" >> "$GITHUB_ENV"
+
+      - name: Cache SwiftInterfaceParser
+        uses: actions/cache@v4
+        with:
+          path: |
+            tools/SwiftInterfaceParser/.build
+            src/Swift.Bindings.Sdk/tools/swift-interface-parser
+          key: sip-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('tools/SwiftInterfaceParser/Package.swift', 'tools/SwiftInterfaceParser/Package.resolved', 'tools/SwiftInterfaceParser/Sources/**') }}
 
       - name: Create and boot iOS Simulator (background)
         run: |
@@ -277,6 +315,25 @@ jobs:
           path: ~/.nuget/packages
           key: nuget-${{ hashFiles('**/*.csproj') }}
           restore-keys: nuget-
+
+      # swift-syntax is compiled from source and, at two universal2 slices per job,
+      # dominates every job that runs the generator (25 min of the BindingTests job on
+      # the run that motivated this). Package.swift pins the swift-syntax tag, so the
+      # key holds until the parser sources, the pin, or the toolchain move. Caching
+      # .build (not just the staged binary) is what keeps `nuke compile`'s deliberate
+      # always-rebuild cheap — Pack/PackGate go through Compile. No restore-keys: a
+      # partial match would restore a STALE staged binary that the generator's
+      # existence guard then uses as-is, so a miss must rebuild.
+      - name: Resolve Swift toolchain key
+        run: echo "SWIFT_TOOLCHAIN_KEY=$(swiftc --version | shasum -a 256 | cut -c1-12)" >> "$GITHUB_ENV"
+
+      - name: Cache SwiftInterfaceParser
+        uses: actions/cache@v4
+        with:
+          path: |
+            tools/SwiftInterfaceParser/.build
+            src/Swift.Bindings.Sdk/tools/swift-interface-parser
+          key: sip-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('tools/SwiftInterfaceParser/Package.swift', 'tools/SwiftInterfaceParser/Package.resolved', 'tools/SwiftInterfaceParser/Sources/**') }}
 
       - name: Resolve versions
         id: version
@@ -501,6 +558,25 @@ jobs:
           path: ~/.nuget/packages
           key: nuget-${{ hashFiles('**/*.csproj') }}
           restore-keys: nuget-
+
+      # swift-syntax is compiled from source and, at two universal2 slices per job,
+      # dominates every job that runs the generator (25 min of the BindingTests job on
+      # the run that motivated this). Package.swift pins the swift-syntax tag, so the
+      # key holds until the parser sources, the pin, or the toolchain move. Caching
+      # .build (not just the staged binary) is what keeps `nuke compile`'s deliberate
+      # always-rebuild cheap — Pack/PackGate go through Compile. No restore-keys: a
+      # partial match would restore a STALE staged binary that the generator's
+      # existence guard then uses as-is, so a miss must rebuild.
+      - name: Resolve Swift toolchain key
+        run: echo "SWIFT_TOOLCHAIN_KEY=$(swiftc --version | shasum -a 256 | cut -c1-12)" >> "$GITHUB_ENV"
+
+      - name: Cache SwiftInterfaceParser
+        uses: actions/cache@v4
+        with:
+          path: |
+            tools/SwiftInterfaceParser/.build
+            src/Swift.Bindings.Sdk/tools/swift-interface-parser
+          key: sip-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('tools/SwiftInterfaceParser/Package.swift', 'tools/SwiftInterfaceParser/Package.resolved', 'tools/SwiftInterfaceParser/Sources/**') }}
 
       - name: Pack gate (nupkg packaging regression)
         timeout-minutes: 30
