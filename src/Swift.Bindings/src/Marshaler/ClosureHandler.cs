@@ -673,6 +673,21 @@ public class ClosureHandler
                 if (closureTypeRecord == TypeDatabaseExtensions.AnyType)
                     return false;
 
+                // An Apple NS_STRING_ENUM has two disagreeing C# faces: the member's public
+                // signature projects the type as the Microsoft.iOS enum, while the closure
+                // translator renders it as its NSString carrier (TranslateTypeSpecToCSharp
+                // returns NativeTypeName whenever one is set). The two are separate generic
+                // instantiations, so nothing in the emitted delegate and its thunk relates them
+                // at compile time: the method advertises Action<TEnum>, the callback body
+                // resolves the stored delegate as Action<NSString>, and the cast inside
+                // GetDelegateFromContext throws InvalidCastException the first time Swift calls
+                // back. That is a soundness failure the C# compiler cannot see and the
+                // verify-recover loop therefore cannot withdraw, which is what justifies
+                // predicting it here instead of letting it compile. Dropping the member leaves a
+                // named skip; the non-closure directions are unaffected.
+                if (closureTypeRecord.Flags.HasFlag(TypeRecordFlags.AppleTypedEnum))
+                    return false;
+
                 // Reject bare generic types (e.g., Dictionary without <K,V>) — they resolve
                 // to SwiftDictionary but produce CS0305 without type arguments
                 if (TypeDatabaseExtensions.IsBareGenericTypeName(closureTypeRecord.CSharpTypeName.FullyQualifiedName))

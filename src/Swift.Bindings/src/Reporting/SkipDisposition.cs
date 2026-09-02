@@ -85,6 +85,13 @@ public static class SkipDispositionClassifier
             [SkipReason.Pattern2InternalTypeReach] = SkipDisposition.ExpectedStructural,
             // Retired: kept for total coverage; a consequence of proxy suppression, never "look at this".
             [SkipReason.SuppressedProxyMethodBody] = SkipDisposition.ExpectedStructural,
+            // A property whose @_cdecl wrapper was declined still binds through the generator's
+            // BASELINE mechanism — a direct CallConvSwift P/Invoke on the Swift accessor symbol. The
+            // wrapper is an upgrade over that path, not a precondition for it, so the row records
+            // which strategy a property ended up on rather than a loss. It is a row at all because
+            // the fall-through was previously anonymous, and an anonymous fall-through is how a
+            // mis-detected async getter reached a synchronous P/Invoke unnoticed.
+            [SkipReason.PropertyWrapperDeclinedDirectPInvoke] = SkipDisposition.ExpectedStructural,
 
             // ── Known limitation — documented gap, Swift-wrapper workaround, consumer-visible ─
             [SkipReason.UnsupportedType] = SkipDisposition.KnownLimitation,
@@ -208,7 +215,11 @@ public static class SkipDispositionClassifier
         reason == SkipReason.ProtocolWitnessNotDispatchable
         // The interface AND the proxy are both emitted; only the reverse-dispatch direction is dead,
         // so counting this row as lost surface would report shipped API as missing.
-        || reason == SkipReason.ProtocolProxyVtableEmpty;
+        || reason == SkipReason.ProtocolProxyVtableEmpty
+        // The property is fully declared and, on most shapes, fully working — only the wrapper
+        // strategy differs. Counting it as lost surface would report shipped (and usually
+        // perfectly functional) API as missing.
+        || reason == SkipReason.PropertyWrapperDeclinedDirectPInvoke;
 
     /// <summary>
     /// Classifies a skip reason in isolation. For <see cref="SkipReason.EveryProtocolConformanceSkipped"/>

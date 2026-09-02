@@ -776,7 +776,16 @@ namespace BindingsGeneration
             // that has no Handle property (only .Payload), producing CS1061. ObjCRooted
             // classes use SwiftOptional<T> ABI, not nullable pointer, so they are
             // intentionally excluded by IsOptionalObjCBridged.
+            //
+            // An Apple NS_STRING_ENUM inner is deliberately NOT taken by this bypass: its .NET
+            // projection is a C# enum with no Handle (and, being a value type, no `?.` to apply),
+            // so the direct extraction produces CS0023/CS1061. The gate is placed here rather than
+            // in IsOptionalObjCBridged because that predicate must keep answering the same question
+            // as TypeProjectionFactory — which DOES project Optional<typed enum> as an
+            // OptionalProjection over an ObjCBridgeableProjection. Falling through hands the
+            // parameter to that projection, which converts through {Enum}Extensions.GetConstant.
             if (projection is OptionalProjection &&
+                !MarshallingHelpers.IsOptionalAppleTypedEnum(argumentDecl.SwiftTypeSpec, _env.TypeDatabase) &&
                 MarshallingHelpers.IsOptionalObjCBridged(argumentDecl.SwiftTypeSpec, _env.TypeDatabase))
             {
                 var bufferName = NameProvider.GetBoundGenericBufferName(csName);
@@ -1493,6 +1502,21 @@ namespace BindingsGeneration
                     MarshallingHelpers.IsObjCRooted(typeRecord) ||
                     (_env.MethodDecl.IsAccessor && MarshallingHelpers.IsObjCBridgeable(typeRecord)))
                 {
+                    // An Apple NS_STRING_ENUM projects to a C# enum, which has no Handle (and, being
+                    // a value type, no null to coalesce): convert through the platform binding's
+                    // constant group first, holding the constant in a local so the managed wrapper
+                    // around the global NSString stays rooted while the call runs.
+                    var typedEnumCarrier = typeRecord.Flags.HasFlag(TypeRecordFlags.AppleTypedEnum)
+                        ? typeRecord.NativeTypeName?.FullyQualifiedName
+                        : null;
+                    if (typedEnumCarrier is not null)
+                    {
+                        var typedEnum = new AppleTypedEnumAdapter(typeRecord.CSharpTypeName.FullyQualifiedName, typedEnumCarrier);
+                        csWriter.WriteLine($"var {csName}Constant = {typedEnum.ToCarrier(csName)};");
+                        csWriter.WriteLine($"IntPtr {csName}Handle = {csName}Constant.Handle;");
+                        continue;
+                    }
+
                     csWriter.WriteLine($"IntPtr {csName}Handle = {csName}?.Handle ?? IntPtr.Zero;");
                     continue;
                 }

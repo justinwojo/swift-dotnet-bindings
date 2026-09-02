@@ -145,7 +145,7 @@ internal class OptionalAccessorGetterVisitor : IProjectionVisitor<(string? conve
     public (string?, bool) Visit(ObjCBridgedProjection p) =>
         ($"({_resultExpr} == IntPtr.Zero ? null : {MarshallingHelpers.FormatObjCBridgeCall(p.PublicType, _resultExpr, ownsReference: true)})", false);
     public (string?, bool) Visit(ObjCBridgeableProjection p) =>
-        ($"({_resultExpr} == IntPtr.Zero ? null : {MarshallingHelpers.FormatObjCBridgeCall(p.PublicType, _resultExpr, ownsReference: true)})", false);
+        ($"({_resultExpr} == IntPtr.Zero ? null : {p.BridgeReadExpression(_resultExpr, ownsReference: true)})", false);
     public (string?, bool) Visit(ArrayProjection p) =>
         AccessorGetterConversionVisitor.OptionalContainerGetterConversion(p, _resultExpr);
     public (string?, bool) Visit(DictionaryProjection p) =>
@@ -250,7 +250,10 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
                 if (innerConv != null)
                     return ($"Foundation.NSArray.FromNSObjects({valueExpr}.Select(e => (Foundation.NSObject){innerConv}).ToArray())", true);
             }
-            return ($"Foundation.NSArray.FromNSObjects({valueExpr}.ToArray())", true);
+            // Leaf elements go through the projection's own expression rather than a bare ToArray():
+            // an element that is already an NSObject is passed straight through, while an Apple typed
+            // enum — a C# enum, not an NSObject — is converted to its NSString constant first.
+            return ($"Foundation.NSArray.FromNSObjects({arr.ObjCLeafElementArrayExpr(valueExpr)})", true);
         }
 
         // Existential elements ride the owned (+1) carrier (stride-correct type + owned mint): the
@@ -309,7 +312,8 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
                 if (innerConv != null)
                     return ($"new Foundation.NSSet({valueExpr}.Select(e => (Foundation.NSObject){innerConv}).ToArray())", true);
             }
-            return ($"new Foundation.NSSet({valueExpr}.ToArray())", true);
+            // Same leaf rule as the array twin — see ArraySetterConversion.
+            return ($"new Foundation.NSSet({set.ObjCLeafElementArrayExpr(valueExpr)})", true);
         }
 
         // Existential elements ride the owned (+1) carrier; no-op for non-existential. Mirrors the
@@ -384,8 +388,11 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
         if (inner is ClassProjection or KeyPathProjection or NonFrozenStructProjection)
             return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({valueExpr}Val) : SwiftOptional<{optType}>.NewNone())", true);
 
-        // ObjC bridged/bridgeable inner — nullable pointer ABI, no SwiftOptional wrapper needed
-        if (inner is ObjCBridgedProjection or ObjCBridgeableProjection)
+        // ObjC bridged/bridgeable inner — nullable pointer ABI, no SwiftOptional wrapper needed.
+        // An Apple typed-enum inner is a C# enum with no Handle: convert to its NSString constant.
+        if (inner is ObjCBridgeableProjection bridgeableInner)
+            return ($"({valueExpr} is {{}} {valueExpr}Val ? {bridgeableInner.BridgeWriteExpression($"{valueExpr}Val")}.Handle : IntPtr.Zero)", false);
+        if (inner is ObjCBridgedProjection)
             return ($"({valueExpr} is {{}} {valueExpr}Val ? {valueExpr}Val.Handle : IntPtr.Zero)", false);
 
         // ObjC-rooted inner — pass as-is

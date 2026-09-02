@@ -165,6 +165,15 @@ partial class Build
     [Parameter("Opt in to the LiveCommunicationKit smoke tests (regenerates BindingTests/obj/LiveCommunicationKitSnapshot/ in-tree)")]
     readonly bool EnableLiveCommunicationKitSmoke;
 
+    // Opt-in to the VisionKit Apple-framework smoke tests. Off by default.
+    // VisionKit is the multi-document `.tbd` case: the framework re-exports the private
+    // DocumentCamera framework, so its stub file carries two `--- !tapi-tbd` documents.
+    // Reading only one of them loses the async-accessor and protocol-method-descriptor
+    // evidence for everything in the other, which silently changes what gets emitted —
+    // this smoke pins the resulting shape. Metadata-only assertions (no camera session).
+    [Parameter("Opt in to the VisionKit smoke tests (regenerates BindingTests/obj/VisionKitSnapshot/ in-tree)")]
+    readonly bool EnableVisionKitSmoke;
+
     /// <summary>
     /// A single opt-in smoke flag. <see cref="FlagName"/> is the user-visible
     /// CLI option (used in error messages and log lines); <see cref="Define"/>
@@ -205,6 +214,8 @@ partial class Build
             flags.Add(new SmokeFlag("--enable-proximityreader-smoke", "PROXIMITYREADER_SMOKE"));
         if (EnableLiveCommunicationKitSmoke)
             flags.Add(new SmokeFlag("--enable-livecommunicationkit-smoke", "LIVECOMMUNICATIONKIT_SMOKE"));
+        if (EnableVisionKitSmoke)
+            flags.Add(new SmokeFlag("--enable-visionkit-smoke", "VISIONKIT_SMOKE"));
         // Sort by Define at the source so every downstream consumer — log
         // messages, `-D` compiler args, the `.smoke-flags` sidecar — observes
         // the same stable order. Without this the log could print
@@ -384,6 +395,12 @@ partial class Build
     AbsolutePath LiveCommunicationKitSnapshotCsproj => LiveCommunicationKitSnapshotDir / "LiveCommunicationKit.Swift.iOS.csproj";
     AbsolutePath LiveCommunicationKitSnapshotProjectRefTargets =>
         LiveCommunicationKitSnapshotDir / "LiveCommunicationKit.Swift.iOS.ProjectReference.targets";
+
+    // VisionKit snapshot — the multi-document `.tbd` framework (re-exports DocumentCamera).
+    AbsolutePath VisionKitSnapshotDir => BindingTestsDir / "obj" / "VisionKitSnapshot";
+    AbsolutePath VisionKitSnapshotCsproj => VisionKitSnapshotDir / "VisionKit.Swift.iOS.csproj";
+    AbsolutePath VisionKitSnapshotProjectRefTargets =>
+        VisionKitSnapshotDir / "VisionKit.Swift.iOS.ProjectReference.targets";
 
     // CryptoKit macOS snapshot — same framework as iOS, different platform target.
     // Snapshot dir uses the "-macOS" suffix to coexist with the iOS snapshot.
@@ -917,6 +934,8 @@ partial class Build
                     RegenerateAppleFrameworkSnapshot("ProximityReader", ProximityReaderSnapshotDir, force: false);
                 if (EnableLiveCommunicationKitSmoke)
                     RegenerateAppleFrameworkSnapshot("LiveCommunicationKit", LiveCommunicationKitSnapshotDir, force: false);
+                if (EnableVisionKitSmoke)
+                    RegenerateAppleFrameworkSnapshot("VisionKit", VisionKitSnapshotDir, force: false);
 
                 Log.Information("--- Building RuntimeTestsApp ---");
                 if (EnableStoreKitSmoke)
@@ -937,6 +956,8 @@ partial class Build
                     Log.Information("    ProximityReader smoke tests: ENABLED (--enable-proximityreader-smoke)");
                 if (EnableLiveCommunicationKitSmoke)
                     Log.Information("    LiveCommunicationKit smoke tests: ENABLED (--enable-livecommunicationkit-smoke)");
+                if (EnableVisionKitSmoke)
+                    Log.Information("    VisionKit smoke tests: ENABLED (--enable-visionkit-smoke)");
                 DotNetBuild(s =>
                 {
                     var built = s
@@ -946,7 +967,7 @@ partial class Build
                     // Any smoke flag needs SwiftBindingsRepoRoot so the snapshot csproj
                     // resolves SwiftBindings.Runtime via the in-tree ProjectReference
                     // fallback instead of the [0.0.0-dev] sentinel PackageReference.
-                    if (EnableStoreKitSmoke || EnableCryptoKitSmoke || EnableWeatherKitSmoke || EnableTipKitSmoke || EnableMusicKitSmoke || EnableWorkoutKitSmoke || EnableRoomPlanSmoke || EnableProximityReaderSmoke || EnableLiveCommunicationKitSmoke)
+                    if (EnableStoreKitSmoke || EnableCryptoKitSmoke || EnableWeatherKitSmoke || EnableTipKitSmoke || EnableMusicKitSmoke || EnableWorkoutKitSmoke || EnableRoomPlanSmoke || EnableProximityReaderSmoke || EnableLiveCommunicationKitSmoke || EnableVisionKitSmoke)
                         built = built.SetProperty("SwiftBindingsRepoRoot", RootDirectory.ToString());
                     if (EnableCryptoKitSmoke)
                         built = built.SetProperty("EnableCryptoKitSmoke", "true");
@@ -964,6 +985,8 @@ partial class Build
                         built = built.SetProperty("EnableProximityReaderSmoke", "true");
                     if (EnableLiveCommunicationKitSmoke)
                         built = built.SetProperty("EnableLiveCommunicationKitSmoke", "true");
+                    if (EnableVisionKitSmoke)
+                        built = built.SetProperty("EnableVisionKitSmoke", "true");
                     // SwiftBindingsRepoRoot above is what lets the generator-emitted
                     // <Framework>.Swift.iOS.csproj resolve SwiftBindings.Runtime via the
                     // in-tree ProjectReference fallback (see the snapshot csproj's

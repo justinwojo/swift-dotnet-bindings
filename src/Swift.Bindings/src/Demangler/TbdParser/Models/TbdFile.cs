@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System.Collections.Generic;
@@ -21,9 +22,25 @@ namespace TbdParsing.Models
         public List<string> Targets { get; set; } = new List<string>();
 
         /// <summary>
-        /// Installation path for the library
+        /// Installation path for the library. A `.tbd` may hold several YAML documents (the
+        /// framework's own library followed by the private libraries it re-exports); this is the
+        /// FIRST document's install name, i.e. the library the file is named for.
         /// </summary>
         public string InstallName { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Install name of every document in the file, in document order. Single-document files
+        /// hold exactly one entry, equal to <see cref="InstallName"/>. Documents after the first
+        /// are the re-exported libraries whose symbols also resolve through this file.
+        /// </summary>
+        public List<string> InstallNames { get; set; } = new List<string>();
+
+        /// <summary>
+        /// Number of YAML/JSON documents the file was parsed from. 1 for an ordinary single-library
+        /// `.tbd`; greater when the library re-exports others (e.g. VisionKit re-exports the private
+        /// DocumentCamera framework as a second document).
+        /// </summary>
+        public int DocumentCount { get; set; }
 
         /// <summary>
         /// Swift ABI version
@@ -31,7 +48,7 @@ namespace TbdParsing.Models
         public int SwiftAbiVersion { get; set; }
 
         /// <summary>
-        /// List of export entries
+        /// List of export entries, accumulated across every document in the file.
         /// </summary>
         public List<ExportEntry> Exports { get; set; } = new List<ExportEntry>();
     }

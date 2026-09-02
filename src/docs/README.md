@@ -12,7 +12,7 @@ documentation lives in the [GitHub wiki](https://github.com/justinwojo/swift-dot
 | `Design/` | As-built architecture and design rationale. Docs live here only while they accurately describe the current implementation. |
 | `Future/` | Genuinely future work: deferred plans not yet scheduled, plus the queue of upstream dotnet/runtime issue filings (owner-driven). |
 | `sessions/` | Session-runner program docs for **active** programs only. Gitignored (local-only by convention). |
-| top-level `*.md` | Live working docs: active program plans, standing contracts (e.g. `ingestion-hardening.md`), signed decision records, next-release inputs. |
+| top-level `*.md` | Live working docs: active program plans, standing contracts (e.g. `ingestion-hardening.md`), signed decision records, next-release inputs. Current direction memo: [`2026-08-15-next-direction.md`](2026-08-15-next-direction.md). |
 
 ## Conventions
 

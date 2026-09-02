@@ -114,6 +114,7 @@ public sealed class InterfaceFactsAggregator
             ObjCRuntimeNames = Pick(results, InterfaceFactKind.ObjCRuntimeNames, p => p.ObjCRuntimeNames, empty.ObjCRuntimeNames),
             SubscriptLabels = Pick(results, InterfaceFactKind.SubscriptLabels, p => p.SubscriptLabels, empty.SubscriptLabels),
             VariadicMembers = Pick(results, InterfaceFactKind.VariadicMembers, p => p.VariadicMembers, empty.VariadicMembers),
+            AsyncAccessorMembers = Pick(results, InterfaceFactKind.AsyncAccessorMembers, p => p.AsyncAccessorMembers, empty.AsyncAccessorMembers),
             ConventionCProtocols = Pick(results, InterfaceFactKind.ConventionCProtocols, p => p.ConventionCProtocols, empty.ConventionCProtocols),
             HiddenRequirementProtocols = Pick(results, InterfaceFactKind.HiddenRequirementProtocols, p => p.HiddenRequirementProtocols, empty.HiddenRequirementProtocols),
             MainActorTypePositions = Pick(results, InterfaceFactKind.MainActorTypePositions, p => p.MainActorTypePositions, empty.MainActorTypePositions),

@@ -66,4 +66,45 @@ public class RegisteredAppleEnumMemberTests : TestBase
         AssertEqual(probe, config.ButtonType, "constructor argument and property getter preserve bits above the low 32");
         AssertEqual(probe, config.Alternate(probe), "method argument and return preserve bits above the low 32");
     }
+
+    // The members below are typed by a framework enum whose module carries no ObjC-bridging flags.
+    // Their existence is most of the claim — a record built only for bridging modules never covers
+    // such a type, so every member typed by one is skipped as an unprojected Apple type and there is
+    // nothing to call. The round-trips then confirm the record describes the right shape: the enum
+    // is unsigned in Swift while the boundary carries a signed word, so a raw value reconstructed by
+    // a checked conversion rather than by bit pattern would not survive.
+
+    public void TestRegisteredAppleEnum_NonBridgingModuleEnumRoundTripsThroughProperty()
+    {
+        using var selection = new ImageOrientationSelectionLike(ImageIO.CGImagePropertyOrientation.Right);
+
+        AssertEqual(
+            ImageIO.CGImagePropertyOrientation.Right,
+            selection.Orientation,
+            "an enum from a module with no ObjC-bridging flags survives the constructor and its getter");
+    }
+
+    public void TestRegisteredAppleEnum_NonBridgingModuleEnumRoundTripsThroughMethod()
+    {
+        using var selection = new ImageOrientationSelectionLike(ImageIO.CGImagePropertyOrientation.Up);
+
+        AssertEqual(
+            ImageIO.CGImagePropertyOrientation.LeftMirrored,
+            selection.Alternate(ImageIO.CGImagePropertyOrientation.LeftMirrored),
+            "the same enum passes in and comes back out of a method unchanged");
+        AssertEqual(
+            ImageIO.CGImagePropertyOrientation.Up,
+            selection.Orientation,
+            "the stored value is untouched by the call that returns its argument");
+    }
+
+    public void TestRegisteredAppleEnum_NonBridgingModuleEnumRawValueSurvives()
+    {
+        using var selection = new ImageOrientationSelectionLike(ImageIO.CGImagePropertyOrientation.Up);
+
+        // Read through Swift's own .rawValue: the case that arrived is the case whose number comes
+        // back, so a value shifted by a mis-sized carrier reads as a different orientation.
+        AssertEqual(8u, selection.RawValue(ImageIO.CGImagePropertyOrientation.Left), "Swift received the Left case, whose CGImagePropertyOrientation raw value is 8");
+        AssertEqual(1u, selection.RawValue(ImageIO.CGImagePropertyOrientation.Up), "Swift received the Up case, whose CGImagePropertyOrientation raw value is 1");
+    }
 }

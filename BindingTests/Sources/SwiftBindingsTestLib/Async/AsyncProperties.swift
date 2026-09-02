@@ -4,9 +4,18 @@
 import Foundation
 
 // MARK: - Async Properties
-// Tests: Computed properties with async getter
-// Expected C#: Async property accessor or async method wrapper
-// Limitation: Async properties are not yet supported by the generator
+// Tests: Computed properties with async getters, including `get async throws`.
+// Expected C#: C# properties cannot be async, so an async getter is projected as a
+// Task-returning method (PropertyHandler routes it to EmitAsyncPropertyAsMethods).
+//
+// Async-ness of an accessor is INFERRED, not read: the ABI JSON carries no async flag on
+// accessor nodes and an async accessor's mangled name has no `Ya` marker. Two oracles answer
+// it and either one suffices — the TBD's sibling `{getter}Tu` / `{getter}TjTu` symbol, and the
+// .swiftinterface's literal `get async` harvested as an interface fact. These fixtures cover
+// the shapes where one oracle can go silent while the other holds: a nested type, an extension,
+// and `get async throws` (whose mis-detection is the dangerous one — a sync projection puts a
+// `ref SwiftError` CallConvSwift P/Invoke on an async entry point, which compiles and then
+// mismatches the ABI on the first read).
 
 /// Struct with async computed properties.
 public struct AsyncConfig {
@@ -58,6 +67,104 @@ public class AsyncDataSource {
         get async {
             try? await Task.sleep(nanoseconds: 1_000_000)
             return "DataSource[\(identifier)]"
+        }
+    }
+}
+
+// MARK: - Async throwing getters, nested types, and extension-declared accessors
+// The three shapes the async-accessor oracles disagree about most easily.
+
+/// Error raised by the `get async throws` fixtures below.
+public enum AsyncPropertyError: Error {
+    case unavailable
+}
+
+/// Top-level class carrying a `get async throws` accessor plus a nested type whose OWN property
+/// is `get async throws` — the nested-type shape needs the full type-qualified key
+/// ("AsyncImageAnalyzer.Region.pixels"), not just the property's simple name.
+/// Deliberately NOT `final`: a non-final class accessor is dispatched through a thunk, so its TBD
+/// async marker is the `TjTu` form rather than the bare `Tu` one, which is the variant the throwing
+/// accessors below would otherwise leave uncovered.
+public class AsyncImageAnalyzer {
+    /// When true the throwing accessors raise instead of returning a value, so the same
+    /// fixture drives both the success and the fault path of one `get async throws` accessor.
+    public let shouldFail: Bool
+
+    public init(shouldFail: Bool) {
+        self.shouldFail = shouldFail
+    }
+
+    /// `get async throws` on a top-level class, dispatched through a thunk (see the class's own
+    /// note): the TBD oracle has to find `TjTu` here, not the bare `Tu` the struct cases export.
+    public var analyzedLabel: String {
+        get async throws {
+            try await Task.sleep(nanoseconds: 1_000_000)
+            if shouldFail { throw AsyncPropertyError.unavailable }
+            return "analyzed"
+        }
+    }
+
+    /// Nested struct whose property is `get async throws` — the shape that mis-binds when the
+    /// TBD oracle goes silent, because the throwing-getter wrapper gate then rejects it and the
+    /// member falls through to a synchronous direct P/Invoke aimed at an async entry point.
+    public struct Region {
+        public let failing: Bool
+
+        public init(failing: Bool) {
+            self.failing = failing
+        }
+
+        public var pixels: Int32 {
+            get async throws {
+                try await Task.sleep(nanoseconds: 1_000_000)
+                if failing { throw AsyncPropertyError.unavailable }
+                return 42
+            }
+        }
+    }
+
+    /// Builds the nested Region so C# has a construction path that doesn't depend on nested-type
+    /// initializer emission.
+    public func makeRegion(failing: Bool) -> Region {
+        return Region(failing: failing)
+    }
+}
+
+/// `get async` declared in an EXTENSION rather than in the type body. The interface-fact key for
+/// an extension member is built from the extended type's name, so this pins that the extension
+/// scope renders the same key shape the type body does.
+extension AsyncConfig {
+    public var asyncExtensionLabel: String {
+        get async {
+            try? await Task.sleep(nanoseconds: delay)
+            return "Extension: \(name)"
+        }
+    }
+}
+
+// MARK: - Synchronous throwing getter (NOT async)
+// The `@_cdecl` property wrapper declines a throwing getter (it emits no try/catch), so this
+// property is emitted through the ordinary direct CallConvSwift P/Invoke instead. That path DOES
+// carry the error: swiftcc returns a thrown error in the dedicated error register, which the
+// generated P/Invoke reads through its `ref SwiftError` out-parameter. This fixture is the
+// positive control for that fall-through — both the returning and the throwing outcome.
+
+/// Struct with a synchronous `get throws` property. Deliberately NOT async: it is the control
+/// that separates "the wrapper declined" (fine — the direct path is ABI-correct) from
+/// "we mistook an async getter for a sync one" (not fine — different entry point).
+public struct ThrowingGetterBox {
+    public let value: Int32
+    public let shouldFail: Bool
+
+    public init(value: Int32, shouldFail: Bool) {
+        self.value = value
+        self.shouldFail = shouldFail
+    }
+
+    public var checkedValue: Int32 {
+        get throws {
+            if shouldFail { throw AsyncPropertyError.unavailable }
+            return value
         }
     }
 }

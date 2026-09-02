@@ -85,33 +85,66 @@ namespace TbdParsing.Parsing
 
             _logger.LogDebug("Parsing JSON TBD version {Version}", tbdFile.Version);
 
-            // Parse exported_symbols
-            if (mainLibrary.TryGetProperty("exported_symbols", out var exportedSymbols)
-                && exportedSymbols.ValueKind == JsonValueKind.Array)
+            AddLibrary(tbdFile, mainLibrary);
+
+            // Like the YAML stream's second and later `--- !tapi-tbd` documents, a JSON TBD carries
+            // the libraries this one re-exports as sibling library objects. Their symbols resolve
+            // through this same file, so they accumulate into the one export list while the file's
+            // scalar metadata stays that of `main_library`.
+            if (root.TryGetProperty("libraries", out var libraries)
+                && libraries.ValueKind == JsonValueKind.Array)
             {
-                foreach (var exportGroup in exportedSymbols.EnumerateArray())
+                foreach (var library in libraries.EnumerateArray())
                 {
-                    var exportEntry = new ExportEntry
-                    {
-                        // JSON TBD format doesn't have per-export targets;
-                        // inherit from top-level target_info
-                        Targets = new List<string>(tbdFile.Targets),
-                    };
-
-                    if (exportGroup.TryGetProperty("data", out var data))
-                        AddSymbolsFromData(exportEntry, data);
-
-                    if (exportGroup.TryGetProperty("text", out var text))
-                        AddSymbolsFromData(exportEntry, text);
-
-                    tbdFile.Exports.Add(exportEntry);
+                    AddLibrary(tbdFile, library);
                 }
             }
 
-            _logger.LogDebug("Parsed {ExportCount} export entries with {SymbolCount} total symbols",
-                tbdFile.Exports.Count, tbdFile.Exports.Sum(e => e.Symbols.Count));
+            _logger.LogDebug("Parsed {DocumentCount} librar(ies) with {ExportCount} export entries and {SymbolCount} total symbols",
+                tbdFile.DocumentCount, tbdFile.Exports.Count, tbdFile.Exports.Sum(e => e.Symbols.Count));
 
             return tbdFile;
+        }
+
+        /// <summary>
+        /// Fold one library object (`main_library` or one of the re-exported entries under
+        /// `libraries`) into the accumulating <see cref="TbdFile"/>: record its install name and
+        /// append its exported and re-exported symbol groups.
+        /// </summary>
+        private static void AddLibrary(TbdFile tbdFile, JsonElement library)
+        {
+            tbdFile.DocumentCount++;
+            tbdFile.InstallNames.Add(GetFirstStringFromArray(library, "install_names", "name"));
+
+            AddSymbolGroups(tbdFile, library, "exported_symbols");
+            AddSymbolGroups(tbdFile, library, "reexported_symbols");
+        }
+
+        private static void AddSymbolGroups(TbdFile tbdFile, JsonElement library, string groupProperty)
+        {
+            if (!library.TryGetProperty(groupProperty, out var groups)
+                || groups.ValueKind != JsonValueKind.Array)
+            {
+                return;
+            }
+
+            foreach (var exportGroup in groups.EnumerateArray())
+            {
+                var exportEntry = new ExportEntry
+                {
+                    // JSON TBD format doesn't have per-export targets;
+                    // inherit from top-level target_info
+                    Targets = new List<string>(tbdFile.Targets),
+                };
+
+                if (exportGroup.TryGetProperty("data", out var data))
+                    AddSymbolsFromData(exportEntry, data);
+
+                if (exportGroup.TryGetProperty("text", out var text))
+                    AddSymbolsFromData(exportEntry, text);
+
+                tbdFile.Exports.Add(exportEntry);
+            }
         }
 
         private static void AddSymbolsFromData(ExportEntry exportEntry, JsonElement data)

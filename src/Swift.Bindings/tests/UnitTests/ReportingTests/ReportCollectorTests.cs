@@ -284,6 +284,45 @@ public class ReportCollectorTests
         ReportCollector.Reset();
     }
 
+    [Fact]
+    public void PropertyWrapperDeclinedDirectPInvoke_NamesTheFallThroughWithoutClaimingALoss()
+    {
+        // A WrapperEligibility rejection on a property does NOT drop the property: emission falls
+        // through to a direct CallConvSwift P/Invoke. Before this row existed the rejection showed
+        // up only as an anonymous count in the emission histogram, so a reader of binding-report.json
+        // could not tell WHICH property took the unwrapped path. The row makes it named — while
+        // staying out of every count that measures lost surface, because nothing was lost.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var property = classDecl.Properties[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberEmitted(property, AccessorKind.None, classDecl);
+        ReportCollector.RecordMemberDegraded(
+            property, classDecl, SkipReason.PropertyWrapperDeclinedDirectPInvoke,
+            "SWIFTBIND107: throwing property getter takes the direct CallConvSwift path");
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+
+        Assert.Equal(1, report!.EmittedMembers);
+        Assert.Equal(0, report.SkippedMembers);
+
+        var row = Assert.Single(
+            report.SkippedItems, i => i.Reason == SkipReason.PropertyWrapperDeclinedDirectPInvoke);
+        Assert.Equal("State", row.Name);
+        Assert.Equal(BindingItemKind.Property, row.Kind);
+        Assert.Contains("SWIFTBIND107", row.Details);
+
+        var triage = SkipTriageBuilder.Build(report.SkippedItems);
+        Assert.Equal(1, triage.DeclaredButDegradedCount);
+        Assert.Equal(triage.Total - 1, triage.PublicSurfaceLost);
+        Assert.Equal(0, triage.ReviewCount);
+        Assert.DoesNotContain(report.SkippedItems, SkipAttributionLinker.IsLoss);
+
+        ReportCollector.Reset();
+    }
+
     // ==================== Orphan closure shells ====================
 
     [Fact]

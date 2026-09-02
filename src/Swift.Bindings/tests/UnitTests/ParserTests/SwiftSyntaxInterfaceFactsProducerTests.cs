@@ -573,6 +573,128 @@ public class SwiftSyntaxInterfaceFactsProducerTests
 
     #endregion
 
+    #region Async accessors
+
+    /// <summary>
+    /// The swiftinterface is the only async-accessor oracle that does not depend on the TBD:
+    /// the ABI JSON carries no async flag on accessor nodes and an async getter's mangled
+    /// name is a plain <c>…vg</c>, so without this fact a library whose TBD symbol set is
+    /// empty or unreadable emits every <c>get async</c> property as a synchronous one.
+    ///
+    /// Key shape is the full nested chain with the module prefix stripped, matching
+    /// <c>SwiftABIParser.BuildTypeQualifiedPath</c>; a member declared in an
+    /// <c>extension Mod.Outer.Inner</c> keys off the extension target with only its FIRST
+    /// dot segment stripped, which a two-segment target cannot tell apart from a last-dot
+    /// reading — hence the three-segment extension below. Only the <c>get</c> accessor's
+    /// <c>async</c> specifier counts — a plain <c>{ get }</c>, and a <c>{ get throws }</c>
+    /// without <c>async</c>, must stay absent.
+    /// </summary>
+    [SkippableFact]
+    public void AsyncAccessors_ExtractedWithFullyQualifiedKeys()
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(AsyncAccessors_ExtractedWithFullyQualifiedKeys));
+        var path = WriteTempFile(
+            "import Swift\n" +
+            "public class Analyzer {\n" +
+            "  public var subjects: Swift.Int32 {\n" +
+            "    get async\n" +
+            "  }\n" +
+            "  public var plain: Swift.Int32 {\n" +
+            "    get\n" +
+            "  }\n" +
+            "  public var checked: Swift.Int32 {\n" +
+            "    get throws\n" +
+            "  }\n" +
+            "  public struct Subject {\n" +
+            "    public var image: Swift.String {\n" +
+            "      get async throws\n" +
+            "    }\n" +
+            "  }\n" +
+            "}\n" +
+            "extension TestModule.Analyzer {\n" +
+            "  public var extended: Swift.String {\n" +
+            "    get async\n" +
+            "  }\n" +
+            "}\n" +
+            "extension TestModule.Analyzer.Subject {\n" +
+            "  public var extra: Swift.String {\n" +
+            "    get async\n" +
+            "  }\n" +
+            "}\n" +
+            "public var topLevelAsync: Swift.Int32 {\n" +
+            "  get async\n" +
+            "}\n");
+        try
+        {
+            var result = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance);
+            Assert.Contains(InterfaceFactKind.AsyncAccessorMembers, result.CoveredFacts);
+
+            var members = result.Facts.AsyncAccessorMembers;
+            Assert.NotNull(members);
+
+            Assert.Contains("Analyzer.subjects", members!);
+            Assert.Contains("Analyzer.Subject.image", members!);
+            Assert.Contains("Analyzer.extended", members!);
+            Assert.Contains("topLevelAsync", members!);
+
+            // Only the module segment comes off the extension target: a last-dot reading
+            // would key this "Subject.extra", which no BuildTypeQualifiedPath ever produces.
+            Assert.Contains("Analyzer.Subject.extra", members!);
+            Assert.DoesNotContain("Subject.extra", members!);
+
+            Assert.DoesNotContain("Analyzer.plain", members!);
+            Assert.DoesNotContain("Analyzer.checked", members!);
+        }
+        finally { File.Delete(path); }
+    }
+
+    /// <summary>
+    /// A type may declare a <c>static</c> and an instance property of the same name, and the
+    /// ABI exports a separate getter for each. Their keys must not collide: an unprefixed key
+    /// for an async <c>static var value</c> would also name the synchronous instance
+    /// <c>var value</c>, projecting a plain property as a Task-returning method and dropping
+    /// its setter. Backticks come off both type and member names, because the ABI parser's half
+    /// of the key carries the bare identifier.
+    /// </summary>
+    [SkippableFact]
+    public void AsyncAccessors_SeparateStaticAndEscapedNamespaces()
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(AsyncAccessors_SeparateStaticAndEscapedNamespaces));
+        var path = WriteTempFile(
+            "import Swift\n" +
+            "public struct Holder {\n" +
+            "  public static var value: Swift.Int32 {\n" +
+            "    get async\n" +
+            "  }\n" +
+            "  public var value: Swift.Int32 {\n" +
+            "    get\n" +
+            "  }\n" +
+            "  public var `switch`: Swift.Int32 {\n" +
+            "    get async\n" +
+            "  }\n" +
+            "}\n" +
+            "public struct `class` {\n" +
+            "  public var thing: Swift.Int32 {\n" +
+            "    get async\n" +
+            "  }\n" +
+            "}\n");
+        try
+        {
+            var result = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance);
+            var members = result.Facts.AsyncAccessorMembers;
+            Assert.NotNull(members);
+
+            Assert.Contains("static Holder.value", members!);
+            Assert.DoesNotContain("Holder.value", members!);
+
+            Assert.Contains("Holder.switch", members!);
+            Assert.Contains("class.thing", members!);
+        }
+        finally { File.Delete(path); }
+    }
+
+    #endregion
+
     #region Helpers
 
     /// <summary>

@@ -608,7 +608,22 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                         var skipCheckEnv = (MethodEnvironment)skipCheckHandler.Marshal(acc.Method, propertyEnv.TypeDatabase);
                         var skipReason = PropertyWrapperEmitter.GetRejectionReason(propertyDecl, skipCheckEnv);
                         if (skipReason != null)
+                        {
                             context.GetEmissionContext().IncrementWrapperSkipReason(skipReason);
+                            // The histogram bucket above counts the rejection; this names it. Without a
+                            // named row the persisted report says nothing about WHICH property lost its
+                            // wrapper and fell through to the direct P/Invoke — and an invisible
+                            // fall-through is how a mis-detected async getter reached a synchronous
+                            // CallConvSwift entry point unnoticed. Degraded, not skipped: the property
+                            // IS emitted (see the note below), so the emitted/skipped counters must not
+                            // move. RecordMemberDegraded dedups on (member identity, reason), so a
+                            // property whose getter AND setter are both rejected yields one row.
+                            ReportCollector.RecordMemberDegraded(
+                                propertyDecl,
+                                propertyDecl.ParentDecl,
+                                SkipReason.PropertyWrapperDeclinedDirectPInvoke,
+                                skipReason);
+                        }
                     }
                 }
             }
@@ -618,7 +633,8 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // with non-blittable parameters. They are still emitted (suppression would break
         // protocol conformance CS0535). Do NOT call RecordMemberSkipped here —
         // the member IS emitted, and marking it skipped prevents RecordMemberEmitted from
-        // tracking it, causing incorrect coverage data.
+        // tracking it, causing incorrect coverage data. The degraded row recorded above is
+        // the reporting-only counterpart: it names the fall-through without claiming a loss.
 
         // Now emit the accessor methods using MethodHandler
         foreach (var accessor in accessorsToEmit)

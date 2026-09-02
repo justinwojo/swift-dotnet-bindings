@@ -1,48 +1,83 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 //
-// Cdecl wrappers around six Swift stdlib generic-collection ops whose direct
-// `CallConvSwift` P/Invoke shape — `SwiftIndirectResult` + one or more
-// explicit integer arguments + `SwiftSelf` — is mishandled by the Mac
-// Catalyst-x64 workload Mono runtime's CallConvSwift trampoline. The bug is
-// deterministic: the trampoline writes the correct `sret` result but corrupts
-// the caller's `self` slot when intermediate integer arguments are present.
+// Cdecl wrappers around seven Swift stdlib generic-collection ops whose
+// direct `CallConvSwift` P/Invoke shape is mishandled by a Mono runtime's
+// CallConvSwift trampoline. Two distinct broken ABI shapes are covered here,
+// with different reproduction footprints — do not collapse them into one
+// story.
 //
-// The same managed C# code + same Swift dylib + same x86_64 Rosetta slice
-// PASSES on macOS-x64 (CoreCLR osx-x64) and on arm64 across every target;
-// only the maccatalyst-x64 workload Mono runtime fails. Reproduced and proven
-// by `SretSelfProbeTests` (`BindingTests/RuntimeTestsApp/Marshalling/`)
-// paired with `AbiSafety.swift::SretSelfProbe`. A four-test probe was used:
-// direct heap, direct stack, cdecl control, and a no-arg sret+self
-// corroborator (`FactoryMake`). The no-arg corroborator and the cdecl
-// control PASS on every target; the two direct probes fail deterministically
-// only on Catalyst-x64. The discriminator is "explicit integer args between
+// ---------------------------------------------------------------------------
+// Shape A — `SwiftIndirectResult` + one or more explicit integer arguments +
+// `SwiftSelf`. Six wrappers: `SBW_Dict_UpdateValue`, `SBW_Dict_RemoveValue`,
+// `SBW_Dict_IteratorNext`, `SBW_Set_Remove`, `SBW_Set_IteratorNext`,
+// `SBW_Array_Remove`.
+//
+// Broken only on the Mac Catalyst-x64 workload Mono runtime, and
+// deterministically so: the trampoline writes the correct `sret` result but
+// corrupts the caller's `self` slot when intermediate integer arguments are
+// present. The same managed C# code + same Swift dylib + same x86_64 Rosetta
+// slice PASSES on macOS-x64 (CoreCLR osx-x64) and on arm64 across every
+// target; only the maccatalyst-x64 workload Mono runtime fails. Reproduced
+// and proven by `SretSelfProbeTests`
+// (`BindingTests/RuntimeTestsApp/Marshalling/`) paired with
+// `AbiSafety.swift::SretSelfProbe`. A four-test probe was used: direct heap,
+// direct stack, cdecl control, and a no-arg sret+self corroborator
+// (`FactoryMake`). The no-arg corroborator and the cdecl control PASS on
+// every target; the two direct probes fail deterministically only on
+// Catalyst-x64. The discriminator is "explicit integer args between
 // `SwiftIndirectResult` and `SwiftSelf`".
 //
+// ---------------------------------------------------------------------------
+// Shape B — a mixed tuple return `(Bool direct, @out Element)` where the
+// `@out` buffer pointer is a REGULAR leading argument (x0 / rdi) rather than
+// an `sret` (x8 / swiftself-adjacent) register, combined with `SwiftSelf`.
+// One wrapper: `SBW_Set_Insert`.
+//
+// Broken on the iOS Simulator Mono runtime — reproduced on arm64 simulator
+// (.NET 10.0, Xcode 26.x), which is where the failure was first isolated;
+// x86_64 simulator/Catalyst share that trampoline, so the wrapper covers
+// them too. Failure mode differs from shape A: the call does not merely
+// return a wrong value, it corrupts Mono's own thread state. Observed
+// signatures are an immediate SIGABRT with
+// `Cannot transition thread 0x0 from STARTING with DONE_BLOCKING` (Mono's
+// thread-state machine asserting on the exit of the managed-to-native
+// GC-safe region), or — when the process survives the call — a Set whose
+// `count` reads garbage because a trampoline scratch address was written
+// into the caller's `self` slot, then a SIGSEGV on a later insert or on the
+// Set's release. Not reproduced on NativeAOT (device) or CoreCLR (macOS);
+// those runtimes handle the raw shape correctly, but go through the wrapper
+// anyway so the dispatch shape stays identical everywhere (see below).
+//
+// Shape B is NOT a variant of shape A: `Dictionary.updateValue` (a pure
+// `@out` via `SwiftIndirectResult`) and `Set.contains` (single direct return,
+// no `@out`) both pass on the iOS Simulator. The unique failing shape is a
+// return tuple that is part-direct and part-`@out`, where `x0` serves as both
+// the inbound out-pointer argument and the outbound scalar result.
+//
+// ---------------------------------------------------------------------------
 // Architecture of the fix: clang's `__attribute__((swiftcall))` lets us
 // declare a function with the Swift calling convention, and the parameter
 // attributes `swift_indirect_result` / `swift_context` map to LLVM's
 // `sret` / `swiftself` register classes — exactly what swiftc emits. Inside
 // each wrapper, clang lowers the call to the stdlib mangled symbol using
-// LLVM's `swiftcc`, which produces correct x86_64 code (the same machinery
-// swiftc uses). Mono never sees CallConvSwift at the managed boundary —
-// each wrapper is exported as a plain Cdecl symbol, which Mono's
-// well-tested cdecl trampoline handles correctly. The broken CallConvSwift
-// trampoline is bypassed entirely.
+// LLVM's `swiftcc`, which produces correct code (the same machinery swiftc
+// uses). Mono never sees CallConvSwift at the managed boundary — each
+// wrapper is exported as a plain Cdecl symbol, which Mono's well-tested
+// cdecl trampoline handles correctly. The broken CallConvSwift trampoline is
+// bypassed entirely.
 //
-// All six wrappers are also linked on arm64 to keep the dispatch shape
-// identical across architectures. arm64 does not exhibit the bug (AAPCS64
-// swiftcc + Mono's arm64 trampoline are both correct), but funnelling
-// through the same wrapper means a single code path everywhere — easier
-// to reason about than per-arch dispatch — and one extra function call is
-// not measurable next to a stdlib generic dictionary operation.
+// All seven wrappers are linked on every architecture, including ones that
+// do not exhibit either bug, to keep the dispatch shape identical: a single
+// code path everywhere is easier to reason about than per-arch dispatch, and
+// one extra function call is not measurable next to a stdlib generic
+// collection operation.
 //
-// Coverage rule: only those six mutating ops are wrapped. Non-mutating
-// reads (`Dictionary.subscript`, `Set.contains`, `Array.subscript`, `count`,
+// Coverage rule: only those seven ops are wrapped. Non-mutating reads
+// (`Dictionary.subscript`, `Set.contains`, `Array.subscript`, `count`,
 // `makeIterator`, `removeAll(keepingCapacity:)`, `Array.append/insert/set`)
-// either don't combine sret+intermediate-args+SwiftSelf or pass on
-// Catalyst-x64 already; routing them through wrappers would be churn
-// without benefit.
+// match neither broken shape and pass on every runtime already; routing them
+// through wrappers would be churn without benefit.
 
 #include <stddef.h>
 
@@ -77,10 +112,14 @@
 // in the asm label, where Swift adds it implicitly via its LLVM backend.
 //
 // Each declaration mirrors the swiftcc ABI of the corresponding Swift
-// stdlib method exactly:
+// stdlib method exactly. The six shape-A ops share one layout:
 //   - first param: `swift_indirect_result` (sret) — the Optional<…> return buffer
 //   - middle params: by-pointer K/V/element + the hidden generic-context metadata
 //   - last param: `swift_context` — the collection instance pointer (`self`)
+//
+// `Set.insert(_:)` (shape B) deliberately does NOT follow that layout — its
+// `@out` buffer is an ordinary leading pointer argument, not an sret. See its
+// declaration below.
 //
 // The metadata parameter type differs across the ops in Swift's signature
 // (full collection metadata vs Iterator metadata), but they are all opaque
@@ -113,6 +152,41 @@ _sbw_swift_dict_iterator_next(
     void* iteratorMetadata,
     void* SBW_SWIFT_CONTEXT selfPtr
 ) __asm("_$sSD8IteratorV4nextx3key_q_5valuetSgyF");
+
+// Set.insert(_:) — returns (inserted: Bool, memberAfterInsert: Element),
+// mutating. Shape B: the SIL type is
+// `(@in Element, @inout Set<Element>) -> (Bool, @out Element)`, and swiftc
+// lowers that mixed tuple with the `@out Element` buffer as an ORDINARY
+// first pointer argument — NOT `swift_indirect_result`. Verified by
+// disassembling a `Set<T>.insert` call site emitted by swiftc for both
+// simulator slices:
+//   arm64:  x0 = memberAfterInsert buffer, x1 = element, x2 = Set metadata,
+//           x20 = self (swiftself); Bool returned in w0.
+//   x86_64: rdi = memberAfterInsert buffer, rsi = element, rdx = Set
+//           metadata, r13 = self (swiftself); Bool returned in al.
+// `x0`/`rdi` therefore carries the inbound out-pointer AND the outbound
+// scalar result — the register reuse that shape B is named for.
+//
+// Ownership, also read off the swiftc-emitted call site: the caller copies
+// the element into a temporary (+1) which `insert` CONSUMES — the call site
+// does not destroy it — and the caller DOES destroy the memberAfterInsert
+// buffer through the element's value-witness table once it is done with it.
+// The C# caller must reproduce exactly that.
+//
+// The result is declared `_Bool`, not `unsigned char`, and that is load-bearing.
+// swiftc declares this symbol `swiftcc i1` with NO `zeroext` — so only bit 0 of
+// the return register is defined, and bits 1-7 are whatever the callee left
+// there. Declaring the result as a byte makes clang lower the call as
+// `swiftcc i8` and mask with 0xff, which preserves those undefined bits and can
+// turn a `false` into a nonzero byte. `_Bool` type-matches the `i1` and clang
+// masks with 0x1 (verified in the emitted arm64 and x86_64 code).
+extern SBW_SWIFTCALL _Bool
+_sbw_swift_set_insert(
+    void* outMember,
+    void* element,
+    void* setMetadata,
+    void* SBW_SWIFT_CONTEXT selfPtr
+) __asm("_$sSh6insertySb8inserted_x17memberAfterInserttxnF");
 
 // Set.remove(_:) — returns Optional<Element>, mutating.
 extern SBW_SWIFTCALL void
@@ -177,6 +251,18 @@ void SBW_Dict_IteratorNext(
     void* selfPtr
 ) {
     _sbw_swift_dict_iterator_next(result, iteratorMetadata, selfPtr);
+}
+
+// Returns exactly 1 if the element was newly inserted, exactly 0 if an equal
+// element was already present. `outMember` receives `memberAfterInsert` at +1
+// and is the caller's to destroy; `element` is consumed by the call.
+unsigned char SBW_Set_Insert(
+    void* outMember,
+    void* element,
+    void* setMetadata,
+    void* selfPtr
+) {
+    return _sbw_swift_set_insert(outMember, element, setMetadata, selfPtr) ? 1 : 0;
 }
 
 void SBW_Set_Remove(

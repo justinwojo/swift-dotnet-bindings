@@ -429,7 +429,15 @@ public class TypeProjectionFactory
         // Must be checked BEFORE nativeType so URL uses ObjCBridgeableProjection (IntPtr)
         // instead of NativeRemappedProjection (SafeHandle). Data (no objcBridgeable) is unaffected.
         if (typeRecord.Flags.HasFlag(TypeRecordFlags.ObjCBridgeable) && typeRecord.NativeTypeName != null)
-            return new ObjCBridgeableProjection(typeRecord.NativeTypeName.FullyQualifiedName);
+        {
+            // An Apple NS_STRING_ENUM/NS_TYPED_ENUM keeps the idiomatic C# enum in its public
+            // signature and converts to/from the NSString carrier at the boundary; every other
+            // bridgeable value type IS its carrier (URL's projection is NSUrl).
+            var typedEnum = typeRecord.Flags.HasFlag(TypeRecordFlags.AppleTypedEnum)
+                ? new AppleTypedEnumAdapter(typeName, typeRecord.NativeTypeName.FullyQualifiedName)
+                : null;
+            return new ObjCBridgeableProjection(typeRecord.NativeTypeName.FullyQualifiedName, typedEnum);
+        }
 
         // Native remapped types (Data → NSData) — types with nativeType but NOT objcBridgeable
         if (typeRecord.NativeTypeName != null)

@@ -344,7 +344,27 @@ namespace BindingsGeneration
                         "on Apple SDK train bumps — fail loudly here instead.");
                 }
 
-                appleSupplementRef = $"""
+                // Local-dev runs get the same SwiftBindingsRepoRoot escape hatch the
+                // Swift.Runtime reference below has, and for the same reason: the published
+                // supplement package at the floor version is a snapshot, so a binding built
+                // in-tree would compile against whatever supplement types existed when that
+                // version shipped, not the ones in the working tree. Worse, the stale package
+                // wins conflict resolution in an app that also references the in-tree
+                // supplement project directly, so types added since the floor version
+                // disappear from the *app's* compile, not just the binding's.
+                appleSupplementRef = runtimeVersion == DefaultSwiftRuntimeVersion
+                    ? $"""
+
+                    <!-- Apple supplement — local-dev wiring. Set SwiftBindingsRepoRoot to bind
+                         against the in-tree supplement project so the binding (and any app that
+                         also references that project) sees current supplement types rather than
+                         the floor version's published snapshot. Without the property this falls
+                         back to the published package, exactly as a consumer sees it. -->
+                    <ProjectReference Include="$(SwiftBindingsRepoRoot)/src/Swift.Bindings.Apple/Swift.Bindings.Apple.csproj"
+                                      Condition="'$(SwiftBindingsRepoRoot)' != ''" />
+                    <PackageReference Include="SwiftBindings.Apple" Version="[{XmlEscape(options.AppleSupplementVersion)},)" Condition="'$(SwiftBindingsRepoRoot)' == ''" />
+                """
+                    : $"""
 
                     <!-- Apple supplement — open-ended version range (e.g. [26.0.0,)) because
                          the supplement is cross-major additive-only per architecture doc

@@ -228,11 +228,248 @@ exports:
                 }
             }
 
+            // A `.tbd` for a framework that re-exports another library is a YAML *stream*: one
+            // `--- !tapi-tbd` document per library. This literal mirrors the real shape (a framework
+            // declaring `reexported-libraries`, then the private library's own document with its own
+            // install-name), including a class getter whose async sibling symbol (`…vgTjTu`) lives in
+            // the FIRST document — the evidence the generator reads to bind a `get async` property.
+            private const string MultiDocumentTbd = @"--- !tapi-tbd
+tbd-version:     4
+targets:         [ x86_64-ios-simulator, arm64-ios-simulator ]
+install-name:    '/System/Library/Frameworks/MultiDoc.framework/MultiDoc'
+swift-abi-version: 7
+reexported-libraries:
+  - targets:         [ x86_64-ios-simulator, arm64-ios-simulator ]
+    libraries:       [ '/System/Library/PrivateFrameworks/DocHelper.framework/DocHelper' ]
+exports:
+  - targets:         [ x86_64-ios-simulator, arm64-ios-simulator ]
+    symbols:         [ '_$s8MultiDoc11InteractionC8subjectsSaySiGvg',
+                       '_$s8MultiDoc11InteractionC8subjectsSaySiGvgTjTu',
+                       '_$s8MultiDoc11InteractionCMa' ]
+    objc-classes:    [ _TtC8MultiDoc11Interaction ]
+--- !tapi-tbd
+tbd-version:     3
+targets:         [ x86_64-ios-simulator, arm64-ios-simulator ]
+install-name:    '/System/Library/PrivateFrameworks/DocHelper.framework/DocHelper'
+swift-abi-version: 6
+exports:
+  - targets:         [ x86_64-ios-simulator, arm64-ios-simulator ]
+    symbols:         [ '_$s9DocHelper6ButtonCMa', '_$s9DocHelper6ButtonCMn' ]
+    objc-classes:    [ _TtC9DocHelper6Button ]
+...
+";
+
+            [Fact]
+            public static void TestMultiDocumentTbd_AccumulatesExportsAndKeepsFirstDocumentMetadata()
+            {
+                string mockPath = Path.GetTempFileName();
+                File.WriteAllText(mockPath, MultiDocumentTbd);
+
+                try
+                {
+                    TbdFile tbdFile = _tbdParser.ParseFile(mockPath);
+
+                    // Both documents were recognized, and their install names recorded in order.
+                    Assert.Equal(2, tbdFile.DocumentCount);
+                    Assert.Equal(
+                        new[]
+                        {
+                            "/System/Library/Frameworks/MultiDoc.framework/MultiDoc",
+                            "/System/Library/PrivateFrameworks/DocHelper.framework/DocHelper",
+                        },
+                        tbdFile.InstallNames);
+
+                    // Scalar metadata comes from the first document — the library the file is named
+                    // for — never from a re-exported one (whose values here deliberately differ).
+                    Assert.Equal("/System/Library/Frameworks/MultiDoc.framework/MultiDoc", tbdFile.InstallName);
+                    Assert.Equal(4, tbdFile.Version);
+                    Assert.Equal(7, tbdFile.SwiftAbiVersion);
+                    Assert.Equal(2, tbdFile.Targets.Count);
+
+                    // Symbol-bearing lists accumulate: the first document's symbols must survive the
+                    // second document, and the second document's must be present too.
+                    var symbols = tbdFile.Exports.SelectMany(e => e.Symbols).Select(s => s.Name).ToList();
+                    Assert.Contains("_$s8MultiDoc11InteractionC8subjectsSaySiGvg", symbols);
+                    Assert.Contains("_$s8MultiDoc11InteractionC8subjectsSaySiGvgTjTu", symbols);
+                    Assert.Contains("_$s8MultiDoc11InteractionCMa", symbols);
+                    Assert.Contains("_$s9DocHelper6ButtonCMa", symbols);
+                    Assert.Contains("_$s9DocHelper6ButtonCMn", symbols);
+
+                    var objcClasses = tbdFile.Exports.SelectMany(e => e.ObjcClasses).ToList();
+                    Assert.Contains("_TtC8MultiDoc11Interaction", objcClasses);
+                    Assert.Contains("_TtC9DocHelper6Button", objcClasses);
+                }
+                finally
+                {
+                    File.Delete(mockPath);
+                }
+            }
+
+            [Fact]
+            public static void TestMultiDocumentTbd_ParsesWithoutFormatWarnings()
+            {
+                // The document marker carries no colon and `reexported-libraries` opens an indented
+                // block: both used to fall through as malformed/unknown top-level input and log a
+                // warning per line. A clean parse of a normal SDK `.tbd` must be silent.
+                string mockPath = Path.GetTempFileName();
+                File.WriteAllText(mockPath, MultiDocumentTbd);
+
+                var loggerFactory = new CapturingLoggerFactory();
+                try
+                {
+                    new TbdParser(loggerFactory).ParseFile(mockPath);
+
+                    Assert.DoesNotContain(loggerFactory.Warnings, m => m.Contains("Unknown top-level key"));
+                    Assert.DoesNotContain(loggerFactory.Warnings, m => m.Contains("Invalid key-value pair"));
+                    Assert.DoesNotContain(loggerFactory.Warnings, m => m.Contains("closing bracket"));
+                }
+                finally
+                {
+                    File.Delete(mockPath);
+                }
+            }
+
+            [Fact]
+            public static void TestTopLevelReexports_AccumulateIntoExports()
+            {
+                // A top-level `reexports:` block lists symbols another library defines that still
+                // resolve through this one at link time, so they belong in the same symbol set.
+                string mockPath = Path.GetTempFileName();
+                File.WriteAllText(mockPath, @"--- !tapi-tbd
+tbd-version:     4
+targets:         [ arm64-ios-simulator ]
+install-name:    '/System/Library/Frameworks/Umbrella.framework/Umbrella'
+swift-abi-version: 7
+exports:
+  - targets:         [ arm64-ios-simulator ]
+    symbols:         [ '_$s8Umbrella5ThingVMa' ]
+reexports:
+  - targets:         [ arm64-ios-simulator ]
+    symbols:         [ '_$s5Other5OtherVMa' ]
+    objc-classes:    [ NSUserActivity ]
+...
+");
+
+                try
+                {
+                    TbdFile tbdFile = _tbdParser.ParseFile(mockPath);
+
+                    Assert.Equal(1, tbdFile.DocumentCount);
+                    var symbols = tbdFile.Exports.SelectMany(e => e.Symbols).Select(s => s.Name).ToList();
+                    Assert.Contains("_$s8Umbrella5ThingVMa", symbols);
+                    Assert.Contains("_$s5Other5OtherVMa", symbols);
+                    Assert.Contains("NSUserActivity", tbdFile.Exports.SelectMany(e => e.ObjcClasses));
+                }
+                finally
+                {
+                    File.Delete(mockPath);
+                }
+            }
+
+            [Fact]
+            public static void TestSingleDocumentTbd_ReportsOneDocument()
+            {
+                TbdFile tbdFile = _tbdParser.ParseFile(_mockTbdFilePath);
+
+                Assert.Equal(1, tbdFile.DocumentCount);
+                Assert.Equal(new[] { "/System/Library/Frameworks/TestFramework.framework/TestFramework" }, tbdFile.InstallNames);
+            }
+
+            [Fact]
+            public static void TestJsonTbdWithReexportedLibraries_AccumulatesAcrossLibraries()
+            {
+                // The JSON (v5) equivalent of a multi-document stream: the re-exported libraries are
+                // sibling entries under the top-level `libraries` array, each with its own
+                // install name. `reexported_symbols` is the JSON counterpart of YAML `reexports`.
+                string jsonTbdPath = Path.GetTempFileName();
+                File.WriteAllText(jsonTbdPath, @"{
+  ""tapi_tbd_version"": 5,
+  ""libraries"": [
+    {
+      ""target_info"": [ { ""target"": ""arm64-ios-simulator"" } ],
+      ""install_names"": [ { ""name"": ""/System/Library/PrivateFrameworks/DocHelper.framework/DocHelper"" } ],
+      ""swift_abi"": [ { ""abi"": 6 } ],
+      ""exported_symbols"": [ { ""data"": { ""global"": [ ""_$s9DocHelper6ButtonCMa"" ] } } ]
+    }
+  ],
+  ""main_library"": {
+    ""target_info"": [ { ""target"": ""arm64-ios-simulator"" } ],
+    ""install_names"": [ { ""name"": ""/System/Library/Frameworks/MultiDoc.framework/MultiDoc"" } ],
+    ""swift_abi"": [ { ""abi"": 7 } ],
+    ""exported_symbols"": [ { ""data"": { ""global"": [ ""_$s8MultiDoc11InteractionCMa"" ] } } ],
+    ""reexported_symbols"": [ { ""data"": { ""global"": [ ""_$s5Other5OtherVMa"" ] } } ]
+  }
+}");
+
+                try
+                {
+                    TbdFile tbdFile = _tbdParser.ParseFile(jsonTbdPath);
+
+                    Assert.Equal(2, tbdFile.DocumentCount);
+                    Assert.Equal("/System/Library/Frameworks/MultiDoc.framework/MultiDoc", tbdFile.InstallName);
+                    Assert.Equal(7, tbdFile.SwiftAbiVersion);
+                    Assert.Equal(
+                        new[]
+                        {
+                            "/System/Library/Frameworks/MultiDoc.framework/MultiDoc",
+                            "/System/Library/PrivateFrameworks/DocHelper.framework/DocHelper",
+                        },
+                        tbdFile.InstallNames);
+
+                    var symbols = tbdFile.Exports.SelectMany(e => e.Symbols).Select(s => s.Name).ToList();
+                    Assert.Contains("_$s8MultiDoc11InteractionCMa", symbols);
+                    Assert.Contains("_$s5Other5OtherVMa", symbols);
+                    Assert.Contains("_$s9DocHelper6ButtonCMa", symbols);
+                }
+                finally
+                {
+                    File.Delete(jsonTbdPath);
+                }
+            }
+
             [Fact]
             public static void TestFileNotFound()
             {
                 var nonExistentFile = "/path/to/nonexistent.tbd";
                 Assert.Throws<FileNotFoundException>(() => _tbdParser.ParseFile(nonExistentFile));
+            }
+
+            /// <summary>
+            /// The installed iOS simulator SDK's VisionKit — a real two-document `.tbd`: the
+            /// framework itself plus the private DocumentCamera framework it re-exports. The
+            /// version-less `.sdk` symlink keeps this stable across Xcode point releases.
+            /// </summary>
+            private const string RealMultiDocumentTbdPath =
+                "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk/System/Library/Frameworks/VisionKit.framework/VisionKit.tbd";
+
+            [Fact]
+            public static void TestRealMultiDocumentSdkTbd_KeepsBothLibrariesSymbols()
+            {
+                // xUnit 2.6 has no built-in skip semantics; early return is the pragmatic
+                // alternative when the SDK isn't installed on the agent.
+                if (!File.Exists(RealMultiDocumentTbdPath))
+                {
+                    Assert.True(true, "SKIPPED: iPhoneSimulator SDK VisionKit.tbd not found");
+                    return;
+                }
+
+                TbdFile tbdFile = _tbdParser.ParseFile(RealMultiDocumentTbdPath);
+
+                Assert.Equal(2, tbdFile.DocumentCount);
+                Assert.Equal("/System/Library/Frameworks/VisionKit.framework/VisionKit", tbdFile.InstallName);
+                Assert.Contains(tbdFile.InstallNames, n => n.EndsWith("DocumentCamera.framework/DocumentCamera", StringComparison.Ordinal));
+
+                var swiftSymbols = tbdFile.Exports
+                    .SelectMany(e => e.SwiftSymbols)
+                    .Select(s => s.Name.StartsWith('_') ? s.Name[1..] : s.Name)
+                    .ToList();
+
+                // Both libraries' symbols survive. The framework's own set is by far the larger of
+                // the two, and reading only the last document is exactly the failure this guards.
+                int visionKitSymbols = swiftSymbols.Count(s => s.StartsWith("$s9VisionKit", StringComparison.Ordinal));
+                int documentCameraSymbols = swiftSymbols.Count(s => s.StartsWith("$s14DocumentCamera", StringComparison.Ordinal));
+                Assert.True(visionKitSymbols > 100, $"Expected VisionKit's own Swift symbols, found {visionKitSymbols}");
+                Assert.True(documentCameraSymbols > 0, $"Expected the re-exported DocumentCamera symbols, found {documentCameraSymbols}");
             }
 
             [Fact]

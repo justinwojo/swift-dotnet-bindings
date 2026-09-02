@@ -538,6 +538,19 @@ public static class CdeclParamMapper
                 var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
                 var rawType = GetSwiftRawValueType(typeRecord.RawValueTypeName);
 
+                // The raw-value argument to init(rawValue:). For an enum parsed from Swift the cdecl
+                // integer type IS the declared RawValue, so the label binds directly. For an Apple
+                // enum synthesized from the Microsoft.iOS managed surface the cdecl type is only
+                // INFERRED from the managed enum's underlying storage and can disagree in signedness
+                // (or width) with the RawValue the Swift header imports as — ImageIO's
+                // CGImagePropertyOrientation binds as a managed `int` but is UInt32-backed in Swift,
+                // and `CGImagePropertyOrientation(rawValue: someInt32)` is a hard Swift compile
+                // error. `.init(truncatingIfNeeded:)` re-widths the same bits to whatever RawValue
+                // actually is; the C# side reads those bits back into the same managed enum.
+                var rawArg = typeRecord.Flags.HasFlag(TypeRecordFlags.ExternalAppleEnum)
+                    ? $".init(truncatingIfNeeded: {label})"
+                    : label;
+
                 string conversion;
                 if (typeRecord.Flags.HasFlag(TypeRecordFlags.OptionSet))
                 {
@@ -545,7 +558,7 @@ public static class CdeclParamMapper
                     // NON-failable and returns a non-optional, so bind it directly. Every raw
                     // bit pattern is a valid OptionSet — there is no invalid-value case to guard —
                     // and a `guard let` / force-unwrap on a non-optional would not compile.
-                    conversion = $"let {label}Val = {swiftType}(rawValue: {label})";
+                    conversion = $"let {label}Val = {swiftType}(rawValue: {rawArg})";
                 }
                 else if (!string.IsNullOrEmpty(typeRecord.RawValueTypeName))
                 {
@@ -563,8 +576,8 @@ public static class CdeclParamMapper
                     // the guard compile either way — it is an identity on a failable init and an
                     // Optional-promotion on a non-failable one (the guard then never fails).
                     var reconstructed = typeRecord.Flags.HasFlag(TypeRecordFlags.ExternalAppleEnum)
-                        ? $"({swiftType}(rawValue: {label}) as {swiftType}?)"
-                        : $"{swiftType}(rawValue: {label})";
+                        ? $"({swiftType}(rawValue: {rawArg}) as {swiftType}?)"
+                        : $"{swiftType}(rawValue: {rawArg})";
                     conversion = $"guard let {label}Val = {reconstructed} else {{ preconditionFailure(\"[SwiftBindings] Invalid raw value \\({label}) for {swiftType}\") }}";
                 }
                 else

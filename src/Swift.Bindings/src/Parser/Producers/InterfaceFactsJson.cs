@@ -66,13 +66,28 @@ internal partial class InterfaceFactsJsonContext : JsonSerializerContext
 ///   declaration-order ordinals for integer-backed enums (e.g. emitting
 ///   <c>WrongPassword = 7</c> instead of the real <c>= 17009</c>) rather than mis-map;
 ///   pinning the version makes a stale host binary fail fast instead.</item>
+/// <item><b>v4</b> — <c>asyncAccessorMembers</c> added. This one bumps despite being an
+///   ADDITIVE field, because the additive-stays-put rule rests on
+///   <c>UnmappedMemberHandling.Disallow</c> catching drift — and that check only fires on an
+///   UNEXPECTED key, never on a MISSING one. A v3 host paired with a v4 consumer emits no
+///   <c>asyncAccessorMembers</c> and declares no coverage for it, so the consumer silently
+///   falls back to the single TBD-symbol oracle for accessor async-ness: exactly the
+///   single-point-of-failure the fact exists to remove, and invisible in the output. Pinning
+///   the version makes a stale host binary fail fast instead.</item>
+/// <item><b>v5</b> — <c>asyncAccessorMembers</c> key shape redefined. A type-level
+///   (<c>static</c>/<c>class</c>) property's key now carries a <c>"static "</c> prefix so it
+///   stops colliding with an instance property of the same name, and backticked identifiers
+///   are unescaped instead of dropping the member. A v4 host emits <c>Analyzer.label</c>
+///   where a v5 consumer asks for <c>static Analyzer.label</c>: the pairing deserializes
+///   cleanly and falls back to the single TBD-symbol oracle, which is precisely the silent
+///   mismatch the handshake exists to reject.</item>
 /// </list>
 /// </summary>
 internal sealed class InterfaceFactsJson
 {
     /// <summary>Bump in lockstep with <c>kSchemaVersion</c> in
     /// <c>tools/SwiftInterfaceParser/Sources/SwiftInterfaceParser/Output.swift</c>.</summary>
-    public const int ExpectedSchemaVersion = 3;
+    public const int ExpectedSchemaVersion = 5;
 
     [JsonPropertyName("schemaVersion")]
     public int SchemaVersion { get; set; }
@@ -170,6 +185,12 @@ internal sealed class InterfaceFactsJsonPayload
     // (both ends move together).
     [JsonPropertyName("closureParameterAttributes")]
     public Dictionary<string, List<List<string>>>? ClosureParameterAttributes { get; set; }
+
+    // Qualified keys of properties whose `get` accessor is async. Populated by the SwiftSyntax
+    // host (AsyncAccessorWalker). Schema-bumping field (v4) — see the version history above:
+    // a stale host silently omits it and the consumer falls back to the single TBD oracle.
+    [JsonPropertyName("asyncAccessorMembers")]
+    public List<string>? AsyncAccessorMembers { get; set; }
 
     // SPI-only conformances read from the sibling `*.private.swiftinterface` (the host's
     // `--private-input`). Each entry is `"QualifiedType::UnqualifiedProtocol"`. Additive

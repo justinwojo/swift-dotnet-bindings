@@ -48,6 +48,26 @@ public class OptionalProjection : ITypeProjection
     /// <summary>Whether the inner type is an existential.</summary>
     public bool IsExistentialInner => _isExistentialInner;
 
+    /// <summary>
+    /// The ObjC handle expression for a non-nil inner value on the nullable-pointer ABI paths.
+    /// An Apple typed-enum inner projects as a C# enum with no <c>Handle</c>, so it converts to
+    /// its backing NSString constant first; every other ObjC inner already IS the ObjC object.
+    /// </summary>
+    private string ObjCInnerHandleExpression(string valueVar)
+        => _innerProjection is ObjCBridgeableProjection bridgeable
+            ? $"{bridgeable.BridgeWriteExpression(valueVar)}.Handle"
+            : $"{valueVar}.Handle";
+
+    /// <summary>
+    /// The managed read of a non-nil ObjC pointer on the nullable-pointer ABI return paths.
+    /// <c>ownsReference: true</c> adopts the +1 the Swift <c>@_cdecl</c> wrapper hands back.
+    /// </summary>
+    private string ObjCInnerReadExpression(string ptrExpr)
+        => _innerProjection is ObjCBridgeableProjection bridgeable
+            ? bridgeable.BridgeReadExpression(ptrExpr, ownsReference: true)
+            : MarshallingHelpers.FormatObjCBridgeCall(
+                _innerProjection.PublicType, ptrExpr, ownsReference: true);
+
     public string PublicType => $"{_innerProjection.PublicType}?";
     public string PInvokeType => "IntPtr";
     public string? PInvokeAttribute => null;
@@ -105,7 +125,7 @@ public class OptionalProjection : ITypeProjection
         if (_innerProjection is KeyPathProjection)
             return $"({elementVar} is {{ }} {patVar} ? {patVar}.DangerousGetHandle() : IntPtr.Zero)";
         if (_innerProjection is ObjCBridgedProjection or ObjCBridgeableProjection or ObjCRootedClassProjection)
-            return $"({elementVar} is {{ }} {patVar} ? {patVar}.Handle : IntPtr.Zero)";
+            return $"({elementVar} is {{ }} {patVar} ? {ObjCInnerHandleExpression(patVar)} : IntPtr.Zero)";
 
         // Tagged Optional path: build a SwiftOptional<inner> wrapper per element.
         // When the inner's SwiftContainerGenericType matches its PublicType (e.g. NonFrozenStruct),
@@ -183,7 +203,7 @@ public class OptionalProjection : ITypeProjection
                 SetupStatements = new List<MarshalStatement>
                 {
                     new MarshalStatement.Line(
-                        $"IntPtr {paramName}Buffer = {paramName} is {{ }} {paramName}Val ? {paramName}Val.Handle : IntPtr.Zero;")
+                        $"IntPtr {paramName}Buffer = {paramName} is {{ }} {paramName}Val ? {ObjCInnerHandleExpression($"{paramName}Val")} : IntPtr.Zero;")
                 },
                 PInvokeExpression = $"{paramName}Buffer"
             };
@@ -402,9 +422,8 @@ public class OptionalProjection : ITypeProjection
         // (OptionalAccessorGetterVisitor: same ownsReference:true).
         if (_innerProjection is ObjCBridgedProjection or ObjCBridgeableProjection or ObjCRootedClassProjection)
         {
-            var innerPublicType = _innerProjection.PublicType;
-            var bridgeCall = MarshallingHelpers.FormatObjCBridgeCall(innerPublicType, resultName, ownsReference: true);
-            var indirectBridgeCall = MarshallingHelpers.FormatObjCBridgeCall(innerPublicType, $"*(IntPtr*){resultName}", ownsReference: true);
+            var bridgeCall = ObjCInnerReadExpression(resultName);
+            var indirectBridgeCall = ObjCInnerReadExpression($"*(IntPtr*){resultName}");
             return strategy switch
             {
                 ReturnStrategy.Direct => new MarshalPlan

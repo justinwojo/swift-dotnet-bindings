@@ -438,6 +438,10 @@ public class DictionaryProjection : ITypeProjection
     /// </summary>
     internal static string ToNSObject(ITypeProjection projection, string elementVar)
     {
+        // An Apple typed-enum element projects as a C# enum, not an NSObject — convert it to the
+        // NSString constant it bridges as before it can go into the dictionary.
+        if (projection.TypedEnumAdapter is { } toAdapter)
+            return toAdapter.ToCarrier(elementVar);
         if (projection is ObjCBridgeableProjection)
             return elementVar; // Already NSObject (NSUrl IS NSObject)
         if (projection is StringProjection)
@@ -473,6 +477,11 @@ public class DictionaryProjection : ITypeProjection
     /// </summary>
     private static string FromNSObject(ITypeProjection projection, string nsObjectVar)
     {
+        // An Apple typed-enum element travels as its NSString carrier; read the carrier, then
+        // convert back to the projected C# enum through the platform binding's {Enum}Extensions.
+        if (projection.TypedEnumAdapter is { } fromAdapter)
+            return fromAdapter.FromCarrier(
+                MarshallingHelpers.FormatObjCBridgeCall(fromAdapter.CarrierType, $"{nsObjectVar}.Handle", nonNull: true));
         if (projection is ObjCBridgeableProjection bridgeable)
             return MarshallingHelpers.FormatObjCBridgeCall(bridgeable.PublicType, $"{nsObjectVar}.Handle", nonNull: true);
         if (projection is StringProjection)

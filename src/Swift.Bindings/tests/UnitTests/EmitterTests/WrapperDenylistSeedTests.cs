@@ -327,6 +327,137 @@ public class WrapperDenylistSeedTests : IDisposable
         Assert.Equal(MemberCount(clean, "Count"), MemberCount(seeded, "Count"));
     }
 
+    /// <summary>
+    /// The same seed must also reach the machine-readable side of the contract: a withdrawn unit is a
+    /// NAMED row in the binding report, not merely a comment in the generated source and a count in the
+    /// log. That row is what a consumer reads to learn which member they lost and why, and what the
+    /// resilience gates assert against — so it must carry the member's own identity, the withdrawal
+    /// wording, and the plane that withdrew it.
+    /// </summary>
+    /// <remarks>
+    /// Both a leaf method and an accessor group are denied, because they take different recording paths
+    /// (the member-validation pipeline versus the property gate) and only asserting one would leave the
+    /// other free to regress to a silent drop.
+    /// </remarks>
+    [Fact]
+    public void Build_SeedsTheContainmentLoop_ToRecordEachWithdrawalAsANamedSkipRow()
+    {
+        var methodUnit = RecoveryUnitId.Create(
+            DeclIdFactory.ForMethod(RegistryMethod("register", "third")), RecoveryScope.LeafApi);
+        var propertyUnit = RecoveryUnitId.ForAccessorGroup(
+            DeclIdFactory.ForProperty(RegistryProperty("name")));
+
+        var report = RenderForReport(
+            WrapperDenylistSeed.Build(new HashSet<RecoveryUnitId> { methodUnit, propertyUnit }));
+
+        Assert.NotNull(report);
+        var withdrawn = report!.SkippedItems
+            .Where(i => i.Reason == SkipReason.EmitterFault
+                        && (i.Details ?? string.Empty).Contains(
+                            "Withdrawn by wrapper verify-recover", StringComparison.Ordinal))
+            .ToList();
+
+        // Each denied unit is named by its OWN row — not one aggregate "recovery withdrew 2 units" row.
+        var nameRow = Assert.Single(withdrawn, i => i.Name == "name");
+        var registerRow = Assert.Single(withdrawn, i => i.Name == "register");
+
+        // The unit identity survives into the row, which is what ties a report row back to the loop's
+        // own withdrawnUnits list.
+        Assert.Contains(propertyUnit.Describe(), nameRow.Details!, StringComparison.Ordinal);
+        Assert.Contains(methodUnit.Describe(), registerRow.Details!, StringComparison.Ordinal);
+
+        // The stage is NOT assigned during collection — SkipAttributionLinker classifies it downstream
+        // off exactly the details wording asserted above. Rather than duplicate that classification,
+        // assert the join: these rows reach the linker unstaged and it places them on the Swift plane,
+        // which is what a consumer reading binding-report.json ends up with.
+        Assert.Null(nameRow.RecoveryStage);
+        Assert.Null(registerRow.RecoveryStage);
+        SkipAttributionLinker.Link(new[] { nameRow, registerRow });
+        Assert.Equal(RecoveryStage.SwiftCompile, nameRow.RecoveryStage);
+        Assert.Equal(RecoveryStage.SwiftCompile, registerRow.RecoveryStage);
+    }
+
+    /// <summary>
+    /// Withdrawing a member that carries trailing default-valued parameters must leave nothing
+    /// standing in for it. Such a member has a second emission route — the default-parameter overload
+    /// machinery mints a reduced form of it alongside the full one — so "the full member is gone" is
+    /// not the same claim as "the member is gone", and only the second is the withdrawal contract.
+    /// The named skip row is asserted with it, because a substitution that emitted under the same
+    /// name AND recorded nothing is the failure this pins from both sides.
+    /// </summary>
+    /// <remarks>
+    /// The render runs in XCFramework mode (a non-empty async library) on purpose. The rescue this
+    /// pins lives behind a <c>WrapperDecision.WrapperRequired</c> check, and <c>WrapperValidation</c>
+    /// answers <c>CannotWrap</c> for every member of a Direct-mode module — so a default-mode render
+    /// would drop <c>enroll</c> before the rescue was ever consulted and the assertions below would
+    /// hold with the guard deleted. Apple-direct generation defaults <c>--async-library</c> to
+    /// <c>{Module}SwiftBindings</c>, so this is the mode the production path is in.
+    /// </remarks>
+    [Fact]
+    public void Build_SeedsTheContainmentLoop_SoAWithdrawnTrailingDefaultMemberLeavesNoStandIn()
+    {
+        const string wrapperLibrary = "ContainmentFixtureSwiftBindings";
+        var enrollUnit = RecoveryUnitId.Create(
+            DeclIdFactory.ForMethod(RegistryMethod("enroll", "tag")), RecoveryScope.LeafApi);
+        var seed = WrapperDenylistSeed.Build(new HashSet<RecoveryUnitId> { enrollUnit });
+
+        var clean = Render(seed: null, asyncLibraryName: wrapperLibrary);
+        var seeded = Render(seed, asyncLibraryName: wrapperLibrary);
+
+        // The fixture really does put more than one Enroll shape in a clean render, so "zero" below
+        // is a withdrawal of every route to the member rather than of the only one there ever was.
+        Assert.True(
+            MemberCount(clean, "Enroll") > 1,
+            "fixture emitted a single Enroll shape, so the stand-in question is not being asked");
+
+        Assert.Equal(0, MemberCount(seeded, "Enroll"));
+
+        var report = RenderForReport(seed, asyncLibraryName: wrapperLibrary);
+        Assert.NotNull(report);
+        var row = Assert.Single(
+            report!.SkippedItems,
+            i => i.Name == "enroll" && i.Reason == SkipReason.EmitterFault);
+        Assert.Contains(enrollUnit.Describe(), row.Details!, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The pre-gate trailing-default rescue re-validates a clone of the dropped member with its
+    /// trailing defaults trimmed, and emits that clone if it clears the gate. That is right for the
+    /// drops the rescue exists for — a defaulted parameter whose TYPE cannot be bound — and wrong for
+    /// a verify-recover withdrawal, which is an instruction that the unit must not reach the output.
+    /// The clone escapes the instruction because <c>DeclIdFactory.ForMethod</c> folds the signature
+    /// into the identity the fault gate matches on, and it keeps the original <c>MangledName</c>, so
+    /// what emits is the withdrawn entry point at a different arity with no skip row behind it.
+    /// </summary>
+    /// <remarks>
+    /// The reason asserted here is not a hand-picked constant: it is read back out of
+    /// <c>EmitterFaultGate.Denied</c> for a genuinely poisoned decl, so the policy and the gate that
+    /// produces its input cannot drift apart — if the gate ever reported a withdrawal under a
+    /// different reason, this goes red rather than silently reopening the rescue.
+    /// </remarks>
+    [Fact]
+    public void TrailingDefaultRescue_DeclinesExactlyTheReasonTheFaultGateReportsForAWithdrawal()
+    {
+        var method = RegistryMethod("enroll", "tag");
+        var unit = RecoveryUnitId.Create(DeclIdFactory.ForMethod(method), RecoveryScope.LeafApi);
+
+        using (EmissionAttempt.Begin(
+                   WrapperDenylistSeed.Build(new HashSet<RecoveryUnitId> { unit })))
+        {
+            var denial = EmitterFaultGate.Denied(DeclIdFactory.ForMethod(method));
+
+            Assert.NotNull(denial);
+            Assert.False(denial!.ShouldEmit);
+            Assert.False(BaseHandler.IsTrailingDefaultRescueEligible(denial.Reason));
+        }
+
+        // And the rescue stays open for the type-driven drops it was built for — declining every
+        // reason would silently retire it instead of narrowing it.
+        Assert.True(BaseHandler.IsTrailingDefaultRescueEligible(SkipReason.UnsupportedType));
+        Assert.True(BaseHandler.IsTrailingDefaultRescueEligible(SkipReason.UnsupportedClosure));
+        Assert.True(BaseHandler.IsTrailingDefaultRescueEligible(null));
+    }
+
     // ── harness ─────────────────────────────────────────────────────────────────────────────────
 
     private static DeclId SomeDecl(string name = "member") =>
@@ -353,12 +484,18 @@ public class WrapperDenylistSeedTests : IDisposable
     /// <summary>
     /// Renders the shared fixture through the real containment loop and returns the concatenated C#
     /// output. A null <paramref name="seed"/> is a clean render (the sibling-survival baseline).
+    ///
+    /// <para><paramref name="asyncLibraryName"/> puts the render in XCFramework generation mode — the
+    /// mode where members are wrapper-carried. It is not cosmetic: <c>WrapperValidation</c> answers
+    /// <c>CannotWrap</c> for every member off that mode, so a Direct-mode render never reaches the
+    /// wrapper-required arm a test about wrapper emission means to exercise.</para>
     /// </summary>
-    private string Render(EmitterPoisonList? seed)
+    private string Render(EmitterPoisonList? seed, string? asyncLibraryName = null)
     {
         var scratch = NewScratchDir();
         var module = FixtureModuleFactory.BuildModule("ContainmentFixture");
         var typeDatabase = FixtureModuleFactory.BuildTypeDatabase(module);
+        typeDatabase.AsyncLibraryName = asyncLibraryName;
 
         ReportCollector.Reset();
         try
@@ -380,6 +517,37 @@ public class WrapperDenylistSeedTests : IDisposable
         return string.Concat(ReadOutput(scratch)
             .Where(f => f.Key.EndsWith(".cs", StringComparison.Ordinal))
             .Select(f => f.Value));
+    }
+
+    /// <summary>
+    /// Renders the shared fixture through the real containment loop under <paramref name="seed"/> and
+    /// returns the completed binding report — the same object <c>Program</c> projects into
+    /// <c>binding-report.json</c>. The generated C# is discarded; <see cref="Render"/> is the view for
+    /// that side.
+    /// </summary>
+    private BindingReport? RenderForReport(EmitterPoisonList seed, string? asyncLibraryName = null)
+    {
+        var scratch = NewScratchDir();
+        var module = FixtureModuleFactory.BuildModule("ContainmentFixture");
+        var typeDatabase = FixtureModuleFactory.BuildTypeDatabase(module);
+        typeDatabase.AsyncLibraryName = asyncLibraryName;
+
+        ReportCollector.Reset();
+        try
+        {
+            ContainedModuleEmission.Run(
+                module,
+                new ModuleEmissionContext(),
+                typeDatabase,
+                NullLogger.Instance,
+                newEmitter: () => new StringEmitter(scratch, typeDatabase, new NullLoggerFactory()),
+                seed: seed);
+            return ReportCollector.Complete();
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
     }
 
     /// <summary>Counts emitted C# member declarations named <paramref name="name"/> (property or method).</summary>

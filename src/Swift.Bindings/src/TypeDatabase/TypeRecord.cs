@@ -114,6 +114,13 @@ public enum TypeRecordFlags
     // synthesizes. See CdeclParamMapper. Native (in-module) enums never carry this flag, so their
     // reconstruction is unchanged.
     ExternalAppleEnum = 1 << 19,
+    // This flag marks an ObjCBridgeable record whose Swift side is an NSString-backed
+    // NS_STRING_ENUM/NS_TYPED_ENUM newtype but whose .NET projection is a C# enum, not an NSObject.
+    // The value still crosses the boundary as an NSString pointer (hence ObjCBridgeable), but the
+    // managed side cannot hand over a Handle directly: it converts through the platform binding's
+    // sibling `{Enum}Extensions.GetConstant`/`GetValue`. Set alongside ObjCBridgeable to steer the
+    // projection to that converter instead of `.Handle`/`GetNSObject<T>`.
+    AppleTypedEnum = 1 << 20,
 }
 
 /// <summary>

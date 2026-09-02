@@ -584,8 +584,12 @@ public static class TypeDatabaseExtensions
     internal static TypeRecord? TryCreateRegisteredAppleEnumRecord(
         SwiftTypeName swiftTypeName, string? usr, Func<AppleTypeSurfaceIndex?> indexProvider)
     {
-        if (!AppleFrameworkRegistry.IsAutoBridgeModule(swiftTypeName.Module))
-            return null;
+        // No auto-bridge-module gate: the registry description is strictly stronger than module
+        // membership. IsIntegerEnumValueType can only be true for a module that HAS a registry entry
+        // whose valueTypes list names this type as an integer enum, and the surface index
+        // independently confirms the .NET binding declares an enum. Requiring autoBridge on top of
+        // that only withheld the record from framework entries that carry no ObjC-bridging flags at
+        // all (ImageIO's CGImagePropertyOrientation), whose members then skipped as unresolvable.
         if (!AppleFrameworkRegistry.IsIntegerEnumValueType(swiftTypeName.ModuleQualifiedName))
             return null;
         // The index is a provider, not a value, so the reference-pack surface is only resolved (and
@@ -610,6 +614,75 @@ public static class TypeDatabaseExtensions
 
         return null;
     }
+
+    /// <summary>
+    /// Builds a record for an Apple framework type the registry describes as an NSString-backed
+    /// NS_STRING_ENUM / NS_TYPED_ENUM.
+    /// <para>
+    /// Swift imports one of these as a String-backed <c>RawRepresentable</c> newtype — a struct that
+    /// freely bridges to <c>NSString</c> via <c>_ObjectiveCBridgeable</c>, so it crosses the
+    /// <c>@_cdecl</c> boundary as an ObjC object pointer (and a container of them crosses as an
+    /// NSArray/NSSet/NSDictionary), exactly like <c>URL</c>↔<c>NSURL</c>. The platform binding
+    /// projects the constant group as a C# <c>enum</c> plus a sibling <c>{Name}Extensions</c> class
+    /// whose <c>GetConstant</c>/<c>GetValue</c> convert between the enum and the backing
+    /// <c>NSString</c>, so the emitted C# can keep the idiomatic enum in its public signature and
+    /// convert at the boundary.
+    /// </para>
+    /// <para>
+    /// Both halves are verified against the reference assembly before the record is built: the name
+    /// must resolve to an enum AND the sibling extensions class must exist. Without the sibling
+    /// there is no way to reach the backing constant, so the type stays unresolvable (fail-closed)
+    /// rather than emitting C# that cannot compile. No index (workload absent) does the same.
+    /// </para>
+    /// </summary>
+    internal static TypeRecord? TryCreateRegisteredAppleTypedEnumRecord(
+        SwiftTypeName swiftTypeName, string? usr, Func<AppleTypeSurfaceIndex?> indexProvider)
+    {
+        if (!AppleFrameworkRegistry.IsStringEnumValueType(swiftTypeName.ModuleQualifiedName))
+            return null;
+        if (indexProvider() is not { } index)
+            return null;
+
+        if (!TryGetRegistryRemappedIdentity(swiftTypeName, out var csharpNamespace, out var csharpName))
+            DeriveSynthesizedAppleIdentity(swiftTypeName, out csharpNamespace, out csharpName);
+
+        foreach (var candidate in AppleSurfaceCandidateNames(usr, csharpName))
+        {
+            if (!index.TryResolveQualified(csharpNamespace, candidate, out var hit)
+                && !index.TryResolveBare(candidate, out hit))
+                continue;
+
+            if (hit.Kind != AppleTypeSurfaceKind.Enum)
+                return null;
+
+            // The converter the emitted C# will call has to actually ship. Microsoft's generator
+            // emits it as a static (abstract+sealed) class named "{Enum}Extensions" beside the enum;
+            // the index classifies that shape as StaticConstants.
+            var extensionsName = hit.Name + AppleTypedEnumExtensionsSuffix;
+            if (!index.TryResolveQualified(hit.Namespace, extensionsName, out var extensions)
+                || extensions.Kind != AppleTypeSurfaceKind.StaticConstants)
+                return null;
+
+            var nsString = CSharpTypeName.FromNamespaceAndName("Foundation", "NSString");
+            return new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(hit.Namespace, hit.Name),
+                NativeTypeName = nsString,
+                SwiftTypeName = swiftTypeName,
+                MetadataAccessor = string.Empty,
+                Flags = TypeRecordFlags.ObjCBridgeable | TypeRecordFlags.AppleTypedEnum,
+                Kind = TypeRecordKind.Struct,
+            };
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Suffix Microsoft's binding generator gives the static converter class it emits beside a
+    /// projected NS_STRING_ENUM / NS_TYPED_ENUM (e.g. <c>VNBarcodeSymbologyExtensions</c>).
+    /// </summary>
+    internal const string AppleTypedEnumExtensionsSuffix = "Extensions";
 
     /// <summary>
     /// Resolves an ObjC-bridged reference against the real Microsoft.iOS surface. Returns a

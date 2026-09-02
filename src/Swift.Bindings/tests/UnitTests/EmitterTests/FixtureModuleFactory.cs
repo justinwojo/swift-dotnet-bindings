@@ -83,6 +83,19 @@ internal static class FixtureModuleFactory
         registry.Methods.Add(TestDecls.Method("register", parameters: new[] { TestDecls.Param("first", intSpec) }, module: moduleName));
         registry.Methods.Add(TestDecls.Method("register", parameters: new[] { TestDecls.Param("second", intSpec) }, module: moduleName));
         registry.Methods.Add(TestDecls.Method("register", parameters: new[] { TestDecls.Param("third", stringSpec) }, module: moduleName));
+        // A trailing default-valued parameter, which brings the trailing-default overload machinery
+        // into the render: the full form emits, and a reduced `enroll(subject:)` overload is minted
+        // alongside it. That reduction doubles as the pre-gate rescue for a member the emission gate
+        // drops, so this is also the shape that proves a verify-recover withdrawal is not quietly
+        // rescued into a defaults-only member under the same ABI symbol.
+        registry.Methods.Add(TestDecls.Method(
+            "enroll",
+            parameters: new[]
+            {
+                TestDecls.Param("subject", stringSpec),
+                TestDecls.Param("tag", intSpec, hasDefault: true),
+            },
+            module: moduleName));
         registry.Methods.Add(TestDecls.Method("reset", methodType: MethodType.Static, module: moduleName));
         registry.Methods.Add(TestDecls.Method("fetch", isAsync: true, returnType: intSpec, module: moduleName));
         moduleDecl.Types.Add(registry);

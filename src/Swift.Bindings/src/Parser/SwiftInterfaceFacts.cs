@@ -143,6 +143,28 @@ namespace BindingsGeneration
         /// way to recover <c>T...</c> for <c>@_cdecl</c> wrapper emission.</summary>
         public required HashSet<string> VariadicMembers { get; init; }
 
+        /// <summary>Fully-qualified keys ("Outer.Inner.propertyName", module prefix stripped;
+        /// bare name for a module-level property) of properties whose <c>get</c> accessor
+        /// carries the <c>async</c> effect specifier — <c>{ get async }</c> and
+        /// <c>{ get async throws }</c> alike.
+        /// <para/>
+        /// This is the swiftinterface-side oracle for accessor async-ness, and it is the ONLY
+        /// one that does not depend on the TBD. The ABI JSON marks accessor nodes with
+        /// <c>throwing</c> but carries no async flag, and an async accessor's mangled name has
+        /// no <c>Ya</c> marker (it is a plain <c>…vg</c>), so the alternative evidence is a
+        /// sibling <c>{getter}Tu</c> / <c>{getter}TjTu</c> symbol in the <c>.tbd</c>. The
+        /// consumer ORs the two, because either alone can be wrong in a way the other catches:
+        /// a TBD whose symbol set is empty or belongs to a re-exported library loses every
+        /// async accessor, and a swiftinterface that never reached the host (or whose type path
+        /// is not reproducible) loses the fact. Key shape is the same full-chain type path
+        /// <see cref="VariadicMembers"/> uses, but every component is spelled as SWIFT source
+        /// spells it — backticks unescaped, and no C#-keyword escaping (Swift's <c>event</c>
+        /// stays <c>event</c>, never the <c>_event</c> the type decl is stored under). A type-level
+        /// (<c>static</c>/<c>class</c>) property's key carries a <c>"static "</c> prefix, since a
+        /// type may declare a static and an instance property of the same name and only one of
+        /// the two getters may be async.</summary>
+        public required HashSet<string> AsyncAccessorMembers { get; init; }
+
         /// <summary>Protocol names whose methods carry <c>@convention(c)</c> or
         /// <c>@convention(block)</c> closure parameters. Detected from swiftinterface
         /// because ABI JSON lacks convention attributes on <c>TypeFunc</c> nodes.</summary>
@@ -333,6 +355,7 @@ namespace BindingsGeneration
             ObjCRuntimeNames = new Dictionary<string, string>(),
             SubscriptLabels = new Dictionary<string, List<string>>(),
             VariadicMembers = new HashSet<string>(),
+            AsyncAccessorMembers = new HashSet<string>(),
             ConventionCProtocols = new HashSet<string>(),
             HiddenRequirementProtocols = new Dictionary<string, HashSet<string>>(),
             MainActorTypePositions = new Dictionary<string, SourcePosition>(),

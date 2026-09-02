@@ -690,17 +690,23 @@ namespace BindingsGeneration
             if (TryGetTypeRecordWithoutSupplement(swiftTypeName, out record))
                 return true;
 
-            // Arm 7 — an Apple framework type the framework registry describes as an integer
-            // enum. The registry withholds the synthetic bridged-class record for anything it
+            // Arm 7 — an Apple framework type the framework registry describes the shape of: an
+            // integer-backed NS_ENUM/NS_OPTIONS, or an NSString-backed NS_STRING_ENUM/NS_TYPED_ENUM.
+            // The registry withholds the synthetic bridged-class record for anything it
             // lists as a value type, so without this arm the identity has NO record on this
             // surface even though the NamedTypeSpec chain resolves it: every leaf lookup that
             // goes through a raw name — notably the projection factory's container leaves, so
             // Optional<T> and arrays of such an enum — would still degrade. Runs last so any
             // real database record still wins, and applies the same fail-closed rule as the
-            // strategy chain: the registry must describe the Swift side as an integer enum AND
-            // the platform surface must confirm it, or the name stays unresolvable.
+            // strategy chain: the registry must describe the Swift side AND the platform surface
+            // must confirm it, or the name stays unresolvable. Kept in lockstep with
+            // RegisteredAppleEnumStrategy — a shape only one of the two surfaces knows about
+            // resolves inconsistently, which shows up as a C# signature and a Swift @_cdecl
+            // wrapper that disagree on the wire format rather than as a missing member.
             record = TypeDatabaseExtensions.TryCreateRegisteredAppleEnumRecord(
-                swiftTypeName, usr: null, static () => AppleTypeSurfaceIndex.Default);
+                    swiftTypeName, usr: null, static () => AppleTypeSurfaceIndex.Default)
+                ?? TypeDatabaseExtensions.TryCreateRegisteredAppleTypedEnumRecord(
+                    swiftTypeName, usr: null, static () => AppleTypeSurfaceIndex.Default);
             if (record is not null)
             {
                 ResolvedReferenceRecorder.Record(record, "TypeDatabase.TryGetTypeRecord:RegisteredAppleEnum");

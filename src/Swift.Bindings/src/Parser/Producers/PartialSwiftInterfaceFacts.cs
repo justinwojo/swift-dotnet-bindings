@@ -41,6 +41,7 @@ public sealed record PartialSwiftInterfaceFacts
     public Dictionary<string, string>? ObjCRuntimeNames { get; init; }
     public Dictionary<string, List<string>>? SubscriptLabels { get; init; }
     public HashSet<string>? VariadicMembers { get; init; }
+    public HashSet<string>? AsyncAccessorMembers { get; init; }
     public HashSet<string>? ConventionCProtocols { get; init; }
     public Dictionary<string, HashSet<string>>? HiddenRequirementProtocols { get; init; }
     public Dictionary<string, SourcePosition>? MainActorTypePositions { get; init; }

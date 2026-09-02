@@ -7,7 +7,7 @@ namespace BindingsGeneration.Producers;
 
 /// <summary>
 /// Identifies a single fact field on <see cref="SwiftInterfaceFacts"/>. One enum member
-/// per top-level field on the record (31 total today). The aggregator selects per-fact
+/// per top-level field on the record (32 total today). The aggregator selects per-fact
 /// which producer wins, so coverage maps are <see cref="System.Collections.Generic.HashSet{T}"/>
 /// of these.
 /// <para/>
@@ -67,6 +67,13 @@ public enum InterfaceFactKind
     // and the swift-types.json ownership manifest so mixed-framework dedup matches ObjC decls
     // by their runtime name (Finding 23).
     ObjCRuntimeNames,
+    // Qualified keys ("Outer.Inner.propertyName") of properties whose `get` accessor carries
+    // the `async` effect specifier. Neither of the generator's other inputs can prove this:
+    // swift-api-digester's ABI JSON marks accessor nodes with `throwing` but has no async
+    // flag, and an async accessor's mangled name carries no `Ya` marker. Without this fact
+    // the only evidence is a sibling `{getter}Tu` / `{getter}TjTu` symbol in the `.tbd`, so a
+    // single TBD-parsing defect silently downgrades every `get async` property to sync.
+    AsyncAccessorMembers,
 }
 
 internal static class InterfaceFactKindHelpers

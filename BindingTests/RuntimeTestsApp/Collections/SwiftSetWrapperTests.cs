@@ -145,14 +145,15 @@ public class SwiftSetWrapperTests : TestBase
     /// <c>WireCarrierLeakProbeTests.TestSetOfClassReturnReleasesMembers</c>.
     ///
     /// The set is produced by Swift (<c>MakeTrackedRefSet</c>) rather than built C#-side with
-    /// <c>Add</c>: <c>SwiftSet&lt;class&gt;.Add</c> routes through the generic CallConvSwift
-    /// <c>Set.insert</c>, whose <c>(Bool direct, @out Element via x0)</c> tuple-return shape is
-    /// the confirmed-upstream Mono-simulator bug (Issue 3) — it corrupts the caller's <c>self</c>
-    /// slot and SIGSEGVs on the next VWT Destroy. The concrete <c>@_cdecl</c> insert wrappers
-    /// (Int/Int64/String) sidestep it, but no such wrapper exists for an arbitrary user class.
-    /// <c>Count</c>, enumeration, and <c>Contains</c> use the property / Bool-return / @out-via-x8
-    /// CallConvSwift shapes, which are unaffected, so this probe runs on both Simulator and device
-    /// while still exercising the class-element Hashable witness resolution that T1 restores.
+    /// <c>Add</c>, which keeps this probe about witness resolution alone: <c>Count</c>,
+    /// enumeration and <c>Contains</c> are the only Set operations it drives. Insert dispatch for
+    /// an element type with no typed <c>@_cdecl</c> wrapper — which a user class is — is covered
+    /// separately by <c>SetStructElementTests</c> — for a struct element throughout, and for a
+    /// <c>TrackedRef</c> class element in
+    /// <c>TestClassElementSetInsertReleasesMemberAfterInsert</c>. It routes through the C-side
+    /// <c>SBW_Set_Insert</c> shim, because the stdlib <c>Set.insert</c> shape
+    /// (<c>Bool</c> direct + <c>@out Element</c> via x0) is mishandled by Mono's CallConvSwift
+    /// trampoline on the Simulator.
     /// </summary>
     public void TestSwiftSetOfClassContainsCount()
     {

@@ -373,12 +373,12 @@ public func scalePoints(_ points: [NonFrozenPoint], by factor: Double) -> [NonFr
 // projects as `IReadOnlySet<nint>` and the empty-literal default surfaces as either
 // an inline default or a trim overload that calls Swift's defaulted function.
 //
-// Element type is `Int` (Swift native `Int`, projects to C# `nint`) rather than
-// `Int32` because Swift `Set<Int32>` insertion takes the runtime's fallback
-// CallConvSwift path on Mono Simulator, which is a documented pre-existing
-// limitation (see `SwiftSet.InsertUnsafe`). `Set<Int>` has a working `@_cdecl`
-// wrapper (`SBW_SetInt_Insert`) so the round-trip exercises the Set projection
-// without tripping the unrelated runtime gap.
+// Element type is `Int` (Swift native `Int`, projects to C# `nint`), which the
+// runtime inserts through its typed `@_cdecl` wrapper `SBW_SetInt_Insert`. That
+// keeps these fixtures focused on the Set *projection* — `IReadOnlySet<T>` and
+// the empty-literal default — rather than on insert dispatch. The general insert
+// path, taken by any element type without a typed wrapper, has its own fixtures
+// in `Collections/SetStructElement.swift`.
 
 /// Returns the count of a `Set<Int>` with an empty-literal default. The signature
 /// pattern mirrors StoreKit's `Product.purchase(options: Set<PurchaseOption> = [])`.

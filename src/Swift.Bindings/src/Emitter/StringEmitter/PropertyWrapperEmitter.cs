@@ -111,14 +111,31 @@ public static class PropertyWrapperEmitter
         if (propertyDecl.Accessors.Any(a => a.Method.IsAsync))
             return WrapperEligibility.Reject("async_property");
 
-        // 4b. Throwing property getters — the @_cdecl wrapper doesn't emit try/catch for property access.
-        // Gate these out until full try/catch + error callback support is added for property wrappers.
-        // Carry a stable SWIFTBIND diagnostic code so the drop is an OBSERVABLE degradation in the
-        // emission-report skip-reason histogram, not an anonymous bucket (the "every degradation is
-        // observable" pattern). Reason is diagnostic-only and never reaches generated code.
+        // 4b. Throwing property getters — the @_cdecl wrapper doesn't emit try/catch for property access,
+        // so it declines them until try/catch + error-callback support is added on the wrapper path.
+        //
+        // Declining is NOT dropping. The accessor falls through to the direct CallConvSwift P/Invoke,
+        // and for a SYNCHRONOUS throwing getter that path is ABI-correct on its own terms: swiftcc
+        // returns a thrown error in the dedicated error register, so the emitted P/Invoke declares a
+        // `ref SwiftError` out-parameter, and the generated property body raises when it comes back
+        // non-null. That mechanism is what makes this gate safe to leave as a wrapper-strategy decline
+        // rather than a member skip.
+        //
+        // It is safe ONLY because the getter is synchronous. An ASYNC throwing getter must never reach
+        // here — gate 4 above rejects `async_property` first, and PropertyHandler routes async
+        // accessors to the async-method path before eligibility is even consulted. If accessor
+        // async-ness were mis-detected as false, this gate would fire instead and the fall-through
+        // would aim a synchronous `ref SwiftError` P/Invoke at an async entry point: it compiles, it
+        // ships, and it mismatches the ABI on the first read. That is why accessor async-ness is
+        // decided from two independent oracles (the TBD's `Tu`/`TjTu` sibling symbol and the
+        // .swiftinterface's literal `get async`) rather than one.
+        //
+        // Carry a stable SWIFTBIND diagnostic code so the decline is OBSERVABLE in the emission-report
+        // skip-reason histogram, not an anonymous bucket. Reason is diagnostic-only and never reaches
+        // generated code.
         if (propertyDecl.Accessors.OfType<GetAccessorDecl>().Any(a => a.Method.Throws))
             return WrapperEligibility.Reject(
-                "SWIFTBIND107: throwing property getter dropped — the @_cdecl property wrapper does not emit try/catch for throwing accessors");
+                "SWIFTBIND107: throwing property getter takes the direct CallConvSwift path — the @_cdecl property wrapper does not emit try/catch for throwing accessors");
 
         // 8. Nested types — ALLOWED. @_cdecl wrapper signatures use C-compatible types
         //    (Int32 raw value for simple enums, UnsafeRawPointer for complex types, void+resultPtr

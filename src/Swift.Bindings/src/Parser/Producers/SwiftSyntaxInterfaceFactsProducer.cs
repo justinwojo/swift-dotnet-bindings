@@ -32,6 +32,7 @@ namespace BindingsGeneration.Producers;
 /// <see cref="InterfaceFactKind.VariadicMembers"/>,
 /// <see cref="InterfaceFactKind.ConstLiteralParameters"/>,
 /// <see cref="InterfaceFactKind.ClosureParameterAttributes"/>),
+/// <see cref="InterfaceFactKind.AsyncAccessorMembers"/>,
 /// <see cref="InterfaceFactKind.SpiOnlyConformances"/> (from the sibling
 /// <c>.private.swiftinterface</c>), <see cref="InterfaceFactKind.ObjCRuntimeNames"/>,
 /// and protocol-level facts
@@ -326,6 +327,9 @@ public sealed class SwiftSyntaxInterfaceFactsProducer : IInterfaceFactsProducer
             VariadicMembers = covered.Contains(InterfaceFactKind.VariadicMembers)
                 ? new HashSet<string>(parsed.Facts.VariadicMembers ?? new List<string>())
                 : null,
+            AsyncAccessorMembers = covered.Contains(InterfaceFactKind.AsyncAccessorMembers)
+                ? new HashSet<string>(parsed.Facts.AsyncAccessorMembers ?? new List<string>())
+                : null,
             SpiOnlyConformances = covered.Contains(InterfaceFactKind.SpiOnlyConformances)
                 ? new HashSet<string>(parsed.Facts.SpiOnlyConformances ?? new List<string>())
                 : null,
@@ -547,6 +551,8 @@ public sealed class SwiftSyntaxInterfaceFactsProducer : IInterfaceFactsProducer
             throw new InvalidOperationException("SwiftInterfaceParser declared SubscriptLabels coverage but emitted null facts.subscriptLabels.");
         if (covered.Contains(InterfaceFactKind.VariadicMembers) && payload.VariadicMembers is null)
             throw new InvalidOperationException("SwiftInterfaceParser declared VariadicMembers coverage but emitted null facts.variadicMembers.");
+        if (covered.Contains(InterfaceFactKind.AsyncAccessorMembers) && payload.AsyncAccessorMembers is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared AsyncAccessorMembers coverage but emitted null facts.asyncAccessorMembers.");
         if (covered.Contains(InterfaceFactKind.SpiOnlyConformances) && payload.SpiOnlyConformances is null)
             throw new InvalidOperationException("SwiftInterfaceParser declared SpiOnlyConformances coverage but emitted null facts.spiOnlyConformances.");
         if (covered.Contains(InterfaceFactKind.ObjCRuntimeNames) && payload.ObjCRuntimeNames is null)

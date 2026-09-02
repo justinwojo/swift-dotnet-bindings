@@ -2343,6 +2343,48 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Builds the same dot-joined path as <see cref="BuildTypeQualifiedPath"/>, but with each
+        /// component spelled the way Swift source spells it.
+        /// </summary>
+        /// <remarks>
+        /// <para>A <see cref="TypeDecl"/> stores its <c>Name</c> after <c>ExtractUniqueName</c>, which
+        /// prefixes a C#-keyword name with an underscore — Swift's <c>struct event</c> is held as
+        /// <c>_event</c> — and type declarations record no original-name provenance to recover from.
+        /// Interface facts are keyed by Swift identifiers, so a lookup built from the sanitized chain
+        /// silently misses every keyword-named type.</para>
+        /// <para>Undoing the prefix is deterministic in the direction that matters: an underscore
+        /// followed by a C# keyword is exactly and only what that sanitizer emits. A Swift type
+        /// genuinely named <c>_class</c> inverts to <c>class</c> and finds no fact — the lookup is
+        /// then simply silent, the same silence as a library shipped without a .swiftinterface, and
+        /// never a false positive.</para>
+        /// </remarks>
+        private static string BuildSwiftTypeQualifiedPath(TypeDecl typeDecl)
+        {
+            var parts = new List<string>();
+            BaseDecl? current = typeDecl;
+            while (current is TypeDecl td)
+            {
+                parts.Add(UnsanitizeKeywordName(td.Name));
+                current = td.ParentDecl;
+            }
+            parts.Reverse();
+            return string.Join(".", parts);
+        }
+
+        /// <summary>
+        /// Inverse of the C#-keyword escaping <c>ExtractUniqueName</c> applies: strips a leading
+        /// underscore when what follows is a C# keyword, leaving every other name untouched.
+        /// </summary>
+        private static string UnsanitizeKeywordName(string name)
+        {
+            return name.Length > 1
+                && name[0] == '_'
+                && SyntaxFacts.GetKeywordKind(name.Substring(1)) != SyntaxKind.None
+                ? name.Substring(1)
+                : name;
+        }
+
+        /// <summary>
         /// Creates a class declaration from a node.
         /// </summary>
         /// <param name="node">The node representing the class declaration.</param>
@@ -3071,7 +3113,10 @@ namespace BindingsGeneration
             return operatorDecl;
         }
 
-        private List<AccessorDecl> HandleAccessors(IEnumerable<Node> accessors, string fieldName, BaseDecl parentDecl, ModuleDecl moduleDecl)
+        /// <param name="swiftFieldName">The property's Swift-source identifier (backtick-stripped, before
+        /// property-wrapper sanitization). Distinct from <paramref name="fieldName"/>, which is already
+        /// C#-shaped; interface facts are keyed by what the .swiftinterface spells, not what C# emits.</param>
+        private List<AccessorDecl> HandleAccessors(IEnumerable<Node> accessors, string fieldName, BaseDecl parentDecl, ModuleDecl moduleDecl, string swiftFieldName)
         {
             var result = new List<AccessorDecl>();
 
@@ -3084,7 +3129,7 @@ namespace BindingsGeneration
                 switch (accessor.AccessorKind)
                 {
                     case "get":
-                        result.Add(CreateGetAccessor(accessor, sanitizedFieldName, parentDecl, moduleDecl));
+                        result.Add(CreateGetAccessor(accessor, sanitizedFieldName, parentDecl, moduleDecl, swiftFieldName));
                         break;
                     case "set":
                         result.Add(CreateSetAccessor(accessor, sanitizedFieldName, parentDecl, moduleDecl));
@@ -3101,13 +3146,49 @@ namespace BindingsGeneration
             return result;
         }
 
-        private GetAccessorDecl CreateGetAccessor(Node accessor, string fieldName, BaseDecl parentDecl, ModuleDecl moduleDecl)
+        private GetAccessorDecl CreateGetAccessor(Node accessor, string fieldName, BaseDecl parentDecl, ModuleDecl moduleDecl, string swiftFieldName)
         {
-            // Detect async getters by checking if the TBD marks this accessor's mangled name as async.
-            // The ABI JSON doesn't mark accessors as async directly. For class properties, the exported
-            // symbol uses a dispatch thunk (Tj suffix), so the async marker appears as "TjTu" rather than
-            // bare "Tu" — ManglingProbes.IsAsyncAccessor owns both variants.
-            var isAsync = ManglingProbes.IsAsyncAccessor(_demangledTbd.AllSymbols, accessor.MangledName);
+            // Accessor async-ness has no direct representation in the ABI JSON (accessor nodes carry
+            // `throwing` but no async flag) and an async accessor's mangled name carries no `Ya` marker,
+            // so it must be inferred. Two independent oracles answer it, and either saying "async" wins:
+            //
+            //  1. The TBD symbol table: an async accessor exports a sibling `{getter}Tu` symbol, or for a
+            //     class property dispatched through a thunk, `{getter}TjTu`. ManglingProbes.IsAsyncAccessor
+            //     owns both variants. This oracle goes silent whenever the TBD symbol set is incomplete —
+            //     a stub library shipped without one, or a .tbd shape the parser reads as empty — and its
+            //     silence is indistinguishable from "synchronous".
+            //  2. The .swiftinterface: the source text literally spells `get async`, harvested into
+            //     AsyncAccessorMembers keyed by the type-qualified path as Swift source spells it —
+            //     BuildSwiftTypeQualifiedPath's shape, not the C#-sanitized one. This oracle goes
+            //     silent when no .swiftinterface is available, or when the accessor is declared
+            //     somewhere the walker's key shape can't render.
+            //
+            // Reading only one leaves an async getter emitted as a synchronous one: at best the @_cdecl
+            // property wrapper fails to compile, at worst a `get async throws` accessor lands on a direct
+            // CallConvSwift P/Invoke with a `ref SwiftError` out-param pointed at an async entry point,
+            // which compiles and then mismatches the ABI on the first read. A disagreement between the two
+            // is itself worth surfacing: it is the signal that names a broken TBD or a stale walker key.
+            var tbdSaysAsync = ManglingProbes.IsAsyncAccessor(_demangledTbd.AllSymbols, accessor.MangledName);
+            // A type can declare `static var value` and `var value` side by side, and each
+            // exports its own getter. The interface fact prefixes the type-level one so the
+            // two namespaces stay apart — without it, marking the static getter async would
+            // drag its synchronous instance namesake onto the async path as well.
+            var isStaticAccessor = accessor.@static ?? false;
+            var asyncFactKey = parentDecl is TypeDecl asyncParentType
+                ? $"{BuildSwiftTypeQualifiedPath(asyncParentType)}.{swiftFieldName}"
+                : swiftFieldName;
+            if (isStaticAccessor)
+            {
+                asyncFactKey = $"static {asyncFactKey}";
+            }
+            var interfaceSaysAsync = _facts.AsyncAccessorMembers.Contains(asyncFactKey);
+            if (tbdSaysAsync != interfaceSaysAsync)
+            {
+                _logger.LogDebug(
+                    "Async-accessor oracles disagree for '{Key}' ({Mangled}): TBD says {Tbd}, .swiftinterface says {Interface}. Treating the getter as async.",
+                    asyncFactKey, accessor.MangledName, tbdSaysAsync, interfaceSaysAsync);
+            }
+            var isAsync = tbdSaysAsync || interfaceSaysAsync;
 
             // Build generic parameters for the accessor method.
             // If the accessor has its own GenericSig, parse it. Otherwise, if the parent type is generic,
@@ -3128,7 +3209,7 @@ namespace BindingsGeneration
             {
                 Name = $"{fieldName}_Get",
                 MangledName = accessor.MangledName,
-                MethodType = accessor.@static ?? false ? MethodType.Static : MethodType.Instance,
+                MethodType = isStaticAccessor ? MethodType.Static : MethodType.Instance,
                 IsConstructor = false,
                 CSSignature = new List<ArgumentDecl>
                 {
@@ -3270,7 +3351,9 @@ namespace BindingsGeneration
                     && Array.IndexOf(node.DeclAttributes, "Dynamic") != -1,
                 IsProtocolRequirement = node.protocolReq == true,
                 IsFromExtension = node.isFromExtension == true,
-                Accessors = HandleAccessors(node.Accessors, sanitizedName, parentDecl, moduleDecl)
+                // rawName (backtick-stripped, pre-sanitization) is the identifier the .swiftinterface
+                // spells, so it is what the async-accessor fact is keyed by.
+                Accessors = HandleAccessors(node.Accessors, sanitizedName, parentDecl, moduleDecl, rawName)
             };
             // Propagate extension flag to accessor MethodDecls. Extension methods use static
             // dispatch — accessor P/Invokes must not get Tj dispatch thunk suffix.

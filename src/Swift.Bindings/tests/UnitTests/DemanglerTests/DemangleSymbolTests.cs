@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using BindingsGeneration.Demangling;
@@ -916,6 +917,208 @@ exports:
         Assert.True(totalReductions > 0, "Expected reductions from Foundation.tbd");
         // And also some errors (symbols the reducer doesn't handle)
         Assert.True(results.Errors.Length > 0, "Expected some reduction errors from Foundation.tbd");
+    }
+
+    // ================================================================
+    // Multi-document TBD: symbol accumulation and the own-library tripwire
+    // ================================================================
+
+    /// <summary>
+    /// A framework that re-exports a private library ships one `--- !tapi-tbd` document per
+    /// library. Document 1 is the framework itself; document 2 the re-exported private one.
+    /// The async marker and the protocol method descriptor both live in document 1.
+    /// </summary>
+    private const string TwoDocumentTbd = @"--- !tapi-tbd
+tbd-version:     4
+targets:         [ arm64-ios-simulator ]
+install-name:    '/System/Library/Frameworks/VKLike.framework/VKLike'
+reexported-libraries:
+  - targets:         [ arm64-ios-simulator ]
+    libraries:       [ '/System/Library/PrivateFrameworks/Helper.framework/Helper' ]
+swift-abi-version: 7
+exports:
+  - targets:         [ arm64-ios-simulator ]
+    symbols:         [ '_$s6VKLike11InteractionC8subjectsSaySiGvg',
+                       '_$s6VKLike11InteractionC8subjectsSaySiGvgTjTu',
+                       '_$s6VKLike8ObserverP6notifyyyF',
+                       '_$s6VKLike8ObserverP6notifyyyFTq' ]
+--- !tapi-tbd
+tbd-version:     4
+targets:         [ arm64-ios-simulator ]
+install-name:    '/System/Library/PrivateFrameworks/Helper.framework/Helper'
+swift-abi-version: 7
+exports:
+  - targets:         [ arm64-ios-simulator ]
+    symbols:         [ '_$s6Helper8ScannerCMa' ]
+...
+";
+
+    [Fact]
+    public void FromTbd_MultiDocumentTbd_FirstDocumentAsyncAndDescriptorSiblingsAreVisible()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path, TwoDocumentTbd);
+            var loggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(builder => { });
+            var results = DemanglingResults.FromTbd(path, loggerFactory);
+
+            // Both documents' symbols resolve through this file, so both must be in the probe set.
+            Assert.Contains("$s6VKLike11InteractionC8subjectsSaySiGvg", results.AllSymbols);
+            Assert.Contains("$s6Helper8ScannerCMa", results.AllSymbols);
+
+            // The evidence a member binds as async is a sibling symbol in the FIRST document.
+            // Reading only the last document answers "not async" and the property binds synchronous.
+            Assert.True(
+                ManglingProbes.IsAsyncAccessor(results.AllSymbols, "$s6VKLike11InteractionC8subjectsSaySiGvg"),
+                "Async accessor sibling from document 1 must be visible");
+            Assert.True(
+                ManglingProbes.HasMethodDescriptor(results.AllSymbols, "$s6VKLike8ObserverP6notifyyyF"),
+                "Protocol method descriptor from document 1 must be visible");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void FromTbd_NoSymbolsForOwnLibrary_WarnsNamingDocumentsAndModules()
+    {
+        // Every Swift symbol belongs to a different module than the install-name's library — the
+        // shape a dropped document leaves behind.
+        var tbdContent = @"--- !tapi-tbd
+tbd-version:     4
+targets:         [ arm64-ios-simulator ]
+install-name:    '/System/Library/Frameworks/Ghost.framework/Ghost'
+swift-abi-version: 7
+exports:
+  - targets:         [ arm64-ios-simulator ]
+    symbols:         [ '_$s5Other5ClassCMa' ]
+";
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path, tbdContent);
+            var loggerFactory = new CapturingLoggerFactory();
+            DemanglingResults.FromTbd(path, loggerFactory);
+
+            var warning = Assert.Single(loggerFactory.Warnings, w => w.Contains("Ghost"));
+            Assert.Contains("Other", warning);
+            Assert.Contains(path, warning);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void FromTbd_SymbolsForOwnLibrary_DoesNotWarn()
+    {
+        var tbdContent = @"--- !tapi-tbd
+tbd-version:     4
+targets:         [ arm64-ios-simulator ]
+install-name:    '/System/Library/Frameworks/Own.framework/Own'
+swift-abi-version: 7
+exports:
+  - targets:         [ arm64-ios-simulator ]
+    symbols:         [ '_$s3Own5ClassCMa', '_$s5Other5ClassCMa' ]
+";
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path, tbdContent);
+            var loggerFactory = new CapturingLoggerFactory();
+            DemanglingResults.FromTbd(path, loggerFactory);
+
+            Assert.DoesNotContain(loggerFactory.Warnings, w => w.Contains("is mangled for module"));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void FromTbd_ExtensionOnlyLibrary_DoesNotWarn()
+    {
+        // A framework whose entire Swift surface is extensions on types owned by another module
+        // exports nothing with itself as the LEADING mangled module — the leading module is the
+        // extended type's. Its own name still appears as the length-prefixed extension context, and
+        // that is enough evidence its document was read, so the tripwire must stay quiet.
+        var tbdContent = @"--- !tapi-tbd
+tbd-version:     4
+targets:         [ arm64-ios-simulator ]
+install-name:    '/System/Library/Frameworks/LinkLike.framework/LinkLike'
+swift-abi-version: 7
+exports:
+  - targets:         [ arm64-ios-simulator ]
+    symbols:         [ '_$s10Foundation4DateV8LinkLikeE5thumbSSvg' ]
+";
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path, tbdContent);
+            var loggerFactory = new CapturingLoggerFactory();
+            DemanglingResults.FromTbd(path, loggerFactory);
+
+            Assert.DoesNotContain(loggerFactory.Warnings, w => w.Contains("is mangled for module"));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void FromTbd_ExtensionContextOfAnotherModule_StillWarns()
+    {
+        // The narrowing above keys on the library's OWN name as an extension context. A file whose
+        // only extension context names a DIFFERENT module is still the dropped-document shape and
+        // must keep warning — otherwise the narrowing would swallow the case it was added beside.
+        var tbdContent = @"--- !tapi-tbd
+tbd-version:     4
+targets:         [ arm64-ios-simulator ]
+install-name:    '/System/Library/Frameworks/Ghost.framework/Ghost'
+swift-abi-version: 7
+exports:
+  - targets:         [ arm64-ios-simulator ]
+    symbols:         [ '_$s10Foundation4DateV8LinkLikeE5thumbSSvg' ]
+";
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path, tbdContent);
+            var loggerFactory = new CapturingLoggerFactory();
+            DemanglingResults.FromTbd(path, loggerFactory);
+
+            Assert.Single(loggerFactory.Warnings, w => w.Contains("is mangled for module") && w.Contains("Ghost"));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void FromTbd_MultiDocumentTbd_OwnLibraryTripwireStaysSilent()
+    {
+        // The tripwire's whole point: once both documents parse, the framework's own symbols are
+        // present and it must not fire.
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path, TwoDocumentTbd);
+            var loggerFactory = new CapturingLoggerFactory();
+            DemanglingResults.FromTbd(path, loggerFactory);
+
+            Assert.DoesNotContain(loggerFactory.Warnings, w => w.Contains("is mangled for module"));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     // ================================================================

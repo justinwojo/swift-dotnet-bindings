@@ -26,13 +26,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE="$SCRIPT_DIR/SwiftBindingsRuntime.swift"
-# A small C translation unit holding cdecl wrappers for the six Swift stdlib
-# generic-collection ops whose direct CallConvSwift shape (sret + intermediate
-# integer args + SwiftSelf) is mishandled by the Mac Catalyst-x64 workload Mono
-# trampoline. Clang's `swiftcall` attribute + `swift_indirect_result` /
-# `swift_context` parameter attrs lower the inner call via LLVM swiftcc, which
-# is correct on every supported arch; C# enters via plain Cdecl, bypassing the
-# broken trampoline. See SwiftBindingsRuntimeCollections.c for the rationale.
+# A small C translation unit holding cdecl wrappers for the seven Swift stdlib
+# generic-collection ops whose direct CallConvSwift shape is mishandled by a
+# Mono trampoline — six with sret + intermediate integer args + SwiftSelf
+# (broken on Mac Catalyst-x64), plus Set.insert, whose mixed
+# (Bool direct, @out Element via the first pointer argument) tuple return is
+# broken on the iOS Simulator. Clang's `swiftcall` attribute +
+# `swift_indirect_result` / `swift_context` parameter attrs lower the inner
+# call via LLVM swiftcc, which is correct on every supported arch; C# enters
+# via plain Cdecl, bypassing the broken trampoline. See
+# SwiftBindingsRuntimeCollections.c for the rationale.
 COLLECTIONS_SOURCE="$SCRIPT_DIR/SwiftBindingsRuntimeCollections.c"
 OUTPUT_BASE="$SCRIPT_DIR/../native"
 

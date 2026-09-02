@@ -46,10 +46,13 @@ public class PropertyWrapperEmitterTests
     [Fact]
     public void EvaluateWrapperEligibility_ThrowingGetter_RejectedWithSwiftbind107()
     {
-        // F42: a throwing property getter is dropped — the @_cdecl property wrapper emits no
-        // try/catch for accessors. The drop must carry the stable SWIFTBIND107 diagnostic so it
-        // lands in the emission-report skip histogram as an OBSERVABLE degradation, not an
-        // anonymous bucket.
+        // A throwing property getter is declined by the wrapper gate — the @_cdecl property
+        // wrapper emits no try/catch for accessors. Declining is not dropping: emission falls
+        // through to a direct CallConvSwift P/Invoke, which is the ABI-correct shape for a
+        // SYNCHRONOUS throwing getter (swiftcc returns the error in the dedicated error
+        // register, which the `ref SwiftError` out-param reads). The rejection must carry the
+        // stable SWIFTBIND107 diagnostic so the fall-through is nameable in both the emission
+        // histogram and the binding report, not an anonymous bucket.
         var (moduleDecl, typeDb) = CreateTestEnvironment("RiskyProp");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 

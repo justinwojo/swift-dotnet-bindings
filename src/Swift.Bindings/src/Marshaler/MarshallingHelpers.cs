@@ -222,6 +222,31 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// True when an <c>Optional&lt;T&gt;</c>'s inner is an Apple NS_STRING_ENUM / NS_TYPED_ENUM —
+        /// a type that bridges as an <c>NSString</c> constant but whose .NET projection is a C# enum.
+        /// <para>
+        /// This is a NARROWING companion to <see cref="IsOptionalObjCBridged"/>, never a replacement:
+        /// that predicate must keep answering the same question as <c>TypeProjectionFactory</c>, which
+        /// does project this shape as an <c>OptionalProjection</c> over an
+        /// <c>ObjCBridgeableProjection</c>. Call sites that bypass the projection to extract a
+        /// <c>Handle</c> directly must exclude this shape — a C# enum has no <c>Handle</c> and, being a
+        /// value type, no <c>?.</c> to apply — and let the adapter-aware projection convert instead.
+        /// </para>
+        /// </summary>
+        public static bool IsOptionalAppleTypedEnum(TypeSpec? typeSpec, ITypeDatabase typeDatabase)
+        {
+            if (!IsSwiftOptional(typeSpec))
+                return false;
+            var namedType = (NamedTypeSpec)typeSpec!;
+            if (namedType.GenericParameters.Count != 1)
+                return false;
+            if (namedType.GenericParameters[0] is not NamedTypeSpec innerNamed || !innerNamed.HasModule())
+                return false;
+            return typeDatabase.TryGetTypeRecord(SwiftTypeName.FromModuleQualifiedName(innerNamed.Name), out var record)
+                   && record.Flags.HasFlag(TypeRecordFlags.AppleTypedEnum);
+        }
+
+        /// <summary>
         /// The ObjC-prefix bridging heuristic core: an Apple-framework reference type that has NO
         /// database record but is recognized as an ObjC class purely by its owning module and a
         /// 2–3 letter uppercase class-name prefix (UI/NS/CA/SK/…). This is the single source of

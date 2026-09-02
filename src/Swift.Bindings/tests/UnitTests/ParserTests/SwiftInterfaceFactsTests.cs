@@ -32,13 +32,14 @@ public class SwiftInterfaceFactsTests
         // 21 fact maps + 3 best-effort source-position maps + 3 non-fact migrations
         // (ProtocolNames, ProtocolExtensionMethods, ExtensionMemberCandidates) + 1 SDK 0.11.0 R2
         // SPI-only conformances + 1 AppIntents 0.12.0 ConstLiteralParameters + 1
-        // ClosureParameterAttributes + 1 Finding 23 ObjCRuntimeNames = 31.
+        // ClosureParameterAttributes + 1 Finding 23 ObjCRuntimeNames + 1 AsyncAccessorMembers
+        // (the TBD-independent async-accessor oracle) = 32.
         var properties = typeof(SwiftInterfaceFacts)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.GetCustomAttribute<System.Runtime.CompilerServices.RequiredMemberAttribute>() != null)
             .ToList();
 
-        Assert.Equal(31, properties.Count);
+        Assert.Equal(32, properties.Count);
 
         // Every required property is populated on Empty (no nullable holes).
         foreach (var prop in properties)
@@ -324,6 +325,7 @@ public class SwiftInterfaceFactsTests
     [InlineData(nameof(SwiftInterfaceFacts.AutoclosureParameters))]
     [InlineData(nameof(SwiftInterfaceFacts.SubscriptLabels))]
     [InlineData(nameof(SwiftInterfaceFacts.VariadicMembers))]
+    [InlineData(nameof(SwiftInterfaceFacts.AsyncAccessorMembers))]
     [InlineData(nameof(SwiftInterfaceFacts.ConventionCProtocols))]
     [InlineData(nameof(SwiftInterfaceFacts.HiddenRequirementProtocols))]
     [InlineData(nameof(SwiftInterfaceFacts.MainActorTypePositions))]

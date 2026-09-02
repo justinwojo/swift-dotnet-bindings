@@ -573,6 +573,32 @@ public enum SkipReason
     /// </para>
     /// </summary>
     ProtocolProxyVtableEmpty,
+
+    /// <summary>
+    /// A property was emitted, but its accessors did NOT take the <c>@_cdecl</c> property-wrapper
+    /// (or native-thunk) strategy: <c>PropertyWrapperEmitter</c>'s eligibility traversal rejected
+    /// them, so the accessors bind a direct <c>CallConvSwift</c> P/Invoke onto the Swift getter/setter
+    /// symbol instead.
+    /// <para>
+    /// This is a DEGRADATION row, not an absence — the C# property is declared and, for most shapes,
+    /// fully functional, since the direct P/Invoke is the generator's baseline mechanism and the
+    /// wrapper is an upgrade over it (a throwing getter, for instance, is ABI-correct on the direct
+    /// path: swiftcc returns the error in the dedicated error register, which the emitted P/Invoke
+    /// reads through its <c>ref SwiftError</c> out-parameter). What the row buys is that the
+    /// fall-through stops being anonymous: before this, a rejection existed only as a count in the
+    /// emission report's skip-reason histogram plus a log line, so nothing in the persisted binding
+    /// report named WHICH property had lost its wrapper. That invisibility is what let a mis-detected
+    /// async getter ride a synchronous direct P/Invoke — compiling, shipping, and mismatching the ABI
+    /// at the first read — with no artifact recording it.
+    /// </para>
+    /// <para>
+    /// Rows land in <see cref="BindingReport.SkippedItems"/> for countability WITHOUT counting in
+    /// <see cref="BindingReport.SkippedMembers"/>. <see cref="SkippedItem.Details"/> carries the
+    /// eligibility guard token that rejected the wrapper (<c>generic_parent_type</c>,
+    /// <c>SWIFTBIND107: …</c>, …) — the same token the histogram buckets by, now attached to a name.
+    /// </para>
+    /// </summary>
+    PropertyWrapperDeclinedDirectPInvoke,
 }
 
 /// <summary>

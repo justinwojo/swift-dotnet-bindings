@@ -508,7 +508,10 @@
     },
     {
       "module": "ImageIO",
-      "wrapperImportable": true
+      "wrapperImportable": true,
+      "valueTypes": [
+        { "name": "CGImagePropertyOrientation", "kind": "enum" }
+      ]
     },
     {
       "module": "Intents",
@@ -1016,7 +1019,40 @@
       "autoBridge": true,
       "optionalFallback": true,
       "wrapperImportable": true,
-      "objcPrefixes": ["VN"]
+      "objcPrefixes": ["VN"],
+      "valueTypes": [
+        { "name": "VNBarcodeSymbology", "kind": "stringEnum" },
+        { "name": "VNAnimalIdentifier", "kind": "stringEnum" },
+        { "name": "VNComputeStage", "kind": "stringEnum" },
+        { "name": "VNImageOption", "kind": "stringEnum" },
+        { "name": "VNVideoProcessingOption", "kind": "stringEnum" },
+        { "name": "VNRecognizedPointKey", "kind": "stringEnum" },
+        { "name": "VNRecognizedPointGroupKey", "kind": "stringEnum" },
+        { "name": "VNBarcodeCompositeType", "kind": "enum" },
+        { "name": "VNChirality", "kind": "enum" },
+        { "name": "VNElementType", "kind": "enum" },
+        { "name": "VNErrorCode", "kind": "enum" },
+        { "name": "VNGenerateOpticalFlowRequestComputationAccuracy", "kind": "enum" },
+        { "name": "VNGeneratePersonSegmentationRequestQualityLevel", "kind": "enum" },
+        { "name": "VNHumanBodyPose3DObservationHeightEstimation", "kind": "enum" },
+        { "name": "VNImageCropAndScaleOption", "kind": "enum" },
+        { "name": "VNPointsClassification", "kind": "enum" },
+        { "name": "VNRequestFaceLandmarksConstellation", "kind": "enum" },
+        { "name": "VNRequestTextRecognitionLevel", "kind": "enum" },
+        { "name": "VNRequestTrackingLevel", "kind": "enum" },
+        { "name": "VNTrackOpticalFlowRequestComputationAccuracy", "kind": "enum" },
+        "VNAnimalBodyPoseObservation.JointName",
+        "VNAnimalBodyPoseObservation.JointsGroupName",
+        "VNHumanBodyPose3DObservation.JointName",
+        "VNHumanBodyPose3DObservation.JointsGroupName",
+        "VNHumanBodyPoseObservation.JointName",
+        "VNHumanBodyPoseObservation.JointsGroupName",
+        "VNHumanHandPoseObservation.JointName",
+        "VNHumanHandPoseObservation.JointsGroupName",
+        "VNAspectRatio",
+        "VNConfidence",
+        "VNDegrees"
+      ]
     },
     {
       "module": "WatchConnectivity",

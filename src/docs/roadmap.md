@@ -42,6 +42,22 @@ Standing framing, extracted from the 0.18.0 regression (16 red corpus cells behi
 
 ---
 
+## Pending for the 0.19.0 release notes
+
+**Colliding overloads are renamed from their labels/types — a source-breaking change for consumers.** The overload resolver stopped disambiguating with a numeric suffix and now derives a name from the Swift argument labels, falling back to parameter types; a member that nothing distinguishes is refused outright rather than emitted twice. Consequence: a member that previously bound as `Foo`/`Foo2` may now bind under a different name entirely, and **neither** overload necessarily keeps the bare name — when two overloads are indistinguishable by C# arity, which one "owns" the short name would itself be declaration-order-dependent, the instability the change set out to remove.
+
+Scale, measured off the resolver's own `OverloadRenames` records across the `swift-dotnet-packages` corpus: **91 renames over 21 distinct member names in 8 packages** — MusicKit 28, Stripe 17, RealityFoundation 12, TipKit 12, Lottie 8, RoomPlan 7, LiveCommunicationKit 5, Nuke 2 (67 label-derived, 24 type-derived). Representative shapes:
+
+| Was | Is now |
+|---|---|
+| `MusicItemCollection.Index` / `.Index2` | `.IndexAfter` / `.IndexBefore` |
+| `MusicItemCollection.FormIndex` / `.FormIndex2` | `.FormIndexAfter` / `.FormIndexBefore` |
+| `MeshResource.GeneratePlane` / `.GeneratePlane2` | `.GeneratePlaneWidthHeightCornerRadius` / `.GeneratePlaneWidthDepthCornerRadius` |
+
+The release notes need an explicit upgrade section calling this out; consumers get a compile error, not a silent behaviour change, so the guidance is "rebuild and follow the CS0117/CS1061/CS1501 to the new name". Two things worth deciding while writing them: whether the longest label-derived names (`GeneratePlaneWidthHeightCornerRadius`) are the ergonomics we want to publish, and whether this warrants raising the `RuntimeContract` floor — it is source-breaking for consumers, but there is no evidence it breaks the module-init↔runtime dispatch contract the floor actually guards.
+
+---
+
 ## Demand-driven capability backlog
 
 Real capability gaps with an active incremental trajectory — closed shape-by-shape as consumer demand or validation signal arrives, not scheduled as sessions.

@@ -108,6 +108,8 @@ public static class WorkaroundRecommendations
             "The member IS declared and still callable on a concrete instance — only calls through a protocol-typed value throw (SB0003). The requirement's shape has no witness-table lowering: a non-blittable parameter or return, a closure parameter, a subscript, or a requirement set that mixes generic and non-generic members. Call it on the concrete type, or add a Swift wrapper requirement whose signature is blittable so the protocol-typed path becomes dispatchable.",
         SkipReason.ProtocolProxyVtableEmpty =>
             "The interface still emits, but implementing it in C# has no effect: not one requirement is reverse-dispatchable, so no callback table is registered with Swift (SB0010). This is a statement about the reverse direction only — whether a Swift-vended value can be consumed through the interface is governed by each member's own markers, independently of this row. Details lists each requirement and why its slot could not be filled — make at least one of them dispatchable (most often by replacing a closure parameter with a protocol-typed delegate object, or a method-level generic with a concrete signature) and the interface becomes implementable for that member. Where the Swift API cannot change, take the callback through a concrete Swift class instead of a protocol conformance.",
+        SkipReason.PropertyWrapperDeclinedDirectPInvoke =>
+            "No action is needed for most shapes: the property IS emitted, and the direct CallConvSwift P/Invoke it binds is the generator's baseline mechanism — a throwing getter, for instance, is ABI-correct there, returning its error in the swiftcc error register that the emitted `ref SwiftError` out-parameter reads. The row exists so the strategy is visible rather than anonymous. Details names the eligibility guard that declined the @_cdecl wrapper; if the property misbehaves at runtime with a non-blittable value, that token is the shape to report, and a Swift wrapper exposing the value through a blittable accessor is the workaround.",
         SkipReason.Unknown =>
             "Investigate the specific member in the generator output.",
         _ => null,
@@ -209,6 +211,8 @@ public static class WorkaroundRecommendations
             "member declared but not dispatchable through a protocol-typed value (witness stub throws)",
         SkipReason.ProtocolProxyVtableEmpty =>
             "no protocol requirement is reverse-dispatchable — implementing the interface in C# has no effect",
+        SkipReason.PropertyWrapperDeclinedDirectPInvoke =>
+            "property emitted, but its accessors bind a direct CallConvSwift P/Invoke because the @_cdecl wrapper was declined",
         SkipReason.Unknown =>
             "unclassified skip reason",
         _ => null,

@@ -1867,7 +1867,7 @@ public partial class ProtocolProxyEmitter
             // one raw word and the Swift thunk reads it as an UnsafeRawPointer? (0 = nil), then bridges the
             // live NSURL into a URL at +1 — symmetric with the non-optional bridgeable arm. The paired Swift
             // pointer-optional read is emitted for the same optional-bridgeable-VALUE shape.
-            ObjCBridgeableProjection => $"({varName} is {{}} {varName}Val ? global::Swift.Runtime.Arc.UnknownObjectRetain({varName}Val.Handle) : global::System.IntPtr.Zero)",
+            ObjCBridgeableProjection objcVal => $"({varName} is {{}} {varName}Val ? global::Swift.Runtime.Arc.UnknownObjectRetain({objcVal.BridgeWriteExpression($"{varName}Val")}.Handle) : global::System.IntPtr.Zero)",
             ArrayProjection arr => BuildOptionalContainerGetterConversion(arr, varName, optType,
                 GetReceiverArrayGetterConversion(arr, $"{varName}Val")),
             DictionaryProjection dict => BuildOptionalContainerGetterConversion(dict, varName, optType,
@@ -1966,7 +1966,7 @@ public partial class ProtocolProxyEmitter
         if (projection is not OptionalProjection { InnerProjection: ObjCBridgeableProjection objc })
             return false;
         marshalExpr = $"MarshalFromSwift<IntPtr>({slotExpr})";
-        convExpr = $"({varName} == global::System.IntPtr.Zero ? null : {MarshallingHelpers.FormatObjCBridgeCall(objc.PublicType, varName, nonNull: true)})";
+        convExpr = $"({varName} == global::System.IntPtr.Zero ? null : {objc.BridgeReadExpression(varName, nonNull: true)})";
         return true;
     }
 

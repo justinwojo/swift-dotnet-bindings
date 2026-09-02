@@ -480,8 +480,9 @@ namespace BindingsGeneration
                             // Fall through — no `continue`. Dedup + handler.Emit run normally.
                         }
                         else if (TryBuildTrailingDefaultGateReduction(
-                                     methodDecl, pipeline, validationCtx, typeDatabase,
-                                     sortedDecl, siblingPropertyNames, context, out var reducedDecl))
+                                     methodDecl, validationResult.Reason, pipeline, validationCtx,
+                                     typeDatabase, sortedDecl, siblingPropertyNames, context,
+                                     out var reducedDecl))
                         {
                             // The full member is dropped solely because a trailing default-valued
                             // parameter has an unbindable type (e.g. `arrowEdge: SwiftUI.Edge = .top`).
@@ -853,6 +854,34 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Whether a gate drop for <paramref name="gateReason"/> may be rescued by trimming trailing
+        /// default-valued parameters. Every reason qualifies except <see cref="SkipReason.EmitterFault"/>.
+        ///
+        /// <para>That reason covers both containment origins — a verify-recover withdrawal and a
+        /// contained emitter exception replayed as a denial on the next attempt — and both are declined
+        /// for the same reason, so the guard deliberately keys on the reason rather than the origin
+        /// (which the pipeline never sees anyway: <c>EmitterFaultGate.Denied</c> reports one reason for
+        /// all of them).</para>
+        ///
+        /// <para>Such a drop is not a "this parameter's type is unbindable" drop; it is an instruction
+        /// that this unit must not reach the output at all, issued because the surface it produced
+        /// failed a real compile or threw on the way out. The reduction would escape that instruction
+        /// by exactly one parameter — <c>BuildGateReducedDecl</c> clones the decl with a trimmed <c>CSSignature</c>,
+        /// and <c>DeclIdFactory.ForMethod</c> folds parameter labels and types into the canonical id,
+        /// so the clone no longer matches the poisoned id and the fault gate waves it through. Two
+        /// things then go wrong. The withdrawal leaves no trace: the substituted decl falls through to
+        /// the emit path, so neither the <c>RecordMemberSkipped</c>/<c>UnsupportedCommentEmitter</c>
+        /// arm nor <c>EmissionSeam.TryDenyUpFront</c> (which by then sees the clone's id) records
+        /// anything, and the only evidence left is the loop's own withdrawn-unit list. And the
+        /// substitution is not an independent member: the clone preserves <c>MangledName</c>, so the
+        /// reduced form re-emits the SAME @_cdecl symbol at a different arity, republishing the entry
+        /// point the loop just withdrew — which on the Swift plane can reintroduce the very compile
+        /// error the withdrawal was recovering from, costing another round or non-convergence.</para>
+        /// </summary>
+        internal static bool IsTrailingDefaultRescueEligible(SkipReason? gateReason)
+            => gateReason != SkipReason.EmitterFault;
+
+        /// <summary>
         /// Pre-gate trailing-default rescue. When a constructor or method is dropped by the
         /// emission gate, tries to build a reduced overload that drops the smallest suffix of
         /// trailing default-valued parameters needed to clear the gate (keeping the most
@@ -865,9 +894,15 @@ namespace BindingsGeneration
         /// unbindable type (e.g. a `SwiftUI.Edge arrowEdge = .top` on an otherwise bindable init):
         /// Swift lets callers omit such parameters, and the reduced overload's @_cdecl wrapper calls
         /// the Swift declaration with the kept arguments, letting Swift supply the dropped defaults.
+        ///
+        /// <paramref name="gateReason"/> is what the pipeline dropped the full member for. The rescue
+        /// applies only to type-driven drops: a verify-recover withdrawal
+        /// (<see cref="SkipReason.EmitterFault"/>) is declined outright, see
+        /// <see cref="IsTrailingDefaultRescueEligible"/>.
         /// </summary>
         private bool TryBuildTrailingDefaultGateReduction(
             MethodDecl methodDecl,
+            SkipReason? gateReason,
             MemberValidationPipeline pipeline,
             ValidationContext validationCtx,
             ITypeDatabase typeDatabase,
@@ -879,6 +914,9 @@ namespace BindingsGeneration
             reducedDecl = null!;
 
             if (methodDecl.IsAccessor)
+                return false;
+
+            if (!IsTrailingDefaultRescueEligible(gateReason))
                 return false;
 
             // Only rescue a member the gate dropped because of a parameter's TYPE. A module-internal

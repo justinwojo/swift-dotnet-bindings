@@ -1915,11 +1915,55 @@ namespace BindingsGeneration.Tests
             finally { Directory.Delete(dir, true); }
         }
 
+        [Fact]
+        public void Emit_DevSentinelWithSupplementReference_AddsRepoRootGatedProjectReference()
+        {
+            // The supplement reference carries the same local-dev escape hatch the Swift.Runtime
+            // reference does, keyed on the same 0.0.0-dev sentinel. Without it a binding generated
+            // in-tree resolves the supplement from the published floor-version nupkg — a snapshot
+            // of whatever supplement types existed when that version shipped. That package also
+            // wins reference resolution inside an app that separately ProjectReferences the
+            // in-tree supplement project, so supplement types added since the floor version
+            // disappear from the app's own compile as a bare CS0234.
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(
+                    dir, "Translation",
+                    emitsAppleSupplementRef: true,
+                    runtimeVersion: BindingProjectEmitter.DefaultSwiftRuntimeVersion);
+                Assert.Contains(
+                    "<ProjectReference Include=\"$(SwiftBindingsRepoRoot)/src/Swift.Bindings.Apple/Swift.Bindings.Apple.csproj\"",
+                    content);
+                Assert.Contains(
+                    "<PackageReference Include=\"SwiftBindings.Apple\" Version=\"[26.0.0,)\" Condition=\"'$(SwiftBindingsRepoRoot)' == ''\" />",
+                    content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_PublishedVersionWithSupplementReference_NeverEmitsRepoRootEscapeHatch()
+        {
+            // Published consumers must never see the in-tree escape hatch: a dangling
+            // $(SwiftBindingsRepoRoot) ProjectReference points at a path that does not exist
+            // outside this repo.
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Translation", emitsAppleSupplementRef: true);
+                Assert.DoesNotContain("Swift.Bindings.Apple.csproj", content);
+                Assert.DoesNotContain("SwiftBindingsRepoRoot", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
         private static string EmitAndRead(
             string dir, string module,
             bool emitsAppleSupplementRef,
             string? supplementVersion = null,
-            string? prototypePath = null)
+            string? prototypePath = null,
+            string runtimeVersion = "0.19.0")
         {
             var sourceXcfwPath = Path.Combine(dir, "..", $"{module}.xcframework");
             Directory.CreateDirectory(sourceXcfwPath);
@@ -1930,6 +1974,7 @@ namespace BindingsGeneration.Tests
                 ModuleName = module,
                 Metadata = CreateMinimalMetadata(module),
                 SourceXCFrameworkPath = sourceXcfwPath,
+                SwiftRuntimeVersion = runtimeVersion,
                 EmitsAppleSupplementReference = emitsAppleSupplementRef,
                 AppleSupplementVersion = supplementVersion ?? "26.0.0",
                 AppleSupplementPrototypeProjectPath = prototypePath,

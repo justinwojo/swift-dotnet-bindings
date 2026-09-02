@@ -42,7 +42,7 @@ public partial class ProtocolProxyEmitter
         // ObjCBridgeable value arm, move() for the ObjCBridged/ObjCRooted raw-buffer arm). Symmetric
         // with the whole-container bridge (see SetProjection.GetReverseReceiverObjCBridgeConversion).
         public string? Visit(ObjCBridgedProjection p) => $"global::Swift.Runtime.Arc.UnknownObjectRetain({_varName}.Handle)";
-        public string? Visit(ObjCBridgeableProjection p) => $"global::Swift.Runtime.Arc.UnknownObjectRetain({_varName}.Handle)";
+        public string? Visit(ObjCBridgeableProjection p) => $"global::Swift.Runtime.Arc.UnknownObjectRetain({p.BridgeWriteExpression(_varName)}.Handle)";
         public string? Visit(ObjCRootedClassProjection p) => $"global::Swift.Runtime.Arc.UnknownObjectRetain({_varName}.Handle)";
         public string? Visit(ArrayProjection arr) => _owner.GetReceiverArrayGetterConversion(arr, _varName);
         public string? Visit(DictionaryProjection dict) => _owner.GetReceiverDictGetterConversion(dict, _varName);
@@ -84,7 +84,7 @@ public partial class ProtocolProxyEmitter
         public string? Visit(DateProjection p) => $"{DateProjection.SwiftEpoch}.AddSeconds({_varName})";
         public string? Visit(NativeRemappedProjection nrp) => $"{_varName}.{nrp.ToConversionMethod}()";
         public string? Visit(ObjCBridgedProjection objc) => MarshallingHelpers.FormatObjCBridgeCall(objc.PublicType, _varName, nonNull: true);
-        public string? Visit(ObjCBridgeableProjection objc) => MarshallingHelpers.FormatObjCBridgeCall(objc.PublicType, _varName, nonNull: true);
+        public string? Visit(ObjCBridgeableProjection objc) => objc.BridgeReadExpression(_varName, nonNull: true);
         public string? Visit(ArrayProjection arr) => _owner.GetReceiverArraySetterConversion(arr, _varName);
         public string? Visit(DictionaryProjection dict) => _owner.GetReceiverDictSetterConversion(dict, _varName);
         public string? Visit(SetProjection set) => _owner.GetReceiverSetSetterConversion(set, _varName);

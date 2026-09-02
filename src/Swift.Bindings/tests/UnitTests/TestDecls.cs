@@ -213,14 +213,18 @@ internal static class TestDecls
     //  Argument helpers
     // ===================================================================
 
-    /// <summary>A labelled value parameter (not inout, not generic).</summary>
-    internal static ArgumentDecl Param(string label, TypeSpec type) => new()
+    /// <summary>
+    /// A labelled value parameter (not inout, not generic). <paramref name="hasDefault"/> marks it as
+    /// carrying a Swift default value, which is what the trailing-default overload machinery keys on.
+    /// </summary>
+    internal static ArgumentDecl Param(string label, TypeSpec type, bool hasDefault = false) => new()
     {
         Name = label,
         PrivateName = label,
         SwiftTypeSpec = type,
         IsInOut = false,
         IsGeneric = false,
+        HasDefaultArg = hasDefault,
         ParentDecl = null,
         ModuleDecl = null,
     };

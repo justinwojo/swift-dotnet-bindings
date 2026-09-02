@@ -32,7 +32,7 @@ namespace TbdParsing.Parsing
 
             // YAML-like format typically starts with "--- !tapi-tbd"
             string firstLine = lines[0].Trim();
-            if (firstLine != "--- !tapi-tbd")
+            if (firstLine != DocumentMarker)
             {
                 _logger.LogDebug("First line does not contain \"--- !tapi-tbd\"");
                 return false;
@@ -47,17 +47,29 @@ namespace TbdParsing.Parsing
             var tbdFile = new TbdFile();
             int lineIndex = 0;
 
-            // Skip the YAML document marker if present
-            if (lineIndex < lines.Length && lines[lineIndex].Trim() == "--- !tapi-tbd")
-            {
-                _logger.LogDebug("Skipping YAML document marker");
-                lineIndex++;
-            }
+            // A .tbd file is a YAML *stream*: every `--- !tapi-tbd` marker opens a new document,
+            // and a library that re-exports others emits one document per library (the framework's
+            // own first, then each re-exported private library). All documents describe symbols
+            // that resolve through this one file, so symbol-bearing lists ACCUMULATE across the
+            // stream while the scalar metadata (install-name, targets, tbd-version,
+            // swift-abi-version) is taken from the FIRST document — the library the file is named
+            // for. Treating a later document's metadata as the file's would attribute the file to a
+            // re-exported private library, and overwriting rather than accumulating its exports
+            // would discard the framework's own symbols entirely.
+            int documentIndex = -1;
 
-            // Parse top-level key-value pairs
             while (lineIndex < lines.Length)
             {
                 string line = lines[lineIndex].Trim();
+
+                if (IsDocumentMarker(line))
+                {
+                    documentIndex++;
+                    lineIndex++;
+                    _logger.LogDebug($"Starting TBD document {documentIndex} at line {lineIndex}");
+                    continue;
+                }
+
                 lineIndex++;
 
                 // Skip blank lines and comments
@@ -66,11 +78,17 @@ namespace TbdParsing.Parsing
                     continue;
                 }
 
-                if (line == "...")
+                if (line == DocumentEndMarker)
                 {
-                    _logger.LogDebug("TBD end marker found (...)");
-                    break;
+                    // `...` closes the current document, not necessarily the stream: a following
+                    // `---` marker legitimately opens another one.
+                    _logger.LogDebug($"TBD document end marker found ({DocumentEndMarker}) at line {lineIndex}");
+                    continue;
                 }
+
+                // Metadata is first-document-wins; a stream whose first document is implicit
+                // (no leading marker) is still treated as document 0.
+                bool isFirstDocument = documentIndex <= 0;
 
                 // Parse key-value pairs
                 KeyValuePair<string, string> kvp;
@@ -90,8 +108,12 @@ namespace TbdParsing.Parsing
                     case "tbd-version":
                         try
                         {
-                            tbdFile.Version = int.Parse(kvp.Value);
-                            _logger.LogDebug($"Parsed tbd-version = {tbdFile.Version}");
+                            int version = int.Parse(kvp.Value);
+                            if (isFirstDocument)
+                            {
+                                tbdFile.Version = version;
+                                _logger.LogDebug($"Parsed tbd-version = {tbdFile.Version}");
+                            }
                         }
                         catch (FormatException)
                         {
@@ -100,15 +122,24 @@ namespace TbdParsing.Parsing
                         break;
 
                     case "install-name":
-                        tbdFile.InstallName = kvp.Value.Trim('\'', '"');
-                        _logger.LogDebug($"Parsed install-name = {tbdFile.InstallName}");
+                        string installName = kvp.Value.Trim('\'', '"');
+                        tbdFile.InstallNames.Add(installName);
+                        if (isFirstDocument)
+                        {
+                            tbdFile.InstallName = installName;
+                        }
+                        _logger.LogDebug($"Parsed install-name = {installName} (document {Math.Max(documentIndex, 0)})");
                         break;
 
                     case "swift-abi-version":
                         try
                         {
-                            tbdFile.SwiftAbiVersion = int.Parse(kvp.Value);
-                            _logger.LogDebug($"Parsed swift-abi-version = {tbdFile.SwiftAbiVersion}");
+                            int swiftAbiVersion = int.Parse(kvp.Value);
+                            if (isFirstDocument)
+                            {
+                                tbdFile.SwiftAbiVersion = swiftAbiVersion;
+                                _logger.LogDebug($"Parsed swift-abi-version = {tbdFile.SwiftAbiVersion}");
+                            }
                         }
                         catch (FormatException)
                         {
@@ -117,36 +148,80 @@ namespace TbdParsing.Parsing
                         break;
 
                     case "targets":
-                        tbdFile.Targets = ParseMultiLineArray(lines, ref lineIndex, kvp.Value);
-                        _logger.LogDebug($"Parsed {tbdFile.Targets.Count} targets: [{string.Join(", ", tbdFile.Targets)}]");
+                        // Always parse, so the continuation lines are consumed either way; only the
+                        // first document's list becomes the file's target list.
+                        var targets = ParseMultiLineArray(lines, ref lineIndex, kvp.Value);
+                        if (isFirstDocument)
+                        {
+                            tbdFile.Targets = targets;
+                            _logger.LogDebug($"Parsed {tbdFile.Targets.Count} targets: [{string.Join(", ", tbdFile.Targets)}]");
+                        }
                         break;
 
+                    // `exports` are this document's own symbols; `reexports` are symbols another
+                    // library defines that still resolve through this one at link time. Both are
+                    // reachable from the image being bound, so both feed the symbol set.
                     case "exports":
-                        _logger.LogDebug($"Starting exports section parsing at line {lineIndex}");
-                        tbdFile.Exports = ParseExports(lines, ref lineIndex);
-                        _logger.LogDebug($"Parsed {tbdFile.Exports.Count} export entries");
+                    case "reexports":
+                        _logger.LogDebug($"Starting {kvp.Key} section parsing at line {lineIndex}");
+                        var entries = ParseExports(lines, ref lineIndex);
+                        tbdFile.Exports.AddRange(entries);
+                        _logger.LogDebug($"Parsed {entries.Count} {kvp.Key} entries ({tbdFile.Exports.Count} total)");
                         break;
 
-                    // These keys are valid TBD fields but not needed for binding generation
+                    // These keys are valid TBD fields but not needed for binding generation.
+                    // The nested-block ones carry indented children that must be consumed so the
+                    // next iteration doesn't read them as top-level keys.
                     case "flags":
                     case "current-version":
                     case "compatibility-version":
+                    case "objc-constraint":
+                    case "platform":
+                    case "uuids":
                         _logger.LogDebug($"Ignoring optional TBD field: {kvp.Key}");
+                        ConsumeNestedValue(lines, ref lineIndex, kvp.Value);
+                        break;
+
+                    // `reexported-libraries` names the libraries whose documents follow in this same
+                    // stream; the documents themselves carry the symbols, so the declaration block is
+                    // only consumed. `allowable-clients` is a link-time restriction, irrelevant here.
+                    case "reexported-libraries":
+                    case "allowable-clients":
+                        _logger.LogDebug($"Skipping TBD block not needed for bindings: {kvp.Key}");
+                        ConsumeNestedValue(lines, ref lineIndex, kvp.Value);
                         break;
 
                     default:
                         _logger.LogWarning($"Unknown top-level key: {kvp.Key}");
-                        // If the unknown key's value opens a multi-line array, consume the
-                        // continuation lines so the next iteration doesn't try to parse them
-                        // as new key-value pairs. The result is intentionally discarded.
-                        ConsumeIfMultiLineArray(lines, ref lineIndex, kvp.Value);
+                        // If the unknown key's value opens a multi-line array or an indented nested
+                        // block, consume the continuation lines so the next iteration doesn't try to
+                        // parse them as new key-value pairs. The result is intentionally discarded.
+                        ConsumeNestedValue(lines, ref lineIndex, kvp.Value);
                         break;
                 }
             }
 
-            _logger.LogDebug("Completed YAML-like TBD format parsing");
+            tbdFile.DocumentCount = Math.Max(documentIndex + 1, 1);
+            _logger.LogDebug(
+                $"Completed YAML-like TBD format parsing: {tbdFile.DocumentCount} document(s), " +
+                $"{tbdFile.Exports.Count} export entries, install-names [{string.Join(", ", tbdFile.InstallNames)}]");
             return tbdFile;
         }
+
+        /// <summary>
+        /// The YAML document-start marker that opens each library in a `.tbd` stream. Apple writes
+        /// it with the tapi tag (`--- !tapi-tbd`); a bare `---` is the same marker in YAML.
+        /// </summary>
+        private const string DocumentMarker = "--- !tapi-tbd";
+
+        /// <summary>The YAML document-end marker.</summary>
+        private const string DocumentEndMarker = "...";
+
+        /// <summary>
+        /// True when the (trimmed) line opens a new YAML document.
+        /// </summary>
+        private static bool IsDocumentMarker(string trimmedLine) =>
+            trimmedLine == DocumentMarker || trimmedLine == "---";
 
         /// <summary>
         /// Parse an array of strings in the format [ item1, item2, item3 ]
@@ -214,15 +289,18 @@ namespace TbdParsing.Parsing
                 while (lineIndex < lines.Length)
                 {
                     string nextLine = lines[lineIndex].Trim();
-                    lineIndex++;
 
-                    // If this is a new section or entry, we probably encountered a malformed array
+                    // If this is a new section or entry, we probably encountered a malformed array.
+                    // Leave lineIndex on that line so the caller still sees it — swallowing it here
+                    // would drop a following key or a `--- !tapi-tbd` document marker (which starts
+                    // with '-' and so lands on exactly this branch).
                     if (nextLine.StartsWith('-') || nextLine.Contains(':'))
                     {
                         _logger.LogWarning($"Array does not have a closing bracket before new section at line {lineIndex} with content: {nextLine}");
                         break;
                     }
 
+                    lineIndex++;
                     arrayBuilder.Append(' ').Append(nextLine);
 
                     // Check if this line contains the closing bracket
@@ -257,7 +335,21 @@ namespace TbdParsing.Parsing
                 // Get indentation level before trimming
                 int indentation = GetIndentation(rawLine);
                 string line = rawLine.Trim();
-                lineIndex++;
+
+                // A blank line inside the section is not a section terminator — skip it rather
+                // than let its zero indentation end the section early.
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    lineIndex++;
+                    continue;
+                }
+
+                // A document boundary always ends the section, whatever the indentation looks like.
+                if (IsDocumentMarker(line) || line == DocumentEndMarker)
+                {
+                    _logger.LogDebug($"Exiting exports section at line {lineIndex} on document boundary");
+                    break;
+                }
 
                 // If we haven't determined base indentation yet, set it now
                 if (baseIndentation == -1)
@@ -267,12 +359,16 @@ namespace TbdParsing.Parsing
                 }
 
                 // If we're back at a lower indentation than the exports level,
-                // we've exited the exports section
+                // we've exited the exports section. The terminating line belongs to the caller —
+                // leave lineIndex on it so the top-level loop still sees the next key or the next
+                // document's marker instead of silently dropping it.
                 if (indentation < baseIndentation)
                 {
                     _logger.LogDebug($"Exiting exports section at line {lineIndex}, indentation {indentation} < base {baseIndentation}");
                     break;
                 }
+
+                lineIndex++;
 
                 // Parse key-value pairs
                 KeyValuePair<string, string> kvp;
@@ -365,6 +461,44 @@ namespace TbdParsing.Parsing
             if (value.StartsWith('[') && !value.EndsWith(']'))
             {
                 _ = ParseMultiLineArray(lines, ref lineIndex, value);
+            }
+        }
+
+        /// <summary>
+        /// Consume whatever the value of a top-level key spans, without interpreting it: either a
+        /// multi-line `[ ... ]` array (see <see cref="ConsumeIfMultiLineArray"/>) or — when the key
+        /// carries no inline value — the indented block beneath it, e.g.
+        /// <code>
+        /// reexported-libraries:
+        ///   - targets:   [ arm64-ios-simulator ]
+        ///     libraries: [ '/System/Library/PrivateFrameworks/Foo.framework/Foo' ]
+        /// </code>
+        /// Top-level keys sit at column 0, so any indented or blank line after the key belongs to
+        /// its block. Without this, those children are read back as top-level keys and each one
+        /// produces a spurious "unknown key" warning.
+        /// </summary>
+        private void ConsumeNestedValue(string[] lines, ref int lineIndex, string value)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                ConsumeIfMultiLineArray(lines, ref lineIndex, value);
+                return;
+            }
+
+            int start = lineIndex;
+            while (lineIndex < lines.Length)
+            {
+                string rawLine = lines[lineIndex];
+                if (!string.IsNullOrWhiteSpace(rawLine) && GetIndentation(rawLine) == 0)
+                {
+                    break;
+                }
+                lineIndex++;
+            }
+
+            if (lineIndex > start)
+            {
+                _logger.LogDebug($"Consumed {lineIndex - start} nested line(s) below a top-level key");
             }
         }
 

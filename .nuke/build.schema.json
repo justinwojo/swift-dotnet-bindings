@@ -203,6 +203,10 @@
           "type": "boolean",
           "description": "Opt in to the TipKit smoke tests (regenerates BindingTests/obj/TipKitSnapshot/ in-tree)"
         },
+        "EnableVisionKitSmoke": {
+          "type": "boolean",
+          "description": "Opt in to the VisionKit smoke tests (regenerates BindingTests/obj/VisionKitSnapshot/ in-tree)"
+        },
         "EnableWeatherKitSmoke": {
           "type": "boolean",
           "description": "Opt in to the WeatherKit smoke tests (regenerates BindingTests/obj/WeatherKitSnapshot/ in-tree)"

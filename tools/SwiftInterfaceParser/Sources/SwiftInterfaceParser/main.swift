@@ -79,6 +79,7 @@ let enumFacts = EnumFactsWalker.parse(filePath: path, source: source)
 let signatureFacts = SignatureFactsWalker.parse(filePath: path, source: source)
 let subscriptLabels = SubscriptLabelsWalker.parse(filePath: path, source: source)
 let protocolFacts = ProtocolFactsWalker.parse(filePath: path, source: source)
+let asyncAccessorMembers = AsyncAccessorWalker.parse(source: source)
 
 let protocolNames = ProtocolNamesWalker.parse(filePath: path, source: source)
 let extensionMemberCandidates = ExtensionsWalker.parse(filePath: path, source: source)
@@ -160,6 +161,8 @@ let output = ParserOutput(
         "VariadicMembers",
         "ConstLiteralParameters",
         "ClosureParameterAttributes",
+        // Async accessors — the swiftinterface-side oracle for `{ get async }`.
+        "AsyncAccessorMembers",
         // SPI-only conformances (covered-but-empty when no private interface).
         "SpiOnlyConformances",
         // Explicit @objc(CustomName) type renames.
@@ -197,6 +200,7 @@ let output = ParserOutput(
         variadicMembers: signatureFacts.variadicMembers,
         constLiteralParameters: signatureFacts.constLiteralParameters,
         closureParameterAttributes: signatureFacts.closureParameterAttributes,
+        asyncAccessorMembers: asyncAccessorMembers,
         spiOnlyConformances: spiOnlyConformances,
         objcRuntimeNames: objcRuntimeNames,
         conventionCProtocols: protocolFacts.conventionCProtocols,

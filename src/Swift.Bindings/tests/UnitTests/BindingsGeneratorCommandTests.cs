@@ -829,10 +829,10 @@ public class IsMixedFrameworkTests
 /// generation: no ObjC surface at all, OR a "potential mixed" framework whose bridge filtered to
 /// zero records (an umbrella header re-exporting only Swift — the CocoaMQTT/Eureka/Hero shape) both
 /// emit companion-free C# and ARE verifiable in-loop; ≥1 bridged record keeps the post-loop
-/// fail-closed gate. The env preconditions (the mode emits a verifiable binding project, non-SDK,
-/// verify not opted out) must all hold. The project-mode term is deliberately NOT "a Swift wrapper
-/// loop is running": the Apple system-framework direct path emits and grades a binding csproj without
-/// one, and gating on the wrapper delegate is what left it with no recovery net.
+/// fail-closed gate. The env preconditions (the mode renders a C# surface this run owns, verify not
+/// opted out) must all hold. The project-mode term is deliberately NOT "a Swift wrapper loop is
+/// running": the Apple system-framework direct path emits C# without a resolved xcframework, and
+/// gating on the wrapper delegate is what left it with no recovery net.
 /// </summary>
 public class CanVerifyCSharpInLoopTests
 {
@@ -853,7 +853,7 @@ public class CanVerifyCSharpInLoopTests
     {
         // mixedObjcResolution null: a framework with no modulemap/extra header at all.
         Assert.True(BindingsGeneratorCommand.CanVerifyCSharpInLoop(
-            verifiableProjectMode: true, sdkMode: false, noVerifyCSharp: false,
+            verifiableProjectMode: true, noVerifyCSharp: false,
             mixedObjcResolution: null, mixedBridgeRecords: null));
     }
 
@@ -864,7 +864,7 @@ public class CanVerifyCSharpInLoopTests
         // umbrella header, but the ObjC bridge filtered to zero records, so the emitted C# has no
         // companion reference — it IS verifiable in-loop.
         Assert.True(BindingsGeneratorCommand.CanVerifyCSharpInLoop(
-            verifiableProjectMode: true, sdkMode: false, noVerifyCSharp: false,
+            verifiableProjectMode: true, noVerifyCSharp: false,
             mixedObjcResolution: ObjCSurface(), mixedBridgeRecords: new List<TypeRecord>()));
     }
 
@@ -874,7 +874,7 @@ public class CanVerifyCSharpInLoopTests
         // ≥1 bridged ObjC record → the emitted C# references a companion assembly built only after
         // GenerateBindings returns → decline the loop and keep the post-loop fail-closed gate.
         Assert.False(BindingsGeneratorCommand.CanVerifyCSharpInLoop(
-            verifiableProjectMode: true, sdkMode: false, noVerifyCSharp: false,
+            verifiableProjectMode: true, noVerifyCSharp: false,
             mixedObjcResolution: ObjCSurface(),
             mixedBridgeRecords: new List<TypeRecord> { BridgeRecord("MqttClient") }));
     }
@@ -882,32 +882,58 @@ public class CanVerifyCSharpInLoopTests
     [Fact]
     public void NoVerifiableProjectMode_DeclinesRegardlessOfObjCSurface()
     {
-        // The run reaches no branch that emits a consumer-facing binding csproj (device/all wrapper
-        // arch or --skip-wrapper-compilation in xcframework mode; a non-system-framework direct run,
-        // which emits C# + Wrapper.swift only). Nothing to build, nothing to verify.
+        // The run reaches no branch that emits a C# binding this run owns (device/all wrapper arch or
+        // --skip-wrapper-compilation in xcframework mode — which is also how the SDK's own two-pass
+        // xcframework flow declines; or a non-system-framework direct run, which emits C# +
+        // Wrapper.swift only). Nothing to build, nothing to verify.
         Assert.False(BindingsGeneratorCommand.CanVerifyCSharpInLoop(
-            verifiableProjectMode: false, sdkMode: false, noVerifyCSharp: false,
+            verifiableProjectMode: false, noVerifyCSharp: false,
             mixedObjcResolution: null, mixedBridgeRecords: null));
     }
 
     [Fact]
-    public void DirectSystemFrameworkMode_WithNoWrapperLoop_StillVerifiesInLoop()
+    public void DirectSystemFrameworkRun_ComposingTheCallSiteExpression_VerifiesInLoop()
     {
-        // The Apple system-framework direct path: no in-generation Swift wrapper compile exists for a
-        // wrapper loop to run on, but the run DOES emit a binding csproj and grade it with the
-        // fail-closed publication gate — so the C# leg is available and the loop runs on that plane
-        // alone. Keying this gate on a wrapper delegate is exactly what left the mode netless.
+        // The composition the command actually performs: with no resolved xcframework there is no
+        // wrapper-compile delegate, so the project-mode term is carried by the direct-mode gate alone.
+        // Reproduces the whole call-site expression for a VisionKit-shaped Apple system-framework run
+        // — keying the project-mode term on the wrapper delegate is exactly what left this mode with
+        // no C# recovery net.
+        //
+        // This pins the gate composition only. It does not run Execute, build either delegate, or
+        // observe the cleanup — the delegate below is a stand-in whose only role is the `!= null`
+        // term. What the loop then DOES in this mode is covered end to end by the Apple-direct
+        // acceptance run, not here.
+        var directLoopMode = BindingsGeneratorCommand.IsDirectModeRecoveryLoopTarget(
+            hasXcframework: false, libraryName: "@rpath/VisionKit.framework/VisionKit",
+            skipWrapperCompilation: false, wrapperArchitectures: "simulator",
+            directModuleName: "VisionKit");
+        Func<object, object>? verifyRecoverCompile = null;
+
         Assert.True(BindingsGeneratorCommand.CanVerifyCSharpInLoop(
-            verifiableProjectMode: true, sdkMode: false, noVerifyCSharp: false,
+            verifiableProjectMode: verifyRecoverCompile != null || directLoopMode,
+            noVerifyCSharp: false,
             mixedObjcResolution: null, mixedBridgeRecords: null));
     }
 
     [Fact]
-    public void SdkMode_DeclinesInLoop()
+    public void SdkXcframeworkTwoPassRun_ComposingTheCallSiteExpression_DeclinesInLoop()
     {
-        // SDK two-pass flow defers wrapper compilation; the loop is a non-SDK-path facility.
+        // SDK mode used to be an explicit decline parameter, on the reasoning that the SDK defers
+        // wrapper and project emission to its own passes. That reasoning belongs to the project-mode
+        // term, not to an SDK-keyed test: the SDK's xcframework flow passes --skip-wrapper-compilation,
+        // so both terms of the composed expression go false and it declines on its own merits. The
+        // SDK's Apple system-framework flow defers nothing (asserted directly above), so the old
+        // sdkMode term also disabled the one production path for Apple framework bindings.
+        var directLoopMode = BindingsGeneratorCommand.IsDirectModeRecoveryLoopTarget(
+            hasXcframework: true, libraryName: "Fixture",
+            skipWrapperCompilation: true, wrapperArchitectures: "simulator",
+            directModuleName: null);
+        Func<object, object>? verifyRecoverCompile = null;
+
         Assert.False(BindingsGeneratorCommand.CanVerifyCSharpInLoop(
-            verifiableProjectMode: true, sdkMode: true, noVerifyCSharp: false,
+            verifiableProjectMode: verifyRecoverCompile != null || directLoopMode,
+            noVerifyCSharp: false,
             mixedObjcResolution: null, mixedBridgeRecords: null));
     }
 
@@ -915,8 +941,293 @@ public class CanVerifyCSharpInLoopTests
     public void NoVerifyCSharpOptOut_DeclinesInLoop()
     {
         Assert.False(BindingsGeneratorCommand.CanVerifyCSharpInLoop(
-            verifiableProjectMode: true, sdkMode: false, noVerifyCSharp: true,
+            verifiableProjectMode: true, noVerifyCSharp: true,
             mixedObjcResolution: null, mixedBridgeRecords: null));
+    }
+}
+
+#endregion
+
+#region IsDirectModeRecoveryLoopTarget
+
+/// <summary>
+/// The Apple system-framework direct path used to have no verify-recover net at all: one member
+/// whose wrapper would not compile failed the whole binding with an exit code, rather than degrading
+/// to a partial binding the way xcframework mode does. <c>IsDirectModeRecoveryLoopTarget</c> is the
+/// gate that opts a run into that net, and it has to be exact in both directions — say "yes" for a
+/// run that will not actually reach the direct wrapper-compile branch and the loop grades a compile
+/// that never happens; say "no" for a run that will and the mode stays netless.
+/// </summary>
+public class IsDirectModeRecoveryLoopTargetTests
+{
+    private const string SystemFramework = "@rpath/VisionKit.framework/VisionKit";
+
+    [Theory]
+    [InlineData("simulator")]
+    [InlineData("device")]
+    [InlineData("Simulator")]
+    [InlineData(null)]
+    public void SystemFrameworkRun_OnASingleSliceArchitecture_IsALoopTarget(string? wrapperArchitectures)
+    {
+        // Null is the default the command applies when --wrapper-architectures is absent, and the
+        // comparison is case-insensitive because the option value reaches the gate unnormalized.
+        Assert.True(BindingsGeneratorCommand.IsDirectModeRecoveryLoopTarget(
+            hasXcframework: false, libraryName: SystemFramework,
+            skipWrapperCompilation: false, wrapperArchitectures,
+            directModuleName: "VisionKit"));
+    }
+
+    [Fact]
+    public void XcframeworkRun_IsNotADirectLoopTarget()
+    {
+        // xcframework mode already has its own wrapper-compile delegate; claiming the direct gate as
+        // well would wire a second one over the top of it.
+        Assert.False(BindingsGeneratorCommand.IsDirectModeRecoveryLoopTarget(
+            hasXcframework: true, libraryName: SystemFramework,
+            skipWrapperCompilation: false, wrapperArchitectures: "simulator",
+            directModuleName: "VisionKit"));
+    }
+
+    [Fact]
+    public void SkipWrapperCompilation_IsNotALoopTarget()
+    {
+        // Nothing compiles a wrapper this run, so there is no Swift plane to grade. The gate reads
+        // this flag rather than the command's shouldCompileWrapper because the direct path only
+        // raises that one AFTER generation — reading it here would see false for the entire mode.
+        Assert.False(BindingsGeneratorCommand.IsDirectModeRecoveryLoopTarget(
+            hasXcframework: false, libraryName: SystemFramework,
+            skipWrapperCompilation: true, wrapperArchitectures: "simulator",
+            directModuleName: "VisionKit"));
+    }
+
+    [Theory]
+    [InlineData("/usr/local/lib/libfoo.dylib")]
+    [InlineData("MyCustomLib")]
+    [InlineData(null)]
+    public void NonSystemFrameworkTarget_IsNotALoopTarget(string? libraryName)
+    {
+        // A plain -l dylib run emits C# and a Wrapper.swift but never reaches the branch that
+        // compiles the wrapper, so a Swift-plane verdict would be graded against nothing.
+        Assert.False(BindingsGeneratorCommand.IsDirectModeRecoveryLoopTarget(
+            hasXcframework: false, libraryName,
+            skipWrapperCompilation: false, wrapperArchitectures: "simulator",
+            directModuleName: "VisionKit"));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void WithoutAResolvedModuleName_IsNotALoopTarget(string? directModuleName)
+    {
+        // The compile delegate names the module it builds; with no module name there is nothing to
+        // hand SwiftWrapperCompiler.
+        Assert.False(BindingsGeneratorCommand.IsDirectModeRecoveryLoopTarget(
+            hasXcframework: false, libraryName: SystemFramework,
+            skipWrapperCompilation: false, wrapperArchitectures: "simulator",
+            directModuleName));
+    }
+
+    [Theory]
+    [InlineData("all")]
+    [InlineData("both")]
+    [InlineData("arm64")]
+    public void ArchitectureIsAPositiveAllowlist_NotAnythingButAll(string wrapperArchitectures)
+    {
+        // --wrapper-architectures is likewise validated only after GenerateBindings returns, and
+        // direct mode rejects everything but the two single-slice values. Testing "not all" instead
+        // of "is one of the two" would spend an entire verify-recover loop on a run the command is
+        // about to reject for a bogus token.
+        Assert.False(BindingsGeneratorCommand.IsDirectModeRecoveryLoopTarget(
+            hasXcframework: false, libraryName: SystemFramework,
+            skipWrapperCompilation: false, wrapperArchitectures,
+            directModuleName: "VisionKit"));
+    }
+}
+
+#endregion
+
+#region TryDeriveDirectFrameworkSearchPath
+
+/// <summary>
+/// The direct-mode loop's wrapper compile needs the same <c>-F</c> search path the post-loop direct
+/// branch uses, and the only input carrying it is <c>--tbd</c>. Returning a wrong path would make
+/// every in-loop compile fail on a missing module and withdraw the entire surface, so the derivation
+/// declines rather than guesses on any layout that is not the Apple SDK's.
+/// </summary>
+public class TryDeriveDirectFrameworkSearchPathTests
+{
+    [Fact]
+    public void ApplySdkFrameworkLayout_YieldsTheDirectoryContainingTheFramework()
+    {
+        // <SDK>/System/Library/Frameworks is what -F must point at, so the framework bundle
+        // "VisionKit.framework" resolves as a sibling of the search path's entries.
+        var tbd = Path.Combine(
+            Path.DirectorySeparatorChar + "SDK", "System", "Library", "Frameworks",
+            "VisionKit.framework", "VisionKit.tbd");
+        var expected = Path.Combine(
+            Path.DirectorySeparatorChar + "SDK", "System", "Library", "Frameworks");
+
+        Assert.Equal(expected, BindingsGeneratorCommand.TryDeriveDirectFrameworkSearchPath(tbd));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("VisionKit.tbd")]
+    public void LayoutsThatDoNotYieldBothLevels_Decline(string? tbdPath)
+    {
+        // A bare filename has no parent, let alone a grandparent. Declining leaves the loop delegate
+        // unwired so the post-loop direct branch raises the one authoritative configuration error,
+        // rather than compiling against a search path pointing at the wrong tree.
+        Assert.Null(BindingsGeneratorCommand.TryDeriveDirectFrameworkSearchPath(tbdPath));
+    }
+
+    [Fact]
+    public void FrameworkDirectlyUnderTheRoot_YieldsTheRoot()
+    {
+        // The shallowest layout that still has both levels. The root IS the directory containing the
+        // framework, so it is the correct -F — the derivation must not mistake "no path component
+        // left above" for "cannot derive" and decline a resolvable path.
+        var tbd = Path.Combine(
+            Path.DirectorySeparatorChar + "VisionKit.framework", "VisionKit.tbd");
+
+        Assert.Equal(
+            Path.DirectorySeparatorChar.ToString(),
+            BindingsGeneratorCommand.TryDeriveDirectFrameworkSearchPath(tbd));
+    }
+}
+
+#endregion
+
+#region DecideDirectWrapperArchitectures
+
+/// <summary>
+/// The direct-mode wrapper CPU-arch decision is read by two compiles — the verify-recover loop's
+/// in-emission compile and the post-loop publication compile. The loop GRADES members by compiling
+/// them, so if the two read different architectures the loop judges the surface on a slice the
+/// shipped wrapper is not built for: an arch-specific compile error either withdraws a member that
+/// would have compiled, or goes unseen until publication fails the whole binding. These pin that the
+/// decision is one deterministic function of its inputs, which is what makes sharing it meaningful.
+/// </summary>
+public class DecideDirectWrapperArchitecturesTests
+{
+    [Theory]
+    [InlineData(null)]
+    [InlineData("auto")]
+    [InlineData("arm64")]
+    [InlineData("arm64,x86_64")]
+    public void TheSameInputsDecideTheSameArchitecture_SoBothCompilesGradeOneSlice(string? requested)
+    {
+        var platform = PlatformInfoFactory.Create(ApplePlatform.iOS);
+
+        var first = BindingsGeneratorCommand.DecideDirectWrapperArchitectures(
+            requested, platform, NullLogger.Instance,
+            out var firstAuto, out var firstPrimary, out var firstExtras);
+        var second = BindingsGeneratorCommand.DecideDirectWrapperArchitectures(
+            requested, platform, NullLogger.Instance,
+            out var secondAuto, out var secondPrimary, out var secondExtras);
+
+        Assert.Equal(BindingsGeneratorCommand.DirectWrapperArchOutcome.Decided, first);
+        Assert.Equal(first, second);
+        Assert.Equal(firstAuto, secondAuto);
+        Assert.Equal(firstPrimary, secondPrimary);
+        Assert.Equal(firstExtras, secondExtras);
+    }
+
+    [Fact]
+    public void AnInvalidArchitectureToken_IsItsOwnOutcome_SoTheCallerCanNameIt()
+    {
+        // The two failure arms carry different diagnostics at the post-loop site (an
+        // INVALID_WRAPPER_CONFIGURATION report vs SWIFTBIND052), so collapsing them into a bare
+        // false would make one of those reports unreachable.
+        var outcome = BindingsGeneratorCommand.DecideDirectWrapperArchitectures(
+            "arm64,notanarch", PlatformInfoFactory.Create(ApplePlatform.iOS), NullLogger.Instance,
+            out var autoMatch, out var primary, out _);
+
+        Assert.Equal(
+            BindingsGeneratorCommand.DirectWrapperArchOutcome.InvalidArchitectureToken, outcome);
+        Assert.False(autoMatch);
+        Assert.Null(primary);
+    }
+
+    [Fact]
+    public void AutoIsReportedToTheCaller_BecauseItGovernsWhetherAnUnmetArchIsAContractBreach()
+    {
+        // The post-loop branch treats undelivered extras as fatal ONLY for an explicit request; an
+        // `auto` basis is best-effort. That distinction lives on this out-parameter, so a caller that
+        // could not see it would have to re-derive `auto` and could drift from the decision it made.
+        BindingsGeneratorCommand.DecideDirectWrapperArchitectures(
+            "auto", PlatformInfoFactory.Create(ApplePlatform.iOS), NullLogger.Instance,
+            out var autoMatch, out _, out _);
+        Assert.True(autoMatch);
+
+        BindingsGeneratorCommand.DecideDirectWrapperArchitectures(
+            "arm64", PlatformInfoFactory.Create(ApplePlatform.iOS), NullLogger.Instance,
+            out var explicitMatch, out _, out _);
+        Assert.False(explicitMatch);
+    }
+}
+
+#endregion
+
+#region RemoveInLoopVerificationScaffolding
+
+/// <summary>
+/// SDK mode is the one caller whose emitted C# is compiled by someone else's project, so the in-loop
+/// verification proxy csproj and its build output must not survive into the output directory the SDK
+/// hands on — a stray csproj there is a second project in the consumer's tree. Removal is
+/// best-effort by design: leaving scaffolding behind is untidy, turning a successful generation into
+/// a failure over it is not.
+/// </summary>
+public class RemoveInLoopVerificationScaffoldingTests
+{
+    [Fact]
+    public void RemovesTheProxyProjectAndItsBuildDirectories_LeavingEmittedArtifacts()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "sbw-scaffold-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "bin", "Debug"));
+            Directory.CreateDirectory(Path.Combine(root, "obj"));
+            var csproj = Path.Combine(root, "VisionKit.Verify.csproj");
+            File.WriteAllText(csproj, "<Project />");
+            File.WriteAllText(Path.Combine(root, "bin", "Debug", "stale.dll"), "x");
+            var emitted = Path.Combine(root, "VisionKit.cs");
+            File.WriteAllText(emitted, "// emitted");
+
+            BindingsGeneratorCommand.RemoveInLoopVerificationScaffolding(
+                root, csproj, NullLogger.Instance);
+
+            Assert.False(File.Exists(csproj));
+            Assert.False(Directory.Exists(Path.Combine(root, "bin")));
+            Assert.False(Directory.Exists(Path.Combine(root, "obj")));
+            Assert.True(File.Exists(emitted));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void MissingScaffolding_IsNotAnError()
+    {
+        // The C# leg can decline (no ObjC-free surface, --no-verify-csharp) or never build, so the
+        // cleanup routinely runs with nothing to remove.
+        var root = Path.Combine(Path.GetTempPath(), "sbw-scaffold-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            BindingsGeneratorCommand.RemoveInLoopVerificationScaffolding(
+                root, Path.Combine(root, "absent.csproj"), NullLogger.Instance);
+            BindingsGeneratorCommand.RemoveInLoopVerificationScaffolding(
+                root, null, NullLogger.Instance);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 }
 

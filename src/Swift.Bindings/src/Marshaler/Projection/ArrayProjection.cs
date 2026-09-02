@@ -195,7 +195,8 @@ public class ArrayProjection : ITypeProjection
         if (UsesObjCContainerBridge)
         {
             var objcElemType = GetObjCElementType();
-            return $"Foundation.NSArray.ArrayFromHandleFunc<{objcElemType}>({containerVar}, h => ObjCRuntime.Runtime.GetNSObject<{objcElemType}>(h)!, true)";
+            return ProjectObjCLeafElements(
+                $"Foundation.NSArray.ArrayFromHandleFunc<{objcElemType}>({containerVar}, h => ObjCRuntime.Runtime.GetNSObject<{objcElemType}>(h)!, true)");
         }
 
         var elemConversion = OwnedReturnElementConversion("e");
@@ -289,7 +290,7 @@ public class ArrayProjection : ITypeProjection
                 if (innerConv != null)
                     return $"Foundation.NSArray.FromNSObjects({elementVar}.Select(e => (Foundation.NSObject){innerConv}).ToArray())";
             }
-            return $"Foundation.NSArray.FromNSObjects({elementVar}.ToArray())";
+            return $"Foundation.NSArray.FromNSObjects({ObjCLeafElementArrayExpr(elementVar)})";
         }
 
         var rawElem = ParamElementCarrierType;
@@ -307,7 +308,8 @@ public class ArrayProjection : ITypeProjection
         if (UsesObjCContainerBridge)
         {
             var objcElemType = GetObjCElementType();
-            return $"Foundation.NSArray.ArrayFromHandle<{objcElemType}>({elementVar}.Handle)";
+            return ProjectObjCLeafElements(
+                $"Foundation.NSArray.ArrayFromHandle<{objcElemType}>({elementVar}.Handle)");
         }
 
         var elemConversion = _elementProjection.GetReturnElementConversion("e");
@@ -342,12 +344,42 @@ public class ArrayProjection : ITypeProjection
     // --- ObjC bridge helpers ---
 
     /// <summary>
+    /// The ObjC-object array expression an <c>NSArray.FromNSObjects</c> call is built from. For a
+    /// leaf element that already IS an NSObject this is just <c>{var}.ToArray()</c>; for an Apple
+    /// typed-enum element it converts each C# enum value to its backing constant first.
+    /// </summary>
+    /// <remarks>
+    /// Internal rather than private because the accessor SETTER path
+    /// (<c>AccessorConversionVisitors.ArraySetterConversion</c>) builds its own
+    /// <c>NSArray.FromNSObjects</c> call instead of going through a <see cref="MarshalPlan"/>, and must
+    /// read the leaf expression from here rather than keeping a second copy — the copy is what left
+    /// typed-enum array setters emitting a C# enum into an NSObject array.
+    /// </remarks>
+    internal string ObjCLeafElementArrayExpr(string varName)
+        => _elementProjection.TypedEnumAdapter is { } adapter
+            ? $"{varName}.Select(e => {adapter.ToCarrier("e")}).ToArray()"
+            : $"{varName}.ToArray()";
+
+    /// <summary>
+    /// Projects the ObjC elements read back out of a bridged collection to the public element type.
+    /// Identity for elements that already project as their ObjC object.
+    /// </summary>
+    private string ProjectObjCLeafElements(string collectionExpr)
+        => _elementProjection.TypedEnumAdapter is { } adapter
+            ? $"{collectionExpr}.Select(e => {adapter.FromCarrier("e")}).ToList()"
+            : collectionExpr;
+
+    /// <summary>
     /// Gets the ObjC/.NET type for elements when extracted from an NSArray.
     /// For ObjCBridgeable elements (NSUrl): returns the element's public type.
     /// For nested ObjC bridge containers: returns the ObjC collection type (NSArray, etc.).
     /// </summary>
     private string GetObjCElementType()
     {
+        // An element whose .NET projection is not itself an NSObject (an Apple NS_STRING_ENUM,
+        // projected as a C# enum) still travels in the collection as its ObjC carrier.
+        if (_elementProjection.TypedEnumAdapter is { } adapter)
+            return adapter.CarrierType;
         if (_elementProjection is ObjCBridgeableProjection)
             return _elementProjection.PublicType;
         if (_elementProjection is ArrayProjection { UsesObjCContainerBridge: true })
@@ -388,7 +420,7 @@ public class ArrayProjection : ITypeProjection
         }
         else
         {
-            arrayExpr = $"{varName}.ToArray()";
+            arrayExpr = ObjCLeafElementArrayExpr(varName);
         }
         return $"global::Swift.Runtime.Arc.UnknownObjectRetain(Foundation.NSArray.FromNSObjects({arrayExpr}).Handle)";
     }
@@ -426,7 +458,7 @@ public class ArrayProjection : ITypeProjection
         var setup2 = new List<MarshalStatement>
         {
             new MarshalStatement.Line(
-                $"using var {paramName}NSArray = Foundation.NSArray.FromNSObjects({paramName}.ToArray());"),
+                $"using var {paramName}NSArray = Foundation.NSArray.FromNSObjects({ObjCLeafElementArrayExpr(paramName)});"),
             new MarshalStatement.Line(
                 $"IntPtr {paramName}Buffer = {paramName}NSArray.Handle;")
         };
@@ -455,7 +487,8 @@ public class ArrayProjection : ITypeProjection
     private MarshalPlan BuildObjCBridgeReturnPlan(string resultName, ReturnStrategy strategy)
     {
         var objcElemType = GetObjCElementType();
-        var arrayFromHandle = $"Foundation.NSArray.ArrayFromHandleFunc<{objcElemType}>({resultName}, h => ObjCRuntime.Runtime.GetNSObject<{objcElemType}>(h)!, true)";
+        var arrayFromHandle = ProjectObjCLeafElements(
+            $"Foundation.NSArray.ArrayFromHandleFunc<{objcElemType}>({resultName}, h => ObjCRuntime.Runtime.GetNSObject<{objcElemType}>(h)!, true)");
 
         // For nested containers, apply inner element conversion
         if (_elementProjection is ArrayProjection or DictionaryProjection or SetProjection

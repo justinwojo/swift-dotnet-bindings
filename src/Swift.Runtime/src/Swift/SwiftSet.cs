@@ -390,16 +390,28 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     /// across the call.
     /// </summary>
     /// <remarks>
-    /// Routes through Swift `@_cdecl` wrappers (<c>SBW_SetInt_Insert</c>,
-    /// <c>SBW_SetString_Insert</c>) for the supported element types instead of
-    /// calling Swift stdlib's `Set.insert` directly via CallConvSwift. The
-    /// `Set.insert` ABI returns `(inserted: Bool, memberAfterInsert: Element)` —
+    /// No arm here calls Swift stdlib's `Set.insert` through a CallConvSwift
+    /// P/Invoke. Its ABI returns `(inserted: Bool, memberAfterInsert: Element)` —
     /// a (direct Bool, @out via x0) tuple-return shape that Mono's CallConvSwift
-    /// trampoline mishandles on iOS Simulator: the call appears to succeed, but
-    /// a stack address from the trampoline's scratch frame is also written into
-    /// the caller's `self` slot, causing a SIGSEGV on the next VWT Destroy.
-    /// `Dictionary.updateValue` (pure `@out` via x8/SwiftIndirectResult) does NOT
-    /// exhibit the same corruption — confirming the bug is shape-specific.
+    /// trampoline mishandles on iOS Simulator: the call either SIGABRTs on the
+    /// managed-to-native transition, or appears to succeed while a stack address
+    /// from the trampoline's scratch frame is written into the caller's `self`
+    /// slot, giving a garbage `Count` and a SIGSEGV on a later insert or on the
+    /// next VWT Destroy. `Dictionary.updateValue` (pure `@out` via
+    /// x8/SwiftIndirectResult) does NOT exhibit the same corruption — the bug is
+    /// shape-specific.
+    ///
+    /// Two kinds of workaround are in play, and they differ in ownership:
+    /// <list type="bullet">
+    /// <item>Int64/Int/String route through Swift `@_cdecl` wrappers
+    /// (<c>SBW_SetInt64_Insert</c>, <c>SBW_SetInt_Insert</c>,
+    /// <c>SBW_SetString_Insert</c>), whose Swift bodies `.move()` out of the
+    /// element buffer.</item>
+    /// <item>Every other element type routes through the C-side swiftcall shim
+    /// <c>SBW_Set_Insert</c>, which forwards to the stdlib symbol unchanged — so
+    /// the stdlib's own ownership contract applies verbatim (element consumed,
+    /// `memberAfterInsert` destroyed by the caller).</item>
+    /// </list>
     /// </remarks>
     private static unsafe bool InsertUnsafe(Element element, TypeMetadata metadata, IntPtr handle)
     {
@@ -447,10 +459,21 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
             return inserted != 0;
         }
 
-        // Fallback path for element types without a Cdecl wrapper. Uses the
-        // CallConvSwift P/Invoke directly — known-broken on iOS Simulator (Mono)
-        // for the (Bool direct, @out via x0) tuple-return shape. Add a wrapper
-        // in SwiftBindingsRuntime.swift if a new element type is needed.
+        // General path for element types without a typed Swift `@_cdecl`
+        // wrapper — arbitrary structs, classes, enums. Goes through the C-side
+        // `SBW_Set_Insert` swiftcall shim rather than the raw CallConvSwift
+        // P/Invoke: the (Bool direct, @out via x0) tuple-return shape corrupts
+        // Mono's thread state on the iOS Simulator, so the raw call either
+        // SIGABRTs on the managed-to-native transition or leaves the Set's
+        // `self` slot holding a trampoline scratch address (garbage Count, then
+        // a SIGSEGV on a later insert or on release). The shim keeps the
+        // managed boundary plain-Cdecl and lets LLVM swiftcc do the lowering.
+        //
+        // Ownership matches what swiftc emits at a `Set.insert` call site:
+        // `elementPayload` is marshalled +1 and CONSUMED by the `@in` insert,
+        // so it must not be destroyed here; `outMemberBuffer` receives
+        // `memberAfterInsert` at +1 and is destroyed through the element VWT
+        // before being freed.
         {
             Span<byte> span = stackalloc byte[(int)ElementSize];
             SwiftMarshal.MarshalToSwift(element, ref span);
@@ -459,11 +482,11 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
             void* outMemberBuffer = NativeMemory.Alloc(ElementSize);
             try
             {
-                byte inserted = SwiftSetPInvokes.Insert(
+                byte inserted = SwiftCollectionCdeclWrappers.SetInsert(
                     (IntPtr)outMemberBuffer,
                     elementPayload,
                     metadata,
-                    new SwiftSelf((void*)handle));
+                    handle);
 
                 CachedElementTypeMetadata.ValueWitnessTable->Destroy(outMemberBuffer, CachedElementTypeMetadata);
                 return inserted != 0;
@@ -845,6 +868,15 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 }
 
+// Direct CallConvSwift bindings for Swift stdlib `Set` operations.
+//
+// Three of these — `Insert`, `Remove` and `IteratorNext` — are declared but not
+// called: their ABI shapes are mishandled by a Mono CallConvSwift trampoline, so
+// live dispatch goes through the C-side cdecl shims in
+// `SwiftCollectionCdeclWrappers` instead. The declarations stay because they are
+// the executable record of each op's register layout, kept next to the call
+// sites that consume them; the shim's C declaration must agree with them.
+// Adding a caller back to one of the three re-introduces the crash.
 internal static class SwiftSetPInvokes
 {
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]

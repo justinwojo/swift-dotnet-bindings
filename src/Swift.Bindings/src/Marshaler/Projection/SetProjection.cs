@@ -156,7 +156,7 @@ public class SetProjection : ITypeProjection
         if (UsesObjCContainerBridge)
         {
             var elemPublicType = _elementProjection.PublicType;
-            var elemConv = MarshallingHelpers.FormatObjCBridgeCall(elemPublicType, "_nsObj.Handle", nonNull: true);
+            var elemConv = ObjCLeafElementRead("_nsObj.Handle");
             return $"((Func<IReadOnlySet<{elemPublicType}>>)(() => {{ " +
                    $"var _nsSet = ObjCRuntime.Runtime.GetINativeObject<Foundation.NSSet>({containerVar}, true)!; " +
                    $"var _set = new System.Collections.Generic.HashSet<{elemPublicType}>(); " +
@@ -239,7 +239,7 @@ public class SetProjection : ITypeProjection
                 if (innerConv != null)
                     return $"new Foundation.NSSet({elementVar}.Select(e => (Foundation.NSObject){innerConv}).ToArray())";
             }
-            return $"new Foundation.NSSet({elementVar}.ToArray())";
+            return $"new Foundation.NSSet({ObjCLeafElementArrayExpr(elementVar)})";
         }
 
         var rawElem = ExistentialElementCarrier.CarrierType(_elementProjection, _elementProjection.SwiftContainerGenericType);
@@ -256,7 +256,7 @@ public class SetProjection : ITypeProjection
         if (UsesObjCContainerBridge)
         {
             var elemPublicType = _elementProjection.PublicType;
-            var elemConv = MarshallingHelpers.FormatObjCBridgeCall(elemPublicType, "_nsObj.Handle", nonNull: true);
+            var elemConv = ObjCLeafElementRead("_nsObj.Handle");
             return $"((Func<IReadOnlySet<{elemPublicType}>>)(() => {{ " +
                    $"var _nsSet = ObjCRuntime.Runtime.GetNSObject<Foundation.NSSet>({elementVar})!; " +
                    $"var _set = new System.Collections.Generic.HashSet<{elemPublicType}>(); " +
@@ -291,6 +291,34 @@ public class SetProjection : ITypeProjection
 
     // --- ObjC bridge helpers ---
 
+    /// <summary>
+    /// The ObjC-object array expression an <c>NSSet</c> construction is built from. For a leaf
+    /// element that already IS an NSObject this is just <c>{var}.ToArray()</c>; for an Apple
+    /// typed-enum element (a C# enum whose ObjC carrier is an NSString constant) it converts each
+    /// value to its backing constant first.
+    /// </summary>
+    /// <remarks>
+    /// Internal rather than private for the same reason as the array twin: the accessor SETTER path
+    /// (<c>AccessorConversionVisitors.SetSetterConversion</c>) constructs its own <c>NSSet</c> and has to
+    /// read the leaf expression from here instead of keeping a second copy.
+    /// </remarks>
+    internal string ObjCLeafElementArrayExpr(string varName)
+        => _elementProjection.TypedEnumAdapter is { } adapter
+            ? $"{varName}.Select(e => {adapter.ToCarrier("e")}).ToArray()"
+            : $"{varName}.ToArray()";
+
+    /// <summary>
+    /// Reads one ObjC element out of a bridged set and projects it to the public element type.
+    /// Identity-shaped for elements that already project as their ObjC object; an Apple typed-enum
+    /// element travels as its NSString carrier and converts back through <c>{Enum}Extensions</c>.
+    /// </summary>
+    private string ObjCLeafElementRead(string nsObjHandleExpr)
+        => _elementProjection.TypedEnumAdapter is { } adapter
+            ? adapter.FromCarrier(
+                MarshallingHelpers.FormatObjCBridgeCall(adapter.CarrierType, nsObjHandleExpr, nonNull: true))
+            : MarshallingHelpers.FormatObjCBridgeCall(
+                _elementProjection.PublicType, nsObjHandleExpr, nonNull: true);
+
     private MarshalPlan BuildObjCBridgeParameterPlan(string paramName)
     {
         // For nested containers (e.g., Set<[URL]>), inner elements need recursive conversion
@@ -307,7 +335,7 @@ public class SetProjection : ITypeProjection
         }
         else
         {
-            arrayExpr = $"{paramName}.ToArray()";
+            arrayExpr = ObjCLeafElementArrayExpr(paramName);
         }
 
         var setup = new List<MarshalStatement>
@@ -348,7 +376,7 @@ public class SetProjection : ITypeProjection
         }
         else
         {
-            arrayExpr = $"{varName}.ToArray()";
+            arrayExpr = ObjCLeafElementArrayExpr(varName);
         }
         return $"global::Swift.Runtime.Arc.UnknownObjectRetain(new Foundation.NSSet({arrayExpr}).Handle)";
     }
@@ -368,7 +396,7 @@ public class SetProjection : ITypeProjection
                 new MarshalStatement.Line(
                     $"var {resultName}Set = new System.Collections.Generic.HashSet<{elemPublicType}>();"),
                 new MarshalStatement.Line(
-                    $"foreach (var _nsObj in {resultName}NSSet) {resultName}Set.Add({MarshallingHelpers.FormatObjCBridgeCall(elemPublicType, "_nsObj.Handle", nonNull: true)});")
+                    $"foreach (var _nsObj in {resultName}NSSet) {resultName}Set.Add({ObjCLeafElementRead("_nsObj.Handle")});")
             },
             PInvokeExpression = $"{resultName}Set"
         };

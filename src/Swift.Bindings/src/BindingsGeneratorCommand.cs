@@ -1034,6 +1034,17 @@ public static class BindingsGeneratorCommand
             return;
         }
 
+        // The requested wrapper architecture, normalized once here rather than at its post-generation
+        // validation site: the direct-mode verify-recover gate below needs it, and computing it twice
+        // would let the in-loop compile and the post-loop compile drift onto different slices. The
+        // validation itself stays where it is — it also has to reject `all` for direct mode, which
+        // needs facts this point does not have yet.
+        var wrapperArchNormalized = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
+
+        // Apple system-framework direct mode's verify-recover gate, shared by both planes below.
+        var directLoopMode = IsDirectModeRecoveryLoopTarget(
+            hasXcframework, libraryName, skipWrapperCompilation, wrapperArchitectures, directModuleName);
+
         // Verify-recover: for the default (simulator) xcframework generation path, hand GenerateBindings
         // a compile delegate so it can run the in-emission verify-recover loop — render the module under
         // a denylist, compile the promised simulator slice, attribute any failure to a leaf/accessor unit,
@@ -1080,45 +1091,92 @@ public static class BindingsGeneratorCommand
                 return collector.ToDiagnostics(result);
             };
         }
+        else if (directLoopMode)
+        {
+            // The same Swift-plane loop for Apple system-framework direct mode. There is no resolved
+            // xcframework slice to hang it on, but every input the wrapper compile needs is already
+            // derivable here: the module name was peeked out of the ABI JSON, the -F target is the
+            // .tbd's grandparent directory (<SDK>/.../<Module>.framework/<Module>.tbd), and the compile
+            // slice follows the requested wrapper architecture. Wiring it gives direct mode the contract
+            // xcframework mode already honours — a wrapper-compile error is attributed to a
+            // leaf/accessor unit, that unit is withdrawn as a named skip, the wrapper is re-rendered,
+            // and generation completes with a partial binding. Without it a single member that fails to
+            // compile takes the whole framework down with an unattributed wrapper-compile failure: no
+            // rounds, no named units, no partial binding.
+            //
+            // As in xcframework mode the loop settles only the ON-DISK wrapper source; the post-loop
+            // direct compile below is unchanged and recompiles that settled source with the full
+            // primary + extra-arch fanout, so a module that compiles clean on the first render sees an
+            // identical artifact and the loop is a no-op.
+            // A .tbd not laid out as <Module>.framework/<Module>.tbd yields no -F target. Leave the
+            // delegate null and let the post-loop direct branch raise its existing
+            // INVALID_WRAPPER_CONFIGURATION report rather than duplicate that diagnostic here.
+            var directLoopSearchPath = TryDeriveDirectFrameworkSearchPath(tbdPath);
+            if (directLoopSearchPath != null)
+            {
+                // Both wrapper-arch values fall back to the device slice on platforms with no simulator
+                // variant (macOS, Mac Catalyst) — the same choice the post-loop branch makes.
+                var directLoopSlice = wrapperArchNormalized == "device"
+                    ? platformInfo.DeviceSlice
+                    : platformInfo.GetSlice(true);
 
-        // C# verify-recover. In xcframework mode this extends the Swift loop above into a JOINT
-        // fixed-point over both planes; in Apple system-framework direct mode — which has no
-        // in-generation wrapper compile to hang a loop on, its wrapper being built from the on-device SDK
-        // slice after emission returns — it IS the loop. Either way this delegate emits the binding csproj
-        // for the CURRENT render and runs the authoritative MSBuild+SARIF C# verifier; a C# compile error
-        // is attributed (via the C#-plane interval map) to a leaf/accessor recovery unit and fed into the
-        // monotonic denylist, so the next round re-renders, drops the C# culprit, and re-verifies. The
-        // command's unchanged post-loop csproj emit + VerifyGeneratedCSharp ship gate below then run over
-        // the settled source, so the loop only ever REDUCES what reaches that fail-closed gate.
+                // …and the same CPU-arch decision, so the loop grades the architecture the shipped
+                // wrapper is actually built for. A slice left at its default arch would let an
+                // arch-specific compile error be judged on the wrong slice. A decision that cannot be
+                // made keeps the default and lets the post-loop branch raise the one diagnostic for it,
+                // which is why this call is made with a silent logger.
+                if (DecideDirectWrapperArchitectures(
+                        targetArchitectures, platformInfo,
+                        Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
+                        out _, out var directLoopPrimaryArch, out _) == DirectWrapperArchOutcome.Decided
+                    && !string.IsNullOrEmpty(directLoopPrimaryArch))
+                {
+                    directLoopSlice = directLoopSlice.WithArchitecture(directLoopPrimaryArch);
+                }
+
+                var directLoopModuleName = directModuleName!;
+
+                verifyRecoverCompile = req =>
+                {
+                    var collector = new WrapperSliceCollector();
+                    // Single-slice compile only: the arch fanout is a packaging concern the post-loop
+                    // compile owns, and probing extra arches per round would multiply the loop's cost
+                    // without changing which member fails to compile.
+                    var result = SwiftWrapperCompiler.CompileSlice(
+                        req.OutputDirectory, directLoopModuleName,
+                        directLoopSearchPath, tbdPath, directLoopSlice, logger,
+                        internalTypeNames: req.InternalTypeNames,
+                        moduleNameForCollision: req.ModuleNameForCollision,
+                        nestedTypesInCollidingClass: req.NestedTypesInCollidingClass,
+                        swiftInterfacePath: swiftInterface,
+                        skipThunkCompilation: skipThunkCompilation,
+                        collector: collector);
+                    return collector.ToDiagnostics(result);
+                };
+            }
+        }
+
+        // C# verify-recover, which extends the Swift loop above into a JOINT fixed-point over both
+        // planes. This delegate emits the binding csproj for the CURRENT render and runs the
+        // MSBuild+SARIF C# verifier; a C# compile error is attributed (via the C#-plane interval map) to
+        // a leaf/accessor recovery unit and fed into the monotonic denylist, so the next round
+        // re-renders, drops the C# culprit, and re-verifies. Where the command also emits a
+        // consumer-facing csproj it follows with an unchanged post-loop csproj emit +
+        // VerifyGeneratedCSharp ship gate over the settled source, so there the loop only ever REDUCES
+        // what reaches that fail-closed gate.
         // Enabled when the emitted C# is companion-free (CanVerifyCSharpInLoop): the in-loop verification
         // csproj sets ObjCProjectFileName = null, so a binding whose C# references a bridged ObjC companion
         // assembly (built only AFTER GenerateBindings returns) can't be verified in-loop and keeps the
         // post-loop publication gate (fail-closed) unchanged. A "potential mixed" framework whose ObjC
         // bridge filtered to zero records (an umbrella header re-exporting only Swift) emits no companion
         // reference and IS verified in-loop.
-        //
-        // The mode gate is "this run will emit a consumer-facing binding csproj the verifier can build,
-        // and the publication gate will grade it" — the two conditions the two emitting branches at the
-        // end of this method carry. For xcframework mode the wrapper loop's own precondition already
-        // implies it; for direct mode it is the system-framework target plus the same wrapper-compile
-        // intent that gates the post-loop verification there. A direct run that is NOT a system-framework
-        // target emits no csproj at all, so there is nothing to verify and nothing to recover into.
-        // The architecture test is a positive allowlist, not "anything but 'all'": the argument is only
-        // validated after GenerateBindings returns, so a bogus token would otherwise spend a whole
-        // verify-recover loop before the command rejects it. Only the two single-slice values this mode
-        // actually generates for qualify.
-        var directWrapperArch = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
-        var directCSharpLoopMode =
-            !hasXcframework
-            && IsSystemFrameworkTarget(hasXcframework, libraryName)
-            && !skipWrapperCompilation
-            && (directWrapperArch == "simulator" || directWrapperArch == "device")
-            && !string.IsNullOrEmpty(directModuleName);
-
         Func<IReadOnlySet<RecoveryUnitId>, CSharpVerificationResult>? verifyRecoverCsharp = null;
+        // Hoisted so the post-generation SDK-mode cleanup below can name the same file the delegate
+        // writes; null whenever no C# leg runs.
+        string? csharpVerificationCsprojPath = null;
         if (CanVerifyCSharpInLoop(
-                verifyRecoverCompile != null || directCSharpLoopMode,
-                sdkMode, noVerifyCSharp, mixedObjcResolution, mixedBridgeRecords))
+                verifyRecoverCompile != null || directLoopMode,
+                noVerifyCSharp, mixedObjcResolution, mixedBridgeRecords))
         {
             // Both modes verify the same artifact — the emitted C# for this module, built through the
             // csproj BindingProjectEmitter writes under the module's default package id. What differs is
@@ -1131,6 +1189,7 @@ public static class BindingsGeneratorCommand
             var csharpRepoRoot = MsbuildSarifCSharpVerifier.TryFindSwiftBindingsRepoRoot();
             var csharpCsprojPath = Path.Combine(
                 outputDirectory, $"{platformInfo.GetDefaultSwiftPackageId(csharpModuleName)}.csproj");
+            csharpVerificationCsprojPath = csharpCsprojPath;
 
             // Verification caching — the economics layer for the loop's single most expensive stage, the
             // external dotnet build the Roslyn/MSBuild probe runs (measured ~0.9s warm / ~1.6s cold per
@@ -1162,7 +1221,12 @@ public static class BindingsGeneratorCommand
             // .cs, the csproj, and the ABI/toolchain/generator/denylist inputs — not the feed's contents),
             // so a cached verdict could go stale the moment a sibling is (re)packed into the feed. Disable
             // the cache whenever a feed is in play rather than serve a verdict the key cannot vouch for.
-            var verificationCache = csharpRepoRoot == null && string.IsNullOrEmpty(verificationPackageFeed)
+            // SDK mode disables it for the same reason from the other direction: the "cache is strictly
+            // subordinate" argument rests on the post-loop publication gate re-verifying uncached, and SDK
+            // mode emits no consumer csproj and runs no such gate — the loop's verdict is the only one, so
+            // a stale hit would be authoritative and could withdraw API on a verdict nothing re-checks.
+            var verificationCache = csharpRepoRoot == null && !sdkMode
+                    && string.IsNullOrEmpty(verificationPackageFeed)
                 ? VerificationCache.CreateIfEnabled(logger)
                 : null;
             // The generator's own module version id: rebuilding the generator changes it, so any generator
@@ -1316,6 +1380,17 @@ public static class BindingsGeneratorCommand
                     ? names
                     : ObjCSwiftImportNameRewriter.AcceptRenames(
                         mixedParse.Module, names, mixedParse.ResolvedNamespace, logger));
+
+        // In SDK mode the loop's verification csproj is a pure proxy: the C# it grades is compiled by
+        // the CONSUMING project, and no branch below emits a consumer-facing csproj here. Every other
+        // mode either ships that csproj or re-emits it for the post-loop publication gate, so only this
+        // mode is left with a stray project file — plus the bin/obj the verification build drops — sitting
+        // in the SDK's intermediate directory alongside the .cs it does ship. Nothing in the SDK globs
+        // them today, but a project file under a directory a consumer's tooling walks is a trap worth not
+        // laying. Best-effort: a cleanup failure is never a generation failure.
+        if (sdkMode && verifyRecoverCsharp != null)
+            RemoveInLoopVerificationScaffolding(outputDirectory, csharpVerificationCsprojPath, logger);
+
         if (!success)
         {
             context.ExitCode = 1;
@@ -1358,8 +1433,7 @@ public static class BindingsGeneratorCommand
             BindingsGenerator.SaveWrapperContext(outputDirectory, internalTypeNames, moduleNameForCollision, nestedTypesInCollidingClass, depModuleCollisions, logger);
         }
 
-        // Validate --wrapper-architectures
-        var wrapperArchNormalized = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
+        // Validate --wrapper-architectures (normalized above, before the verify-recover wiring).
         if (wrapperArchNormalized != "simulator" && wrapperArchNormalized != "device" && wrapperArchNormalized != "all")
         {
             logger.LogError("Error: Invalid --wrapper-architectures '{Value}'. Valid values: 'simulator', 'device', 'all'.", wrapperArchitectures);
@@ -1670,11 +1744,10 @@ public static class BindingsGeneratorCommand
             // path (-F target) is the framework directory's parent. For Apple system
             // frameworks this is `<sdk>/System/Library/Frameworks`, which swiftc would
             // already have searched implicitly via -sdk — passing it explicitly is
-            // harmless and works uniformly for any SDK-resident framework.
-            var frameworkDir = Path.GetDirectoryName(tbdPath);
-            var frameworkSearchPath = !string.IsNullOrEmpty(frameworkDir)
-                ? Path.GetDirectoryName(frameworkDir)
-                : null;
+            // harmless and works uniformly for any SDK-resident framework. The derivation
+            // is shared with the in-loop compile delegate so the two cannot compile
+            // against different search paths.
+            var frameworkSearchPath = TryDeriveDirectFrameworkSearchPath(tbdPath);
             if (string.IsNullOrEmpty(frameworkSearchPath))
             {
                 logger.LogError(
@@ -1706,31 +1779,21 @@ public static class BindingsGeneratorCommand
             // There is no source xcframework to inspect, so the "auto" basis is synthetic and
             // derived from PlatformInfo rather than the active compile slice (see
             // ResolveAppleFrameworkAutoArchBasis for the device-first explicit-fat rationale).
-            var autoMatchSourceDirect = string.Equals(targetArchitectures?.Trim(), "auto", StringComparison.OrdinalIgnoreCase);
-            List<string> requestedArchsDirect;
-            if (autoMatchSourceDirect)
+            // One decision, shared with the verify-recover loop's in-emission compile above (see
+            // DecideDirectWrapperArchitectures). This site owns the diagnostics for both failure arms.
+            var directArchOutcome = DecideDirectWrapperArchitectures(
+                targetArchitectures, platformInfo, logger,
+                out var autoMatchSourceDirect, out var directPrimaryArch, out var directExtraArchs);
+            if (directArchOutcome == DirectWrapperArchOutcome.InvalidArchitectureToken)
             {
-                requestedArchsDirect = new List<string>();
+                EmitCommandFailureReport(
+                    BindingFailureOutcomeKind.WrapperCompileFailure, "INVALID_WRAPPER_CONFIGURATION",
+                    RecoveryStage.SwiftCompile,
+                    $"--target-architectures '{targetArchitectures}' contains an invalid architecture token.");
+                context.ExitCode = 1;
+                return;
             }
-            else
-            {
-                var parsedDirect = BindingsGenerator.ParseTargetArchitectures(targetArchitectures, logger);
-                if (parsedDirect == null)
-                {
-                    EmitCommandFailureReport(
-                        BindingFailureOutcomeKind.WrapperCompileFailure, "INVALID_WRAPPER_CONFIGURATION",
-                        RecoveryStage.SwiftCompile,
-                        $"--target-architectures '{targetArchitectures}' contains an invalid architecture token.");
-                    context.ExitCode = 1;
-                    return;
-                }
-                requestedArchsDirect = parsedDirect;
-            }
-            var (directBasisArchs, directBasisSliceId) =
-                BindingsGenerator.ResolveAppleFrameworkAutoArchBasis(platformInfo);
-            if (!BindingsGenerator.TryDecideWrapperArchitectures(
-                    autoMatchSourceDirect, requestedArchsDirect, directBasisArchs, directBasisSliceId,
-                    logger, out var directPrimaryArch, out var directExtraArchs))
+            if (directArchOutcome != DirectWrapperArchOutcome.Decided)
             {
                 EmitCommandFailureReport(
                     BindingFailureOutcomeKind.WrapperCompileFailure, "SWIFTBIND052",
@@ -2979,27 +3042,198 @@ public static class BindingsGeneratorCommand
     /// framework that actually bridges ≥1 ObjC record keeps the post-loop publication gate
     /// (fail-closed) unchanged.
     ///
-    /// <para>The other precondition is that this generation mode will actually produce a verifiable
-    /// binding project — <paramref name="verifiableProjectMode"/>. It is deliberately NOT "the Swift
-    /// wrapper loop is active": the C# leg verifies the emitted C# through a binding csproj, which the
-    /// Apple system-framework direct path also emits and also grades with a fail-closed publication gate,
-    /// even though it has no in-generation wrapper compile for a Swift loop to run on. Keying this gate
-    /// on the wrapper delegate is what left that path with no withdrawal/re-emit net at all. What the
-    /// flag must mean at every call site is "the run reaches a branch that emits the consumer-facing
-    /// csproj and verifies it" — a mode that emits no csproj has nothing to build and no publication gate
-    /// for the loop to reduce work for. Non-SDK mode and C# verification not opted out still apply: SDK
-    /// mode defers both wrapper and project emission to its own passes.</para>
+    /// <para>The other precondition is that this generation mode actually renders a C# surface this run
+    /// owns — <paramref name="verifiableProjectMode"/>. It is deliberately NOT "the Swift wrapper loop is
+    /// active": the C# leg verifies the emitted C# through a binding csproj it writes for itself, and the
+    /// Apple system-framework direct path emits that same C# even though it has no resolved xcframework.
+    /// Keying this gate on the wrapper delegate is what left that path with no withdrawal/re-emit net at
+    /// all. What the flag must mean at every call site is "the run reaches a branch that emits a C#
+    /// binding for this module" — a mode that emits nothing has nothing to build and nothing to recover
+    /// into.</para>
+    ///
+    /// <para>SDK mode is deliberately NOT a decline. It once was, on the reasoning that the SDK defers
+    /// wrapper and project emission to its own passes — true of the SDK's xcframework flow, which passes
+    /// <c>--skip-wrapper-compilation</c> and therefore already fails <paramref
+    /// name="verifiableProjectMode"/> without any help from an SDK test, and true of the pure-ObjC flow,
+    /// which returns long before this gate. It is NOT true of the SDK's Apple system-framework flow: that
+    /// one compiles the wrapper inside the generator and hands the emitted C# straight to the consuming
+    /// project, so an <c>sdkMode</c> decline left the single production path for Apple framework bindings
+    /// with no C# recovery net at all — one unbindable member turned into a raw compiler error in the
+    /// consumer's build. The verification project the loop writes there is a proxy for a project that
+    /// never ships (the consumer compiles the .cs under its own MSBuild inputs), but it errs in the safe
+    /// direction: it builds with <c>TreatWarningsAsErrors=false</c> and none of the consumer's analyzers,
+    /// so it under-reports rather than over-reports, and a member it cannot see failing simply keeps
+    /// today's behaviour of surfacing in the consumer's build.</para>
     /// </summary>
     internal static bool CanVerifyCSharpInLoop(
         bool verifiableProjectMode,
-        bool sdkMode,
         bool noVerifyCSharp,
         XCFrameworkResolver.ObjCFrameworkResolution? mixedObjcResolution,
         IReadOnlyList<TypeRecord>? mixedBridgeRecords)
-        => verifiableProjectMode && !sdkMode && !noVerifyCSharp
+        => verifiableProjectMode && !noVerifyCSharp
            && (mixedObjcResolution == null
                || mixedBridgeRecords == null
                || mixedBridgeRecords.Count == 0);
+
+    /// <summary>
+    /// Whether an Apple system-framework direct run should hang the verify-recover loop off its own
+    /// wrapper compile and emitted C#. This is the shared gate for BOTH planes: it says the run reaches
+    /// the direct-mode branches that compile a wrapper and render a binding, which is exactly what the
+    /// loop needs something to grade.
+    ///
+    /// <para>Two details are load-bearing. It tests <paramref name="skipWrapperCompilation"/> rather than
+    /// the command's <c>shouldCompileWrapper</c> flag because the direct path only raises that flag AFTER
+    /// generation — the argument validation it hangs off runs post-emission — so reading it here would
+    /// always see false and disable the loop for the entire mode; for a system-framework target the two
+    /// say the same thing. And the architecture test is a positive allowlist rather than "anything but
+    /// <c>all</c>": <c>--wrapper-architectures</c> is likewise only validated after
+    /// <c>GenerateBindings</c> returns, so a bogus token would otherwise spend a whole verify-recover
+    /// loop before the command rejects it. Only the two single-slice values this mode actually generates
+    /// for qualify.</para>
+    /// </summary>
+    internal static bool IsDirectModeRecoveryLoopTarget(
+        bool hasXcframework,
+        string? libraryName,
+        bool skipWrapperCompilation,
+        string? wrapperArchitectures,
+        string? directModuleName)
+    {
+        if (hasXcframework || skipWrapperCompilation || string.IsNullOrEmpty(directModuleName))
+            return false;
+        if (!IsSystemFrameworkTarget(hasXcframework, libraryName))
+            return false;
+        var arch = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
+        return arch == "simulator" || arch == "device";
+    }
+
+    /// <summary>
+    /// Why a direct-mode wrapper CPU-arch decision could not be made, or that it was.
+    /// </summary>
+    internal enum DirectWrapperArchOutcome
+    {
+        /// <summary>A primary (and any extra) architecture was decided.</summary>
+        Decided,
+
+        /// <summary><c>--target-architectures</c> carried a token that is not an architecture.</summary>
+        InvalidArchitectureToken,
+
+        /// <summary>An explicitly requested architecture is absent from the source slice (SWIFTBIND052).</summary>
+        UnsatisfiableRequest,
+    }
+
+    /// <summary>
+    /// The direct-mode wrapper CPU-arch decision: which architecture the wrapper's PRIMARY compile
+    /// targets, and which extra architectures are folded in afterwards. Extracted so the verify-recover
+    /// loop's in-emission compile and the post-loop publication compile read ONE decision. The loop
+    /// grades a member by compiling it, so grading a different architecture than the shipped wrapper is
+    /// built for judges the surface on the wrong slice — an architecture-specific compile error either
+    /// withdraws a member that would have compiled, or goes unseen until the post-loop compile fails the
+    /// whole binding. Deriving it twice is what would let them drift.
+    ///
+    /// <para>The decision is a pure function of <c>--target-architectures</c> and the platform, so it can
+    /// be taken at either site. The loop takes it with a silent logger and ignores a non-<see
+    /// cref="DirectWrapperArchOutcome.Decided"/> outcome (leaving the slice at its default): the
+    /// post-loop branch owns the one authoritative diagnostic for each failure, and duplicating it here
+    /// would double-voice SWIFTBIND052.</para>
+    /// </summary>
+    internal static DirectWrapperArchOutcome DecideDirectWrapperArchitectures(
+        string? targetArchitectures,
+        PlatformInfo platformInfo,
+        ILogger logger,
+        out bool autoMatchSource,
+        out string? primaryArch,
+        out List<string> extraArchs)
+    {
+        primaryArch = null;
+        extraArchs = new List<string>();
+        autoMatchSource = string.Equals(targetArchitectures?.Trim(), "auto", StringComparison.OrdinalIgnoreCase);
+
+        List<string> requestedArchs;
+        if (autoMatchSource)
+        {
+            requestedArchs = new List<string>();
+        }
+        else
+        {
+            var parsed = BindingsGenerator.ParseTargetArchitectures(targetArchitectures, logger);
+            if (parsed == null)
+                return DirectWrapperArchOutcome.InvalidArchitectureToken;
+            requestedArchs = parsed;
+        }
+
+        // There is no source xcframework to inspect, so the "auto" basis is synthetic and derived from
+        // PlatformInfo rather than the active compile slice.
+        var (basisArchs, basisSliceId) = BindingsGenerator.ResolveAppleFrameworkAutoArchBasis(platformInfo);
+        return BindingsGenerator.TryDecideWrapperArchitectures(
+                autoMatchSource, requestedArchs, basisArchs, basisSliceId,
+                logger, out primaryArch, out extraArchs)
+            ? DirectWrapperArchOutcome.Decided
+            : DirectWrapperArchOutcome.UnsatisfiableRequest;
+    }
+
+    /// <summary>
+    /// The <c>-F</c> search path for a direct-mode wrapper compile, derived from the <c>--tbd</c> input.
+    /// An Apple SDK framework lays its TBD out as
+    /// <c>&lt;SDK&gt;/…/&lt;Module&gt;.framework/&lt;Module&gt;.tbd</c>, so the framework directory is the
+    /// TBD's parent and the search path is that directory's parent. Returns null for any layout that does
+    /// not yield both — the caller leaves the loop delegate unwired and lets the post-loop direct branch
+    /// raise the one authoritative INVALID_WRAPPER_CONFIGURATION diagnostic for it.
+    /// </summary>
+    internal static string? TryDeriveDirectFrameworkSearchPath(string? tbdPath)
+    {
+        if (string.IsNullOrEmpty(tbdPath))
+            return null;
+        var frameworkDir = Path.GetDirectoryName(tbdPath);
+        if (string.IsNullOrEmpty(frameworkDir))
+            return null;
+        var searchPath = Path.GetDirectoryName(frameworkDir);
+        return string.IsNullOrEmpty(searchPath) ? null : searchPath;
+    }
+
+    /// <summary>
+    /// Drops the in-loop C# verification scaffolding — the proxy csproj and the <c>bin</c>/<c>obj</c>
+    /// trees its build produced — from a generation whose emitted C# is compiled by someone else's
+    /// project. Only SDK mode is in that position: every other mode either ships that csproj or re-emits
+    /// it for the post-loop publication gate. The two build directories are unambiguously the
+    /// verification build's — nothing else the generator writes into the output directory uses those
+    /// names — so removing them cannot take an emitted artifact with them. Best-effort throughout: a
+    /// locked file or a permission fault leaves the scaffolding in place, which is untidy but harmless,
+    /// and must never turn a successful generation into a failure.
+    /// </summary>
+    internal static void RemoveInLoopVerificationScaffolding(
+        string outputDirectory, string? verificationCsprojPath, ILogger logger)
+    {
+        if (!string.IsNullOrEmpty(verificationCsprojPath))
+        {
+            try
+            {
+                if (File.Exists(verificationCsprojPath))
+                    File.Delete(verificationCsprojPath);
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug(
+                    "Could not remove the in-loop C# verification project '{Path}': {Message}",
+                    verificationCsprojPath, ex.Message);
+            }
+        }
+
+        foreach (var dirName in new[] { "bin", "obj" })
+        {
+            var dir = Path.Combine(outputDirectory, dirName);
+            try
+            {
+                if (Directory.Exists(dir))
+                    Directory.Delete(dir, recursive: true);
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug(
+                    "Could not remove the in-loop C# verification build directory '{Dir}': {Message}",
+                    dir, ex.Message);
+            }
+        }
+    }
 
     internal static List<string>? GetDependencyModuleNamesForSwiftImports(
         IReadOnlyList<FrameworkDependencyInfo>? resolvedDependencies)

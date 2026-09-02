@@ -64,7 +64,7 @@ internal static class CdeclReturnRenderer
                     return new List<string>
                     {
                         $"let result = {callExpr}",
-                        $"return {mapping.CdeclReturnType}(result.rawValue)",
+                        $"return {RawValueConversion(typeSpec, typeDatabase, mapping, "result")}",
                     };
                 // Tag-only enum: zero-initialize and copyMemory to avoid reading past
                 // the enum's 1-byte allocation (load(as: Int.self) reads 8 bytes → crash).
@@ -132,7 +132,7 @@ internal static class CdeclReturnRenderer
 
             case CdeclReturnKind.SimpleEnum:
                 if (HasRawValue(typeSpec, typeDatabase))
-                    return new List<string> { $"return {mapping.CdeclReturnType}({scalar}.rawValue)" };
+                    return new List<string> { $"return {RawValueConversion(typeSpec, typeDatabase, mapping, scalar)}" };
                 // Tag-only enum: zero-initialize and copyMemory to avoid reading past
                 // the enum's 1-byte allocation (load(as: Int.self) reads 8 bytes → crash).
                 return WrapperEmitterHelpers.GetTagOnlyEnumReturnLines(valueExpr, mapping.CdeclReturnType);
@@ -157,4 +157,24 @@ internal static class CdeclReturnRenderer
     private static bool HasRawValue(TypeSpec typeSpec, ITypeDatabase typeDatabase)
         => typeDatabase.TryGetTypeRecord(typeSpec, out var enumRecord)
            && !string.IsNullOrEmpty(enumRecord.RawValueTypeName);
+
+    /// <summary>
+    /// The raw-value conversion used to hand a Swift enum back across the <c>@_cdecl</c> boundary.
+    /// <para>
+    /// For an enum parsed from Swift the cdecl integer type IS the declared <c>RawValue</c>, so an
+    /// exact conversion is right. For an Apple enum whose record was synthesized from the
+    /// Microsoft.iOS managed surface the cdecl type is only INFERRED from the managed enum's
+    /// underlying storage, which can disagree in signedness (or width) with the <c>RawValue</c> the
+    /// Swift header actually imports as — ImageIO's <c>CGImagePropertyOrientation</c> binds as a
+    /// managed <c>int</c> but is <c>UInt32</c>-backed in Swift. An exact <c>Int32(someUInt32)</c>
+    /// there traps at runtime for any value above <c>Int32.max</c>, so the synthesized path converts
+    /// bit-for-bit instead; the C# side reads the same bits back into the same managed enum.
+    /// </para>
+    /// </summary>
+    private static string RawValueConversion(
+        TypeSpec typeSpec, ITypeDatabase typeDatabase, CdeclReturnMapping mapping, string valueExpr)
+        => typeDatabase.TryGetTypeRecord(typeSpec, out var enumRecord)
+           && enumRecord.Flags.HasFlag(TypeRecordFlags.ExternalAppleEnum)
+            ? $"{mapping.CdeclReturnType}(truncatingIfNeeded: {valueExpr}.rawValue)"
+            : $"{mapping.CdeclReturnType}({valueExpr}.rawValue)";
 }

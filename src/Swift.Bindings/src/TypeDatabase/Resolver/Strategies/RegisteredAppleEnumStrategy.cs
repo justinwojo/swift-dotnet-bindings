@@ -6,8 +6,8 @@ using System.Diagnostics.CodeAnalysis;
 namespace BindingsGeneration;
 
 /// <summary>
-/// Resolves an Apple framework type the registry lists as a value type AND describes as an
-/// integer-backed enum.
+/// Resolves an Apple framework type the registry lists as a value type AND describes the shape of:
+/// an integer-backed NS_ENUM/NS_OPTIONS, or an NSString-backed NS_STRING_ENUM/NS_TYPED_ENUM.
 /// <para>
 /// A value-type listing exists to withhold the synthetic ObjC bridged-class record from a name that
 /// is not a class. Withholding it is correct — but on its own it leaves the type with no record at
@@ -34,7 +34,9 @@ internal sealed class RegisteredAppleEnumStrategy : IResolutionStrategy
         {
             var typeName = SwiftTypeName.FromTypeSpec(named);
             var record = TypeDatabaseExtensions.TryCreateRegisteredAppleEnumRecord(
-                typeName, named.Usr, static () => AppleTypeSurfaceIndex.Default);
+                    typeName, named.Usr, static () => AppleTypeSurfaceIndex.Default)
+                ?? TypeDatabaseExtensions.TryCreateRegisteredAppleTypedEnumRecord(
+                    typeName, named.Usr, static () => AppleTypeSurfaceIndex.Default);
             if (record is not null)
             {
                 result = new TypeResolutionResult(

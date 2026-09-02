@@ -731,6 +731,13 @@ public func sbw_managedSettingsMarkerMetadata(_ markerIndex: Int) -> UnsafeMutab
 // trampoline entirely: C# enters via Cdecl, and the actual `Set.insert` call is
 // Swift-to-Swift (no Mono trampoline involvement).
 //
+// These three cover the element types the runtime can name in Swift source. Any
+// OTHER element type — an arbitrary struct, class or enum from a bound library —
+// is only reachable generically, so it cannot get a wrapper here; it routes
+// instead through `SBW_Set_Insert` in SwiftBindingsRuntimeCollections.c, a C
+// `swiftcall` shim that forwards to the same stdlib symbol. Same principle
+// (managed boundary stays Cdecl), different mechanism.
+//
 // `Dictionary.updateValue(_:forKey:)` returns `Optional<Value>` (pure `@out` via
 // x8/SwiftIndirectResult) and does NOT exhibit the same corruption — confirming
 // the bug is specific to the tuple-return shape, not generic CallConvSwift.

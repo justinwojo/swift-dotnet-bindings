@@ -26,8 +26,24 @@ import Foundation
 /// declaration-order ordinals for integer-backed enums (the pre-fix bug) instead of the
 /// real Swift raw value; pinning the version forces a "rebuild the host binary" error.
 ///
+/// v4: `asyncAccessorMembers` added as the second oracle for "this property's getter
+/// is async". This one DOES bump despite being an additive field, because the
+/// additive-stays-put rule rests on `UnmappedMemberHandling.Disallow` catching drift —
+/// and that check only fires on an UNEXPECTED key, never on a MISSING one. A v3 host
+/// paired with a v4 consumer emits no `asyncAccessorMembers` and declares no coverage,
+/// so the consumer silently falls back to the single TBD-symbol oracle: exactly the
+/// single-point-of-failure this fact exists to remove, and invisible in the output. A
+/// pinned version turns that into a "rebuild the host binary" error instead.
+///
+/// v5: `asyncAccessorMembers` key shape redefined. A type-level (`static`/`class`)
+/// property's key now carries a `"static "` prefix so it no longer collides with an
+/// instance property of the same name, and backticks are unescaped rather than causing
+/// the member to be dropped. A v4 host emits `Analyzer.label` where a v5 consumer asks
+/// for `static Analyzer.label`; the pairing would deserialize cleanly and fall back to
+/// the single TBD-symbol oracle, which is the mismatch the handshake exists to reject.
+///
 /// On the .NET side, see `InterfaceFactsJson.SchemaVersion` — values must match.
-let kSchemaVersion = 3
+let kSchemaVersion = 5
 
 /// Top-level JSON document. Mirrors the .NET-side `InterfaceFactsJson` contract.
 ///
@@ -92,6 +108,9 @@ struct Facts: Encodable {
     var variadicMembers: [String]?
     var constLiteralParameters: [String: [Bool]]?
     var closureParameterAttributes: [String: [[String]]]?
+
+    // Async-accessor fact: qualified keys of properties whose `get` accessor is async.
+    var asyncAccessorMembers: [String]?
 
     // SPI-only conformances (read from the sibling `.private.swiftinterface`).
     var spiOnlyConformances: [String]?

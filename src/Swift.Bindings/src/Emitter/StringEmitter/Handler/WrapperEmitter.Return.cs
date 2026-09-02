@@ -966,7 +966,21 @@ namespace BindingsGeneration
                 // CoreFoundation: ownsReference=true changes GetINativeObject's owns param directly.
                 if (MarshallingHelpers.IsObjCBridged(typeRecord) || MarshallingHelpers.IsObjCBridgeable(typeRecord))
                 {
-                    if (MarshallingHelpers.IsCoreFoundationType(_wrapperSignature.ReturnType))
+                    // An Apple NS_STRING_ENUM projects to a C# enum, not an NSObject subclass, so the
+                    // pointer has to be materialized as its NSString carrier and then converted —
+                    // bridging straight to the public type would ask GetNSObject<T> for an enum.
+                    // The retain balancing is unchanged: the release still runs on the carrier.
+                    var typedEnumCarrier = typeRecord.Flags.HasFlag(TypeRecordFlags.AppleTypedEnum)
+                        ? typeRecord.NativeTypeName?.FullyQualifiedName
+                        : null;
+                    if (typedEnumCarrier is not null)
+                    {
+                        var typedEnum = new AppleTypedEnumAdapter(_wrapperSignature.ReturnType, typedEnumCarrier);
+                        csWriter.WriteLine($"var _objcResult = {MarshallingHelpers.FormatObjCBridgeCall(typedEnum.CarrierType, ReturnLocalName, nonNull: true)};");
+                        csWriter.WriteLine($"_objcResult.DangerousRelease();");
+                        csWriter.WriteLine($"return {typedEnum.FromCarrier("_objcResult")};");
+                    }
+                    else if (MarshallingHelpers.IsCoreFoundationType(_wrapperSignature.ReturnType))
                     {
                         csWriter.WriteLine($"return {MarshallingHelpers.FormatObjCBridgeCall(_wrapperSignature.ReturnType, ReturnLocalName, nonNull: true, ownsReference: true)};");
                     }

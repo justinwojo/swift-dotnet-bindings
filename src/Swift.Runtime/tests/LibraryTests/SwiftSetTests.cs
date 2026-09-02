@@ -9,6 +9,24 @@ using Xunit;
 
 namespace BindingsGeneration.Tests;
 
+/// <summary>
+/// Unit coverage for <see cref="SwiftSet{Element}"/> against a live Swift runtime
+/// on the test host (CoreCLR/macOS).
+///
+/// The element type matters here. <c>SwiftIntMock</c> is a STRUCT, so it is not
+/// <c>long</c>, <c>nint</c> or <c>SwiftString</c> — every <c>Add</c> below takes
+/// <c>InsertUnsafe</c>'s general path, the one that goes through the C-side
+/// <c>SBW_Set_Insert</c> swiftcall shim rather than a per-type <c>@_cdecl</c>
+/// wrapper. So this file is real coverage of that routing, not just of the typed
+/// fast paths.
+///
+/// What it cannot cover: <c>SwiftIntMock</c> is POD (its metadata is Swift.Int),
+/// so its value-witness table has no retain/release work and the insert's
+/// ownership contract — element consumed at +1, <c>memberAfterInsert</c> handed
+/// back at +1 for the caller to destroy — is exercised only trivially. An element
+/// with a reference-counted field, and the Mono-simulator runtime this shim
+/// exists for, both live in BindingTests (<c>SetStructElementTests</c>).
+/// </summary>
 public class SwiftSetTests : IClassFixture<SwiftSetTests.TestFixture>
 {
     private readonly TestFixture _fixture;
@@ -92,6 +110,44 @@ public class SwiftSetTests : IClassFixture<SwiftSetTests.TestFixture>
         Assert.False(second);
         int count = set.Count;
         Assert.Equal(1, count);
+    }
+
+    /// <summary>
+    /// The duplicate arm of the general insert path returns the EXISTING member as
+    /// <c>memberAfterInsert</c> — a different value than the caller handed over,
+    /// copied out through the element's value-witness table and destroyed by the
+    /// runtime. This asserts the set stays usable afterwards: an over-release or a
+    /// stale buffer left behind by that arm shows up on the NEXT operation, not on
+    /// the duplicate <c>Add</c> itself, so <see cref="Add_DuplicateElement_ReturnsFalse"/>
+    /// alone would not catch it.
+    /// </summary>
+    [Fact]
+    public void Add_AfterDuplicate_SetRemainsUsable()
+    {
+        using var set = new SwiftSet<SwiftIntMock>();
+        Assert.True(set.Add(new SwiftIntMock(1)));
+        Assert.True(set.Add(new SwiftIntMock(2)));
+
+        // Drive the duplicate arm several times so a per-call leak or over-release
+        // accumulates rather than staying within one object's slack.
+        for (int i = 0; i < 8; i++)
+            Assert.False(set.Add(new SwiftIntMock(1)));
+
+        Assert.Equal(2, set.Count);
+
+        // A distinct insert AFTER the duplicate arm ran: still reports "inserted".
+        Assert.True(set.Add(new SwiftIntMock(3)));
+        Assert.Equal(3, set.Count);
+
+        // Membership and enumeration still agree with the count. (Assigned to a
+        // local first: SwiftSet.Contains is an interop call under test, not a
+        // collection query the xUnit analyzer should rewrite to Assert.Contains.)
+        bool hasFirst = set.Contains(new SwiftIntMock(1));
+        bool hasLast = set.Contains(new SwiftIntMock(3));
+        Assert.True(hasFirst);
+        Assert.True(hasLast);
+        var values = new HashSet<int>(set.Select(e => e.Value));
+        Assert.Equal(new HashSet<int> { 1, 2, 3 }, values);
     }
 
     [Fact]

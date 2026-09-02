@@ -278,6 +278,13 @@ public static class SkipCauseClassifier
         // every requirement that failed to wire — so both the owner and the stage are known outright.
         Add(SkipReason.ProtocolProxyVtableEmpty, CauseOwner.Generator, RecoveryStage.Emit, AttributionConfidence.High);
 
+        // The generator's own wrapper-eligibility traversal declined the @_cdecl property wrapper at
+        // emission time, and the row carries the exact guard token that did it — owner and stage are
+        // read off the decision, not inferred. Confidence is High for the attribution ("we declined
+        // it, here"), which is a separate question from whether the direct-P/Invoke fall-through is
+        // ideal for the shape.
+        Add(SkipReason.PropertyWrapperDeclinedDirectPInvoke, CauseOwner.Generator, RecoveryStage.Emit, AttributionConfidence.High);
+
         // ── Library API surface — the author could change this, we cannot ────────────────────────
         Add(SkipReason.UnderscorePrefixInternal, CauseOwner.LibraryAuthor, RecoveryStage.Parse, AttributionConfidence.High);
         Add(SkipReason.ModuleInternal, CauseOwner.LibraryAuthor, RecoveryStage.Parse, AttributionConfidence.High);

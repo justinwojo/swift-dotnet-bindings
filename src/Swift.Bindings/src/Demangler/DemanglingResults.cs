@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Extensions.Logging;
 using TbdParsing;
 
@@ -98,7 +99,87 @@ public class DemanglingResults
                 return new ReductionError { Symbol = symbolName, Message = ex.Message };
             }
         })).ToArray();
+
+        WarnIfNoSymbolsForOwnLibrary(logger, path, tbdFile, allSymbols);
+
         return new DemanglingResults(allReductions, allSymbols);
+    }
+
+    /// <summary>
+    /// Tripwire for a symbol set that cannot belong to the library the `.tbd` describes.
+    ///
+    /// The stable Swift mangling encodes the defining module as a length-prefixed identifier right
+    /// after the `$s` prefix, and a framework's own `.tbd` names that framework in its install name.
+    /// So if the file yields Swift symbols but none of them are mangled for the library the file is
+    /// named for, the parse dropped the library's own exports — which is silent everywhere else,
+    /// because the symbol set is only ever consulted with `Contains` (async-accessor and protocol
+    /// method-descriptor probes), and a missing symbol reads as a legitimate "not async" / "no
+    /// descriptor" answer. This is a warning rather than a failure: it reports what the parse saw
+    /// and lets generation continue.
+    /// </summary>
+    private static void WarnIfNoSymbolsForOwnLibrary(
+        ILogger logger, string path, TbdParsing.Models.TbdFile tbdFile, HashSet<string> allSymbols)
+    {
+        // No Swift symbols at all is normal (a pure Objective-C framework) and says nothing about
+        // which library they came from.
+        if (allSymbols.Count == 0)
+            return;
+
+        string? expectedModule = ModuleNameFromInstallName(tbdFile.InstallName);
+        if (expectedModule is null)
+            return;
+
+        var modulesSeen = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var symbol in allSymbols)
+        {
+            if (ManglingProbes.TryGetModuleFromMangledName(symbol, out var module))
+                modulesSeen.Add(module);
+        }
+
+        if (modulesSeen.Count == 0 || modulesSeen.Contains(expectedModule))
+            return;
+
+        // A framework whose whole Swift surface is extensions on types it does not own (Foundation
+        // overlays, for instance) legitimately exports nothing mangled with itself as the LEADING
+        // module — the leading module is the extended type's. Its own module still appears in the
+        // symbol, as the length-prefixed extension context (`$s10Foundation…15LinkPresentationE…`),
+        // so treat that as evidence the library's own exports were read and stay quiet. A parse that
+        // actually dropped the library's document leaves the name absent everywhere.
+        string extensionContextToken = expectedModule.Length.ToString(CultureInfo.InvariantCulture) + expectedModule;
+        foreach (var symbol in allSymbols)
+        {
+            if (symbol.Contains(extensionContextToken, StringComparison.Ordinal))
+                return;
+        }
+
+        logger.LogWarning(
+            "No Swift symbol in '{Path}' is mangled for module '{ExpectedModule}' (derived from install-name " +
+            "'{InstallName}'). Parsed {DocumentCount} document(s) with install-names [{InstallNames}]; the " +
+            "{SymbolCount} Swift symbols found belong to [{ModulesSeen}]. Async-accessor and protocol " +
+            "method-descriptor detection read this symbol set, so members of '{ExpectedModule}' may bind as " +
+            "synchronous or lose their protocol conformances.",
+            path, expectedModule, tbdFile.InstallName, tbdFile.DocumentCount,
+            string.Join(", ", tbdFile.InstallNames), allSymbols.Count,
+            string.Join(", ", modulesSeen.Take(10)), expectedModule);
+    }
+
+    /// <summary>
+    /// Best-effort Swift module name for a Mach-O install name: the last path component with a
+    /// dynamic-library decoration removed (`/…/VisionKit.framework/VisionKit` → `VisionKit`,
+    /// `@rpath/libFoo.dylib` → `Foo`). Returns null when there is nothing usable to compare against.
+    /// </summary>
+    private static string? ModuleNameFromInstallName(string installName)
+    {
+        if (string.IsNullOrWhiteSpace(installName))
+            return null;
+
+        string leaf = installName.AsSpan(installName.LastIndexOf('/') + 1).ToString();
+        if (leaf.EndsWith(".dylib", StringComparison.Ordinal))
+            leaf = leaf[..^".dylib".Length];
+        if (leaf.StartsWith("lib", StringComparison.Ordinal) && leaf.Length > 3)
+            leaf = leaf[3..];
+
+        return string.IsNullOrWhiteSpace(leaf) ? null : leaf;
     }
 
     /// <summary>

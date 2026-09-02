@@ -53,6 +53,12 @@ internal static class AppleFrameworkRegistry
     // claim that the *Swift* side is an integer enum — the one fact reflection over the .NET binding
     // cannot establish, because the bindings project NSString typed-constant groups as C# enums too.
     private static readonly HashSet<string> _integerEnumValueTypes;
+    // The subset of _valueTypes whose entry describes an NSString-backed NS_STRING_ENUM /
+    // NS_TYPED_ENUM. This is the OTHER side of the same ambiguity the integer set names: reflection
+    // over the .NET binding sees a C# enum for both shapes, so only a hand-authored claim can say
+    // which one the *Swift* importer produced — an integer raw-value enum, or a String-backed
+    // RawRepresentable newtype that crosses the boundary as an NSString pointer.
+    private static readonly HashSet<string> _stringEnumValueTypes;
     private static readonly Dictionary<ApplePlatform, HashSet<string>> _platformUnavailableModules;
     private static readonly string[] _objcPrefixes;
     // Per-module ObjC prefix tables. Modules that declare an explicit `objcPrefixes`
@@ -106,29 +112,58 @@ internal static class AppleFrameworkRegistry
     /// </summary>
     internal const int ExpectedObjCTypeMappingsSchemaVersion = 2;
 
-    /// <summary>The one shape a <c>valueTypes</c> entry may describe today: an integer-backed enum.</summary>
+    /// <summary>A <c>valueTypes</c> entry describing an integer-backed NS_ENUM/NS_OPTIONS.</summary>
     private const string IntegerEnumValueTypeKind = "enum";
 
     /// <summary>
-    /// Classifies a <c>valueTypes</c> entry's declared shape: true when it describes an
-    /// integer-backed enum, false when it describes nothing (the bare-name form, which keeps its
-    /// historical "not an ObjC class" meaning and nothing more). An unrecognized shape throws
-    /// rather than degrading to "described by nothing" — a typo would otherwise be indistinguishable
-    /// from a deliberate bare entry and would silently leave the type unresolvable, which is the very
+    /// A <c>valueTypes</c> entry describing an NS_STRING_ENUM / NS_TYPED_ENUM over an NSString
+    /// base: Swift imports it as a String-backed <c>RawRepresentable</c> newtype (a struct, not an
+    /// enum), while the platform binding projects the constant group as a C# <c>enum</c> plus a
+    /// sibling <c>{Name}Extensions</c> class carrying <c>GetConstant</c>/<c>GetValue</c>.
+    /// </summary>
+    private const string StringEnumValueTypeKind = "stringEnum";
+
+    /// <summary>The shapes a <c>valueTypes</c> entry may describe.</summary>
+    internal enum ValueTypeShape
+    {
+        /// <summary>Bare-name form: "not an ObjC class" and nothing more.</summary>
+        Undescribed,
+        /// <summary>Integer-backed NS_ENUM/NS_OPTIONS.</summary>
+        IntegerEnum,
+        /// <summary>NSString-backed NS_STRING_ENUM/NS_TYPED_ENUM newtype.</summary>
+        StringEnum,
+    }
+
+    /// <summary>
+    /// Classifies a <c>valueTypes</c> entry's declared shape. The bare-name form describes nothing
+    /// and keeps its historical "not an ObjC class" meaning. An unrecognized shape throws rather
+    /// than degrading to "described by nothing" — a typo would otherwise be indistinguishable from a
+    /// deliberate bare entry and would silently leave the type unresolvable, which is the very
     /// failure a description exists to remove.
     /// </summary>
-    internal static bool DescribesIntegerEnum(string qualifiedName, string? kind)
+    internal static ValueTypeShape ClassifyValueTypeShape(string qualifiedName, string? kind)
     {
         if (kind == null)
-            return false;
+            return ValueTypeShape.Undescribed;
         if (string.Equals(kind, IntegerEnumValueTypeKind, StringComparison.Ordinal))
-            return true;
+            return ValueTypeShape.IntegerEnum;
+        if (string.Equals(kind, StringEnumValueTypeKind, StringComparison.Ordinal))
+            return ValueTypeShape.StringEnum;
 
         throw new InvalidOperationException(
             $"apple-frameworks.json: value type '{qualifiedName}' declares unknown kind "
-            + $"'{kind}'. The only describable shape is '{IntegerEnumValueTypeKind}' "
-            + "(an integer-backed NS_ENUM/NS_OPTIONS).");
+            + $"'{kind}'. The describable shapes are '{IntegerEnumValueTypeKind}' "
+            + $"(an integer-backed NS_ENUM/NS_OPTIONS) and '{StringEnumValueTypeKind}' "
+            + "(an NSString-backed NS_STRING_ENUM/NS_TYPED_ENUM).");
     }
+
+    /// <summary>
+    /// True when the entry describes an integer-backed enum. Thin shim over
+    /// <see cref="ClassifyValueTypeShape"/>, kept so callers that only care about the integer arm
+    /// read the same accept/reject boundary.
+    /// </summary>
+    internal static bool DescribesIntegerEnum(string qualifiedName, string? kind)
+        => ClassifyValueTypeShape(qualifiedName, kind) == ValueTypeShape.IntegerEnum;
 
     /// <summary>
     /// Reads a single <c>valueTypes</c> entry exactly as the registry loader does, so the
@@ -345,6 +380,7 @@ internal static class AppleFrameworkRegistry
         _typeNameRemaps = new Dictionary<string, string>(StringComparer.Ordinal);
         _valueTypes = new HashSet<string>(StringComparer.Ordinal);
         _integerEnumValueTypes = new HashSet<string>(StringComparer.Ordinal);
+        _stringEnumValueTypes = new HashSet<string>(StringComparer.Ordinal);
         _netUnavailableTypes = new HashSet<string>(StringComparer.Ordinal);
         _packageIds = new Dictionary<string, string>(StringComparer.Ordinal);
         _perModuleObjcPrefixes = new Dictionary<string, string[]>(StringComparer.Ordinal);
@@ -425,8 +461,15 @@ internal static class AppleFrameworkRegistry
                     var qualifiedName = $"{def.Module}.{vt.Name}";
                     _valueTypes.Add(qualifiedName);
 
-                    if (DescribesIntegerEnum(qualifiedName, vt.Kind))
-                        _integerEnumValueTypes.Add(qualifiedName);
+                    switch (ClassifyValueTypeShape(qualifiedName, vt.Kind))
+                    {
+                        case ValueTypeShape.IntegerEnum:
+                            _integerEnumValueTypes.Add(qualifiedName);
+                            break;
+                        case ValueTypeShape.StringEnum:
+                            _stringEnumValueTypes.Add(qualifiedName);
+                            break;
+                    }
                 }
             }
 
@@ -613,6 +656,16 @@ internal static class AppleFrameworkRegistry
     /// </summary>
     public static bool IsIntegerEnumValueType(string moduleQualifiedName)
         => _integerEnumValueTypes.Contains(moduleQualifiedName);
+
+    /// <summary>
+    /// True when the registry describes this value type as an NSString-backed NS_STRING_ENUM /
+    /// NS_TYPED_ENUM — Swift imports it as a String-backed <c>RawRepresentable</c> newtype that
+    /// crosses the boundary as an NSString pointer, and the platform binding projects the constant
+    /// group as a C# enum with a sibling <c>{Name}Extensions</c> converter.
+    /// See <see cref="_stringEnumValueTypes"/>.
+    /// </summary>
+    public static bool IsStringEnumValueType(string moduleQualifiedName)
+        => _stringEnumValueTypes.Contains(moduleQualifiedName);
 
     /// <summary>True when a module declares no ObjC classes — every type it exports is a
     /// Swift value type. See <see cref="_valueTypesOnlyModules"/>.</summary>

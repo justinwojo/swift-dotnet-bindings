@@ -43,7 +43,11 @@ public static class RuntimeLimitations
         /// "Cannot transition thread from STARTING with DONE_BLOCKING" abort inside
         /// the Mono CallConvSwift trampoline.
         /// Upstream: Issue 3. Status: Unfixed. NativeAOT confirmed NOT affected.
-        /// Workaround: @_cdecl Swift wrapper performs the insert on the Swift side.
+        /// Workaround: never call the stdlib symbol through CallConvSwift. Int64,
+        /// Int and String elements go through <c>@_cdecl</c> Swift wrappers that
+        /// perform the insert on the Swift side; every other element type goes
+        /// through the C-side <c>swiftcall</c> shim <c>SBW_Set_Insert</c>, which
+        /// forwards to the same stdlib symbol with LLVM doing the lowering.
         /// </summary>
         MonoSetInsertDoneBlocking,
 
@@ -114,7 +118,8 @@ public static class RuntimeLimitations
             Limitation.MonoSetInsertDoneBlocking =>
                 "Mono CallConvSwift trampoline aborts with 'Cannot transition thread from STARTING " +
                 "with DONE_BLOCKING' when calling Swift Set.insert. NativeAOT not affected " +
-                "(upstream Issue 3). Workaround: @_cdecl Swift wrapper performs the insert.",
+                "(upstream Issue 3). Workaround: @_cdecl Swift wrapper for Int64/Int/String " +
+                "elements, C-side swiftcall shim SBW_Set_Insert for every other element type.",
 
             Limitation.MonoAsyncSafeHandleLifetime =>
                 "Mono GC can collect SafeHandle across async P/Invoke suspension point, causing " +

@@ -642,6 +642,46 @@
   <Import Project="$(LiveCommunicationKitSnapshotProjectRefTargets)"
           Condition="'$(EnableLiveCommunicationKitSmoke)' == 'true' AND Exists('$(LiveCommunicationKitSnapshotProjectRefTargets)')" />
 
+  <!-- VisionKit smoke test (Apple-framework direct-mode pipeline).
+       VisionKit's stub library is a MULTI-DOCUMENT `.tbd`: the framework re-exports the
+       private DocumentCamera framework, so the file carries two `!tapi-tbd` documents.
+       The async-accessor and protocol-method-descriptor evidence the emitter reads lives in
+       the framework's own document, so a parser that keeps only one document silently emits
+       a different (synchronous, conformance-poorer) binding that still compiles. This smoke
+       is the runtime end of that check. Mixed ObjC+Swift framework; iOS 16.0+ members are
+       reached reflectively so the app's own deployment target stays put.
+       Metadata-only assertions (no camera session, no live document scan). -->
+  <PropertyGroup>
+    <VisionKitSnapshotDir>$(MSBuildThisFileDirectory)../obj/VisionKitSnapshot/</VisionKitSnapshotDir>
+    <VisionKitSnapshotCsproj>$(VisionKitSnapshotDir)VisionKit.Swift.iOS.csproj</VisionKitSnapshotCsproj>
+    <VisionKitSnapshotProjectRefTargets>$(VisionKitSnapshotDir)VisionKit.Swift.iOS.ProjectReference.targets</VisionKitSnapshotProjectRefTargets>
+    <VisionKitSnapshotXcframework>$(VisionKitSnapshotDir)VisionKitSwiftBindings.xcframework</VisionKitSnapshotXcframework>
+    <VisionKitSmokeEnabled Condition="'$(EnableVisionKitSmoke)' == 'true' AND '$(RuntimeIdentifier)' == 'iossimulator-arm64' AND Exists('$(VisionKitSnapshotCsproj)') AND Exists('$(VisionKitSnapshotXcframework)/ios-arm64-simulator') AND Exists('$(VisionKitSnapshotProjectRefTargets)')">true</VisionKitSmokeEnabled>
+  </PropertyGroup>
+  <Target Name="_VisionKitSmokeGateCheck" BeforeTargets="BeforeBuild"
+          Condition="'$(EnableVisionKitSmoke)' == 'true' AND '$(VisionKitSmokeEnabled)' != 'true'">
+    <Error Condition="'$(RuntimeIdentifier)' != 'iossimulator-arm64'"
+           Text="EnableVisionKitSmoke=true requires RuntimeIdentifier=iossimulator-arm64 (got '$(RuntimeIdentifier)'). The snapshot's wrapper xcframework only ships a simulator slice today." />
+    <Error Condition="!Exists('$(VisionKitSnapshotCsproj)')"
+           Text="EnableVisionKitSmoke=true but $(VisionKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework VisionKit` (or `nuke binding-tests --enable-visionkit-smoke` which regenerates automatically)." />
+    <Error Condition="!Exists('$(VisionKitSnapshotXcframework)/ios-arm64-simulator')"
+           Text="EnableVisionKitSmoke=true but $(VisionKitSnapshotXcframework)/ios-arm64-simulator is missing. Rerun `nuke regenerate-apple-snapshot --framework VisionKit`." />
+    <Error Condition="!Exists('$(VisionKitSnapshotProjectRefTargets)')"
+           Text="EnableVisionKitSmoke=true but $(VisionKitSnapshotProjectRefTargets) is missing. The wrapper NativeReference is injected via this generator-emitted file; without it the smoke test would compile but fail at runtime. Rerun `nuke regenerate-apple-snapshot --framework VisionKit`." />
+  </Target>
+  <PropertyGroup Condition="'$(VisionKitSmokeEnabled)' == 'true'">
+    <DefineConstants>$(DefineConstants);VISIONKIT_SMOKE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(VisionKitSmokeEnabled)' == 'true'">
+    <ProjectReference Include="$(VisionKitSnapshotCsproj)">
+      <AdditionalProperties>IncludeSwiftBindingsRuntimeNative=false</AdditionalProperties>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+      <Private>true</Private>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VisionKitSnapshotProjectRefTargets)"
+          Condition="'$(EnableVisionKitSmoke)' == 'true' AND Exists('$(VisionKitSnapshotProjectRefTargets)')" />
+
   <!-- Device bridge framework -->
   <ItemGroup Condition="Exists('../SwiftBridge/device/SwiftBindingsTestLibBridge.framework')
                          AND '$(RuntimeIdentifier)' == 'ios-arm64'">

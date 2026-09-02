@@ -149,6 +149,15 @@ public interface ITypeProjection
     bool UsesObjCContainerBridge => false;
 
     /// <summary>
+    /// Non-null when this projection bridges as an ObjC object whose .NET projection is NOT itself
+    /// an <c>NSObject</c> — an Apple NS_STRING_ENUM / NS_TYPED_ENUM, projected as a C# enum plus a
+    /// <c>{Enum}Extensions</c> converter. Container projections read it to learn the ObjC element
+    /// type an NSArray/NSSet/NSDictionary actually holds and how to convert each element in and out.
+    /// Null (the default) means "the projected C# value already IS the bridged ObjC object".
+    /// </summary>
+    AppleTypedEnumAdapter? TypedEnumAdapter => null;
+
+    /// <summary>
     /// Accepts a projection visitor for compile-time exhaustive dispatch.
     /// Each concrete projection implements this with <c>visitor.Visit(this)</c>.
     /// </summary>
