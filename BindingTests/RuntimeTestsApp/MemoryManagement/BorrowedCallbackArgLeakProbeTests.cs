@@ -100,15 +100,29 @@ public class BorrowedCallbackArgLeakProbeTests : TestBase
     /// finalizer suppression leaked it per call). (a) is observed as content fidelity across
     /// many invocations WITH finalizer drains interleaved — an over-release corrupts or crashes
     /// once the drains run the payload cleanup while Swift keeps reusing the same String — and
-    /// (b) as a native-footprint bound: the measured batch after a same-sized warmup must not
-    /// grow the process footprint by anything near the container-leak magnitude.
+    /// (b) as a native-footprint bound: the measured batches after a warmup must not grow the
+    /// process footprint by anything near the container-leak magnitude.
+    ///
+    /// <para>
+    /// The footprint bound is asserted on the MINIMUM growth across several identical batches,
+    /// never on a single one. <c>phys_footprint</c> counts the managed heap too, so one batch's
+    /// delta carries whatever the GC did to its heap segments during those invocations — a
+    /// multi-MB swing in either direction that has nothing to do with the wrapper's container.
+    /// A real per-invocation leak, by contrast, is unconditional and linear: nothing ever frees
+    /// the containers, so EVERY batch grows by the full leak magnitude and the minimum is red
+    /// too. Allocator/GC noise does not repeat across batches, so the minimum discards it. This
+    /// leaves the red-world detection threshold exactly where a single batch had it while
+    /// removing the false-positive arm — the bound is a leak-magnitude discriminator, not a
+    /// tolerance band to be widened when noise crosses it.
+    /// </para>
     /// </summary>
     [Slow]
     public void TestBorrowedStringCallbackArgFreesContainerWithoutDestroyingString()
     {
         const int WarmupCount = 200_000;
         const int MeasuredCount = 400_000;
-        // Red-world leak: ≥16 bytes of wrapper container per invocation → ≥6.4 MB over the
+        const int MeasuredBatches = 3;
+        // Red-world leak: ≥16 bytes of wrapper container per invocation → ≥6.4 MB in every
         // measured batch. Green-world steady-state growth after the warmup is ~0.
         const long GrowthBoundBytes = 4 * 1024 * 1024;
 
@@ -119,20 +133,39 @@ public class BorrowedCallbackArgLeakProbeTests : TestBase
         DrainFinalizers();
         AssertEqual(0L, warmupMismatches, "warmup: borrowed String content must round-trip on every invocation");
 
-        long baseline = NativeFootprint.TryGetPhysFootprintBytes();
-        long measuredMismatches = InvokeBorrowedStrings(MeasuredCount, expected);
-        DrainFinalizers();
-        long after = NativeFootprint.TryGetPhysFootprintBytes();
+        long measuredMismatches = 0;
+        long minGrowth = long.MaxValue;
+        var growths = new long[MeasuredBatches];
+        bool footprintAvailable = true;
+
+        for (int batch = 0; batch < MeasuredBatches; batch++)
+        {
+            long baseline = NativeFootprint.TryGetPhysFootprintBytes();
+            measuredMismatches += InvokeBorrowedStrings(MeasuredCount, expected);
+            DrainFinalizers();
+            long after = NativeFootprint.TryGetPhysFootprintBytes();
+
+            if (baseline <= 0 || after <= 0)
+            {
+                footprintAvailable = false;
+                continue;
+            }
+
+            growths[batch] = after - baseline;
+            minGrowth = Math.Min(minGrowth, growths[batch]);
+        }
 
         // Content fidelity across drains = the borrowed String was never over-released.
         AssertEqual(0L, measuredMismatches, "borrowed String content must survive payload-finalizer drains (no over-release of Swift-owned storage)");
 
-        if (baseline > 0 && after > 0)
+        if (footprintAvailable)
         {
-            long growth = after - baseline;
-            TestLogger.Info($"borrowed String callback arg: footprint growth {growth / 1024} KiB over {MeasuredCount} invocations");
-            AssertTrue(growth < GrowthBoundBytes,
-                $"per-invocation container must be freed: footprint grew {growth / 1024} KiB over {MeasuredCount} borrowed-String callbacks (bound {GrowthBoundBytes / 1024} KiB)");
+            string perBatch = string.Join(", ", growths.Select(g => $"{g / 1024} KiB"));
+            TestLogger.Info(
+                $"borrowed String callback arg: footprint growth per {MeasuredCount}-invocation batch [{perBatch}], min {minGrowth / 1024} KiB");
+            AssertTrue(minGrowth < GrowthBoundBytes,
+                $"per-invocation container must be freed: footprint grew {minGrowth / 1024} KiB in every one of " +
+                $"{MeasuredBatches} batches of {MeasuredCount} borrowed-String callbacks (bound {GrowthBoundBytes / 1024} KiB)");
         }
         else
         {
