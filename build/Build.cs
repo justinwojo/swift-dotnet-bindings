@@ -60,8 +60,16 @@ partial class Build : NukeBuild
     [Parameter("Run only one test class")]
     readonly string? ClassFilter;
 
+    // Wall-clock budget for ONE app launch, counted from `simctl launch` (so it also has to
+    // absorb dyld + Mono init before the first test runs). It is a hang backstop, not a pace
+    // setter: the whole suite must fit inside it comfortably on the slowest machine we run on.
+    // At 90s it did not — a ~3450-test simulator run takes ~42s locally but ~95s on a CI runner,
+    // so the launcher killed the app mid-suite on every CI run. The resume-on-crash loop then
+    // re-launched and finished the remainder, which hid it whenever the kill happened to land
+    // between classes; when it landed inside a test method instead, that class was recorded as
+    // crashed and the pass-count gate went red on a test that never actually crashed.
     [Parameter("Test timeout in seconds")]
-    readonly int Timeout = 90;
+    readonly int Timeout = 420;
 
     [Parameter("Include device slice in xcframework build")]
     readonly bool IncludeDevice;
