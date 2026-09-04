@@ -2037,6 +2037,180 @@ namespace BindingsGeneration.Tests
 
         #endregion
 
+        #region Large-Optional setter values are never thunked
+
+        /// <summary>
+        /// The wrapper emitter has one arm that passes a large <c>Optional</c> accessor parameter as
+        /// a buffer <i>address</i>, and it emits no ownership transfer there. That is correct only
+        /// for a Swift-source frame that dereferences the address and borrows what it finds — a
+        /// <c>@_cdecl</c> wrapper, the Optional-pointer out-buffer wrapper, an async bridge. The
+        /// native assembly thunk is the one member of the width oracle's set that would consume the
+        /// value instead (it shifts registers and tail-calls the accessor, so the accessor's
+        /// <c>@owned</c> convention reaches the C# caller), and it does not dereference anything
+        /// either, so an address handed to it would be wrong twice over.
+        ///
+        /// <para>It never gets one. Everything the routing predicate calls a large
+        /// <c>Optional</c> is refused by the thunk's parameter-lowering gate: a payload that gains a
+        /// tag byte lowers to TWO register slots (declined as multi-slot), and every other payload
+        /// has no lowering at all — after which the fallback resolves the whole spec to
+        /// <c>Swift.Optional</c>'s record, a frozen STRUCT, which is neither of the two shapes
+        /// (class, frozen simple enum) that fallback admits. The single-slot payload the thunk does
+        /// accept, <c>Optional&lt;class&gt;</c>, is exactly the one the routing predicate declines to
+        /// call large.</para>
+        ///
+        /// <para>Asserted as the coupling rather than as two separate facts: the arm's guard is
+        /// "large Optional AND the value moves through memory", so what has to stay true is that no
+        /// parameter satisfies the first half on a member the thunk accepts.</para>
+        /// </summary>
+        [Theory]
+        // Two integer words with no tag byte — String is @frozen and carries spare bits.
+        [InlineData("Swift.String")]
+        // A full-width scalar with no spare bit patterns: payload word plus an appended tag byte,
+        // which lowers to two register slots.
+        [InlineData("Swift.Int")]
+        [InlineData("Swift.Double")]
+        // A resilient struct payload — address-only across the resilience boundary, no lowering.
+        [InlineData("Test.OpaqueBox")]
+        // A frozen multi-field struct payload: a known layout, but still no Optional lowering.
+        [InlineData("Test.FrozenPair")]
+        public void ShouldEmitThunk_SetterValueIsLargeOptional_ReturnsFalse(string payloadTypeName)
+        {
+            var (env, value) = LargeOptionalSetterEnv(
+                new NamedTypeSpec("Swift.Optional", new TypeSpec[] { new NamedTypeSpec(payloadTypeName) }));
+
+            // The case is only in scope if the routing predicate really calls this Optional large —
+            // otherwise the arm under discussion would never see it and the assertion below would
+            // pass for the wrong reason.
+            Assert.True(env.BoundGenericsHandler.IsLargeOptionalParam(value.SwiftTypeSpec));
+
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        /// <summary>
+        /// Positive control for the theory above: the same setter shape on the same parent DOES
+        /// thunk when its value is an ordinary class reference. Without this, a harness that
+        /// rejected every setter for an unrelated reason would satisfy the theory vacuously.
+        /// </summary>
+        [Fact]
+        public void ShouldEmitThunk_SetterValueIsClassReference_ReturnsTrue()
+        {
+            var (env, value) = LargeOptionalSetterEnv(new NamedTypeSpec("Test.Payload"));
+
+            Assert.False(env.BoundGenericsHandler.IsLargeOptionalParam(value.SwiftTypeSpec));
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        /// <summary>
+        /// <c>Optional&lt;class&gt;</c> is the one Optional the thunk's lowering accepts, and it is
+        /// also the one the routing predicate declines to call large — so it reaches neither the
+        /// address-passing arm nor a contradiction. Pinned because moving it into the "large" set
+        /// would make that arm reachable from a thunk.
+        /// </summary>
+        [Fact]
+        public void ShouldEmitThunk_SetterValueIsOptionalClass_IsNotALargeOptional()
+        {
+            var (env, value) = LargeOptionalSetterEnv(
+                new NamedTypeSpec("Swift.Optional", new TypeSpec[] { new NamedTypeSpec("Test.Payload") }));
+
+            Assert.False(env.BoundGenericsHandler.IsLargeOptionalParam(value.SwiftTypeSpec));
+        }
+
+        /// <summary>
+        /// Builds a stored-property setter on a FINAL class carrying <paramref name="valueTypeSpec"/>
+        /// as its new value. Final so the accessor resolves to its own symbol rather than a <c>Tj</c>
+        /// dispatch thunk: the dispatch-thunk setter gate would otherwise refuse every non-class
+        /// value on its own, and the invariant under test is the parameter-lowering one.
+        /// </summary>
+        private static (MethodEnvironment Env, ArgumentDecl Value) LargeOptionalSetterEnv(TypeSpec valueTypeSpec)
+        {
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            // Mirrors SwiftDatabase.xml: Optional is a frozen STRUCT record, which is what the
+            // thunk's unlowerable-parameter fallback resolves the whole spec to.
+            db.AddType("Swift.Optional", new TypeRecord
+            {
+                Kind = TypeRecordKind.Struct,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                Flags = TypeRecordFlags.Frozen,
+                MetadataAccessor = "$sSqMa",
+            });
+            db.AddType("Swift.String", new TypeRecord
+            {
+                Kind = TypeRecordKind.Struct,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                Flags = TypeRecordFlags.Frozen,
+                InlineSize = 16,
+                MetadataAccessor = "$sSSMa",
+            });
+            // A non-frozen (resilient) struct payload: address-only, no statically known lowering.
+            db.AddType("Test.OpaqueBox", new TypeRecord
+            {
+                Kind = TypeRecordKind.Struct,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "OpaqueBox"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.OpaqueBox"),
+                Flags = TypeRecordFlags.None,
+                MetadataAccessor = "$s4Test9OpaqueBoxVMa",
+            });
+            db.AddType("Test.FrozenPair", new TypeRecord
+            {
+                Kind = TypeRecordKind.Struct,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "FrozenPair"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.FrozenPair"),
+                Flags = TypeRecordFlags.Frozen,
+                InlineSize = 16,
+                AbiFieldLayout = "i8,i8",
+                MetadataAccessor = "$s4Test10FrozenPairVMa",
+            });
+            db.AddType("Test.Payload", new TypeRecord
+            {
+                Kind = TypeRecordKind.Class,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "Payload"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.Payload"),
+                Flags = TypeRecordFlags.None,
+                MetadataAccessor = "$s4Test7PayloadCMa",
+            });
+
+            var host = new ClassDecl
+            {
+                Name = "Host",
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.Host"),
+                MangledName = "$s4Test4HostC",
+                Types = new List<TypeDecl>(),
+                Methods = new List<MethodDecl>(),
+                Properties = new List<PropertyDecl>(),
+                Operators = new List<OperatorDecl>(),
+                Conformances = new List<TypeConformance>(),
+                GenericParameters = new List<GenericArgumentDecl>(),
+                IsFinal = true,
+                ParentDecl = null,
+                ModuleDecl = TestModule
+            };
+            db.AddType("Test.Host", new TypeRecord
+            {
+                Kind = TypeRecordKind.Class,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "Host"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.Host"),
+                Flags = TypeRecordFlags.None,
+                MetadataAccessor = "$s4Test4HostCMa",
+            });
+
+            var value = MakeArg(valueTypeSpec, "newValue");
+            var setter = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: host,
+                mangledName: "$s4Test4HostC5valueAA7PayloadCvs");
+            setter.Name = "value_Set";
+            setter.IsAccessor = true;
+            setter.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(TupleTypeSpec.Empty, ""), // void return
+                value,
+            };
+
+            return (new MethodEnvironment(setter, db), value);
+        }
+
+        #endregion
+
         #region Bug Fix: TBD symbol lookup underscore prefix mismatch
 
         [Fact]
