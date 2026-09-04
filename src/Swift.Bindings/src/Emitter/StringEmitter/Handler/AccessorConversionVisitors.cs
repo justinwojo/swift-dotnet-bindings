@@ -131,14 +131,25 @@ internal class OptionalAccessorGetterVisitor : IProjectionVisitor<(string? conve
     private readonly string _resultExpr;
     public OptionalAccessorGetterVisitor(string resultExpr) => _resultExpr = resultExpr;
 
+    // SwiftString is a managed CLASS, so SwiftOptional<T>'s `implicit operator T?` yields a genuine
+    // null for None here and `?.` short-circuits correctly.
     public (string?, bool) Visit(StringProjection p) =>
         ($"((SwiftString?){_resultExpr})?.ToString()", true);
+    // The three arms below must NOT use that same `(T?)` collapse: their inner is (or can be) a C#
+    // VALUE type — Swift.Foundation.Data is a struct, a Date arrives as a double, and a frozen
+    // native-remapped wrapper is a value type. `implicit operator T?` is declared on an
+    // UNCONSTRAINED T, so `T?` is just `T` in IL and a None comes back as default(T), which then
+    // widens into a Nullable<T> whose HasValue is TRUE — Swift's nil would reach the consumer as an
+    // empty-but-present value (a zero-length byte[], the Swift epoch) it cannot tell from a real
+    // one. Branch on the carrier's discriminator, which is the only thing that carries None.
     public (string?, bool) Visit(DataProjection p) =>
-        ($"((Swift.Foundation.Data?){_resultExpr})?.ToByteArray()", true);
+        ($"({_resultExpr}?.HasValue == true ? {_resultExpr}.Some.ToByteArray() : null)", true);
     public (string?, bool) Visit(NativeRemappedProjection p) =>
-        ($"(({p.SwiftWrapperType}?){_resultExpr})?.{p.ToConversionMethod}()", true);
+        ($"({_resultExpr}?.HasValue == true ? ({p.PublicType}?){_resultExpr}.Some.{p.ToConversionMethod}() : null)", true);
+    // requiresDisposal is true here for the same reason as the value-type DefaultCast arms below:
+    // it binds the carrier to a local before the two reads, so the accessor is invoked once.
     public (string?, bool) Visit(DateProjection p) =>
-        ($"((double?){_resultExpr}) is {{}} {_resultExpr}DateVal ? (System.DateTimeOffset?){DateProjection.SwiftEpoch}.AddSeconds({_resultExpr}DateVal) : null", false);
+        ($"({_resultExpr}?.HasValue == true ? (System.DateTimeOffset?){DateProjection.SwiftEpoch}.AddSeconds({_resultExpr}.Some) : null)", true);
     public (string?, bool) Visit(ClosureProjection p) => (null, false);
     // ObjC types: Swift @_cdecl wrapper returns passRetained (+1).
     // ownsReference=true transfers +1 ownership to the wrapper without extra DangerousRetain.

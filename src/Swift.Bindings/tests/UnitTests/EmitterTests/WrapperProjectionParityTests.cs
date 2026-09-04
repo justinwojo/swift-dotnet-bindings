@@ -46,6 +46,54 @@ public class WrapperProjectionParityTests
         Assert.True(disposal);
     }
 
+    // The three Optional-inner getter arms below all read a SwiftOptional<T> carrier whose inner
+    // is (or can be) a C# VALUE type — Swift.Foundation.Data is a struct, a Date arrives as a
+    // double, and a frozen native-remapped wrapper is a value type. SwiftOptional<T>'s
+    // `implicit operator T?` is declared on an unconstrained T, so `T?` is just `T` in IL: a None
+    // comes back as default(T) and then widens into a Nullable<T> whose HasValue is TRUE, which is
+    // indistinguishable from a real value at the call site. Every arm must branch on the carrier's
+    // own discriminator instead.
+
+    [Fact]
+    public void OptionalGetterVisitor_DataInner_BranchesOnTheDiscriminator()
+    {
+        var proj = new OptionalProjection(new DataProjection());
+        var (conversion, _) = proj.Accept(new AccessorGetterConversionVisitor("__ret"));
+
+        Assert.NotNull(conversion);
+        Assert.Contains("__ret", conversion!);
+        Assert.Contains("HasValue", conversion);
+        Assert.DoesNotContain("((Swift.Foundation.Data?)__ret)", conversion);
+    }
+
+    [Fact]
+    public void OptionalGetterVisitor_DateInner_BranchesOnTheDiscriminator()
+    {
+        var proj = new OptionalProjection(new DateProjection());
+        var (conversion, _) = proj.Accept(new AccessorGetterConversionVisitor("__ret"));
+
+        Assert.NotNull(conversion);
+        Assert.Contains("HasValue", conversion!);
+        Assert.Contains("AddSeconds", conversion);
+        // The old shape cast the carrier to double? and matched it with `is { }` — a non-nullable
+        // double always matches, so None produced the Swift epoch instead of null.
+        Assert.DoesNotContain("((double?)__ret)", conversion);
+    }
+
+    [Fact]
+    public void OptionalGetterVisitor_FrozenNativeRemappedInner_BranchesOnTheDiscriminator()
+    {
+        var proj = new OptionalProjection(
+            new NativeRemappedProjection("Foundation.NSData", "Swift.Foundation.Data", isFrozen: true,
+                toConversionMethod: "ToNSData"));
+        var (conversion, _) = proj.Accept(new AccessorGetterConversionVisitor("__ret"));
+
+        Assert.NotNull(conversion);
+        Assert.Contains("HasValue", conversion!);
+        Assert.Contains("ToNSData()", conversion);
+        Assert.DoesNotContain("((Swift.Foundation.Data?)__ret)", conversion);
+    }
+
     [Fact]
     public void GetterVisitor_ArrayWithStringElement_ReturnsAsProjected()
     {

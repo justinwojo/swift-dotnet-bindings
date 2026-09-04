@@ -5561,6 +5561,30 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
+    public void EmitProxyClass_PropertySetter_OptionalFrozenStruct_BranchesOnTheNoneCase()
+    {
+        // Optional<frozen struct> property setter reaches the fallback arm of
+        // GetReceiverOptionalSetterConversion. That arm must NOT use SwiftOptional<T>'s
+        // `implicit operator T?`: the operator is declared on an unconstrained T, so for a
+        // VALUE-type inner `T?` collapses to `T` in IL and a Swift `nil` arrives as
+        // default(T) widened into a Nullable<T> whose HasValue is TRUE — the implementation
+        // cannot tell nil from a real zeroed value. Branch on the case tag instead, which is
+        // the only thing that actually carries None.
+        RegisterFrozenBlittableStruct("PlainPoint");
+        var optVal = new NamedTypeSpec("Swift.Optional");
+        optVal.GenericParameters.Add(new NamedTypeSpec("TestModule.PlainPoint"));
+        var protocolDecl = CreateProtocolWithProperty("OptPointProto", "origin",
+            hasGetter: false, hasSetter: true, optVal);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("Receive_origin_set", output);
+        // The conversion must consult the discriminator, and must not lean on the implicit
+        // SwiftOptional<T> → T? collapse for a value-type inner.
+        Assert.Contains("SwiftOptionalCases.None", output);
+        Assert.DoesNotContain("((TestModule.PlainPoint?)value)", output);
+    }
+
+    [Fact]
     public void EmitProxyClass_MethodReceiver_ObjCBridgeableReturn_UsesHandleConversion()
     {
         // P1 fix: Method returning ObjC-bridgeable type (e.g., Foundation.URL → NSUrl) must
@@ -6939,6 +6963,23 @@ public class ProtocolProxyEmitterTests
                 NativeTypeName = CSharpTypeName.FromNamespaceAndName(
                     nativeTypeName.Contains('.') ? nativeTypeName[..nativeTypeName.LastIndexOf('.')] : "",
                     nativeTypeName.Contains('.') ? nativeTypeName[(nativeTypeName.LastIndexOf('.') + 1)..] : nativeTypeName)
+            })
+        });
+    }
+
+    // A frozen struct with no memory-managed fields — projects as BlittableProjection, i.e. a
+    // C# VALUE type, which is what makes it the interesting inner for an Optional receiver read.
+    private void RegisterFrozenBlittableStruct(string name)
+    {
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", name),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
             })
         });
     }

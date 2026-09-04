@@ -2253,9 +2253,17 @@ public partial class ProtocolProxyEmitter
             SetProjection set => GetReceiverOptionalContainerSetterConversion(set, varName, set.PublicType),
             // Closures have their own ABI — passthrough, accessor methods handle marshalling.
             ClosureProjection => null,
-            // Class/NonFrozenStruct: the Optional is already deserialized as SwiftOptional<PublicType>
-            // via MarshalFromSwift — .Some returns PublicType, not IntPtr. Simple nullable cast suffices.
-            _ => $"(({inner.PublicType}?){varName})"
+            // Everything else (class, non-frozen struct, blittable frozen struct, enum, bool, tuple,
+            // KeyPath): the Optional is already deserialized as SwiftOptional<PublicType> via
+            // MarshalFromSwift, so .Some is the PublicType, not an IntPtr. This arm branches on the
+            // case tag for the same reason the Data/Date/NativeRemapped arms above do, and NOT only
+            // for the reference-typed inners: a VALUE-typed inner reaching here (a blittable frozen
+            // struct, an enum, a primitive) would take SwiftOptional<T>'s `implicit operator T?`,
+            // which — being declared on an unconstrained T — is just T in IL, so a None would arrive
+            // as default(T) widened into a Nullable<T> whose HasValue is TRUE and the implementation
+            // could not tell Swift's nil from a genuinely zeroed value. Optional<existential> never
+            // reaches here: GetReceiverExistentialSetterConversion intercepts it upstream.
+            _ => $"({varName}.Case == Swift.SwiftOptionalCases.None ? ({inner.PublicType}?)null : ({inner.PublicType}?){varName}.Some)"
         };
     }
 

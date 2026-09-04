@@ -9,6 +9,11 @@ This release addresses the crash chain behind issue #46 — a C# delegate assign
 - **Values handed to a C# implementation through a protocol conformance are read with the right ownership.** Enums with associated values, wrapper-backed structs, key paths and optionals were read bitwise in some shapes, which reinterprets Swift payload bytes as a managed reference; a C# `enum : int` over a narrower Swift discriminator also pulled in bytes from the neighbouring value. Those reads now go through a value-witness copy out of the borrowed slot.
 - **A protocol requirement introduced after its protocol now reaches your implementation.** The Swift forwarder for such a requirement did not carry the requirement's own availability, so the call bound to the protocol's extension default and a conforming C# implementation was never invoked — with no diagnostic, because nothing failed.
 - **`Foundation.UUID` crosses the wrapper boundary correctly.** A `UUID` parameter was passed by value where Swift expects an `NSUUID` pointer.
+- **A tuple parameter carrying a payload-less enum element arrives instead of throwing.** A protocol requirement taking, say, `(MyCase, Int)` threw out of the receiver before your implementation ran, because the element's zero-size payload was read as though it had one.
+- **An optional `Data` or `Date` that Swift sent as `nil` now reaches your implementation as `null`.** It previously arrived as a present-but-empty value — a zero-length `byte[]`, or a date at the Swift epoch — which an implementation had no way to tell apart from a real one.
+- **A key path parameter whose type argument is `String` resolves.** Such a requirement previously failed metadata resolution at the boundary rather than reaching your implementation.
+- **Reading a case of an enum with associated values no longer holds on to the payload.** Every case accessor retained its payload once without a matching release, so repeatedly reading such an enum grew native memory.
+- **On device (NativeAOT), a delegate receiving a tuple parameter with a non-primitive element no longer terminates the process.** Resolving the element's metadata went through reflection over a generic method, which NativeAOT cannot close at run time; that path is gone. The same call already worked on the simulator, so this was a device-only stop.
 - Two smaller fixes ride along: registering a `Hashable` enum's conformance no longer races a caller already in flight, and a thunked setter's ownership hand-over is now balanced on teardown.
 
 ## Behaviour changes you may notice
@@ -95,6 +100,10 @@ for the object to be collected.
 ## Reported issues fixed
 
 - **[#46](https://github.com/justinwojo/swift-dotnet-bindings/issues/46): a delegate assigned to a VisionKit `weak` property never received callbacks.** Assigning a C# implementation to `DataScannerViewController.delegate` left the Swift slot `nil` shortly afterwards. The delegate lifetime fix above is the primary change; the existential-layout, receiver-read, availability-forwarder and `UUID` fixes were all found on the same path and ship with it.
+
+## Coverage
+
+The end-to-end suite now also runs on a physical device under Mono full-AOT — the runtime a .NET for iOS or MAUI app builds against unless it opts into NativeAOT — alongside the existing NativeAOT device pass.
 
 ## Packages
 

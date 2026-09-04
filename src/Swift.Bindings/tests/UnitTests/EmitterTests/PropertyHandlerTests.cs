@@ -645,6 +645,28 @@ public class PropertyHandlerTests
         Assert.DoesNotContain("using var __val", csOutput);
     }
 
+    [Fact]
+    public void Emit_OptionalDataProperty_GetterDistinguishesNilFromEmpty()
+    {
+        // Optional<Data> reads back as SwiftOptional<Swift.Foundation.Data>, and
+        // Swift.Foundation.Data is a C# STRUCT. Casting that carrier to `Data?` takes
+        // SwiftOptional<T>'s implicit operator, which is declared on an unconstrained T and so
+        // collapses to plain T: a Swift nil would arrive as default(Data), widen to a
+        // Nullable<Data> with HasValue == true, and surface to the consumer as an empty byte[]
+        // rather than null. The getter must branch on the carrier's own discriminator.
+        var typeDatabase = CreateTypeDatabaseWithFoundationTypes();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("DataStore", moduleDecl);
+        var optData = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Foundation.Data"));
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "payload", optData, hasGetter: true, hasSetter: true);
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        Assert.Contains("byte[]?", csOutput);
+        Assert.Contains("HasValue", csOutput);
+        Assert.DoesNotContain("((Swift.Foundation.Data?)__ret)", csOutput);
+    }
+
     #endregion
 
     #region F41 — @MainActor property surfacing
