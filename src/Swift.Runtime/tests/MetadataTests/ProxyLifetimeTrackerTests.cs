@@ -270,6 +270,69 @@ public class ProxyLifetimeTrackerTests
     }
 
     [Fact]
+    public void IsConsumerOwnedCarrier_DistinguishesTheTwoLanes()
+    {
+        // The bit a reverse-dispatch receiver reads to decide what an unresolvable impl MEANS. One
+        // emitted receiver thunk is shared by every proxy of its protocol, so the lane cannot be
+        // baked in at emission — it has to be a property of the conformer-box handle, answered here.
+        var swiftRootedImpl = new MockImpl();
+        var consumerOwnedImpl = new MockImpl();
+        var swiftRootedHandle = NewMockHandle();
+        var consumerOwnedHandle = NewMockHandle();
+        try
+        {
+            ProxyLifetimeTracker.Track(swiftRootedImpl, swiftRootedHandle);
+            ProxyLifetimeTracker.TrackConsumerOwned(consumerOwnedImpl, consumerOwnedHandle);
+
+            Assert.False(ProxyLifetimeTracker.IsConsumerOwnedCarrier(swiftRootedHandle));
+            Assert.True(ProxyLifetimeTracker.IsConsumerOwnedCarrier(consumerOwnedHandle));
+        }
+        finally
+        {
+            ProxyLifetimeTracker.DropForTest(swiftRootedHandle);
+            ProxyLifetimeTracker.DropForTest(consumerOwnedHandle);
+            GC.KeepAlive(swiftRootedImpl);
+            GC.KeepAlive(consumerOwnedImpl);
+        }
+    }
+
+    [Fact]
+    public void IsConsumerOwnedCarrier_UnknownOrZeroHandle_IsFalse()
+    {
+        // Deliberately false rather than "unknown": a handle nobody tracks is not evidence that a
+        // degradation is legitimate, so dispatch through it stays on the loud Swift-rooted terminal.
+        Assert.False(ProxyLifetimeTracker.IsConsumerOwnedCarrier(IntPtr.Zero));
+        Assert.False(ProxyLifetimeTracker.IsConsumerOwnedCarrier(NewMockHandle()));
+    }
+
+    [Fact]
+    public void IsConsumerOwnedCarrier_SurvivesTheImplBeingCollected()
+    {
+        // The lane bit has to outlive the impl it describes — the whole point is to answer the
+        // question ASKED BY a callback that could not resolve the impl. Reading it off the (now
+        // cleared) weak root would make every degraded callback look Swift-rooted and kill the
+        // process, which is the bug this lane exists to avoid.
+        var handle = NewMockHandle();
+        TrackConsumerOwnedImplWithoutKeepingRef(handle);
+
+        for (int i = 0; i < 8; i++)
+        {
+            GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
+            GC.WaitForPendingFinalizers();
+        }
+
+        try
+        {
+            Assert.Null(ProxyLifetimeTracker.ResolveImpl<IMockFace>(handle));
+            Assert.True(ProxyLifetimeTracker.IsConsumerOwnedCarrier(handle));
+        }
+        finally
+        {
+            ProxyLifetimeTracker.DropForTest(handle);
+        }
+    }
+
+    [Fact]
     public void TrackConsumerOwned_DuplicateHandle_Throws()
     {
         // Same transactional publication guarantee as Track, and across lanes: a handle already

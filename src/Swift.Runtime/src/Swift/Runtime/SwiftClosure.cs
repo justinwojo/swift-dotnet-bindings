@@ -171,13 +171,17 @@ public static class SwiftClosureMarshaller
     }
 
     /// <summary>
-    /// Terminates the process when a Swift reverse-dispatch (EveryProtocol) receiver cannot resolve a
-    /// live C# implementation from <c>ProxyLifetimeTracker</c> — neither the primary proxy nor (on the
-    /// sibling fan-out path) any recorded sibling proxy. Under Design B2 the implementation is rooted
-    /// by Swift-liveness for as long as Swift holds the proxy, so a null resolution means that
-    /// invariant was violated (the impl was collected while Swift still held the proxy). Fabricating a
-    /// zero/empty return value here would silently corrupt the boundary (Defect G), so this trips a
-    /// controlled <see cref="Environment.FailFast(string)"/> instead.
+    /// Terminates the process when a <b>Swift-rooted</b> reverse-dispatch (EveryProtocol) receiver cannot
+    /// resolve a live C# implementation from <c>ProxyLifetimeTracker</c> — neither the primary proxy nor
+    /// (on the sibling fan-out path) any recorded sibling proxy. On that lane the implementation is rooted
+    /// by Swift-liveness for as long as Swift holds the proxy, so a null resolution means that invariant
+    /// was violated. Fabricating a zero/empty return value here would silently corrupt the boundary, so
+    /// this trips a controlled <see cref="Environment.FailFast(string)"/> instead.
+    /// <para>This backstop is deliberately NOT the terminal for a <b>consumer-owned</b> carrier (a C#
+    /// implementation assigned into a <c>weak</c>/<c>unowned</c> Swift slot). There the root is weak by
+    /// design and a collected implementation is a legal application state, so the receiver degrades the
+    /// callback through <c>ProxyDegradation</c> rather than killing the process — receivers pick between
+    /// the two by asking <c>ProxyLifetimeTracker.IsConsumerOwnedCarrier</c>.</para>
     /// <para>This is a "throw-helper": it always <see cref="Environment.FailFast(string)"/>s (the
     /// process is gone before this method returns), and the trailing <c>return</c> is unreachable. It
     /// returns the <see cref="Exception"/> — rather than being <c>[DoesNotReturn]</c> <c>void</c> — so

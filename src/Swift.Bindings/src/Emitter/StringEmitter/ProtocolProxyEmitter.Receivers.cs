@@ -384,14 +384,22 @@ public partial class ProtocolProxyEmitter
                     // The interface property uses idiomatic C# types (e.g., string, string?, IReadOnlyList<string>)
                     // but MarshalToSwiftBuffer expects Swift ABI types (SwiftString, SwiftOptional<SwiftString>, etc.).
                     // Projection-based conversion handles existentials, strings, arrays, dicts, and optionals.
-                    var getterConversion = GetReceiverGetterConversion("result", property.SwiftTypeSpec);
+                    // Built per value-variable name so the live exit and the degraded exit lower the value
+                    // through one expression builder rather than two hand-kept-in-sync strings.
                     // F1: If property is narrowed (int/uint), widen back to nint/nuint for Swift ABI MarshalToSwiftBuffer.
                     // Plain nint: result is int → (nint)result ensures 8-byte write.
                     // Plain nuint: result is uint → (nuint)result ensures 8-byte write.
                     // Optional<nint/nuint>: getterConversion builds SwiftOptional<nint>.NewSome(resultVal) where
                     //   resultVal is int/uint (unwrapped from int?/uint?) — implicit widening handles it.
-                    if (getterConversion == null && NativeIntOverloadEmitter.TryGetAbiWideningType(property.SwiftTypeSpec, out var abiType))
-                        getterConversion = $"({abiType})result";
+                    string? BuildGetterConversion(string varName)
+                    {
+                        var conversion = GetReceiverGetterConversion(varName, property.SwiftTypeSpec);
+                        if (conversion == null && NativeIntOverloadEmitter.TryGetAbiWideningType(property.SwiftTypeSpec, out var abiType))
+                            conversion = $"({abiType}){varName}";
+                        return conversion;
+                    }
+
+                    var getterConversion = BuildGetterConversion("result");
 
                     // String returns use Utf8Slice encoding to avoid ARC issues with MarshalToSwiftBuffer<SwiftString>.
                     // SwiftString contains ARC-managed references that Unsafe.Write can't retain properly,
@@ -408,15 +416,17 @@ public partial class ProtocolProxyEmitter
                     // *(ExistentialContainer1*)selfContainer, which over-reads stack memory when
                     // Swift passes a class-bound (2-word) existential for EveryObjCProtocol.
                     writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
-                    // Both branches resolve the C# impl from ProxyLifetimeTracker's strong root
-                    // (Design B2): the no-sibling path via EmitResolveImplOrFailFast, the sibling
-                    // fan-out path via per-interface lookups. When every proxy misses, the impl was
-                    // collected while Swift still held the proxy — a lifetime-invariant violation —
-                    // so the terminal FailFasts (EmitSiblingFanOutFailFast) rather than fabricating a
-                    // zero/empty buffer (Defect G's silent data-corruption failure mode).
+                    // Both branches resolve the C# impl from ProxyLifetimeTracker: the no-sibling path
+                    // via EmitResolveImplOrDegrade, the sibling fan-out path via per-interface lookups.
+                    // When every proxy misses, the terminal splits on the carrier's lane — a Swift-rooted
+                    // carrier FailFasts (the impl cannot be collected while Swift holds it, so this is an
+                    // invariant violation, not a value to fake), a consumer-owned one hands back the
+                    // return type's identity value the way Swift drops a call to a nil weak delegate.
+                    var getterDegradation = BuildValueReturnDegradation(writer, property.SwiftTypeSpec,
+                        BuildGetterConversion, isStringReturn);
                     if (siblingFallbacks == null || siblingFallbacks.Count == 0)
                     {
-                        EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, $"{pascalPropertyName} getter");
+                        EmitResolveImplOrDegrade(writer, interfaceName, protocolDecl, $"{pascalPropertyName} getter", getterDegradation);
                         writer.WriteLine($"var result = impl.{pascalPropertyName};");
                         if (isStringReturn)
                         {
@@ -442,7 +452,7 @@ public partial class ProtocolProxyEmitter
                             EmitGetterLookupHit(writer, siblingIface, $"s{siblingIdx}", pascalPropertyName, getterConversion, isStringReturn);
                             siblingIdx++;
                         }
-                        EmitSiblingFanOutFailFast(writer, protocolDecl, $"{pascalPropertyName} getter");
+                        EmitSiblingFanOutTerminal(writer, protocolDecl, $"{pascalPropertyName} getter", getterDegradation);
                     }
                     EmitUcoGuardCloseFailFast(writer);
                     writer.Indent--;
@@ -512,31 +522,24 @@ public partial class ProtocolProxyEmitter
                     var setterSiblings = siblingFallbacks?.Where(s => s.HasSetter).ToList();
                     if (setterSiblings == null || setterSiblings.Count == 0)
                     {
-                        writer.WriteLines($$"""
-                            [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-                            private static void {{receiverName}}(IntPtr vtHandle, IntPtr selfContainer, IntPtr valuePtr)
-                            {
-                                try
-                                {
-                                    var handle = *(IntPtr*)selfContainer;
-                                    // Design B2: resolve the impl from ProxyLifetimeTracker's strong root.
-                                    // A null resolve means the impl was collected while Swift still held the
-                                    // proxy — a lifetime-invariant violation — so trip the loud backstop
-                                    // rather than silently dropping the write.
-                                    var impl = Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<{{interfaceName}}>(handle);
-                                    if (impl is null)
-                                        throw global::Swift.Runtime.SwiftClosureMarshaller.FailFastDeadProxyImpl("Swift reverse-dispatch on {{protocolDecl.Name}}.{{pascalPropertyName}} setter resolved no live C# implementation for EveryProtocol handle 0x" + handle.ToString("X") + ". The implementation was collected while Swift still held the proxy — a Design B2 lifetime-invariant violation (see ProxyLifetimeTracker).");
-                                    var value = {{marshalExpr}};
-                                    impl.{{pascalPropertyName}} = {{assignmentExpr}};
-                                }
-                                catch (global::System.Exception __uco_ex)
-                                {
-                                    global::Swift.Runtime.SwiftClosureMarshaller.FailFastUnhandledClosureException(__uco_ex);
-                                    throw;
-                                }
-                            }
-
-                            """);
+                        writer.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+                        writer.WriteLine($"private static void {receiverName}(IntPtr vtHandle, IntPtr selfContainer, IntPtr valuePtr)");
+                        writer.WriteLine("{");
+                        writer.Indent++;
+                        EmitUcoGuardOpen(writer);
+                        writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
+                        // Resolve the impl from ProxyLifetimeTracker. A Swift-rooted carrier cannot have
+                        // been collected while Swift held the proxy, so a null resolve there trips the loud
+                        // backstop rather than silently dropping the write; a consumer-owned carrier drops
+                        // the write, which is what Swift does when a weak delegate has gone nil.
+                        EmitResolveImplOrDegrade(writer, interfaceName, protocolDecl,
+                            $"{pascalPropertyName} setter", VoidDegradation(writer));
+                        writer.WriteLine($"var value = {marshalExpr};");
+                        writer.WriteLine($"impl.{pascalPropertyName} = {assignmentExpr};");
+                        EmitUcoGuardCloseFailFast(writer);
+                        writer.Indent--;
+                        writer.WriteLine("}");
+                        writer.WriteLine();
                     }
                     else
                     {
@@ -624,7 +627,7 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
                 if (setterSiblings == null || setterSiblings.Count == 0)
                 {
-                    EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, $"{pascalPropertyName} setter");
+                    EmitResolveImplOrDegrade(writer, interfaceName, protocolDecl, $"{pascalPropertyName} setter", VoidDegradation(writer));
                     EmitClosureSetterBody(writer, isOptional, pascalPropertyName, delegateType, invokerClassName, implVar: "impl");
                 }
                 else
@@ -664,7 +667,7 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine("var buf = (IntPtr)NativeMemory.AllocZeroed(16);");
                 if (siblingFallbacks == null || siblingFallbacks.Count == 0)
                 {
-                    EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, $"{pascalPropertyName} getter");
+                    EmitResolveImplOrDegrade(writer, interfaceName, protocolDecl, $"{pascalPropertyName} getter", ClosureBufferDegradation(writer));
                     EmitClosureGetterBody(writer, pascalPropertyName, nullableDelegateType, getterThunkName, implVar: "impl");
                     writer.WriteLine("return buf;");
                 }
@@ -744,7 +747,7 @@ public partial class ProtocolProxyEmitter
         // 16-byte buffer carrying (fnPtr, ctxPtr). Allocate up-front so every exit
         // path returns the same shape (mirrors Shape 3's getter).
         writer.WriteLine("var buf = (IntPtr)NativeMemory.AllocZeroed(16);");
-        EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, $"{pascalMethodName}()");
+        EmitResolveImplOrDegrade(writer, interfaceName, protocolDecl, $"{pascalMethodName}()", ClosureBufferDegradation(writer));
         writer.WriteLine($"{delegateType}? _del = impl.{pascalMethodName}();");
         writer.WriteLine("if (_del is null)");
         writer.Indent++;
@@ -835,7 +838,7 @@ public partial class ProtocolProxyEmitter
         writer.Indent++;
         EmitUcoGuardOpen(writer);
         writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
-        EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, $"{pascalMethodName}()");
+        EmitResolveImplOrDegrade(writer, interfaceName, protocolDecl, $"{pascalMethodName}()", VoidDegradation(writer));
         // Wrap the (fnPtr, ctx) pair in SwiftEscapingClosure so Arc.Retain keeps the Swift
         // context alive across the async boundary; the invoker class holds the wrapper
         // reference for the duration of the impl call. Use a method-group bound to the
@@ -898,13 +901,17 @@ public partial class ProtocolProxyEmitter
 
                     writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
                     // subscriptIsString / subscriptGetterConv are shared by the no-sibling path and
-                    // every sibling lookup-hit below. The all-siblings-missed terminal no longer
-                    // fabricates a fallback buffer: like the no-sibling Design B2 path it FailFasts
-                    // (EmitSiblingFanOutFailFast), since an unresolved impl across all proxies is a
-                    // lifetime-invariant violation, not a value to fake.
+                    // every sibling lookup-hit below. The all-siblings-missed terminal never fabricates
+                    // a fallback buffer: on a Swift-rooted carrier an unresolved impl across all proxies
+                    // is a lifetime-invariant violation and FailFasts, and on a consumer-owned carrier it
+                    // is the ordinary collected-delegate state and yields the return type's identity value.
                     var subscriptIsString = IsStringTypeSpec(subscript.ReturnTypeSpec);
-                    var subscriptGetterConv = GetReceiverExistentialGetterConversion("result", subscript.ReturnTypeSpec)
-                        ?? GetReceiverGetterConversion("result", subscript.ReturnTypeSpec);
+                    string? BuildSubscriptGetterConversion(string varName)
+                        => GetReceiverExistentialGetterConversion(varName, subscript.ReturnTypeSpec)
+                            ?? GetReceiverGetterConversion(varName, subscript.ReturnTypeSpec);
+                    var subscriptGetterConv = BuildSubscriptGetterConversion("result");
+                    var subscriptDegradation = BuildValueReturnDegradation(writer, subscript.ReturnTypeSpec,
+                        BuildSubscriptGetterConversion, subscriptIsString);
 
                     // Unmarshal index parameters once — same indexes used for every sibling lookup.
                     // P0: use ABI types for MarshalFromSwift.
@@ -924,7 +931,7 @@ public partial class ProtocolProxyEmitter
 
                     if (siblingFallbacks == null || siblingFallbacks.Count == 0)
                     {
-                        EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, "subscript getter");
+                        EmitResolveImplOrDegrade(writer, interfaceName, protocolDecl, "subscript getter", subscriptDegradation);
                         writer.WriteLine($"var result = impl[{indexArgs}];");
                         // String returns use Utf8Slice encoding to avoid ARC issues with
                         // MarshalToSwiftBuffer<SwiftString> — same rationale as the property
@@ -955,7 +962,7 @@ public partial class ProtocolProxyEmitter
                             EmitSubscriptGetterLookupHit(writer, siblingIface, $"s{siblingIdx}", indexArgs, subscript.ReturnTypeSpec, subscriptGetterConv, subscriptIsString);
                             siblingIdx++;
                         }
-                        EmitSiblingFanOutFailFast(writer, protocolDecl, "subscript getter");
+                        EmitSiblingFanOutTerminal(writer, protocolDecl, "subscript getter", subscriptDegradation);
                     }
 
                     EmitUcoGuardCloseFailFast(writer);
@@ -1054,7 +1061,7 @@ public partial class ProtocolProxyEmitter
                     var setterSiblings = siblingFallbacks?.Where(s => s.HasSetter).ToList();
                     if (setterSiblings == null || setterSiblings.Count == 0)
                     {
-                        EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, "subscript setter");
+                        EmitResolveImplOrDegrade(writer, interfaceName, protocolDecl, "subscript setter", VoidDegradation(writer));
                         writer.WriteLine($"impl[{indexArgs}] = value;");
                     }
                     else
@@ -1265,14 +1272,38 @@ public partial class ProtocolProxyEmitter
 
         EmitUcoGuardOpen(writer);
         writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
-        // No-sibling path resolves the impl from ProxyLifetimeTracker's strong root (Design B2);
-        // a null resolve trips Environment.FailFast (the impl cannot be collected while Swift holds
-        // the proxy). The sibling path skips this and instead does per-interface lookups after
-        // unmarshalling, since params must be unmarshalled once before trying each sibling impl.
+
+        // Return-conversion metadata is emitter-side (not generated output); one builder parameterised by
+        // the value's variable name serves the live exit, every sibling-fallback lookup block, and the
+        // degraded exit, so none of them can drift in how the value is lowered. String returns use Utf8Slice
+        // encoding to avoid ARC issues with SwiftString. The existential→getter fallback covers
+        // ObjC-bridgeable, Date, NativeRemapped, etc.; without it a return of e.g. Foundation.NSUrl would
+        // write a managed reference via MarshalToSwiftBuffer instead of extracting the .Handle ObjC pointer
+        // Swift expects. Async receivers on this legacy fallback path satisfy the async requirement through
+        // the sync-ABI witness slot: the impl call below blocks the Task (asyncResultUnwrap) so `result` is
+        // the unwrapped T, and these T-shaped conversions then apply exactly as for a sync return. (Earlier
+        // this path skipped the conversions for async because `result` was a Task<T>; the unwrap makes that
+        // special-casing wrong — Swift reads T, so a String/ObjC async return MUST be converted.)
+        // Primitive-shaped async returns never reach here — they took the real reverse-async witness above.
+        bool isStringMethodReturn = hasReturn && IsStringTypeSpec(returnType!);
+        string? BuildMethodReturnConversion(string varName)
+            => hasReturn && !isStringMethodReturn
+                ? GetReceiverExistentialGetterConversion(varName, returnType!)
+                    ?? GetReceiverGetterConversion(varName, returnType!)
+                : null;
+
+        // No-sibling path resolves the impl from ProxyLifetimeTracker; the sibling path skips this and
+        // instead does per-interface lookups after unmarshalling, since params must be unmarshalled once
+        // before trying each sibling impl. Either way a null resolve splits on the carrier's lane: a
+        // Swift-rooted carrier FailFasts (the impl cannot be collected while Swift holds the proxy), a
+        // consumer-owned one drops the call or returns the return type's identity value.
+        var methodDegradation = hasReturn
+            ? BuildValueReturnDegradation(writer, returnType, BuildMethodReturnConversion, isStringMethodReturn)
+            : VoidDegradation(writer);
         bool useMethodSiblingFallback = siblingFallbacks != null && siblingFallbacks.Count > 0;
         if (!useMethodSiblingFallback)
         {
-            EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, $"{method.Name}()");
+            EmitResolveImplOrDegrade(writer, interfaceName, protocolDecl, $"{method.Name}()", methodDegradation);
         }
 
         // Unmarshal parameters - use param{i} for local variable names to avoid conflicts with rawArg{i}
@@ -1402,26 +1433,7 @@ public partial class ProtocolProxyEmitter
         // bind to each sibling's own emitted name, not the primary protocol's.
         var pascalMethodName = ComputeReceiverPascalMethodName(method, protocolDecl, hasReturn, isSelfReturning);
 
-        // Return-conversion metadata is emitter-side (not generated output); compute it once so the
-        // eager-impl path and every sibling-fallback lookup block share the identical conversion.
-        // String returns use Utf8Slice encoding to avoid ARC issues with SwiftString. The
-        // existential→getter fallback covers ObjC-bridgeable, Date, NativeRemapped, etc.; without
-        // it a return of e.g. Foundation.NSUrl would write a managed reference via
-        // MarshalToSwiftBuffer instead of extracting the .Handle ObjC pointer Swift expects.
-        // Async receivers on this legacy fallback path satisfy the async requirement through the
-        // sync-ABI witness slot: the impl call below blocks the Task (asyncResultUnwrap) so `result`
-        // is the unwrapped T, and these T-shaped conversions then apply exactly as for a sync return.
-        // (Earlier this path skipped the conversions for async because `result` was a Task<T>; the
-        // unwrap makes that special-casing wrong — Swift reads T, so a String/ObjC async return MUST
-        // be converted.) Primitive-shaped async returns never reach here — they took the real
-        // reverse-async witness above.
-        bool isStringMethodReturn = hasReturn && IsStringTypeSpec(returnType!);
-        string? returnConv = null;
-        if (hasReturn && !isStringMethodReturn)
-        {
-            returnConv = GetReceiverExistentialGetterConversion("result", returnType!)
-                ?? GetReceiverGetterConversion("result", returnType!);
-        }
+        var returnConv = BuildMethodReturnConversion("result");
 
         // This is the LEGACY blocking async receiver — the fallback for async requirements the real
         // reverse-async witness predicate rejects (EveryProtocolEmitter.EmitsRealAsyncWitness:
@@ -1489,7 +1501,7 @@ public partial class ProtocolProxyEmitter
                 EmitMethodLookupHit(writer, siblingIface, $"s{siblingIdx}", siblingPascalMethodName, implCallArgs, hasReturn, isStringMethodReturn, returnConv);
                 siblingIdx++;
             }
-            EmitSiblingFanOutFailFast(writer, protocolDecl, $"{method.Name}()");
+            EmitSiblingFanOutTerminal(writer, protocolDecl, $"{method.Name}()", methodDegradation);
         }
         else if (hasReturn)
         {
@@ -1632,14 +1644,53 @@ public partial class ProtocolProxyEmitter
             writer.WriteLine("});");
         }
 
+        // The degraded exit for a consumer-owned carrier whose implementation was collected. This slot is
+        // the one reverse-dispatch shape with a genuine Swift error channel, so a `throws` requirement
+        // resumes the continuation box WITH the collected-implementation error — the consumer's Swift code
+        // sees an ordinary thrown error at the call site instead of a killed process. A non-throwing
+        // requirement has no channel, so it resumes successfully with the return type's identity value.
+        // `solo` picks the exit shape: the solo path runs the resume plumbing itself and returns, while the
+        // sibling path only binds __asyncFunc and falls through to the shared plumbing below.
+        var degradedMember = EscapeForCSharpStringLiteral($"{protocolDecl.Name}.{method.Name}()");
+        ReceiverDegradation BuildRealAsyncDegradation(bool solo)
+        {
+            string thunk;
+            if (isThrowing)
+            {
+                thunk = $"() => global::System.Threading.Tasks.Task.FromException<{csReturnType}>("
+                    + $"global::Swift.Runtime.ProxyDegradation.CollectedImplError(handle, \"{degradedMember}\"))";
+            }
+            else if (TryGetDegradedDefaultExpression(returnType, out _))
+            {
+                thunk = $"() => global::System.Threading.Tasks.Task.FromResult<{csReturnType}>(default({csReturnType}))";
+            }
+            else
+            {
+                return ReceiverDegradation.Unsatisfiable(returnType?.ToString() ?? "Void");
+            }
+
+            return ReceiverDegradation.Degrade(() =>
+            {
+                if (!solo)
+                {
+                    writer.WriteLine($"__asyncFunc = {thunk};");
+                    return;
+                }
+                EmitRealAsyncWitnessRun(writer, isThrowing, csReturnType, thunk);
+                writer.WriteLine("return;");
+            });
+        }
+
         EmitUcoGuardOpen(writer);
         writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
-        // Solo group: resolve the single impl from this interface (a null resolve is a Design B2
-        // lifetime violation → FailFast). Sibling group: defer resolution until after the args are
-        // marshalled, then try the primary interface then each sibling interface (params must be read
-        // once before the per-interface lookups, since the matched impl is captured by the AsyncFunc).
+        // Solo group: resolve the single impl from this interface. Sibling group: defer resolution until
+        // after the args are marshalled, then try the primary interface then each sibling interface (params
+        // must be read once before the per-interface lookups, since the matched impl is captured by the
+        // AsyncFunc). Either way an unresolvable impl splits on the carrier's lane — Swift-rooted FailFasts,
+        // consumer-owned resumes the Swift continuation with the degraded outcome above.
         if (!useSiblingFallback)
-            EmitResolveImplOrFailFast(writer, interfaceName, protocolDecl, $"{method.Name}()");
+            EmitResolveImplOrDegrade(writer, interfaceName, protocolDecl, $"{method.Name}()",
+                BuildRealAsyncDegradation(solo: true));
 
         // Marshal args synchronously — Swift's argument pointers are valid only for the duration of
         // this synchronous call, so read them out to managed values BEFORE RunAsync spawns the Task.
@@ -1702,9 +1753,12 @@ public partial class ProtocolProxyEmitter
             writer.WriteLine("else");
             writer.WriteLine("{");
             writer.Indent++;
-            // No primary or sibling proxy resolves for this handle — Design B2 violation. The throw
-            // also supplies definite-assignment for __asyncFunc (every other branch assigns it).
-            EmitSiblingFanOutFailFast(writer, protocolDecl, $"{method.Name}()");
+            // No primary or sibling proxy resolves for this handle. On a Swift-rooted carrier that is a
+            // lifetime violation and throws — which also supplies definite-assignment for __asyncFunc
+            // (every other branch assigns it); on a consumer-owned carrier the degraded thunk is bound
+            // instead and the shared resume plumbing below carries the outcome back to Swift.
+            EmitSiblingFanOutTerminal(writer, protocolDecl, $"{method.Name}()",
+                BuildRealAsyncDegradation(solo: false));
             writer.Indent--;
             writer.WriteLine("}");
             asyncFuncExpr = "__asyncFunc";
@@ -1720,24 +1774,7 @@ public partial class ProtocolProxyEmitter
         // inside AsyncFunc, so the no-extra-arg overload is selected. Throwing → RunAsync (success
         // marshals T → successFuncPtr; fault → errorFuncPtr). Non-throwing → RunAsyncNonThrowing
         // (success → successFuncPtr; fault FailFasts, no Swift error channel).
-        if (isThrowing)
-        {
-            writer.WriteLine($"global::Swift.Runtime.AsyncClosureHelper.RunAsync(");
-            writer.Indent++;
-            writer.WriteLine("default(global::System.Runtime.InteropServices.GCHandle),");
-            writer.WriteLine($"new global::Swift.Runtime.AsyncThrowingClosureState<{csReturnType}> {{ AsyncFunc = {asyncFuncExpr} }},");
-            writer.WriteLine("continuationBoxPtr, successAction, errorAction);");
-            writer.Indent--;
-        }
-        else
-        {
-            writer.WriteLine($"global::Swift.Runtime.AsyncClosureHelper.RunAsyncNonThrowing(");
-            writer.Indent++;
-            writer.WriteLine("default(global::System.Runtime.InteropServices.GCHandle),");
-            writer.WriteLine($"new global::Swift.Runtime.AsyncClosureState<{csReturnType}> {{ AsyncFunc = {asyncFuncExpr} }},");
-            writer.WriteLine("continuationBoxPtr, successAction);");
-            writer.Indent--;
-        }
+        EmitRealAsyncWitnessRun(writer, isThrowing, csReturnType, asyncFuncExpr);
 
         // One UCO envelope (ResumeBoxError), body varies by effect — exactly the forward Start thunk
         // shape. A synchronous escape (dead proxy already FailFasts; a faulting impl that throws before
@@ -1751,6 +1788,38 @@ public partial class ProtocolProxyEmitter
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
+    }
+
+    /// <summary>
+    /// Hands an <c>AsyncFunc</c> thunk to the shared async helper, which runs the Task on the pool and
+    /// resumes the Swift continuation box exactly once. Throwing → <c>RunAsync</c> (success marshals
+    /// <c>T</c> → <c>successFuncPtr</c>; fault → <c>errorFuncPtr</c>). Non-throwing → <c>RunAsyncNonThrowing</c>
+    /// (success → <c>successFuncPtr</c>; fault FailFasts, no Swift error channel). The <c>GCHandle</c> is
+    /// <c>default</c> — the box owns lifetime, so there is nothing to free here.
+    /// <para>Shared by the live exit and the consumer-owned degraded exit so both resume the box through
+    /// identical plumbing: the degraded call differs only in the thunk it hands over.</para>
+    /// </summary>
+    private static void EmitRealAsyncWitnessRun(CSharpWriter writer, bool isThrowing, string csReturnType,
+        string asyncFuncExpr)
+    {
+        if (isThrowing)
+        {
+            writer.WriteLine("global::Swift.Runtime.AsyncClosureHelper.RunAsync(");
+            writer.Indent++;
+            writer.WriteLine("default(global::System.Runtime.InteropServices.GCHandle),");
+            writer.WriteLine($"new global::Swift.Runtime.AsyncThrowingClosureState<{csReturnType}> {{ AsyncFunc = {asyncFuncExpr} }},");
+            writer.WriteLine("continuationBoxPtr, successAction, errorAction);");
+            writer.Indent--;
+        }
+        else
+        {
+            writer.WriteLine("global::Swift.Runtime.AsyncClosureHelper.RunAsyncNonThrowing(");
+            writer.Indent++;
+            writer.WriteLine("default(global::System.Runtime.InteropServices.GCHandle),");
+            writer.WriteLine($"new global::Swift.Runtime.AsyncClosureState<{csReturnType}> {{ AsyncFunc = {asyncFuncExpr} }},");
+            writer.WriteLine("continuationBoxPtr, successAction);");
+            writer.Indent--;
+        }
     }
 
     /// <summary>
@@ -2518,7 +2587,8 @@ public partial class ProtocolProxyEmitter
                 // the proxy's finalizer/Dispose via ProxyLifetimeTracker.ReleaseHandle (the
                 // finalizer-safe Cdecl trampoline). Releasing R0 drives Swift's last retain to zero,
                 // which fires EveryProtocol.deinit -> OnEveryProtocolDeinit, freeing the impl's
-                // strong root and dropping the (weak) SwiftObjectRegistry entry.
+                // root (strong on the Swift-rooted lane, the long weak handle on the
+                // consumer-owned one) and dropping the (weak) SwiftObjectRegistry entry.
                 _everyProtocolHandle = NativeMethods.{{CreateHelperMethodName}}();
                 _ownsEveryProtocolR0 = true;
 
@@ -2660,48 +2730,272 @@ public partial class ProtocolProxyEmitter
     }
 
     /// <summary>
-    /// Emits the "Design B2" reverse-dispatch preamble for a receiver that has NO sibling
-    /// fallback: resolve the C# implementation from the handle-keyed strong root in
-    /// <c>ProxyLifetimeTracker</c> and bind it to a non-null local <c>impl</c> typed as
-    /// <paramref name="interfaceName"/>. The strong root keeps the impl alive for exactly as long
-    /// as Swift references the proxy, so a null resolve here cannot happen in the canonical pattern;
-    /// it signals that the impl was collected while Swift still held the proxy — a lifetime-invariant
-    /// violation. Rather than silently fabricating a return value (Defect G's data-corruption failure
-    /// mode), we trip the loud backstop <see cref="SwiftClosureMarshaller.FailFastDeadProxyImpl"/> via
-    /// <c>throw</c> (the helper <see cref="System.Environment.FailFast(string)"/>s; the <c>throw</c> is
-    /// unreachable but makes the compiler see <c>impl</c> as non-null downstream).
-    /// <paramref name="memberDescription"/> names the protocol member for the crash diagnostic.
+    /// The terminal a reverse-dispatch receiver takes when the C# implementation cannot be resolved AND
+    /// the carrier is <b>consumer-owned</b> — the implementation was assigned into a non-retaining Swift
+    /// slot (<c>weak</c>/<c>unowned</c>), so nothing on the Swift side roots it and a collected
+    /// implementation is a legal state an application reaches by dropping its delegate while the Swift
+    /// object still holds the conformer through some other reference.
+    /// <para><see cref="EmitReturn"/> writes the degraded exit for this receiver's shape — no-op for a
+    /// <c>void</c> slot, the return type's identity value for a value slot, a Swift error resume for a
+    /// throwing async slot. It is <c>null</c> when the return type has no value the binding can
+    /// synthesize on the consumer's behalf, in which case the receiver keeps a hard terminal (with a
+    /// message naming this lane and its fix) rather than fabricating bytes Swift would misread.</para>
     /// </summary>
-    private static void EmitResolveImplOrFailFast(CSharpWriter writer, string interfaceName,
-        ProtocolDecl protocolDecl, string memberDescription)
+    internal readonly struct ReceiverDegradation
     {
-        writer.WriteLine($"var impl = Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<{interfaceName}>(handle);");
-        writer.WriteLine("if (impl is null)");
-        writer.Indent++;
-        writer.WriteLine($"throw global::Swift.Runtime.SwiftClosureMarshaller.FailFastDeadProxyImpl(\"Swift reverse-dispatch on {protocolDecl.Name}.{memberDescription} resolved no live C# implementation for EveryProtocol handle 0x\" + handle.ToString(\"X\") + \". The implementation was collected while Swift still held the proxy — a Design B2 lifetime-invariant violation (see ProxyLifetimeTracker).\");");
-        writer.Indent--;
+        private ReceiverDegradation(Action? emitReturn, string returnDescription)
+        {
+            EmitReturn = emitReturn;
+            ReturnDescription = returnDescription;
+        }
+
+        /// <summary>Writes the degraded exit, or <c>null</c> when none can be synthesized.</summary>
+        public Action? EmitReturn { get; }
+
+        /// <summary>Names the unsatisfiable return type for the hard terminal's diagnostic.</summary>
+        public string ReturnDescription { get; }
+
+        /// <summary>A receiver that can degrade, writing <paramref name="emitReturn"/> as its exit.</summary>
+        public static ReceiverDegradation Degrade(Action emitReturn)
+            => new(emitReturn, string.Empty);
+
+        /// <summary>
+        /// A receiver whose return type (<paramref name="returnDescription"/>) admits no synthesizable
+        /// Swift value, so the consumer-owned lane keeps a hard terminal too.
+        /// </summary>
+        public static ReceiverDegradation Unsatisfiable(string returnDescription)
+            => new(null, returnDescription);
     }
 
     /// <summary>
-    /// Emits the all-siblings-missed terminal of a sibling-fan-out receiver: the primary proxy and
-    /// every recorded sibling proxy failed to resolve a live C# implementation from
-    /// <c>ProxyLifetimeTracker</c>. This is the same Design B2 lifetime-invariant violation the
-    /// no-sibling path catches in <see cref="EmitResolveImplOrFailFast"/> — the implementation was
-    /// collected while Swift still held the proxy. Rather than fabricating a zero/empty return value
-    /// (Defect G's silent data-corruption failure mode) it trips the loud
-    /// <see cref="SwiftClosureMarshaller.FailFastDeadProxyImpl"/> backstop, emitted as
-    /// <c>throw FailFastDeadProxyImpl(...)</c>. The helper <see cref="System.Environment.FailFast(string)"/>s
-    /// (the process is gone before it returns) and the <c>throw</c> token supplies the receiver's
-    /// terminal control-flow exit — required because C#'s definite-return analysis (CS0161) is purely
-    /// syntactic and does NOT consult <c>[DoesNotReturn]</c>, so a bare helper call would leave a
-    /// value-returning receiver short a terminal return even if the helper were so annotated.
-    /// <paramref name="memberDescription"/> names the protocol member for the crash diagnostic.
+    /// Emits the reverse-dispatch preamble for a receiver that has NO sibling fallback: resolve the C#
+    /// implementation from the handle-keyed root in <c>ProxyLifetimeTracker</c> and bind it to a non-null
+    /// local <c>impl</c> typed as <paramref name="interfaceName"/>. The resolve happens ONCE, at receiver
+    /// entry, into a strong local — so a consumer dropping the implementation part-way through a callback
+    /// cannot null it mid-body.
+    /// <para>What a null resolve means depends on the lane, so the emitted terminal asks
+    /// <c>ProxyLifetimeTracker.IsConsumerOwnedCarrier</c> at run time (one receiver serves proxies of both
+    /// lanes, so this cannot be decided at emission). Swift-rooted: the root is strong for as long as Swift
+    /// holds the proxy, so a null resolve is an invariant violation and trips the loud
+    /// <see cref="SwiftClosureMarshaller.FailFastDeadProxyImpl"/> backstop rather than silently fabricating
+    /// a return value. Consumer-owned: the root is weak by design and a null resolve is the ordinary
+    /// collected-delegate state, so <paramref name="degradation"/>'s exit runs instead and the process
+    /// lives.</para>
+    /// <para>Both arms of the emitted terminal leave the block — the degraded one by returning (or, on the
+    /// real-async slot, by binding a degraded task thunk), the Swift-rooted one by throwing — so <c>impl</c>
+    /// is non-null downstream and CS0161 is satisfied on a value-returning receiver.</para>
+    /// <paramref name="memberDescription"/> names the protocol member for both diagnostics.
     /// </summary>
-    private static void EmitSiblingFanOutFailFast(CSharpWriter writer, ProtocolDecl protocolDecl,
-        string memberDescription)
+    private static void EmitResolveImplOrDegrade(CSharpWriter writer, string interfaceName,
+        ProtocolDecl protocolDecl, string memberDescription, ReceiverDegradation degradation)
     {
-        writer.WriteLine($"throw global::Swift.Runtime.SwiftClosureMarshaller.FailFastDeadProxyImpl(\"Swift reverse-dispatch on {protocolDecl.Name}.{memberDescription} resolved no live C# implementation for EveryProtocol handle 0x\" + handle.ToString(\"X\") + \" across the primary proxy and all sibling proxies. The implementation was collected while Swift still held the proxy — a Design B2 lifetime-invariant violation (see ProxyLifetimeTracker).\");");
+        writer.WriteLine($"var impl = Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<{interfaceName}>(handle);");
+        writer.WriteLine("if (impl is null)");
+        writer.WriteLine("{");
+        writer.Indent++;
+        EmitDeadImplTerminal(writer, protocolDecl, memberDescription, degradation, acrossSiblings: false);
+        writer.Indent--;
+        writer.WriteLine("}");
     }
+
+    /// <summary>
+    /// Emits the all-siblings-missed terminal of a sibling-fan-out receiver: the primary proxy and every
+    /// recorded sibling proxy failed to resolve a live C# implementation. Same two-lane split as
+    /// <see cref="EmitResolveImplOrDegrade"/> — a consumer-owned carrier degrades through
+    /// <paramref name="degradation"/>, a Swift-rooted one trips the loud backstop.
+    /// </summary>
+    private static void EmitSiblingFanOutTerminal(CSharpWriter writer, ProtocolDecl protocolDecl,
+        string memberDescription, ReceiverDegradation degradation)
+    {
+        EmitDeadImplTerminal(writer, protocolDecl, memberDescription, degradation, acrossSiblings: true);
+    }
+
+    /// <summary>
+    /// Emits the two-lane dead-impl terminal shared by both entry points, as an <c>if</c>/<c>else</c> so
+    /// each lane is a closed branch: the consumer-owned arm reports the degradation once for this carrier
+    /// and takes <paramref name="degradation"/>'s exit (or, when the return type admits no synthesizable
+    /// value, a hard terminal whose message names THIS lane and the consumer-side fix); the Swift-rooted
+    /// arm throws the loud backstop, whose message names ITS own invariant.
+    /// <para>The <c>else</c> is what lets a degraded exit be something other than a <c>return</c> — the
+    /// real-async slot binds a degraded task thunk and falls through to the shared resume plumbing, and the
+    /// unconditional <c>throw</c> that shape would otherwise inherit would make that unreachable. The
+    /// <c>throw</c> token in the Swift-rooted arm still supplies a value-returning receiver's terminal
+    /// control-flow exit, required because C#'s definite-return analysis (CS0161) is purely syntactic and
+    /// does NOT consult <c>[DoesNotReturn]</c>.</para>
+    /// </summary>
+    private static void EmitDeadImplTerminal(CSharpWriter writer, ProtocolDecl protocolDecl,
+        string memberDescription, ReceiverDegradation degradation, bool acrossSiblings)
+    {
+        var member = EscapeForCSharpStringLiteral($"{protocolDecl.Name}.{memberDescription}");
+        writer.WriteLine("if (global::Swift.Runtime.ProxyLifetimeTracker.IsConsumerOwnedCarrier(handle))");
+        writer.WriteLine("{");
+        writer.Indent++;
+        if (degradation.EmitReturn is null)
+        {
+            writer.WriteLine("throw global::Swift.Runtime.ProxyDegradation.FailFastUnsatisfiableReturn(handle, "
+                + $"\"{member}\", \"{EscapeForCSharpStringLiteral(degradation.ReturnDescription)}\");");
+        }
+        else
+        {
+            writer.WriteLine($"global::Swift.Runtime.ProxyDegradation.ReportCollectedImpl(handle, \"{member}\");");
+            degradation.EmitReturn();
+        }
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine("else");
+        writer.WriteLine("{");
+        writer.Indent++;
+        writer.WriteLine($"throw global::Swift.Runtime.SwiftClosureMarshaller.FailFastDeadProxyImpl({BuildDeadImplMessageExpression(protocolDecl, memberDescription, acrossSiblings)});");
+        writer.Indent--;
+        writer.WriteLine("}");
+    }
+
+    /// <summary>A receiver whose slot returns nothing: the degraded call is simply dropped, as Swift drops
+    /// a call to a <c>nil</c> weak delegate. Returns rather than falling through — everything after the
+    /// terminal dereferences the implementation that is not there.</summary>
+    private static ReceiverDegradation VoidDegradation(CSharpWriter writer)
+        => ReceiverDegradation.Degrade(() => writer.WriteLine("return;"));
+
+    /// <summary>
+    /// A receiver whose slot returns a closure pair: the zeroed 16-byte <c>buf</c> the live path already
+    /// allocates IS the "no closure" value Swift reads as <c>nil</c>, so the degraded exit hands back the
+    /// same buffer the <c>_del is null</c> arm does.
+    /// </summary>
+    private static ReceiverDegradation ClosureBufferDegradation(CSharpWriter writer)
+        => ReceiverDegradation.Degrade(() => writer.WriteLine("return buf;"));
+
+    /// <summary>
+    /// Builds the degraded exit for a receiver that marshals a VALUE back to Swift. Synthesizes the return
+    /// type's identity value (see <see cref="TryGetDegradedDefaultExpression"/>) and hands it to the same
+    /// marshalling tail the live path uses — <paramref name="buildConversion"/> re-renders the live
+    /// conversion against the degraded local, so the two exits can't drift in how they lower the value.
+    /// When no valid Swift value can be synthesized the receiver keeps a hard terminal instead.
+    /// </summary>
+    private ReceiverDegradation BuildValueReturnDegradation(CSharpWriter writer, TypeSpec? returnSpec,
+        Func<string, string?> buildConversion, bool isStringReturn)
+    {
+        if (!TryGetDegradedDefaultExpression(returnSpec, out var defaultExpr))
+            return ReceiverDegradation.Unsatisfiable(returnSpec?.ToString() ?? "Void");
+
+        return ReceiverDegradation.Degrade(() =>
+        {
+            writer.WriteLine($"var __degraded = {defaultExpr};");
+            if (isStringReturn)
+            {
+                writer.WriteLine("return MarshalStringToUtf8Slice(__degraded);");
+                return;
+            }
+            var conversion = buildConversion("__degraded");
+            if (conversion != null)
+                writer.WriteLine($"var __degradedSwift = {conversion};");
+            writer.WriteLine(conversion != null
+                ? "return MarshalToSwiftBuffer(__degradedSwift);"
+                : "return MarshalToSwiftBuffer(__degraded);");
+        });
+    }
+
+    /// <summary>
+    /// The C# expression for the value a degraded consumer-owned callback hands back for
+    /// <paramref name="returnSpec"/>, or <c>false</c> when the type has none that is certainly a valid
+    /// Swift value.
+    /// <para>The rule is deliberately narrow: a degraded return must be a value whose meaning is
+    /// "nothing here", not merely a well-formed bit pattern. That is the language's own identity set — an
+    /// optional's <c>nil</c>, <c>false</c>, a numeric zero, an empty string, an empty collection, and the
+    /// zeroed form of a frozen value type (which is what <c>BlittableProjection</c> stands for).</para>
+    /// <para>Refused, and why each is genuinely unsatisfiable rather than merely awkward: a non-optional
+    /// class or existential has no null to give; an enumeration's zeroed form IS an inhabitant but names a
+    /// specific semantic case the consumer never chose, which is worse than saying so out loud; a
+    /// resilient/non-frozen aggregate or a tuple has no guarantee its zeroed bytes inhabit the type; an
+    /// unconstrained generic parameter has unknown layout.</para>
+    /// <para>The element type of a COLLECTION is not part of this question. Swift's empty array, set and
+    /// dictionary need no element instance and no element metadata, so an empty
+    /// <c>Array&lt;any P&gt;</c> is as synthesizable as an empty <c>Array&lt;Int&gt;</c> even though a bare
+    /// <c>any P</c> is not — the element conversion is threaded through a sequence that is never
+    /// enumerated.</para>
+    /// </summary>
+    private bool TryGetDegradedDefaultExpression(TypeSpec? returnSpec, out string expression)
+    {
+        expression = string.Empty;
+        if (returnSpec == null)
+            return false;
+
+        var projection = s_projectionFactory.Project(returnSpec, BuildDegradationProjectionContext());
+        switch (projection)
+        {
+            // A bare existential has no nil form: `any P` is not `Optional<any P>`, so there is no
+            // value of the type to hand back. Refused explicitly rather than by falling through, and
+            // deliberately NOT by asking whether the type is existential-SHAPED — a collection whose
+            // ELEMENT is existential is a different question, answered by the arms below, because an
+            // empty collection needs no element at all.
+            case ExistentialProjection:
+                return false;
+            case BoolProjection:
+                expression = "false";
+                return true;
+            case StringProjection:
+                expression = "string.Empty";
+                return true;
+            // Frozen value types and primitives: `default` is the zeroed form, which for these carriers
+            // is a value Swift reads as 0 / false / an all-zero frozen struct. A generic parameter is
+            // excluded — its layout (and whether zeroed bytes inhabit it) is unknown at emission.
+            case BlittableProjection blittable when !blittable.IsGenericParameter:
+                expression = $"default({blittable.PublicType})";
+                return true;
+            case ArrayProjection array:
+                expression = $"global::System.Array.Empty<{array.ElementProjection.PublicType}>()";
+                return true;
+            case SetProjection set:
+                expression = $"new global::System.Collections.Generic.HashSet<{set.ElementProjection.PublicType}>()";
+                return true;
+            case DictionaryProjection dictionary:
+                expression = "new global::System.Collections.Generic.Dictionary<"
+                    + $"{dictionary.KeyProjection.PublicType}, {dictionary.ValueProjection.PublicType}>()";
+                return true;
+            // Optional<T> degrades to nil for every inner shape whose getter conversion has a NewNone arm
+            // — which is all of them except a closure, whose ABI is a (fnPtr, ctx) pair the optional
+            // container cannot carry (its conversion is a passthrough, so `default` would be marshalled
+            // as raw bytes).
+            case OptionalProjection optional when optional.InnerProjection is not ClosureProjection:
+                expression = $"default({optional.PublicType})";
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private ProjectionContext BuildDegradationProjectionContext()
+        => new ProjectionContext
+        {
+            TypeDatabase = _typeDatabase,
+            IsParameter = true,
+            CurrentModuleName = _moduleName,
+            EmissionContext = _emissionContext
+        };
+
+    /// <summary>
+    /// Builds the Swift-rooted lane's dead-impl diagnostic expression. Keeps the invariant it names
+    /// accurate to THAT lane — the implementation is rooted by Swift liveness there, so its collection
+    /// while Swift still holds the proxy really is a violation. (A consumer-owned carrier never reaches
+    /// this message; see <see cref="EmitConsumerOwnedDegradeBranch"/>.)
+    /// </summary>
+    private static string BuildDeadImplMessageExpression(ProtocolDecl protocolDecl, string memberDescription,
+        bool acrossSiblings)
+    {
+        var member = EscapeForCSharpStringLiteral($"{protocolDecl.Name}.{memberDescription}");
+        var scope = acrossSiblings ? " across the primary proxy and all sibling proxies" : string.Empty;
+        return $"\"Swift reverse-dispatch on {member} resolved no live C# implementation for EveryProtocol handle 0x\" "
+            + $"+ handle.ToString(\"X\") + \"{scope}. This carrier is rooted by Swift liveness, so the implementation "
+            + "cannot be collected while Swift holds the proxy — a lifetime-invariant violation (see "
+            + "ProxyLifetimeTracker).\"";
+    }
+
+    /// <summary>
+    /// Escapes a member/type description for embedding in an emitted C# string literal. Descriptions carry
+    /// Swift type syntax (<c>[String: Any]</c>, <c>(label: Type)</c>) that is literal-safe, but a
+    /// backslash or quote would otherwise break the generated file.
+    /// </summary>
+    private static string EscapeForCSharpStringLiteral(string value)
+        => value.Replace("\\", "\\\\").Replace("\"", "\\\"");
 
     /// <summary>
     /// Emits a try-lookup block for one interface in a sibling-property getter receiver.

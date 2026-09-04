@@ -1169,6 +1169,129 @@ public class ProtocolProxyEmitterTests
         Assert.DoesNotContain("AllocZeroedSwiftBuffer", receiverBody);
     }
 
+    [Fact]
+    public void EmitProxyClass_DeadImplTerminal_BranchesOnTheCarrierLane()
+    {
+        // A receiver thunk is static and shared by every proxy of its protocol, so which lane a
+        // particular carrier is on cannot be decided at emission — it is a property of the
+        // conformer-box handle. The terminal therefore ASKS, at run time, and does two different
+        // things: a consumer-owned carrier degrades (a collected implementation there is reachable
+        // from ordinary application code — Swift can hold the box through a reference the consumer
+        // never sees), while a Swift-rooted carrier still takes the process down (a null resolve
+        // there means something broke the tracker's pairing).
+        var protocolDecl = CreateProtocolWithProperty("LaneProto", "flag", hasGetter: true, hasSetter: false,
+            new NamedTypeSpec("Swift.Bool"));
+        var output = EmitProxyClass(protocolDecl);
+        var receiverBody = ExtractReceiverBody(output, "private static IntPtr Receive_flag_get(");
+
+        var laneQuery = receiverBody.IndexOf("global::Swift.Runtime.ProxyLifetimeTracker.IsConsumerOwnedCarrier(handle)", StringComparison.Ordinal);
+        var report = receiverBody.IndexOf("global::Swift.Runtime.ProxyDegradation.ReportCollectedImpl(handle,", StringComparison.Ordinal);
+        var failFast = receiverBody.IndexOf("throw global::Swift.Runtime.SwiftClosureMarshaller.FailFastDeadProxyImpl(", StringComparison.Ordinal);
+
+        Assert.True(laneQuery >= 0, "the terminal asks which lane the carrier is on");
+        Assert.True(report > laneQuery, "the consumer-owned arm reports the degradation before answering");
+        Assert.True(failFast > report, "the Swift-rooted arm still fails fast, and does so on the OTHER side of the branch");
+
+        // The degraded answer is the return type's identity value, produced through the same
+        // marshalling the live path uses rather than a fabricated buffer.
+        Assert.Contains("false", receiverBody.Substring(report, failFast - report));
+        Assert.DoesNotContain("AllocZeroedSwiftBuffer", receiverBody);
+    }
+
+    [Fact]
+    public void EmitProxyClass_DeadImplTerminal_SwiftRootedMessageDescribesItsOwnInvariant()
+    {
+        // The loud terminal's message is the only explanation anyone gets before the process dies,
+        // so it has to describe the lane it actually fires on: a Swift-rooted carrier's impl cannot
+        // be collected while Swift holds the box, which makes a null resolve an invariant violation
+        // rather than the ordinary lifetime mistake the consumer-owned lane degrades for.
+        var protocolDecl = CreateProtocolWithProperty("LaneMessageProto", "flag", hasGetter: true, hasSetter: false,
+            new NamedTypeSpec("Swift.Bool"));
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("rooted by Swift liveness", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_VoidReceiver_ConsumerOwnedArmDropsTheCallInsteadOfDispatching()
+    {
+        // A void requirement has nothing to hand back, so the degraded answer is simply not to
+        // happen — the same thing Swift does when a weak delegate has gone nil. The arm must RETURN,
+        // not fall through: everything after the terminal dereferences the implementation that is
+        // not there.
+        var protocolDecl = CreateProtocolWithProperty("VoidLaneProto", "flag", hasGetter: false, hasSetter: true,
+            new NamedTypeSpec("Swift.Bool"));
+        var output = EmitProxyClass(protocolDecl);
+        var receiverBody = ExtractReceiverBody(output, "private static void Receive_flag_set(");
+
+        var laneQuery = receiverBody.IndexOf("global::Swift.Runtime.ProxyLifetimeTracker.IsConsumerOwnedCarrier(handle)", StringComparison.Ordinal);
+        var report = receiverBody.IndexOf("global::Swift.Runtime.ProxyDegradation.ReportCollectedImpl(handle,", StringComparison.Ordinal);
+        var failFast = receiverBody.IndexOf("throw global::Swift.Runtime.SwiftClosureMarshaller.FailFastDeadProxyImpl(", StringComparison.Ordinal);
+
+        Assert.True(laneQuery >= 0, "the void terminal asks which lane the carrier is on too");
+        Assert.True(report > laneQuery && failFast > report,
+            "the consumer-owned arm reports, the Swift-rooted arm fails fast");
+        Assert.Contains("return;", receiverBody.Substring(report, failFast - report));
+    }
+
+    [Fact]
+    public void EmitProxyClass_CollectionOfExistentialReceiver_ConsumerOwnedArmAnswersTheEmptyCollection()
+    {
+        // The element type of a COLLECTION is not part of the "can this be synthesized?" question.
+        // Swift's empty array needs no element instance and no element metadata, so `[any P]` has a
+        // perfectly good "nothing here" value even though a bare `any P` does not. Emission threads
+        // the live element conversion through the degraded expression, but over an empty sequence it
+        // is never enumerated — no proxy is built for an element that does not exist.
+        RegisterProtocol("Marker");
+        var arrayOfExistential = new NamedTypeSpec("Swift.Array");
+        arrayOfExistential.GenericParameters.Add(
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Marker") }));
+
+        var protocolDecl = CreateProtocolWithProperty("MarkerListProto", "items", hasGetter: true, hasSetter: false,
+            arrayOfExistential);
+        var output = EmitProxyClass(protocolDecl);
+        var receiverBody = ExtractReceiverBody(output, "private static IntPtr Receive_items_get(");
+
+        Assert.DoesNotContain("FailFastUnsatisfiableReturn", receiverBody);
+        Assert.Contains("global::System.Array.Empty<", receiverBody);
+
+        // …and it is the DEGRADED arm that produces it, not the live path.
+        var report = receiverBody.IndexOf("global::Swift.Runtime.ProxyDegradation.ReportCollectedImpl(handle,", StringComparison.Ordinal);
+        var failFast = receiverBody.IndexOf("throw global::Swift.Runtime.SwiftClosureMarshaller.FailFastDeadProxyImpl(", StringComparison.Ordinal);
+        Assert.True(report >= 0 && failFast > report, "the terminal still branches on the carrier lane");
+        Assert.Contains("global::System.Array.Empty<", receiverBody.Substring(report, failFast - report));
+    }
+
+    [Fact]
+    public void EmitProxyClass_BareExistentialReceiver_KeepsTheUnsatisfiableTerminal()
+    {
+        // The control that keeps the collection arm from over-widening. `any P` is not
+        // `Optional<any P>`: there is no value of the type to hand back, so the degraded arm must
+        // refuse rather than fabricate one. If this ever goes green, the emitter started
+        // synthesizing a value for a type Swift has none of.
+        RegisterProtocol("Boxable");
+        var protocolDecl = CreateProtocolWithProperty("BareExistentialProto", "box", hasGetter: true, hasSetter: false,
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Boxable") }));
+        var output = EmitProxyClass(protocolDecl);
+        var receiverBody = ExtractReceiverBody(output, "private static IntPtr Receive_box_get(");
+
+        Assert.Contains("global::Swift.Runtime.ProxyDegradation.FailFastUnsatisfiableReturn(", receiverBody);
+        Assert.DoesNotContain("global::System.Array.Empty<", receiverBody);
+    }
+
+    /// <summary>
+    /// Slices out one receiver function body: from its definition up to the next
+    /// <c>[UnmanagedCallersOnly]</c> attribute (i.e. the start of the following receiver).
+    /// </summary>
+    private static string ExtractReceiverBody(string output, string signature)
+    {
+        var start = output.IndexOf(signature, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"{signature} not found in output");
+        var end = output.IndexOf("[global::System.Runtime.InteropServices.UnmanagedCallersOnly", start + 1, StringComparison.Ordinal);
+        if (end < 0) end = output.Length;
+        return output.Substring(start, end - start);
+    }
+
     #endregion
 
     #region Constructor Tests
