@@ -472,6 +472,14 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"var _{bareNameOffset}_heap = (byte*)NativeMemory.Alloc(_{bareNameOffset}_meta.Size);");
                 csWriter.WriteLine($"_{bareNameOffset}_meta.ValueWitnessTable->InitializeWithCopy(_{bareNameOffset}_heap, {sourcePtr} + (int){offsetVar}, _{bareNameOffset}_meta);");
                 csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr(_{bareNameOffset}_heap));");
+                // This arm COPIES rather than adopting: the wrapper owns the heap buffer, so the
+                // enum copy's own +1 on this element is still outstanding and nothing else will
+                // release it (the stackalloc buffer is never value-witness-destroyed). Release it
+                // here with the ELEMENT's witness at its own offset — sibling elements own their
+                // slots independently, and the adopt arms above deliberately hand their +1 to the
+                // wrapper instead. Without this every TryGet call leaks one retain of the payload,
+                // so a class reachable from it never deallocs even though every dispose runs.
+                csWriter.WriteLine($"_{bareNameOffset}_meta.ValueWitnessTable->Destroy({sourcePtr} + (int){offsetVar}, _{bareNameOffset}_meta);");
             }
             else
             {
@@ -687,6 +695,14 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"var _{bareNameMarshal}_heap = (byte*)NativeMemory.Alloc(_{bareNameMarshal}_meta.Size);");
                 csWriter.WriteLine($"_{bareNameMarshal}_meta.ValueWitnessTable->InitializeWithCopy(_{bareNameMarshal}_heap, {sourcePtr}, _{bareNameMarshal}_meta);");
                 csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr(_{bareNameMarshal}_heap));");
+                // This arm COPIES rather than adopting: the wrapper owns the heap buffer, so the
+                // enum copy's own +1 on the projected payload is still outstanding and nothing else
+                // will release it (the stackalloc buffer is never value-witness-destroyed). Release
+                // it here with the PAYLOAD's witness — the adopt arms above deliberately hand their
+                // +1 to the wrapper instead, which is why this cannot be a blanket destroy at the
+                // end of TryGet. Without this every TryGet call leaks one retain of the payload, so
+                // a class reachable from it never deallocs even though every dispose runs.
+                csWriter.WriteLine($"_{bareNameMarshal}_meta.ValueWitnessTable->Destroy({sourcePtr}, _{bareNameMarshal}_meta);");
             }
             else
             {
@@ -928,6 +944,11 @@ namespace BindingsGeneration
             csWriter.WriteLine($"void* __{varName}_heap = global::System.Runtime.InteropServices.NativeMemory.Alloc(__{varName}_meta.Size);");
             csWriter.WriteLine($"__{varName}_meta.ValueWitnessTable->InitializeWithCopy(__{varName}_heap, (void*)({sourcePtrExpr}), __{varName}_meta);");
             csWriter.WriteLine($"{varName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{typeParamName}>(new IntPtr(__{varName}_heap));");
+            // The copy above left the enum copy's own +1 on this payload outstanding, and the
+            // stackalloc buffer is never value-witness-destroyed, so release it here (a no-op for a
+            // trivial T). Only this non-class arm copies; the class arm above hands its +1 to the
+            // wrapper, which is why the release cannot sit outside the branch.
+            csWriter.WriteLine($"__{varName}_meta.ValueWitnessTable->Destroy((void*)({sourcePtrExpr}), __{varName}_meta);");
             csWriter.WriteLine($"if (!typeof(global::Swift.Runtime.ISwiftObject).IsAssignableFrom(typeof({typeParamName})))");
             csWriter.WriteLine("{");
             csWriter.Indent++;

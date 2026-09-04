@@ -240,16 +240,25 @@ public partial class ProtocolProxyEmitter
         // Foundation value wrappers project to their Swift-side wrapper type, which is a managed class
         // whenever the underlying Swift value is non-frozen.
         public ReceiverSlotReadKind Visit(DataProjection p) => ReceiverSlotReadKind.CopiedValue;
+        // Also parity plumbing today: the remap arm needs a type record carrying a native type name
+        // that is NOT ObjC-bridgeable, and the one such record (Foundation.Data) is claimed by the
+        // Data branch before the record lookup runs. Classified with the other wrapper carriers so
+        // the arm is already correct for the first type that reaches it.
         public ReceiverSlotReadKind Visit(NativeRemappedProjection p) => ReceiverSlotReadKind.CopiedValue;
         // The ABI carrier is always the SwiftOptional wrapper class, even where the inner value is
         // nil-pointer-optimized, so the tagged carrier is never bitwise-readable. Optional-of-class and
         // optional-of-ObjC-bridgeable-value are intercepted upstream by their own coupled reads.
         public ReceiverSlotReadKind Visit(OptionalProjection p) => ReceiverSlotReadKind.CopiedValue;
-        // SwiftResult is a copying ISwiftObject wrapper class.
+        // SwiftResult is a copying ISwiftObject wrapper class. This arm is parity plumbing rather
+        // than a live path: a Result-typed ARGUMENT is return-only, so the bound-generic gate drops
+        // any member declaring one before a receiver slot is ever laid out. The arm stays so the
+        // exhaustive visitor keeps compiling and so the classification is already right if that
+        // gate is ever lifted.
         public ReceiverSlotReadKind Visit(ResultProjection p) => ReceiverSlotReadKind.CopiedValue;
         // A key path is a managed handle-derived class, so a bitwise read produces a bogus reference.
-        // The runtime copy-out has no key-path arm, which surfaces as a diagnosable throw rather than
-        // the silent corruption a raw read produces.
+        // A Swift key path is also a Swift CLASS, so the copy-out resolves its metadata as
+        // Kind == Class and takes the borrowed-class fast path: dereference the instance pointer in
+        // the slot and take an independent retain, leaving Swift's own reference balanced.
         public ReceiverSlotReadKind Visit(KeyPathProjection p) => ReceiverSlotReadKind.CopiedValue;
 
         // A tuple is only bitwise-readable when every element is. One wrapper-class element (a tuple

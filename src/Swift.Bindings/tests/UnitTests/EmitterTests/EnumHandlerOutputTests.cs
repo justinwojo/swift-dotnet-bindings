@@ -3384,6 +3384,55 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_TryGetWithWrapperBackedPayload_ReleasesTheEnumCopysPayloadReference()
+    {
+        // TryGet takes an owned +1 of the whole enum (InitializeWithCopy into the stackalloc
+        // buffer) and DestructiveProjectEnumData's it down to the bare payload. A wrapper-backed
+        // payload (non-frozen struct here) is then COPIED again into a heap buffer that the
+        // returned wrapper owns — so the buffer's own +1 is nobody's after the call and the
+        // stackalloc is never value-witness-destroyed. Balancing it is what keeps a class
+        // reachable from the payload deallocating: without the release, every TryGet call orphans
+        // one retain and the object survives even though every Dispose runs.
+        var typeDatabase = CreateTypeDatabaseWithNonFrozenStruct();
+        var moduleDecl = CreateModuleDecl("ImagePipeline");
+        var enumDecl = CreateEnumDecl("ImageError", moduleDecl, isFrozen: false);
+        var failedCase = CreateCase("failed");
+        failedCase.AssociatedValues.Add(new NamedTypeSpec("ImagePipeline.ImageResponse"));
+        enumDecl.Cases.Add(failedCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // The copy into the wrapper-owned heap buffer…
+        Assert.Contains("InitializeWithCopy(_value_heap, enumCopy", csOutput);
+        // …and the matching release of the source the copy was taken from.
+        Assert.Contains("Destroy(enumCopy, _value_meta)", csOutput);
+    }
+
+    [Fact]
+    public void Emit_TryGetWithClassPayload_DoesNotReleaseTheEnumCopysReference()
+    {
+        // Control for the release above: a class payload takes the ADOPT arm — the enum copy's
+        // +1 is handed to the wrapper (MarshalFromSwift → NewFromPayload adopts exactly one
+        // reference), so releasing the buffer as well would over-release and free an object the
+        // caller is still holding. The release therefore belongs to the copying arm only, not to
+        // the end of TryGet.
+        var typeDatabase = CreateTypeDatabaseWithCrossModuleClass();
+        var moduleDecl = CreateModuleDecl("Lib");
+        var enumDecl = CreateEnumDecl("CrossModResult", moduleDecl, isFrozen: false);
+        var completedCase = CreateCase("completed");
+        completedCase.AssociatedValues.Add(new NamedTypeSpec("Dep.ForeignClass") { TypeLabel = "payload" });
+        enumDecl.Cases.Add(completedCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // The adopt arm reads the class pointer out of the buffer and hands it over as-is.
+        Assert.Contains("_value_classPtr = *(IntPtr*)(enumCopy)", csOutput);
+        Assert.DoesNotContain("ValueWitnessTable->Destroy(enumCopy", csOutput);
+    }
+
+    [Fact]
     public void Emit_EnumCaseWithCrossModuleClassPayload_EmitsFactoryAndExtractor()
     {
         // Regression: an enum in module `Lib` with `.completed(payload: Dep.ForeignClass)`

@@ -2224,10 +2224,20 @@ public partial class ProtocolProxyEmitter
         var inner = opt.InnerProjection;
         return inner switch
         {
+            // SwiftString is a managed CLASS, so `SwiftOptional<T>`'s `implicit operator T?` yields a
+            // genuine null for None and `?.` short-circuits correctly.
             StringProjection => $"((SwiftString?){varName})?.ToString()",
-            DataProjection => $"((Swift.Foundation.Data?){varName})?.ToByteArray()",
-            DateProjection => $"((double?){varName}) is {{}} {varName}DateVal ? (System.DateTimeOffset?){DateProjection.SwiftEpoch}.AddSeconds({varName}DateVal) : null",
-            NativeRemappedProjection nrp => $"(({nrp.SwiftWrapperType}?){varName})?.{nrp.ToConversionMethod}()",
+            // The three arms below must NOT use that same `(T?)` collapse. `implicit operator T?` is
+            // declared on an UNCONSTRAINED T, so for a VALUE-type inner — Swift.Foundation.Data is a
+            // struct, a Swift Date arrives as a double, and a native-remapped wrapper may be either —
+            // `T?` is just `T` in IL and a None comes back as `default(T)`, which then widens into a
+            // Nullable<T> whose HasValue is TRUE. Swift's `nil` would reach the C# implementation as
+            // an empty-but-present value (a zero-length byte[], the Swift epoch, a default wrapper)
+            // with no way for the callee to tell it apart from a real one. Branch on the case tag,
+            // which is the only thing that actually carries None.
+            DataProjection => $"({varName}.Case == Swift.SwiftOptionalCases.None ? (byte[]?)null : (byte[]?){varName}.Some.ToByteArray())",
+            DateProjection => $"({varName}.Case == Swift.SwiftOptionalCases.None ? (System.DateTimeOffset?)null : (System.DateTimeOffset?){DateProjection.SwiftEpoch}.AddSeconds({varName}.Some))",
+            NativeRemappedProjection nrp => $"({varName}.Case == Swift.SwiftOptionalCases.None ? ({nrp.PublicType}?)null : ({nrp.PublicType}?){varName}.Some.{nrp.ToConversionMethod}())",
             ObjCBridgedProjection objc => $"({varName}.Case == Swift.SwiftOptionalCases.None ? null : {MarshallingHelpers.FormatObjCBridgeCall(objc.PublicType, $"{varName}.Some", nonNull: true)})",
             // Optional ObjC-bridgeable VALUE (URL?, NS_TYPED_ENUM newtypes) is a MULTI-word resilient value,
             // NOT a nil-pointer-optimized one-word slot like the ObjCBridged CLASS arm above. Its

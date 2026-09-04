@@ -311,6 +311,42 @@ public class ReceiverConversionVisitorTests
             new[] { new BlittableProjection("Int64"), (ITypeProjection)new NonFrozenStructProjection("MyStruct") })));
     }
 
+    [Fact]
+    public void SlotRead_KeyPath_UsesCopiedValue()
+    {
+        // A Swift key path is a CLASS, so the borrowed copy-out resolves its metadata as
+        // Kind == Class and takes the fast path: dereference the instance pointer in the slot and
+        // take an independent retain. A raw read would hand the managed wrapper Swift's own
+        // reference and leave the retain count unbalanced when the borrowed slot is torn down.
+        Assert.Equal(ReceiverSlotReadKind.CopiedValue,
+            Kind(new KeyPathProjection("KeyPath", new[] { "MyRoot", "string" })));
+        Assert.Equal(ReceiverSlotReadKind.CopiedValue,
+            Kind(new KeyPathProjection("WritableKeyPath", new[] { "MyRoot", "int" })));
+        Assert.Equal(ReceiverSlotReadKind.CopiedValue,
+            Kind(new KeyPathProjection("AnyKeyPath", System.Array.Empty<string>())));
+    }
+
+    [Fact]
+    public void SlotRead_Data_UsesCopiedValue()
+    {
+        // Foundation.Data owns a heap backing store behind a reference-counted word. Reading it
+        // bitwise would hand the wrapper a borrowed reference the conformance releases on return.
+        Assert.Equal(ReceiverSlotReadKind.CopiedValue, Kind(new DataProjection()));
+    }
+
+    [Fact]
+    public void SlotRead_NativeRemapped_UsesCopiedValue()
+    {
+        // Parity plumbing rather than a live path — the one remap record whose native type is not
+        // ObjC-bridgeable (Foundation.Data) is claimed by the Data branch before the record lookup
+        // runs — but the arm still has to answer CopiedValue: a remapped carrier is a managed
+        // wrapper, so a future record that DOES reach here must not silently land on a raw read.
+        Assert.Equal(ReceiverSlotReadKind.CopiedValue,
+            Kind(new NativeRemappedProjection("MyNative", "Swift.MyWrapper", isFrozen: false, "ToNative")));
+        Assert.Equal(ReceiverSlotReadKind.CopiedValue,
+            Kind(new NativeRemappedProjection("MyNative", "Swift.MyWrapper", isFrozen: true, "ToNative")));
+    }
+
     #endregion
 
     #region Reverse ObjC-bridgeable whole-container return (C# conformer → Swift thunk)
