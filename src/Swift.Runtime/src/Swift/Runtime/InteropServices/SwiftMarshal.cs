@@ -255,7 +255,7 @@ public static class SwiftMarshal
     /// <c>DestroyWireBufferRetains&lt;SwiftOptional&lt;TValue&gt;&gt;</c>): a brand-new generic
     /// instantiation there shifts Mono JIT native-wrapper generation and can SIGSEGV. The caller
     /// resolves <paramref name="metadata"/> via the cached, Mono-safe
-    /// <see cref="TypeMetadata.TryGetTypeMetadata{T}"/> the method body already exercised, so no new
+    /// <see cref="TypeMetadata.TryGetTypeMetadata{T}(out TypeMetadata?)"/> the method body already exercised, so no new
     /// generic type is forced.
     /// </summary>
     /// <param name="buffer">The wire buffer pointer to destroy. <c>IntPtr.Zero</c> is a no-op.</param>
@@ -1724,7 +1724,7 @@ public static class SwiftMarshal
                 currentOffset = AlignOffset(currentOffset, elementAlignment);
 
                 // Marshal the element directly using unsafe pointers
-                MarshalElementToSwiftUnsafe(elementValue, elementType, destPtr + currentOffset);
+                MarshalElementToSwiftUnsafe(elementValue, elementType, elementMetadata, destPtr + currentOffset);
 
                 currentOffset += elementSize;
             }
@@ -1805,22 +1805,23 @@ public static class SwiftMarshal
     }
 
     /// <summary>
-    /// Gets TypeMetadata for a runtime Type.
+    /// Gets TypeMetadata for a runtime Type. Resolves by Type rather than closing
+    /// <c>TryGetTypeMetadata&lt;T&gt;</c> reflectively — <c>MakeGenericMethod</c> is unsupported on
+    /// NativeAOT, and this runs per tuple element under reverse-dispatch receivers whose
+    /// UnmanagedCallersOnly frames turn the resulting NotSupportedException into a process abort.
     /// </summary>
-    [RequiresDynamicCode("Type metadata lookup uses reflection")]
+    [UnconditionalSuppressMessage("Trimming", "IL2067",
+        Justification = "Element types come from a ValueTuple's own generic arguments; types preserved for consumers by the shipped ILLink.Descriptors.xml — the per-binding descriptor delivered in buildTransitive/ for generator-emitted open generics, or Swift.Runtime's own embedded+rooted descriptor for Runtime-owned ISwiftObject types (NOT the BindingTests app's TrimmerRoots.xml, which consumers never receive)")]
     private static TypeMetadata GetTypeMetadataForType(Type type)
     {
-        // Use reflection to call the generic TryGetTypeMetadata<T>
-        var tryGetMethod = typeof(TypeMetadata).GetMethod(nameof(TypeMetadata.TryGetTypeMetadata), BindingFlags.Public | BindingFlags.Static)!;
-        var genericMethod = tryGetMethod.MakeGenericMethod(type);
+        if (!TypeMetadata.TryGetTypeMetadata(type, out var result, out var resolutionFailure))
+        {
+            throw resolutionFailure is null
+                ? new NotSupportedException($"Cannot get type metadata for {type.Name}")
+                : new NotSupportedException($"Cannot get type metadata for {type.Name}", resolutionFailure);
+        }
 
-        var args = new object?[] { null };
-        var success = (bool)genericMethod.Invoke(null, args)!;
-
-        if (!success)
-            throw new NotSupportedException($"Cannot get type metadata for {type.Name}");
-
-        return ((TypeMetadata?)args[0])!.Value;
+        return result.Value;
     }
 
     /// <summary>
@@ -1836,7 +1837,7 @@ public static class SwiftMarshal
     /// Marshals a single element value to Swift memory using direct pointer access.
     /// </summary>
     [RequiresDynamicCode("Non-primitive element marshalling uses reflection")]
-    private static unsafe void MarshalElementToSwiftUnsafe(object? value, Type elementType, byte* dest)
+    private static unsafe void MarshalElementToSwiftUnsafe(object? value, Type elementType, TypeMetadata elementMetadata, byte* dest)
     {
         if (value == null)
             throw new ArgumentNullException(nameof(value), "Tuple element cannot be null");
@@ -1902,10 +1903,42 @@ public static class SwiftMarshal
             var span = new Span<byte>(dest, (int)metadata.Size);
             swiftObject.MarshalToSwift(ref span);
         }
+        else if (elementType.IsEnum)
+        {
+            // The write-direction counterpart of the read arm: a payload-less Swift enum is a plain
+            // C# enum, matches no primitive arm, and is not an ISwiftObject. Writing the C# width
+            // would stomp the bytes of whichever tuple element Swift packed next to a narrow
+            // discriminator, so write exactly the width Swift stores.
+            ulong caseValue = Enum.GetUnderlyingType(elementType) == typeof(ulong)
+                ? Convert.ToUInt64(value)
+                : unchecked((ulong)Convert.ToInt64(value));
+            WriteDiscriminator(caseValue, elementMetadata, dest);
+        }
         else
         {
             throw new NotSupportedException($"Cannot marshal tuple element type {elementType.Name} to Swift");
         }
+    }
+
+    /// <summary>
+    /// Writes a payload-less enum's case discriminator into Swift memory at the width Swift stores
+    /// it in, mirroring <see cref="ReadDiscriminator"/>.
+    /// </summary>
+    private static unsafe void WriteDiscriminator(ulong caseValue, TypeMetadata elementMetadata, byte* dest)
+    {
+        int swiftSize = elementMetadata.IsValid ? (int)elementMetadata.Size : 1;
+
+        switch (swiftSize)
+        {
+            case 1: dest[0] = (byte)caseValue; return;
+            case 2: *(ushort*)dest = (ushort)caseValue; return;
+            case 4: *(uint*)dest = (uint)caseValue; return;
+            case 8: *(ulong*)dest = caseValue; return;
+        }
+
+        int byteCount = Math.Min(swiftSize <= 0 ? 1 : swiftSize, sizeof(ulong));
+        for (int i = 0; i < byteCount; i++)
+            dest[i] = (byte)(caseValue >> (8 * i));
     }
 
     /// <summary>
@@ -1978,10 +2011,48 @@ public static class SwiftMarshal
             // still owns. COPY context — we never destroy the source slot.
             return ExtractCopiedElement(source, elementType, elementMetadata);
         }
+        else if (elementType.IsEnum)
+        {
+            // A payload-less Swift enum projects to a plain C# enum, so it matches none of the
+            // primitive arms above (typeof(int) != typeof(SomeEnum)) and is not an ISwiftObject —
+            // complex/payload enums are, and take the extract path above. Its Swift storage is the
+            // narrowest discriminator that fits the case count (1 byte for <=256 cases, 2 for
+            // <=65536, ...), while C# gives it a 4-byte underlying type, so a bitwise read of the
+            // C# width would pull in the NEIGHBOURING tuple element's bytes. Read exactly the
+            // Swift-reported width; a discriminator is an unsigned case index, so zero-extend.
+            return Enum.ToObject(elementType, ReadDiscriminator(source, elementMetadata));
+        }
         else
         {
             throw new NotSupportedException($"Cannot marshal tuple element type {elementType.Name} from Swift");
         }
+    }
+
+    /// <summary>
+    /// Reads a payload-less enum's case discriminator out of Swift memory using the width Swift
+    /// actually stores it in, zero-extended. Metadata is required to know that width; without it
+    /// the safest read is the narrowest one, which never over-reads a neighbouring field.
+    /// </summary>
+    private static unsafe ulong ReadDiscriminator(IntPtr source, TypeMetadata elementMetadata)
+    {
+        int swiftSize = elementMetadata.IsValid ? (int)elementMetadata.Size : 1;
+
+        switch (swiftSize)
+        {
+            case 1: return ((byte*)source)[0];
+            case 2: return *(ushort*)source;
+            case 4: return *(uint*)source;
+            case 8: return *(ulong*)source;
+        }
+
+        // Any other width (a 3-byte discriminator is legal Swift) is assembled little-endian a
+        // byte at a time rather than guessed at, so the read stays inside the element.
+        ulong value = 0;
+        int byteCount = Math.Min(swiftSize <= 0 ? 1 : swiftSize, sizeof(ulong));
+        for (int i = 0; i < byteCount; i++)
+            value |= (ulong)((byte*)source)[i] << (8 * i);
+
+        return value;
     }
 
     /// <summary>

@@ -1,7 +1,10 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using RuntimeTestsApp.Infrastructure;
+using Swift.Runtime;
 using SwiftBindingsTestLib;
 using SwiftBindingsTestLib.SwiftInterop;
 
@@ -33,6 +36,67 @@ namespace RuntimeTestsApp.Lifetime;
 public class ExistentialLayoutTripwireTests : TestBase
 {
     public ExistentialLayoutTripwireTests(TestResults results) : base(results) { }
+
+    /// <summary>
+    /// The positive control the handle-resolution tests need in order to mean anything.
+    ///
+    /// <para>
+    /// Resolving a witness table only proves that the size Swift REPORTED equalled the size the
+    /// proxy EXPECTED. Two equal numbers say nothing on their own: a tripwire that stopped reading
+    /// real layouts — an accessor that returned zero on both sides, or a proxy that had quietly
+    /// converged on one shape for every protocol — would satisfy that equality and pass. So this
+    /// test reads the two Swift-exported sizes directly and pins them to the concrete word counts
+    /// the ABI mandates, and pins the two arms apart from each other.
+    /// </para>
+    /// </summary>
+    public void TestExportedExistentialSizesAreTheRealWordCounts()
+    {
+        int opaque = (int)ExistentialSizeAccessors.OpaqueSize();
+        int classBound = (int)ExistentialSizeAccessors.ClassBoundSize();
+
+        AssertEqual(5 * IntPtr.Size, opaque,
+            "an opaque existential is five words: [p0][p1][p2][metadata][witnessTable]");
+        AssertEqual(2 * IntPtr.Size, classBound,
+            "a class-bound existential is two words: [classRef][witnessTable]");
+
+        AssertEqual(ExistentialLayout.OpaqueSize, opaque,
+            "the runtime's opaque constant agrees with what Swift reports for an opaque protocol");
+        AssertEqual(ExistentialLayout.ClassBoundSize, classBound,
+            "the runtime's class-bound constant agrees with what Swift reports for an AnyObject protocol");
+
+        AssertTrue(opaque != classBound,
+            "the two arms report DIFFERENT sizes — an accessor stuck on one constant would make "
+            + "every proxy's layout check vacuous");
+    }
+
+    /// <summary>
+    /// The comparator itself must be able to say no. If <c>Verify</c> accepted anything, every
+    /// proxy's check would pass no matter what Swift reported, and the tests above would be
+    /// asserting the absence of a mechanism rather than its success.
+    /// </summary>
+    public void TestLayoutVerifyRejectsTheWrongShape()
+    {
+        AssertThrows<InvalidOperationException>(
+            () => ExistentialLayout.Verify("probe", ExistentialLayout.OpaqueSize, ExistentialLayout.ClassBoundSize),
+            "a class-bound-sized container reported for an opaque expectation is rejected");
+
+        AssertThrows<InvalidOperationException>(
+            () => ExistentialLayout.Verify("probe", ExistentialLayout.ClassBoundSize, ExistentialLayout.OpaqueSize),
+            "an opaque-sized container reported for a class-bound expectation is rejected");
+
+        AssertThrows<InvalidOperationException>(
+            () => ExistentialLayout.Verify("probe", ExistentialLayout.OpaqueSize, 0),
+            "a zero size — a missing or inert accessor — is rejected rather than treated as a match");
+
+        AssertThrows<InvalidOperationException>(
+            () => ExistentialLayout.Verify("probe", ExistentialLayout.OpaqueSize, ExistentialLayout.ObjCSize),
+            "the one-word ObjC narrowing is NOT accepted for an opaque expectation");
+
+        // The single deliberate tolerance: a class-bound expectation accepts a pure-@objc
+        // protocol's one-word container, because those really are one word wide.
+        ExistentialLayout.Verify("probe", ExistentialLayout.ClassBoundSize, ExistentialLayout.ObjCSize);
+        ExistentialLayout.Verify("probe", ExistentialLayout.OpaqueSize, ExistentialLayout.OpaqueSize);
+    }
 
     /// <summary>
     /// The opaque arm: the proxy stamps its module's EveryProtocol metadata and writes the witness
@@ -110,4 +174,33 @@ public class ExistentialLayoutTripwireTests : TestBase
 
         public int StoredValue(int value) => value + 1000;
     }
+}
+
+/// <summary>
+/// The same <c>MemoryLayout&lt;any P&gt;.size</c> accessors the generated proxies consult, reached
+/// directly so a test can read the reported sizes instead of only observing that a proxy accepted
+/// them. Entry points are the wrapper's, so this reads the identical source of truth rather than a
+/// second opinion.
+///
+/// <para>
+/// The <c>CallConvs</c> argument is fully qualified deliberately. The test library binds Swift types
+/// named <c>Type</c> and <c>CallConvCdecl</c> into <c>SwiftBindingsTestLib</c>, which this assembly
+/// imports, so the unqualified forms are ambiguous (CS0104). An ambiguous argument leaves an error
+/// type in the attribute, and <c>LibraryImportGenerator</c> then throws while reading it — which
+/// takes down EVERY <c>[LibraryImport]</c> in the assembly (CS8785 followed by tens of thousands of
+/// CS8795s in the generated bindings), not just this one. Generated code qualifies for the same
+/// reason; hand-written P/Invokes here must too.
+/// </para>
+/// </summary>
+internal static partial class ExistentialSizeAccessors
+{
+    /// <summary><c>ReverseInvariantAlpha</c> — an opaque (non-<c>AnyObject</c>) protocol.</summary>
+    [LibraryImport("SwiftBindings", EntryPoint = "Get_EveryProtocol_ReverseInvariantAlpha_ExistentialSize")]
+    [UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
+    internal static partial nint OpaqueSize();
+
+    /// <summary><c>ReverseStoredDelegate</c> — a class-bound (<c>: AnyObject</c>) protocol.</summary>
+    [LibraryImport("SwiftBindings", EntryPoint = "Get_EveryProtocol_ReverseStoredDelegate_ExistentialSize")]
+    [UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
+    internal static partial nint ClassBoundSize();
 }

@@ -310,10 +310,36 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     /// <param name="result">The result of looked up type metadata</param>
     /// <returns>true on success false otherwise</returns>
     public static bool TryGetTypeMetadata<T>([NotNullWhen(true)] out TypeMetadata? result)
+        => TryGetTypeMetadata<T>(out result, out _);
+
+    /// <summary>
+    /// The <see cref="TryGetTypeMetadata{T}(out TypeMetadata?)"/> body, additionally reporting WHY a
+    /// resolution failed so <see cref="GetTypeMetadataOrThrow{T}"/> can attach the cause. Resolving a
+    /// generic type's metadata resolves each type ARGUMENT's metadata first, so the failure that
+    /// matters is usually about a type other than <typeparamref name="T"/>.
+    /// </summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2087",
+        Justification = "typeof(T) satisfies DynamicallyAccessedMembers at runtime; types preserved for consumers by the shipped ILLink.Descriptors.xml — the per-binding descriptor delivered in buildTransitive/ for generator-emitted open generics, or Swift.Runtime's own embedded+rooted descriptor for Runtime-owned ISwiftObject types (NOT the BindingTests app's TrimmerRoots.xml, which consumers never receive)")]
+    internal static bool TryGetTypeMetadata<T>([NotNullWhen(true)] out TypeMetadata? result, out Exception? resolutionFailure)
+        => TryGetTypeMetadata(typeof(T), out result, out resolutionFailure);
+
+    /// <summary>
+    /// The by-Type sibling of <see cref="TryGetTypeMetadata{T}(out TypeMetadata?, out Exception?)"/>, for callers
+    /// that only know the type as a <see cref="Type"/> — tuple element lookups, and
+    /// <c>SwiftMarshal</c>'s per-element tuple marshalling. Every lookup the generic form performs is
+    /// already driven by <c>typeof(T)</c>, so this is the same resolution with no generic instantiation
+    /// involved: closing the generic reflectively (<c>MakeGenericMethod</c>) is unsupported on NativeAOT and
+    /// threw out of reverse-dispatch receivers, whose UnmanagedCallersOnly frames fail-fast the process.
+    /// </summary>
+    internal static bool TryGetTypeMetadata(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.NonPublicMethods)] Type type,
+        [NotNullWhen(true)] out TypeMetadata? result,
+        out Exception? resolutionFailure)
     {
-        if (cache.TryGet(typeof(T), out result))
+        resolutionFailure = null;
+        if (cache.TryGet(type, out result))
             return true;
-        return TryGetTypeMetadataUncached<T>(out result);
+        return TryGetTypeMetadataUncached(type, out result, out resolutionFailure);
     }
 
     /// <summary>
@@ -324,9 +350,11 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     /// <exception cref="SwiftRuntimeException">Throws when lookup fails</exception>
     public static TypeMetadata GetTypeMetadataOrThrow<T>()
     {
-        if (TryGetTypeMetadata<T>(out var result))
+        if (TryGetTypeMetadata<T>(out var result, out var resolutionFailure))
             return result.Value;
-        throw new SwiftRuntimeException($"Unable to get type metadata for type {typeof(T).Name}");
+        throw resolutionFailure is null
+            ? new SwiftRuntimeException($"Unable to get type metadata for type {typeof(T).Name}")
+            : new SwiftRuntimeException($"Unable to get type metadata for type {typeof(T).Name}", resolutionFailure);
     }
 
     /// <summary>
@@ -361,18 +389,19 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     /// <summary>
     /// Attempt to get the Swift type metadata but without accessing the cache
     /// </summary>
-    /// <typeparam name="T">The type of the object</typeparam>
+    /// <param name="type">The type to resolve metadata for</param>
     /// <param name="result">The result of looked up type metadata</param>
+    /// <param name="resolutionFailure">The exception a type's own metadata resolution threw, if any, so the caller can report the cause.</param>
     /// <returns>true on success false otherwise</returns>
     /// <exception cref="NotImplementedException">Throws if unable to look up the ISwiftObject.GetTypeMetadata method.</exception>
-    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Tuple metadata path only; non-tuple paths are AOT-safe")]
-    [UnconditionalSuppressMessage("Trimming", "IL2087",
-        Justification = "typeof(T) satisfies DynamicallyAccessedMembers at runtime; types preserved for consumers by the shipped ILLink.Descriptors.xml — the per-binding descriptor delivered in buildTransitive/ for generator-emitted open generics, or Swift.Runtime's own embedded+rooted descriptor for Runtime-owned ISwiftObject types (NOT the BindingTests app's TrimmerRoots.xml, which consumers never receive)")]
     [UnconditionalSuppressMessage("Trimming", "IL2059",
         Justification = "RunClassConstructor is a NativeAOT fallback in try-catch; type is always an ISwiftObject whose static constructor is preserved")]
-    static bool TryGetTypeMetadataUncached<T>([NotNullWhen(true)] out TypeMetadata? result)
+    static bool TryGetTypeMetadataUncached(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.NonPublicMethods)] Type type,
+        [NotNullWhen(true)] out TypeMetadata? result,
+        out Exception? resolutionFailure)
     {
-        var type = typeof(T);
+        resolutionFailure = null;
         if (typeof(ISwiftObject).IsAssignableFrom(type))
         {
             // Resolve cache-first through the typed metadata factory, falling back to the reflective
@@ -381,7 +410,23 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
             // instantiation — static virtual dispatch in generic contexts crashes Mono JIT
             // (jit-info.c:918). On NativeAOT, reflection works because methods are preserved via
             // DynamicallyAccessedMembers annotations on InvokeGetTypeMetadata.
-            var candidate = SwiftObjectReflectionHelper.ResolveTypeMetadataCacheFirst(type);
+            //
+            // This is a Try-pattern API, and a type's GetTypeMetadata may THROW rather than return an
+            // invalid handle — a generic wrapper resolves each type argument first, and an argument
+            // whose metadata is unavailable throws out of the ConcurrentDictionary factory the wrapper
+            // caches through. Letting that escape turns "false" into an exception at every caller,
+            // including reverse-dispatch receivers, whose UnmanagedCallersOnly frames fail-fast the
+            // process instead of reporting which type could not be resolved. Catch it, report it to
+            // GetTypeMetadataOrThrow as the cause, and let the remaining lookups below have their turn.
+            TypeMetadata candidate = default;
+            try
+            {
+                candidate = SwiftObjectReflectionHelper.ResolveTypeMetadataCacheFirst(type);
+            }
+            catch (Exception ex)
+            {
+                resolutionFailure = ex is TargetInvocationException { InnerException: { } inner } ? inner : ex;
+            }
 
             // GetTypeMetadata can return an IntPtr.Zero
             if (candidate.IsValid)
@@ -914,7 +959,8 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     /// <param name="tupleType">The ValueTuple type.</param>
     /// <param name="result">The resulting tuple metadata.</param>
     /// <returns><c>true</c> if metadata was successfully retrieved; otherwise, <c>false</c>.</returns>
-    [RequiresDynamicCode("Tuple metadata lookup uses MakeGenericMethod")]
+    [UnconditionalSuppressMessage("Trimming", "IL2062",
+        Justification = "Element types come from a ValueTuple's own generic arguments, so each is a type the tuple's own metadata already keeps; types preserved for consumers by the shipped ILLink.Descriptors.xml — the per-binding descriptor delivered in buildTransitive/ for generator-emitted open generics, or Swift.Runtime's own embedded+rooted descriptor for Runtime-owned ISwiftObject types (NOT the BindingTests app's TrimmerRoots.xml, which consumers never receive)")]
     private static unsafe bool TryGetTupleTypeMetadata(Type tupleType, out TypeMetadata result)
     {
         result = Zero;
@@ -925,20 +971,17 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         if (elementCount == 0 || elementCount > 7)
             return false;
 
-        // Get metadata for each element type
+        // Get metadata for each element type. Resolved BY TYPE rather than by closing
+        // TryGetTypeMetadata<T> reflectively: MakeGenericMethod is unsupported on NativeAOT and threw
+        // NotSupportedException out of every tuple lookup there, which fail-fasts the process when the
+        // lookup sits under an UnmanagedCallersOnly reverse-dispatch frame.
         var elementMetadata = new TypeMetadata[elementCount];
         for (int i = 0; i < elementCount; i++)
         {
-            // Try to get metadata for each element type using reflection to call the generic method
-            var tryGetMethod = typeof(TypeMetadata).GetMethod(nameof(TryGetTypeMetadata), BindingFlags.Public | BindingFlags.Static)!;
-            var genericMethod = tryGetMethod.MakeGenericMethod(elementTypes[i]);
-
-            var args = new object?[] { null };
-            var success = (bool)genericMethod.Invoke(null, args)!;
-            if (!success)
+            if (!TryGetTypeMetadata(elementTypes[i], out var metadata, out _))
                 return false;
 
-            elementMetadata[i] = ((TypeMetadata?)args[0])!.Value;
+            elementMetadata[i] = metadata.Value;
         }
 
         // Allocate array of element metadata pointers
@@ -1024,6 +1067,17 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         // SwiftString metadata — $sSSN is Swift.String's metadata pointer in libswiftCore.
         // Pre-populating avoids the runtime fallback path in SwiftString.GetTypeMetadata().
         yield return (typeof(Swift.SwiftString), MetadataFromNativeLibrary(libraryHandle, "$sSSN"));
+
+        // System.String denotes Swift.String too. Every entry above is the same kind of mapping —
+        // a C# type that PROJECTS a Swift type resolves to that Swift type's metadata (nint is
+        // Swift.Int, bool is Swift.Bool) — and `string` is the projection of Swift.String. It has to
+        // be here rather than only on the SwiftString key because a public generic surface may carry
+        // the IDIOMATIC projection as its type argument: a key path emits as
+        // KeyPath<Root, string>, and building its Swift metadata asks for metadata of each argument.
+        // Without this the numeric arguments resolved (nint was already seeded) while a String-valued
+        // one threw "Unable to get type metadata for type String" from inside the reverse-dispatch
+        // receiver — an UnmanagedCallersOnly frame, so it took the process down with it.
+        yield return (typeof(string), MetadataFromNativeLibrary(libraryHandle, "$sSSN"));
     }
 
     /// <summary>

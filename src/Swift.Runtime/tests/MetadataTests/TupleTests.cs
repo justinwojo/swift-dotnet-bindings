@@ -66,6 +66,25 @@ public class TupleTests : IClassFixture<TupleTests.TestFixture>
 
     #region Tuple Metadata Tests
 
+    /// <summary>
+    /// A tuple's metadata must resolve from the <see cref="Type"/> alone, agreeing with the generic
+    /// lookup. This is the shape reverse-dispatch receivers take when a Swift callback hands a tuple
+    /// parameter across: the element types are only known as Types there, and resolving them by
+    /// closing the generic lookup reflectively is unsupported on NativeAOT.
+    /// </summary>
+    [Fact]
+    public void TryGetTypeMetadata_ByType_AgreesWithGenericLookup_ForTuple()
+    {
+        var byTypeSuccess = TypeMetadata.TryGetTypeMetadata(typeof((long, double)), out var byType, out var failure);
+        var genericSuccess = TypeMetadata.TryGetTypeMetadata<(long, double)>(out var generic);
+
+        Assert.Null(failure);
+        Assert.True(byTypeSuccess);
+        Assert.True(genericSuccess);
+        Assert.Equal(TypeMetadataKind.Tuple, byType!.Value.Kind);
+        Assert.Equal(generic!.Value, byType!.Value);
+    }
+
     [Fact]
     public void TryGetTypeMetadata_ReturnsTupleMetadata_ForValueTuple2()
     {

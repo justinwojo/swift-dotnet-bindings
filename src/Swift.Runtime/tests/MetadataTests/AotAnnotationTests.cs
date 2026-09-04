@@ -7,6 +7,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Xml.Linq;
 using Swift.Runtime;
+using Swift.Runtime.InteropServices;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -173,17 +174,39 @@ public class AotAnnotationTests
 
     #endregion
 
-    #region Existing AOT annotations preserved
+    #region Metadata resolution stays callable from NativeAOT
 
-    [Fact]
-    public void TypeMetadata_TryGetTypeMetadataUncached_HasAotSuppression()
+    /// <summary>
+    /// The by-Type metadata resolvers must stay free of RequiresDynamicCode. They run per tuple
+    /// element underneath reverse-dispatch receivers, whose UnmanagedCallersOnly frames turn any
+    /// escaping exception into a process abort — and closing TryGetTypeMetadata&lt;T&gt; reflectively
+    /// (MakeGenericMethod) throws NotSupportedException on every NativeAOT call. Reintroducing that
+    /// shape means either an IL3050 build error (the runtime is IsAotCompatible with warnings as
+    /// errors) or annotating these methods, which this test refuses.
+    /// </summary>
+    [Theory]
+    [InlineData("TryGetTypeMetadataUncached")]
+    [InlineData("TryGetTupleTypeMetadata")]
+    [UnconditionalSuppressMessage("Trimming", "IL2111",
+        Justification = "The looked-up method is only inspected for attributes, never invoked, so its DynamicallyAccessedMembers requirements are not exercised")]
+    public void TypeMetadata_ByTypeResolvers_AreCallableWithoutDynamicCode(string methodName)
     {
         var method = typeof(TypeMetadata)
-            .GetMethod("TryGetTypeMetadataUncached", BindingFlags.NonPublic | BindingFlags.Static);
+            .GetMethod(methodName, BindingFlags.NonPublic | BindingFlags.Static);
         Assert.NotNull(method);
 
-        var suppressions = method!.GetCustomAttributes<UnconditionalSuppressMessageAttribute>();
-        Assert.Contains(suppressions, s => s.Category == "AOT" && s.CheckId == "IL3050");
+        Assert.False(method!.IsGenericMethodDefinition,
+            $"{methodName} must resolve by Type, not by a generic parameter a caller would have to close reflectively.");
+        Assert.Null(method.GetCustomAttribute<RequiresDynamicCodeAttribute>());
+    }
+
+    [Fact]
+    public void SwiftMarshal_TupleElementMetadataLookup_IsCallableWithoutDynamicCode()
+    {
+        var method = typeof(SwiftMarshal)
+            .GetMethod("GetTypeMetadataForType", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+        Assert.Null(method!.GetCustomAttribute<RequiresDynamicCodeAttribute>());
     }
 
     #endregion
